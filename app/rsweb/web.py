@@ -387,10 +387,16 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
     st = await load_state(request)
     same_loc = [d for d in st["devices"] if d.get("location") == dev.get("location") and d.get("device_code") != code]
     return await page(request, user, "device.html", "fleet", dev=dev, code=code, err=err, logs=logs, events=events,
-                      same_loc=same_loc, first_command=(dev.get("available_commands") or [""])[0])
+                      same_loc=same_loc, commands=order_commands(dev.get("available_commands") or []),
+                      dangerous=DANGEROUS)
 
 
-DANGEROUS = {"decommission", "change_owner", "deactivate"}
+DANGEROUS = {"decommission", "change_owner", "deactivate", "withdraw", "clear_queue", "release", "clear_directive"}
+
+
+def order_commands(cmds: list[str]) -> list[str]:
+    """Everyday commands first (in the game's order), destructive ones last."""
+    return [c for c in cmds if c not in DANGEROUS] + [c for c in cmds if c in DANGEROUS]
 
 
 async def suggestions(request: Request, here: str | None) -> dict:
@@ -408,6 +414,8 @@ async def _device(request: Request, code: str) -> dict:
 @router.get("/devices/{code}/command-form", response_class=HTMLResponse)
 async def device_command_form(request: Request, code: str, command: str = "", user: str = Depends(current_user)):
     dev = await _device(request, code)
+    if not command:
+        return HTMLResponse('<p class="muted small">Pick a command to see its fields.</p>')
     fields = cmdspec.COMMANDS.get(command)
     return partial(request, "partials/command_form.html", code=code, command=command, fields=fields or [],
                    known=fields is not None, sugg=await suggestions(request, dev.get("location")),

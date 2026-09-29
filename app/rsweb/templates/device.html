@@ -27,12 +27,13 @@
     <h2>Command</h2>
     <form hx-post="/devices/{{ code }}/command" hx-target="#cmd-result" data-danger-check>
       <div class="row">
-        <select name="command" hx-get="/devices/{{ code }}/command-form" hx-target="#cmd-fields" hx-trigger="change, load">
-          {% for c in dev.available_commands or [] %}<option value="{{ c }}">{{ c | human }}</option>{% endfor %}
+        <select name="command" hx-get="/devices/{{ code }}/command-form" hx-target="#cmd-fields" hx-trigger="change">
+          <option value="">— choose a command —</option>
+          {% for c in commands %}<option value="{{ c }}">{{ c | human }}{{ ' ⚠' if c in dangerous }}</option>{% endfor %}
         </select>
         <button>Run</button>
       </div>
-      <div id="cmd-fields"><p class="muted small">Loading fields…</p></div>
+      <div id="cmd-fields"><p class="muted small">Pick a command to see its fields.</p></div>
     </form>
     {% if same_loc %}
     <details><summary>{{ same_loc | length }} other device(s) at this location (for stow / attach / adopt targets)</summary>

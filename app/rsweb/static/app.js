@@ -45,9 +45,10 @@ function fillTemplate(sel, targetId) {
 }
 // Forms marked data-danger-check ask before running destructive commands.
 const DANGEROUS = ["decommission", "change_owner", "deactivate", "withdraw", "clear_queue", "release", "clear_directive"];
+// Only the form submission itself is checked — not the GET that loads a command's fields.
 document.addEventListener("htmx:confirm", e => {
-  const f = e.detail.elt.closest ? e.detail.elt.closest("[data-danger-check]") : null;
-  if (!f) return;
+  const f = e.detail.elt;
+  if (!(f.matches && f.matches("form[data-danger-check]")) || e.detail.verb === "get") return;
   const cmd = (f.querySelector("[name=command]") || {}).value;
   if (DANGEROUS.includes(cmd)) {
     e.preventDefault();
