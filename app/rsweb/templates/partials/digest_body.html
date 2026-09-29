@@ -6,6 +6,11 @@
   <div class="chips">{% for r, v in digest.inventory_delta | dictsort %}<span class="chip {{ 'neg' if v < 0 }}">{{ r }} <b>{{ '+' if v > 0 }}{{ v | num }}</b></span>{% endfor %}</div>
   {% endif %}
 
+  {% if digest.unlocked %}
+  <h3>New blueprints</h3>
+  <div class="chips">{% for t in digest.unlocked %}<a class="chip" href="/blueprints?q={{ t }}"><b>{{ t | human }}</b></a>{% endfor %}</div>
+  {% endif %}
+
   {% if digest.printed %}
   <h3>Printed</h3>
   <div class="chips">{% for t, n in digest.printed | dictsort %}<span class="chip">{{ t | human }} <b>×{{ n }}</b></span>{% endfor %}</div>

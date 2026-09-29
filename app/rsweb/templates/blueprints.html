@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Blueprints{% endblock %}
 {% block content %}
-<div class="row between"><h1>Blueprints &amp; production planner</h1>
-  <form class="inline" method="get"><input name="q" value="{{ q }}" placeholder="filter…"><button class="small">Filter</button></form></div>
-{% if not blueprints %}<p class="muted">Blueprints sync every 30 minutes; none cached yet.</p>{% endif %}
+<div class="row between"><h1>Blueprints &amp; production planner <span class="muted small">{{ blueprints | length }} known{% if synced %} · synced {{ synced | ago }}{% endif %}</span></h1>
+  <span class="row"><span id="bp-refresh">{% if refresh_msg %}<span class="lv-done">{{ refresh_msg }}</span>{% endif %}</span>
+    <button class="small" hx-post="/blueprints/refresh" hx-target="#bp-refresh">Refresh from game</button>
+    <form class="inline" method="get"><input name="q" value="{{ q }}" placeholder="filter…"><button class="small">Filter</button></form></span></div>
+{% if not blueprints %}<p class="muted">Blueprints sync every 5 minutes and when something may have unlocked one; none cached yet.</p>{% endif %}
 
 <form hx-post="/blueprints/plan" hx-target="#plan" hx-trigger="input delay:300ms, change">
 <div class="grid g2">
@@ -12,7 +14,7 @@
       <tr><th>Device</th><th class="num">Print</th><th>Cost</th><th>Can afford at</th><th class="num">Plan qty</th></tr>
       {% for b in blueprints %}
       <tr>
-        <td><strong>{{ b.device_type | human }}</strong><div class="muted small">{{ b.short_description }}</div>
+        <td><strong>{{ b.device_type | human }}</strong>{% if b.device_type in recent %} <span class="pill st-work">new</span>{% endif %}<div class="muted small">{{ b.short_description }}</div>
           <div class="small">{{ (b.features or []) | join(', ') }}{% if b.directives %} · directives: {{ b.directives | join(', ') }}{% endif %}</div></td>
         <td class="num mono">{{ ((b.print_time or 0) / 60) | round(1) }}m</td>
         <td class="small" style="white-space:nowrap">{% for r, v in (b.resources or {}) | dictsort %}{{ v }} {{ r }}<br>{% endfor %}</td>
@@ -34,12 +36,12 @@
 </div>
 </form>
 <div class="card" style="margin-top:14px">
-  <h2>Print now</h2>
+  <h2>Queue a print</h2>
   <form class="inline" hx-post="/blueprints/print" hx-target="#print-result">
     <select name="printer">{% for p in printers %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
     <select name="device_type">{% for b in blueprints %}<option value="{{ b.device_type }}">{{ b.device_type | human }}</option>{% endfor %}</select>
     <input type="number" name="quantity" value="1" min="1" style="width:64px" title="quantity (autofactories only)">
-    <button>Print / enqueue</button>
+    <button>Add to queue</button>
   </form>
   <div id="print-result"></div>
 </div>

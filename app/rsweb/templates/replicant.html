@@ -47,8 +47,9 @@
     </div>
     <h3>Print on vessel</h3>
     <form class="inline" hx-post="/replicants/{{ code }}/print" hx-target="#act-result">
-      <select name="device_type">{% for b in blueprints %}<option value="{{ b.device_type }}">{{ b.device_type | human }} ({{ b.print_time }}s)</option>{% endfor %}</select>
-      <button>Print</button>
+      <select name="device_type">{% for b in blueprints %}<option value="{{ b.device_type }}">{{ b.device_type | human }} ({{ b.print_time | int }}s)</option>{% endfor %}</select>
+      <input type="number" name="quantity" value="1" min="1" style="width:60px" title="quantity">
+      <button>Add to queue</button>
     </form>
     <div class="row" style="margin-top:6px">
       <button class="small ghost" hx-post="/replicants/{{ code }}/print" hx-vals='{"command": "cancel"}' hx-target="#act-result" hx-confirm="Cancel the current print?">Cancel print</button>

@@ -4,6 +4,8 @@
     <span class="muted small mono">{{ method }} {{ path }} → {{ status }}</span>
   </div>
   {% if error %}<div class="lv-alert">{{ error }}</div>{% endif %}
+  {% if note %}<div class="muted">{{ note }}</div>{% endif %}
+  {% if response is mapping and response.queue_length is defined %}<div>Queue length: <b>{{ response.queue_length }}</b></div>{% endif %}
   {% if response is mapping %}
     {% if response.arrives_at %}<div>Arrives <span data-ends="{{ response.arrives_at }}"><span class="left"></span></span> ({{ response.arrives_at | local }})</div>{% endif %}
     {% if response.completes_at %}<div>Completes <span data-ends="{{ response.completes_at }}"><span class="left"></span></span> ({{ response.completes_at | local }})</div>{% endif %}

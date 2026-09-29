@@ -29,6 +29,23 @@ def _parse_ts(v: Any) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+BLUEPRINT_HINT_CATEGORIES = {"experience", "progression", "achievement", "story", "event", "trade", "simulation", "message"}
+
+
+def may_unlock_blueprint(ev: dict) -> bool:
+    """Events after which the blueprint list may have grown. Cheap check; a false positive costs one GET."""
+    p = ev.get("payload") or {}
+    if p.get("blueprint_discovered") or p.get("blueprint_unlocked") or p.get("blueprint"):
+        return True
+    name = ev.get("event") or ""
+    if "blueprint" in name or "unlock" in name or "achievement" in name:
+        return True
+    if ev.get("category") in BLUEPRINT_HINT_CATEGORIES and name != "experience.gained":
+        return "blueprint" in json.dumps(p).lower() or name in ("event.completed", "trade.completed",
+                                                                  "story.awakened", "simulation.completed")
+    return "blueprint" in json.dumps(p).lower()
+
+
 def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(timespec="seconds")
 
@@ -39,6 +56,7 @@ class Worker:
         self.tasks: list[asyncio.Task] = []
         self.stream_state = "stopped"
         self.stream_since: str | None = None
+        self._bp_refresh: asyncio.Task | None = None
 
     # --- lifecycle --------------------------------------------------------------
     def start(self) -> None:
@@ -52,6 +70,7 @@ class Worker:
             asyncio.create_task(self._poll_loop("devices", self.s.poll_devices, self.sync_devices), name="p-devices"),
             asyncio.create_task(self._poll_loop("inventory", self.s.poll_inventory, self.sync_inventory), name="p-inv"),
             asyncio.create_task(self._poll_loop("messages", self.s.poll_messages, self.sync_messages), name="p-msg"),
+            asyncio.create_task(self._poll_loop("blueprints", self.s.poll_blueprints, self.sync_blueprints), name="p-bp"),
             asyncio.create_task(self._poll_loop("catalogue", self.s.poll_catalogue, self.sync_catalogue), name="p-cat"),
         ]
 
@@ -100,6 +119,47 @@ class Worker:
             self.hub.publish("notify", n)
         if ev["event"] in notify.DONE_EVENTS or ev["event"].startswith(("device.", "travel.", "mining.")):
             self.hub.publish("state", ev["event"])
+        if may_unlock_blueprint(ev):
+            self.request_blueprint_refresh()
+
+    # --- blueprints ------------------------------------------------------------------
+    def request_blueprint_refresh(self, delay: float = 5.0) -> None:
+        """Re-read /blueprints shortly after something that may have unlocked one (coalesced)."""
+        if self._bp_refresh and not self._bp_refresh.done():
+            return
+
+        async def later():
+            await asyncio.sleep(delay)
+            try:
+                await self.sync_blueprints()
+            except Exception as e:
+                log.info("blueprint refresh failed: %s", e)
+
+        self._bp_refresh = asyncio.create_task(later())
+
+    async def sync_blueprints(self) -> list[str]:
+        """Refresh known blueprints; returns (and announces) any newly unlocked device types."""
+        body = await self.api.get("/blueprints", background=True)
+        new_bps = normalize_blueprints((body or {}).get("blueprints"))
+        old = await self.db.kv_get("blueprints", None)
+        await self.db.kv_set("blueprints", new_bps)
+        await self.db.kv_set("sync:blueprints", {"ok": True, "at": now_iso()})
+        if old is None:  # first sync: everything is "known", nothing is "new"
+            return []
+        before = {b.get("device_type") for b in normalize_blueprints(old)}
+        added = [b["device_type"] for b in new_bps if b["device_type"] not in before]
+        if added:
+            unlocks = await self.db.kv_get("blueprint_unlocks", []) or []
+            for t in added:
+                unlocks.append({"device_type": t, "at": now_iso()})
+                title = f"New blueprint unlocked: {t.replace('_', ' ')}"
+                cur = await self.db.execute(
+                    "INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
+                    (None, "done", title, None, f"/blueprints?q={t}", now_iso()))
+                self.hub.publish("notify", {"id": cur.lastrowid, "level": "done", "title": title, "link": f"/blueprints?q={t}"})
+            await self.db.kv_set("blueprint_unlocks", unlocks[-200:])
+            self.hub.publish("state", "blueprints")
+        return added
 
     async def backfill(self) -> int:
         """Pull anything missed from /events (used on demand from the Events page)."""
@@ -261,8 +321,6 @@ class Worker:
         await self.db.kv_set("messages", (body or {}).get("messages") or [])
 
     async def sync_catalogue(self) -> None:
-        body = await self.api.get("/blueprints", background=True)
-        await self.db.kv_set("blueprints", normalize_blueprints((body or {}).get("blueprints")))
         try:  # 1/min limit on the catalogue; we only ask every 30 minutes.
             stars = await self.api.get("/stars", background=True)
             await self.db.kv_set("stars", stars or {})

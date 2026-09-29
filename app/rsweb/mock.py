@@ -91,13 +91,13 @@ class World:
         self.devices = [
             {"device_code": HOST, "device_type": "heaven_vessel", "location": "SOL-BELT-1", "status": "stationary",
              "features": ["surge", "cruise", "system_scan", "mine", "cradle", "print", "census"], "operational_capacity": 98.0,
-             "available_commands": ["travel", "deactivate"], "stow_capacity": 10},
+             "available_commands": ["travel", "deactivate", "enqueue_print", "dequeue_print", "clear_queue"], "stow_capacity": 10},
         ]
         for i, (res, st) in enumerate([("structural", "mining (structural)"), ("conductive", "mining (conductive)"),
                                        ("silicates", "idle"), ("carbon", "mining (carbon)")]):
             self.devices.append({"device_code": f"2AC6121{i}", "device_type": "mining_drone", "location": "SOL-BELT-1",
                                  "status": st, "features": ["cruise", "mine", "stow"], "operational_capacity": 92.0 - i * 15,
-                                 "available_commands": ["deploy", "recall", "retarget", "start_mining", "stow", "travel", "decommission"]})
+                                 "available_commands": ["change_owner", "deactivate", "decommission", "deploy", "recall", "retarget", "start_mining", "stow", "travel"]})
         self.devices += [
             {"device_code": "D8C2A140", "device_type": "survey_drone", "location": "SOL-3", "status": "scanning",
              "features": ["cruise", "survey", "stow"], "operational_capacity": 88.0, "available_commands": ["scan", "search", "travel", "recall"]},
@@ -113,6 +113,8 @@ class World:
         for d in self.devices:
             d["replicant_code"] = REP
         self.location = "SOL-BELT-1"
+        self.vessel_busy_until = 0.0
+        self.queues: dict[str, list] = {}
         self.xp = 87340
 
     def emit(self, event: str, device: dict | None = None, **payload) -> dict:
@@ -257,6 +259,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         bp = next((b for b in BLUEPRINTS if b["device_type"] == body.get("device_type")), None)
         if not bp:
             return ok({"error": "Unknown blueprint"}, 400)
+        if time.time() < world.vessel_busy_until:
+            return ok({"error": "Printer is busy"}, 409)
+        world.vessel_busy_until = time.time() + bp["print_time"]
         world.emit("print.started", world.devices[0], device_type=bp["device_type"], print_mode="standard",
                    completes_at=iso(datetime.now(timezone.utc) + timedelta(seconds=bp["print_time"])), tags=[])
         return ok({"status": "enqueued"}, 202)
@@ -297,6 +302,10 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         if cmd == "start_mining":
             d["status"] = f"mining ({body.get('resource_type')})"
             world.emit("mining.started", d, location=d["location"], resource_type=body.get("resource_type"), site="SOL-BELT-1-SITE-1")
+        if cmd == "enqueue_print":
+            q = world.queues.setdefault(code, [])
+            q.extend([body.get("device_type")] * int(body.get("quantity") or 1))
+            return ok({"status": "enqueued", "queue": list(q), "queue_length": len(q)})
         if cmd == "set_directive":
             world.emit("directive.set", d, directive=body.get("directive"), configuration=body.get("configuration"))
         if cmd == "travel":

@@ -41,6 +41,7 @@ class Settings:
     poll_devices: int = int(os.getenv("POLL_DEVICES", "60"))
     poll_inventory: int = int(os.getenv("POLL_INVENTORY", "120"))
     poll_messages: int = int(os.getenv("POLL_MESSAGES", "300"))
+    poll_blueprints: int = int(os.getenv("POLL_BLUEPRINTS", "300"))
     poll_catalogue: int = int(os.getenv("POLL_CATALOGUE", "1800"))
 
     # A gap this long between page loads starts a new "visit" (drives the since-last-login digest).

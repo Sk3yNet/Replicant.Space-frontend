@@ -239,7 +239,8 @@ async def resource_series(request: Request, hours: int = 48) -> dict[str, list[f
 # =====================================================================================
 # actions (everything that changes game state goes through here)
 # =====================================================================================
-async def run_action(request: Request, user: str, method: str, path: str, body: Any, label: str) -> HTMLResponse:
+async def call_action(request: Request, user: str, method: str, path: str, body: Any, label: str) -> dict:
+    """Send one game command, log it, start any countdown. Returns the outcome without rendering."""
     st = request.app.state
     status, resp, err = 200, None, None
     try:
@@ -255,8 +256,16 @@ async def run_action(request: Request, user: str, method: str, path: str, body: 
     request.state.action_response = resp if err is None else None
     if not err:
         st.hub.publish("state", "action")
-    return partial(request, "partials/action_result.html", label=label, method=method, path=path,
-                   ok=err is None, status=status, error=err, response=resp)
+    return {"label": label, "method": method, "path": path, "ok": err is None, "status": status,
+            "error": err, "response": resp}
+
+
+def render_action(request: Request, outcome: dict, note: str | None = None) -> HTMLResponse:
+    return partial(request, "partials/action_result.html", note=note, **outcome)
+
+
+async def run_action(request: Request, user: str, method: str, path: str, body: Any, label: str) -> HTMLResponse:
+    return render_action(request, await call_action(request, user, method, path, body, label))
 
 
 def parse_json_field(text: str | None) -> Any:
@@ -521,10 +530,11 @@ async def replicant_mine(request: Request, code: str, resource_type: str = Form(
 
 @router.post("/replicants/{code}/print", response_class=HTMLResponse)
 async def replicant_print(request: Request, code: str, device_type: str = Form(""), command: str = Form(""),
-                          user: str = Depends(current_user)):
-    body = {"command": command} if command else {"device_type": device_type}
-    return await run_action(request, user, "POST", f"/replicants/{code}/print", body,
-                            f"{code} print {device_type or command}")
+                          quantity: int = Form(1), user: str = Depends(current_user)):
+    if command:  # cancel / clear_queue
+        return await run_action(request, user, "POST", f"/replicants/{code}/print", {"command": command},
+                                f"{code} print {command}")
+    return await queue_print(request, user, "replicant", code, device_type, quantity)
 
 
 @router.post("/replicants/{code}/message", response_class=HTMLResponse)
@@ -721,7 +731,8 @@ def printers(state: dict) -> list[dict]:
     """Everything that can print: replicant vessels and autofactories."""
     out = []
     for code, r in state["replicants"].items():
-        out.append({"kind": "replicant", "code": code, "name": r.get("name") or code,
+        out.append({"kind": "replicant", "code": code, "name": f"{r.get('name') or code} (vessel)",
+                    "host": r.get("hosted_device_code"),
                     "location": r.get("location") or r.get("current_location")})
     for d in state["devices"]:
         if "print" in (d.get("features") or []) and d.get("device_type") != "heaven_vessel":
@@ -738,8 +749,21 @@ def affordable(cost: Any, items: Any) -> int:
 
 @router.get("/blueprints", response_class=HTMLResponse)
 async def blueprints(request: Request, q: str = "", user: str = Depends(current_user)):
+    db, worker = request.app.state.db, request.app.state.worker
+    refresh_msg = None
+    # Opening the page re-reads the list if it is more than a minute old (one cheap GET).
+    last = parse_ts(await db.kv_updated("blueprints"))
+    if request.app.state.api.configured and (not last or datetime.now(timezone.utc) - last > timedelta(minutes=1)):
+        try:
+            added = await worker.sync_blueprints()
+            if added:
+                refresh_msg = "New: " + ", ".join(f_human(t) for t in added)
+        except ApiError as e:
+            refresh_msg = f"Could not refresh from the game: {e.message}"
     st = await load_state(request)
-    bps = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
+    bps = normalize_blueprints(await db.kv_get("blueprints", []))
+    recent_cut = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+    recent = {u["device_type"] for u in await db.kv_get("blueprint_unlocks", []) or [] if u.get("at", "") >= recent_cut}
     if q:
         bps = [b for b in bps if q.lower() in json.dumps(b).lower()]
     inv = {i.get("location"): i.get("items") or {} for i in st["inventory"]}
@@ -747,7 +771,17 @@ async def blueprints(request: Request, q: str = "", user: str = Depends(current_
     for b in bps:
         b["_afford"] = {p["code"]: affordable(b["resources"], inv.get(p["location"], {})) for p in prs}
     return await page(request, user, "blueprints.html", "blueprints", blueprints=sorted(bps, key=lambda b: b.get("device_type", "")),
-                      printers=prs, inv=inv, q=q)
+                      printers=prs, inv=inv, q=q, recent=recent, refresh_msg=refresh_msg,
+                      synced=await db.kv_updated("blueprints"))
+
+
+@router.post("/blueprints/refresh", response_class=HTMLResponse)
+async def blueprints_refresh(request: Request, user: str = Depends(current_user)):
+    try:
+        added = await request.app.state.worker.sync_blueprints()
+    except ApiError as e:
+        return HTMLResponse(f'<span class="lv-alert">Refresh failed: {e.message}</span>')
+    return HTMLResponse("", headers={"HX-Refresh": "true"}) if added else HTMLResponse('<span class="muted">Up to date.</span>')
 
 
 @router.post("/blueprints/plan", response_class=HTMLResponse)
@@ -781,16 +815,47 @@ async def blueprint_plan(request: Request, user: str = Depends(current_user)):
     return partial(request, "partials/plan.html", rows=rows, lines=lines, location=location, total_time=total_time)
 
 
+async def queue_print(request: Request, user: str, kind: str, code: str, device_type: str, quantity: int) -> HTMLResponse:
+    """Add a print to a printer's queue.
+
+    Autofactories take `enqueue_print`. For a replicant's vessel, `POST /replicants/{code}/print`
+    refuses with "Printer is busy" while something is printing, so we enqueue on the host vessel
+    device instead and only fall back to the replicant endpoint if the vessel won't take the command.
+    """
+    quantity = max(1, quantity)
+    body = {"command": "enqueue_print", "device_type": device_type, "quantity": quantity}
+    if kind != "replicant":
+        return await run_action(request, user, "POST", f"/devices/{code}", body, f"enqueue {quantity}× {device_type} on {code}")
+    st = await load_state(request)
+    host = (st["replicants"].get(code) or {}).get("hosted_device_code")
+    tried = None
+    if host:
+        out = await call_action(request, user, "POST", f"/devices/{host}", body,
+                                f"enqueue {quantity}× {device_type} on {code}'s vessel {host}")
+        if out["ok"]:
+            return render_action(request, out)
+        tried = out
+        msg = (out["error"] or "").lower()
+        # Anything other than "this device can't do that" is a real answer (e.g. not enough resources).
+        if out["status"] not in (400, 404, 422) or not any(k in msg for k in ("command", "not available", "unknown", "invalid", "feature")):
+            return render_action(request, out)
+    out = await call_action(request, user, "POST", f"/replicants/{code}/print", {"device_type": device_type},
+                            f"print {device_type} on {code}")
+    note = None
+    if not out["ok"] and "busy" in (out["error"] or "").lower():
+        note = ("The vessel is already printing and this printer doesn't take a queue"
+                + (f" (vessel said: {tried['error']})" if tried else "")
+                + ". Wait for the current print to finish, or queue it on an autofactory.")
+    elif out["ok"] and quantity > 1:
+        note = f"The vessel printer takes one at a time, so only 1 of {quantity} was started."
+    return render_action(request, out, note)
+
+
 @router.post("/blueprints/print", response_class=HTMLResponse)
 async def blueprint_print(request: Request, printer: str = Form(...), device_type: str = Form(...),
                           quantity: int = Form(1), user: str = Depends(current_user)):
     kind, _, code = printer.partition(":")
-    if kind == "replicant":
-        return await run_action(request, user, "POST", f"/replicants/{code}/print", {"device_type": device_type},
-                                f"print {device_type} on {code}")
-    return await run_action(request, user, "POST", f"/devices/{code}",
-                            {"command": "enqueue_print", "device_type": device_type, "quantity": max(1, quantity)},
-                            f"enqueue {quantity}× {device_type} on {code}")
+    return await queue_print(request, user, kind, code, device_type, quantity)
 
 
 # --- AMI ---------------------------------------------------------------------------------------

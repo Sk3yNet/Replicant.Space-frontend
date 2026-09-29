@@ -232,6 +232,7 @@ async def build_digest(db: DB, since: str) -> dict:
             alerts.append({"text": describe(e), "at": e.get("created_at") or e.get("received_at")})
 
     inv_delta = await inventory_delta(db, since)
+    unlocked = [u["device_type"] for u in await db.kv_get("blueprint_unlocks", []) or [] if u.get("at", "") > since]
     headline_bits = []
     if printed:
         headline_bits.append(f"printed {sum(printed.values())} device(s)")
@@ -242,6 +243,8 @@ async def build_digest(db: DB, since: str) -> dict:
         headline_bits.append(f"stockpiles +{int(sum(gained.values()))} units")
     if xp:
         headline_bits.append(f"+{xp} XP")
+    if unlocked:
+        headline_bits.append(f"{len(unlocked)} new blueprint(s)")
     if alerts:
         headline_bits.append(f"{len(alerts)} alert(s)")
     return {
@@ -256,6 +259,7 @@ async def build_digest(db: DB, since: str) -> dict:
         "arrivals_total": len(arrivals),
         "scans": scans[-10:],
         "xp": xp,
+        "unlocked": unlocked,
         "directives": directives,
         "other_done": other_done[-15:],
         "alerts": alerts[-20:],
