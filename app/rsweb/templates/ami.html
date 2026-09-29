@@ -22,15 +22,10 @@
     </details>
     {% endif %}
 
-    {% if c.directives %}
     <form hx-post="/ami/{{ d.device_code }}/directive" hx-target="#ami-{{ d.device_code }}" style="margin-top:8px">
-      <div class="row"><select name="directive" hx-get="/ami/{{ d.device_code }}/directive-form" hx-target="#dir-{{ d.device_code }}">
-        {% for name in c.directives %}<option value="{{ name }}">{{ name | human }}</option>{% endfor %}
-      </select><button>Set directive</button></div>
-      <div id="dir-{{ d.device_code }}">{% with fields=c.first_fields, uid="d-" ~ d.device_code, self_code=d.device_code %}{% include "partials/fields.html" %}{% endwith %}</div>
-      <details><summary class="small">Extra configuration (JSON, optional)</summary><textarea name="configuration" placeholder="{}"></textarea></details>
+      {% with code=d.device_code, names=c.directives, fields=c.first_fields, uid="d-" ~ d.device_code, self_code=d.device_code %}{% include "partials/directive_picker.html" %}{% endwith %}
+      <button style="margin-top:6px">Set directive</button>
     </form>
-    {% endif %}
 
     <form hx-post="/ami/{{ d.device_code }}/adopt" hx-target="#ami-{{ d.device_code }}">
       <details><summary>Adopt / release devices at {{ d.location }} ({{ c.candidates | length }})</summary>

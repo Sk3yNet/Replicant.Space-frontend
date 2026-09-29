@@ -1,0 +1,12 @@
+{% if names %}
+<div class="field" style="margin-top:8px"><label>Directive <span class="lv-alert">*</span></label>
+  <select name="directive" hx-get="/ami/{{ code }}/directive-form" hx-target="#dp-{{ code }}">
+    {% for n in names %}<option value="{{ n }}">{{ n | human }}</option>{% endfor %}
+  </select></div>
+{% else %}
+<div class="field" style="margin-top:8px"><label>Directive <span class="lv-alert">*</span></label>
+  <input name="directive" placeholder="directive name" size="24">
+  <div class="muted small">No directive list known for this device yet — type the name from the game docs.</div></div>
+{% endif %}
+<div id="dp-{{ code }}">{% include "partials/fields.html" %}</div>
+<details style="margin-top:6px"><summary class="small">Extra configuration (JSON, optional)</summary><textarea name="configuration" placeholder="{}"></textarea></details>

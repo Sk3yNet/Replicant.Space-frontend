@@ -425,6 +425,11 @@ async def device_command_form(request: Request, code: str, command: str = "", us
     dev = await _device(request, code)
     if not command:
         return HTMLResponse('<p class="muted small">Pick a command to see its fields.</p>')
+    if command == "set_directive":
+        names = await device_directives(request, dev)
+        return partial(request, "partials/directive_picker.html", code=code, names=names,
+                       fields=cmdspec.directive_fields(names[0]) if names else [],
+                       sugg=await suggestions(request, dev.get("location")), uid=f"d-{code}", self_code=code)
     fields = cmdspec.COMMANDS.get(command)
     return partial(request, "partials/command_form.html", code=code, command=command, fields=fields or [],
                    known=fields is not None, sugg=await suggestions(request, dev.get("location")),
@@ -442,6 +447,12 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
 
     if not command:
         return bad("Pick a command")
+    if command == "set_directive":
+        try:
+            body = directive_body(form)
+        except ValueError as e:
+            return bad(str(e))
+        return await run_action(request, user, "POST", f"/devices/{code}", body, f"{code} directive {body['directive']}")
     try:
         body = cmdspec.parse_fields(cmdspec.COMMANDS.get(command, []), form)
         extra = parse_json_field(form.get("args")) or {}
@@ -863,13 +874,18 @@ DIRECTIVES = cmdspec.DIRECTIVES
 controller_kind = cmdspec.controller_kind
 
 
+async def device_directives(request: Request, dev: dict) -> list[str]:
+    bps = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
+    return cmdspec.directives_for(dev, bps)
+
+
 @router.get("/ami", response_class=HTMLResponse)
 async def ami(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     db = request.app.state.db
     ctrls = []
     for d in st["devices"]:
-        if "ami" not in (d.get("features") or []):
+        if "ami" not in (d.get("features") or []) and "set_directive" not in (d.get("available_commands") or []):
             continue
         kind = controller_kind(d.get("device_type"))
         last = await db.fetchone(
@@ -880,12 +896,11 @@ async def ami(request: Request, user: str = Depends(current_user)):
             (d["device_code"],))
         candidates = [x for x in st["devices"] if x.get("location") == d.get("location")
                       and "ami" not in (x.get("features") or [])]
-        directives = DIRECTIVES.get(kind, {})
-        first = next(iter(directives), None)
+        names = await device_directives(request, d)
         ctrls.append({"d": d, "kind": kind, "digest": row_event(last) if last else None,
                       "directive": row_event(last_dir) if last_dir else None,
-                      "directives": directives, "first": first,
-                      "first_fields": directives.get(first, []) if first else [], "candidates": candidates})
+                      "directives": names, "first_fields": cmdspec.directive_fields(names[0]) if names else [],
+                      "candidates": candidates})
     sugg = await suggestions(request, None)
     return await page(request, user, "ami.html", "ami", ctrls=ctrls, sugg=sugg)
 
@@ -893,9 +908,24 @@ async def ami(request: Request, user: str = Depends(current_user)):
 @router.get("/ami/{code}/directive-form", response_class=HTMLResponse)
 async def ami_directive_form(request: Request, code: str, directive: str = "", user: str = Depends(current_user)):
     dev = await _device(request, code)
-    fields = DIRECTIVES.get(controller_kind(dev.get("device_type")), {}).get(directive, [])
-    return partial(request, "partials/fields.html", fields=fields, sugg=await suggestions(request, dev.get("location")),
-                   uid=f"d-{code}", self_code=code)
+    return partial(request, "partials/fields.html", fields=cmdspec.directive_fields(directive),
+                   sugg=await suggestions(request, dev.get("location")), uid=f"d-{code}", self_code=code)
+
+
+def directive_body(form) -> dict:
+    """{"command": "set_directive", "directive": …, "configuration": {…}} from the directive picker's inputs."""
+    directive = (form.get("directive") or "").strip()
+    if not directive:
+        raise cmdspec.FormError("Pick a directive")
+    cfg = cmdspec.parse_fields(cmdspec.directive_fields(directive), form)
+    extra = parse_json_field(form.get("configuration")) or {}
+    if not isinstance(extra, dict):
+        raise ValueError("configuration must be a JSON object")
+    cfg.update(extra)
+    body = {"command": "set_directive", "directive": directive}
+    if cfg:
+        body["configuration"] = cfg
+    return body
 
 
 @router.post("/ami/{code}/adopt", response_class=HTMLResponse)
@@ -910,22 +940,12 @@ async def ami_adopt(request: Request, code: str, user: str = Depends(current_use
 @router.post("/ami/{code}/directive", response_class=HTMLResponse)
 async def ami_directive(request: Request, code: str, user: str = Depends(current_user)):
     form = await request.form()
-    directive = (form.get("directive") or "").strip()
-    dev = await _device(request, code)
-    fields = DIRECTIVES.get(controller_kind(dev.get("device_type")), {}).get(directive, [])
     try:
-        cfg = cmdspec.parse_fields(fields, form)
-        extra = parse_json_field(form.get("configuration")) or {}
-        if not isinstance(extra, dict):
-            raise ValueError("configuration must be a JSON object")
-        cfg.update(extra)
+        body = directive_body(form)
     except ValueError as e:  # FormError is a ValueError
         return partial(request, "partials/action_result.html", ok=False, status=400, error=str(e),
                        label="set_directive", method="POST", path=f"/devices/{code}", response=None)
-    body = {"command": "set_directive", "directive": directive}
-    if cfg:
-        body["configuration"] = cfg
-    return await run_action(request, user, "POST", f"/devices/{code}", body, f"{code} directive {directive}")
+    return await run_action(request, user, "POST", f"/devices/{code}", body, f"{code} directive {body['directive']}")
 
 
 # --- events -----------------------------------------------------------------------------------

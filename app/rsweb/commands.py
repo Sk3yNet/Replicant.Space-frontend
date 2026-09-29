@@ -129,6 +129,34 @@ DIRECTIVES: dict[str, dict[str, list[Field]]] = {
 }
 
 
+ALL_DIRECTIVE_FIELDS: dict[str, list[Field]] = {n: f for kind in DIRECTIVES.values() for n, f in kind.items()}
+
+
+def directives_for(device: dict, blueprints: list[dict]) -> list[str]:
+    """Directive names a device can take, most authoritative source first:
+    the device itself, its blueprint (`directives`), then our built-in list for its controller kind."""
+    names: list[str] = []
+
+    def add(xs) -> None:
+        for x in xs or []:
+            if isinstance(x, dict):
+                x = x.get("name") or x.get("directive")
+            if isinstance(x, str) and x and x not in names:
+                names.append(x)
+
+    add(device.get("directives"))
+    dtype = device.get("device_type")
+    add(next((b.get("directives") for b in blueprints if b.get("device_type") == dtype), None))
+    kind = controller_kind(dtype)
+    if kind != "fleet":
+        add(DIRECTIVES[kind].keys())
+    return names
+
+
+def directive_fields(name: str) -> list[Field]:
+    return ALL_DIRECTIVE_FIELDS.get(name, [])
+
+
 def controller_kind(dtype: str | None) -> str:
     for k in DIRECTIVES:
         if k in (dtype or ""):
