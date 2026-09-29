@@ -22,7 +22,8 @@ services:
 
   nginx:
     build: ./nginx
-    image: replicant-web-nginx:latest
+    # Built from this repo, never pulled; rebuilt on every (re)deploy so code changes land.
+    pull_policy: build
     depends_on: [oauth2-proxy, app]
     restart: unless-stopped
     networks: [edge]
@@ -75,7 +76,7 @@ services:
 
   app:
     build: ./app
-    image: replicant-web-app:latest
+    pull_policy: build
     environment:
       RS_API_TOKEN: ${RS_API_TOKEN:?set RS_API_TOKEN}
       RS_API_BASE: ${RS_API_BASE:-https://api.replicant.space/v1}
