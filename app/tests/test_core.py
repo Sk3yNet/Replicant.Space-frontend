@@ -207,3 +207,72 @@ def test_actions(client):
     assert "ABOTEIN" in timers
     acts = client.get("/account", headers=H).text
     assert "/replicants/77F75255/travel" in acts
+
+
+def test_as_amounts_shapes():
+    from rsweb.shapes import as_amounts, normalize_inventory
+    assert as_amounts({"carbon": 5, "rares": "2"}) == {"carbon": 5.0, "rares": 2.0}
+    assert as_amounts([{"resource": "carbon", "quantity": 5}, {"resource": "carbon", "quantity": 1}]) == {"carbon": 6.0}
+    assert as_amounts([{"name": "rares", "amount": 3}]) == {"rares": 3.0}
+    assert as_amounts([["silicates", 4]]) == {"silicates": 4.0}
+    assert as_amounts([{"structural": 9}]) == {"structural": 9.0}
+    assert as_amounts(None) == {} and as_amounts("junk") == {}
+    inv = normalize_inventory([{"location": "SOL-BELT-1", "items": [{"resource": "carbon", "quantity": 2}]}])
+    assert inv[0]["items"] == {"carbon": 2.0}
+
+
+def test_blueprints_with_list_shaped_inventory(client):
+    r = client.get("/blueprints", headers=H)
+    assert r.status_code == 200 and "×" in r.text
+    r = client.post("/blueprints/plan", data={"location": "SOL-BELT-1", "qty:mining_drone": "1"}, headers=HX)
+    import re
+    have = re.search(r"<td>structural</td><td class=\"num\">[^<]+</td><td class=\"num\">([\d,.]+)</td>", r.text)
+    assert have and float(have.group(1).replace(",", "")) >= 1200  # read from the list-shaped mock inventory
+
+
+class _Form(dict):
+    def getlist(self, k):
+        v = self.get(k)
+        return v if isinstance(v, list) else ([v] if v else [])
+
+
+def test_parse_fields_builds_nested_bodies():
+    from rsweb import commands as c
+    body = c.parse_fields(c.COMMANDS["enqueue_print"], _Form({
+        "f.device_type": "mining_drone", "f.quantity": "3", "f.tags": "fleet-1, belt",
+        "f.oncomplete.command": "travel", "f.oncomplete.destination": "sol-belt-1",
+        "f.oncomplete.resource_type": "carbon", "f.flatpack": "false"}))
+    assert body == {"device_type": "mining_drone", "quantity": 3, "tags": ["fleet-1", "belt"],
+                    "oncomplete": {"command": "travel", "destination": "SOL-BELT-1"}, "flatpack": False}
+    body = c.parse_fields(c.COMMANDS["enqueue_print"], _Form({"f.device_type": "x", "f.oncomplete.command": ""}))
+    assert "oncomplete" not in body
+    body = c.parse_fields(c.DIRECTIVES["transport"]["delivery"], _Form({
+        "f.route.collect": "SOL-BELT-1", "f.route.deliver": "SOL-3-L4", "f.requirement.carbon": "50"}))
+    assert body == {"route": {"collect": "SOL-BELT-1", "deliver": "SOL-3-L4"}, "requirement": {"carbon": 50}}
+    body = c.parse_fields(c.DIRECTIVES["mining"]["maintain_ratios"], _Form({"f..structural": "0.5", "f..rares": "0.1"}))
+    assert body == {"structural": 0.5, "rares": 0.1}
+    with pytest.raises(c.FormError):
+        c.parse_fields(c.COMMANDS["travel"], _Form({}))
+    assert c.parse_fields(c.COMMANDS["adopt"], _Form({"f.devices": ["A", "B"]})) == {"devices": ["A", "B"]}
+
+
+def test_command_forms_render_with_suggestions(client):
+    r = client.get("/devices/2AC61212/command-form?command=travel", headers=HX)
+    assert r.status_code == 200 and 'list="c-2AC61212-loc"' in r.text and "SOL-BELT-1" in r.text and "SOL-3-L4" in r.text
+    r = client.get("/devices/AF00BEEF/command-form?command=enqueue_print", headers=HX)
+    assert "mining_drone" in r.text and "MC91FF22" in r.text  # device types + AMI controller choices
+    r = client.get("/devices/MC91FF22/command-form?command=adopt", headers=HX)
+    assert 'type="checkbox"' in r.text and "2AC61210" in r.text
+    r = client.get("/devices/2AC61212/command-form?command=mystery", headers=HX)
+    assert "No field list" in r.text
+    r = client.get("/ami/MC91FF22/directive-form?directive=gather_resources", headers=HX)
+    assert 'name="f..structural"' in r.text
+    # submit through the fields
+    r = client.post("/devices/2AC61212/command", data={"command": "start_mining", "f.resource_type": "rares"}, headers=HX)
+    assert "result ok" in r.text
+    r = client.post("/devices/2AC61212/command", data={"command": "travel"}, headers=HX)
+    assert "destination is required" in r.text
+    r = client.post("/ami/MC91FF22/directive", data={"directive": "gather_resources", "f..structural": "500"}, headers=HX)
+    assert "result ok" in r.text
+    acts = client.get("/account", headers=H).text  # audit log shows the body that was sent
+    assert "&#34;configuration&#34;: {&#34;structural&#34;: 500}" in acts

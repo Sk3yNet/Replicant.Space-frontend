@@ -27,15 +27,12 @@
     <h2>Command</h2>
     <form hx-post="/devices/{{ code }}/command" hx-target="#cmd-result" data-danger-check>
       <div class="row">
-        <select name="command" onchange="fillTemplate(this, 'cmd-args')">
-          {% for c in dev.available_commands or [] %}
-          <option value="{{ c }}" data-tpl='{{ command_help.get(c, {}) | tojson }}'>{{ c }}</option>
-          {% endfor %}
+        <select name="command" hx-get="/devices/{{ code }}/command-form" hx-target="#cmd-fields" hx-trigger="change, load">
+          {% for c in dev.available_commands or [] %}<option value="{{ c }}">{{ c | human }}</option>{% endfor %}
         </select>
         <button>Run</button>
       </div>
-      <label>Arguments (JSON, merged into the request body)</label>
-      <textarea name="args" id="cmd-args">{{ command_help.get((dev.available_commands or [''])[0], {}) | tojson }}</textarea>
+      <div id="cmd-fields"><p class="muted small">Loading fields…</p></div>
     </form>
     {% if same_loc %}
     <details><summary>{{ same_loc | length }} other device(s) at this location (for stow / attach / adopt targets)</summary>

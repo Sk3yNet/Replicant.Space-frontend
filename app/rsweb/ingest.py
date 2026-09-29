@@ -14,6 +14,7 @@ from .config import Settings
 from .db import DB, now_iso
 from .hub import Hub
 from . import notify
+from .shapes import normalize_blueprints, normalize_inventory
 
 log = logging.getLogger("rsweb.ingest")
 
@@ -238,15 +239,12 @@ class Worker:
         self.hub.publish("state", "devices")
 
     async def sync_inventory(self) -> None:
-        locs = await self.api.paged("/inventory", "locations")
+        locs = normalize_inventory(await self.api.paged("/inventory", "locations"))
         await self.db.kv_set("inventory", locs)
         totals: dict[str, float] = defaultdict(float)
         for loc in locs:
-            for k, v in (loc.get("items") or {}).items():
-                try:
-                    totals[k] += float(v)
-                except (TypeError, ValueError):
-                    pass
+            for k, v in loc["items"].items():
+                totals[k] += v
         prev = await self.db.kv_get("inventory_totals")
         if prev != totals or not prev:
             ts = now_iso()
@@ -264,7 +262,7 @@ class Worker:
 
     async def sync_catalogue(self) -> None:
         body = await self.api.get("/blueprints", background=True)
-        await self.db.kv_set("blueprints", (body or {}).get("blueprints") or [])
+        await self.db.kv_set("blueprints", normalize_blueprints((body or {}).get("blueprints")))
         try:  # 1/min limit on the catalogue; we only ask every 30 minutes.
             stars = await self.api.get("/stars", background=True)
             await self.db.kv_set("stars", stars or {})

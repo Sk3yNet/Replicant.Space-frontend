@@ -1,0 +1,292 @@
+"""Field specs for device commands and AMI directives, the suggestions that fill each field's
+drop-down, and turning a submitted form back into the JSON body the API expects.
+
+Field kinds:
+  resource        closed list of resource types            -> <select>
+  resources       one number per resource ({res: n})       -> number inputs
+  resource_list   ordered subset of resources ([res, ...]) -> checkboxes
+  location        any location code                         -> text + suggestions
+  device          one device code                           -> text + suggestions
+  devices         several device codes ([code, ...])        -> checkboxes
+  device_type     a blueprint / device type                 -> text + suggestions
+  replicant       a replicant code                          -> text + suggestions
+  channel         a BobNet channel                          -> text + suggestions
+  tags            comma-separated tags ([tag, ...])         -> text + suggestions
+  choice          fixed options (field["options"])          -> <select>
+  bool            true / false                              -> <select>
+  int / float     number
+  vector          [x, y, z] direction                       -> 3 numbers
+  text            free text
+Field `name` may be a dotted path ("route.collect", "oncomplete.destination") to build nested objects.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
+
+
+@dataclass
+class Field:
+    name: str
+    kind: str = "text"
+    label: str = ""
+    required: bool = False
+    default: Any = None
+    help: str = ""
+    options: list = field(default_factory=list)
+    filter: dict = field(default_factory=dict)  # e.g. {"device_type": "empty_replicant_matrix"} or {"feature": "ami"}
+
+    @property
+    def title(self) -> str:
+        return self.label or self.name.split(".")[-1].replace("_", " ")
+
+
+F = Field
+
+# --- device commands --------------------------------------------------------------------------
+COMMANDS: dict[str, list[Field]] = {
+    "travel": [F("destination", "location", required=True, help="Location code (planet, belt, L4/L5, star …)")],
+    "stow": [F("target", "device", help="Device to stow into (leave blank to stow on the default carrier)")],
+    "deploy": [],
+    "recall": [],
+    "start_mining": [F("resource_type", "resource", required=True)],
+    "retarget": [F("resource_type", "resource", required=True)],
+    "collect_resources": [F("resources", "resources", help="Amounts to load; leave all blank to fill the hold")],
+    "deposit_resources": [F("resources", "resources", help="Leave blank to empty the whole hold")],
+    "attach": [F("device", "device", required=True, label="device to attach to")],
+    "detach": [],
+    "system_scan": [],
+    "scan": [],
+    "search": [],
+    "stellar_census": [],
+    "prospect": [F("direction", "vector", help="Optional direction to look in, e.g. 0, 1, 0")],
+    "enqueue_print": [
+        F("device_type", "device_type", required=True),
+        F("quantity", "int", default=1),
+        F("tags", "tags", help="Tags applied to each printed device"),
+        F("controller", "device", label="hand to AMI controller", filter={"feature": "ami"}),
+        F("oncomplete.command", "choice", label="when printed", options=["", "travel", "start_mining"]),
+        F("oncomplete.destination", "location", label="…travel to"),
+        F("oncomplete.resource_type", "resource", label="…mine resource"),
+        F("flatpack", "bool", default=False),
+    ],
+    "dequeue_print": [F("index", "int", required=True, default=1, help="Queue position (1 = first)")],
+    "clear_queue": [],
+    "repair": [F("target", "device", help="Device to repair (if the drone needs a target)")],
+    "replicate": [F("target", "device", required=True, label="empty matrix",
+                    filter={"device_type": "empty_replicant_matrix"})],
+    "adopt": [F("devices", "devices", required=True, filter={"not_feature": "ami"})],
+    "release": [F("devices", "devices", required=True, filter={"not_feature": "ami"})],
+    "set_directive": [F("directive", "choice", required=True)],  # AMI page renders the directive's own fields
+    "clear_directive": [],
+    "launch": [],
+    "withdraw": [],
+    "assemble": [F("destination", "location", help="Where to assemble the fleet (if required)")],
+    "activate": [],
+    "deactivate": [],
+    "compact": [],
+    "unfurl": [],
+    "decommission": [],
+    "change_owner": [F("replicant_code", "replicant", required=True, label="new owner",
+                       help="Field name not confirmed by the docs; check the response")],
+    "set_welcome_message": [F("message", "text", required=True)],
+    "message": [F("channel", "channel", required=True, default="#general"), F("text", "text", required=True)],
+}
+
+# --- AMI directives (configuration fields) ------------------------------------------------------
+DIRECTIVES: dict[str, dict[str, list[Field]]] = {
+    "mining": {
+        "gather_resources": [F("", "resources", label="target amounts", help="Stop when these amounts are gathered")],
+        "gather_evenly": [],
+        "maintain_ratios": [F("", "resources", label="ratios", help="Decimals, e.g. structural 0.5, conductive 0.3",
+                              options=["float"])],
+        "deplete_smallest": [],
+        "gather_salvage": [F("location", "location", required=True, label="salvage site"),
+                           F("recall", "bool", default=True)],
+    },
+    "survey": {
+        "survey_system": [F("planets", "choice", options=["all", "none"], default="all"),
+                          F("moons", "choice", options=["all", "none"], default="all"),
+                          F("recall", "bool", default=True)],
+        "belt_search": [],
+    },
+    "transport": {
+        "delivery": [F("route.collect", "location", required=True, label="collect from"),
+                     F("route.deliver", "location", required=True, label="deliver to"),
+                     F("requirement", "resources", label="deliver until")],
+        "shuttle": [F("collect", "location", required=True), F("deliver", "location", required=True),
+                    F("priority", "resource_list")],
+        "ferry": [F("collect", "location", required=True), F("deliver", "location", required=True, help="Another system"),
+                  F("priority", "resource_list")],
+        "consolidate": [F("deliver", "location", required=True), F("priority", "resource_list")],
+    },
+    "maintenance": {"patrol": []},
+    "trade": {"trade": [F("name", "text", required=True, label="shop name"), F("description", "text"),
+                        F("announcement", "text")]},
+    "fleet": {},
+}
+
+
+def controller_kind(dtype: str | None) -> str:
+    for k in DIRECTIVES:
+        if k in (dtype or ""):
+            return k
+    return "fleet"
+
+
+# --- suggestions -----------------------------------------------------------------------------
+def build_suggestions(state: dict, blueprints: list[dict], systems: list[dict], stars: dict, here: str | None) -> dict:
+    """Everything a drop-down might offer, ranked so things near `here` come first."""
+    devices = state.get("devices") or []
+    here_star = (here or "").split("-")[0]
+    locs: dict[str, str] = {}
+
+    def add(code: Any, note: str = "") -> None:
+        if isinstance(code, str) and code and code not in locs:
+            locs[code] = note
+
+    for d in devices:
+        add(d.get("location"), "your devices")
+    for r in (state.get("replicants") or {}).values():
+        add(r.get("location") or r.get("current_location"), f"replicant {r.get('name', '')}".strip())
+    for inv in state.get("inventory") or []:
+        add(inv.get("location"), "stockpile")
+    for code in (state.get("locations") or {}):
+        add(code, "presence")
+    for sysrow in systems:
+        scan = sysrow.get("data") or {}
+        for p in scan.get("planets") or []:
+            des = p.get("designation")
+            add(des, p.get("type", "planet"))
+            for lp in ("L4", "L5"):
+                add(f"{des}-{lp}", "Lagrange")
+        for b in ((scan.get("asteroid_belt") or {}).get("belts")) or []:
+            add(b.get("designation"), "belt")
+        for k in ("kuiper", "oort"):
+            add(((scan.get("outer_system") or {}).get(k) or {}).get("designation"), k)
+        add(scan.get("entry_point"), "entry point")
+    for s in (stars or {}).get("stars") or []:
+        add(s.get("designation"), "star")
+        add(s.get("entry_point"), "entry point")
+
+    def rank(code: str) -> tuple:
+        return (0 if here and code.startswith(here_star + "-") or code == here_star else 1, code)
+
+    locations = [{"value": c, "label": n} for c, n in sorted(locs.items(), key=lambda kv: rank(kv[0]))][:3000]
+
+    types = sorted({b.get("device_type") for b in blueprints if b.get("device_type")} |
+                   {d.get("device_type") for d in devices if d.get("device_type")})
+    tags = sorted({t for d in devices for t in (d.get("tags") or [])})
+    reps = [{"value": c, "label": r.get("name") or c} for c, r in (state.get("replicants") or {}).items()]
+    channels = (state.get("account") or {}).get("bobnet_channels") or ["#general", "#trade"]
+    return {"locations": locations, "device_types": types, "tags": tags, "replicants": reps,
+            "channels": channels, "devices": devices, "here": here}
+
+
+def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
+    """Devices for a device/devices field: same location first, filtered by the field's filter."""
+    here = sugg.get("here")
+    out = []
+    for d in sugg["devices"]:
+        if d.get("device_code") == self_code:
+            continue
+        flt = f.filter or {}
+        feats = d.get("features") or []
+        if "device_type" in flt and d.get("device_type") != flt["device_type"]:
+            continue
+        if flt.get("feature") and flt["feature"] not in feats:
+            continue
+        if flt.get("not_feature") and flt["not_feature"] in feats:
+            continue
+        out.append({"value": d["device_code"], "label": f"{(d.get('device_type') or '').replace('_', ' ')} · "
+                    f"{d.get('location')} · {d.get('status')}", "near": d.get("location") == here})
+    out.sort(key=lambda o: (not o["near"], o["label"]))
+    return out
+
+
+# --- form -> JSON ------------------------------------------------------------------------------
+class FormError(ValueError):
+    pass
+
+
+def _set(body: dict, path: str, value: Any) -> None:
+    if not path:  # empty name = merge into the object itself (used by directive resource maps)
+        if isinstance(value, dict):
+            body.update(value)
+        return
+    parts = path.split(".")
+    cur = body
+    for p in parts[:-1]:
+        cur = cur.setdefault(p, {})
+    cur[parts[-1]] = value
+
+
+def _num(v: str, as_int: bool) -> float | int:
+    v = v.strip()
+    try:
+        return int(v) if as_int and v.lstrip("-").isdigit() else (int(float(v)) if as_int else float(v))
+    except ValueError as e:
+        raise FormError(f"'{v}' is not a number") from e
+
+
+def parse_fields(fields: list[Field], form) -> dict:
+    """Read `f.<name>` inputs (as produced by partials/fields.html) into a nested dict."""
+    body: dict = {}
+    for f in fields:
+        key = f"f.{f.name}"
+        if f.kind == "resources":
+            as_int = "float" not in f.options
+            amounts = {}
+            for r in RESOURCES:
+                raw = (form.get(f"{key}.{r}") or "").strip()
+                if raw:
+                    amounts[r] = _num(raw, as_int)
+            if amounts:
+                _set(body, f.name, amounts)
+            elif f.required:
+                raise FormError(f"{f.title}: enter at least one amount")
+            continue
+        if f.kind in ("devices", "resource_list"):
+            vals = [v for v in form.getlist(key) if v]
+            if vals:
+                _set(body, f.name, vals)
+            elif f.required:
+                raise FormError(f"{f.title}: pick at least one")
+            continue
+        if f.kind == "vector":
+            raw = [(form.get(f"{key}.{i}") or "").strip() for i in range(3)]
+            if any(raw):
+                _set(body, f.name, [float(x or 0) for x in raw])
+            elif f.required:
+                raise FormError(f"{f.title} is required")
+            continue
+        raw = (form.get(key) or "").strip()
+        if not raw:
+            if f.required:
+                raise FormError(f"{f.title} is required")
+            continue
+        if f.kind == "int":
+            val: Any = _num(raw, True)
+        elif f.kind == "float":
+            val = _num(raw, False)
+        elif f.kind == "bool":
+            val = raw.lower() in ("true", "1", "yes", "on")
+        elif f.kind == "tags":
+            val = [t.strip() for t in raw.split(",") if t.strip()]
+        elif f.kind in ("device", "replicant", "location"):
+            val = raw.upper()
+        else:
+            val = raw
+        _set(body, f.name, val)
+    # oncomplete only makes sense with a command
+    oc = body.get("oncomplete")
+    if isinstance(oc, dict):
+        if not oc.get("command"):
+            body.pop("oncomplete")
+        elif oc["command"] == "travel":
+            oc.pop("resource_type", None)
+        elif oc["command"] == "start_mining":
+            oc.pop("destination", None)
+    return body

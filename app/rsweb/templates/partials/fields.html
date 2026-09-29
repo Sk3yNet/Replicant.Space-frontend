@@ -1,0 +1,62 @@
+{# Renders command/directive fields. Needs: fields, sugg, uid, self_code, device_options(), RESOURCES #}
+{% set used = namespace(loc=false, dtype=false, tags=false, rep=false, chan=false) %}
+{% if not fields %}<p class="muted small">No arguments needed.</p>{% endif %}
+<div class="fields">
+{% for f in fields %}
+  {% set key = "f." ~ f.name %}
+  <div class="field">
+    <label>{{ f.title }}{% if f.required %} <span class="lv-alert">*</span>{% endif %}</label>
+    {% if f.kind == "resource" %}
+      <select name="{{ key }}">
+        {% if not f.required %}<option value="">—</option>{% endif %}
+        {% for r in RESOURCES %}<option {{ 'selected' if f.default == r }}>{{ r }}</option>{% endfor %}
+      </select>
+    {% elif f.kind == "choice" %}
+      <select name="{{ key }}">
+        {% for o in f.options %}<option value="{{ o }}" {{ 'selected' if f.default == o }}>{{ o or '—' }}</option>{% endfor %}
+      </select>
+    {% elif f.kind == "bool" %}
+      <select name="{{ key }}">
+        {% if not f.required and f.default is none %}<option value="">—</option>{% endif %}
+        <option value="true" {{ 'selected' if f.default is sameas true }}>yes</option>
+        <option value="false" {{ 'selected' if f.default is sameas false }}>no</option>
+      </select>
+    {% elif f.kind == "resources" %}
+      <div class="res-grid">
+        {% for r in RESOURCES %}<label class="res"><span>{{ r }}</span>
+          <input type="number" name="{{ key }}.{{ r }}" min="0" step="{{ 'any' if 'float' in f.options else '1' }}" placeholder="—"></label>{% endfor %}
+      </div>
+    {% elif f.kind == "resource_list" %}
+      <div class="chips">{% for r in RESOURCES %}<label class="chip"><input type="checkbox" name="{{ key }}" value="{{ r }}"> {{ r }}</label>{% endfor %}</div>
+    {% elif f.kind == "devices" %}
+      {% set opts = device_options(sugg, f, self_code) %}
+      <div class="pick-list">
+        {% for o in opts %}<label style="display:block" class="{{ '' if o.near else 'muted' }}"><input type="checkbox" name="{{ key }}" value="{{ o.value }}"> <span class="mono">{{ o.value }}</span> {{ o.label }}</label>
+        {% else %}<span class="muted small">No matching devices.</span>{% endfor %}
+      </div>
+    {% elif f.kind == "vector" %}
+      <div class="row">{% for axis in ['x','y','z'] %}<input type="number" step="any" name="{{ key }}.{{ loop.index0 }}" placeholder="{{ axis }}" style="width:80px">{% endfor %}</div>
+    {% elif f.kind == "int" or f.kind == "float" %}
+      <input type="number" name="{{ key }}" step="{{ '1' if f.kind == 'int' else 'any' }}" value="{{ f.default if f.default is not none else '' }}" style="width:120px">
+    {% elif f.kind == "device" %}
+      {% set opts = device_options(sugg, f, self_code) %}
+      <select name="{{ key }}">
+        {% if not f.required %}<option value="">—</option>{% endif %}
+        {% for o in opts %}<option value="{{ o.value }}">{{ o.value }} · {{ o.label }}</option>{% endfor %}
+      </select>
+      {% if not opts %}<span class="muted small">No matching devices found — sync may still be running.</span>{% endif %}
+    {% else %}
+      {% set list_id = {"location": "loc", "device_type": "dtype", "tags": "tags", "replicant": "rep", "channel": "chan"}.get(f.kind) %}
+      {% if list_id == "loc" %}{% set used.loc = true %}{% elif list_id == "dtype" %}{% set used.dtype = true %}{% elif list_id == "tags" %}{% set used.tags = true %}{% elif list_id == "rep" %}{% set used.rep = true %}{% elif list_id == "chan" %}{% set used.chan = true %}{% endif %}
+      <input name="{{ key }}" value="{{ f.default if f.default is not none else '' }}" {% if list_id %}list="{{ uid }}-{{ list_id }}" autocomplete="off"{% endif %}
+             placeholder="{{ 'start typing or pick…' if list_id else '' }}" size="{{ 30 if f.kind in ('location','text') else 22 }}">
+    {% endif %}
+    {% if f.help %}<div class="muted small">{{ f.help }}</div>{% endif %}
+  </div>
+{% endfor %}
+</div>
+{% if used.loc %}<datalist id="{{ uid }}-loc">{% for o in sugg.locations %}<option value="{{ o.value }}">{{ o.label }}</option>{% endfor %}</datalist>{% endif %}
+{% if used.dtype %}<datalist id="{{ uid }}-dtype">{% for t in sugg.device_types %}<option value="{{ t }}">{% endfor %}</datalist>{% endif %}
+{% if used.tags %}<datalist id="{{ uid }}-tags">{% for t in sugg.tags %}<option value="{{ t }}">{% endfor %}</datalist>{% endif %}
+{% if used.rep %}<datalist id="{{ uid }}-rep">{% for o in sugg.replicants %}<option value="{{ o.value }}">{{ o.label }}</option>{% endfor %}</datalist>{% endif %}
+{% if used.chan %}<datalist id="{{ uid }}-chan">{% for c in sugg.channels %}<option value="{{ c }}">{% endfor %}</datalist>{% endif %}

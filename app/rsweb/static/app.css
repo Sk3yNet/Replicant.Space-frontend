@@ -112,3 +112,10 @@ details summary { cursor: pointer; color: var(--muted); }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; }
 @media (max-width: 700px) { .g2 { grid-template-columns: 1fr; } #map-info { position: static; width: auto; } }
+.fields { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.field > label { display: block; margin-bottom: 2px; text-transform: capitalize; }
+.res-grid { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 4px 10px; max-width: 560px; }
+.res-grid .res { display: flex; align-items: center; gap: 6px; }
+.res-grid .res span { width: 74px; }
+.res-grid input { width: 80px; }
+.pick-list { max-height: 180px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 6px; }

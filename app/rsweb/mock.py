@@ -319,7 +319,7 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
 
     @app.get("/v1/inventory")
     async def inventory():
-        return ok({"locations": [{"location": k, "items": {r: int(v) for r, v in items.items()}} for k, items in sorted(world.inventory.items())],
+        return ok({"locations": [{"location": k, "items": [{"resource": r, "quantity": int(v)} for r, v in items.items()]} for k, items in sorted(world.inventory.items())],
                    "next_cursor": None})
 
     @app.get("/v1/locations")

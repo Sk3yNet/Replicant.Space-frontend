@@ -20,6 +20,8 @@ from fastapi.templating import Jinja2Templates
 from .api import ApiError
 from .db import now_iso, row_event
 from . import notify
+from .shapes import as_amounts, normalize_blueprints, normalize_inventory
+from . import commands as cmdspec
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
@@ -146,7 +148,8 @@ def capacity(v: Any) -> float | None:
 
 templates.env.filters.update(local=f_local, ago=f_ago, pretty=f_pretty, human=f_human, num=f_num,
                              status_class=status_class, star_of=star_of, capacity=capacity)
-templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, level_of=notify.level_of)
+templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, level_of=notify.level_of,
+                             device_options=cmdspec.device_options)
 
 
 async def base_ctx(request: Request, user: str, active: str, **kw) -> dict:
@@ -182,7 +185,7 @@ async def load_state(request: Request) -> dict:
         "account": await db.kv_get("account", {}) or {},
         "replicants": await db.kv_get("replicants", {}) or {},
         "devices": await db.kv_get("devices", []) or [],
-        "inventory": await db.kv_get("inventory", []) or [],
+        "inventory": normalize_inventory(await db.kv_get("inventory", [])),
         "locations": await db.kv_get("locations", {}) or {},
         "totals": await db.kv_get("inventory_totals", {}) or {},
     }
@@ -384,44 +387,54 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
     st = await load_state(request)
     same_loc = [d for d in st["devices"] if d.get("location") == dev.get("location") and d.get("device_code") != code]
     return await page(request, user, "device.html", "fleet", dev=dev, code=code, err=err, logs=logs, events=events,
-                      same_loc=same_loc, command_help=COMMAND_HELP)
+                      same_loc=same_loc, first_command=(dev.get("available_commands") or [""])[0])
 
 
-# Argument templates for device commands (pre-fills the JSON box on the device page).
-COMMAND_HELP: dict[str, dict] = {
-    "travel": {"destination": "STAR-BELT-1"},
-    "stow": {"target": "DEVICE_CODE"},
-    "deploy": {},
-    "start_mining": {"resource_type": "structural"},
-    "retarget": {"resource_type": "conductive"},
-    "collect_resources": {"resources": {"structural": 20}},
-    "deposit_resources": {},
-    "attach": {"device": "DEVICE_CODE"},
-    "enqueue_print": {"device_type": "mining_drone", "quantity": 1},
-    "dequeue_print": {"index": 1},
-    "prospect": {"direction": [0.0, 1.0, 0.0]},
-    "replicate": {"target": "EMPTY_MATRIX_CODE"},
-    "adopt": {"devices": ["DEVICE_CODE"]},
-    "release": {"devices": ["DEVICE_CODE"]},
-    "set_directive": {"directive": "gather_evenly", "configuration": {}},
-    "change_owner": {"replicant_code": "REPLICANT_CODE"},
-    "set_welcome_message": {"message": "Welcome!"},
-    "message": {"channel": "#general", "text": "hello"},
-}
 DANGEROUS = {"decommission", "change_owner", "deactivate"}
 
 
+async def suggestions(request: Request, here: str | None) -> dict:
+    db = request.app.state.db
+    st = await load_state(request)
+    bps = normalize_blueprints(await db.kv_get("blueprints", []))
+    systems = [{"star": r["star"], "data": json.loads(r["data"])} for r in await db.fetchall("SELECT star, data FROM systems")]
+    return cmdspec.build_suggestions(st, bps, systems, await db.kv_get("stars", {}) or {}, here)
+
+
+async def _device(request: Request, code: str) -> dict:
+    return next((d for d in (await load_state(request))["devices"] if d.get("device_code") == code), {})
+
+
+@router.get("/devices/{code}/command-form", response_class=HTMLResponse)
+async def device_command_form(request: Request, code: str, command: str = "", user: str = Depends(current_user)):
+    dev = await _device(request, code)
+    fields = cmdspec.COMMANDS.get(command)
+    return partial(request, "partials/command_form.html", code=code, command=command, fields=fields or [],
+                   known=fields is not None, sugg=await suggestions(request, dev.get("location")),
+                   uid=f"c-{code}", self_code=code, directives=None)
+
+
 @router.post("/devices/{code}/command", response_class=HTMLResponse)
-async def device_command(request: Request, code: str, command: str = Form(...), args: str = Form(""),
-                         user: str = Depends(current_user)):
+async def device_command(request: Request, code: str, user: str = Depends(current_user)):
+    form = await request.form()
+    command = (form.get("command") or "").strip()
+
+    def bad(msg: str) -> HTMLResponse:
+        return partial(request, "partials/action_result.html", ok=False, status=400, error=msg,
+                       label=command or "command", method="POST", path=f"/devices/{code}", response=None)
+
+    if not command:
+        return bad("Pick a command")
     try:
-        extra = parse_json_field(args) or {}
+        body = cmdspec.parse_fields(cmdspec.COMMANDS.get(command, []), form)
+        extra = parse_json_field(form.get("args")) or {}
         if not isinstance(extra, dict):
-            raise ValueError("arguments must be a JSON object")
+            return bad("Extra arguments must be a JSON object")
+    except cmdspec.FormError as e:
+        return bad(str(e))
     except ValueError as e:
-        return partial(request, "partials/action_result.html", ok=False, status=400, error=f"Bad JSON: {e}",
-                       label=command, method="POST", path=f"/devices/{code}", response=None)
-    return await run_action(request, user, "POST", f"/devices/{code}", {"command": command, **extra},
+        return bad(f"Bad JSON: {e}")
+    return await run_action(request, user, "POST", f"/devices/{code}", {"command": command, **body, **extra},
                             f"{command} on {code}")
 
 
@@ -450,7 +463,7 @@ async def replicant_detail(request: Request, code: str, user: str = Depends(curr
         nearby = ((await request.app.state.api.get(f"/replicants/{code}/stars", per_page=15)) or {}).get("stars") or []
     except ApiError:
         pass
-    blueprints = await request.app.state.db.kv_get("blueprints", []) or []
+    blueprints = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
     devices = [d for d in st["devices"] if d.get("replicant_code") == code]
     return await page(request, user, "replicant.html", "fleet", rep=rep, code=code, nearby=nearby,
                       blueprints=blueprints, devices=devices, timers=[t for t in await active_timers(request)
@@ -709,28 +722,22 @@ def printers(state: dict) -> list[dict]:
     return out
 
 
-def affordable(cost: dict, items: dict) -> int:
-    counts = []
-    for k, v in (cost or {}).items():
-        try:
-            v = float(v)
-        except (TypeError, ValueError):
-            continue
-        if v > 0:
-            counts.append(int(float(items.get(k, 0) or 0) // v))
+def affordable(cost: Any, items: Any) -> int:
+    have = as_amounts(items)
+    counts = [int(have.get(k, 0.0) // v) for k, v in as_amounts(cost).items() if v > 0]
     return min(counts) if counts else 0
 
 
 @router.get("/blueprints", response_class=HTMLResponse)
 async def blueprints(request: Request, q: str = "", user: str = Depends(current_user)):
     st = await load_state(request)
-    bps = await request.app.state.db.kv_get("blueprints", []) or []
+    bps = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
     if q:
         bps = [b for b in bps if q.lower() in json.dumps(b).lower()]
     inv = {i.get("location"): i.get("items") or {} for i in st["inventory"]}
     prs = printers(st)
     for b in bps:
-        b["_afford"] = {p["code"]: affordable(b.get("resources") or {}, inv.get(p["location"], {})) for p in prs}
+        b["_afford"] = {p["code"]: affordable(b["resources"], inv.get(p["location"], {})) for p in prs}
     return await page(request, user, "blueprints.html", "blueprints", blueprints=sorted(bps, key=lambda b: b.get("device_type", "")),
                       printers=prs, inv=inv, q=q)
 
@@ -739,7 +746,7 @@ async def blueprints(request: Request, q: str = "", user: str = Depends(current_
 async def blueprint_plan(request: Request, user: str = Depends(current_user)):
     form = await request.form()
     st = await load_state(request)
-    bps = {b.get("device_type"): b for b in await request.app.state.db.kv_get("blueprints", []) or []}
+    bps = {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
     location = form.get("location") or ""
     inv = {i.get("location"): i.get("items") or {} for i in st["inventory"]}.get(location, {})
     need: Counter = Counter()
@@ -757,12 +764,12 @@ async def blueprint_plan(request: Request, user: str = Depends(current_user)):
         bp = bps.get(key[4:])
         if not bp:
             continue
-        for r, v in (bp.get("resources") or {}).items():
-            need[r] += float(v) * n
+        for r, v in bp["resources"].items():
+            need[r] += v * n
         total_time += (bp.get("print_time") or 0) * n
         lines.append((key[4:], n))
-    rows = [{"resource": r, "need": need[r], "have": float(inv.get(r, 0) or 0),
-             "short": max(0.0, need[r] - float(inv.get(r, 0) or 0))} for r in sorted(need)]
+    rows = [{"resource": r, "need": need[r], "have": inv.get(r, 0.0),
+             "short": max(0.0, need[r] - inv.get(r, 0.0))} for r in sorted(need)]
     return partial(request, "partials/plan.html", rows=rows, lines=lines, location=location, total_time=total_time)
 
 
@@ -779,26 +786,8 @@ async def blueprint_print(request: Request, printer: str = Form(...), device_typ
 
 
 # --- AMI ---------------------------------------------------------------------------------------
-DIRECTIVES = {
-    "mining": {"gather_resources": {"structural": 500, "conductive": 200},
-               "gather_evenly": {}, "maintain_ratios": {"structural": 0.5, "conductive": 0.3, "silicates": 0.2},
-               "deplete_smallest": {}, "gather_salvage": {"location": "STAR-1-3-SAL-1", "recall": True}},
-    "survey": {"survey_system": {"planets": "all", "moons": "all", "recall": True}, "belt_search": {}},
-    "transport": {"delivery": {"route": {"collect": "STAR-BELT-1", "deliver": "STAR-3-L4"}, "requirement": {"structural": 100}},
-                  "shuttle": {"collect": "STAR-BELT-1", "deliver": "STAR-3-L4", "priority": ["structural"]},
-                  "ferry": {"collect": "STAR-BELT-1", "deliver": "OTHER-3-L4", "priority": []},
-                  "consolidate": {"deliver": "STAR-3-L4", "priority": []}},
-    "maintenance": {"patrol": {}},
-    "trade": {"trade": {"name": "My shop", "description": "", "announcement": ""}},
-    "fleet": {},
-}
-
-
-def controller_kind(dtype: str) -> str:
-    for k in DIRECTIVES:
-        if k in (dtype or ""):
-            return k
-    return "fleet"
+DIRECTIVES = cmdspec.DIRECTIVES
+controller_kind = cmdspec.controller_kind
 
 
 @router.get("/ami", response_class=HTMLResponse)
@@ -818,10 +807,22 @@ async def ami(request: Request, user: str = Depends(current_user)):
             (d["device_code"],))
         candidates = [x for x in st["devices"] if x.get("location") == d.get("location")
                       and "ami" not in (x.get("features") or [])]
+        directives = DIRECTIVES.get(kind, {})
+        first = next(iter(directives), None)
         ctrls.append({"d": d, "kind": kind, "digest": row_event(last) if last else None,
                       "directive": row_event(last_dir) if last_dir else None,
-                      "directives": DIRECTIVES.get(kind, {}), "candidates": candidates})
-    return await page(request, user, "ami.html", "ami", ctrls=ctrls, directives_json=json.dumps(DIRECTIVES))
+                      "directives": directives, "first": first,
+                      "first_fields": directives.get(first, []) if first else [], "candidates": candidates})
+    sugg = await suggestions(request, None)
+    return await page(request, user, "ami.html", "ami", ctrls=ctrls, sugg=sugg)
+
+
+@router.get("/ami/{code}/directive-form", response_class=HTMLResponse)
+async def ami_directive_form(request: Request, code: str, directive: str = "", user: str = Depends(current_user)):
+    dev = await _device(request, code)
+    fields = DIRECTIVES.get(controller_kind(dev.get("device_type")), {}).get(directive, [])
+    return partial(request, "partials/fields.html", fields=fields, sugg=await suggestions(request, dev.get("location")),
+                   uid=f"d-{code}", self_code=code)
 
 
 @router.post("/ami/{code}/adopt", response_class=HTMLResponse)
@@ -834,12 +835,19 @@ async def ami_adopt(request: Request, code: str, user: str = Depends(current_use
 
 
 @router.post("/ami/{code}/directive", response_class=HTMLResponse)
-async def ami_directive(request: Request, code: str, directive: str = Form(...), configuration: str = Form(""),
-                        user: str = Depends(current_user)):
+async def ami_directive(request: Request, code: str, user: str = Depends(current_user)):
+    form = await request.form()
+    directive = (form.get("directive") or "").strip()
+    dev = await _device(request, code)
+    fields = DIRECTIVES.get(controller_kind(dev.get("device_type")), {}).get(directive, [])
     try:
-        cfg = parse_json_field(configuration) or {}
-    except ValueError as e:
-        return partial(request, "partials/action_result.html", ok=False, status=400, error=f"Bad JSON: {e}",
+        cfg = cmdspec.parse_fields(fields, form)
+        extra = parse_json_field(form.get("configuration")) or {}
+        if not isinstance(extra, dict):
+            raise ValueError("configuration must be a JSON object")
+        cfg.update(extra)
+    except ValueError as e:  # FormError is a ValueError
+        return partial(request, "partials/action_result.html", ok=False, status=400, error=str(e),
                        label="set_directive", method="POST", path=f"/devices/{code}", response=None)
     body = {"command": "set_directive", "directive": directive}
     if cfg:

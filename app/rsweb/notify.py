@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .db import DB, now_iso, row_event
+from .shapes import as_amounts
 
 # level: alert = needs attention, done = something was accomplished, info = everything else.
 ALERT_EVENTS = {
@@ -38,9 +39,8 @@ def level_of(event: str) -> str:
 
 
 def _res(d: Any) -> str:
-    if not isinstance(d, dict) or not d:
-        return ""
-    return ", ".join(f"{v} {k}" for k, v in d.items())
+    amounts = as_amounts(d)
+    return ", ".join(f"{v:g} {k}" for k, v in amounts.items())
 
 
 def describe(ev: dict) -> str:
@@ -214,8 +214,8 @@ async def build_digest(db: DB, since: str) -> dict:
         elif name == "mining.stopped":
             mined[p.get("resource_type", "?")] += _num(p.get("quantity_mined"))
         elif name == "transport.delivered":
-            for k, v in (p.get("resources") or {}).items():
-                delivered[k] += _num(v)
+            for k, v in as_amounts(p.get("resources")).items():
+                delivered[k] += v
         elif name == "travel.arrived":
             arrivals.append(f"{e.get('device_type') or 'device'} {e.get('device_code') or ''} → {p.get('destination') or e.get('location')}")
         elif name in ("scan.completed", "search.completed"):
