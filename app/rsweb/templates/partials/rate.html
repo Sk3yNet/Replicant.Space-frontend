@@ -1,0 +1,7 @@
+{% set gp = (100 * rate.get_used / rate.get_limit) | round %}{% set ap = (100 * rate.act_used / rate.act_limit) | round %}
+<div class="rate" title="Requests used in the last minute (game limit 120 reads / 60 actions per minute){% if rate.last_error %} · last error: {{ rate.last_error }}{% endif %}">
+  <span><span class="dot {{ 'live' if stream_state == 'live' else ('err' if 'error' in (stream_state or '') else '') }}"></span>stream {{ stream_state }}</span>
+  <span>read <span class="meter {{ 'full' if gp > 90 else ('hot' if gp > 60 else '') }}"><i style="width:{{ gp }}%"></i></span> {{ rate.get_used }}/{{ rate.get_limit }}</span>
+  <span>act <span class="meter {{ 'full' if ap > 90 else ('hot' if ap > 60 else '') }}"><i style="width:{{ ap }}%"></i></span> {{ rate.act_used }}/{{ rate.act_limit }}</span>
+  {% if rate.blocked and rate.blocked > 0 %}<span class="lv-alert">rate-limited {{ rate.blocked | round | int }}s</span>{% endif %}
+</div>

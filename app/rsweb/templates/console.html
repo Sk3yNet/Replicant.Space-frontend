@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Console{% endblock %}
+{% block content %}
+<h1>API console</h1>
+<p class="muted">Any endpoint from the <a href="https://replicant.space/docs" target="_blank" rel="noopener">API docs</a>. Requests go through the server (your token never reaches the browser) and share the rate-limit budget. Account wipe and token recovery are blocked.</p>
+<div class="grid g2">
+  <div class="card">
+    <form hx-post="/console" hx-target="#console-result">
+      <div class="row">
+        <select name="method" id="c-method">{% for m in ['GET','POST','PATCH','DELETE'] %}<option>{{ m }}</option>{% endfor %}</select>
+        <input name="path" id="c-path" value="/accounts/me" size="44" required>
+        <button>Send</button>
+      </div>
+      <label>JSON body</label>
+      <textarea name="body" id="c-body" placeholder='{"command": "..."}'></textarea>
+    </form>
+    <div id="console-result"></div>
+  </div>
+  <div class="card">
+    <h2>Presets</h2>
+    {% for m, p, b in presets %}
+      <div><a href="#" class="mono small" onclick="document.getElementById('c-method').value='{{ m }}';document.getElementById('c-path').value='{{ p }}';document.getElementById('c-body').value={{ b | tojson }};return false;">{{ m }} {{ p }}</a></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

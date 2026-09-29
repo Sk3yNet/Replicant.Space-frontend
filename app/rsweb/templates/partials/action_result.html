@@ -1,0 +1,12 @@
+<div class="result {{ 'ok' if ok else 'err' }}">
+  <div class="row between">
+    <strong>{{ '✔' if ok else '✖' }} {{ label }}</strong>
+    <span class="muted small mono">{{ method }} {{ path }} → {{ status }}</span>
+  </div>
+  {% if error %}<div class="lv-alert">{{ error }}</div>{% endif %}
+  {% if response is mapping %}
+    {% if response.arrives_at %}<div>Arrives <span data-ends="{{ response.arrives_at }}"><span class="left"></span></span> ({{ response.arrives_at | local }})</div>{% endif %}
+    {% if response.completes_at %}<div>Completes <span data-ends="{{ response.completes_at }}"><span class="left"></span></span> ({{ response.completes_at | local }})</div>{% endif %}
+  {% endif %}
+  {% if response %}<details {{ 'open' if not ok or label.startswith('console') }}><summary>response</summary><pre>{{ response | pretty }}</pre></details>{% endif %}
+</div>

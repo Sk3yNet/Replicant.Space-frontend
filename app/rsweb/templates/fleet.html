@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Fleet{% endblock %}
+{% block content %}
+<div class="row between"><h1>Fleet</h1>
+  <span class="row"><span id="refresh-msg"></span>
+  <button class="small" hx-post="/fleet/refresh" hx-target="#refresh-msg">Refresh from game</button></span></div>
+<form class="inline card" hx-get="/fleet" hx-target="#fleet-table" hx-trigger="input changed delay:300ms from:input, change from:select, fleet-refreshed from:body" hx-push-url="true" style="margin-bottom:12px">
+  <input name="q" placeholder="search code, location, status…" value="{{ f.q }}" size="28">
+  <select name="type"><option value="">all types</option>{% for t in types %}<option value="{{ t }}" {{ 'selected' if f.type == t }}>{{ t | human }}</option>{% endfor %}</select>
+  <select name="status"><option value="">any status</option>
+    {% for v, l in [("st-work", "working"), ("st-move", "moving"), ("st-idle", "idle / waiting"), ("st-off", "decommissioning / compacted"), ("st-other", "other")] %}
+    <option value="{{ v }}" {{ 'selected' if f.status == v }}>{{ l }}</option>{% endfor %}</select>
+  <select name="star"><option value="">all systems</option>{% for s in stars %}<option {{ 'selected' if f.star == s }}>{{ s }}</option>{% endfor %}</select>
+  {% if tags %}<select name="tag"><option value="">any tag</option>{% for t in tags %}<option {{ 'selected' if f.tag == t }}>{{ t }}</option>{% endfor %}</select>{% endif %}
+</form>
+<div class="card" id="fleet-table">{% include "partials/fleet_table.html" %}</div>
+{% endblock %}

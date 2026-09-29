@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Account{% endblock %}
+{% block content %}
+<h1>Account</h1>
+<div class="grid g2">
+  <div class="card">
+    <h2>Game account</h2>
+    <dl class="kv">
+      {% for k in ['name','email','status','timezone','experience_points_total','created_at','unread_message_count'] %}{% if account[k] is defined %}<dt>{{ k | human }}</dt><dd>{{ account[k] }}</dd>{% endif %}{% endfor %}
+      <dt>BobNet channels</dt><dd>{{ (account.bobnet_channels or []) | join(', ') }}</dd>
+    </dl>
+    <h2 style="margin-top:14px">Client status</h2>
+    <dl class="kv small">
+      <dt>Signed in as</dt><dd>{{ user }}</dd>
+      <dt>Event stream</dt><dd>{{ stream_state }}</dd>
+      <dt>Open browser tabs</dt><dd>{{ hub_listeners }}</dd>
+      {% for k, v in sync.items() %}<dt>sync {{ k }}</dt><dd>{% if v %}{{ v.at | ago }}{% if not v.ok %} <span class="lv-alert">{{ v.error }}</span>{% endif %}{% else %}never{% endif %}</dd>{% endfor %}
+    </dl>
+  </div>
+  <div class="card">
+    <h2>Achievements</h2>
+    {% set ach = achievements.achievements if achievements is mapping else achievements %}
+    {% for a in ach or [] %}<div><strong>{{ a.title or a.achievement_key }}</strong> <span class="muted small">{{ a.category }} · {{ a.xp_reward }} XP {{ a.achieved_at | ago if a.achieved_at }}</span><div class="small muted">{{ a.description }}</div></div>
+    {% else %}<p class="muted">None cached yet.</p>{% endfor %}
+  </div>
+</div>
+<div class="card" style="margin-top:14px">
+  <h2>Commands issued from this client</h2>
+  <table class="small">
+    <tr><th>When</th><th>Who</th><th>Request</th><th>Status</th><th></th></tr>
+    {% for a in actions %}<tr><td>{{ a.at | local }}</td><td>{{ a.user }}</td><td class="mono">{{ a.method }} {{ a.path }}</td>
+      <td class="{{ 'lv-alert' if a.status and a.status >= 400 else 'lv-done' }}">{{ a.status }}</td>
+      <td><details><summary>body / response</summary><pre>{{ a.body }}</pre><pre>{{ a.response }}</pre></details></td></tr>
+    {% else %}<tr><td class="muted" colspan="5">No commands yet.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

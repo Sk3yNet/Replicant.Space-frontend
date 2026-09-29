@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}AMI{% endblock %}
+{% block content %}
+<h1>AMI controllers</h1>
+<p class="muted">Controllers run the tactical work; set a directive, adopt devices, then launch. Digest events show what each one did.</p>
+{% if not ctrls %}<div class="card"><p class="muted">No devices with the <code>ami</code> feature yet. Print an AMI controller (see Blueprints).</p></div>{% endif %}
+<div class="grid g2">
+{% for c in ctrls %}{% set d = c.d %}
+  <div class="card">
+    <div class="row between">
+      <h3><a href="/devices/{{ d.device_code }}">{{ d.device_type | human }} <span class="mono">{{ d.device_code }}</span></a></h3>
+      <span class="pill {{ d.status | status_class }}">{{ d.status }}</span>
+    </div>
+    <div class="small muted">{{ d.location }}{% if c.directive %} · last directive event: {{ c.directive.event }} {{ (c.directive.payload or {}).get('directive', '') }} ({{ c.directive.created_at | ago }}){% endif %}</div>
+
+    {% if c.digest %}{% set p = c.digest.payload %}
+    <details open><summary>Latest digest · {{ c.digest.created_at | ago }}</summary>
+      <div class="small">{{ (p.activity or {}).event_count or 0 }} events in window
+        {% if (p.activity or {}).counts %}<div class="chips">{% for k, v in p.activity.counts.items() %}<span class="chip">{{ k }} <b>{{ v }}</b></span>{% endfor %}</div>{% endif %}</div>
+      {% if p.devices %}<table class="small">{% for x in p.devices %}<tr><td class="mono"><a href="/devices/{{ x.device_code }}">{{ x.device_code }}</a></td><td><span class="pill {{ x.status | status_class }}">{{ x.status }}</span></td><td class="num">{{ x.events }}</td><td class="muted">{{ x.last_event }}</td></tr>{% endfor %}</table>{% endif %}
+      {% if p.report %}<pre>{{ p.report | pretty }}</pre>{% endif %}
+    </details>
+    {% endif %}
+
+    {% if c.directives %}
+    <form hx-post="/ami/{{ d.device_code }}/directive" hx-target="#ami-{{ d.device_code }}">
+      <div class="row"><select name="directive" onchange="fillTemplate(this, 'cfg-{{ d.device_code }}')">
+        {% for name, tpl in c.directives.items() %}<option value="{{ name }}" data-tpl='{{ tpl | tojson }}'>{{ name | human }}</option>{% endfor %}
+      </select><button>Set directive</button></div>
+      <textarea name="configuration" id="cfg-{{ d.device_code }}">{{ (c.directives.values() | list)[0] | tojson }}</textarea>
+    </form>
+    {% endif %}
+
+    <form hx-post="/ami/{{ d.device_code }}/adopt" hx-target="#ami-{{ d.device_code }}">
+      <details><summary>Adopt / release devices at {{ d.location }} ({{ c.candidates | length }})</summary>
+        {% for x in c.candidates %}<label style="display:block"><input type="checkbox" name="devices" value="{{ x.device_code }}"> <span class="mono">{{ x.device_code }}</span> {{ x.device_type | human }} · {{ x.status }}</label>{% endfor %}
+        <div class="row"><button name="command" value="adopt" class="small">Adopt selected</button><button name="command" value="release" class="small ghost">Release selected</button></div>
+      </details>
+    </form>
+
+    <div class="row" style="margin-top:8px">
+      {% for cmd in ['launch', 'withdraw', 'assemble', 'activate', 'clear_directive'] if cmd in (d.available_commands or [cmd]) %}
+      <button class="small {{ 'ghost' if cmd in ('withdraw','clear_directive') }}" hx-post="/devices/{{ d.device_code }}/command" hx-vals='{"command": "{{ cmd }}"}' hx-target="#ami-{{ d.device_code }}" {% if cmd in ('withdraw','clear_directive') %}hx-confirm="{{ cmd }} on {{ d.device_code }}?"{% endif %}>{{ cmd | human }}</button>
+      {% endfor %}
+    </div>
+    <div id="ami-{{ d.device_code }}"></div>
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

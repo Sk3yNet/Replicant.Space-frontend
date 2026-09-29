@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ star }}{% endblock %}
+{% block content %}
+{% set s = scan.star or {} %}
+<div class="row between">
+  <h1>{{ star }} {% if s.spectral_type %}<span class="muted">{{ s.spectral_type }} · {{ s.color }}</span>{% endif %}
+    {% for t in scan.system_tags or [] %}<span class="pill">{{ t | human }}</span>{% endfor %}</h1>
+  <span class="row"><span class="muted small">{{ 'scan cached ' ~ (updated | ago) if updated else 'no scan cached' }}</span>
+    <a class="btn small" href="/systems/{{ star }}?refresh=1">Refresh</a></span>
+</div>
+{% if err %}<div class="banner">Could not load system: {{ err }}. You may need a scan from a replicant in this system, or a relay for remote access.</div>{% endif %}
+<div class="grid g2">
+  <div class="card">
+    <svg class="system" viewBox="0 0 {{ view.size }} {{ view.size }}">
+      {% if view.hz %}<circle cx="{{ view.c }}" cy="{{ view.c }}" r="{{ view.hz.r }}" fill="none" stroke="rgba(79,209,139,.14)" stroke-width="{{ view.hz.w }}"><title>Habitable zone</title></circle>{% endif %}
+      {% for b in view.belts %}<circle cx="{{ view.c }}" cy="{{ view.c }}" r="{{ b.r }}" fill="none" stroke="rgba(200,170,120,.28)" stroke-width="{{ b.w }}" stroke-dasharray="2 3"><title>{{ b.designation }} ({{ b.density }})</title></circle>{% endfor %}
+      {% if view.kuiper %}<circle cx="{{ view.c }}" cy="{{ view.c }}" r="{{ view.kuiper.r }}" fill="none" stroke="rgba(140,170,220,.25)" stroke-dasharray="6 6"/><text x="{{ view.c + 4 }}" y="{{ view.c - view.kuiper.r - 4 }}">Kuiper {{ view.kuiper.au }} AU</text>{% endif %}
+      {% for p in view.planets %}<circle cx="{{ view.c }}" cy="{{ view.c }}" r="{{ p.r }}" fill="none" stroke="rgba(255,255,255,.07)"/>{% endfor %}
+      <circle cx="{{ view.c }}" cy="{{ view.c }}" r="12" fill="{{ {'Red':'#ff8a65','Orange':'#ffb74d','Yellow':'#ffe082','White':'#f5f5f5','Blue':'#90caf9'}.get((s.color or 'Yellow')|capitalize, '#ffe082') }}"><title>{{ star }}</title></circle>
+      {% for p in view.planets %}
+        <g class="marker" hx-get="/locations/{{ p.designation }}" hx-target="#loc-panel">
+          <circle cx="{{ p.x }}" cy="{{ p.y }}" r="{{ p.size }}" fill="{{ '#4fd18b' if p.in_habitable_zone else '#7f95b8' }}"><title>{{ p.designation }} · {{ p.type }} · {{ p.orbital_distance_au }} AU · {{ p.moon_count }} moons</title></circle>
+          <text x="{{ p.x + 10 }}" y="{{ p.y + 4 }}">{{ p.designation.split('-')[-1] }}</text>
+        </g>
+      {% endfor %}
+      {% for m in view.markers %}
+        <g class="marker" hx-get="/locations/{{ m.loc }}" hx-target="#loc-panel">
+          <circle cx="{{ m.x }}" cy="{{ m.y }}" r="{{ 5 + [m.devices|length, 12]|min }}" fill="rgba(108,182,255,.25)" stroke="#6cb6ff"><title>{{ m.loc }} · {{ m.devices | length }} device(s){% for k, v in m.stock.items() %} · {{ k }} {{ v }}{% endfor %}</title></circle>
+          {% if m.devices %}<text x="{{ m.x - 3 }}" y="{{ m.y + 4 }}" style="fill:#fff">{{ m.devices | length }}</text>{% endif %}
+        </g>
+      {% endfor %}
+      {% if view.oort %}<text x="{{ view.size - 170 }}" y="20">Oort {{ view.oort.au | round | int }} AU ↗</text>{% endif %}
+    </svg>
+    <p class="muted small">Log-scaled orbits. Green band = habitable zone, dashed rings = belts / Kuiper. Blue circles = your devices or stockpiles (click for detail).</p>
+  </div>
+  <div>
+    <div class="card" id="loc-panel"><p class="muted">Click a planet or marker to load location detail.</p></div>
+    {% if reps %}<div class="card" style="margin-top:14px"><h2>Your replicants here</h2>
+      {% for r in reps %}<div><a href="/replicants/{{ r.replicant_code }}">{{ r.name }}</a> @ {{ r.location or r.current_location }}</div>{% endfor %}</div>{% endif %}
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <h2>Planets</h2>
+    <table class="small">
+      <tr><th>Body</th><th>Type</th><th class="num">AU</th><th class="num">Moons</th><th>HZ</th></tr>
+      {% for p in scan.planets or [] %}<tr><td><a hx-get="/locations/{{ p.designation }}" hx-target="#loc-panel" href="/locations/{{ p.designation }}">{{ p.designation }}</a></td>
+        <td>{{ p.type }}</td><td class="num">{{ p.orbital_distance_au }}</td><td class="num">{{ p.moon_count }}</td><td>{{ '✓' if p.in_habitable_zone }}</td></tr>{% endfor %}
+    </table>
+    {% if scan.entry_point %}<p class="small muted">Entry point: {{ scan.entry_point }}</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Belts</h2>
+    {% for b in (scan.asteroid_belt or {}).belts or [] %}
+      <h3><a hx-get="/locations/{{ b.designation }}" hx-target="#loc-panel" href="/locations/{{ b.designation }}">{{ b.designation }}</a> <span class="muted small">{{ b.density }} · {{ b.inner_radius_au }}–{{ b.outer_radius_au }} AU</span></h3>
+      <div class="chips">{% for r, lvl in (b.resources or {}) | dictsort %}<span class="chip">{{ r }} <b>{{ lvl }}</b></span>{% endfor %}</div>
+    {% else %}<p class="muted">No belts recorded.</p>{% endfor %}
+    {% if s %}<h2 style="margin-top:14px">Star</h2>
+    <dl class="kv small">{% for k in ['mass_solar','luminosity_solar','temperature_k','age_my'] %}{% if s[k] is defined %}<dt>{{ k | human }}</dt><dd>{{ s[k] }}</dd>{% endif %}{% endfor %}</dl>{% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,47 @@
+<div class="digest">
+  <p><strong>{{ digest.headline | capitalize }}</strong> <span class="muted small">· {{ digest.total_events }} events since {{ digest.since | local }} ({{ digest.since | ago }})</span></p>
+
+  {% if digest.inventory_delta %}
+  <h3>Stockpiles</h3>
+  <div class="chips">{% for r, v in digest.inventory_delta | dictsort %}<span class="chip {{ 'neg' if v < 0 }}">{{ r }} <b>{{ '+' if v > 0 }}{{ v | num }}</b></span>{% endfor %}</div>
+  {% endif %}
+
+  {% if digest.printed %}
+  <h3>Printed</h3>
+  <div class="chips">{% for t, n in digest.printed | dictsort %}<span class="chip">{{ t | human }} <b>×{{ n }}</b></span>{% endfor %}</div>
+  {% endif %}
+
+  {% if digest.mined or digest.delivered %}
+  <h3>Mining &amp; logistics</h3>
+  <div class="chips">
+    {% for r, v in digest.mined | dictsort %}<span class="chip">mined {{ r }} <b>{{ v | num }}</b></span>{% endfor %}
+    {% for r, v in digest.delivered | dictsort %}<span class="chip">delivered {{ r }} <b>{{ v | num }}</b></span>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if digest.arrivals %}
+  <h3>Arrivals ({{ digest.arrivals_total }})</h3>
+  <ul>{% for a in digest.arrivals %}<li>{{ a }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if digest.scans or digest.directives or digest.other_done %}
+  <h3>Accomplished</h3>
+  <ul>
+    {% for s in digest.directives %}<li>{{ s }}</li>{% endfor %}
+    {% for s in digest.scans %}<li>{{ s }}</li>{% endfor %}
+    {% for s in digest.other_done %}<li>{{ s }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if digest.xp %}<p>Experience: <b class="lv-done">+{{ digest.xp | num }} XP</b></p>{% endif %}
+
+  {% if digest.alerts %}
+  <h3 class="lv-alert">Needs attention</h3>
+  <ul>{% for a in digest.alerts %}<li>{{ a.text }} <span class="muted small">{{ a.at | ago }}</span></li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if digest.ami %}
+  <h3>AMI controllers (latest digest)</h3>
+  <ul>{% for a in digest.ami %}<li><a href="/devices/{{ a.code }}">{{ a.text }}</a></li>{% endfor %}</ul>
+  {% endif %}
+</div>

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Galaxy{% endblock %}
+{% block head %}
+<script type="importmap">{"imports": {"three": "/static/vendor/three.module.min.js", "three/addons/OrbitControls.js": "/static/vendor/OrbitControls.js"}}</script>
+{% endblock %}
+{% block content %}
+<div id="map">
+  <div id="map-tools">
+    <input id="map-search" placeholder="find star…" list="star-list" size="14"><datalist id="star-list"></datalist>
+    <select id="map-from" title="Distances are measured from this replicant">
+      {% for code, r in replicants.items() %}<option value="{{ code }}">{{ r.name or code }}</option>{% endfor %}
+    </select>
+    <label><input type="checkbox" id="opt-labels" checked> labels</label>
+    <label><input type="checkbox" id="opt-mine"> only my systems</label>
+    <label><input type="checkbox" id="opt-cover" checked> relay/hub range</label>
+    <button class="small" id="btn-top">top-down</button>
+    <button class="small" id="btn-home">my replicant</button>
+    <button class="small ghost" hx-post="/map/refresh" hx-target="#map-status">refresh catalogue</button>
+    <span id="map-status" class="small muted"></span>
+  </div>
+  <div id="map-info" class="card"><p class="muted">Loading star catalogue…</p></div>
+  <div id="map-tip"></div>
+  <div class="legend">
+    <i style="background:#6cb6ff"></i>your devices <i style="background:#ff5fa2"></i>replicant <i style="background:#4fd18b"></i>scanned
+    <i style="background:#f0b64f"></i>hub · shift-click two stars to measure
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/map.js"></script>{% endblock %}

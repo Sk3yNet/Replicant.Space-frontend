@@ -1,0 +1,6 @@
+<li class="{{ 'new' if live }}">
+  <span class="t" title="{{ e.created_at }}">{{ e.created_at | local('%m-%d %H:%M:%S') }}</span>
+  <span class="lv-{{ level_of(e.event) }}">●</span>
+  <span>{% if e.device_code %}<a href="/devices/{{ e.device_code }}">{{ describe(e) }}</a>{% else %}{{ describe(e) }}{% endif %}
+    <span class="muted small">· {{ e.event }}{% if e.location %} · <a href="/systems/{{ e.location | star_of }}">{{ e.location }}</a>{% endif %}</span></span>
+</li>

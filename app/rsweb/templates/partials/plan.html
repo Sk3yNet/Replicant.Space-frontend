@@ -1,0 +1,8 @@
+{% if not lines %}<p class="muted">Enter quantities to see total cost and shortfall.</p>{% else %}
+<p class="small">{% for t, n in lines %}{{ n }}× {{ t | human }}{{ ', ' if not loop.last }}{% endfor %} · print time {{ (total_time / 60) | round(1) }} min (sequential)</p>
+<table class="small">
+  <tr><th>Resource</th><th class="num">Need</th><th class="num">Have @ {{ location }}</th><th class="num">Short</th></tr>
+  {% for r in rows %}<tr><td>{{ r.resource }}</td><td class="num">{{ r.need | num }}</td><td class="num">{{ r.have | num }}</td>
+    <td class="num {{ 'lv-alert' if r.short else 'lv-done' }}">{{ r.short | num if r.short else '✓' }}</td></tr>{% endfor %}
+</table>
+{% endif %}

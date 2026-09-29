@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+{% if digest %}
+<div class="card hl" id="digest" style="margin-bottom:14px">
+  <div class="row between"><h2>While you were away</h2>
+    <span class="row"><a class="small" href="/digest?hours=24">last 24h</a><a class="small" href="/digest?hours=168">last 7d</a>
+    <button class="small ghost" hx-post="/digest/dismiss" hx-target="#digest" hx-swap="outerHTML">Got it</button></span></div>
+  {% include "partials/digest_body.html" %}
+</div>
+{% endif %}
+
+{% if alerts %}
+<div class="card alert" style="margin-bottom:14px">
+  <div class="row between"><h2 class="lv-alert">Alerts</h2><a class="small" href="/notifications">all notifications</a></div>
+  <ul>{% for a in alerts %}<li><a href="{{ a.link }}">{{ a.title }}</a> <span class="muted small">{{ a.created_at | ago }}</span></li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="grid g2">
+  <div class="card">
+    <h2>Replicants</h2>
+    {% if not replicants %}<p class="muted">Waiting for the first account sync…</p>{% endif %}
+    <table>
+      <tr><th>Name</th><th>Location</th><th>Status</th><th class="num">Devices</th><th class="num">XP</th></tr>
+      {% for code, r in replicants.items() %}
+      <tr>
+        <td><a href="/replicants/{{ code }}">{{ r.name or code }}</a> <span class="muted mono small">{{ code }}</span></td>
+        <td>{% set loc = r.location or r.current_location %}<a href="/systems/{{ loc | star_of }}">{{ loc }}</a></td>
+        <td><span class="pill {{ r.status | status_class }}">{{ r.status or '—' }}</span></td>
+        <td class="num">{{ r.device_count or '' }}</td>
+        <td class="num">{{ r.experience_points | num if r.experience_points is not none else '' }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>In progress</h2>
+    <div hx-get="/partials/timers" hx-trigger="sse:state throttle:3s, every 60s">{% include "partials/timers.html" %}</div>
+  </div>
+
+  <div class="card">
+    <div class="row between"><h2>Fleet</h2><a class="small" href="/fleet">open fleet</a></div>
+    <div hx-get="/partials/fleet-summary" hx-trigger="sse:state throttle:5s">{% include "partials/fleet_summary.html" %}</div>
+  </div>
+
+  <div class="card">
+    <h2>Stockpiles</h2>
+    {% if not totals %}<p class="muted">No inventory yet.</p>{% endif %}
+    <table>
+      {% for r in RESOURCES %}{% if r in totals %}
+      <tr><td>{{ r }}</td><td class="num mono">{{ totals[r] | num }}</td>
+        <td>{% if spark.get(r) %}<svg class="spark" width="120" height="28"><polyline fill="none" stroke="#6cb6ff" stroke-width="1.5" points="{{ spark[r] }}"/></svg>{% endif %}</td></tr>
+      {% endif %}{% endfor %}
+      {% for r, v in totals.items() if r not in RESOURCES %}<tr><td>{{ r }}</td><td class="num mono">{{ v | num }}</td><td></td></tr>{% endfor %}
+    </table>
+    <p class="muted small">Totals across all locations · 48h trend · <a href="/systems">by location</a></p>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <div class="row between"><h2>Live events</h2><a class="small" href="/events">full history</a></div>
+  <ul class="feed" id="live-feed" sse-swap="event" hx-swap="afterbegin">
+    {% for e in recent %}{% include "partials/event_row.html" %}{% endfor %}
+  </ul>
+</div>
+
+<p class="muted small" style="margin-top:10px">
+  {% for k, v in sync.items() %}{% if v %}{{ k }} synced {{ v.at | ago }}{% if not v.ok %} <span class="lv-alert">({{ v.error }})</span>{% endif %} · {% endif %}{% endfor %}
+</p>
+{% endblock %}

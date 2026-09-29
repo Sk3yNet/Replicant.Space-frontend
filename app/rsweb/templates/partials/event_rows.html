@@ -1,0 +1,11 @@
+{% for e in events %}
+<li>
+  <span class="t" title="{{ e.created_at }}">{{ e.created_at | local('%m-%d %H:%M:%S') }}</span>
+  <span class="lv-{{ level_of(e.event) }}">●</span>
+  <details style="flex:1"><summary>{{ describe(e) }} <span class="muted small">· {{ e.event }}{% if e.device_code %} · <a href="/devices/{{ e.device_code }}">{{ e.device_code }}</a>{% endif %}{% if e.location %} · {{ e.location }}{% endif %}</span></summary>
+    <pre>{{ e.payload | pretty }}</pre></details>
+</li>
+{% else %}<li class="muted">No events match.</li>{% endfor %}
+{% if last_seq and events | length >= 100 %}
+<li id="more-row"><button class="small ghost" hx-get="/events?before={{ last_seq }}&category={{ f.category }}&event={{ f.event }}&device={{ f.device }}&q={{ f.q }}" hx-target="#more-row" hx-swap="outerHTML">Load older</button></li>
+{% endif %}

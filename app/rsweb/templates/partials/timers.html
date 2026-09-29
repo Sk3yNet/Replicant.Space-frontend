@@ -1,0 +1,8 @@
+{% if not timers %}<p class="muted">Nothing in progress with a known finish time. Travel, prints and scans show up here as they start.</p>{% endif %}
+{% for t in timers %}
+  <div class="timer {{ 'done' if t.done }}" data-ends="{{ t.ends_at }}" data-start="{{ t.started_at }}">
+    <div class="row between"><span><span class="pill">{{ t.kind }}</span> {% if t.device_code %}<a href="/devices/{{ t.device_code }}">{{ t.label }}</a>{% else %}{{ t.label }}{% endif %}</span>
+      <span class="mono"><span class="left"></span> <span class="muted small">({{ t.ends_at | local('%H:%M') }})</span></span></div>
+    <div class="bar"><i style="width:{{ t.pct }}%"></i></div>
+  </div>
+{% endfor %}

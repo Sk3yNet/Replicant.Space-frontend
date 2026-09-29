@@ -1,0 +1,7 @@
+{% if err %}<p class="lv-alert small">{{ err }}</p>{% else %}
+<dl class="kv small" style="margin-top:8px">
+  <dt>Distance</dt><dd>{{ s.distance_from_replicant }} ly</dd>
+  <dt>Est. travel</dt><dd>{{ s.estimated_travel_time }} s</dd>
+  <dt>Explored</dt><dd>{{ s.explored }}</dd>
+  {% if s.has_life is not none %}<dt>Life</dt><dd>{{ s.has_life }}</dd>{% endif %}
+</dl>{% endif %}

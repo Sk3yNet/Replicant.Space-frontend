@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Events{% endblock %}
+{% block content %}
+<div class="row between"><h1>Events <span class="muted small">{{ total | num }} stored locally</span></h1>
+  <span class="row"><span id="bf" class="small muted"></span><button class="small" hx-post="/events/backfill" hx-target="#bf">Backfill from game</button></span></div>
+<form class="inline card" hx-get="/events" hx-target="#event-rows" hx-trigger="input changed delay:300ms from:input, change from:select" hx-push-url="true" style="margin-bottom:12px">
+  <select name="category"><option value="">all categories</option>{% for c in categories %}<option {{ 'selected' if f.category == c }}>{{ c }}</option>{% endfor %}</select>
+  <input name="event" placeholder="event e.g. print.* " value="{{ f.event }}" size="16">
+  <input name="device" placeholder="device code" value="{{ f.device }}" size="10">
+  <input name="q" placeholder="text in payload/location" value="{{ f.q }}" size="22">
+</form>
+<div class="card">
+  <ul class="feed" style="max-height:none" id="event-rows">{% include "partials/event_rows.html" %}</ul>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+<div class="stats">
+  <div class="stat"><b>{{ fleet.total }}</b><span class="muted">devices</span></div>
+  <div class="stat"><b class="lv-done">{{ fleet.by_class.get('st-work', 0) }}</b><span class="muted">working</span></div>
+  <div class="stat"><b style="color:var(--move)">{{ fleet.by_class.get('st-move', 0) }}</b><span class="muted">moving</span></div>
+  <div class="stat"><a href="/fleet?status=st-idle"><b style="color:var(--warn)">{{ fleet.by_class.get('st-idle', 0) }}</b></a><span class="muted">idle</span></div>
+  <div class="stat"><b>{{ account.experience_points_total | num if account.experience_points_total is defined else '—' }}</b><span class="muted">XP</span></div>
+</div>
+<div class="chips" style="margin-top:10px">
+  {% for t, n in fleet.by_type %}<a class="chip" href="/fleet?type={{ t }}">{{ t | human }} <b>{{ n }}</b></a>{% endfor %}
+</div>
+{% if fleet.low %}<p class="lv-alert small">{{ fleet.low | length }} device(s) under 50% operational capacity:
+  {% for d in fleet.low[:8] %}<a href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> {% endfor %}</p>{% endif %}

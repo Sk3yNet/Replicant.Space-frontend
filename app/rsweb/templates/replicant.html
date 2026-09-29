@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ rep.name or code }}{% endblock %}
+{% block content %}
+{% set loc = rep.location or rep.current_location %}
+<h1>{{ rep.name or code }} <span class="mono muted">{{ code }}</span> <span class="pill {{ rep.status | status_class }}">{{ rep.status }}</span></h1>
+{% if rep._error %}<div class="banner">Live fetch failed: {{ rep._error }}</div>{% endif %}
+<div class="grid g3">
+  <div class="card">
+    <h2>Where</h2>
+    <dl class="kv">
+      <dt>Location</dt><dd><a href="/systems/{{ loc | star_of }}">{{ loc }}</a></dd>
+      {% if rep.position %}<dt>Position (ly)</dt><dd class="mono">{{ rep.position.x }}, {{ rep.position.y }}, {{ rep.position.z }}</dd>{% endif %}
+      <dt>Host vessel</dt><dd><a href="/devices/{{ rep.hosted_device_code }}">{{ rep.hosted_device_code }}</a></dd>
+      <dt>XP</dt><dd>{{ rep.experience_points | num }}</dd>
+      <dt>Devices</dt><dd><a href="/fleet?q={{ code }}">{{ devices | length }}</a></dd>
+    </dl>
+    {% if rep.stowed_devices %}<h3>Stowed</h3><ul>{% for s in rep.stowed_devices %}<li><a class="mono" href="/devices/{{ s.device_code }}">{{ s.device_code }}</a> {{ s.device_type | human }}</li>{% endfor %}</ul>{% endif %}
+    {% include "partials/timers.html" %}
+  </div>
+
+  <div class="card">
+    <h2>Travel</h2>
+    <form hx-post="/replicants/{{ code }}/travel" hx-target="#travel-result">
+      <div class="row"><input name="destination" placeholder="STAR, STAR-BELT-1, STAR-3-L4…" list="nearby-stars" required size="24">
+        <input type="hidden" name="dry_run" value="1"><button>Preview route</button></div>
+      <datalist id="nearby-stars">{% for s in nearby %}<option value="{{ s.designation }}">{{ s.distance_from_replicant }} ly</option>{% endfor %}</datalist>
+    </form>
+    <div id="travel-result"></div>
+    <h3>Nearest stars</h3>
+    <table class="small">
+      <tr><th>Star</th><th class="num">ly</th><th class="num">ETA</th><th></th></tr>
+      {% for s in nearby[:10] %}<tr><td><a href="/systems/{{ s.designation }}">{{ s.designation }}</a> <span class="muted">{{ s.color }}</span>{% if s.has_hub %} <span class="pill">hub</span>{% endif %}</td>
+        <td class="num">{{ s.distance_from_replicant }}</td><td class="num">{{ (s.estimated_travel_time or 0) | int }}s</td>
+        <td><button class="small ghost" hx-post="/replicants/{{ code }}/travel" hx-vals='{"destination": "{{ s.designation }}", "dry_run": "1"}' hx-target="#travel-result">route</button></td></tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Actions</h2>
+    <div class="row">
+      <button hx-post="/replicants/{{ code }}/scan" hx-target="#act-result">System scan</button>
+      <form class="inline" hx-post="/replicants/{{ code }}/mine" hx-target="#act-result">
+        <select name="resource_type">{% for r in RESOURCES %}<option>{{ r }}</option>{% endfor %}</select><button>Mine</button>
+        <button name="stop" value="1" class="ghost">Stop</button>
+      </form>
+    </div>
+    <h3>Print on vessel</h3>
+    <form class="inline" hx-post="/replicants/{{ code }}/print" hx-target="#act-result">
+      <select name="device_type">{% for b in blueprints %}<option value="{{ b.device_type }}">{{ b.device_type | human }} ({{ b.print_time }}s)</option>{% endfor %}</select>
+      <button>Print</button>
+    </form>
+    <div class="row" style="margin-top:6px">
+      <button class="small ghost" hx-post="/replicants/{{ code }}/print" hx-vals='{"command": "cancel"}' hx-target="#act-result" hx-confirm="Cancel the current print?">Cancel print</button>
+      <button class="small ghost" hx-post="/replicants/{{ code }}/print" hx-vals='{"command": "clear_queue"}' hx-target="#act-result" hx-confirm="Clear the print queue?">Clear queue</button>
+    </div>
+    <h3>BobNet</h3>
+    <form class="inline" hx-post="/replicants/{{ code }}/message" hx-target="#act-result">
+      <input name="channel" value="#general" size="9"><input name="text" placeholder="message" required><button>Send</button>
+    </form>
+    <div id="act-result"></div>
+  </div>
+</div>
+{% endblock %}

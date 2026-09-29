@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Replicant{% endblock %} · Replicant Space</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%236cb6ff'/></svg>">
+  <script src="/static/vendor/htmx.min.js"></script>
+  <script src="/static/vendor/htmx-sse.js"></script>
+  <script src="/static/app.js" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body hx-ext="sse" sse-connect="/live/stream">
+<header class="top">
+  <a class="brand" href="/">◉ REPLICANT</a>
+  <nav class="main">
+    {% for key, href, label in [
+      ("dashboard", "/", "Dashboard"), ("fleet", "/fleet", "Fleet"), ("systems", "/systems", "Systems"),
+      ("map", "/map", "Galaxy"), ("blueprints", "/blueprints", "Blueprints"), ("ami", "/ami", "AMI"),
+      ("events", "/events", "Events"), ("messages", "/messages", "Messages"), ("console", "/console", "Console")] %}
+      <a href="{{ href }}" class="{{ 'on' if active == key }}">{{ label }}{% if key == 'messages' and rate.unread %}<span class="badge">{{ rate.unread }}</span>{% endif %}</a>
+    {% endfor %}
+    <a href="/notifications" class="{{ 'on' if active == 'notifications' }}">🔔<span id="notif-badge" sse-swap="badge">{% include "partials/badge.html" with context %}</span></a>
+  </nav>
+  <span class="spacer"></span>
+  <div id="rate" sse-swap="rate">{% include "partials/rate.html" %}</div>
+  <a href="/account" class="small muted" title="Signed in via Google">{{ user }}</a>
+  <a href="/oauth2/sign_out?rd=/" class="small muted">sign out</a>
+</header>
+<main>
+  {% if not configured %}
+    <div class="banner">No Replicant Space API token configured. Set <code>RS_API_TOKEN</code> in the Portainer stack and redeploy.</div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+<div id="toasts" sse-swap="notify" hx-swap="afterbegin"></div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Messages{% endblock %}
+{% block content %}
+<div class="row between"><h1>Messages</h1>
+  <button class="small" hx-post="/messages/read" hx-target="#msg-result">Mark all read in game</button></div>
+{% if err %}<div class="banner">{{ err }}</div>{% endif %}
+<div id="msg-result"></div>
+<div class="grid g2">
+  <div class="card">
+    <h2>Game messages</h2>
+    {% for m in msgs %}
+      <div style="border-bottom:1px solid var(--line);padding:8px 0">
+        <div class="row between"><strong>{{ m.title or m.message_type or 'message' }}</strong>
+          <span class="small muted">{{ (m.created_at or m.sent_at) | local }} {% if m.read is sameas false or m.is_read is sameas false %}<span class="pill st-idle">unread</span>{% endif %}</span></div>
+        <div>{{ m.body or m.text or m.message }}</div>
+        {% if m.id or m.message_id %}<button class="small ghost" hx-post="/messages/read" hx-vals='{"id": {{ m.id or m.message_id }}}' hx-target="#msg-result">mark read</button>{% endif %}
+      </div>
+    {% else %}<p class="muted">No messages.</p>{% endfor %}
+  </div>
+  <div class="card">
+    <h2>BobNet (seen on the event stream)</h2>
+    <ul class="feed">{% for e in bobnet %}<li><span class="t">{{ e.created_at | local('%m-%d %H:%M') }}</span><span>[{{ e.payload.channel }}] <b>{{ e.payload.replicant_name }}</b>: {{ e.payload.message }}</span></li>{% else %}<li class="muted">No chat yet.</li>{% endfor %}</ul>
+    {% if replicants %}
+    <form class="inline" hx-post="/replicants/{{ (replicants.keys() | list)[0] }}/message" hx-target="#msg-result" style="margin-top:8px">
+      <input name="channel" value="#general" size="9"><input name="text" placeholder="say something" required size="30"><button>Send</button>
+    </form>{% endif %}
+  </div>
+</div>
+{% endblock %}

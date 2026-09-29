@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Blueprints{% endblock %}
+{% block content %}
+<div class="row between"><h1>Blueprints &amp; production planner</h1>
+  <form class="inline" method="get"><input name="q" value="{{ q }}" placeholder="filter…"><button class="small">Filter</button></form></div>
+{% if not blueprints %}<p class="muted">Blueprints sync every 30 minutes; none cached yet.</p>{% endif %}
+
+<form hx-post="/blueprints/plan" hx-target="#plan" hx-trigger="input delay:300ms, change">
+<div class="grid g2">
+  <div class="card">
+    <table>
+      <tr><th>Device</th><th class="num">Print</th><th>Cost</th><th>Can afford at</th><th class="num">Plan qty</th></tr>
+      {% for b in blueprints %}
+      <tr>
+        <td><strong>{{ b.device_type | human }}</strong><div class="muted small">{{ b.short_description }}</div>
+          <div class="small">{{ (b.features or []) | join(', ') }}{% if b.directives %} · directives: {{ b.directives | join(', ') }}{% endif %}</div></td>
+        <td class="num mono">{{ ((b.print_time or 0) / 60) | round(1) }}m</td>
+        <td class="small" style="white-space:nowrap">{% for r, v in (b.resources or {}) | dictsort %}{{ v }} {{ r }}<br>{% endfor %}</td>
+        <td class="small">{% for p in printers %}{% set n = b._afford.get(p.code, 0) %}
+          <div class="{{ 'lv-done' if n else 'muted' }}">{{ p.name }}: ×{{ n }}</div>{% endfor %}</td>
+        <td class="num"><input type="number" min="0" name="qty:{{ b.device_type }}" value="0" style="width:64px"></td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div>
+    <div class="card" style="position:sticky;top:64px">
+      <h2>Plan</h2>
+      <label>Stockpile to draw from</label>
+      <select name="location">{% for loc in inv %}<option>{{ loc }}</option>{% endfor %}</select>
+      <div id="plan"><p class="muted">Enter quantities to see total cost and shortfall.</p></div>
+    </div>
+  </div>
+</div>
+</form>
+<div class="card" style="margin-top:14px">
+  <h2>Print now</h2>
+  <form class="inline" hx-post="/blueprints/print" hx-target="#print-result">
+    <select name="printer">{% for p in printers %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
+    <select name="device_type">{% for b in blueprints %}<option value="{{ b.device_type }}">{{ b.device_type | human }}</option>{% endfor %}</select>
+    <input type="number" name="quantity" value="1" min="1" style="width:64px" title="quantity (autofactories only)">
+    <button>Print / enqueue</button>
+  </form>
+  <div id="print-result"></div>
+</div>
+{% endblock %}

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ code }}{% endblock %}
+{% block content %}
+<p><a href="/systems/{{ code | star_of }}">← {{ code | star_of }}</a></p>
+<div class="card">{% include "partials/location.html" %}</div>
+{% endblock %}

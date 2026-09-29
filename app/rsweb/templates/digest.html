@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Digest{% endblock %}
+{% block content %}
+<div class="card hl">
+  <div class="row between"><h2>What happened in the last {{ hours }}h</h2>
+    <span class="row">{% for h in [6, 24, 72, 168] %}<a class="btn small" href="/digest?hours={{ h }}">{{ h }}h</a>{% endfor %}</span></div>
+  {% include "partials/digest_body.html" %}
+  <h3>Most frequent events</h3>
+  <div class="chips">{% for name, n in digest.top_events %}<a class="chip" href="/events?event={{ name }}">{{ name }} <b>{{ n }}</b></a>{% endfor %}</div>
+</div>
+{% endblock %}

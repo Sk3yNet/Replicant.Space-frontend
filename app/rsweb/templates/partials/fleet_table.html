@@ -1,0 +1,17 @@
+<p class="muted small">{{ devices | length }} device(s)</p>
+<table>
+  <tr><th>Code</th><th>Type</th><th>Location</th><th>Status</th><th class="num">Capacity</th><th>Replicant</th><th>Commands</th></tr>
+  {% for d in devices %}
+  <tr>
+    <td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a></td>
+    <td>{{ d.device_type | human }}{% for t in d.tags or [] %} <span class="pill small">{{ t }}</span>{% endfor %}</td>
+    <td><a href="/systems/{{ d.location | star_of }}">{{ d.location }}</a></td>
+    <td><span class="pill {{ d.status | status_class }}">{{ d.status }}</span></td>
+    <td class="num">{% set cap = d.operational_capacity | capacity %}{% if cap is not none %}<span class="{{ 'lv-alert' if cap < 50 }}">{{ cap | round | int }}%</span>{% endif %}</td>
+    <td class="mono small"><a href="/replicants/{{ d.replicant_code }}">{{ d.replicant_code }}</a></td>
+    <td class="small muted">{{ (d.available_commands or []) | join(', ') }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="muted">No devices match.</td></tr>
+  {% endfor %}
+</table>

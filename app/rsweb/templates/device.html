@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{{ code }}{% endblock %}
+{% block content %}
+<h1>{{ dev.device_type | human }} <span class="mono muted">{{ code }}</span>
+  <span class="pill {{ dev.status | status_class }}">{{ dev.status }}</span></h1>
+{% if err %}<div class="banner">Live fetch failed ({{ err }}); showing the last synced copy.</div>{% endif %}
+<div class="grid g2">
+  <div class="card">
+    <h2>Details</h2>
+    <dl class="kv">
+      <dt>Location</dt><dd><a href="/systems/{{ dev.location | star_of }}">{{ dev.location }}</a> · <a href="/locations/{{ dev.location }}">location detail</a></dd>
+      <dt>Replicant</dt><dd><a href="/replicants/{{ dev.replicant_code }}">{{ dev.replicant_code }}</a></dd>
+      {% set cap = dev.operational_capacity | capacity %}{% if cap is not none %}<dt>Capacity</dt><dd>{{ cap | round | int }}%</dd>{% endif %}
+      <dt>Features</dt><dd>{{ (dev.features or []) | join(', ') }}</dd>
+      {% for k, v in dev.items() if k not in ('device_code','device_type','replicant_code','location','features','available_commands','operational_capacity','status') %}
+        <dt>{{ k | human }}</dt><dd>{% if v is mapping or (v is iterable and v is not string) %}<details><summary>{{ v | length }} item(s)</summary><pre>{{ v | pretty }}</pre></details>{% else %}{{ v }}{% endif %}</dd>
+      {% endfor %}
+    </dl>
+    <h3>Tags</h3>
+    <form class="inline" hx-post="/devices/{{ code }}/tags" hx-target="#tag-result">
+      <input name="add" placeholder="add tags (comma)"><input name="remove" placeholder="remove tags"><button class="small">Update</button>
+    </form>
+    <div id="tag-result"></div>
+  </div>
+
+  <div class="card">
+    <h2>Command</h2>
+    <form hx-post="/devices/{{ code }}/command" hx-target="#cmd-result" data-danger-check>
+      <div class="row">
+        <select name="command" onchange="fillTemplate(this, 'cmd-args')">
+          {% for c in dev.available_commands or [] %}
+          <option value="{{ c }}" data-tpl='{{ command_help.get(c, {}) | tojson }}'>{{ c }}</option>
+          {% endfor %}
+        </select>
+        <button>Run</button>
+      </div>
+      <label>Arguments (JSON, merged into the request body)</label>
+      <textarea name="args" id="cmd-args">{{ command_help.get((dev.available_commands or [''])[0], {}) | tojson }}</textarea>
+    </form>
+    {% if same_loc %}
+    <details><summary>{{ same_loc | length }} other device(s) at this location (for stow / attach / adopt targets)</summary>
+      <table>{% for d in same_loc %}<tr><td class="mono"><a href="/devices/{{ d.device_code }}">{{ d.device_code }}</a></td><td>{{ d.device_type | human }}</td><td><span class="pill {{ d.status | status_class }}">{{ d.status }}</span></td></tr>{% endfor %}</table>
+    </details>
+    {% endif %}
+    <div id="cmd-result"></div>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <h2>Events (local history)</h2>
+    <ul class="feed">{% for e in events %}{% include "partials/event_row.html" %}{% else %}<li class="muted">No events stored for this device yet.</li>{% endfor %}</ul>
+  </div>
+  <div class="card">
+    <h2>Device log (from game)</h2>
+    <ul class="feed">{% for l in logs %}
+      <li><span class="t">{{ l.created_at | local('%m-%d %H:%M:%S') }}</span><span>{{ l.message or l.event_type }} <span class="muted small">· {{ l.event_type }}</span></span></li>
+    {% else %}<li class="muted">No log entries.</li>{% endfor %}</ul>
+  </div>
+</div>
+{% endblock %}

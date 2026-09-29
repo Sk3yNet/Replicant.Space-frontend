@@ -1,0 +1,14 @@
+<div class="result ok">
+  <strong>Route to {{ r.final_destination or destination }}</strong>
+  {% if r.final_destination_name %}<span class="muted">({{ r.final_destination_name }})</span>{% endif %}
+  <div class="muted small">{% if r.total_distance_ly %}{{ r.total_distance_ly }} ly · {% endif %}{% if r.total_time_seconds is defined and r.total_time_seconds is not none %}{{ (r.total_time_seconds or 0) | round(1) }} s total{% endif %}</div>
+  <table class="small">
+    <tr><th>#</th><th>From</th><th>To</th><th>Type</th><th class="num">Distance</th><th class="num">Time</th></tr>
+    {% for l in legs if l %}<tr><td>{{ l.leg or loop.index }}</td><td>{{ l.from_name or l.from }}</td><td>{{ l.to_name or l.to }}</td><td>{{ l.type }}</td>
+      <td class="num">{{ l.distance_ly ~ ' ly' if l.distance_ly is defined else '' }}</td><td class="num">{{ l.time_seconds }}s</td></tr>{% endfor %}
+  </table>
+  <form class="inline" hx-post="/replicants/{{ code }}/travel" hx-target="closest .result" hx-swap="outerHTML" style="margin-top:8px">
+    <input type="hidden" name="destination" value="{{ destination }}">
+    <button>Go — travel to {{ destination }}</button>
+  </form>
+</div>
