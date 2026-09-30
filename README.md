@@ -10,7 +10,7 @@ Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─�
 ```
 
 - **No host ports are published.** The tunnel is the only way in, and nginx checks every request (including the live-update stream) with oauth2-proxy.
-- **The game API token stays on the server.** It is a Docker secret inside the `app` container and never reaches the browser.
+- **The game API token stays on the server.** It is an environment variable of the `app` container only and never reaches the browser.
 - **One process talks to the game.** It keeps one connection to the event stream, polls on a schedule, and paces every call under the game's limits (120 reads + 60 actions per minute), keeping some budget in reserve for your clicks.
 - **Full event history.** The game only keeps about the last 10,000 events. The app stores everything it sees in SQLite on a named volume.
 
@@ -20,12 +20,13 @@ Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─�
 |---|---|
 | **Dashboard** | *While you were away* digest, open alerts, replicants, live countdowns (travel, prints, scans), fleet summary, stockpiles with 48 h trend, live event feed |
 | **Fleet** | Every device, filterable by type, status (working / moving / idle), system, tag or text; capacity warnings |
-| **Device** | Live detail, run any available command (JSON args pre-filled per command, confirmation for destructive ones), tags, local event history + game log |
-| **Replicant** | Route preview (`dry_run`) → go, nearest stars with ETAs, system scan, mining, vessel printing, BobNet |
+| **Device** | Carrier vessels get a **Carrier** card listing carryable devices in the same system with Launch / Stow / Recall checkboxes. Picked devices elsewhere fly to the vessel if they can travel. If they can't, the vessel goes to fetch them and can return afterwards. Also on this page: live detail, run any available command (JSON args pre-filled per command, confirmation for destructive ones), tags, local event history + game log |
+| **Replicant** | Route preview (`dry_run`) → go (optionally chained with "then, on arrival…" follow-ups), nearest stars with ETAs, system scan, mining, vessel printing, BobNet |
 | **Systems** | Log-scaled top-down map of a system (planets, belts, habitable zone, Kuiper) with your devices and stockpiles; click to load location detail |
 | **Galaxy** | 3D map of the star catalogue: your presence, replicants, scanned systems, hubs, relay/hub range spheres, search, straight-line distance, travel estimate & route preview, shift-click to measure |
 | **Blueprints** | Cost/print time, how many each printer can afford from local stock, a production planner (quantities → total cost and shortfall), print / enqueue |
-| **AMI** | Controllers with latest digest, directive picker with config templates, adopt/release, launch/withdraw |
+| **AMI** | Per-controller targets from the latest scan reports of the controller's own system (drop-downs grouped by belts, resource sites, salvage, stockpiles, Lagrange points… with resource levels and stock), **Refresh targets**, controllers with latest digest, directive picker with config templates, adopt/release, launch/withdraw |
+| **Automations** | Server-side rules with on/off checkboxes and a global **dry run**: system scan on arrival, auto-survey new systems (deploy carried survey drones, visit each planet/belt in turn, scan/search, return and stow), deploy a carried FTL beacon in new systems, restart idle mining drones. Active jobs step-by-step with Cancel, recent jobs, log |
 | **Events** | Full local history with filters and payloads, backfill from the game |
 | **Notifications** | In-app alerts (hub warnings, incoming objects, failed teleports, depleted sites…) and accomplishments (prints, completed directives, trades, discoveries…); toasts + bell badge live |
 | **Messages** | Game messages (mark read) and BobNet chat |
@@ -33,6 +34,18 @@ Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─�
 | **Account** | Game account, achievements, sync health, audit log of every command issued from the UI |
 
 **"Since last login"**: a gap of more than 30 minutes (`VISIT_GAP_MINUTES`) between page loads starts a new visit. The dashboard then summarises everything since you were last here: devices printed, resources mined and delivered, net stockpile change, arrivals, scans, completed directives, XP, alerts and AMI digests. **Got it** hides the summary until your next visit. `/digest?hours=N` shows any window.
+
+### Automations
+
+Rules run inside the app container, so they keep going with the browser closed. Each rule, when its trigger fires, creates a **job**, which is an ordered list of game commands. Some steps wait for an event before moving on, e.g. `travel.arrived` for the right destination or `scan.completed` for the right body. If a step errors, or times out (1 h for travel/scans, 2 min for deploy/stow), it is logged and skipped, so one bad target doesn't strand a drone. If a critical step fails, such as the initial deploy, the job stops and you get an alert.
+
+Jobs are saved in SQLite, so they survive redeploys. Their commands go through the same rate limiter using the background budget, and appear in the Account audit log as user `automation`.
+
+Bodies count as surveyed once a `scan.completed` or `search.completed` event names them, so repeat arrivals only visit what's left. **Survey this system now** runs the rule for a chosen vessel where it currently is.
+
+**Command chains:** every travel command (on a device's Command box, or the replicant's route preview → Go) has an optional **Then, on arrival…** section. You can add up to three follow-ups, each one a device and a command: deploy a carried device, start mining, survey scan, search a belt, system scan, travel on, stow, attach, AMI launch, and so on. They run as a job on the Automations page. Each waits for the previous one to finish (arrival, `device.deployed`, `scan.completed` …). Arriving "at a star" counts when the vessel lands at any of that star's locations. The wait lasts until the game's own ETA plus 30 minutes. The Dry run switch doesn't apply to chains you start yourself.
+
+All rules start **off**. Turn on **Dry run** first: rules then log exactly the jobs they would run, and send nothing.
 
 ## Setup (about 20 minutes)
 
@@ -66,16 +79,16 @@ Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─�
 4. **Deploy the stack.** Portainer builds the `app` and `nginx` images from the repo.
 5. Open `https://<PUBLIC_HOST>`, sign in with Google, and the dashboard fills in within a minute.
 
-**Updating:** push to the repo, then in Portainer open the stack and choose **Pull and redeploy**. You can also turn on automatic updates / GitOps polling. The SQLite volume `rsweb-data` survives redeploys.
+**Updating:** push to the repo, then in Portainer open the stack and choose **Pull and redeploy**. The `app` and `nginx` images are never pulled from a registry (`pull_policy: build`); they're rebuilt from the repo on every redeploy. You can also turn on automatic updates / GitOps polling. The SQLite volume `rsweb-data` survives redeploys.
 
 **Rotating the game token:** use account recovery on replicant.space, paste the new token into the stack's `RS_API_TOKEN`, and choose **Update the stack**.
 
 <details><summary>Notes and alternatives</summary>
 
-- Deploying from Git with inline `configs: content:` and `secrets: environment:` needs Docker Compose ≥ 2.23, which ships with Portainer 2.20+.
+- A one-shot `auth-config` container writes `ALLOWED_EMAIL` into oauth2-proxy's allow-list on every deploy, then exits (it shows as *exited (0)* in Portainer — that's expected). Several addresses can be comma-separated.
 - If you'd rather use Portainer's **Web editor** (no Git), it can't build images. Build and push them somewhere first (e.g. GHCR with the included GitHub Actions workflow). Then replace `build: ./app` / `build: ./nginx` with `image: ghcr.io/<you>/replicant-web-app:latest` / `…-nginx:latest`.
 - For LAN debugging, uncomment `ports: ["8080:80"]` on nginx. Google sign-in will still send you back to `PUBLIC_HOST`.
-- `ALLOWED_EMAIL` holds one address. It is enforced twice: by oauth2-proxy's allow-list and by the app itself.
+- `ALLOWED_EMAIL` is enforced twice: by oauth2-proxy's allow-list and by the app itself.
 </details>
 
 ## Local development
@@ -96,12 +109,12 @@ Never set `DEV_USER` in the stack: it makes the app trust requests with no ident
 
 | Env | Default | |
 |---|---|---|
-| `RS_API_TOKEN` / `RS_API_TOKEN_FILE` | – | game token (the stack uses the secret file) |
+| `RS_API_TOKEN` / `RS_API_TOKEN_FILE` | – | game token (env var, or a file path if you prefer a mounted secret) |
 | `RS_API_BASE` | `https://api.replicant.space/v1` | |
 | `ALLOWED_EMAILS` | – | comma list; empty = anyone oauth2-proxy lets through |
 | `RS_GET_PER_MIN` / `RS_ACT_PER_MIN` | 110 / 55 | client-side budget (game: 120 / 60) |
 | `RS_GET_RESERVE` / `RS_ACT_RESERVE` | 30 / 20 | budget background polling may not touch |
-| `POLL_ACCOUNT`, `POLL_DEVICES`, `POLL_INVENTORY`, `POLL_MESSAGES`, `POLL_CATALOGUE` | 60, 60, 120, 300, 1800 s | |
+| `POLL_ACCOUNT`, `POLL_DEVICES`, `POLL_INVENTORY`, `POLL_MESSAGES`, `POLL_BLUEPRINTS`, `POLL_CATALOGUE` | 60, 60, 120, 300, 300, 1800 s | blueprints also refresh after likely-unlock events and when the Blueprints page opens |
 | `VISIT_GAP_MINUTES` | 30 | idle gap that starts a new visit for the digest |
 
 ## Layout
