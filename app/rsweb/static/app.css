@@ -119,3 +119,6 @@ details summary { cursor: pointer; color: var(--muted); }
 .res-grid .res span { width: 74px; }
 .res-grid input { width: 80px; }
 .pick-list { max-height: 180px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
+.res-grid.cargo { grid-template-columns: repeat(2, minmax(200px, 1fr)); }
+.res-grid .res .small { white-space: nowrap; }
+.field select { max-width: 100%; }

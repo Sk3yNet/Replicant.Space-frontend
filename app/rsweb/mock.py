@@ -100,7 +100,7 @@ class World:
                                  "available_commands": ["change_owner", "deactivate", "decommission", "deploy", "recall", "retarget", "start_mining", "stow", "travel"]})
         self.devices += [
             {"device_code": "D8C2A140", "device_type": "survey_drone", "location": "SOL-3", "status": "scanning",
-             "features": ["cruise", "survey", "stow"], "operational_capacity": 88.0, "available_commands": ["scan", "search", "travel", "recall"]},
+             "features": ["cruise", "survey", "stow"], "operational_capacity": 88.0, "available_commands": ["scan", "search", "travel", "recall", "stow"]},
             {"device_code": "MC91FF22", "device_type": "ami_mining_controller", "location": "SOL-BELT-1", "status": "coordinating",
              "features": ["cruise", "ami", "stow"], "operational_capacity": 100.0,
              "available_commands": ["adopt", "release", "set_directive", "clear_directive", "launch", "withdraw"]},
@@ -109,7 +109,22 @@ class World:
              "available_commands": ["enqueue_print", "dequeue_print", "clear_queue", "compact", "decommission"]},
             {"device_code": "BCN00001", "device_type": "ftl_relay", "location": "SOL-5-L4", "status": "relaying",
              "features": ["relay"], "operational_capacity": 100.0, "available_commands": ["activate"]},
+            # carried in the heaven vessel
+            {"device_code": "SV000001", "device_type": "survey_drone", "location": "SOL-BELT-1", "status": "stowed",
+             "features": ["cruise", "survey", "stow"], "operational_capacity": 100.0,
+             "available_commands": ["deploy", "travel", "scan", "search", "stow", "recall"]},
+            {"device_code": "TC000001", "device_type": "ami_transport_controller", "location": "SOL-BELT-1", "status": "idle",
+             "features": ["cruise", "ami", "stow"], "operational_capacity": 100.0,
+             "available_commands": ["adopt", "release", "set_directive", "clear_directive", "launch", "withdraw"]},
+            {"device_code": "TR000001", "device_type": "transport_drone", "location": "SOL-BELT-1", "status": "idle",
+             "features": ["cruise", "transport", "stow"], "operational_capacity": 100.0, "cargo_capacity": 20,
+             "cargo": {"carbon": 5}, "available_commands": ["collect_resources", "deposit_resources", "travel", "stow"]},
+            {"device_code": "SP000001", "device_type": "surge_plate", "location": "SOL-3", "status": "idle",
+             "features": ["stow"], "operational_capacity": 100.0, "available_commands": ["stow", "deploy"]},
+            {"device_code": "FB000001", "device_type": "ftl_beacon", "location": "SOL-BELT-1", "status": "stowed",
+             "features": ["monitor", "stow"], "operational_capacity": 100.0, "available_commands": ["deploy"]},
         ]
+        self.move_seconds = 2.0
         for d in self.devices:
             d["replicant_code"] = REP
         self.location = "SOL-BELT-1"
@@ -231,12 +246,25 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                 {"leg": 2, "from": "SOL-OORT", "to": f"{dest.split('-')[0]}-3-L4", "type": "surge", "time_seconds": 600, "distance_ly": 6.4}]
         if body.get("dry_run"):
             return ok({"status": "preview", "final_destination": dest, "total_distance_ly": 6.4, "total_time_seconds": 630, "route": legs})
-        arrive = datetime.now(timezone.utc) + timedelta(seconds=630)
+        secs = world.move_seconds
+        arrive = datetime.now(timezone.utc) + timedelta(seconds=secs)
         host = world.devices[0]
-        world.emit("travel.departed", host, travel_type="surge", origin=world.location, destination=dest, arrives_at=iso(arrive),
-                   travel_time_seconds=630, legs=legs)
+        origin = world.location
+        world.emit("travel.departed", host, travel_type="surge", origin=origin, destination=dest, arrives_at=iso(arrive),
+                   travel_time_seconds=secs, legs=legs)
+        # the game lands a star-level trip at the star's entry point
+        landing = dest if "-" in dest else f"{dest}-3-L4"
+
+        def arrived():
+            world.location = landing
+            host["location"] = landing
+            for x in world.devices:
+                if x["status"] == "stowed":
+                    x["location"] = landing
+            world.emit("travel.arrived", host, destination=landing, origin=origin, travel_type="surge", attached_devices=[])
+        asyncio.get_running_loop().call_later(secs, arrived)
         return ok({"status": "travel_initiated", "origin": world.location, "destination": dest, "departed_at": iso(),
-                   "arrives_at": iso(arrive), "total_time_seconds": 630, "route": legs})
+                   "arrives_at": iso(arrive), "total_time_seconds": secs, "route": legs})
 
     @app.post("/v1/replicants/{code}/scan")
     async def scan(code: str):
@@ -283,6 +311,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     @app.get("/v1/devices/{code}")
     async def device(code: str):
         d = next((d for d in world.devices if d["device_code"] == code), None)
+        if d and d["device_code"] == HOST:
+            d = {**d, "stowed_devices": [{"device_code": x["device_code"], "device_type": x["device_type"]}
+                                         for x in world.devices if x["status"] == "stowed"]}
         return ok(d) if d else ok({"error": "Device not found"}, 404)
 
     @app.get("/v1/devices/{code}/logs")
@@ -308,12 +339,64 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             return ok({"status": "enqueued", "queue": list(q), "queue_length": len(q)})
         if cmd == "set_directive":
             world.emit("directive.set", d, directive=body.get("directive"), configuration=body.get("configuration"))
+        loop = asyncio.get_running_loop()
         if cmd == "travel":
-            arrive = datetime.now(timezone.utc) + timedelta(seconds=90)
+            secs = world.move_seconds
+            arrive = datetime.now(timezone.utc) + timedelta(seconds=secs)
+            origin, dest = d["location"], body.get("destination")
             d["status"] = "cruising"
-            world.emit("travel.departed", d, travel_type="cruise", origin=d["location"], destination=body.get("destination"),
-                       arrives_at=iso(arrive), travel_time_seconds=90)
+            world.emit("travel.departed", d, travel_type="cruise", origin=origin, destination=dest,
+                       arrives_at=iso(arrive), travel_time_seconds=secs)
+
+            def arrived():
+                d["location"], d["status"] = dest, "idle"
+                if code == HOST:
+                    world.location = dest
+                    for x in world.devices:
+                        if x["status"] == "stowed":
+                            x["location"] = dest
+                world.emit("travel.arrived", d, destination=dest, origin=origin, travel_type="cruise", attached_devices=[])
+            loop.call_later(secs, arrived)
             return ok({"device_code": code, "status": "travelling", "arrives_at": iso(arrive)})
+        if cmd == "deploy":
+            d["status"] = "idle"
+            world.emit("device.deployed", d, deployed_from_device_code=HOST)
+            return ok({"device_code": code, "status": "deployed"})
+        if cmd == "stow":
+            tgt = next((x for x in world.devices if x["device_code"] == body.get("target")), None)
+            if tgt and tgt["location"] != d["location"]:
+                return ok({"error": "Target must be at the same location"}, 400)
+            d["status"] = "stowed"
+            world.emit("device.stowed", d, stowed_in_device_code=body.get("target"))
+            return ok({"device_code": code, "status": "stowed"})
+        if cmd == "collect_resources":
+            stock = world.inventory.setdefault(d["location"], {})
+            want = body.get("resources") or {}
+            hold = d.setdefault("cargo", {})
+            room = d.get("cargo_capacity", 0) - sum(hold.values())
+            if sum(want.values()) > room:
+                return ok({"error": f"Not enough cargo space ({room} free)"}, 400)
+            for r, q in want.items():
+                if stock.get(r, 0) < q:
+                    return ok({"error": f"Not enough {r} here"}, 400)
+            for r, q in want.items():
+                stock[r] -= q
+                hold[r] = hold.get(r, 0) + q
+            world.emit("transport.collected", d, resources=want, total=sum(want.values()),
+                       cargo_after=sum(hold.values()), cargo_capacity=d.get("cargo_capacity"))
+            return ok({"device_code": code, "status": "collected", "cargo": dict(hold)})
+        if cmd in ("scan", "search"):
+            target = d["location"]
+            d["status"] = "scanning"
+            world.emit(f"{cmd}.started", d, **{f"{cmd}_target": target, f"{cmd}_type": "body" if cmd == "scan" else "belt",
+                                               "eta_seconds": world.move_seconds})
+
+            def done():
+                d["status"] = "idle"
+                world.emit(f"{cmd}.completed", d, **{f"{cmd}_target": target, f"{cmd}_type": "body" if cmd == "scan" else "belt",
+                                                     "report": {}})
+            loop.call_later(world.move_seconds, done)
+            return ok({"device_code": code, "status": "scanning"}, 202)
         return ok({"device_code": code, "status": d["status"], "command": cmd})
 
     @app.patch("/v1/devices/{code}")

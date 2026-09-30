@@ -46,6 +46,48 @@ def may_unlock_blueprint(ev: dict) -> bool:
     return "blueprint" in json.dumps(p).lower()
 
 
+def _target(label: str) -> str:
+    return label.split("→", 1)[1].strip().upper() if "→" in (label or "") else ""
+
+
+def duplicate_timers(rows: list[dict], window: float = 20.0) -> tuple[list[dict], list[str]]:
+    """Collapse timers that describe the same thing (returns kept rows, keys of the duplicates).
+
+    The game can report one activity several ways: the command's own response (keyed by the
+    replicant), an event for the host vessel, a replicant-level event with no device code …
+    Two timers are the same activity when they have the same kind, finish within `window`
+    seconds of each other, and either share a device, or one of them has no device / came from
+    a command response, or they head for the same target. Separate devices doing the same thing
+    at the same time (e.g. an AMI launching five drones) are kept apart.
+    Event-sourced timers win over command-response ones.
+    """
+    def ends(r):
+        dt = _parse_ts(r.get("ends_at"))
+        return dt.timestamp() if dt else 0.0
+
+    ordered = sorted(rows, key=lambda r: (r.get("source") == "action", ends(r)))
+    kept: list[dict] = []
+    dups: list[str] = []
+    for r in ordered:
+        match = None
+        for k in kept:
+            if k.get("kind") != r.get("kind") or abs(ends(k) - ends(r)) > window:
+                continue
+            same_dev = r.get("device_code") and r.get("device_code") == k.get("device_code")
+            loose = (not r.get("device_code") or not k.get("device_code")
+                     or r.get("source") == "action" or k.get("source") == "action")
+            same_target = _target(r.get("label", "")) and _target(r.get("label", "")) == _target(k.get("label", ""))
+            if same_dev or (loose and (same_target or not _target(r.get("label", "")) or r.get("label") == k.get("label"))):
+                match = k
+                break
+        if match:
+            dups.append(r["key"])
+        else:
+            kept.append(r)
+    kept.sort(key=ends)
+    return kept, dups
+
+
 def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(timespec="seconds")
 
@@ -57,6 +99,8 @@ class Worker:
         self.stream_state = "stopped"
         self.stream_since: str | None = None
         self._bp_refresh: asyncio.Task | None = None
+        from .automations import AutomationEngine
+        self.automations = AutomationEngine(db, api, hub, self)
 
     # --- lifecycle --------------------------------------------------------------
     def start(self) -> None:
@@ -64,6 +108,7 @@ class Worker:
             log.warning("No API token configured; background workers not started")
             self.stream_state = "no token"
             return
+        self.automations.start()
         self.tasks = [
             asyncio.create_task(self._stream_loop(), name="stream"),
             asyncio.create_task(self._poll_loop("account", self.s.poll_account, self.sync_account), name="p-account"),
@@ -75,6 +120,7 @@ class Worker:
         ]
 
     async def stop(self) -> None:
+        await self.automations.stop()
         for t in self.tasks:
             t.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
@@ -121,6 +167,10 @@ class Worker:
             self.hub.publish("state", ev["event"])
         if may_unlock_blueprint(ev):
             self.request_blueprint_refresh()
+        try:
+            await self.automations.on_event(ev)
+        except Exception:
+            log.exception("automations failed on %s", ev.get("event"))
 
     # --- blueprints ------------------------------------------------------------------
     def request_blueprint_refresh(self, delay: float = 5.0) -> None:
@@ -192,6 +242,10 @@ class Worker:
             (key, kind, label, device_code, replicant_code, location,
              _iso(started_at or datetime.now(timezone.utc)), _iso(ends_at), source),
         )
+        rows = await self.db.fetchall("SELECT * FROM timers WHERE kind=?", (kind,))
+        _, dups = duplicate_timers(rows)
+        for k in dups:
+            await self.clear_timer(k)
 
     async def clear_timer(self, key: str) -> None:
         await self.db.execute("DELETE FROM timers WHERE key=?", (key,))

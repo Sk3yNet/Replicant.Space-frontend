@@ -11,6 +11,12 @@
       <h3><a href="/devices/{{ d.device_code }}">{{ d.device_type | human }} <span class="mono">{{ d.device_code }}</span></a></h3>
       <span class="pill {{ d.status | status_class }}">{{ d.status }}</span>
     </div>
+    <div class="row between small" style="margin:4px 0">
+      <span class="muted">{% if c.sys %}{{ c.sys.targets | length }} known targets in {{ c.sys.star }}{% if c.sys.scanned %} · scan {{ c.sys.scanned | ago }}{% else %} · no system scan yet{% endif %}{% endif %}</span>
+      <span><span id="rt-{{ d.device_code }}"></span>
+        <button class="small ghost" hx-post="/ami/{{ d.device_code }}/refresh-targets" hx-target="#rt-{{ d.device_code }}"
+                title="Re-read the system scan and belt details from the game">Refresh targets</button></span>
+    </div>
     <div class="small muted">{{ d.location }}{% if c.directive %} · last directive event: {{ c.directive.event }} {{ (c.directive.payload or {}).get('directive', '') }} ({{ c.directive.created_at | ago }}){% endif %}</div>
 
     {% if c.digest %}{% set p = c.digest.payload %}
@@ -23,7 +29,8 @@
     {% endif %}
 
     <form hx-post="/ami/{{ d.device_code }}/directive" hx-target="#ami-{{ d.device_code }}" style="margin-top:8px">
-      {% with code=d.device_code, names=c.directives, fields=c.first_fields, uid="d-" ~ d.device_code, self_code=d.device_code %}{% include "partials/directive_picker.html" %}{% endwith %}
+      {% with code=d.device_code, names=c.directives, fields=c.first_fields, uid="d-" ~ d.device_code, self_code=d.device_code,
+              sugg=c.sugg, sys_targets=c.sys %}{% include "partials/directive_picker.html" %}{% endwith %}
       <button style="margin-top:6px">Set directive</button>
     </form>
 

@@ -55,3 +55,11 @@ document.addEventListener("htmx:confirm", e => {
     if (confirm(`Really run "${cmd}"?`)) e.detail.issueRequest(true);
   }
 });
+
+// Collect resources: copy the server's fill plan into the amount boxes, or clear them.
+function fillCargo(id) {
+  document.querySelectorAll(`#${id} input[data-fill]`).forEach(i => { i.value = i.dataset.fill || ""; });
+}
+function clearCargo(id) {
+  document.querySelectorAll(`#${id} input`).forEach(i => { i.value = ""; });
+}

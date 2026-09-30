@@ -1,0 +1,10 @@
+{% if not job %}<div class="result err"><strong>✖ Could not start the chain</strong></div>
+{% else %}{% set first = job.steps[0] %}
+<div class="result {{ 'err' if job.status == 'failed' else 'ok' }}">
+  <div class="row between"><strong>{{ '✖' if job.status == 'failed' else '✔' }} {{ job.title }}</strong>
+    <a class="small" href="/automations">follow on Automations →</a></div>
+  {% if first.error %}<div class="lv-alert">{{ first.desc }}: {{ first.error }}</div>{% endif %}
+  {% if first.response is mapping and first.response.arrives_at %}<div>Arrives <span data-ends="{{ first.response.arrives_at }}"><span class="left"></span></span> ({{ first.response.arrives_at | local }})</div>{% endif %}
+  <ol class="small">{% for st in job.steps %}<li>{{ st.desc }} — <span class="muted">{{ st.status }}</span></li>{% endfor %}</ol>
+</div>
+{% endif %}

@@ -53,7 +53,7 @@ COMMANDS: dict[str, list[Field]] = {
     "recall": [],
     "start_mining": [F("resource_type", "resource", required=True)],
     "retarget": [F("resource_type", "resource", required=True)],
-    "collect_resources": [F("resources", "resources", help="Amounts to load; leave all blank to fill the hold")],
+    "collect_resources": [F("resources", "resources", help="Amounts to load from the stock here")],
     "deposit_resources": [F("resources", "resources", help="Leave blank to empty the whole hold")],
     "attach": [F("device", "device", required=True, label="device to attach to")],
     "detach": [],
@@ -68,7 +68,7 @@ COMMANDS: dict[str, list[Field]] = {
         F("tags", "tags", help="Tags applied to each printed device"),
         F("controller", "device", label="hand to AMI controller", filter={"feature": "ami"}),
         F("oncomplete.command", "choice", label="when printed", options=["", "travel", "start_mining"]),
-        F("oncomplete.destination", "location", label="…travel to"),
+        F("oncomplete.destination", "location", label="…travel to", filter={"scope": "system"}),
         F("oncomplete.resource_type", "resource", label="…mine resource"),
         F("flatpack", "bool", default=False),
     ],
@@ -103,7 +103,8 @@ DIRECTIVES: dict[str, dict[str, list[Field]]] = {
         "maintain_ratios": [F("", "resources", label="ratios", help="Decimals, e.g. structural 0.5, conductive 0.3",
                               options=["float"])],
         "deplete_smallest": [],
-        "gather_salvage": [F("location", "location", required=True, label="salvage site"),
+        "gather_salvage": [F("location", "location", required=True, label="salvage site",
+                             filter={"scope": "system", "targets": ["salvage", "site", "belt"]}),
                            F("recall", "bool", default=True)],
     },
     "survey": {
@@ -113,14 +114,19 @@ DIRECTIVES: dict[str, dict[str, list[Field]]] = {
         "belt_search": [],
     },
     "transport": {
-        "delivery": [F("route.collect", "location", required=True, label="collect from"),
-                     F("route.deliver", "location", required=True, label="deliver to"),
+        "delivery": [F("route.collect", "location", required=True, label="collect from",
+                       filter={"scope": "system", "targets": ["stockpile", "belt", "site", "salvage"]}),
+                     F("route.deliver", "location", required=True, label="deliver to",
+                       filter={"scope": "system", "targets": ["lagrange", "stockpile", "planet", "moon", "belt", "site", "object", "outer", "star"]}),
                      F("requirement", "resources", label="deliver until")],
-        "shuttle": [F("collect", "location", required=True), F("deliver", "location", required=True),
+        "shuttle": [F("collect", "location", required=True, filter={"scope": "system", "targets": ["stockpile", "belt", "site", "salvage"]}),
+                    F("deliver", "location", required=True, filter={"scope": "system", "targets": ["lagrange", "stockpile", "planet", "moon", "belt", "site", "object", "outer", "star"]}),
                     F("priority", "resource_list")],
-        "ferry": [F("collect", "location", required=True), F("deliver", "location", required=True, help="Another system"),
+        "ferry": [F("collect", "location", required=True, filter={"scope": "system", "targets": ["stockpile", "belt", "site", "salvage"]}),
+                  F("deliver", "location", required=True, help="Another system"),
                   F("priority", "resource_list")],
-        "consolidate": [F("deliver", "location", required=True), F("priority", "resource_list")],
+        "consolidate": [F("deliver", "location", required=True, filter={"scope": "system", "targets": ["lagrange", "stockpile", "planet", "moon", "belt", "site", "object", "outer", "star"]}),
+                        F("priority", "resource_list")],
     },
     "maintenance": {"patrol": []},
     "trade": {"trade": [F("name", "text", required=True, label="shop name"), F("description", "text"),
@@ -290,7 +296,7 @@ def parse_fields(fields: list[Field], form) -> dict:
             elif f.required:
                 raise FormError(f"{f.title} is required")
             continue
-        raw = (form.get(key) or "").strip()
+        raw = (form.get(key + "__custom") or form.get(key) or "").strip()
         if not raw:
             if f.required:
                 raise FormError(f"{f.title} is required")

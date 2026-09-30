@@ -1,0 +1,13 @@
+{% for j in active %}
+  <div style="border-bottom:1px solid var(--line);padding:8px 0">
+    <div class="row between">
+      <span><span class="pill st-move">{{ j.status }}</span> <b>{{ j.title }}</b>
+        {% if j.device %}<a class="mono small" href="/devices/{{ j.device }}">{{ j.device }}</a>{% endif %}</span>
+      <span class="row"><span class="small muted">step {{ [j.idx + 1, j.steps | length] | min }} / {{ j.steps | length }} · started {{ j.created_at | ago }}</span>
+        <button class="small ghost" hx-post="/automations/jobs/{{ j.id }}/cancel" hx-confirm="Cancel this job? (the current command is not undone)">Cancel</button></span>
+    </div>
+    {% set cur = j.steps[j.idx] if j.idx < j.steps | length else none %}
+    {% if cur %}<div class="small">Now: {{ cur.desc }}{% if cur.status == 'waiting' %} <span class="muted">— waiting for {{ cur.wait | join(' / ') }}</span>{% endif %}</div>{% endif %}
+    <div class="timer"><div class="bar"><i style="width:{{ (100 * j.idx / (j.steps | length)) | round }}%"></i></div></div>
+  </div>
+{% else %}<p class="muted">No automation is running right now.</p>{% endfor %}

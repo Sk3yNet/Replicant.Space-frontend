@@ -22,10 +22,34 @@
         <option value="false" {{ 'selected' if f.default is sameas false }}>no</option>
       </select>
     {% elif f.kind == "resources" %}
-      <div class="res-grid">
-        {% for r in RESOURCES %}<label class="res"><span>{{ r }}</span>
-          <input type="number" name="{{ key }}.{{ r }}" min="0" step="{{ 'any' if 'float' in f.options else '1' }}" placeholder="—"></label>{% endfor %}
+      {% set cg = cargo if (cargo is defined and f.name == "resources") else none %}
+      {% if cg %}
+        <div class="small" style="margin-bottom:4px">
+          At <b>{{ cg.location }}</b>{% if cg.stale %} <span class="muted">(last sync)</span>{% endif %} ·
+          hold {% if cg.capacity is not none %}<b>{{ cg.used | num }}</b> / {{ cg.capacity | num }} used, <b class="lv-done">{{ cg.free | num }}</b> free{% else %}<span class="muted">capacity unknown</span>{% endif %}
+        </div>
+      {% endif %}
+      <div class="res-grid {{ 'cargo' if cg or (sys_targets is defined and sys_targets and sys_targets.resources) }}" id="{{ uid }}-res">
+        {% for r in RESOURCES %}{% set have = cg.available.get(r, 0) if cg else none %}
+        {% set sysr = (sys_targets.resources.get(r) if (not cg and sys_targets is defined and sys_targets) else none) %}
+        <label class="res {{ 'muted' if cg and not have }}" {% if sysr %}title="best belt: {{ sysr.level or 'unknown' }} · stock in system: {{ sysr.stock | int }}"{% endif %}><span>{{ r }}</span>
+          <input type="number" name="{{ key }}.{{ r }}" min="0" step="{{ 'any' if 'float' in f.options else '1' }}" placeholder="—"
+                 {% if cg %}max="{{ have | int }}" data-fill="{{ cg.plan.get(r, '') }}"{% endif %}>
+          {% if cg %}<span class="muted small" title="available here">/ {{ have | num }}</span>
+          {% elif sysr %}<span class="small {{ 'lv-done' if sysr.level in ('high','rich') else 'muted' }}">{{ sysr.level or '' }}{% if sysr.stock %} · {{ sysr.stock | num }}{% endif %}</span>{% endif %}</label>{% endfor %}
       </div>
+      {% if not cg and sys_targets is defined and sys_targets and sys_targets.resources %}
+        <div class="muted small">Beside each resource: richest belt level in {{ sys_targets.star }} · units stockpiled there.</div>
+      {% endif %}
+      {% if cg %}
+        <div class="row" style="margin-top:6px">
+          <button type="button" class="small" onclick="fillCargo('{{ uid }}-res')" {{ 'disabled' if not cg.plan }}>Fill to capacity</button>
+          <button type="button" class="small" hx-post="/devices/{{ self_code }}/collect-all" hx-target="#cmd-result" {{ 'disabled' if not cg.plan }}>
+            Collect all now{% if cg.plan %} ({{ cg.plan.values() | sum }} units){% endif %}</button>
+          <button type="button" class="small ghost" onclick="clearCargo('{{ uid }}-res')">Clear</button>
+        </div>
+        {% if cg.hold %}<div class="muted small">In the hold: {% for r, q in cg.hold | dictsort %}{{ q | num }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+      {% endif %}
     {% elif f.kind == "resource_list" %}
       <div class="chips">{% for r in RESOURCES %}<label class="chip"><input type="checkbox" name="{{ key }}" value="{{ r }}"> {{ r }}</label>{% endfor %}</div>
     {% elif f.kind == "devices" %}
@@ -45,6 +69,19 @@
         {% for o in opts %}<option value="{{ o.value }}">{{ o.value }} · {{ o.label }}</option>{% endfor %}
       </select>
       {% if not opts %}<span class="muted small">No matching devices found — sync may still be running.</span>{% endif %}
+    {% elif f.kind == "location" and (f.filter or {}).get("scope") == "system" and sys_targets is defined and sys_targets
+              and target_options(sys_targets, (f.filter or {}).get("targets")) %}
+      {% set groups = target_options(sys_targets, (f.filter or {}).get("targets")) %}
+      <div class="row">
+        <select name="{{ key }}">
+          {% if not f.required %}<option value="">—</option>{% endif %}
+          {% for label, items in groups %}<optgroup label="{{ label }}">
+            {% for t in items %}<option value="{{ t.code }}" title="{{ t.label }}">{{ t.code }}{% if t.label %} · {{ t.label | truncate(60, true, '…') }}{% endif %}</option>{% endfor %}
+          </optgroup>{% endfor %}
+        </select>
+        <input name="{{ key }}__custom" placeholder="or type a code" size="16" title="overrides the list">
+      </div>
+      <div class="muted small">In {{ sys_targets.star }}{% if sys_targets.scanned %} · scan {{ sys_targets.scanned | ago }}{% else %} · no system scan yet{% endif %}</div>
     {% else %}
       {% set list_id = {"location": "loc", "device_type": "dtype", "tags": "tags", "replicant": "rep", "channel": "chan"}.get(f.kind) %}
       {% if list_id == "loc" %}{% set used.loc = true %}{% elif list_id == "dtype" %}{% set used.dtype = true %}{% elif list_id == "tags" %}{% set used.tags = true %}{% elif list_id == "rep" %}{% set used.rep = true %}{% elif list_id == "chan" %}{% set used.chan = true %}{% endif %}

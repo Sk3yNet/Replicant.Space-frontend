@@ -1,5 +1,6 @@
 {% if command %}
   {% include "partials/fields.html" %}
+  {% if chain_groups is defined %}{% include "partials/chain_builder.html" %}{% endif %}
   <details {{ 'open' if not known }} style="margin-top:6px"><summary class="small">{{ 'Arguments (JSON)' if not known else 'Extra arguments (JSON, optional)' }}</summary>
     {% if not known %}<p class="muted small">No field list for <code>{{ command }}</code> yet — enter its arguments as JSON (or leave blank).</p>{% endif %}
     <textarea name="args" placeholder='{"key": "value"}'></textarea>

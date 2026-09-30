@@ -22,6 +22,11 @@ from .db import now_iso, row_event
 from . import notify
 from .shapes import as_amounts, normalize_blueprints, normalize_inventory
 from . import commands as cmdspec
+from . import automations as auto
+from .cargo import cargo_context
+from .targets import options_for, system_targets
+from . import carrier as carrier_mod
+from .ingest import duplicate_timers
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
@@ -149,7 +154,7 @@ def capacity(v: Any) -> float | None:
 templates.env.filters.update(local=f_local, ago=f_ago, pretty=f_pretty, human=f_human, num=f_num,
                              status_class=status_class, star_of=star_of, capacity=capacity)
 templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, level_of=notify.level_of,
-                             device_options=cmdspec.device_options)
+                             device_options=cmdspec.device_options, target_options=options_for)
 
 
 async def base_ctx(request: Request, user: str, active: str, **kw) -> dict:
@@ -192,7 +197,7 @@ async def load_state(request: Request) -> dict:
 
 
 async def active_timers(request: Request) -> list[dict]:
-    rows = await request.app.state.db.fetchall("SELECT * FROM timers ORDER BY ends_at")
+    rows, _ = duplicate_timers(await request.app.state.db.fetchall("SELECT * FROM timers ORDER BY ends_at"))
     now = datetime.now(timezone.utc)
     out = []
     for r in rows:
@@ -316,6 +321,12 @@ async def digest_view(request: Request, hours: int = 24, user: str = Depends(cur
     return await page(request, user, "digest.html", "dashboard", digest=digest, hours=hours)
 
 
+@router.get("/api/timers.json")
+async def timers_json(request: Request, user: str = Depends(current_user)):
+    """Raw timer rows, for diagnosing what the In progress list is built from."""
+    return JSONResponse(await request.app.state.db.fetchall("SELECT * FROM timers ORDER BY ends_at"))
+
+
 @router.get("/partials/timers", response_class=HTMLResponse)
 async def p_timers(request: Request, user: str = Depends(current_user)):
     return partial(request, "partials/timers.html", timers=await active_timers(request))
@@ -395,7 +406,8 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
         "SELECT * FROM events WHERE device_code=? ORDER BY seq DESC LIMIT 50", (code,))]
     st = await load_state(request)
     same_loc = [d for d in st["devices"] if d.get("location") == dev.get("location") and d.get("device_code") != code]
-    return await page(request, user, "device.html", "fleet", dev=dev, code=code, err=err, logs=logs, events=events,
+    carrier = await carrier_context(request, dev) if dev else None
+    return await page(request, user, "device.html", "fleet", carrier=carrier, dev=dev, code=code, err=err, logs=logs, events=events,
                       same_loc=same_loc, commands=order_commands(dev.get("available_commands") or []),
                       dangerous=DANGEROUS)
 
@@ -413,11 +425,76 @@ async def suggestions(request: Request, here: str | None) -> dict:
     st = await load_state(request)
     bps = normalize_blueprints(await db.kv_get("blueprints", []))
     systems = [{"star": r["star"], "data": json.loads(r["data"])} for r in await db.fetchall("SELECT star, data FROM systems")]
-    return cmdspec.build_suggestions(st, bps, systems, await db.kv_get("stars", {}) or {}, here)
+    sugg = cmdspec.build_suggestions(st, bps, systems, await db.kv_get("stars", {}) or {}, here)
+    if here:
+        local = await system_targets(db, star_of(here))
+        known = {t["code"]: t for t in local["targets"]}
+        codes = {o["value"] for o in sugg["locations"]}
+        extra = [{"value": t["code"], "label": t["category"]} for t in local["targets"] if t["code"] not in codes]
+        sugg["locations"] = extra + sugg["locations"]
+        for o in sugg["locations"]:
+            t = known.get(o["value"])
+            if t:
+                o["label"] = f"{t['category']}" + (f" · {t['label']}" if t.get("label") else "")
+        sugg["locations"].sort(key=lambda o: (o["value"] not in known, o["value"]))
+        sugg["system"] = local
+    return sugg
 
 
 async def _device(request: Request, code: str) -> dict:
     return next((d for d in (await load_state(request))["devices"] if d.get("device_code") == code), {})
+
+
+CHAIN_ROWS = 3
+MOVE_COMMANDS = {"travel"}
+
+
+async def chain_context(request: Request, traveller: str | None, replicant: str | None = None) -> dict:
+    """Device choices for the "then, on arrival" rows: the traveller, what it carries, what's nearby, the rest."""
+    st = await load_state(request)
+    devs = st["devices"]
+    me = next((d for d in devs if d.get("device_code") == traveller), {})
+    here = me.get("location")
+    carried: list[dict] = []
+    if replicant:
+        rep = st["replicants"].get(replicant) or {}
+        carried = [s for s in rep.get("stowed_devices") or [] if s.get("device_code")]
+        here = here or rep.get("location") or rep.get("current_location")
+    carried_codes = {c["device_code"] for c in carried}
+    groups = [("This " + ("replicant's vessel" if replicant else "device"),
+               [{"value": "__self__", "label": f"{f_human(me.get('device_type') or 'vessel')} {traveller or ''}".strip()}])]
+    if carried:
+        groups.append(("Carried", [{"value": c["device_code"], "label": f"{f_human(c.get('device_type'))} {c['device_code']}"} for c in carried]))
+    near = [d for d in devs if d.get("location") == here and d.get("device_code") not in carried_codes | {traveller}]
+    if near:
+        groups.append((f"At {here}", [{"value": d["device_code"], "label": f"{f_human(d.get('device_type'))} {d['device_code']} · {d.get('status')}"} for d in near]))
+    rest = [d for d in devs if d.get("location") != here and d.get("device_code") not in carried_codes | {traveller}]
+    if rest:
+        groups.append(("Elsewhere", [{"value": d["device_code"], "label": f"{f_human(d.get('device_type'))} {d['device_code']} @ {d.get('location')}"} for d in rest]))
+    return {"chain_groups": groups, "chain_commands": auto.CHAIN_COMMANDS, "chain_rows": CHAIN_ROWS,
+            "chain_replicant": replicant}
+
+
+def parse_chain(form, traveller: str | None, replicant: str | None) -> list[dict]:
+    steps = []
+    for i in range(CHAIN_ROWS):
+        cmd = (form.get(f"then_command_{i}") or "").strip()
+        if not cmd:
+            continue
+        dev = (form.get(f"then_device_{i}") or "__self__").strip()
+        dev = traveller if dev == "__self__" else dev
+        if not dev and cmd != "system_scan":
+            raise ValueError("pick a device for each follow-up")
+        steps.append(auto.chain_step(dev, cmd, form.get(f"then_arg_{i}"), replicant))
+    return steps
+
+
+async def start_chain(request: Request, user: str, title: str, first: dict, followups: list[dict], device: str | None) -> HTMLResponse:
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        job = await eng.create_job("chain", title, device, [first, *followups], {"by": user}, force=True)
+    job = await eng._get(job["id"]) if job else None
+    return partial(request, "partials/chain_result.html", job=job)
 
 
 @router.get("/devices/{code}/command-form", response_class=HTMLResponse)
@@ -427,13 +504,19 @@ async def device_command_form(request: Request, code: str, command: str = "", us
         return HTMLResponse('<p class="muted small">Pick a command to see its fields.</p>')
     if command == "set_directive":
         names = await device_directives(request, dev)
+        sugg = await suggestions(request, dev.get("location"))
         return partial(request, "partials/directive_picker.html", code=code, names=names,
                        fields=cmdspec.directive_fields(names[0]) if names else [],
-                       sugg=await suggestions(request, dev.get("location")), uid=f"d-{code}", self_code=code)
+                       sugg=sugg, sys_targets=sugg.get("system"), uid=f"d-{code}", self_code=code)
     fields = cmdspec.COMMANDS.get(command)
+    chain = await chain_context(request, code) if command in MOVE_COMMANDS else {}
+    if command == "collect_resources":
+        chain["cargo"] = await cargo_context(request.app.state.db, request.app.state.api, dev,
+                                             normalize_blueprints(await request.app.state.db.kv_get("blueprints", [])))
+    sugg = await suggestions(request, dev.get("location"))
     return partial(request, "partials/command_form.html", code=code, command=command, fields=fields or [],
-                   known=fields is not None, sugg=await suggestions(request, dev.get("location")),
-                   uid=f"c-{code}", self_code=code, directives=None)
+                   known=fields is not None, sugg=sugg, sys_targets=sugg.get("system"),
+                   uid=f"c-{code}", self_code=code, directives=None, **chain)
 
 
 @router.post("/devices/{code}/command", response_class=HTMLResponse)
@@ -462,8 +545,85 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
         return bad(str(e))
     except ValueError as e:
         return bad(f"Bad JSON: {e}")
+    if command in MOVE_COMMANDS:
+        try:
+            followups = parse_chain(form, code, None)
+        except ValueError as e:
+            return bad(str(e))
+        if followups:
+            dest = str(body.get("destination") or "").upper()
+            first = auto.step(f"{code} → {dest}", f"/devices/{code}", {"command": command, **body, **extra},
+                              wait=["travel.arrived"], match={"destination": dest} if dest else None, critical=True)
+            first["wait_device"] = code
+            return await start_chain(request, user, f"{code} → {dest}, then {len(followups)} step(s)", first, followups, code)
     return await run_action(request, user, "POST", f"/devices/{code}", {"command": command, **body, **extra},
                             f"{command} on {code}")
+
+
+async def carrier_context(request: Request, dev: dict) -> dict | None:
+    """Rows for the Carrier card, or None if this device can't carry anything."""
+    bps = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
+    if not carrier_mod.is_carrier(dev, bps):
+        return None
+    st = await load_state(request)
+    code = dev.get("device_code")
+    rep = next(((c, r) for c, r in st["replicants"].items() if r.get("hosted_device_code") == code), None)
+    stowed = [s for s in (dev.get("stowed_devices") or []) if isinstance(s, dict) and s.get("device_code")]
+    if not stowed and rep:
+        stowed = [s for s in (rep[1].get("stowed_devices") or []) if isinstance(s, dict) and s.get("device_code")]
+    rows = carrier_mod.carrier_rows(dev, stowed, st["devices"])
+    cap = carrier_mod.stow_capacity(dev, bps)
+    if "travel" in (dev.get("available_commands") or []):
+        travel_path = f"/devices/{code}"
+    elif rep:
+        travel_path = f"/replicants/{rep[0]}/travel"
+    else:
+        travel_path = None
+    return {"rows": rows, "capacity": cap, "carried": sum(1 for r in rows if r["carried"]),
+            "travel_path": travel_path, "replicant": rep[0] if rep else None, "star": carrier_mod.star_of(dev.get("location"))}
+
+
+@router.post("/devices/{code}/carrier", response_class=HTMLResponse)
+async def device_carrier(request: Request, code: str, user: str = Depends(current_user)):
+    form = await request.form()
+    try:
+        dev = {**await _device(request, code), **(await request.app.state.api.get(f"/devices/{code}") or {})}
+    except ApiError:
+        dev = await _device(request, code)
+    ctx = await carrier_context(request, dev)
+    if not ctx:
+        return HTMLResponse('<div class="result err">This device can\'t carry anything.</div>')
+    launch, stow, recall = set(form.getlist("launch")), set(form.getlist("stow")), set(form.getlist("recall"))
+    if not (launch or stow or recall):
+        return HTMLResponse('<div class="result err">Tick at least one launch, stow or recall box.</div>')
+    needs_move = any(r["code"] in stow and not r["same_loc"] and not r["mobile"] for r in ctx["rows"])
+    if needs_move and not ctx["travel_path"]:
+        return HTMLResponse('<div class="result err">Some picked devices can\'t travel, and this vessel has no travel command to go and get them.</div>')
+    if ctx["capacity"] is not None:
+        after = ctx["carried"] - len(launch) + len([c for c in stow if c not in launch])
+        if after > ctx["capacity"]:
+            return HTMLResponse(f'<div class="result err">That would put {after} devices in a vessel that holds {int(ctx["capacity"])}.</div>')
+    steps = carrier_mod.plan(code, dev.get("location"), ctx["rows"], launch, stow, recall,
+                             ctx["travel_path"] or f"/devices/{code}", return_after=form.get("return_after") == "on")
+    if not steps:
+        return HTMLResponse('<div class="result err">Nothing to do for that selection.</div>')
+    bits = [f"{len(launch)} launch" if launch else "", f"{len(stow)} pick-up" if stow else "", f"{len(recall - stow)} recall" if recall - stow else ""]
+    return await start_chain(request, user, f"{code}: " + ", ".join(b for b in bits if b), steps[0], steps[1:], code)
+
+
+@router.post("/devices/{code}/collect-all", response_class=HTMLResponse)
+async def device_collect_all(request: Request, code: str, user: str = Depends(current_user)):
+    """Load as much as fits from the stock where the transport is, in proportion to what's there."""
+    dev = await _device(request, code)
+    c = await cargo_context(request.app.state.db, request.app.state.api, dev,
+                            normalize_blueprints(await request.app.state.db.kv_get("blueprints", [])))
+    if not c["plan"]:
+        why = ("the hold is full" if c["free"] == 0 else "nothing is stockpiled here" if not c["available"]
+               else "the hold capacity is unknown — enter amounts by hand")
+        return partial(request, "partials/action_result.html", ok=False, status=0, error=f"Nothing to collect: {why}.",
+                       label="collect all", method="POST", path=f"/devices/{code}", response=None)
+    return await run_action(request, user, "POST", f"/devices/{code}", {"command": "collect_resources", "resources": c["plan"]},
+                            f"collect all ({int(sum(c['plan'].values()))} units) on {code}")
 
 
 @router.post("/devices/{code}/tags", response_class=HTMLResponse)
@@ -508,8 +668,22 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
         except ApiError as e:
             return partial(request, "partials/action_result.html", ok=False, status=e.status, error=e.message,
                            label="route preview", method="POST", path=f"/replicants/{code}/travel", response=e.body)
+        host = ((await load_state(request))["replicants"].get(code) or {}).get("hosted_device_code")
         return partial(request, "partials/route_preview.html", code=code, destination=destination, r=resp,
-                       legs=resp.get("route") if isinstance(resp.get("route"), list) else [resp.get("route")] if resp.get("route") else [])
+                       legs=resp.get("route") if isinstance(resp.get("route"), list) else [resp.get("route")] if resp.get("route") else [],
+                       sugg=await suggestions(request, destination), uid=f"r-{code}", **await chain_context(request, host, code))
+    form = await request.form()
+    host = ((await load_state(request))["replicants"].get(code) or {}).get("hosted_device_code")
+    try:
+        followups = parse_chain(form, host, code)
+    except ValueError as e:
+        return partial(request, "partials/action_result.html", ok=False, status=400, error=str(e),
+                       label="travel", method="POST", path=f"/replicants/{code}/travel", response=None)
+    if followups:
+        first = auto.step(f"{code} → {destination}", f"/replicants/{code}/travel", {"destination": destination},
+                          wait=["travel.arrived"], match={"destination": destination}, critical=True)
+        first["wait_device"] = host  # the arrival event is reported for the host vessel
+        return await start_chain(request, user, f"{code} → {destination}, then {len(followups)} step(s)", first, followups, host)
     return await run_action(request, user, "POST", f"/replicants/{code}/travel", {"destination": destination},
                             f"{code} → {destination}")
 
@@ -677,6 +851,8 @@ async def location_detail(request: Request, code: str, user: str = Depends(curre
     try:
         data = await request.app.state.api.get(f"/locations/{code}")
         err = None
+        if isinstance(data, dict) and data:
+            await request.app.state.db.kv_set(f"loc:{code.upper()}", data)
     except ApiError as e:
         data, err = {}, e.message
     st = await load_state(request)
@@ -897,7 +1073,9 @@ async def ami(request: Request, user: str = Depends(current_user)):
         candidates = [x for x in st["devices"] if x.get("location") == d.get("location")
                       and "ami" not in (x.get("features") or [])]
         names = await device_directives(request, d)
-        ctrls.append({"d": d, "kind": kind, "digest": row_event(last) if last else None,
+        csugg = await suggestions(request, d.get("location"))
+        ctrls.append({"d": d, "kind": kind, "digest": row_event(last) if last else None, "sugg": csugg,
+                      "sys": csugg.get("system"),
                       "directive": row_event(last_dir) if last_dir else None,
                       "directives": names, "first_fields": cmdspec.directive_fields(names[0]) if names else [],
                       "candidates": candidates})
@@ -905,11 +1083,45 @@ async def ami(request: Request, user: str = Depends(current_user)):
     return await page(request, user, "ami.html", "ami", ctrls=ctrls, sugg=sugg)
 
 
+async def refresh_targets(request: Request, star: str) -> tuple[int, str | None]:
+    """Re-read the system scan and every belt's detail (for resource sites). Returns (#details, error)."""
+    worker, api, db = request.app.state.worker, request.app.state.api, request.app.state.db
+    try:
+        scan = await worker.refresh_system(star)
+    except ApiError as e:
+        return 0, e.message
+    n = 0
+    for b in ((scan.get("asteroid_belt") or {}).get("belts")) or []:
+        code = b.get("designation")
+        if not code:
+            continue
+        try:
+            detail = await api.get(f"/locations/{code}")
+            await db.kv_set(f"loc:{code}", detail or {})
+            n += 1
+        except ApiError:
+            pass
+    return n, None
+
+
+@router.post("/ami/{code}/refresh-targets", response_class=HTMLResponse)
+async def ami_refresh_targets(request: Request, code: str, user: str = Depends(current_user)):
+    dev = await _device(request, code)
+    star = star_of(dev.get("location"))
+    if not star:
+        return HTMLResponse('<span class="lv-alert small">Unknown location.</span>')
+    n, err = await refresh_targets(request, star)
+    if err:
+        return HTMLResponse(f'<span class="lv-alert small">Could not read {star}: {err}</span>')
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
 @router.get("/ami/{code}/directive-form", response_class=HTMLResponse)
 async def ami_directive_form(request: Request, code: str, directive: str = "", user: str = Depends(current_user)):
     dev = await _device(request, code)
+    sugg = await suggestions(request, dev.get("location"))
     return partial(request, "partials/fields.html", fields=cmdspec.directive_fields(directive),
-                   sugg=await suggestions(request, dev.get("location")), uid=f"d-{code}", self_code=code)
+                   sugg=sugg, sys_targets=sugg.get("system"), uid=f"d-{code}", self_code=code)
 
 
 def directive_body(form) -> dict:
@@ -1128,3 +1340,94 @@ async def live(request: Request, user: str = Depends(current_user)):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# =====================================================================================
+# automations
+# =====================================================================================
+
+
+@router.get("/automations", response_class=HTMLResponse)
+async def automations_page(request: Request, user: str = Depends(current_user)):
+    eng = request.app.state.worker.automations
+    jobs = await eng.jobs()
+    active = [j for j in jobs if j["status"] in ("running", "waiting")]
+    finished = [j for j in reversed(jobs) if j["status"] not in ("running", "waiting")][:15]
+    entries = list(reversed(await request.app.state.db.kv_get("automation_log", []) or []))[:60]
+    st = await load_state(request)
+    vessels = [d for d in st["devices"] if "vessel" in (d.get("device_type") or "") or d.get("stow_capacity")]
+    return await page(request, user, "automations.html", "automations", rules=auto.RULES, s=await eng.settings(),
+                      active_jobs=active, finished=finished, entries=entries, vessels=vessels,
+                      surveyed=len(await request.app.state.db.kv_get("surveyed", {}) or {}))
+
+
+@router.post("/automations/rules/{rule_id}", response_class=HTMLResponse)
+async def automations_rule(request: Request, rule_id: str, user: str = Depends(current_user)):
+    rule = auto.RULES_BY_ID.get(rule_id)
+    if not rule:
+        return HTMLResponse("unknown rule", status_code=404)
+    form = await request.form()
+    eng = request.app.state.worker.automations
+    s = await eng.settings()
+    cfg = s["rules"][rule_id]
+    was = cfg.get("enabled")
+    cfg["enabled"] = form.get("enabled") == "on"
+    for o in rule.options:
+        raw = form.get(o.name)
+        if o.kind == "bool":
+            cfg[o.name] = raw == "on"
+        elif o.kind == "int":
+            try:
+                cfg[o.name] = max(0, int(raw or o.default))
+            except ValueError:
+                pass
+        elif raw is not None:
+            cfg[o.name] = raw if (not o.options or raw in o.options) else o.default
+    await eng.save_settings(s)
+    await eng.log(rule_id, (f"{'enabled' if cfg['enabled'] else 'disabled'} by {user}" if was != cfg["enabled"]
+                            else f"options changed by {user}"))
+    return HTMLResponse(f'<span class="{"lv-done" if cfg["enabled"] else "muted"} small">{"on" if cfg["enabled"] else "off"} · saved</span>')
+
+
+@router.post("/automations/dry-run", response_class=HTMLResponse)
+async def automations_dry_run(request: Request, user: str = Depends(current_user)):
+    form = await request.form()
+    eng = request.app.state.worker.automations
+    s = await eng.settings()
+    s["dry_run"] = form.get("dry_run") == "on"
+    await eng.save_settings(s)
+    await eng.log("engine", f"dry run {'on' if s['dry_run'] else 'off'} ({user})")
+    return HTMLResponse('<span class="small lv-done">saved</span>')
+
+
+@router.post("/automations/jobs/{job_id}/cancel", response_class=HTMLResponse)
+async def automations_cancel(request: Request, job_id: str, user: str = Depends(current_user)):
+    await request.app.state.worker.automations.cancel(job_id)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/automations/survey-now", response_class=HTMLResponse)
+async def automations_survey_now(request: Request, vessel: str = Form(...), user: str = Depends(current_user)):
+    """Run the auto-survey rule for a vessel where it is now (as if it had just arrived)."""
+    eng = request.app.state.worker.automations
+    dev = await _device(request, vessel)
+    loc = dev.get("location")
+    if not loc:
+        return HTMLResponse('<span class="lv-alert">Unknown vessel location — wait for the next device sync.</span>')
+    s = await eng.settings()
+    async with eng.lock:
+        before = len(await eng.jobs())
+        await eng.rule_auto_survey(vessel, loc, auto.star_of(loc), await eng.stowed_in(vessel), s["rules"]["auto_survey"])
+        made = len(await eng.jobs()) - before
+    if s["dry_run"]:
+        return HTMLResponse('<span class="muted">Dry run: see the log below for the plan.</span>', headers={"HX-Refresh": "true"})
+    if not made:
+        return HTMLResponse('<span class="muted">Nothing to do — no un-surveyed bodies, no scan data, or no free survey drones. See the log.</span>',
+                            headers={"HX-Refresh": "true"})
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.get("/partials/automation-jobs", response_class=HTMLResponse)
+async def p_automation_jobs(request: Request, user: str = Depends(current_user)):
+    jobs = await request.app.state.worker.automations.jobs()
+    return partial(request, "partials/automation_jobs.html", active=[j for j in jobs if j["status"] in ("running", "waiting")])

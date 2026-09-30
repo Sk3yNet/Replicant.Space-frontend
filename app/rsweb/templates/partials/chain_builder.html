@@ -1,0 +1,24 @@
+{# "Then, on arrival" rows. Needs chain_groups, chain_commands, chain_rows, uid, sugg #}
+<details class="chain" style="margin-top:8px" {{ 'open' if open_chain }}>
+  <summary class="small">Then, on arrival… <span class="muted">(optional — chain up to {{ chain_rows }} follow-up commands)</span></summary>
+  <p class="muted small">Each follow-up runs after the one before it finishes, e.g. <i>deploy</i> a carried drone, then <i>start mining</i> with it.
+    Progress shows on the Automations page.</p>
+  {% for i in range(chain_rows) %}
+  <div class="row chain-row" style="margin-bottom:6px">
+    <span class="muted small" style="width:14px">{{ loop.index }}.</span>
+    <select name="then_device_{{ i }}" title="device">
+      {% for label, opts in chain_groups %}<optgroup label="{{ label }}">{% for o in opts %}<option value="{{ o.value }}">{{ o.label }}</option>{% endfor %}</optgroup>{% endfor %}
+    </select>
+    <select name="then_command_{{ i }}" title="command">
+      <option value="">— nothing —</option>
+      {% for name, spec in chain_commands.items() %}{% if name != 'system_scan' or chain_replicant %}<option value="{{ name }}">{{ spec[0] }}</option>{% endif %}{% endfor %}
+    </select>
+    <input name="then_arg_{{ i }}" list="{{ uid }}-chain-arg" placeholder="resource / destination / target" size="22" autocomplete="off">
+  </div>
+  {% endfor %}
+  <datalist id="{{ uid }}-chain-arg">
+    {% for r in RESOURCES %}<option value="{{ r }}">resource</option>{% endfor %}
+    {% for o in sugg.locations %}<option value="{{ o.value }}">{{ o.label }}</option>{% endfor %}
+    {% for d in sugg.devices %}<option value="{{ d.device_code }}">{{ d.device_type }}</option>{% endfor %}
+  </datalist>
+</details>

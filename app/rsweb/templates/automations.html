@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Automations{% endblock %}
+{% block content %}
+<div class="row between">
+  <h1>Automations</h1>
+  <form class="inline card" hx-post="/automations/dry-run" hx-trigger="change" hx-target="#dry-msg" style="padding:8px 12px">
+    <label style="font-size:14px;color:var(--text)"><input type="checkbox" name="dry_run" {{ 'checked' if s.dry_run }}>
+      <b>Dry run</b> — plan and log, but send nothing</label> <span id="dry-msg"></span>
+  </form>
+</div>
+<p class="muted">Rules run on the server, so they keep working with this page closed. Every command they send appears in
+  <a href="/account">the audit log</a> as <code>automation</code>. New rules start switched off — try them with dry run first.</p>
+
+<div class="grid g2">
+{% for r in rules %}{% set cfg = s.rules[r.id] %}
+  <div class="card {{ 'hl' if cfg.enabled }}">
+    <form hx-post="/automations/rules/{{ r.id }}" hx-trigger="change" hx-target="#saved-{{ r.id }}">
+      <div class="row between">
+        <label style="font-size:15px;color:var(--text)"><input type="checkbox" name="enabled" {{ 'checked' if cfg.enabled }}> <b>{{ r.title }}</b></label>
+        <span id="saved-{{ r.id }}"><span class="{{ 'lv-done' if cfg.enabled else 'muted' }} small">{{ 'on' if cfg.enabled else 'off' }}</span></span>
+      </div>
+      <p class="muted small">{{ r.description }}</p>
+      {% if r.options %}<div class="fields">
+        {% for o in r.options %}
+          <div class="field">
+            {% if o.kind == "bool" %}
+              <label style="text-transform:none"><input type="checkbox" name="{{ o.name }}" {{ 'checked' if cfg[o.name] }}> {{ o.label }}</label>
+            {% elif o.kind == "int" %}
+              <label style="text-transform:none">{{ o.label }}</label><input type="number" min="0" name="{{ o.name }}" value="{{ cfg[o.name] }}" style="width:90px">
+            {% else %}
+              <label style="text-transform:none">{{ o.label }}</label>
+              <select name="{{ o.name }}">{% for v in o.options %}<option {{ 'selected' if cfg[o.name] == v }}>{{ v }}</option>{% endfor %}</select>
+            {% endif %}
+            {% if o.help %}<div class="muted small">{{ o.help }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      </div>{% endif %}
+    </form>
+    {% if r.id == "auto_survey" %}
+      <form class="inline" hx-post="/automations/survey-now" hx-target="#survey-now" style="margin-top:10px">
+        <select name="vessel">{% for v in vessels %}<option value="{{ v.device_code }}">{{ v.device_type | human }} {{ v.device_code }} @ {{ v.location }}</option>{% endfor %}</select>
+        <button class="small">Survey this system now</button>
+      </form>
+      <div id="survey-now" class="small"></div>
+      <p class="muted small">{{ surveyed }} bodies recorded as surveyed so far.</p>
+    {% endif %}
+  </div>
+{% endfor %}
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h2>Active jobs</h2>
+  <div hx-get="/partials/automation-jobs" hx-trigger="sse:state throttle:3s, every 30s">{% with active=active_jobs %}{% include "partials/automation_jobs.html" %}{% endwith %}</div>
+</div>
+
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <h2>Recent jobs</h2>
+    {% for j in finished %}
+      <details><summary><span class="pill {{ 'st-work' if j.status == 'done' else 'st-idle' }}">{{ j.status }}</span> {{ j.title }}
+        <span class="muted small">{{ (j.finished_at or j.created_at) | ago }}</span></summary>
+        <ol class="small">{% for st in j.steps %}<li class="{{ 'lv-alert' if st.status in ('skipped','failed') else '' }}">{{ st.desc }} — {{ st.status }}{% if st.error %} ({{ st.error }}){% endif %}</li>{% endfor %}</ol>
+      </details>
+    {% else %}<p class="muted">None yet.</p>{% endfor %}
+  </div>
+  <div class="card">
+    <h2>Log</h2>
+    <ul class="feed">{% for e in entries %}
+      <li><span class="t">{{ e.at | local('%m-%d %H:%M') }}</span><span class="{{ 'lv-alert' if e.level == 'alert' else '' }}"><span class="muted small">{{ e.rule }}</span> {{ e.text }}</span></li>
+    {% else %}<li class="muted">Nothing logged yet.</li>{% endfor %}</ul>
+  </div>
+</div>
+{% endblock %}

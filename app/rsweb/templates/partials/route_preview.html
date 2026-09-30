@@ -9,6 +9,7 @@
   </table>
   <form class="inline" hx-post="/replicants/{{ code }}/travel" hx-target="closest .result" hx-swap="outerHTML" style="margin-top:8px">
     <input type="hidden" name="destination" value="{{ destination }}">
+    {% if chain_groups is defined %}<div style="flex-basis:100%">{% include "partials/chain_builder.html" %}</div>{% endif %}
     <button>Go — travel to {{ destination }}</button>
   </form>
 </div>

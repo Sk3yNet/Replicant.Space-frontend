@@ -44,6 +44,40 @@
   </div>
 </div>
 
+{% if carrier %}
+<div class="card" style="margin-top:14px">
+  <div class="row between">
+    <h2>Carrier · devices in {{ carrier.star }}</h2>
+    <span class="small muted">{{ carrier.carried }}{% if carrier.capacity is not none %} / {{ carrier.capacity | int }}{% endif %} slots used</span>
+  </div>
+  {% if not carrier.rows %}<p class="muted">Nothing in this system that it can carry.</p>{% else %}
+  <form hx-post="/devices/{{ code }}/carrier" hx-target="#carrier-result">
+    <table class="small">
+      <tr><th>Device</th><th>Where</th><th>Status</th><th>Launch</th><th>Stow</th><th>Recall</th><th></th></tr>
+      {% for r in carrier.rows %}
+      <tr class="{{ 'muted' if not (r.can_launch or r.can_stow or r.can_recall) }}">
+        <td><a class="mono" href="/devices/{{ r.code }}">{{ r.code }}</a> {{ r.type | human }}</td>
+        <td>{{ r.location }}</td>
+        <td><span class="pill {{ r.status | status_class }}">{{ r.status }}</span></td>
+        <td>{% if r.can_launch %}<input type="checkbox" name="launch" value="{{ r.code }}">{% endif %}</td>
+        <td>{% if r.can_stow %}<input type="checkbox" name="stow" value="{{ r.code }}">{% endif %}</td>
+        <td>{% if r.can_recall %}<input type="checkbox" name="recall" value="{{ r.code }}">{% endif %}</td>
+        <td class="muted">{{ r.note }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <div class="row" style="margin-top:8px">
+      <label style="text-transform:none"><input type="checkbox" name="return_after" checked> return here after collecting devices that can't travel</label>
+      <button>Run selected</button>
+    </div>
+    <p class="muted small">Launches go first. Devices elsewhere that can travel fly here and are stowed as they arrive; for ones that can't,
+      the vessel {{ 'travels' if carrier.travel_path else '(no travel command — not possible)' }} to each location in turn and picks them up. Progress shows on the Automations page.</p>
+  </form>
+  {% endif %}
+  <div id="carrier-result"></div>
+</div>
+{% endif %}
+
 <div class="grid g2" style="margin-top:14px">
   <div class="card">
     <h2>Events (local history)</h2>
