@@ -1035,3 +1035,98 @@ def test_system_resources_and_map_places(client):
     client.portal.call(client.app.state.worker.handle_event, _ev(99, "site.depleted", site="SOL-BELT-1-SITE-2", location="SOL-BELT-1"))
     res = client.portal.call(system_resources, client.app.state.db, "SOL")
     assert res["mineable"] == 5200
+
+
+def _salvage_setup(client, drop_controller=False):
+    world = client.app.state.api.http._transport.app.state.world
+    if drop_controller:
+        world.devices = [d for d in world.devices if "controller" not in d["device_type"]]
+    client.portal.call(client.app.state.worker.sync_devices)
+    eng = client.app.state.worker.automations
+
+    async def enable():
+        s = await eng.settings()
+        s["rules"]["salvage_when_depleted"]["enabled"] = True
+        s["rules"]["restart_idle_miners"]["enabled"] = True
+        await eng.save_settings(s)
+    client.portal.call(enable)
+    client.get("/systems/SOL", headers=H)
+    client.post("/systems/SOL/resources/refresh", headers=HX)   # site + salvage quantities
+    for ev in [e for e in world.events if e["event"] == "salvage.discovered"]:
+        client.portal.call(client.app.state.worker.handle_event, dict(ev))
+    return world, eng
+
+
+def test_salvage_rule_switches_ami_when_belt_worked_out(client):
+    world, eng = _salvage_setup(client)
+    assert client.portal.call(eng.rule_salvage) == []          # sites still have stock: nothing to do
+    for i, site in enumerate(("SOL-BELT-1-SITE-1", "SOL-BELT-1-SITE-2")):
+        client.portal.call(client.app.state.worker.handle_event, _ev(200 + i, "site.depleted", site=site))
+    jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "salvage_when_depleted"]
+    assert len(jobs) == 1 and jobs[0]["device"] == "MC91FF22"
+    body = next(s["body"] for s in jobs[0]["steps"] if (s["body"] or {}).get("command") == "set_directive")
+    assert body == {"command": "set_directive", "directive": "gather_salvage",
+                    "configuration": {"location": "SOL-3-1-SAL-1", "recall": False}}
+    # no drones are sent on their own while the AMI handles the system
+    assert not any(j["device"].startswith("2AC6121") for j in jobs)
+
+
+def test_salvage_rule_sends_drones_without_ami(client):
+    world, eng = _salvage_setup(client, drop_controller=True)
+    for i, site in enumerate(("SOL-BELT-1-SITE-1", "SOL-BELT-1-SITE-2")):
+        client.portal.call(client.app.state.worker.handle_event, _ev(300 + i, "site.depleted", site=site))
+    jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "salvage_when_depleted"]
+    assert [j["device"] for j in jobs] == ["2AC61212"]          # the idle drone at the worked-out belt
+    bodies = [s["body"] for s in jobs[0]["steps"]]
+    assert bodies[0] == {"command": "travel", "destination": "SOL-3-1-SAL-1"}
+    assert bodies[-1] == {"command": "start_mining", "resource_type": "structural"}
+    # the idle-miner rule leaves drones at the worked-out belt alone
+    acts = client.portal.call(client.app.state.db.fetchall, "SELECT body FROM actions WHERE body LIKE '%start_mining%'")
+    client.portal.call(eng.rule_restart_idle_miners)
+    after = client.portal.call(client.app.state.db.fetchall, "SELECT body FROM actions WHERE body LIKE '%start_mining%'")
+    assert len(after) == len(acts)
+
+
+def test_salvage_helpers():
+    from rsweb import salvage as sv
+    res = {"sites": [{"code": "X-BELT-1-SITE-1", "belt": "X-BELT-1", "depleted": True, "total": 50},
+                     {"code": "X-BELT-2-SITE-1", "belt": "X-BELT-2", "depleted": False, "total": 10},
+                     {"code": "X-BELT-2-SITE-2", "belt": "X-BELT-2", "depleted": False, "total": 0}],
+           "salvage": [{"code": "X-1-SAL-1", "depleted": False, "total": 10, "amounts": {"carbon": 10}},
+                       {"code": "X-2-SAL-1", "depleted": False, "total": 90, "amounts": {"rares": 60, "carbon": 30}},
+                       {"code": "X-3-SAL-1", "depleted": True, "total": 500}]}
+    assert sv.worked_out(res) == {"X-BELT-1"}
+    assert [s["code"] for s in sv.available_salvage(res)] == ["X-2-SAL-1", "X-1-SAL-1"]
+    assert sv.main_resource(sv.available_salvage(res)[0]) == "rares"
+    assert sv.at_worked_out_place("X-BELT-1-SITE-1", {"X-BELT-1"}, set())
+
+
+def test_material_routes_source_to_nearest_destination():
+    from rsweb import loadouts as lo
+    stars = {"AAA": {"position": {"x": 0, "y": 0, "z": 0}}, "BBB": {"position": {"x": 3, "y": 0, "z": 0}, "entry_point": "BBB-5-L4"},
+             "CCC": {"position": {"x": 9, "y": 0, "z": 0}}, "DDD": {"position": {"x": 20, "y": 0, "z": 0}}}
+    devices = [{"device_code": "TA", "device_type": "ami_transport_controller", "location": "AAA-BELT-1", "status": "idle",
+                "available_commands": ["set_directive", "launch"]},
+               {"device_code": "FB", "device_type": "autofactory", "location": "CCC-3-L4", "available_commands": ["enqueue_print"]}]
+    inv = {"AAA-BELT-1": {"carbon": 500}, "AAA-2": {"carbon": 10}, "BBB-4-L5": {"structural": 40}}
+    cfg = {"roles": {"AAA": "source", "BBB": "destination", "CCC": "destination", "DDD": "source"}}
+    routes, unmet = lo.material_routes(cfg, devices, inv, stars, set(), {})
+    assert routes == [{"controller": "TA", "source": "AAA", "dest": "BBB", "collect": "AAA-BELT-1", "deliver": "BBB-4-L5", "distance": 3.0}]
+    assert any(u["star"] == "DDD" and "nothing stockpiled" in u["why"] for u in unmet)
+    steps = lo.ferry_steps(routes[0])
+    assert steps[0]["body"] == {"command": "set_directive", "directive": "ferry",
+                                "configuration": {"collect": "AAA-BELT-1", "deliver": "BBB-4-L5"}}
+    # already running the same ferry → not re-sent; a destination with an autofactory delivers there
+    cur = {"TA": {"directive": "ferry", "configuration": {"collect": "AAA-BELT-1", "deliver": "BBB-4-L5"}, "finished": False}}
+    assert lo.material_routes(cfg, devices, inv, stars, set(), cur)[0] == []
+    cfg2 = {"roles": {"AAA": "source", "CCC": "destination"}}
+    assert lo.material_routes(cfg2, devices, inv, stars, set(), cur)[0][0]["deliver"] == "CCC-3-L4"
+
+
+def test_loadout_roles_page(client):
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.portal.call(client.app.state.worker.sync_inventory)
+    r = client.post("/loadouts/role", data={"star": "SOL", "role": "source"}, headers=HX)
+    assert r.headers.get("HX-Refresh")
+    page = client.get("/loadouts", headers=H).text
+    assert 'value="source" selected' in page and "materials from SOL: no destination system set" in page

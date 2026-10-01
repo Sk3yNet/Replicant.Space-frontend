@@ -1686,7 +1686,8 @@ async def loadout_ctx(request: Request) -> dict:
                    - {"heaven_vessel"})
     p = await eng.loadout_plan()
     present = Counter(lo.star_of(d.get("location")) for d in st["devices"])
-    stars = sorted(set(present) | set(cfg["systems"]), key=lambda s: (s not in cfg["systems"], -present.get(s, 0), s))
+    stars = sorted(set(present) | set(cfg["systems"]) | set(cfg["roles"]),
+                   key=lambda s: (s not in cfg["systems"] and s not in cfg["roles"], -present.get(s, 0), s))
     jobs = [j for j in await eng.jobs() if j["rule"] == "loadouts"]
     tagged = defaultdict(list)
     for d in st["devices"]:
@@ -1759,6 +1760,17 @@ async def loadouts_set_system(request: Request, star: str = Form(...), phase: st
         cfg["systems"][star] = phase
     else:
         cfg["systems"].pop(star, None)
+    await save_loadouts(request, cfg)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/loadouts/role", response_class=HTMLResponse)
+async def loadouts_set_role(request: Request, star: str = Form(...), role: str = Form(""), user: str = Depends(current_user)):
+    cfg = await request.app.state.worker.automations.loadout_cfg()
+    if role in ("source", "destination"):
+        cfg["roles"][star] = role
+    else:
+        cfg["roles"].pop(star, None)
     await save_loadouts(request, cfg)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 

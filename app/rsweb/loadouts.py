@@ -53,6 +53,7 @@ def normalize(cfg: Any) -> dict:
     cfg.setdefault("phases", [])
     cfg.setdefault("systems", {})
     cfg.setdefault("ignore_tags", [])
+    cfg.setdefault("roles", {})          # STAR -> "source" | "destination" (materials)
     s = {**DEFAULT_SETTINGS, **(cfg.get("settings") or {})}
     cfg["settings"] = s
     cfg["phases"] = sorted(cfg["phases"], key=lambda p: (p.get("order", 0), p.get("name", "")))
@@ -430,6 +431,87 @@ def describe(p: dict) -> list[str]:
         out.append(f"{dl['carrier']} carries {', '.join(dl['devices'])} from {dl['from']} to {dl['to']}")
     for code in p["arrived"]:
         out.append(f"{code} has arrived: deploy if stowed, clear its to:/spare tags")
+    for r in p.get("routes") or []:
+        out.append(f"{r['controller']} ferries materials {r['collect']} → {r['deliver']} ({r['source']} → nearest destination {r['dest']})")
     for u in p["unmet"]:
-        out.append(f"can't fill {u['n']}× {u['type']} in {u['star']}: {u['why']}")
+        if u["type"] == "materials":
+            out.append(f"materials from {u['star']}: {u['why']}")
+        else:
+            out.append(f"can't fill {u['n']}× {u['type']} in {u['star']}: {u['why']}")
     return out
+
+
+# --- materials: source systems ferry to the nearest destination ------------------------------------------
+def _stock_total(items: dict) -> float:
+    return sum(as_amounts(items).values())
+
+
+def drop_point(star: str, devices: list[dict], inventory: dict[str, dict], stars: dict[str, dict]) -> str:
+    """Where materials should land in a destination: its autofactory, else its biggest stockpile, else its entry point."""
+    fac = sorted(d.get("location") for d in devices if star_of(d.get("location")) == star and is_factory(d) and d.get("location"))
+    if fac:
+        return fac[0]
+    piles = sorted(((loc, _stock_total(items)) for loc, items in inventory.items() if star_of(loc) == star), key=lambda kv: -kv[1])
+    if piles:
+        return piles[0][0]
+    return destination(star, stars)
+
+
+def pickup_point(star: str, inventory: dict[str, dict]) -> str | None:
+    piles = sorted(((loc, _stock_total(items)) for loc, items in inventory.items() if star_of(loc) == star and _stock_total(items) > 0),
+                   key=lambda kv: -kv[1])
+    return piles[0][0] if piles else None
+
+
+def material_routes(cfg: dict, devices: list[dict], inventory: dict[str, dict], stars: dict[str, dict], busy: set[str],
+                    current: dict[str, dict]) -> tuple[list[dict], list[dict]]:
+    """([route], [unmet]). One ferry per source system, to the nearest destination.
+
+    current: controller -> its latest directive {"directive", "configuration", "finished"} so an
+    unchanged, still-running ferry isn't re-sent every pass.
+    """
+    cfg = normalize(cfg)
+    ignore = set(cfg["ignore_tags"])
+    pos = {k: (v or {}).get("position") or {} for k, v in stars.items()}
+    sources = sorted(s for s, r in cfg["roles"].items() if r == "source")
+    dests = sorted(s for s, r in cfg["roles"].items() if r == "destination")
+    routes, unmet = [], []
+    for src in sources:
+        cands = [d for d in dests if d != src]
+        if not cands:
+            unmet.append({"star": src, "type": "materials", "n": 0, "why": "no destination system set"})
+            continue
+        dest = min(cands, key=lambda d: (_dist(src, d, pos), d))
+        collect = pickup_point(src, inventory)
+        if not collect:
+            unmet.append({"star": src, "type": "materials", "n": 0, "why": "nothing stockpiled to send yet"})
+            continue
+        ctrls = [d for d in devices if star_of(d.get("location")) == src and "transport" in (d.get("device_type") or "")
+                 and ("set_directive" in (d.get("available_commands") or []) or "ami" in (d.get("features") or []))
+                 and not (ignore & set(d.get("tags") or []))]
+        if not ctrls:
+            unmet.append({"star": src, "type": "materials", "n": 0, "why": f"no AMI transport controller in {src} to ferry to {dest}"})
+            continue
+        deliver = drop_point(dest, devices, inventory, stars)
+        conf = {"collect": collect, "deliver": deliver}
+        ctrl = next((c for c in ctrls if (current.get(c["device_code"]) or {}).get("directive") == "ferry"
+                     and (current[c["device_code"]].get("configuration") or {}) == conf
+                     and not current[c["device_code"]].get("finished")), None)
+        if ctrl:
+            continue  # already ferrying this route
+        free = [c for c in ctrls if c["device_code"] not in busy]
+        if not free:
+            unmet.append({"star": src, "type": "materials", "n": 0, "why": "transport controller busy with another job"})
+            continue
+        c = sorted(free, key=lambda c: (not str(c.get("status") or "").startswith("idle"), c["device_code"]))[0]
+        routes.append({"controller": c["device_code"], "source": src, "dest": dest, "collect": collect, "deliver": deliver,
+                       "distance": _dist(src, dest, pos)})
+    return routes, unmet
+
+
+def ferry_steps(r: dict) -> list[dict]:
+    code = r["controller"]
+    return [step(f"{code}: ferry {r['collect']} → {r['deliver']}", f"/devices/{code}",
+                 {"command": "set_directive", "directive": "ferry",
+                  "configuration": {"collect": r["collect"], "deliver": r["deliver"]}}, critical=True),
+            step(f"{code}: launch", f"/devices/{code}", {"command": "launch"})]

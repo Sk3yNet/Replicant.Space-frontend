@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import defaultdict
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -56,6 +57,15 @@ RULES: list[Rule] = [
          "systems that are short, print what's still missing on an autofactory that has the materials, and carry "
          "it there. Devices with an ignored tag are never touched.",
          [Option("every_minutes", "int", "Run every (minutes)", 15)]),
+    Rule("salvage_when_depleted", "Salvage when mining sites run out",
+         "When every known resource site at a belt is depleted and the system has salvage: an AMI mining controller "
+         "in the system is switched to gather_salvage on the biggest salvage (adopting idle drones there) and launched. "
+         "With no mining controller in the system, idle mining drones at the worked-out belt fly to the salvage and "
+         "mine it. When a salvage runs out, the next one is picked.",
+         [Option("use_ami", "bool", "Use the system's AMI mining controller when there is one", True),
+          Option("recall", "bool", "AMI: recall its drones when the salvage is used up", False),
+          Option("drones_per_salvage", "int", "Drones per salvage when there's no AMI (0 = all on one)", 3),
+          Option("cooldown_minutes", "int", "Wait before re-trying the same device (min)", 10)]),
     Rule("auto_survey", "Auto-survey new systems",
          "When a vessel arrives in a system with un-surveyed bodies: if an AMI survey controller is there or carried, "
          "deploy it and the survey drones, have it adopt them and run survey_system. Otherwise the drones are "
@@ -447,6 +457,12 @@ class AutomationEngine:
                     job["status"] = "running"
                     await self._update(job)
                     await self._advance(job["id"])
+            if name in ("site.depleted", "salvage.depleted"):
+                try:
+                    await self.rule_salvage()
+                except Exception as e:
+                    log.exception("salvage rule failed")
+                    await self.log("engine", f"salvage rule failed: {e}", "alert")
             # rules triggered by arrivals
             if name == "travel.arrived":
                 try:
@@ -474,6 +490,7 @@ class AutomationEngine:
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
+            await self.rule_salvage()
             await self.rule_restart_idle_miners()
             await self.run_due_schedules()
             await self.run_due_loadouts()
@@ -516,8 +533,22 @@ class AutomationEngine:
         reps = await self.db.kv_get("replicants", {}) or {}
         hosts = {r.get("hosted_device_code"): code for code, r in reps.items() if r.get("hosted_device_code")}
         busy = self.busy_devices(await self.jobs())
-        return plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
-                    await self.db.kv_get("stowed_map", {}) or {}, only)
+        from .loadouts import material_routes
+        p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
+                 await self.db.kv_get("stowed_map", {}) or {}, only)
+        current = {}
+        for d in devices:
+            if "transport" in (d.get("device_type") or ""):
+                row = await self.db.fetchone("SELECT event, payload FROM events WHERE device_code=? AND event LIKE 'directive.%' "
+                                             "ORDER BY seq DESC LIMIT 1", (d["device_code"],))
+                if row:
+                    pl = json.loads(row["payload"] or "{}")
+                    current[d["device_code"]] = {"directive": pl.get("directive"), "configuration": pl.get("configuration"),
+                                                 "finished": row["event"] in ("directive.completed", "directive.cleared", "directive.paused")}
+        cfg_only = {**cfg, "roles": {k: v for k, v in cfg["roles"].items() if not only or k in only}}
+        routes, unmet = material_routes(cfg_only, devices, inv, stars, busy, current)
+        p["routes"], p["unmet"] = routes, p["unmet"] + unmet
+        return p
 
     async def apply_loadouts(self, only: set[str] | None = None, manual: bool = False) -> list[str]:
         from . import loadouts as lo
@@ -550,6 +581,9 @@ class AutomationEngine:
                 "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']}", dl["carrier"],
                 lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"]),
                 {"devices": dl["devices"], "star": dl["to"]}, force=manual))
+        for r in p.get("routes") or []:
+            started += bool(await self.create_job("loadouts", f"loadouts: ferry {r['source']} → {r['dest']}", r["controller"],
+                                                  lo.ferry_steps(r), {"devices": [], "star": r["dest"]}, force=manual))
         for code in p["arrived"]:
             steps = lo.arrived_steps(code, p["by_code"][code], stowed_in)
             if steps:
@@ -854,6 +888,95 @@ class AutomationEngine:
                                     {"star": star, "devices": drones, "ami": True})
         return True if job is not None or (await self.settings())["dry_run"] else False
 
+    async def rule_salvage(self) -> list[str]:
+        """See salvage.py. Returns what it did (for the log / tests)."""
+        cfg = await self.rule_cfg("salvage_when_depleted")
+        if not cfg:
+            return []
+        from . import salvage as sv
+        from .ami_schedule import adoptable, controller_idle, is_controller, kind_of, managed_by
+        from .targets import system_resources
+        devices = await self.devices()
+        busy = self.busy_devices(await self.jobs())
+        managed = await managed_by(self.db)
+        state = await self.db.kv_get("salvage_state", {}) or {}
+        cool, assigned = state.setdefault("cool", {}), state.setdefault("assigned", {})
+        cooldown = timedelta(minutes=int(cfg.get("cooldown_minutes") or 10))
+        now = _now()
+
+        def cooling(code: str) -> bool:
+            t = _ts(cool.get(code))
+            return bool(t and now - t < cooldown)
+
+        miners = [d for d in devices if d.get("device_type") == "mining_drone" or
+                  (is_controller(d) and kind_of(d.get("device_type")) == "mining")]
+        done: list[str] = []
+        for star in sorted({star_of(d.get("location")) for d in miners}):
+            res = await system_resources(self.db, star)
+            dry = sv.worked_out(res)
+            sal = sv.available_salvage(res)
+            dead_sal = {x["code"] for x in res.get("salvage") or [] if x.get("depleted")}
+            for k in [k for k, v in assigned.items() if k in dead_sal]:
+                assigned.pop(k)
+            if not dry or not sal:
+                continue
+            ctrls = [d for d in miners if is_controller(d) and star_of(d.get("location")) == star]
+            if ctrls and cfg.get("use_ami", True):
+                for c in ctrls:
+                    code = c["device_code"]
+                    if code in busy or cooling(code):
+                        continue
+                    row = await self.db.fetchone("SELECT event, payload FROM events WHERE device_code=? AND event LIKE 'directive.%' "
+                                                 "ORDER BY seq DESC LIMIT 1", (code,))
+                    cur = json.loads(row["payload"] or "{}") if row else {}
+                    on_salvage = (row and row["event"] == "directive.set" and cur.get("directive") == "gather_salvage"
+                                  and (cur.get("configuration") or {}).get("location") not in dead_sal)
+                    if on_salvage:
+                        continue
+                    idle, _ = await controller_idle(self.db, c)
+                    if not (sv.at_worked_out_place(c.get("location"), dry, dead_sal) or idle):
+                        continue
+                    target = next((x for x in sal if assigned.get(x["code"]) in (None, code)), None)
+                    if not target:
+                        break
+                    adopt = adoptable(devices, c, managed)
+                    job = await self.create_job("salvage_when_depleted", f"{code}: salvage {target['code']} (sites in {star} depleted)",
+                                                code, sv.ami_steps(code, target["code"], bool(cfg.get("recall")), adopt),
+                                                {"devices": adopt, "salvage": target["code"]})
+                    cool[code] = now.isoformat(timespec="seconds")
+                    if job:
+                        assigned[target["code"]] = code
+                    done.append(f"{code} → gather_salvage {target['code']}")
+                continue  # the AMI handles this system; drones are left to it
+            per = int(cfg.get("drones_per_salvage") or 0)
+            idle_drones = sorted((d for d in miners if d.get("device_type") == "mining_drone" and star_of(d.get("location")) == star
+                                  and str(d.get("status")) == "idle" and d["device_code"] not in busy
+                                  and d["device_code"] not in managed and not cooling(d["device_code"])
+                                  and sv.at_worked_out_place(d.get("location"), dry, dead_sal)),
+                                 key=lambda d: d["device_code"])
+            counts: dict[str, int] = defaultdict(int)
+            for d in miners:  # drones already at (or heading for) a salvage count toward its share
+                if d.get("location") in {x["code"] for x in sal} and str(d.get("status")) != "idle":
+                    counts[d["location"]] += 1
+            for j in await self.jobs():
+                if j["rule"] == "salvage_when_depleted" and j["status"] in ("running", "waiting") and j.get("meta", {}).get("salvage"):
+                    counts[j["meta"]["salvage"]] += 1
+            i = 0
+            for d in idle_drones:
+                while i < len(sal) and per and counts[sal[i]["code"]] >= per:
+                    i += 1
+                if i >= len(sal):
+                    break
+                target = sal[i]
+                code = d["device_code"]
+                await self.create_job("salvage_when_depleted", f"{code}: salvage {target['code']} (sites in {star} depleted)", code,
+                                      sv.drone_steps(code, d.get("location"), target), {"salvage": target["code"]})
+                cool[code] = now.isoformat(timespec="seconds")
+                counts[target["code"]] += 1
+                done.append(f"{code} → {target['code']}")
+        await self.db.kv_set("salvage_state", state)
+        return done
+
     async def rule_restart_idle_miners(self) -> None:
         cfg = await self.rule_cfg("restart_idle_miners")
         if not cfg:
@@ -867,12 +990,21 @@ class AutomationEngine:
         managed = await managed_by(self.db)
         devices = await self.devices()
         handed: dict[str, list[str]] = {}
+        dry_belts: set[str] = set()
+        if await self.rule_cfg("salvage_when_depleted"):
+            from .salvage import worked_out
+            from .targets import system_resources
+            for star in {star_of(d.get("location")) for d in devices if d.get("device_type") == "mining_drone"}:
+                dry_belts |= worked_out(await system_resources(self.db, star))
         for d in devices:
             code = d.get("device_code")
             if (d.get("device_type") != "mining_drone" or str(d.get("status")) != "idle"
                     or "BELT" not in (d.get("location") or "") or code in busy or code in managed
                     or "start_mining" not in (d.get("available_commands") or ["start_mining"])):
                 continue
+            from .salvage import belt_of
+            if belt_of(d.get("location")) in dry_belts:
+                continue  # nothing left to mine there: the salvage rule moves it
             last = _ts(attempts.get(code))
             if last and now - last < cooldown:
                 continue

@@ -17,7 +17,7 @@
     <h2>Systems</h2>
     {% if not cfg.phases %}<p class="lv-alert small">Create a phase below first, then give systems a phase.</p>{% endif %}
     <table class="small">
-      <tr><th>System</th><th>Phase</th><th class="num">Devices</th><th>Status</th><th></th></tr>
+      <tr><th>System</th><th>Phase</th><th title="Sources ferry their stockpile to the nearest destination">Materials</th><th class="num">Devices</th><th>Status</th><th></th></tr>
       {% for star in stars %}{% set rep = plan.report.get(star) %}
       <tr>
         <td><a href="/systems/{{ star }}"><b>{{ star }}</b></a></td>
@@ -26,14 +26,21 @@
           <select name="phase"><option value="">— none —</option>
             {% for ph in cfg.phases %}<option value="{{ ph.id }}" {{ 'selected' if cfg.systems.get(star) == ph.id }}>{{ ph.name }}</option>{% endfor %}
           </select></form></td>
+        <td><form hx-post="/loadouts/role" hx-trigger="change">
+          <input type="hidden" name="star" value="{{ star }}">
+          {% set role = cfg.roles.get(star, '') %}
+          <select name="role"><option value="">—</option>
+            <option value="source" {{ 'selected' if role == 'source' }}>source ↗</option>
+            <option value="destination" {{ 'selected' if role == 'destination' }}>destination ↘</option></select></form>
+          {% for r in plan.routes or [] if r.source == star %}<div class="muted small">→ {{ r.dest }}</div>{% endfor %}</td>
         <td class="num">{{ present.get(star, 0) }}</td>
         <td>{% if not rep %}<span class="muted">not managed</span>
           {% elif not rep.short and not rep.surplus %}<span class="lv-done">✓ matches</span>
           {% else %}{% if rep.short %}<span class="lv-alert">short {{ rep.short }}</span>{% endif %}
             {% if rep.surplus %}<span class="pill small">{{ rep.surplus }} spare</span>{% endif %}{% endif %}</td>
-        <td>{% if rep %}<button class="small ghost" hx-post="/loadouts/apply" hx-vals='{"star": "{{ star }}"}' hx-target="#lo-result">Apply</button>{% endif %}</td>
+        <td>{% if rep or cfg.roles.get(star) %}<button class="small ghost" hx-post="/loadouts/apply" hx-vals='{"star": "{{ star }}"}' hx-target="#lo-result">Apply</button>{% endif %}</td>
       </tr>
-      {% if rep %}<tr><td colspan="5" style="padding-top:0">
+      {% if rep %}<tr><td colspan="6" style="padding-top:0">
         <details><summary class="muted">{{ rep.phase.name }} — {{ rep.rows | length }} device types</summary>
         <table class="small">
           <tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th class="num">Incoming</th><th class="num">Short</th><th>Spare / filling from</th></tr>
@@ -54,6 +61,8 @@
     <h2>Next pass would…</h2>
     {% if lines %}<ul class="small">{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>
     {% else %}<p class="muted small">Nothing to do.</p>{% endif %}
+    <p class="muted small"><b>Materials:</b> each <i>source</i> system's AMI transport controller gets a <code>ferry</code> directive from its biggest stockpile to the
+      <i>nearest destination</i> system (delivered to the destination's autofactory, else its biggest stockpile, else its entry point). A ferry already running on the same route is left alone.</p>
     <p class="muted small">Recomputed on every page load. "Apply" runs it now; the Automations rule runs it on a timer (and respects Dry run).</p>
   </div>
 
