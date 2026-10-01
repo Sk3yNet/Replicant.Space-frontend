@@ -945,7 +945,7 @@ def test_loadout_plan_spares_prints_and_carriers():
     assert ("/devices/A1", {"command": "stow", "target": "CAR"}) in bodies
     assert ("/devices/CAR", {"command": "travel", "destination": "BBB-5-L4"}) in bodies
     assert ("/devices/A3", {"command": "deploy"}) in bodies
-    assert ("/devices/A3", {"configuration": {"remove_tags": ["to:bbb"]}}) in bodies
+    assert ("/devices/A3", {"configuration": {"add_tags": ["home:bbb"], "remove_tags": ["to:bbb"]}}) in bodies
     assert bodies[-1] == ("/devices/CAR", {"command": "travel", "destination": "AAA-OORT"})
     pr = lo.print_steps(p["prints"][0])[0]["body"]
     assert pr["command"] == "enqueue_print" and pr["tags"][0].startswith("to:")
@@ -968,7 +968,7 @@ def test_loadout_incoming_and_arrivals_and_unspare():
     assert b["survey_drone"]["incoming"] == 1 and b["survey_drone"]["short"] == 0
     assert "BS" in p["arrived"]
     steps = lo.arrived_steps("BS", p["by_code"]["BS"], {})
-    assert steps[-1]["body"] == {"configuration": {"remove_tags": ["to:bbb", "spare"]}}
+    assert steps[-1]["body"] == {"configuration": {"add_tags": ["home:bbb"], "remove_tags": ["spare", "to:bbb"]}}
     # AAA now has exactly 2 drones locally (A2, A4) — nothing more is marked spare there
     a = {r["type"]: r for r in p["report"]["AAA"]["rows"]}
     assert a["mining_drone"]["have"] == 2 and a["mining_drone"]["surplus"] == 0
@@ -1171,3 +1171,27 @@ def test_arrived_from_elsewhere(client):
     assert f({"origin": "ABOTEIN-OORT"}) is True
     assert f({"travel_type": "surge_hop"}) is True
     assert f({}) is False      # no origin known at all: treated as a local move
+
+
+
+def test_loadout_home_tags_keep_devices_counted_while_away():
+    from rsweb import loadouts as lo
+    cfg, devices, bps, inv, stars = _lo_world()
+    cfg["phases"][0]["wants"]["surge_carrier"] = 1
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    # first pass: everything counted for a phased system gets its home tag
+    assert "home:aaa" in p["tag_add"]["CAR"] and "home:aaa" in p["tag_add"]["AC"]
+    assert "home:bbb" in p["tag_add"]["BS"]
+    assert any("home:aaa" in line for line in lo.describe(p))
+    # tag them, then send the carrier off to BBB on a delivery
+    for d in devices:
+        if d["device_code"] in p["tag_add"] and d["device_code"] not in p["moves"]:
+            d["tags"] = sorted(set(d.get("tags") or []) | {t for t in p["tag_add"][d["device_code"]] if t.startswith("home:")})
+        if d["device_code"] == "CAR":
+            d["location"], d["status"] = "BBB-5-L4", "idle"
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    a = {r["type"]: r for r in p["report"]["AAA"]["rows"]}
+    assert a["surge_carrier"]["have"] == 1 and a["surge_carrier"]["short"] == 0 and a["surge_carrier"]["away"] == ["CAR"]
+    b = {r["type"]: r for r in p["report"]["BBB"]["rows"]}
+    assert "surge_carrier" not in b or b["surge_carrier"]["have"] == 0   # not counted (or made spare) where it's visiting
+    assert "spare" not in p["tag_add"].get("CAR", [])

@@ -43,11 +43,12 @@
       {% if rep %}<tr><td colspan="6" style="padding-top:0">
         <details><summary class="muted">{{ rep.phase.name }} — {{ rep.rows | length }} device types</summary>
         <table class="small">
-          <tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th class="num">Incoming</th><th class="num">Short</th><th>Spare / filling from</th></tr>
+          <tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th class="num">Incoming</th><th class="num">Short</th><th>Away from home</th><th>Spare / filling from</th></tr>
           {% for r in rep.rows %}<tr>
             <td>{{ r.type | human }}</td><td class="num">{{ r.want }}</td><td class="num">{{ r.have }}</td>
             <td class="num">{{ r.incoming or '' }}</td>
             <td class="num {{ 'lv-alert' if r.short }}">{{ r.short or '' }}</td>
+            <td class="mono">{% for c in r.away or [] %}<a href="/devices/{{ c }}" title="tagged home:{{ star | lower }}, counted here while it's away">{{ c }}</a> {% endfor %}</td>
             <td class="mono">{% for c in r.spare %}<a href="/devices/{{ c }}">{{ c }}</a> {% endfor %}
               {% if r.from_spares %}<span class="muted">← </span>{% for c in r.from_spares %}<a href="/devices/{{ c }}">{{ c }}</a> {% endfor %}{% endif %}
               {% if r.printing %}<span class="muted">print {{ r.printing }}</span>{% endif %}</td>
@@ -91,6 +92,8 @@
   <div class="card">
     <h2>Phases</h2>
     <p class="muted small">A phase is a stage of a system's development, and how many of each device a system at that stage should have.
+      Every device counted for a system gets a <code>home:&lt;system&gt;</code> tag, so a carrier or transport out on a delivery still counts at home
+      (listed under "Away from home") and isn't made spare where it's visiting. Delivered devices are re-homed on arrival; to move one for good, change its tag on its device page.
       Leave a box empty for "don't care" (never counted, marked spare or filled); 0 means none wanted, so any there become spare.</p>
     <form hx-post="/loadouts/phases" hx-swap="none">
       <div style="overflow-x:auto">

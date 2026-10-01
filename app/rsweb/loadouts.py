@@ -39,6 +39,19 @@ def to_tag(star: str) -> str:
     return "to:" + re.sub(r"[^a-z0-9\-_:.]", "", star.lower())[:29]
 
 
+def home_tag(star: str) -> str:
+    return "home:" + re.sub(r"[^a-z0-9\-_:.]", "", star.lower())[:27]
+
+
+def home_of(d: dict, stars: set[str]) -> str | None:
+    """The system a device belongs to (`home:<star>` tag), matched back to a known star code."""
+    for t in d.get("tags") or []:
+        if t.startswith("home:"):
+            want = t[5:]
+            return next((s for s in stars if home_tag(s)[5:] == want), want.upper())
+    return None
+
+
 def bound_for(d: dict, stars: set[str]) -> str | None:
     """The star a device is tagged to go to (`to:<star>`), matched back to a known star code."""
     for t in d.get("tags") or []:
@@ -127,14 +140,18 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         incoming[o["star"]][o["device_type"]] += 1
 
     def local(star: str) -> list[dict]:
+        """Devices that belong to `star`: tagged home:<star> wherever they are right now (a carrier out on a
+        delivery still counts at home), or untagged and sitting in it. Devices bound elsewhere don't count."""
         out = []
         for d in pool:
-            if star_of(d.get("location")) != star:
-                continue
             dest = bound_for(d, known_stars)
-            if dest and dest != star:
-                continue  # leaving
-            out.append(d)
+            if dest:  # on its way somewhere: it counts there once it has arrived (until it is re-homed)
+                if dest == star and star_of(d.get("location")) == star:
+                    out.append(d)
+                continue
+            home = home_of(d, known_stars) or star_of(d.get("location"))
+            if home == star:
+                out.append(d)
         return out
 
     # 1-2: count, mark extras as spare, un-spare what's needed
@@ -155,8 +172,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             inc = incoming[star][t]
             surplus = max(0, len(have) - want)
             # who stays: non-spare first, busy ones (can't be moved anyway), then idle-less-healthy last
-            ranked = sorted(have, key=lambda d: (SPARE in (d.get("tags") or []), d["device_code"] not in busy,
-                                                 _idle(d), -_cap(d), d["device_code"]))
+            # away from home (e.g. out delivering) is never picked as spare
+            ranked = sorted(have, key=lambda d: (SPARE in (d.get("tags") or []), star_of(d.get("location")) == star,
+                                                 d["device_code"] not in busy, _idle(d), -_cap(d), d["device_code"]))
             keep, extra = ranked[:len(have) - surplus], ranked[len(have) - surplus:]
             for d in keep:
                 if SPARE in (d.get("tags") or []):
@@ -164,7 +182,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             for d in extra:
                 if SPARE not in (d.get("tags") or []):
                     tag_add[d["device_code"]].add(SPARE)
-            rows.append({"type": t, "want": want, "have": len(have), "incoming": inc,
+            for d in have:  # every device counted for this system carries its home tag
+                tags = set(d.get("tags") or [])
+                if home_tag(star) not in tags:
+                    tag_add[d["device_code"]].add(home_tag(star))
+                    tag_remove[d["device_code"]].update(t for t in tags if t.startswith("home:"))
+            away = [d["device_code"] for d in have if star_of(d.get("location")) != star]
+            rows.append({"type": t, "want": want, "have": len(have), "incoming": inc, "away": away,
                          "short": max(0, want - len(have) - inc), "surplus": surplus,
                          "spare": [d["device_code"] for d in extra]})
         report[star] = {"star": star, "phase": ph, "rows": rows,
@@ -349,8 +373,14 @@ def self_move_steps(code: str, dest_star: str, stars: dict, d: dict) -> list[dic
               wait=["travel.arrived"], match={"destination": dest_star}, critical=True)
     st["wait_device"] = code
     steps.append(st)
-    steps.append(tag_step(code, None, [to_tag(dest_star)]))
+    steps.append(rehome_step(code, d, dest_star))
     return steps
+
+
+def rehome_step(code: str, d: dict, star: str) -> dict:
+    """On arrival: drop the to: tag (and any spare / old home), and make the new system its home."""
+    old = [t for t in d.get("tags") or [] if (t.startswith("home:") and t != home_tag(star)) or t == SPARE]
+    return tag_step(code, [home_tag(star)], sorted(set(old) | {to_tag(star)}))
 
 
 def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool) -> list[dict]:
@@ -394,7 +424,7 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool) 
                   timeout=SHORT_TIMEOUT)
         st["wait_device"] = code
         steps.append(st)
-        steps.append(tag_step(code, None, [to_tag(dest_star)]))
+        steps.append(rehome_step(code, by_code.get(code, {}), dest_star))
     if carriers_return and cloc:
         steps.append(move(cloc, "return", star_of(cloc)))
     return steps
@@ -406,15 +436,17 @@ def arrived_steps(code: str, d: dict, stowed_in: dict) -> list[dict]:
         st = step(f"deploy {code}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT)
         st["wait_device"] = code
         steps.append(st)
-    rem = [t for t in d.get("tags") or [] if t.startswith("to:") or t == SPARE]
-    if rem:
-        steps.append(tag_step(code, None, rem))
+    dest = next((t[3:].upper() for t in d.get("tags") or [] if t.startswith("to:")), None) or star_of(d.get("location"))
+    steps.append(rehome_step(code, d, dest))
     return steps
 
 
 def describe(p: dict) -> list[str]:
     """Plain-language list of what a pass would do."""
     out = []
+    homes = Counter(t for code, tags in p["tag_add"].items() if code not in p["moves"] for t in tags if t.startswith("home:"))
+    for t, n in sorted(homes.items()):
+        out.append(f"tag {n} device(s) {t} (they count for that system wherever they go)")
     for code, tags in sorted(p["tag_add"].items()):
         if code not in p["moves"] and SPARE in tags:
             d = p["by_code"].get(code, {})
