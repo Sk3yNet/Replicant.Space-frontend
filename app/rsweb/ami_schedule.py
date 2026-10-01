@@ -52,12 +52,28 @@ async def managed_by(db) -> dict[str, str]:
             for d in p.get("devices") or []:
                 code = d.get("device_code") if isinstance(d, dict) else d
                 out.pop(code, None)
+    # the device list's own `controller_device_code` is authoritative whenever the game sends it
+    for d in await db.kv_get("devices", []) or []:
+        if "controller_device_code" in d:
+            code = d.get("device_code")
+            if d.get("controller_device_code"):
+                out[code] = d["controller_device_code"]
+            else:
+                out.pop(code, None)
     return out
 
 
 async def controller_idle(db, ctrl: dict) -> tuple[bool, str]:
     """(idle?, why). Idle = not coordinating, or its last directive event says it finished/stopped."""
     status = str(ctrl.get("status") or "")
+    if "ami_directive" in ctrl or "ami_directive_status" in ctrl:  # the game's own view, when the device list has it
+        dirv = ctrl.get("ami_directive") or {}
+        state = str(dirv.get("_eval_state") or "")
+        if not dirv or str(ctrl.get("ami_directive_status") or "") not in ("active", ""):
+            return True, f"directive {ctrl.get('ami_directive_status') or 'none'}"
+        if state.startswith(("exhausted", "idle", "done", "complete")):
+            return True, f"{dirv.get('name')}: {state.split(':')[0]}"
+        return False, f"{dirv.get('name')}: {state.split(':')[0] or 'running'}"
     row = await db.fetchone("SELECT event, created_at FROM events WHERE device_code=? AND event LIKE 'directive.%' "
                             "ORDER BY seq DESC LIMIT 1", (ctrl.get("device_code"),))
     if row and row["event"] in FINISHED:
@@ -70,8 +86,8 @@ async def controller_idle(db, ctrl: dict) -> tuple[bool, str]:
 def adoptable(devices: list[dict], ctrl: dict, managed: dict[str, str]) -> list[str]:
     """Idle drones of the right kind at the controller's location that no controller manages."""
     want = DRONE_FOR_KIND.get(kind_of(ctrl.get("device_type")))
-    if not want:
-        return []
+    if not want or "ferry" in (ctrl.get("tags") or []):
+        return []  # the ferry controller takes freighters (loadouts handles that), not in-system drones
     return sorted(d["device_code"] for d in devices
                   if want in (d.get("device_type") or "") and d.get("location") == ctrl.get("location")
                   and str(d.get("status", "")).startswith("idle") and d.get("device_code") not in managed
@@ -99,7 +115,8 @@ def targets_of(sched: dict, devices: list[dict]) -> list[dict]:
         kind = tgt[5:]
         star = sched.get("star") or ""
         return [d for d in devices if is_controller(d) and kind_of(d.get("device_type")) == kind
-                and (not star or star_of(d.get("location")) == star)]
+                and (not star or star_of(d.get("location")) == star)
+                and not (kind == "transport" and "ferry" in (d.get("tags") or []))]
     return [d for d in devices if d.get("device_code") == tgt]
 
 

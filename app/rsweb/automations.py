@@ -572,23 +572,36 @@ class AutomationEngine:
         p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
                  await self.db.kv_get("stowed_map", {}) or {}, only)
         current = {}
+        live: set[str] = set()
         for d in devices:
-            if "transport" in (d.get("device_type") or ""):
-                row = await self.db.fetchone("SELECT event, payload, created_at FROM events WHERE device_code=? AND event LIKE 'directive.%' "
-                                             "ORDER BY seq DESC LIMIT 1", (d["device_code"],))
-                if row:
-                    pl = json.loads(row["payload"] or "{}")
-                    current[d["device_code"]] = {"directive": pl.get("directive"), "configuration": pl.get("configuration"),
-                                                 "finished": row["event"] in ("directive.completed", "directive.cleared", "directive.paused"),
-                                                 "at": row["created_at"]}
+            if "transport" not in (d.get("device_type") or ""):
+                continue
+            if "ami_directive" in d:  # the game says what it's doing: trust that over events and memory
+                dirv = d.get("ami_directive") or {}
+                state = str(dirv.get("_eval_state") or "")
+                current[d["device_code"]] = {"directive": dirv.get("name"), "configuration": dirv.get("config") or {},
+                                             "finished": not dirv or state.startswith(("done", "complete"))
+                                             or str(d.get("ami_directive_status") or "active") != "active"}
+                live.add(d["device_code"])
+                continue
+            row = await self.db.fetchone("SELECT event, payload, created_at FROM events WHERE device_code=? AND event LIKE 'directive.%' "
+                                         "ORDER BY seq DESC LIMIT 1", (d["device_code"],))
+            if row:
+                pl = json.loads(row["payload"] or "{}")
+                current[d["device_code"]] = {"directive": pl.get("directive"), "configuration": pl.get("configuration"),
+                                             "finished": row["event"] in ("directive.completed", "directive.cleared", "directive.paused"),
+                                             "at": row["created_at"]}
         sent = await self.db.kv_get("loadout_ferries", {}) or {}
         for ctrl, f in sent.items():
+            if ctrl in live:
+                continue
             cur = current.get(ctrl)
             later_finish = cur and cur.get("finished") and (cur.get("at") or "") > (f.get("at") or "")
             if not later_finish:  # what we sent is still what it's doing, whatever the event payloads say
                 current[ctrl] = {"directive": "ferry", "configuration": f.get("configuration"), "finished": False}
         cfg_only = {**cfg, "roles": {k: v for k, v in cfg["roles"].items() if not only or k in only}}
-        routes, unmet = material_routes(cfg_only, devices, inv, stars, busy, current)
+        from .ami_schedule import managed_by
+        routes, unmet = material_routes(cfg_only, devices, inv, stars, busy, current, await managed_by(self.db))
         p["routes"], p["unmet"] = routes, p["unmet"] + unmet
         return p
 
@@ -601,6 +614,11 @@ class AutomationEngine:
         stowed_in = {c: k for k, kids in (await self.db.kv_get("stowed_map", {}) or {}).items() for c in kids}
         lines = lo.describe(p)
         started = 0
+        for ctrl, codes in sorted((p.get("releases") or {}).items()):
+            started += bool(await self.create_job("loadouts", f"loadouts: {ctrl} releases {len(codes)} device(s) in another system", ctrl,
+                                                  [lo.step(f"{ctrl}: release {', '.join(codes)}", f"/devices/{ctrl}",
+                                                           {"command": "release", "devices": codes})],
+                                                  {"devices": codes}, force=manual))
         tags = lo.tag_steps(p)
         if tags:
             started += bool(await self.create_job("loadouts", f"loadouts: spare tags ({len(tags)})", None, tags,
@@ -625,11 +643,14 @@ class AutomationEngine:
                 {"devices": dl["devices"], "star": dl["to"]}, force=manual))
         ferries = await self.db.kv_get("loadout_ferries", {}) or {}
         for r in p.get("routes") or []:
-            job = await self.create_job("loadouts", f"loadouts: ferry {r['source']} → {r['dest']}", r["controller"],
-                                        lo.ferry_steps(r), {"devices": [], "star": r["dest"]}, force=manual)
+            job = await self.create_job("loadouts", f"loadouts: ferry {r['source']} → {r['dest']}"
+                                        + (f" (+{len(r['adopt'])} freighter)" if r.get("adopt") else ""), r["controller"],
+                                        lo.ferry_steps(r), {"devices": [a["code"] for a in r.get("adopt") or []], "star": r["dest"]},
+                                        force=manual)
             if job:
                 started += 1
-                ferries[r["controller"]] = {"configuration": {"collect": r["collect"], "deliver": r["deliver"]}, "at": now_iso()}
+                if r.get("resend", True):
+                    ferries[r["controller"]] = {"configuration": {"collect": r["collect"], "deliver": r["deliver"]}, "at": now_iso()}
         await self.db.kv_set("loadout_ferries", ferries)
         for code in p["arrived"]:
             steps = lo.arrived_steps(code, p["by_code"][code], stowed_in)
@@ -1006,9 +1027,12 @@ class AutomationEngine:
             dead_sal = {x["code"] for x in res.get("salvage") or [] if x.get("depleted")}
             for k in [k for k, v in assigned.items() if k in dead_sal]:
                 assigned.pop(k)
-            if not dry or not sal:
-                continue
             ctrls = [d for d in miners if is_controller(d) and star_of(d.get("location")) == star]
+            # the controller's own report: "_eval_state": "exhausted:[...]:<place>" = nothing left to mine there
+            exhausted = {c["device_code"] for c in ctrls
+                         if str(((c.get("ami_directive") or {}).get("_eval_state")) or "").startswith("exhausted")}
+            if (not dry and not exhausted) or not sal:
+                continue
             if ctrls and cfg.get("use_ami", True):
                 for c in ctrls:
                     code = c["device_code"]
@@ -1022,7 +1046,7 @@ class AutomationEngine:
                     if on_salvage:
                         continue
                     idle, _ = await controller_idle(self.db, c)
-                    if not (sv.at_worked_out_place(c.get("location"), dry, dead_sal) or idle):
+                    if not (code in exhausted or sv.at_worked_out_place(c.get("location"), dry, dead_sal) or idle):
                         continue
                     target = next((x for x in sal if assigned.get(x["code"]) in (None, code)), None)
                     if not target:

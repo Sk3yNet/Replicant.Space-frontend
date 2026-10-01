@@ -49,7 +49,8 @@
             <td class="num">{{ r.incoming or '' }}</td>
             <td class="num {{ 'lv-alert' if r.short }}">{{ r.short or '' }}</td>
             <td class="mono">{% for c in r.away or [] %}<a href="/devices/{{ c }}" title="tagged home:{{ star | lower }}, counted here while it's away">{{ c }}</a> {% endfor %}</td>
-            <td class="mono">{% for c in r.spare %}<a href="/devices/{{ c }}">{{ c }}</a> {% endfor %}
+            <td class="mono">{% for c in r.spare %}<a href="/devices/{{ c }}" title="becomes spare this pass">{{ c }}</a> {% endfor %}
+              {% for c in r.spares_here or [] if c not in r.spare %}<a href="/devices/{{ c }}" class="muted" title="spare, parked here, belongs to no system">{{ c }}</a> {% endfor %}
               {% if r.from_spares %}<span class="muted">← </span>{% for c in r.from_spares %}<a href="/devices/{{ c }}">{{ c }}</a> {% endfor %}{% endif %}
               {% if r.printing %}<span class="muted">print {{ r.printing }}</span>{% endif %}</td>
           </tr>{% endfor %}
@@ -62,8 +63,11 @@
     <h2>Next pass would…</h2>
     {% if lines %}<ul class="small">{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>
     {% else %}<p class="muted small">Nothing to do.</p>{% endif %}
-    <p class="muted small"><b>Materials:</b> each <i>source</i> system's AMI transport controller gets a <code>ferry</code> directive from its biggest stockpile to the
-      <i>nearest destination</i> system (delivered to the destination's autofactory, else its biggest stockpile, else its entry point). A ferry already running on the same route is left alone.</p>
+    <p class="muted small"><b>Materials:</b> <i>source</i> systems send their biggest stockpile to the <i>nearest destination</i> with
+      <b>cargo freighters</b> (surge drive) under a dedicated AMI transport controller — the <i>ferry controller</i>, tagged <code>ferry</code>.
+      Each pass it adopts idle freighters in the source and gets a <code>ferry</code> directive; deliveries land at the destination's autofactory,
+      else its biggest stockpile, else its entry point. Transport drones and haulers stay on in-system work under a <i>second</i> transport
+      controller; the ferry controller is never given in-system jobs. Put the ferry controller and freighters in the source's phase.</p>
     <p class="muted small">Recomputed on every page load. "Apply" runs it now; the Automations rule runs it on a timer (and respects Dry run).</p>
   </div>
 
@@ -93,7 +97,7 @@
     <h2>Phases</h2>
     <p class="muted small">A phase is a stage of a system's development, and how many of each device a system at that stage should have.
       Every device counted for a system gets a <code>home:&lt;system&gt;</code> tag, so a carrier or transport out on a delivery still counts at home
-      (listed under "Away from home") and isn't made spare where it's visiting. Delivered devices are re-homed on arrival; to move one for good, change its tag on its device page.
+      (listed under "Away from home") and isn't made spare where it's visiting. A device marked <code>spare</code> loses its home tag — it belongs to no system until it's sent somewhere (or its own system needs it again). Delivered devices are re-homed on arrival; to move one for good, change its tag on its device page.
       Leave a box empty for "don't care" (never counted, marked spare or filled); 0 means none wanted, so any there become spare.</p>
     <form hx-post="/loadouts/phases" hx-swap="none">
       <div style="overflow-x:auto">

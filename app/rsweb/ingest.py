@@ -359,6 +359,13 @@ class Worker:
     async def sync_stowed(self, devices: list[dict], max_carriers: int = 25) -> None:
         """Which carrier holds which device: read each carrier's detail (the device list doesn't say)."""
         from .carrier import is_carrier
+        if any("stowed_in_device_code" in d for d in devices):  # the device list says it directly: no extra requests
+            direct: dict[str, list[str]] = {}
+            for d in devices:
+                if d.get("stowed_in_device_code"):
+                    direct.setdefault(d["stowed_in_device_code"], []).append(d["device_code"])
+            await self.db.kv_set("stowed_map", direct)
+            return
         if not any(str(d.get("status", "")).startswith("stowed") for d in devices):
             await self.db.kv_set("stowed_map", {})
             return

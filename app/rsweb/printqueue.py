@@ -51,6 +51,11 @@ def _ts(v: Any) -> datetime | None:
 async def current(db, dev: dict) -> dict | None:
     """What the printer is doing now, or None when it's idle."""
     status = str(dev.get("status") or "")
+    pr = dev.get("printing")
+    if isinstance(pr, dict) and pr.get("device_type"):
+        state = "waiting" if status.startswith("waiting_for_resources") else "printing"
+        return {"state": state, "device_type": pr.get("device_type"), "started_at": pr.get("started_at"),
+                "completes_at": pr.get("completes_at"), "tags": pr.get("tags") or [], "progress": pr.get("progress_percent")}
     row = await db.fetchone("SELECT event, payload, created_at FROM events WHERE device_code=? "
                             "AND event IN ('print.started', 'print.completed', 'print.cancelled') ORDER BY seq DESC LIMIT 1",
                             (dev.get("device_code"),))

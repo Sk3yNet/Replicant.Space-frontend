@@ -20,7 +20,8 @@ def controllers_in(devices: list[dict], star: str, kind: str) -> list[dict]:
     """AMI controllers of a kind ("mining" / "transport") in a system, idle ones first."""
     out = [d for d in devices
            if kind in (d.get("device_type") or "") and "ami" in (d.get("features") or ["ami"])
-           and "controller" in (d.get("device_type") or "") and star_of(d.get("location")) == star]
+           and "controller" in (d.get("device_type") or "") and star_of(d.get("location")) == star
+           and not (kind == "transport" and "ferry" in (d.get("tags") or []))]  # the ferry controller is for interstellar runs
     return sorted(out, key=lambda d: (not str(d.get("status", "")).startswith("idle"), d.get("device_code")))
 
 

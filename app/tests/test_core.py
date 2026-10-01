@@ -1111,22 +1111,54 @@ def test_material_routes_source_to_nearest_destination():
     from rsweb import loadouts as lo
     stars = {"AAA": {"position": {"x": 0, "y": 0, "z": 0}}, "BBB": {"position": {"x": 3, "y": 0, "z": 0}, "entry_point": "BBB-5-L4"},
              "CCC": {"position": {"x": 9, "y": 0, "z": 0}}, "DDD": {"position": {"x": 20, "y": 0, "z": 0}}}
-    devices = [{"device_code": "TA", "device_type": "ami_transport_controller", "location": "AAA-BELT-1", "status": "idle",
-                "available_commands": ["set_directive", "launch"]},
+    ctrl = {"device_code": "TA", "device_type": "ami_transport_controller", "location": "AAA-BELT-1", "status": "idle",
+            "available_commands": ["set_directive", "launch", "adopt"]}
+    devices = [ctrl,
+               {"device_code": "FR1", "device_type": "cargo_freighter", "location": "AAA-BELT-1", "status": "idle", "features": ["surge"]},
+               {"device_code": "FR2", "device_type": "cargo_freighter", "location": "AAA-3-L4", "status": "idle", "features": ["surge"]},
                {"device_code": "FB", "device_type": "autofactory", "location": "CCC-3-L4", "available_commands": ["enqueue_print"]}]
     inv = {"AAA-BELT-1": {"carbon": 500}, "AAA-2": {"carbon": 10}, "BBB-4-L5": {"structural": 40}}
     cfg = {"roles": {"AAA": "source", "BBB": "destination", "CCC": "destination", "DDD": "source"}}
-    routes, unmet = lo.material_routes(cfg, devices, inv, stars, set(), {})
-    assert routes == [{"controller": "TA", "source": "AAA", "dest": "BBB", "collect": "AAA-BELT-1", "deliver": "BBB-4-L5", "distance": 3.0}]
-    assert any(u["star"] == "DDD" and "nothing stockpiled" in u["why"] for u in unmet)
-    steps = lo.ferry_steps(routes[0])
-    assert steps[0]["body"] == {"command": "set_directive", "directive": "ferry",
-                                "configuration": {"collect": "AAA-BELT-1", "deliver": "BBB-4-L5"}}
-    # already running the same ferry → not re-sent; a destination with an autofactory delivers there
+    routes, unmet = lo.material_routes(cfg, devices, inv, stars, set(), {}, {})
+    assert len(routes) == 1
+    r = routes[0]
+    assert (r["controller"], r["dest"], r["collect"], r["deliver"]) == ("TA", "BBB", "AAA-BELT-1", "BBB-4-L5")
+    assert [a["code"] for a in r["adopt"]] == ["FR1", "FR2"] and r["tag"]
+    assert any(u["star"] == "DDD" and "transport controller" in u["why"] for u in unmet)
+    bodies = [st["body"] for st in lo.ferry_steps(r)]
+    assert bodies[0] == {"configuration": {"add_tags": ["ferry"]}}
+    assert {"command": "travel", "destination": "AAA-BELT-1"} in bodies          # FR2 flies over to join
+    assert {"command": "adopt", "devices": ["FR1", "FR2"]} in bodies
+    assert {"command": "set_directive", "directive": "ferry",
+            "configuration": {"collect": "AAA-BELT-1", "deliver": "BBB-4-L5"}} in bodies
+    # running the same ferry with all freighters adopted → nothing to do; a new idle freighter → adopt only
+    ctrl["tags"] = ["ferry"]
+    managed = {"FR1": "TA", "FR2": "TA"}
     cur = {"TA": {"directive": "ferry", "configuration": {"collect": "AAA-BELT-1", "deliver": "BBB-4-L5"}, "finished": False}}
-    assert lo.material_routes(cfg, devices, inv, stars, set(), cur)[0] == []
-    cfg2 = {"roles": {"AAA": "source", "CCC": "destination"}}
-    assert lo.material_routes(cfg2, devices, inv, stars, set(), cur)[0][0]["deliver"] == "CCC-3-L4"
+    assert lo.material_routes(cfg, devices, inv, stars, set(), cur, managed)[0] == []
+    devices.append({"device_code": "FR3", "device_type": "cargo_freighter", "location": "AAA-BELT-1", "status": "idle"})
+    r = lo.material_routes(cfg, devices, inv, stars, set(), cur, managed)[0][0]
+    assert [a["code"] for a in r["adopt"]] == ["FR3"] and not r["resend"] and not r["tag"]
+    assert not any(st["body"] and st["body"].get("command") == "set_directive" for st in lo.ferry_steps(r))
+    # the only controller runs in-system transport drones → it is not given the ferry
+    devices2 = [dict(ctrl, tags=[]), {"device_code": "TD1", "device_type": "transport_drone", "location": "AAA-BELT-1", "status": "idle"},
+                devices[1]]
+    routes, unmet = lo.material_routes(cfg, devices2, inv, stars, set(), {}, {"TD1": "TA"})
+    assert routes == [] and any("second one for ferrying" in u["why"] for u in unmet)
+    # no freighter at all → says so
+    routes, unmet = lo.material_routes(cfg, [dict(ctrl, tags=[])], inv, stars, set(), {}, {})
+    assert routes == [] and any("no cargo freighter" in u["why"] for u in unmet)
+
+
+def test_ferry_controller_kept_out_of_in_system_work():
+    from rsweb import production
+    from rsweb.ami_schedule import adoptable, targets_of
+    devs = [{"device_code": "TF", "device_type": "ami_transport_controller", "location": "A-1", "tags": ["ferry"], "features": ["ami"]},
+            {"device_code": "TI", "device_type": "ami_transport_controller", "location": "A-1", "features": ["ami"]},
+            {"device_code": "TD", "device_type": "transport_drone", "location": "A-1", "status": "idle"}]
+    assert [c["device_code"] for c in production.controllers_in(devs, "A", "transport")] == ["TI"]
+    assert [c["device_code"] for c in targets_of({"target": "kind:transport"}, devs)] == ["TI"]
+    assert adoptable(devs, devs[0], {}) == [] and adoptable(devs, devs[1], {}) == ["TD"]
 
 
 def test_loadout_roles_page(client):
@@ -1233,3 +1265,118 @@ def test_print_completed_tags_new_device_for_its_system(client):
                         "created_at": "2026-10-01T00:00:00+00:00"})
     assert "to:sol" in next(d for d in world.devices if d["device_code"] == "NEW00001")["tags"]
     assert client.portal.call(client.app.state.db.kv_get, "loadout_orders")[0]["device_code"] == "NEW00001"
+
+
+def test_spare_devices_drop_their_home():
+    from rsweb import loadouts as lo
+    cfg, devices, bps, inv, stars = _lo_world()
+    cfg["systems"] = {"AAA": "outpost"}            # nobody is short, so AAA's extras just become spare
+    for d in devices:
+        if d["device_code"] in ("A1", "A2", "A3", "A4"):
+            d["tags"] = ["home:aaa"]
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    extras = [c for c, t in p["tag_add"].items() if "spare" in t]
+    assert sorted(extras) == ["A1", "A3"]
+    assert all("home:aaa" in p["tag_remove"][c] for c in extras)
+    assert "home:aaa" not in p["tag_add"].get("A1", [])
+    # next pass: the spares (no home) aren't counted for AAA, aren't re-homed, and aren't made spare again
+    for d in devices:
+        if d["device_code"] in extras:
+            d["tags"] = ["spare"]
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    row = next(r for r in p["report"]["AAA"]["rows"] if r["type"] == "mining_drone")
+    assert row["have"] == 2 and row["surplus"] == 0 and sorted(row["spares_here"]) == ["A1", "A3"]
+    assert not any(c in p["tag_add"] for c in extras)
+
+
+def test_managed_by_uses_controller_device_code(client):
+    from rsweb.ami_schedule import managed_by
+    db = client.app.state.db
+
+    async def go():
+        await db.kv_set("devices", [
+            {"device_code": "57C506F0", "device_type": "cargo_freighter", "controller_device_code": "DF451241",
+             "features": ["surge", "cruise", "transport"], "cargo_capacity": 500, "cargo_used": 500},
+            {"device_code": "FREE0001", "device_type": "cargo_freighter", "controller_device_code": None}])
+        return await managed_by(db)
+    m = client.portal.call(go)
+    assert m.get("57C506F0") == "DF451241" and "FREE0001" not in m
+    from rsweb import loadouts as lo
+    assert lo.is_freighter({"device_type": "cargo_freighter"}) and not lo.is_transport_controller({"device_type": "cargo_freighter"})
+
+
+def _real_devices():
+    """A trimmed copy of the player's real GET /devices output (2026-10-01)."""
+    return [
+        {"device_code": "84EE1EF1", "device_type": "ami_mining_controller", "location": "AEMEROTH-BELT-1", "status": "coordinating",
+         "features": ["ami", "cruise", "stow"], "available_commands": ["adopt", "release", "set_directive", "launch"],
+         "ami_directive": {"_eval_state": "exhausted:['carbon', 'rares']:AEMEROTH-4-2", "config": {}, "name": "gather_evenly"},
+         "ami_directive_status": "active", "controller_device_code": None, "tags": ["home:aemeroth"], "in_control_range": True},
+        {"device_code": "512FE0F9", "device_type": "mining_drone", "location": "AEMEROTH-5-L4", "status": "idle",
+         "controller_device_code": "84EE1EF1", "tags": ["home:falquoryx"], "available_commands": ["travel", "stow"]},
+        {"device_code": "DF451241", "device_type": "ami_transport_controller", "location": "FALQUORYX-BELT-1", "status": "coordinating",
+         "features": ["ami"], "available_commands": ["adopt", "release", "set_directive", "launch"],
+         "ami_directive": {"_eval_state": "idle:no_sources", "config": {"deliver": "FALQUORYX-BELT-1"}, "name": "consolidate"},
+         "ami_directive_status": "active", "controller_device_code": None, "tags": ["home:falquoryx"]},
+        {"device_code": "374C62A7", "device_type": "transport_drone", "location": "FALQUORYX-1-L4", "status": "idle",
+         "controller_device_code": "DF451241", "tags": ["home:falquoryx", "spare"]},
+        {"device_code": "57C506F0", "device_type": "cargo_freighter", "location": "FALQUORYX-BELT-1", "status": "idle",
+         "features": ["surge", "cruise", "transport"], "cargo_capacity": 500, "cargo_used": 500,
+         "controller_device_code": "DF451241", "tags": []},
+        {"device_code": "F32E05A7", "device_type": "ami_mining_controller", "location": "FALQUORYX-BELT-1", "status": "coordinating",
+         "features": ["ami"], "available_commands": ["adopt", "release", "set_directive", "launch"], "tags": ["home:falquoryx"],
+         "ami_directive": {"_eval_state": "exhausted:['rares']:FALQUORYX-BELT-1", "config": {}, "name": "gather_evenly"},
+         "ami_directive_status": "active"},
+        {"device_code": "926637CA", "device_type": "mining_drone", "location": "ITHVALAI-2-L4", "status": "idle",
+         "controller_device_code": "F32E05A7", "tags": ["home:falquoryx", "home:ithvalai"]},
+    ]
+
+
+def test_real_device_list_quirks():
+    from rsweb import loadouts as lo
+    devices = _real_devices()
+    cfg = {"phases": [{"id": "p", "name": "P", "order": 1, "wants": {"mining_drone": 3, "transport_drone": 2}}],
+           "systems": {"AEMEROTH": "p", "FALQUORYX": "p", "ITHVALAI": "p"},
+           "roles": {"FALQUORYX": "source", "AEMEROTH": "destination"}}
+    stars = {k: {"position": {"x": i, "y": 0, "z": 0}} for i, k in enumerate(["AEMEROTH", "FALQUORYX", "ITHVALAI"])}
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
+    # 512FE0F9 works for AEMEROTH's controller, in AEMEROTH: it belongs to AEMEROTH now, not FALQUORYX
+    a = {r["type"]: r for r in p["report"]["AEMEROTH"]["rows"]}
+    assert a["mining_drone"]["have"] == 1
+    assert "home:aemeroth" in p["tag_add"]["512FE0F9"] and "home:falquoryx" in p["tag_remove"]["512FE0F9"]
+    # 926637CA is in ITHVALAI but run by FALQUORYX's controller: released, and its duplicate home tag cleaned up
+    assert p["releases"] == {"F32E05A7": ["926637CA"]}
+    assert "home:falquoryx" in p["tag_remove"]["926637CA"] and "home:ithvalai" not in p["tag_remove"]["926637CA"]
+    # the ferry is not given to DF451241: it runs transport drones as well as the freighter
+    routes, unmet = lo.material_routes(cfg, devices, {"FALQUORYX-BELT-1": {"carbon": 100}}, stars, set(), {},
+                                       {d["device_code"]: d["controller_device_code"] for d in devices if d.get("controller_device_code")})
+    assert routes == [] and any("runs both in-system drones/haulers and cargo freighters" in u["why"] for u in unmet)
+    # with a second controller, the freighter is released by DF451241 and adopted by the new one
+    devices.append({"device_code": "TF000001", "device_type": "ami_transport_controller", "location": "FALQUORYX-BELT-1",
+                    "status": "idle", "features": ["ami"], "available_commands": ["adopt", "set_directive"], "tags": []})
+    routes, _ = lo.material_routes(cfg, devices, {"FALQUORYX-BELT-1": {"carbon": 100}}, stars, set(), {},
+                                   {d["device_code"]: d["controller_device_code"] for d in devices if d.get("controller_device_code")})
+    r = routes[0]
+    assert r["controller"] == "TF000001" and r["release"] == {"DF451241": ["57C506F0"]}
+    bodies = [st["body"] for st in lo.ferry_steps(r)]
+    assert bodies.index({"command": "release", "devices": ["57C506F0"]}) < bodies.index({"command": "adopt", "devices": ["57C506F0"]})
+
+
+def test_controller_idle_reads_ami_directive(client):
+    from rsweb.ami_schedule import controller_idle
+    d = _real_devices()
+    assert client.portal.call(controller_idle, client.app.state.db, d[0])[0] is True        # exhausted
+    assert client.portal.call(controller_idle, client.app.state.db, d[2])[0] is True        # idle:no_sources
+    busy = dict(d[0], ami_directive={"_eval_state": "mining", "name": "gather_evenly", "config": {}})
+    assert client.portal.call(controller_idle, client.app.state.db, busy)[0] is False
+
+
+def test_print_queue_uses_printing_block(client):
+    from rsweb import printqueue
+    dev = {"device_code": "3E95BD59", "status": "printing (maintenance_drone)",
+           "printing": {"completes_at": "2026-10-01T16:36:43-04:00", "device_type": "maintenance_drone",
+                        "started_at": "2026-10-01T16:21:43-04:00", "tags": ["to:ithvalai"]},
+           "print_queue": [{"device_type": "surge_plate", "notify": {"device": None}, "tags": ["to:ithvalai"]}]}
+    cur = client.portal.call(printqueue.current, client.app.state.db, dev)
+    assert cur["device_type"] == "maintenance_drone" and cur["completes_at"].startswith("2026-10-01T16:36") and cur["tags"] == ["to:ithvalai"]
+    assert printqueue.items(dev)[0]["tags"] == ["to:ithvalai"]
