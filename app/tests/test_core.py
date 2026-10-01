@@ -1409,3 +1409,59 @@ def test_real_surge_plates_and_queue_space():
     assert [(d["carrier"], d["mode"], d["devices"]) for d in p["deliveries"]] == [("FREE0001", "attach", ["TD000001"])]
     # the factory queue is full (9 queued + 1 printing of 10): no print is attempted
     assert p["prints"] == [] and any("queue is full" in u["why"] for u in p["unmet"])
+
+
+def _enable(client, *rules):
+    eng = client.app.state.worker.automations
+
+    async def go():
+        s = await eng.settings()
+        for r in rules:
+            s["rules"][r]["enabled"] = True
+        await eng.save_settings(s)
+    client.portal.call(go)
+    return eng
+
+
+def test_reopen_sites_with_ami_survey_controller(client):
+    eng = _enable(client, "reopen_sites", "salvage_when_depleted")
+    devices = [
+        {"device_code": "84EE1EF1", "device_type": "ami_mining_controller", "location": "AEMEROTH-BELT-1", "status": "coordinating",
+         "ami_directive": {"_eval_state": "exhausted:['carbon']:AEMEROTH-4-2", "name": "gather_evenly", "config": {}}},
+        {"device_code": "72779B6A", "device_type": "ami_survey_controller", "location": "AEMEROTH-BELT-1", "status": "coordinating",
+         "ami_directive": {"_eval_state": "no_targets:recalling", "name": "survey_system", "config": {}}},
+        {"device_code": "A9B9B55B", "device_type": "survey_drone", "location": "AEMEROTH-6-33", "status": "idle",
+         "controller_device_code": "72779B6A"},
+        {"device_code": "FREE0001", "device_type": "survey_drone", "location": "AEMEROTH-3", "status": "idle"},
+    ]
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    done = client.portal.call(eng.rule_reopen_sites)
+    assert done == ["72779B6A → belt_search AEMEROTH-BELT-1"]
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "reopen_sites"][-1]
+    bodies = [s["body"] for s in job["steps"]]
+    assert {"command": "adopt", "devices": ["FREE0001"]} in bodies        # tops it up to 2 drones
+    assert {"command": "set_directive", "directive": "belt_search", "configuration": {}} in bodies
+    # the salvage rule leaves the mining controller mining while sites are being re-opened
+    assert client.portal.call(eng.rule_salvage) == []
+    # once a drone is tracking a site there, and the controller is searching, nothing more happens
+    devices[2].update(location="AEMEROTH-BELT-1", status="tracking")
+    devices[3].update(location="AEMEROTH-BELT-1", status="searching")
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(client.app.state.db.kv_set, "reopen_state", {})
+    assert client.portal.call(eng.rule_reopen_sites) == []
+
+
+def test_reopen_sites_with_drones_only_and_tracking_drones_stay(client):
+    eng = _enable(client, "reopen_sites")
+    devices = [{"device_code": "SD1", "device_type": "survey_drone", "location": "FAL-1", "status": "idle"},
+               {"device_code": "SD2", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "tracking"}]
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(client.app.state.db.kv_set, "exhausted_places", {"FAL-BELT-1": __import__("rsweb.db", fromlist=["x"]).now_iso()})
+    assert client.portal.call(eng.rule_reopen_sites) == ["SD1 → search FAL-BELT-1"]
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "reopen_sites"][-1]
+    assert [s["body"] for s in job["steps"]] == [{"command": "travel", "destination": "FAL-BELT-1"}, {"command": "search"}]
+    # loadouts never marks a tracking drone spare or moves it
+    from rsweb import loadouts as lo
+    cfg = {"phases": [{"id": "p", "name": "P", "order": 1, "wants": {"survey_drone": 0}}], "systems": {"FAL": "p"}}
+    p = lo.plan(cfg, devices, [], {}, {}, {}, set(), [], {})
+    assert "spare" in p["tag_add"].get("SD1", []) and "spare" not in p["tag_add"].get("SD2", [])

@@ -132,8 +132,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
 
     pool = [d for d in devices if visible(d)]
     loc_of = {d.get("device_code"): d.get("location") for d in devices}
-    for d in devices:  # out of comms range: can't be commanded right now
-        if d.get("in_control_range") is False:
+    for d in devices:
+        if d.get("in_control_range") is False:  # out of comms range: can't be commanded right now
+            busy = set(busy) | {d.get("device_code")}
+        if str(d.get("status") or "").startswith(("tracking", "searching")):  # moving it would close its site
             busy = set(busy) | {d.get("device_code")}
 
     def ctrl_star(d: dict) -> str | None:
@@ -201,6 +203,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                                                  star_of(d.get("location")) == star,
                                                  d["device_code"] not in busy, _idle(d), -_cap(d), d["device_code"]))
             keep, extra = ranked[:len(have) - surplus], ranked[len(have) - surplus:]
+            pinned = [d for d in extra if d["device_code"] in busy]  # busy (tracking a site, mid-job, out of range): never spare
+            if pinned:
+                extra = [d for d in extra if d["device_code"] not in busy]
+                keep = keep + pinned
             for d in keep:
                 if SPARE in (d.get("tags") or []):
                     tag_remove[d["device_code"]].add(SPARE)

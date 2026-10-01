@@ -57,6 +57,15 @@ RULES: list[Rule] = [
          "systems that are short, print what's still missing on an autofactory that has the materials, and carry "
          "it there. Devices with an ignored tag are never touched.",
          [Option("every_minutes", "int", "Run every (minutes)", 15)]),
+    Rule("reopen_sites", "Re-open resource sites at worked-out belts",
+         "Belts never run out, but only open sites can be mined, and a survey drone opens one by searching and then "
+         "stays there tracking it. When a mining controller reports exhausted (or a drone is refused because the belt "
+         "is exhausted), survey capacity is sent there: the system's AMI survey controller flies to the belt, adopts "
+         "idle survey drones and runs belt_search; with no controller, idle survey drones fly there and search. "
+         "Tracking drones are never pulled away by other rules.",
+         [Option("use_ami", "bool", "Use the system's AMI survey controller when there is one", True),
+          Option("drones_per_belt", "int", "Survey drones to keep searching/tracking per belt", 2),
+          Option("cooldown_minutes", "int", "Wait before re-trying the same belt (min)", 30)]),
     Rule("salvage_when_depleted", "Salvage when mining sites run out",
          "When every known resource site at a belt is depleted and the system has salvage: an AMI mining controller "
          "in the system is switched to gather_salvage on the biggest salvage (adopting idle drones there) and launched. "
@@ -522,6 +531,7 @@ class AutomationEngine:
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
+            await self.rule_reopen_sites()
             await self.rule_salvage()
             await self.rule_restart_idle_miners()
             await self.run_due_schedules()
@@ -1014,6 +1024,67 @@ class AutomationEngine:
             await self.db.kv_set("exhausted_places", live)
         return list(live)
 
+    async def rule_reopen_sites(self) -> list[str]:
+        """See sites.py."""
+        cfg = await self.rule_cfg("reopen_sites")
+        if not cfg:
+            return []
+        from . import sites
+        from .ami_schedule import managed_by
+        devices = await self.devices()
+        jobs = await self.jobs()
+        busy = self.busy_devices(jobs)
+        managed = await managed_by(self.db)
+        state = await self.db.kv_get("reopen_state", {}) or {}
+        cooldown = timedelta(minutes=int(cfg.get("cooldown_minutes") or 30))
+        per = max(1, int(cfg.get("drones_per_belt") or 2))
+        now = _now()
+        done: list[str] = []
+        for belt, why in sorted(sites.exhausted_belts(devices, await self.exhausted_places()).items()):
+            last = _ts(state.get(belt))
+            if last and now - last < cooldown:
+                continue
+            if any(j["rule"] == "reopen_sites" and j["status"] in ("running", "waiting") and j.get("meta", {}).get("belt") == belt
+                   for j in jobs):
+                continue
+            star = star_of(belt)
+            have = len(sites.survey_at(devices, belt))
+            if have >= per:
+                continue  # enough drones already opening/holding sites there
+            ctrls = [d for d in devices if "survey" in (d.get("device_type") or "") and "controller" in (d.get("device_type") or "")
+                     and star_of(d.get("location")) == star and d["device_code"] not in busy and d.get("in_control_range") is not False]
+            idle = [d for d in devices if "survey_drone" in (d.get("device_type") or "") and star_of(d.get("location")) == star
+                    and str(d.get("status") or "").startswith("idle") and d["device_code"] not in busy
+                    and d.get("in_control_range") is not False]
+            ctrl = None
+            if cfg.get("use_ami", True) and ctrls:
+                def on_belt_search(c: dict) -> bool:
+                    dv = c.get("ami_directive") or {}
+                    return dv.get("name") == "belt_search" and c.get("location") == belt and \
+                        not str(dv.get("_eval_state") or "").startswith(("no_targets", "idle", "done"))
+                if any(on_belt_search(c) for c in ctrls):
+                    continue  # already searching this belt
+                ctrl = next((c for c in ctrls if c.get("location") == belt), ctrls[0])
+            if ctrl:
+                mine = [d for d, c in managed.items() if c == ctrl["device_code"]]
+                adopt = [d["device_code"] for d in idle if d["device_code"] not in managed][:max(0, per - len(mine))]
+                job = await self.create_job("reopen_sites", f"re-open sites at {belt} with {ctrl['device_code']} ({why})",
+                                            ctrl["device_code"], sites.ami_steps(ctrl, belt, adopt), {"devices": adopt, "belt": belt})
+                done.append(f"{ctrl['device_code']} → belt_search {belt}")
+            else:
+                free = [d for d in idle if d["device_code"] not in managed][:per - have]
+                if not free:
+                    await self.log("reopen_sites", f"{belt} is worked out but there's no idle survey drone in {star} to search it", "alert")
+                    state[belt] = now.isoformat(timespec="seconds")
+                    continue
+                for d in free:
+                    await self.create_job("reopen_sites", f"{d['device_code']}: search {belt} ({why})", d["device_code"],
+                                          sites.drone_steps(d, belt), {"belt": belt})
+                    done.append(f"{d['device_code']} → search {belt}")
+            state[belt] = now.isoformat(timespec="seconds")
+        await self.db.kv_set("reopen_state", state)
+        return done
+
     async def rule_salvage(self) -> list[str]:
         """See salvage.py. Returns what it did (for the log / tests)."""
         cfg = await self.rule_cfg("salvage_when_depleted")
@@ -1051,10 +1122,14 @@ class AutomationEngine:
             if (not dry and not exhausted) or not sal:
                 continue
             if ctrls and cfg.get("use_ami", True):
+                reopening = await self.rule_cfg("reopen_sites")
+                survey_here = any("survey" in (d.get("device_type") or "") and star_of(d.get("location")) == star for d in devices)
                 for c in ctrls:
                     code = c["device_code"]
                     if code in busy or cooling(code):
                         continue
+                    if reopening and survey_here:
+                        continue  # sites are being re-opened by survey drones; keep mining rather than switch to salvage
                     row = await self.db.fetchone("SELECT event, payload FROM events WHERE device_code=? AND event LIKE 'directive.%' "
                                                  "ORDER BY seq DESC LIMIT 1", (code,))
                     cur = json.loads(row["payload"] or "{}") if row else {}
