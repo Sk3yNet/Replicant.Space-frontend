@@ -1,19 +1,9 @@
-// Tree tab: expand/collapse, filter, and remembering what was open (per browser, best effort).
-const KEY = "rsweb-tree-open";
+// Tree tab: expand/collapse and filter. The tree always opens fully collapsed.
 function treeNodes(kind) {
-  const sel = kind === "sys" ? "details.tnode.sys" : kind === "dev" ? "details.tnode.dev" : "details.tnode";
+  const sel = { sys: "details.tnode.sys", type: "details.tnode.type", dev: "details.tnode.dev" }[kind] || "details.tnode";
   return document.querySelectorAll(sel);
 }
-function treeSet(kind, open) { treeNodes(kind).forEach(d => { d.open = open; }); treeSave(); }
-function treeSave() {
-  try { localStorage.setItem(KEY, JSON.stringify([...treeNodes("all")].filter(d => d.open).map(d => d.id))); } catch (e) {}
-}
-function treeRestore() {
-  let ids = null;
-  try { ids = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
-  if (!ids) { treeSet("sys", true); return; }  // first visit: systems open, devices closed
-  ids.forEach(id => { const d = document.getElementById(id); if (d) d.open = true; });
-}
+function treeSet(kind, open) { treeNodes(kind).forEach(d => { d.open = open; }); }
 function treeFilter(q) {
   q = q.trim().toLowerCase();
   const all = [...treeNodes("all")];
@@ -27,5 +17,5 @@ function treeFilter(q) {
     if (kid) d.open = true;
   });
 }
-document.addEventListener("toggle", e => { if (e.target.matches && e.target.matches("details.tnode")) treeSave(); }, true);
-document.addEventListener("DOMContentLoaded", treeRestore);
+// clear a previous version's remembered open nodes
+try { localStorage.removeItem("rsweb-tree-open"); } catch (e) {}

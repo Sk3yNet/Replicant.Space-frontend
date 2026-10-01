@@ -12,6 +12,36 @@ def _stowed(d: dict) -> bool:
     return str(d.get("status", "")).startswith("stowed")
 
 
+def _counts(nodes: list[dict]) -> dict:
+    c: dict[str, int] = defaultdict(int)
+    for n in nodes:
+        st = str(n["d"].get("status") or "")
+        c["stowed" if _stowed(n["d"]) else "idle" if st.startswith(("idle", "inactive", "waiting")) else "active"] += 1
+        cap = n["d"].get("operational_capacity")
+        try:
+            cap = float(cap) * (100 if float(cap) <= 1 else 1)
+        except (TypeError, ValueError):
+            cap = None
+        if cap is not None and cap < 50:
+            c["low"] += 1
+    return dict(c)
+
+
+def group_by_type(nodes: list[dict]) -> list[dict]:
+    """[{type, nodes, counts, carrying, replicants}] — replicant hosts first, then by type name."""
+    by: dict[str, list[dict]] = defaultdict(list)
+    for n in nodes:
+        by[n["d"].get("device_type") or "device"].append(n)
+    groups = []
+    for t, ns in by.items():
+        ns.sort(key=lambda n: (not n["replicant"], n["d"].get("location") or "", n["d"].get("device_code") or ""))
+        groups.append({"type": t, "nodes": ns, "counts": _counts(ns),
+                       "carrying": sum(len(n["children"]) for n in ns),
+                       "replicants": [n["replicant"]["name"] for n in ns if n["replicant"]]})
+    groups.sort(key=lambda g: (not g["replicants"], g["type"]))
+    return groups
+
+
 def build_tree(devices: list[dict], replicants: dict, stowed_map: dict[str, list[str]],
                carrier_codes: set[str]) -> list[dict]:
     """[{star, nodes, counts, replicants}] with nodes = [{d, children, replicant, guessed}].
@@ -63,7 +93,9 @@ def build_tree(devices: list[dict], replicants: dict, stowed_map: dict[str, list
         kids = [node(k, seen | {code}) for k in sorted(children.get(code, []), key=lambda k: (by_code[k].get("device_type") or "", k))
                 if k not in seen]
         rep = host_of.get(code)
-        return {"d": by_code[code], "children": kids, "guessed": code in guessed,
+        return {"d": by_code[code], "children": kids,
+                # a carrier holding several kinds of thing gets the same type sub-groups as a system
+                "groups": group_by_type(kids) if len(kids) >= 4 and len({k["d"].get("device_type") for k in kids}) > 1 else None, "guessed": code in guessed,
                 "replicant": {"code": rep[0], "name": rep[1].get("name") or rep[0]} if rep else None,
                 "total": 1 + sum(k["total"] for k in kids)}
 
@@ -85,6 +117,7 @@ def build_tree(devices: list[dict], replicants: dict, stowed_map: dict[str, list
                 st = str(d.get("status") or "")
                 s["counts"]["stowed" if _stowed(d) else "idle" if st.startswith(("idle", "inactive", "waiting")) else "active"] += 1
         s["counts"] = dict(s["counts"])
+        s["groups"] = group_by_type(s["nodes"])
         # carriers and replicant hosts first, then by location and type
         s["nodes"].sort(key=lambda n: (not n["replicant"], not n["children"], n["d"].get("location") or "",
                                        n["d"].get("device_type") or "", n["d"].get("device_code")))

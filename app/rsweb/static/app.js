@@ -63,3 +63,16 @@ function fillCargo(id) {
 function clearCargo(id) {
   document.querySelectorAll(`#${id} input`).forEach(i => { i.value = ""; });
 }
+
+// Firefox shows only an <option>'s text in a <datalist> drop-down, not its value (Chrome and Safari
+// show both). Put the value in front of the description there, e.g. "AEMEROTH — star · M0".
+const IS_FIREFOX = /firefox/i.test(navigator.userAgent);
+function fixDatalists(root) {
+  if (!IS_FIREFOX) return;
+  (root || document).querySelectorAll("datalist option").forEach(o => {
+    const v = o.value, t = (o.textContent || "").trim();
+    if (v && t && !t.startsWith(v)) o.textContent = `${v} — ${t}`;
+  });
+}
+document.addEventListener("DOMContentLoaded", () => fixDatalists());
+document.addEventListener("htmx:afterSettle", () => fixDatalists());

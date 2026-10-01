@@ -29,10 +29,25 @@
     </div>
     {% if n.children %}
       <div class="tchildren"><div class="small muted">Stowed in {{ code }}</div>
-        {% for k in n.children %}{{ device_node(k, depth + 1) }}{% endfor %}
+        {% if n.groups %}{% for g in n.groups %}{{ type_group(g, code) }}{% endfor %}
+        {% else %}{% for k in n.children %}{{ device_node(k, depth + 1) }}{% endfor %}{% endif %}
       </div>
     {% endif %}
   </div>
+</details>
+{% endmacro %}
+{% macro type_group(g, scope) %}
+<details class="tnode type" id="tg-{{ scope }}-{{ g.type }}" data-search="{{ (g.type ~ ' ' ~ (g.type | human)) | lower }}">
+  <summary>
+    <b>{{ g.type | human }}</b> <span class="small muted">×{{ g.nodes | length }}</span>
+    {% if g.counts.active %}<span class="pill st-work small">{{ g.counts.active }} working</span>{% endif %}
+    {% if g.counts.idle %}<span class="pill st-idle small">{{ g.counts.idle }} idle</span>{% endif %}
+    {% if g.counts.stowed %}<span class="pill small">{{ g.counts.stowed }} stowed</span>{% endif %}
+    {% if g.counts.low %}<span class="small lv-alert">{{ g.counts.low }} below 50%</span>{% endif %}
+    {% for r in g.replicants %}<span class="pill st-move small">⬢ {{ r }}</span>{% endfor %}
+    {% if g.carrying %}<span class="small muted">· carrying {{ g.carrying }}</span>{% endif %}
+  </summary>
+  <div class="tchildren">{% for n in g.nodes %}{{ device_node(n, 2) }}{% endfor %}</div>
 </details>
 {% endmacro %}
 {% block content %}
@@ -41,7 +56,8 @@
   <div class="row">
     <input id="tree-filter" placeholder="filter: code, type, status, location…" size="30" oninput="treeFilter(this.value)">
     <button class="small" onclick="treeSet('all', true)">Expand all</button>
-    <button class="small" onclick="treeSet('sys', true); treeSet('dev', false)">Systems only</button>
+    <button class="small" onclick="treeSet('sys', true); treeSet('type', true); treeSet('dev', false)">Types</button>
+    <button class="small" onclick="treeSet('sys', true); treeSet('type', false); treeSet('dev', false)">Systems only</button>
     <button class="small ghost" onclick="treeSet('all', false)">Collapse all</button>
     <a class="btn small ghost" href="/tree">Refresh</a>
   </div>
@@ -59,7 +75,7 @@
       <a class="small" href="/systems/{{ s.star }}" onclick="event.stopPropagation()">system view →</a>
     </summary>
     <div class="tchildren">
-      {% for n in s.nodes %}{{ device_node(n, 1) }}{% endfor %}
+      {% for g in s.groups %}{{ type_group(g, s.star) }}{% endfor %}
       {% if s.unknown %}
         <div class="small muted" style="margin-top:6px">Stowed — carrier not known yet</div>
         {% for n in s.unknown %}{{ device_node(n, 1) }}{% endfor %}

@@ -128,6 +128,8 @@ details summary { cursor: pointer; color: var(--muted); }
 .tree details.tnode > summary:hover { background: var(--panel2); }
 .tree details.tnode > summary > * { margin-right: 6px; }
 .tree details.tnode.sys > summary { font-size: 15px; }
+.tree details.tnode.type { border-left: 2px solid var(--line); }
+.tree details.tnode.type > summary { color: var(--text); }
 .tree .tchildren { margin-left: 6px; }
 .tree .tpanel { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 4px 0 8px; }
 .pq-box { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }

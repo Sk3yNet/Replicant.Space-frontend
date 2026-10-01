@@ -698,6 +698,20 @@ def test_build_tree_nesting():
     assert [k["d"]["device_code"] for k in top["C"]["children"]] == ["S2"] and top["C"]["children"][0]["guessed"]
     b = next(s for s in systems if s["star"] == "B")
     assert [n["d"]["device_code"] for n in b["unknown"]] == ["Q"] and b["counts"]["idle"] == 1
+    # system → device type → devices; the replicant's host type first
+    assert [g["type"] for g in a["groups"]] == ["heaven_vessel", "cargo_vessel", "mining_drone"]
+    assert a["groups"][2]["counts"] == {"active": 1}
+
+
+def test_tree_groups_many_devices_by_type():
+    from rsweb.tree import build_tree
+    devs = [{"device_code": f"M{i}", "device_type": "mining_drone", "location": "A-BELT-1",
+             "status": "idle" if i % 3 == 0 else "mining (carbon)", "operational_capacity": 30 if i == 1 else 90} for i in range(9)]
+    devs += [{"device_code": "T1", "device_type": "transport", "location": "A-3", "status": "idle"}]
+    a = build_tree(devs, {}, {}, set())[0]
+    mining = next(g for g in a["groups"] if g["type"] == "mining_drone")
+    assert len(mining["nodes"]) == 9 and mining["counts"] == {"idle": 3, "active": 6, "low": 1}
+    assert [g["type"] for g in a["groups"]] == ["mining_drone", "transport"]
 
 
 def test_tree_page_renders_with_stowed_and_commands(client):
@@ -705,6 +719,10 @@ def test_tree_page_renders_with_stowed_and_commands(client):
     page = client.get("/tree", headers=H).text
     assert "Expand all" in page and "Collapse all" in page and "Systems only" in page
     assert 'id="ts-SOL"' in page and 'id="t-11ADA230"' in page
+    # devices sit under a type group, and nothing starts open
+    grp = page[page.index('id="tg-SOL-mining_drone"'):]
+    assert "mining drone" in grp[:400] and 'id="t-' in grp[:6000]
+    assert "<details open" not in page and " open>" not in page
     # the vessel's stowed devices are nested inside its node
     vessel = page[page.index('id="t-11ADA230"'):]
     assert "Stowed in 11ADA230" in vessel and 'id="t-SV000001"' in vessel.split('id="t-2AC61210"')[0]
