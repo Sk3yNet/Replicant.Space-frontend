@@ -346,6 +346,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 and not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed"))
                 and d.get("taxi_mode") != "taxi" and "taxi" not in (d.get("tags") or [])   # taxi plates serve a ferry
                 and not d.get("controller_device_code")]
+    moving = set(moves) | {c for c, _ in self_moves}
+    carriers = [c for c in carriers if c["device_code"] not in moving and not bound_for(c, known_stars)]
     used: set[str] = set()
     deliveries = []
     for (here, dest), codes in sorted(batches.items()):
@@ -709,7 +711,13 @@ def material_routes(cfg: dict, devices: list[dict], inventory: dict[str, dict], 
         deliver = drop_point(dest, devices, inventory, stars)
         conf = {"collect": collect, "deliver": deliver}
         cur = current.get(code) or {}
-        running = cur.get("directive") == "ferry" and (cur.get("configuration") or {}) == conf and not cur.get("finished")
+        cc = cur.get("configuration") or {}
+        same_route = (star_of(cc.get("collect")) == src and star_of(cc.get("deliver")) == dest
+                      and _stock_total(inventory.get(cc.get("collect")) or {}) > 0 or cc == conf)
+        running = cur.get("directive") == "ferry" and not cur.get("finished") and same_route
+        if running:  # keep its current pick-up while that still has stock — re-sending just resets the run
+            conf = {"collect": cc.get("collect"), "deliver": cc.get("deliver")}
+            collect, deliver = conf["collect"], conf["deliver"]
         if running and not adopt:
             continue  # already ferrying this route with everything it can use
         if code in busy:

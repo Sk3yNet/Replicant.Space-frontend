@@ -1465,3 +1465,45 @@ def test_reopen_sites_with_drones_only_and_tracking_drones_stay(client):
     cfg = {"phases": [{"id": "p", "name": "P", "order": 1, "wants": {"survey_drone": 0}}], "systems": {"FAL": "p"}}
     p = lo.plan(cfg, devices, [], {}, {}, {}, set(), [], {})
     assert "spare" in p["tag_add"].get("SD1", []) and "spare" not in p["tag_add"].get("SD2", [])
+
+
+def test_log_fixes_ferry_sticky_and_moving_carrier():
+    from rsweb import loadouts as lo
+    stars = {"AEM": {"position": {"x": 0, "y": 0, "z": 0}}, "FAL": {"position": {"x": 1, "y": 0, "z": 0}}}
+    ctrl = {"device_code": "0E158313", "device_type": "ami_transport_controller", "location": "AEM-BELT-1", "status": "coordinating",
+            "available_commands": ["set_directive"], "tags": []}
+    devices = [ctrl, {"device_code": "D1", "device_type": "transport_drone", "location": "AEM-6-7", "controller_device_code": "0E158313"}]
+    cfg = {"roles": {"AEM": "source", "FAL": "destination"}}
+    cur = {"0E158313": {"directive": "ferry", "configuration": {"collect": "AEM-6-7", "deliver": "FAL-BELT-1"}, "finished": False}}
+    # the biggest stockpile is now elsewhere in AEM, but the running ferry's pick-up still has stock: leave it alone
+    inv = {"AEM-6-7": {"structural": 50}, "AEM-BELT-1": {"structural": 900}}
+    assert lo.material_routes(cfg, devices, inv, stars, set(), cur, {"D1": "0E158313"})[0] == []
+    # its pick-up ran dry → re-pointed at the stock that's left
+    inv = {"AEM-6-7": {}, "AEM-BELT-1": {"structural": 900}}
+    r = lo.material_routes(cfg, devices, inv, stars, set(), cur, {"D1": "0E158313"})[0][0]
+    assert r["collect"] == "AEM-BELT-1" and r["resend"]
+    # a surge plate that is itself bound for another system is not used as a carrier in the same pass
+    plate = lambda c, **kw: {"device_code": c, "device_type": "surge_plate", "location": "FAL-1-L4", "status": "idle",  # noqa: E731
+                             "attach_capacity": 1, "features": ["surge", "attach"], "available_commands": ["attach", "travel"], **kw}
+    devs = [plate("2B30CEB4", tags=["to:ith"]), plate("FREE", tags=["home:fal"]),
+            {"device_code": "EDE70565", "device_type": "transport_drone", "location": "FAL-1-L4", "status": "idle",
+             "available_commands": ["travel"], "tags": ["to:aem"]}]
+    p = lo.plan({"phases": [], "systems": {}}, devs, [], {}, {**stars, "ITH": {}}, {}, set(), [], {})
+    assert [d["carrier"] for d in p["deliveries"]] == ["FREE"]
+    assert ("2B30CEB4", "ITH") in p["self_moves"]
+
+
+def test_schedule_skips_exhausted_and_salvaging_controllers(client):
+    eng = client.app.state.worker.automations
+    base = {"device_type": "ami_mining_controller", "location": "X-BELT-1", "status": "coordinating", "features": ["ami"],
+            "available_commands": ["set_directive", "launch", "adopt"]}
+    client.portal.call(client.app.state.db.kv_set, "devices", [
+        {**base, "device_code": "M1", "ami_directive": {"name": "gather_evenly", "_eval_state": "exhausted:['rares']:X-BELT-1", "config": {}},
+         "ami_directive_status": "active"},
+        {**base, "device_code": "M2", "ami_directive": {"name": "gather_salvage", "_eval_state": "active", "config": {"location": "X-2"}},
+         "ami_directive_status": "active"}])
+    sched = {"id": "s", "name": "All gather", "target": "kind:mining", "directive": "gather_evenly", "configuration": {},
+             "only_idle": True, "adopt": True, "launch": True}
+    res = client.portal.call(eng.run_schedule, sched)
+    assert any("M1: exhausted" in r for r in res) and any(r.startswith("M2:") and ("salvage" in r or "busy" in r) for r in res)
+    assert not [j for j in client.portal.call(eng.jobs) if j["rule"] == "ami_schedules"]

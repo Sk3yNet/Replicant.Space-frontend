@@ -719,6 +719,14 @@ class AutomationEngine:
             if sched.get("only_idle", True) and not idle:
                 results.append(f"{code}: busy ({why})")
                 continue
+            dv = ctrl.get("ami_directive") or {}
+            state = str(dv.get("_eval_state") or "")
+            if dv.get("name") == "gather_salvage" and not state.startswith(("done", "complete", "no_targets")):
+                results.append(f"{code}: on salvage — left alone")
+                continue
+            if not manual and dv.get("name") == sched["directive"] and state.startswith("exhausted"):
+                results.append(f"{code}: exhausted on {sched['directive']} — re-sending it won't help until sites re-open")
+                continue
             adopt = adoptable(devices, ctrl, managed) if sched.get("adopt", True) else []
             job = await self.create_job("ami_schedules", f"{sched.get('name') or sched['directive']} → {code}", code,
                                         schedule_steps(ctrl, sched, adopt), {"schedule": sched.get("id"), "devices": adopt},

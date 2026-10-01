@@ -838,3 +838,9 @@ cargo_capacity, cargo_carried, fleet{delivering, loading, waiting}, resources{de
 
 **Blueprints:** cargo_freighter cargo 500 (print 1200 s); transport_hauler 80; transport_drone 20; cargo_vessel stow 50 / cargo 200 / attach 3;
 surge_plate attach 1; surge_platform 4; surge_carrier 9; mobile_fleet 36; autofactory queue 10.
+
+**Resource sites (game docs, via player):** belts are effectively infinite, but only *open sites* can be mined. A survey drone
+`search` at a belt opens a site and then stays `tracking` it (device field `tracking_site_id`); moving or deactivating it closes
+the site. Searches take longer each time (diminishing returns); mined-out sites regenerate slowly. Mining drones use every open
+site at their location (no site argument). AMI survey controllers have a `belt_search` directive (config `{}`, at the controller's
+location; `_eval_state` like `searching:4:0`).
