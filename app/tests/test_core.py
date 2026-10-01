@@ -613,7 +613,10 @@ def test_ami_forms_offer_system_targets(client):
     r = client.get("/ami/MC91FF22/directive-form?directive=gather_resources", headers=HX)
     assert "rich" in r.text and "richest belt level in SOL" in r.text
     r = client.get("/ami/MC91FF22/directive-form?directive=gather_salvage", headers=HX)
-    assert '<optgroup label="Resource sites">' in r.text or '<optgroup label="Asteroid belts">' in r.text
+    assert '<optgroup label="Planets">' in r.text and '<optgroup label="Resource sites">' not in r.text
+    # a -SAL- code picked anyway is sent as its body
+    from rsweb.web import directive_body
+    assert directive_body({"directive": "gather_salvage", "f.location": "SOL-3-1-SAL-1"})["configuration"]["location"] == "SOL-3-1"
     # the whole AMI page renders with per-controller targets
     page = client.get("/ami", headers=H).text
     assert "known targets in SOL" in page and "Refresh targets" in page
@@ -1066,7 +1069,7 @@ def test_salvage_rule_switches_ami_when_belt_worked_out(client):
     assert len(jobs) == 1 and jobs[0]["device"] == "MC91FF22"
     body = next(s["body"] for s in jobs[0]["steps"] if (s["body"] or {}).get("command") == "set_directive")
     assert body == {"command": "set_directive", "directive": "gather_salvage",
-                    "configuration": {"location": "SOL-3-1-SAL-1", "recall": False}}
+                    "configuration": {"location": "SOL-3-1", "recall": False}}   # the body, not the -SAL- code
     # no drones are sent on their own while the AMI handles the system
     assert not any(j["device"].startswith("2AC6121") for j in jobs)
 
@@ -1078,7 +1081,7 @@ def test_salvage_rule_sends_drones_without_ami(client):
     jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "salvage_when_depleted"]
     assert [j["device"] for j in jobs] == ["2AC61212"]          # the idle drone at the worked-out belt
     bodies = [s["body"] for s in jobs[0]["steps"]]
-    assert bodies[0] == {"command": "travel", "destination": "SOL-3-1-SAL-1"}
+    assert bodies[0] == {"command": "travel", "destination": "SOL-3-1"}
     assert bodies[-1] == {"command": "start_mining", "resource_type": "structural"}
     # the idle-miner rule leaves drones at the worked-out belt alone
     acts = client.portal.call(client.app.state.db.fetchall, "SELECT body FROM actions WHERE body LIKE '%start_mining%'")
@@ -1099,6 +1102,7 @@ def test_salvage_helpers():
     assert [s["code"] for s in sv.available_salvage(res)] == ["X-2-SAL-1", "X-1-SAL-1"]
     assert sv.main_resource(sv.available_salvage(res)[0]) == "rares"
     assert sv.at_worked_out_place("X-BELT-1-SITE-1", {"X-BELT-1"}, set())
+    assert sv.body_of("AEMEROTH-6-7-SAL-1") == "AEMEROTH-6-7" and sv.body_of("AEMEROTH-6-7") == "AEMEROTH-6-7"
 
 
 def test_material_routes_source_to_nearest_destination():

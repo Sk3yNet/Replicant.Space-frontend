@@ -1285,6 +1285,9 @@ def directive_body(form) -> dict:
     if not isinstance(extra, dict):
         raise ValueError("configuration must be a JSON object")
     cfg.update(extra)
+    if directive == "gather_salvage" and isinstance(cfg.get("location"), str):
+        from .salvage import body_of
+        cfg["location"] = body_of(cfg["location"])  # the game takes the body the salvage is at, not the -SAL- code
     body = {"command": "set_directive", "directive": directive}
     if cfg:
         body["configuration"] = cfg

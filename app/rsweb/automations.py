@@ -968,7 +968,7 @@ class AutomationEngine:
                                                  "ORDER BY seq DESC LIMIT 1", (code,))
                     cur = json.loads(row["payload"] or "{}") if row else {}
                     on_salvage = (row and row["event"] == "directive.set" and cur.get("directive") == "gather_salvage"
-                                  and (cur.get("configuration") or {}).get("location") not in dead_sal)
+                                  and (cur.get("configuration") or {}).get("location") not in dead_sal | {sv.body_of(c) for c in dead_sal})
                     if on_salvage:
                         continue
                     idle, _ = await controller_idle(self.db, c)
@@ -994,8 +994,9 @@ class AutomationEngine:
                                  key=lambda d: d["device_code"])
             counts: dict[str, int] = defaultdict(int)
             for d in miners:  # drones already at (or heading for) a salvage count toward its share
-                if d.get("location") in {x["code"] for x in sal} and str(d.get("status")) != "idle":
-                    counts[d["location"]] += 1
+                for x in sal:
+                    if d.get("location") in (x["code"], sv.body_of(x["code"])) and str(d.get("status")) != "idle":
+                        counts[x["code"]] += 1
             for j in await self.jobs():
                 if j["rule"] == "salvage_when_depleted" and j["status"] in ("running", "waiting") and j.get("meta", {}).get("salvage"):
                     counts[j["meta"]["salvage"]] += 1

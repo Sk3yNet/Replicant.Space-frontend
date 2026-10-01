@@ -103,8 +103,9 @@ DIRECTIVES: dict[str, dict[str, list[Field]]] = {
         "maintain_ratios": [F("", "resources", label="ratios", help="Decimals, e.g. structural 0.5, conductive 0.3",
                               options=["float"])],
         "deplete_smallest": [],
-        "gather_salvage": [F("location", "location", required=True, label="salvage site",
-                             filter={"scope": "system", "targets": ["salvage", "site", "belt"]}),
+        "gather_salvage": [F("location", "location", required=True, label="body with salvage",
+                             help="The planet/moon the salvage orbits (picking a -SAL- entry sends its body)",
+                             filter={"scope": "system", "targets": ["salvage", "moon", "planet", "object"]}),
                            F("recall", "bool", default=True)],
     },
     "survey": {

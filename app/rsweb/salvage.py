@@ -29,6 +29,11 @@ def belt_of(loc: str | None) -> str | None:
     return m.group(1) if m else None
 
 
+def body_of(code: str) -> str:
+    """The body a salvage belongs to: AEMEROTH-6-7-SAL-1 → AEMEROTH-6-7. The game wants the body, not the salvage code."""
+    return re.sub(r"-SAL-\d+$", "", code or "")
+
+
 def worked_out(res: dict) -> set[str]:
     """Belts whose known sites are all depleted."""
     known, live = defaultdict(int), defaultdict(int)
@@ -53,28 +58,30 @@ def main_resource(sal: dict) -> str:
 
 
 def at_worked_out_place(loc: str | None, dry_belts: set[str], dead_salvage: set[str]) -> bool:
-    return (belt_of(loc) in dry_belts) or (loc in dead_salvage)
+    return (belt_of(loc) in dry_belts) or (loc in dead_salvage) or (loc in {body_of(c) for c in dead_salvage})
 
 
 def ami_steps(ctrl: str, sal: str, recall: bool, adopt: list[str]) -> list[dict]:
     steps = []
     if adopt:
         steps.append(step(f"{ctrl}: adopt {len(adopt)} idle drone(s)", f"/devices/{ctrl}", {"command": "adopt", "devices": adopt}))
-    steps.append(step(f"{ctrl}: gather salvage at {sal}", f"/devices/{ctrl}",
+    body = body_of(sal)
+    steps.append(step(f"{ctrl}: gather salvage at {body} ({sal})", f"/devices/{ctrl}",
                       {"command": "set_directive", "directive": "gather_salvage",
-                       "configuration": {"location": sal, "recall": recall}}, critical=True))
+                       "configuration": {"location": body, "recall": recall}}, critical=True))
     steps.append(step(f"{ctrl}: launch", f"/devices/{ctrl}", {"command": "launch"}))
     return steps
 
 
 def drone_steps(code: str, loc: str | None, sal: dict) -> list[dict]:
     steps = []
-    if loc != sal["code"]:
-        st = step(f"{code} → {sal['code']}", f"/devices/{code}", {"command": "travel", "destination": sal["code"]},
-                  wait=["travel.arrived"], match={"destination": sal["code"]}, critical=True)
+    body = body_of(sal["code"])
+    if loc not in (sal["code"], body):
+        st = step(f"{code} → {body} (salvage {sal['code']})", f"/devices/{code}", {"command": "travel", "destination": body},
+                  wait=["travel.arrived"], match={"destination": body}, critical=True)
         st["wait_device"] = code
         steps.append(st)
     res = main_resource(sal)
-    steps.append(step(f"{code}: salvage {res} at {sal['code']}", f"/devices/{code}",
+    steps.append(step(f"{code}: salvage {res} at {body}", f"/devices/{code}",
                       {"command": "start_mining", "resource_type": res}))
     return steps
