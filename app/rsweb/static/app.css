@@ -137,3 +137,10 @@ details summary { cursor: pointer; color: var(--muted); }
 .tree .tpanel { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 4px 0 8px; }
 .pq-box { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .pq .timer { margin: 0; }
+svg.system .place path, svg.system .place rect, svg.system .place circle { fill: #c9a86b; stroke: none; }
+svg.system .place-salvage path { fill: #e48aff; }
+svg.system .place-lagrange rect { fill: #8fb3d9; }
+svg.system .place-object circle, svg.system .place-outer circle { fill: #ff8a65; }
+svg.system .place.depleted * { opacity: .35; }
+svg.system .plabel { font-size: 9px; fill: var(--muted, #9aa7bd); }
+svg.system.nolabels .plabel { display: none; }

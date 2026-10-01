@@ -24,7 +24,7 @@ from .shapes import as_amounts, normalize_blueprints, normalize_inventory
 from . import commands as cmdspec
 from . import automations as auto
 from .cargo import cargo_context
-from .targets import options_for, system_targets
+from .targets import CATEGORY_LABEL, options_for, system_resources, system_targets
 from . import carrier as carrier_mod
 from .tree import build_tree
 from . import production
@@ -813,6 +813,13 @@ async def systems(request: Request, user: str = Depends(current_user)):
     for s in known:
         presence[s]
     rows = sorted(presence.items(), key=lambda kv: (-kv[1]["devices"], kv[0]))
+    db = request.app.state.db
+    for s, p in rows:
+        if s:
+            r = await system_resources(db, s)
+            p["mineable"], p["salvage"], p["unknown_sites"] = r["mineable"], r["salvageable"], r["unknown_sites"]
+            p["top"] = sorted(((k, t["sites"] + t["salvage"]) for k, t in r["totals"].items() if t["sites"] + t["salvage"]),
+                              key=lambda kv: -kv[1])[:3]
     return await page(request, user, "systems.html", "systems", rows=[(s, p) for s, p in rows if s], known=known)
 
 
@@ -820,7 +827,8 @@ def _angle(code: str) -> float:
     return int(hashlib.md5(code.encode()).hexdigest()[:6], 16) % 360 * math.pi / 180
 
 
-def build_system_view(star: str, scan: dict, devices: list[dict], inventory: list[dict]) -> dict:
+def build_system_view(star: str, scan: dict, devices: list[dict], inventory: list[dict],
+                      places: list[dict] | None = None, res: dict | None = None) -> dict:
     """Lay out a top-down, log-scaled diagram of a star system as SVG primitives."""
     size, c = 760, 380
     planets = scan.get("planets") or []
@@ -890,6 +898,23 @@ def build_system_view(star: str, scan: dict, devices: list[dict], inventory: lis
         if xy:
             shapes["markers"].append({"loc": loc, "x": xy[0], "y": xy[1], "devices": by_loc.get(loc, []),
                                       "stock": inv.get(loc, {})})
+    # every other known location: resource sites, salvage, Lagrange points, objects, outer system
+    qty = {x["code"]: x for x in ((res or {}).get("sites", []) + (res or {}).get("salvage", []))}
+    drawn = {p.get("designation") for p in planets} | {star}
+    shapes["places"] = []
+    for t in places or []:
+        code = t["code"]
+        if code in drawn or t["category"] in ("star", "planet", "belt", "other"):
+            continue
+        xy = loc_xy(code)
+        if not xy:
+            continue
+        q = qty.get(code) or {}
+        rest = code[len(star) + 1:]
+        short = rest.split("-", 2)[-1] if t["category"] in ("site", "salvage") else rest.split("-")[-1] if t["category"] == "lagrange" else rest
+        shapes["places"].append({"code": code, "category": t["category"], "x": xy[0], "y": xy[1], "label": short,
+                                 "note": t.get("note") or "", "total": q.get("total"), "amounts": q.get("amounts") or {},
+                                 "depleted": q.get("depleted", False)})
     return shapes
 
 
@@ -907,10 +932,39 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
             err = e.message
     scan = json.loads(row["data"]) if row else {}
     st = await load_state(request)
-    view = build_system_view(star, scan, st["devices"], st["inventory"])
+    sys_t = await system_targets(db, star)
+    res = await system_resources(db, star)
+    view = build_system_view(star, scan, st["devices"], st["inventory"], sys_t["targets"], res)
     reps = [r for r in st["replicants"].values() if star_of(r.get("location") or r.get("current_location")) == star]
+    game_locs = {k: v for k, v in (st["locations"] or {}).items() if star_of(k) == star}
+    qty = {x["code"]: x for x in res["sites"] + res["salvage"]}
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err,
-                      updated=row["updated_at"] if row else None, reps=reps)
+                      updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t,
+                      CATEGORY_LABEL=CATEGORY_LABEL, game_locs=game_locs, qty=qty)
+
+
+@router.post("/systems/{star}/resources/refresh", response_class=HTMLResponse)
+async def system_resources_refresh(request: Request, star: str, user: str = Depends(current_user)):
+    """Re-read belts and salvage locations so site quantities are current (one GET each, at most 15)."""
+    star = star.upper()
+    db, api = request.app.state.db, request.app.state.api
+    row = await db.fetchone("SELECT data FROM systems WHERE star=?", (star,))
+    scan = json.loads(row["data"]) if row else {}
+    codes = [b.get("designation") for b in ((scan.get("asteroid_belt") or {}).get("belts")) or [] if b.get("designation")]
+    res = await system_resources(db, star)
+    codes += [x["code"] for x in res["salvage"] if not x["depleted"]]
+    done, failed = 0, []
+    for code in list(dict.fromkeys(codes))[:15]:
+        try:
+            data = await api.get(f"/locations/{code}")
+            if isinstance(data, dict) and data:
+                await db.kv_set(f"loc:{code.upper()}", data)
+                done += 1
+        except ApiError as e:
+            failed.append(f"{code}: {e.message}")
+    if failed and not done:
+        return HTMLResponse(f'<span class="lv-alert small">Could not read: {"; ".join(failed[:3])}</span>')
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @router.get("/locations/{code}", response_class=HTMLResponse)

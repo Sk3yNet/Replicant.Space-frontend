@@ -184,3 +184,120 @@ def options_for(sys_t: dict, categories: list[str] | None) -> list[tuple[str, li
         if items:
             groups.append((CATEGORY_LABEL.get(c, c), items))
     return groups
+
+
+# --- quantities: what can be mined or salvaged in a system ------------------------------------------
+QTY_KEYS = ("quantity", "remaining", "remaining_quantity", "amount", "available", "reserve", "reserves", "total", "size")
+
+
+def _num(v: Any) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def site_quantity(site: dict) -> tuple[dict[str, float], float | None]:
+    """({resource: qty}, total) from a resource-site or salvage record, whatever the field names are."""
+    res = site.get("resources")
+    if isinstance(res, (dict, list)):
+        amounts = {k: v for k, v in as_amounts(res).items() if v}
+        if amounts:
+            return amounts, sum(amounts.values())
+    for k in QTY_KEYS:
+        q = _num(site.get(k))
+        if q is not None:
+            r = site.get("resource_type") or site.get("resource")
+            return ({r: q} if r else {}), q
+    return {}, None
+
+
+def _site_code(site: dict) -> str | None:
+    return site.get("designation") or site.get("site") or site.get("code") or site.get("location")
+
+
+async def system_resources(db, star: str) -> dict:
+    """Mining sites and salvage in a system with the quantities we know, plus stockpiles.
+
+    {"sites": [...], "salvage": [...], "totals": {res: {sites, salvage, stock, level}}, "known_at": iso,
+     "unknown_sites": n}  — quantities come from cached location details (belt → resource_sites,
+    salvage locations) and `salvage.discovered` events; depleted ones are marked.
+    """
+    star = (star or "").upper()
+    depleted: set[str] = set()
+    sites: dict[str, dict] = {}
+    salvage: dict[str, dict] = {}
+    rows = await db.fetchall("SELECT event, payload, created_at FROM events WHERE (star=? OR location LIKE ?) AND event IN "
+                             "('site.depleted', 'salvage.depleted', 'salvage.discovered', 'mining.started', 'mining.retargeted') "
+                             "ORDER BY seq", (star, f"{star}%"))
+    for r in rows:
+        p = json.loads(r["payload"] or "{}")
+        if r["event"] in ("site.depleted", "salvage.depleted"):
+            depleted.add(p.get("site") or "")
+        elif r["event"] == "salvage.discovered":
+            code = p.get("designation") or p.get("location")
+            if code and code.startswith(star):
+                amounts, total = site_quantity(p)
+                salvage[code] = {"code": code, "name": p.get("name"), "type": p.get("salvage_type"), "amounts": amounts,
+                                 "total": total, "at": r["created_at"], "source": "discovered"}
+        else:
+            code = p.get("site")
+            if code and code.startswith(star) and code not in sites:
+                sites[code] = {"code": code, "belt": code.rsplit("-SITE-", 1)[0], "resource": p.get("resource_type") or p.get("new_resource"),
+                               "level": p.get("availability"), "amounts": {}, "total": None, "at": None, "source": "mining"}
+    known_at = None
+    for r in await db.fetchall("SELECT key, value, updated_at FROM kv WHERE key LIKE ?", (f"loc:{star}-%",)):
+        loc = r["key"][4:]
+        detail = json.loads(r["value"])
+        for site in detail.get("resource_sites") or []:
+            if not isinstance(site, dict):
+                if isinstance(site, str):
+                    sites.setdefault(site, {"code": site, "belt": loc, "resource": None, "level": None, "amounts": {},
+                                            "total": None, "at": r["updated_at"], "source": "location"})
+                continue
+            code = _site_code(site) or f"{loc}-SITE-?"
+            amounts, total = site_quantity(site)
+            sites[code] = {"code": code, "belt": loc, "resource": site.get("resource_type") or site.get("resource"),
+                           "level": site.get("availability") or site.get("abundance") or site.get("richness"),
+                           "amounts": amounts, "total": total, "at": r["updated_at"], "source": "location"}
+            known_at = max(known_at or "", r["updated_at"] or "")
+        sal = detail.get("salvage") or (detail if "-SAL-" in loc else None)
+        if isinstance(sal, dict):
+            code = sal.get("designation") or loc
+            amounts, total = site_quantity(sal)
+            prev = salvage.get(code, {})
+            salvage[code] = {"code": code, "name": sal.get("name") or prev.get("name"), "type": sal.get("salvage_type") or prev.get("type"),
+                             "amounts": amounts or prev.get("amounts", {}), "total": total if total is not None else prev.get("total"),
+                             "at": r["updated_at"], "source": "location"}
+    for d in list(sites.values()) + list(salvage.values()):
+        d["depleted"] = d["code"] in depleted
+    totals: dict[str, dict] = defaultdict(lambda: {"sites": 0.0, "salvage": 0.0, "stock": 0.0, "level": None, "site_count": 0})
+    for s in sites.values():
+        if s["depleted"]:
+            continue
+        for res, q in (s["amounts"] or ({s["resource"]: 0} if s["resource"] else {})).items():
+            totals[res]["sites"] += q
+            totals[res]["site_count"] += 1
+    for s in salvage.values():
+        if not s["depleted"]:
+            for res, q in s["amounts"].items():
+                totals[res]["salvage"] += q
+    for inv in await db.kv_get("inventory", []) or []:
+        loc = inv.get("location") or ""
+        if loc == star or loc.startswith(star + "-"):
+            for res, q in as_amounts(inv.get("items")).items():
+                totals[res]["stock"] += q
+    row = await db.fetchone("SELECT data FROM systems WHERE star=?", (star,))
+    scan = json.loads(row["data"]) if row else {}
+    for b in ((scan.get("asteroid_belt") or {}).get("belts")) or []:
+        for res, lvl in (b.get("resources") or {}).items():
+            if lvl in LEVELS:
+                cur = totals[res]["level"]
+                if cur is None or LEVELS.index(lvl) > LEVELS.index(cur):
+                    totals[res]["level"] = lvl
+    order = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
+    totals_sorted = dict(sorted(totals.items(), key=lambda kv: (order.index(kv[0]) if kv[0] in order else 99, kv[0])))
+    return {"star": star, "sites": sorted(sites.values(), key=lambda s: (s["depleted"], s["code"])),
+            "salvage": sorted(salvage.values(), key=lambda s: (s["depleted"], s["code"])), "totals": totals_sorted,
+            "known_at": known_at, "unknown_sites": sum(1 for s in sites.values() if s["total"] is None and not s["depleted"]),
+            "mineable": sum(t["sites"] for t in totals.values()), "salvageable": sum(t["salvage"] for t in totals.values())}

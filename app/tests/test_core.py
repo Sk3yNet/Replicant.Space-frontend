@@ -1000,3 +1000,38 @@ def test_loadouts_page_and_apply_against_mock(client):
     # survey drones aren't in the phase: untouched
     assert not any("spare" in (d.get("tags") or []) for d in world.devices if d["device_type"] == "survey_drone")
     assert "◆ Mining hub" in client.get("/tree", headers=H).text
+
+
+def test_site_quantity_shapes():
+    from rsweb.targets import site_quantity
+    assert site_quantity({"resource_type": "carbon", "quantity": 120}) == ({"carbon": 120.0}, 120.0)
+    assert site_quantity({"resource": "rares", "remaining": "40"}) == ({"rares": 40.0}, 40.0)
+    assert site_quantity({"resources": {"structural": 10, "carbon": 5}}) == ({"structural": 10.0, "carbon": 5.0}, 15.0)
+    assert site_quantity({"resources": [{"resource": "silicates", "quantity": 7}]}) == ({"silicates": 7.0}, 7.0)
+    assert site_quantity({"resource_type": "carbon"}) == ({}, None)
+
+
+def test_system_resources_and_map_places(client):
+    from rsweb.targets import system_resources
+    client.portal.call(client.app.state.worker.sync_devices)
+    world = client.app.state.api.http._transport.app.state.world
+    for ev in [e for e in world.events if e["event"] == "salvage.discovered"]:
+        client.portal.call(client.app.state.worker.handle_event, dict(ev))
+    page = client.get("/systems/SOL", headers=H).text
+    assert "Resources available" in page and "Derelict hauler" in page and "SOL-3-1-SAL-1" in page
+    r = client.post("/systems/SOL/resources/refresh", headers=HX)
+    assert r.headers.get("HX-Refresh")
+    res = client.portal.call(system_resources, client.app.state.db, "SOL")
+    assert res["totals"]["structural"]["sites"] == 5200 and res["totals"]["rares"]["sites"] == 340
+    assert res["totals"]["structural"]["salvage"] == 260   # location detail is newer than the discovery event
+    assert res["mineable"] == 5540 and res["salvageable"] == 335
+    page = client.get("/systems/SOL", headers=H).text
+    assert 'class="marker place place-site' in page and 'class="marker place place-salvage' in page
+    assert "SITE-1 · 5,200" in page or "SITE-1 · 5200" in page
+    assert 'class="marker place place-lagrange' in page   # Lagrange points are drawn too
+    lst = client.get("/systems", headers=H).text
+    assert "Mineable" in lst and ("5,540" in lst or "5540" in lst)
+    # a depleted site no longer counts
+    client.portal.call(client.app.state.worker.handle_event, _ev(99, "site.depleted", site="SOL-BELT-1-SITE-2", location="SOL-BELT-1"))
+    res = client.portal.call(system_resources, client.app.state.db, "SOL")
+    assert res["mineable"] == 5200

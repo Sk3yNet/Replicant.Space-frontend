@@ -23,6 +23,15 @@
           <text x="{{ p.x + 10 }}" y="{{ p.y + 4 }}">{{ p.designation.split('-')[-1] }}</text>
         </g>
       {% endfor %}
+      <g class="places">{% for pl in view.places %}
+        <g class="marker place place-{{ pl.category }}{{ ' depleted' if pl.depleted }}" hx-get="/locations/{{ pl.code }}" hx-target="#loc-panel">
+          {% if pl.category == 'salvage' %}<path d="M {{ pl.x }} {{ pl.y - 5 }} L {{ pl.x + 5 }} {{ pl.y + 4 }} L {{ pl.x - 5 }} {{ pl.y + 4 }} Z" />
+          {% elif pl.category == 'site' %}<rect x="{{ pl.x - 3.5 }}" y="{{ pl.y - 3.5 }}" width="7" height="7" transform="rotate(45 {{ pl.x }} {{ pl.y }})" />
+          {% elif pl.category == 'lagrange' %}<rect x="{{ pl.x - 3 }}" y="{{ pl.y - 3 }}" width="6" height="6" />
+          {% else %}<circle cx="{{ pl.x }}" cy="{{ pl.y }}" r="3.5" />{% endif %}
+          <title>{{ pl.code }}{% if pl.note %} · {{ pl.note }}{% endif %}{% if pl.total is not none %} · {{ pl.total | num }} available{% endif %}{% for r, q in pl.amounts.items() %} · {{ r }} {{ q | num }}{% endfor %}{% if pl.depleted %} · depleted{% endif %}</title>
+          <text class="plabel" x="{{ pl.x + 7 }}" y="{{ pl.y + 3 }}">{{ pl.label }}{% if pl.total is not none and not pl.depleted %} · {{ pl.total | num }}{% endif %}</text>
+        </g>{% endfor %}</g>
       {% for m in view.markers %}
         <g class="marker" hx-get="/locations/{{ m.loc }}" hx-target="#loc-panel">
           <circle cx="{{ m.x }}" cy="{{ m.y }}" r="{{ 5 + [m.devices|length, 12]|min }}" fill="rgba(108,182,255,.25)" stroke="#6cb6ff"><title>{{ m.loc }} · {{ m.devices | length }} device(s){% for k, v in m.stock.items() %} · {{ k }} {{ v }}{% endfor %}</title></circle>
@@ -31,12 +40,60 @@
       {% endfor %}
       {% if view.oort %}<text x="{{ view.size - 170 }}" y="20">Oort {{ view.oort.au | round | int }} AU ↗</text>{% endif %}
     </svg>
-    <p class="muted small">Log-scaled orbits. Green band = habitable zone, dashed rings = belts / Kuiper. Blue circles = your devices or stockpiles (click for detail).</p>
+    <div class="row between"><p class="muted small" style="margin:4px 0">Log-scaled orbits. Green band = habitable zone, dashed rings = belts / Kuiper.
+      Blue circles = your devices or stockpiles · ◆ resource site · ▲ salvage · ■ Lagrange point · ● object / outer system (numbers = quantity available). Click anything for detail.</p>
+      <label class="small" style="text-transform:none;white-space:nowrap"><input type="checkbox" checked onchange="document.querySelector('svg.system').classList.toggle('nolabels', !this.checked)"> labels</label></div>
   </div>
   <div>
     <div class="card" id="loc-panel"><p class="muted">Click a planet or marker to load location detail.</p></div>
     {% if reps %}<div class="card" style="margin-top:14px"><h2>Your replicants here</h2>
       {% for r in reps %}<div><a href="/replicants/{{ r.replicant_code }}">{{ r.name }}</a> @ {{ r.location or r.current_location }}</div>{% endfor %}</div>{% endif %}
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <div class="row between"><h2>Resources available</h2>
+      <span class="row"><span class="muted small">{{ ('site quantities as of ' ~ (res.known_at | ago)) if res.known_at else 'no site quantities read yet' }}</span>
+        <button class="small" hx-post="/systems/{{ star }}/resources/refresh" hx-target="#res-msg" title="reads each belt and salvage location (1 request each)">Refresh quantities</button></span></div>
+    <div id="res-msg"></div>
+    {% if res.totals %}
+    <table class="small">
+      <tr><th>Resource</th><th>Belt level</th><th class="num">At mining sites</th><th class="num">Salvage</th><th class="num">Stockpiled</th></tr>
+      {% for r, t in res.totals.items() %}<tr><td>{{ r }}</td><td>{{ t.level or '' }}</td>
+        <td class="num">{{ (t.sites | num) if t.sites else ('?' if t.site_count else '') }}{% if t.site_count %} <span class="muted">({{ t.site_count }} site{{ 's' if t.site_count != 1 }})</span>{% endif %}</td>
+        <td class="num">{{ t.salvage | num if t.salvage else '' }}</td><td class="num">{{ t.stock | num if t.stock else '' }}</td></tr>{% endfor %}
+      <tr><th>Total</th><th></th><th class="num">{{ res.mineable | num }}</th><th class="num">{{ res.salvageable | num }}</th><th class="num">{{ res.totals.values() | sum(attribute='stock') | num }}</th></tr>
+    </table>
+    {% if res.unknown_sites %}<p class="muted small">{{ res.unknown_sites }} site(s) with no quantity yet — "Refresh quantities" reads them from the game.</p>{% endif %}
+    {% else %}<p class="muted small">Nothing known yet. "Refresh quantities" reads the belts and salvage here (needs presence or a relay).</p>{% endif %}
+
+    {% if res.sites %}<h3>Mining sites</h3>
+    <table class="small"><tr><th>Site</th><th>Resource</th><th>Level</th><th class="num">Available</th></tr>
+      {% for x in res.sites %}<tr class="{{ 'muted' if x.depleted }}"><td><a hx-get="/locations/{{ x.code }}" hx-target="#loc-panel" href="/locations/{{ x.code }}">{{ x.code }}</a></td>
+        <td>{{ x.resource or (x.amounts.keys() | join(', ')) }}</td><td>{{ x.level or '' }}</td>
+        <td class="num">{{ 'depleted' if x.depleted else (x.total | num if x.total is not none else '?') }}</td></tr>{% endfor %}
+    </table>{% endif %}
+    {% if res.salvage %}<h3>Salvage</h3>
+    <table class="small"><tr><th>Location</th><th>What</th><th>Contents</th><th class="num">Total</th></tr>
+      {% for x in res.salvage %}<tr class="{{ 'muted' if x.depleted }}"><td><a hx-get="/locations/{{ x.code }}" hx-target="#loc-panel" href="/locations/{{ x.code }}">{{ x.code }}</a></td>
+        <td>{{ x.name or '' }}{% if x.type %} <span class="muted">{{ x.type | human }}</span>{% endif %}</td>
+        <td>{% for r, q in x.amounts.items() %}{{ r }} {{ q | num }}{{ ', ' if not loop.last }}{% endfor %}</td>
+        <td class="num">{{ 'depleted' if x.depleted else (x.total | num if x.total is not none else '?') }}</td></tr>{% endfor %}
+    </table>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Locations <span class="muted small">{{ sys_t.targets | length }} known</span></h2>
+    <table class="small">
+      <tr><th>Location</th><th>Kind</th><th>Notes</th><th class="num">Available</th><th class="num">Devices</th></tr>
+      {% for t in sys_t.targets %}{% set q = qty.get(t.code) %}<tr>
+        <td><a hx-get="/locations/{{ t.code }}" hx-target="#loc-panel" href="/locations/{{ t.code }}">{{ t.code }}</a></td>
+        <td class="muted">{{ CATEGORY_LABEL.get(t.category, t.category) }}</td>
+        <td>{{ t.note }}{% if t.stock %} <span class="muted">· stock {% for r, v in t.stock.items() %}{{ v | num }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}
+          {% if game_locs.get(t.code) and game_locs[t.code].resource_sites %}<span class="muted"> · {{ game_locs[t.code].resource_sites }} sites</span>{% endif %}</td>
+        <td class="num">{% if q %}{{ 'depleted' if q.depleted else (q.total | num if q.total is not none else '?') }}{% endif %}</td>
+        <td class="num">{{ t.devices or '' }}</td></tr>{% endfor %}
+    </table>
   </div>
 </div>
 

@@ -6,12 +6,15 @@
     <input name="star" placeholder="open system e.g. SOL"><button class="small">Open</button></form></div>
 <div class="card">
   <table>
-    <tr><th>System</th><th class="num">Devices</th><th>Replicants</th><th class="num">Locations with presence</th><th class="num">Stockpiled</th><th>Scan cached</th></tr>
+    <tr><th>System</th><th class="num">Devices</th><th>Replicants</th><th class="num">Locations with presence</th><th class="num">Stockpiled</th><th class="num">Mineable</th><th class="num">Salvage</th><th>Most available</th><th>Scan cached</th></tr>
     {% for s, p in rows %}
     <tr><td><a href="/systems/{{ s }}">{{ s }}</a></td><td class="num">{{ p.devices }}</td><td>{{ p.replicants | join(', ') }}</td>
       <td class="num">{{ p.locations or '' }}</td><td class="num">{{ p.resources | num if p.resources else '' }}</td>
+      <td class="num">{{ p.mineable | num if p.mineable else ('?' if p.unknown_sites else '') }}</td>
+      <td class="num">{{ p.salvage | num if p.salvage else '' }}</td>
+      <td class="small">{% for r, q in p.top %}{{ r }} {{ q | num }}{{ ', ' if not loop.last }}{% endfor %}</td>
       <td class="small muted">{{ known[s].updated_at | ago if s in known else '—' }}</td></tr>
-    {% else %}<tr><td colspan="6" class="muted">No presence yet — waiting for sync.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="9" class="muted">No presence yet — waiting for sync.</td></tr>{% endfor %}
   </table>
 </div>
 {% endblock %}
