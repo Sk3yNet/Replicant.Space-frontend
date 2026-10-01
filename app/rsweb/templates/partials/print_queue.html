@@ -1,0 +1,58 @@
+{# Print queue panel for one autofactory. Context: code, dev, cur, queue, remaining, exact, blueprints, outcome, cancel_cmd, compact #}
+<div id="pq-{{ code }}" class="pq" hx-get="/devices/{{ code }}/print-queue{{ '?compact=1' if compact }}" hx-trigger="every 60s, pq-refresh from:body" hx-swap="outerHTML">
+  {% if compact %}<div class="row between"><strong><a href="/devices/{{ code }}">{{ dev.device_type | human }} {{ code }}</a></strong>
+    <span class="muted small">{{ dev.location }}</span></div>{% endif %}
+
+  <div class="pq-now">
+    {% if cur and cur.state == 'printing' %}
+      <div class="timer" {% if cur.completes_at %}data-ends="{{ cur.completes_at }}" data-start="{{ cur.started_at or cur.completes_at }}"{% endif %}>
+        <div class="row between"><span><span class="pill st-work">printing</span> <strong>{{ (cur.device_type or 'unknown') | human }}</strong>
+          {% if cur.print_mode and cur.print_mode != 'standard' %}<span class="muted small">({{ cur.print_mode }})</span>{% endif %}</span>
+          <span class="mono">{% if cur.completes_at %}<span class="left"></span> <span class="muted small">({{ cur.completes_at | local('%H:%M') }})</span>{% else %}<span class="muted small">finish time unknown</span>{% endif %}</span></div>
+        {% if cur.completes_at %}<div class="bar"><i style="width:0%"></i></div>{% endif %}
+        {% if cur.overdue %}<div class="muted small">Past its finish time; waiting for the game to report it done.</div>{% endif %}
+      </div>
+    {% elif cur and cur.state == 'waiting' %}
+      <div><span class="pill lv-alert">waiting for resources</span>{% if cur.device_type %} <strong>{{ cur.device_type | human }}</strong>{% endif %}
+        <span class="muted small">— starts when the materials are at {{ dev.location }}</span></div>
+    {% else %}
+      <div class="muted">Not printing{% if queue %} (status: {{ dev.status }}){% endif %}.</div>
+    {% endif %}
+    {% if cur and cancel_cmd and not compact %}
+      <button class="small ghost" style="margin-top:4px" hx-post="/devices/{{ code }}/print-queue" hx-vals='{"action": "cancel"}'
+              hx-target="#pq-{{ code }}" hx-swap="outerHTML" hx-confirm="Cancel the current print?">Cancel current print</button>
+    {% endif %}
+  </div>
+
+  {% if queue %}
+    <table class="small" style="margin-top:8px">
+      <tr><th class="num">#</th><th>Next up</th><th>Notify</th>{% if not compact %}<th></th>{% endif %}</tr>
+      {% for it in queue %}
+      <tr><td class="num mono">{{ it.index }}</td>
+        <td>{{ it.device_type | human }}{% if it.quantity and it.quantity > 1 %} ×{{ it.quantity }}{% endif %}
+          {% if it.tags %}<span class="muted"> · {{ it.tags | join(', ') }}</span>{% endif %}
+          {% if it.oncomplete %}<span class="muted"> · then {{ it.oncomplete.command or it.oncomplete }}</span>{% endif %}</td>
+        <td>{% if it.notify %}<a href="/devices/{{ it.notify }}" class="mono">{{ it.notify }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+        {% if not compact %}<td class="num"><button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
+              hx-vals='{"action": "remove", "index": {{ it.index }}}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
+              hx-confirm="Remove #{{ it.index }} {{ it.device_type | human }} from the queue?" title="dequeue_print index {{ it.index }}">Remove</button></td>{% endif %}
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p class="muted small" style="margin-top:6px">Queue is empty.</p>
+  {% endif %}
+  {% if remaining %}<div class="muted small">{{ queue | length }} waiting{% if cur %} + 1 printing{% endif %} · all done in {{ '' if exact else '~' }}{{ remaining | duration }}{% if not exact %} (estimate){% endif %}</div>{% endif %}
+
+  {% if not compact %}
+    <form class="inline" style="margin-top:8px" hx-post="/devices/{{ code }}/print-queue" hx-target="#pq-{{ code }}" hx-swap="outerHTML">
+      <input type="hidden" name="action" value="add">
+      <select name="device_type">{% for b in blueprints %}<option value="{{ b.device_type }}">{{ b.device_type | human }} ({{ ((b.print_time or 0) / 60) | round(1) }}m)</option>{% endfor %}</select>
+      <input type="number" name="quantity" value="1" min="1" style="width:60px" title="quantity">
+      <button type="submit">Add to queue</button>
+      {% if queue %}<button type="button" class="small ghost" hx-post="/devices/{{ code }}/print-queue" hx-vals='{"action": "clear"}'
+              hx-target="#pq-{{ code }}" hx-swap="outerHTML" hx-confirm="Clear all {{ queue | length }} waiting item(s)? The current print keeps going.">Clear queue</button>{% endif %}
+    </form>
+  {% endif %}
+  {% if outcome %}{% with label=outcome.label, method=outcome.method, path=outcome.path, ok=outcome.ok, status=outcome.status, error=outcome.error, response=outcome.response, note=None %}{% include "partials/action_result.html" %}{% endwith %}{% endif %}
+</div>

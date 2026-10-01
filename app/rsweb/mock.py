@@ -91,7 +91,7 @@ class World:
         self.devices = [
             {"device_code": HOST, "device_type": "heaven_vessel", "location": "SOL-BELT-1", "status": "stationary",
              "features": ["surge", "cruise", "system_scan", "mine", "cradle", "print", "census"], "operational_capacity": 98.0,
-             "available_commands": ["travel", "deactivate", "enqueue_print", "dequeue_print", "clear_queue"], "stow_capacity": 10},
+             "available_commands": ["travel", "deactivate"], "stow_capacity": 10},
         ]
         for i, (res, st) in enumerate([("structural", "mining (structural)"), ("conductive", "mining (conductive)"),
                                        ("silicates", "idle"), ("carbon", "mining (carbon)")]):
@@ -129,8 +129,32 @@ class World:
             d["replicant_code"] = REP
         self.location = "SOL-BELT-1"
         self.vessel_busy_until = 0.0
+        self.foreign_devices: list[dict] = []
         self.queues: dict[str, list] = {}
+        self.af_print_seconds = 45.0
         self.xp = 87340
+
+    def af_next(self, af: dict) -> None:
+        """Autofactory: if idle, start the head of its queue (the printing item leaves the queue)."""
+        q = self.queues.get(af["device_code"]) or []
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # seeding history at import time: leave it queued
+        if af["status"] != "idle" or not q:
+            return
+        item = q.pop(0)
+        secs = self.af_print_seconds
+        af["status"] = f"printing ({item['device_type']})"
+        self.emit("print.started", af, device_type=item["device_type"], print_mode="standard",
+                  completes_at=iso(datetime.now(timezone.utc) + timedelta(seconds=secs)), tags=[])
+
+        def done():
+            af["status"] = "idle"
+            self.emit("print.completed", af, device_type=item["device_type"], print_mode="standard",
+                      new_device_code=f"{random.randint(0, 0xFFFFFFFF):08X}", tags=[])
+            self.af_next(af)
+        loop.call_later(secs, done)
 
     def emit(self, event: str, device: dict | None = None, **payload) -> dict:
         self.seq += 1
@@ -170,8 +194,11 @@ class World:
                              current_star="SOL", channel="#general", message=random.choice(["anyone near LERNA?", "hub up at SOL", "o7"]))
         if roll < 0.9:
             af = self.devices[7]
-            return self.emit("print.completed", af, device_type="mining_drone", new_device_code=f"{random.randint(0, 0xFFFFFFFF):08X}",
-                             print_mode="standard", tags=[])
+            if not self.queues.get(af["device_code"]) and af["status"] == "idle":
+                self.queues[af["device_code"]] = [{"device_type": t, "notify": {"device": None}}
+                                                  for t in ("ftl_relay", "ftl_beacon", "ftl_beacon", "mining_drone")]
+            self.af_next(af)
+            return None
         if roll < 0.93:
             return self.emit("hub.warning", {"device_code": "HUB00001", "device_type": "system_hub", "location": "SOL-5-L4"},
                              capacity=72, warning_type="maintenance_due")
@@ -215,6 +242,11 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         return ok({"name": "bob-1", "replicant_code": code, "hosted_device_code": HOST, "location": world.location,
                    "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "status": "stationary", "experience_points": 1245,
                    "stowed_devices": [{"device_code": "3CA5D7E4", "device_type": "replicant_matrix"}]})
+
+    @app.get("/v1/replicants/{code}/scan/devices")
+    async def scan_devices(code: str, device_type: str | None = None):
+        devs = [d for d in world.foreign_devices if not device_type or d["device_type"] == device_type]
+        return ok({"star": "SOL", "device_count": len(devs), "devices": devs, "next_cursor": None})
 
     @app.get("/v1/replicants/{code}/stars")
     async def nearby(code: str, per_page: int = 10):
@@ -311,6 +343,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     @app.get("/v1/devices/{code}")
     async def device(code: str):
         d = next((d for d in world.devices if d["device_code"] == code), None)
+        if d and "autofactory" in d["device_type"]:
+            d = {**d, "print_queue": list(world.queues.get(code, []))}
         if d and d["device_code"] == HOST:
             d = {**d, "stowed_devices": [{"device_code": x["device_code"], "device_type": x["device_type"]}
                                          for x in world.devices if x["status"] == "stowed"]}
@@ -335,8 +369,20 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             world.emit("mining.started", d, location=d["location"], resource_type=body.get("resource_type"), site="SOL-BELT-1-SITE-1")
         if cmd == "enqueue_print":
             q = world.queues.setdefault(code, [])
-            q.extend([body.get("device_type")] * int(body.get("quantity") or 1))
+            q.extend({"device_type": body.get("device_type"), "notify": {"device": None}}
+                     for _ in range(int(body.get("quantity") or 1)))
+            world.af_next(d)
             return ok({"status": "enqueued", "queue": list(q), "queue_length": len(q)})
+        if cmd == "dequeue_print":
+            q = world.queues.setdefault(code, [])
+            i = int(body.get("index") or 0)
+            if not 1 <= i <= len(q):
+                return ok({"error": "Invalid queue index"}, 400)
+            removed = q.pop(i - 1)
+            return ok({"status": "dequeued", "removed": removed, "queue": list(q), "queue_length": len(q)})
+        if cmd == "clear_queue":
+            world.queues[code] = []
+            return ok({"status": "queue_cleared", "queue": [], "queue_length": 0})
         if cmd == "set_directive":
             world.emit("directive.set", d, directive=body.get("directive"), configuration=body.get("configuration"))
         loop = asyncio.get_running_loop()

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Tree{% endblock %}
+{% macro device_node(n, depth) %}{% set d = n.d %}{% set code = d.device_code %}
+<details class="tnode dev" id="t-{{ code }}" data-search="{{ (code ~ ' ' ~ (d.device_type or '') ~ ' ' ~ (d.location or '') ~ ' ' ~ (d.status or '') ~ ' ' ~ ((n.replicant or {}).name or '')) | lower }}">
+  <summary>
+    <span class="mono">{{ code }}</span> <b>{{ d.device_type | human }}</b>
+    {% if n.replicant %}<span class="pill st-move" title="hosts this replicant">⬢ {{ n.replicant.name }}</span>{% endif %}
+    <span class="pill {{ d.status | status_class }}">{{ d.status }}</span>
+    <span class="muted small">{{ d.location }}</span>
+    {% set cap = d.get('operational_capacity') | capacity %}{% if cap is not none and cap < 50 %}<span class="small lv-alert">{{ cap | round | int }}%</span>{% endif %}
+    {% if n.children %}<span class="small muted">· carrying {{ n.children | length }}</span>{% endif %}
+    {% if n.guessed %}<span class="small muted" title="Placed here because it's the only carrier at this location">· probably in carrier</span>{% endif %}
+  </summary>
+  <div class="tbody">
+    <div class="tpanel">
+      <form hx-post="/devices/{{ code }}/command" hx-target="#tres-{{ code }}" data-danger-check>
+        <div class="row">
+          <select name="command" hx-get="/devices/{{ code }}/command-form" hx-vals='{"rid": "tres-{{ code }}"}' hx-target="#tf-{{ code }}" hx-trigger="change">
+            <option value="">— choose a command —</option>
+            {% for c in order_commands(d.available_commands or []) %}<option value="{{ c }}">{{ c | human }}{{ ' ⚠' if c in dangerous }}</option>{% endfor %}
+          </select>
+          <button class="small">Run</button>
+          <a class="small" href="/devices/{{ code }}">full page →</a>
+          {% if n.replicant %}<a class="small" href="/replicants/{{ n.replicant.code }}">replicant →</a>{% endif %}
+        </div>
+        <div id="tf-{{ code }}"></div>
+      </form>
+      <div id="tres-{{ code }}"></div>
+    </div>
+    {% if n.children %}
+      <div class="tchildren"><div class="small muted">Stowed in {{ code }}</div>
+        {% for k in n.children %}{{ device_node(k, depth + 1) }}{% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</details>
+{% endmacro %}
+{% block content %}
+<div class="row between">
+  <h1>Tree <span class="muted small">{{ systems | length }} systems{% if synced %} · devices synced {{ synced | ago }}{% endif %}</span></h1>
+  <div class="row">
+    <input id="tree-filter" placeholder="filter: code, type, status, location…" size="30" oninput="treeFilter(this.value)">
+    <button class="small" onclick="treeSet('all', true)">Expand all</button>
+    <button class="small" onclick="treeSet('sys', true); treeSet('dev', false)">Systems only</button>
+    <button class="small ghost" onclick="treeSet('all', false)">Collapse all</button>
+    <a class="btn small ghost" href="/tree">Refresh</a>
+  </div>
+</div>
+<div class="card tree">
+{% for s in systems %}
+  <details class="tnode sys" id="ts-{{ s.star }}" data-search="{{ s.star | lower }}">
+    <summary>
+      <b>{{ s.star }}</b>
+      <span class="small muted">{{ s.counts.devices or 0 }} devices</span>
+      {% if s.counts.active %}<span class="pill st-work small">{{ s.counts.active }} working</span>{% endif %}
+      {% if s.counts.idle %}<span class="pill st-idle small">{{ s.counts.idle }} idle</span>{% endif %}
+      {% if s.counts.stowed %}<span class="pill small">{{ s.counts.stowed }} stowed</span>{% endif %}
+      {% for r in s.replicants %}<span class="pill st-move small">⬢ {{ r }}</span>{% endfor %}
+      <a class="small" href="/systems/{{ s.star }}" onclick="event.stopPropagation()">system view →</a>
+    </summary>
+    <div class="tchildren">
+      {% for n in s.nodes %}{{ device_node(n, 1) }}{% endfor %}
+      {% if s.unknown %}
+        <div class="small muted" style="margin-top:6px">Stowed — carrier not known yet</div>
+        {% for n in s.unknown %}{{ device_node(n, 1) }}{% endfor %}
+      {% endif %}
+    </div>
+  </details>
+{% else %}<p class="muted">No devices yet — waiting for the first sync.</p>{% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/tree.js"></script>{% endblock %}

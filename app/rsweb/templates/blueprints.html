@@ -7,7 +7,7 @@
     <form class="inline" method="get"><input name="q" value="{{ q }}" placeholder="filter…"><button class="small">Filter</button></form></span></div>
 {% if not blueprints %}<p class="muted">Blueprints sync every 5 minutes and when something may have unlocked one; none cached yet.</p>{% endif %}
 
-<form hx-post="/blueprints/plan" hx-target="#plan" hx-trigger="input delay:300ms, change">
+<form hx-post="/blueprints/plan" hx-target="#plan" hx-trigger="input delay:300ms from:input[type=number], change from:select">
 <div class="grid g2">
   <div class="card">
     <table>
@@ -28,13 +28,22 @@
   <div>
     <div class="card" style="position:sticky;top:64px">
       <h2>Plan</h2>
-      <label>Stockpile to draw from</label>
-      <select name="location">{% for loc in inv %}<option>{{ loc }}</option>{% endfor %}</select>
+      <label>Printer</label>
+      <select name="printer">{% for p in printers %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
+      <div class="muted small">Draws on the stock at the printer's location. Autofactories are listed first: they hold queued prints until the materials arrive.</div>
       <div id="plan"><p class="muted">Enter quantities to see total cost and shortfall.</p></div>
+      <div id="plan-result"></div>
     </div>
   </div>
 </div>
 </form>
+{% set factories = printers | selectattr('autofactory') | list %}
+{% if factories %}<div class="card" style="margin-top:14px">
+  <h2>Print queues <span class="muted small">live from the game · refreshes every minute</span></h2>
+  <div class="grid g2">{% for p in factories %}
+    <div class="pq-box"><div hx-get="/devices/{{ p.code }}/print-queue?compact=1" hx-trigger="load" hx-swap="outerHTML"><span class="muted small">Loading {{ p.name }}…</span></div></div>
+  {% endfor %}</div>
+</div>{% endif %}
 <div class="card" style="margin-top:14px">
   <h2>Queue a print</h2>
   <form class="inline" hx-post="/blueprints/print" hx-target="#print-result">

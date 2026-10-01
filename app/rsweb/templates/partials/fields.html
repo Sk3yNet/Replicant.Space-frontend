@@ -44,7 +44,7 @@
       {% if cg %}
         <div class="row" style="margin-top:6px">
           <button type="button" class="small" onclick="fillCargo('{{ uid }}-res')" {{ 'disabled' if not cg.plan }}>Fill to capacity</button>
-          <button type="button" class="small" hx-post="/devices/{{ self_code }}/collect-all" hx-target="#cmd-result" {{ 'disabled' if not cg.plan }}>
+          <button type="button" class="small" hx-post="/devices/{{ self_code }}/collect-all" hx-target="#{{ rid if rid is defined and rid else 'cmd-result' }}" {{ 'disabled' if not cg.plan }}>
             Collect all now{% if cg.plan %} ({{ cg.plan.values() | sum }} units){% endif %}</button>
           <button type="button" class="small ghost" onclick="clearCargo('{{ uid }}-res')">Clear</button>
         </div>

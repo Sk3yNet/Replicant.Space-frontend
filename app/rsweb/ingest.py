@@ -351,6 +351,31 @@ class Worker:
         devices = await self.api.paged("/devices", "devices")
         await self.db.kv_set("devices", devices)
         self.hub.publish("state", "devices")
+        try:
+            await self.sync_stowed(devices)
+        except Exception as e:  # never let this break the device sync
+            log.info("stowed map refresh failed: %s", e)
+
+    async def sync_stowed(self, devices: list[dict], max_carriers: int = 25) -> None:
+        """Which carrier holds which device: read each carrier's detail (the device list doesn't say)."""
+        from .carrier import is_carrier
+        if not any(str(d.get("status", "")).startswith("stowed") for d in devices):
+            await self.db.kv_set("stowed_map", {})
+            return
+        bps = normalize_blueprints(await self.db.kv_get("blueprints", []))
+        stowed_map: dict[str, list[str]] = {}
+        carriers = [d for d in devices if is_carrier(d, bps)][:max_carriers]
+        for c in carriers:
+            items = c.get("stowed_devices")
+            if items is None:
+                try:
+                    items = (await self.api.get(f"/devices/{c['device_code']}", background=True) or {}).get("stowed_devices")
+                except ApiError:
+                    items = None
+            codes = [i.get("device_code") for i in items or [] if isinstance(i, dict) and i.get("device_code")]
+            if codes:
+                stowed_map[c["device_code"]] = codes
+        await self.db.kv_set("stowed_map", stowed_map)
 
     async def sync_inventory(self) -> None:
         locs = normalize_inventory(await self.api.paged("/inventory", "locations"))

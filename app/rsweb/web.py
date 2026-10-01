@@ -26,6 +26,10 @@ from . import automations as auto
 from .cargo import cargo_context
 from .targets import options_for, system_targets
 from . import carrier as carrier_mod
+from .tree import build_tree
+from . import production
+from . import ami_schedule as amis
+from . import printqueue
 from .ingest import duplicate_timers
 
 HERE = Path(__file__).parent
@@ -146,13 +150,26 @@ def star_of(location: str | None) -> str:
 def capacity(v: Any) -> float | None:
     try:
         n = float(v)
-    except (TypeError, ValueError):
+    except Exception:  # None, junk, or a template Undefined
         return None
     return n * 100 if n <= 1 else n  # docs show both 0-1 and 0-100
 
 
+def f_duration(secs: Any) -> str:
+    try:
+        s = int(float(secs))
+    except Exception:
+        return "?"
+    d, h, m = s // 86400, (s % 86400) // 3600, (s % 3600) // 60
+    if d:
+        return f"{d}d {h}h"
+    if h:
+        return f"{h}h {m}m"
+    return f"{m}m {s % 60}s" if m else f"{s}s"
+
+
 templates.env.filters.update(local=f_local, ago=f_ago, pretty=f_pretty, human=f_human, num=f_num,
-                             status_class=status_class, star_of=star_of, capacity=capacity)
+                             status_class=status_class, star_of=star_of, capacity=capacity, duration=f_duration)
 templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, level_of=notify.level_of,
                              device_options=cmdspec.device_options, target_options=options_for)
 
@@ -407,9 +424,59 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
     st = await load_state(request)
     same_loc = [d for d in st["devices"] if d.get("location") == dev.get("location") and d.get("device_code") != code]
     carrier = await carrier_context(request, dev) if dev else None
-    return await page(request, user, "device.html", "fleet", carrier=carrier, dev=dev, code=code, err=err, logs=logs, events=events,
+    pq = await print_queue_ctx(request, code, dev) if dev and printqueue.has_queue(dev) else None
+    return await page(request, user, "device.html", "fleet", carrier=carrier, pq=pq, dev=dev, code=code, err=err, logs=logs, events=events,
                       same_loc=same_loc, commands=order_commands(dev.get("available_commands") or []),
                       dangerous=DANGEROUS)
+
+
+# --- autofactory print queue ------------------------------------------------------------------
+async def print_queue_ctx(request: Request, code: str, dev: dict, outcome: dict | None = None, compact: bool = False) -> dict:
+    db = request.app.state.db
+    bps = {b["device_type"]: b for b in normalize_blueprints(await db.kv_get("blueprints", []))}
+    queue = printqueue.items(dev)
+    cur = await printqueue.current(db, dev)
+    remaining, exact = printqueue.remaining_seconds(cur, queue, bps)
+    cmds = dev.get("available_commands") or []
+    cancel_cmd = next((c for c in ("cancel_print", "cancel") if c in cmds), None)
+    return {"code": code, "dev": dev, "queue": queue, "cur": cur, "remaining": remaining, "exact": exact,
+            "blueprints": sorted(bps.values(), key=lambda b: b.get("device_type", "")), "outcome": outcome,
+            "cancel_cmd": cancel_cmd, "compact": compact}
+
+
+async def fetch_device(request: Request, code: str) -> dict:
+    try:
+        return await request.app.state.api.get(f"/devices/{code}")
+    except ApiError:
+        return next((d for d in (await load_state(request))["devices"] if d.get("device_code") == code), {})
+
+
+@router.get("/devices/{code}/print-queue", response_class=HTMLResponse)
+async def print_queue_panel(request: Request, code: str, compact: int = 0, user: str = Depends(current_user)):
+    dev = await fetch_device(request, code)
+    return partial(request, "partials/print_queue.html", **await print_queue_ctx(request, code, dev, compact=bool(compact)))
+
+
+@router.post("/devices/{code}/print-queue", response_class=HTMLResponse)
+async def print_queue_action(request: Request, code: str, action: str = Form(...), index: int = Form(0),
+                             device_type: str = Form(""), quantity: int = Form(1), user: str = Depends(current_user)):
+    dev = await fetch_device(request, code)
+    cmds = dev.get("available_commands") or []
+    if action == "remove":
+        body, label = {"command": "dequeue_print", "index": index}, f"remove #{index} from {code}'s queue"
+    elif action == "clear":
+        body, label = {"command": "clear_queue"}, f"clear {code}'s print queue"
+    elif action == "cancel":
+        cmd = next((c for c in ("cancel_print", "cancel") if c in cmds), "cancel")
+        body, label = {"command": cmd}, f"cancel {code}'s current print"
+    elif action == "add" and device_type:
+        q = max(1, quantity)
+        body, label = {"command": "enqueue_print", "device_type": device_type, "quantity": q}, f"enqueue {q}× {device_type} on {code}"
+    else:
+        return HTMLResponse('<div class="result err">Unknown queue action.</div>', status_code=400)
+    outcome = await call_action(request, user, "POST", f"/devices/{code}", body, label)
+    dev = await fetch_device(request, code)  # re-read so the panel shows the game's view
+    return partial(request, "partials/print_queue.html", **await print_queue_ctx(request, code, dev, outcome))
 
 
 DANGEROUS = {"decommission", "change_owner", "deactivate", "withdraw", "clear_queue", "release", "clear_directive"}
@@ -498,7 +565,7 @@ async def start_chain(request: Request, user: str, title: str, first: dict, foll
 
 
 @router.get("/devices/{code}/command-form", response_class=HTMLResponse)
-async def device_command_form(request: Request, code: str, command: str = "", user: str = Depends(current_user)):
+async def device_command_form(request: Request, code: str, command: str = "", rid: str = "", user: str = Depends(current_user)):
     dev = await _device(request, code)
     if not command:
         return HTMLResponse('<p class="muted small">Pick a command to see its fields.</p>')
@@ -507,7 +574,7 @@ async def device_command_form(request: Request, code: str, command: str = "", us
         sugg = await suggestions(request, dev.get("location"))
         return partial(request, "partials/directive_picker.html", code=code, names=names,
                        fields=cmdspec.directive_fields(names[0]) if names else [],
-                       sugg=sugg, sys_targets=sugg.get("system"), uid=f"d-{code}", self_code=code)
+                       sugg=sugg, sys_targets=sugg.get("system"), uid=f"d-{code}", self_code=code, rid=rid)
     fields = cmdspec.COMMANDS.get(command)
     chain = await chain_context(request, code) if command in MOVE_COMMANDS else {}
     if command == "collect_resources":
@@ -516,7 +583,7 @@ async def device_command_form(request: Request, code: str, command: str = "", us
     sugg = await suggestions(request, dev.get("location"))
     return partial(request, "partials/command_form.html", code=code, command=command, fields=fields or [],
                    known=fields is not None, sugg=sugg, sys_targets=sugg.get("system"),
-                   uid=f"c-{code}", self_code=code, directives=None, **chain)
+                   uid=f"c-{code}", self_code=code, directives=None, rid=rid, **chain)
 
 
 @router.post("/devices/{code}/command", response_class=HTMLResponse)
@@ -716,7 +783,7 @@ async def replicant_mine(request: Request, code: str, resource_type: str = Form(
 @router.post("/replicants/{code}/print", response_class=HTMLResponse)
 async def replicant_print(request: Request, code: str, device_type: str = Form(""), command: str = Form(""),
                           quantity: int = Form(1), user: str = Depends(current_user)):
-    if command:  # cancel / clear_queue
+    if command:  # cancel the current print (vessels have no queue)
         return await run_action(request, user, "POST", f"/replicants/{code}/print", {"command": command},
                                 f"{code} print {command}")
     return await queue_print(request, user, "replicant", code, device_type, quantity)
@@ -915,16 +982,18 @@ async def map_refresh(request: Request, user: str = Depends(current_user)):
 
 # --- blueprints & planning -------------------------------------------------------------------
 def printers(state: dict) -> list[dict]:
-    """Everything that can print: replicant vessels and autofactories."""
+    """Everything that can print — autofactories first (they queue and wait for materials), then vessels."""
     out = []
-    for code, r in state["replicants"].items():
-        out.append({"kind": "replicant", "code": code, "name": f"{r.get('name') or code} (vessel)",
-                    "host": r.get("hosted_device_code"),
-                    "location": r.get("location") or r.get("current_location")})
     for d in state["devices"]:
         if "print" in (d.get("features") or []) and d.get("device_type") != "heaven_vessel":
-            out.append({"kind": "device", "code": d["device_code"], "name": f"{f_human(d.get('device_type'))} {d['device_code']}",
-                        "location": d.get("location")})
+            out.append({"kind": "device", "code": d["device_code"], "device": d["device_code"],
+                        "name": f"{f_human(d.get('device_type'))} {d['device_code']}", "location": d.get("location"),
+                        "autofactory": "autofactory" in (d.get("device_type") or "")})
+    out.sort(key=lambda p: (not p["autofactory"], p["name"]))
+    for code, r in state["replicants"].items():
+        out.append({"kind": "replicant", "code": code, "name": f"{r.get('name') or code} (vessel)",
+                    "host": r.get("hosted_device_code"), "device": r.get("hosted_device_code"), "autofactory": False,
+                    "location": r.get("location") or r.get("current_location")})
     return out
 
 
@@ -971,12 +1040,14 @@ async def blueprints_refresh(request: Request, user: str = Depends(current_user)
     return HTMLResponse("", headers={"HX-Refresh": "true"}) if added else HTMLResponse('<span class="muted">Up to date.</span>')
 
 
-@router.post("/blueprints/plan", response_class=HTMLResponse)
-async def blueprint_plan(request: Request, user: str = Depends(current_user)):
-    form = await request.form()
+async def read_plan(request: Request, form) -> dict:
+    """Quantities + chosen printer -> needs, stock at the printer, shortfall, and who could gather it."""
     st = await load_state(request)
     bps = {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
-    location = form.get("location") or ""
+    prs = printers(st)
+    pkey = form.get("printer") or ""
+    printer = next((p for p in prs if f"{p['kind']}:{p['code']}" == pkey), prs[0] if prs else None)
+    location = (form.get("location") if form.get("location") and not pkey else (printer or {}).get("location")) or ""
     inv = {i.get("location"): i.get("items") or {} for i in st["inventory"]}.get(location, {})
     need: Counter = Counter()
     lines = []
@@ -988,10 +1059,8 @@ async def blueprint_plan(request: Request, user: str = Depends(current_user)):
             n = int(val or 0)
         except ValueError:
             n = 0
-        if n <= 0:
-            continue
         bp = bps.get(key[4:])
-        if not bp:
+        if n <= 0 or not bp:
             continue
         for r, v in bp["resources"].items():
             need[r] += v * n
@@ -999,42 +1068,70 @@ async def blueprint_plan(request: Request, user: str = Depends(current_user)):
         lines.append((key[4:], n))
     rows = [{"resource": r, "need": need[r], "have": inv.get(r, 0.0),
              "short": max(0.0, need[r] - inv.get(r, 0.0))} for r in sorted(need)]
-    return partial(request, "partials/plan.html", rows=rows, lines=lines, location=location, total_time=total_time)
+    star = star_of(location)
+    minings = production.controllers_in(st["devices"], star, "mining")
+    transports = production.controllers_in(st["devices"], star, "transport")
+    mining = next((m for m in minings if m["device_code"] == form.get("mining")), minings[0] if minings else None)
+    transport = next((t for t in transports if t["device_code"] == form.get("transport")), transports[0] if transports else None)
+    planned = form.get("_planned") == "1"
+    return {"rows": rows, "lines": lines, "location": location, "total_time": total_time, "printer": printer,
+            "gather_on": (form.get("gather") == "on") if planned else True,
+            "deliver_on": (form.get("deliver") == "on") if planned else True,
+            "short": {r["resource"]: r["short"] for r in rows if r["short"] > 0}, "star": star,
+            "minings": minings, "transports": transports, "mining": mining, "transport": transport}
+
+
+@router.post("/blueprints/plan", response_class=HTMLResponse)
+async def blueprint_plan(request: Request, user: str = Depends(current_user)):
+    return partial(request, "partials/plan.html", **await read_plan(request, await request.form()))
+
+
+@router.post("/blueprints/queue-plan", response_class=HTMLResponse)
+async def blueprint_queue_plan(request: Request, user: str = Depends(current_user)):
+    form = await request.form()
+    p = await read_plan(request, form)
+    printer = p["printer"]
+    if not printer or not printer.get("device"):
+        return HTMLResponse('<div class="result err">No printer to queue on.</div>')
+    if not p["lines"]:
+        return HTMLResponse('<div class="result err">Enter at least one quantity.</div>')
+    vessel = printer["kind"] == "replicant"
+    if vessel and sum(n for _, n in p["lines"]) > 1:
+        return HTMLResponse('<div class="result err">Vessel printers have no queue and print one device at a time. '
+                            'Plan 1 device, or pick an autofactory.</div>')
+    gather = form.get("gather") == "on"
+    steps = production.production_steps(printer["device"], printer["name"], p["lines"], p["short"],
+                                        p["mining"] if gather else None,
+                                        p["transport"] if form.get("deliver") == "on" else None,
+                                        p["location"], gather, vessel_replicant=printer["code"] if vessel else None)
+    title = f"production: {', '.join(f'{n}× {t}' for t, n in p['lines'])} on {printer['name']}"
+    if gather and p["short"] and p["mining"]:
+        title += f" + gather shortfall with {p['mining']['device_code']}"
+    return await start_chain(request, user, title, steps[0], steps[1:], printer["device"])
 
 
 async def queue_print(request: Request, user: str, kind: str, code: str, device_type: str, quantity: int) -> HTMLResponse:
-    """Add a print to a printer's queue.
+    """Add a print to a printer.
 
-    Autofactories take `enqueue_print`. For a replicant's vessel, `POST /replicants/{code}/print`
-    refuses with "Printer is busy" while something is printing, so we enqueue on the host vessel
-    device instead and only fall back to the replicant endpoint if the vessel won't take the command.
+    Autofactories take `enqueue_print` and hold a queue. Heaven vessels have no queue: one print at a
+    time through `POST /replicants/{code}/print`, which answers "Printer is busy" while one is running.
     """
     quantity = max(1, quantity)
-    body = {"command": "enqueue_print", "device_type": device_type, "quantity": quantity}
     if kind != "replicant":
-        return await run_action(request, user, "POST", f"/devices/{code}", body, f"enqueue {quantity}× {device_type} on {code}")
-    st = await load_state(request)
-    host = (st["replicants"].get(code) or {}).get("hosted_device_code")
-    tried = None
-    if host:
-        out = await call_action(request, user, "POST", f"/devices/{host}", body,
-                                f"enqueue {quantity}× {device_type} on {code}'s vessel {host}")
+        body = {"command": "enqueue_print", "device_type": device_type, "quantity": quantity}
+        out = await call_action(request, user, "POST", f"/devices/{code}", body, f"enqueue {quantity}× {device_type} on {code}")
+        resp = render_action(request, out)
         if out["ok"]:
-            return render_action(request, out)
-        tried = out
-        msg = (out["error"] or "").lower()
-        # Anything other than "this device can't do that" is a real answer (e.g. not enough resources).
-        if out["status"] not in (400, 404, 422) or not any(k in msg for k in ("command", "not available", "unknown", "invalid", "feature")):
-            return render_action(request, out)
+            resp.headers["HX-Trigger"] = "pq-refresh"  # any queue panel on the page re-reads
+        return resp
     out = await call_action(request, user, "POST", f"/replicants/{code}/print", {"device_type": device_type},
                             f"print {device_type} on {code}")
     note = None
     if not out["ok"] and "busy" in (out["error"] or "").lower():
-        note = ("The vessel is already printing and this printer doesn't take a queue"
-                + (f" (vessel said: {tried['error']})" if tried else "")
-                + ". Wait for the current print to finish, or queue it on an autofactory.")
+        note = ("Vessel printers don't have a queue: wait for the current print to finish, "
+                "or queue it on an autofactory.")
     elif out["ok"] and quantity > 1:
-        note = f"The vessel printer takes one at a time, so only 1 of {quantity} was started."
+        note = f"Vessel printers take one print at a time, so only 1 of {quantity} was started."
     return render_action(request, out, note)
 
 
@@ -1356,9 +1453,79 @@ async def automations_page(request: Request, user: str = Depends(current_user)):
     entries = list(reversed(await request.app.state.db.kv_get("automation_log", []) or []))[:60]
     st = await load_state(request)
     vessels = [d for d in st["devices"] if "vessel" in (d.get("device_type") or "") or d.get("stow_capacity")]
+    controllers = [d for d in st["devices"] if amis.is_controller(d)]
+    kinds = sorted({amis.kind_of(d.get("device_type")) for d in controllers})
     return await page(request, user, "automations.html", "automations", rules=auto.RULES, s=await eng.settings(),
                       active_jobs=active, finished=finished, entries=entries, vessels=vessels,
-                      surveyed=len(await request.app.state.db.kv_get("surveyed", {}) or {}))
+                      surveyed=len(await request.app.state.db.kv_get("surveyed", {}) or {}),
+                      schedules=await eng.schedules(), controllers=controllers, kinds=kinds,
+                      stars=sorted({star_of(d.get("location")) for d in controllers}))
+
+
+def _schedule_rep(devices: list[dict], target: str) -> dict | None:
+    """A representative controller for a schedule target (for its directive list and system targets)."""
+    if target.startswith("kind:"):
+        return next((d for d in devices if amis.is_controller(d) and amis.kind_of(d.get("device_type")) == target[5:]), None)
+    return next((d for d in devices if d.get("device_code") == target), None)
+
+
+@router.get("/automations/schedule-form", response_class=HTMLResponse)
+async def automations_schedule_form(request: Request, target: str = "", user: str = Depends(current_user)):
+    rep = _schedule_rep((await load_state(request))["devices"], target)
+    if not rep:
+        return HTMLResponse('<p class="muted small">Pick a controller.</p>')
+    names = await device_directives(request, rep)
+    sugg = await suggestions(request, rep.get("location") if not target.startswith("kind:") else None)
+    return partial(request, "partials/directive_picker.html", code=rep["device_code"], names=names,
+                   fields=cmdspec.directive_fields(names[0]) if names else [], sugg=sugg,
+                   sys_targets=sugg.get("system") if not target.startswith("kind:") else None,
+                   uid="sched", self_code=rep["device_code"])
+
+
+@router.post("/automations/schedules", response_class=HTMLResponse)
+async def automations_schedule_add(request: Request, user: str = Depends(current_user)):
+    form = await request.form()
+    target = (form.get("target") or "").strip()
+    if not target:
+        return HTMLResponse('<span class="lv-alert">Pick a controller.</span>')
+    try:
+        body = directive_body(form)
+    except ValueError as e:
+        return HTMLResponse(f'<span class="lv-alert">{e}</span>')
+    try:
+        every = max(1, int(form.get("every_minutes") or 30))
+    except ValueError:
+        every = 30
+    eng = request.app.state.worker.automations
+    items = await eng.schedules()
+    items.append({"id": f"s{int(datetime.now(timezone.utc).timestamp() * 1000)}", "name": (form.get("name") or "").strip(),
+                  "target": target, "star": (form.get("star") or "").strip().upper() if target.startswith("kind:") else "",
+                  "directive": body["directive"], "configuration": body.get("configuration") or {},
+                  "every_minutes": every, "only_idle": form.get("only_idle") == "on", "adopt": form.get("adopt") == "on",
+                  "launch": form.get("launch") == "on", "enabled": True, "last_run": None, "last_result": None})
+    await eng.save_schedules(items)
+    await eng.log("ami_schedules", f"schedule added by {user}: {body['directive']} on {target} every {every} min")
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/automations/schedules/{sid}/{action}", response_class=HTMLResponse)
+async def automations_schedule_action(request: Request, sid: str, action: str, user: str = Depends(current_user)):
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        items = await eng.schedules()
+        sched = next((x for x in items if x.get("id") == sid), None)
+        if not sched:
+            return HTMLResponse('<span class="lv-alert">Schedule not found.</span>')
+        if action == "toggle":
+            sched["enabled"] = not sched.get("enabled", True)
+        elif action == "delete":
+            items = [x for x in items if x.get("id") != sid]
+        elif action == "run":
+            results = await eng.run_schedule(sched, manual=True)
+            await eng.save_schedules(items)
+            return HTMLResponse(f'<span class="small">{"; ".join(results)}</span>', headers={"HX-Trigger": "schedules-changed"})
+        await eng.save_schedules(items)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @router.post("/automations/rules/{rule_id}", response_class=HTMLResponse)
@@ -1431,3 +1598,19 @@ async def automations_survey_now(request: Request, vessel: str = Form(...), user
 async def p_automation_jobs(request: Request, user: str = Depends(current_user)):
     jobs = await request.app.state.worker.automations.jobs()
     return partial(request, "partials/automation_jobs.html", active=[j for j in jobs if j["status"] in ("running", "waiting")])
+
+
+# =====================================================================================
+# tree view: systems → devices → stowed devices
+# =====================================================================================
+
+
+@router.get("/tree", response_class=HTMLResponse)
+async def tree_view(request: Request, user: str = Depends(current_user)):
+    st = await load_state(request)
+    db = request.app.state.db
+    bps = normalize_blueprints(await db.kv_get("blueprints", []))
+    carriers = {d["device_code"] for d in st["devices"] if d.get("device_code") and carrier_mod.is_carrier(d, bps)}
+    systems = build_tree(st["devices"], st["replicants"], await db.kv_get("stowed_map", {}) or {}, carriers)
+    return await page(request, user, "tree.html", "tree", systems=systems, order_commands=order_commands,
+                      dangerous=DANGEROUS, synced=await db.kv_updated("devices"))

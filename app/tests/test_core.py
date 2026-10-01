@@ -302,23 +302,49 @@ def test_new_blueprint_detected_and_announced(client):
     assert not may_unlock_blueprint({"event": "experience.gained", "category": "experience", "payload": {"amount": 5}})
 
 
-def test_vessel_print_queues_on_host_device(client):
-    r = client.post("/blueprints/print", data={"printer": "replicant:77F75255", "device_type": "mining_drone", "quantity": "2"}, headers=HX)
-    assert "result ok" in r.text and "/devices/11ADA230" in r.text and "Queue length" in r.text
-    # the replicant page's form goes the same way
-    r = client.post("/replicants/77F75255/print", data={"device_type": "survey_drone", "quantity": "1"}, headers=HX)
-    assert "result ok" in r.text and "/devices/11ADA230" in r.text
+def test_vessel_prints_directly_and_explains_busy(client):
+    # heaven vessels have no queue: one print through the replicant endpoint
+    r1 = client.post("/blueprints/print", data={"printer": "replicant:77F75255", "device_type": "mining_drone", "quantity": "2"}, headers=HX)
+    assert "result ok" in r1.text and "/replicants/77F75255/print" in r1.text and "only 1 of 2" in r1.text
+    r2 = client.post("/replicants/77F75255/print", data={"device_type": "mining_drone"}, headers=HX)
+    assert "Printer is busy" in r2.text and "don&#39;t have a queue" in r2.text
+    page = client.get("/replicants/77F75255", headers=H).text
+    assert "Clear queue" not in page
+    # the planner refuses more than one device on a vessel
+    r3 = client.post("/blueprints/queue-plan", data={"printer": "replicant:77F75255", "qty:mining_drone": "2", "_planned": "1"}, headers=HX)
+    assert "no queue" in r3.text
 
 
-def test_vessel_without_queue_falls_back_and_explains_busy(client):
-    # remove enqueue_print from the vessel in the mock world used by this client
+def test_autofactory_print_queue_panel(client):
+    import time
     world = client.app.state.api.http._transport.app.state.world
-    host = world.devices[0]
-    host["available_commands"] = ["travel", "deactivate"]
-    r1 = client.post("/blueprints/print", data={"printer": "replicant:77F75255", "device_type": "mining_drone"}, headers=HX)
-    assert "result ok" in r1.text and "/replicants/77F75255/print" in r1.text  # fell back, started printing
-    r2 = client.post("/blueprints/print", data={"printer": "replicant:77F75255", "device_type": "mining_drone"}, headers=HX)
-    assert "Printer is busy" in r2.text and "doesn&#39;t take a queue" in r2.text
+    world.af_print_seconds = 0.5
+    world.queues["AF00BEEF"] = []
+    world.devices[7]["status"] = "idle"
+    for t, n in (("survey_drone", 1), ("ftl_beacon", 2)):
+        r = client.post("/devices/AF00BEEF/print-queue", data={"action": "add", "device_type": t, "quantity": str(n)}, headers=HX)
+        assert "result ok" in r.text
+    async def once():
+        return True
+    _pump(client, once)
+    page = client.get("/devices/AF00BEEF", headers=H).text
+    assert "Print queue" in page and "printing" in page and "survey drone" in page.lower()
+    # the printing item is shown above the queue, not in it
+    panel = client.get("/devices/AF00BEEF/print-queue", headers=HX).text
+    assert panel.count("Remove</button>") == 2 and "ftl beacon" in panel.lower()
+    assert "all done in" in panel
+    # remove #1, then clear the rest
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "remove", "index": "1"}, headers=HX)
+    assert "result ok" in r.text and r.text.count("Remove</button>") == 1
+    assert '"index": 1' in client.portal.call(client.app.state.db.fetchone, "SELECT body FROM actions ORDER BY id DESC LIMIT 1")["body"]
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "clear"}, headers=HX)
+    assert "Queue is empty" in r.text
+    # finishes, and the panel says idle
+    time.sleep(0.8)
+    _pump(client, once)
+    assert "Not printing" in client.get("/devices/AF00BEEF/print-queue", headers=HX).text
+    # blueprints tab lists the autofactory's queue panel
+    assert "/devices/AF00BEEF/print-queue?compact=1" in client.get("/blueprints", headers=H).text
 
 
 def test_maintenance_drone_gets_patrol(client):
@@ -647,3 +673,200 @@ def test_carrier_rejects_over_capacity(client):
     next(d for d in world.devices if d["device_code"] == "11ADA230")["stow_capacity"] = 2
     r = client.post("/devices/11ADA230/carrier", data={"stow": ["2AC61213", "D8C2A140"]}, headers=HX)
     assert "holds 2" in r.text
+
+
+def test_build_tree_nesting():
+    from rsweb.tree import build_tree
+    devs = [
+        {"device_code": "V", "device_type": "heaven_vessel", "location": "A-BELT-1", "status": "stationary"},
+        {"device_code": "C", "device_type": "cargo_vessel", "location": "A-3-L4", "status": "idle"},
+        {"device_code": "S1", "device_type": "survey_drone", "location": "A-BELT-1", "status": "stowed"},
+        {"device_code": "S2", "device_type": "surge_plate", "location": "A-3-L4", "status": "stowed"},     # guessed into C
+        {"device_code": "M", "device_type": "mining_drone", "location": "A-BELT-1", "status": "mining (rares)"},
+        {"device_code": "X", "device_type": "mining_drone", "location": "B-BELT-1", "status": "idle"},
+        {"device_code": "Q", "device_type": "probe", "location": "B-2", "status": "stowed"},               # no carrier known
+    ]
+    reps = {"R1": {"name": "bob-1", "hosted_device_code": "V", "location": "A-BELT-1",
+                   "stowed_devices": [{"device_code": "S1"}, {"device_code": "NEW1", "device_type": "replicant_matrix"}]}}
+    systems = build_tree(devs, reps, {"C": []}, {"V", "C"})
+    a = next(s for s in systems if s["star"] == "A")
+    assert systems[0]["star"] == "A"  # system with the replicant first
+    top = {n["d"]["device_code"]: n for n in a["nodes"]}
+    assert set(top) == {"V", "C", "M"}
+    assert {k["d"]["device_code"] for k in top["V"]["children"]} == {"S1", "NEW1"}  # NEW1 known only from the replicant
+    assert top["V"]["replicant"]["name"] == "bob-1"
+    assert [k["d"]["device_code"] for k in top["C"]["children"]] == ["S2"] and top["C"]["children"][0]["guessed"]
+    b = next(s for s in systems if s["star"] == "B")
+    assert [n["d"]["device_code"] for n in b["unknown"]] == ["Q"] and b["counts"]["idle"] == 1
+
+
+def test_tree_page_renders_with_stowed_and_commands(client):
+    client.portal.call(client.app.state.worker.sync_devices)  # also builds the stowed map
+    page = client.get("/tree", headers=H).text
+    assert "Expand all" in page and "Collapse all" in page and "Systems only" in page
+    assert 'id="ts-SOL"' in page and 'id="t-11ADA230"' in page
+    # the vessel's stowed devices are nested inside its node
+    vessel = page[page.index('id="t-11ADA230"'):]
+    assert "Stowed in 11ADA230" in vessel and 'id="t-SV000001"' in vessel.split('id="t-2AC61210"')[0]
+    # commands panel with the device's own commands, results go to its own box
+    assert 'hx-get="/devices/2AC61212/command-form"' in page and 'id="tres-2AC61212"' in page
+    r = client.get("/devices/TR000001/command-form?command=collect_resources&rid=tres-TR000001", headers=HX)
+    assert 'hx-target="#tres-TR000001"' in r.text
+
+
+def test_planner_queues_autofactory_and_gathers_shortfall(client):
+    world = client.app.state.api.http._transport.app.state.world
+    world.queues["AF00BEEF"] = []
+    world.devices[7]["status"] = "printing (survey_drone)"  # busy, so new items stay queued
+    page = client.get("/blueprints", headers=H).text
+    # autofactory listed first as printer
+    sel = page[page.index('name="printer"'):]
+    assert sel.index("AF00BEEF") < sel.index("(vessel)")
+    data = {"printer": "device:AF00BEEF", "qty:mining_drone": "3"}  # autofactory at SOL-3-L4 has no conductive
+    r = client.post("/blueprints/plan", data=data, headers=HX)
+    assert "Gather the shortfall with" in r.text and "MC91FF22" in r.text
+    assert "Move it from SOL-BELT-1 to SOL-3-L4 with" in r.text and "TC000001" in r.text
+    r = client.post("/blueprints/queue-plan", data={**data, "_planned": "1", "gather": "on", "deliver": "on",
+                                                    "mining": "MC91FF22", "transport": "TC000001"}, headers=HX)
+    assert "follow on Automations" in r.text, r.text
+    job = client.portal.call(client.app.state.worker.automations.jobs)[-1]
+    assert job["status"] == "done", [(s["desc"], s["status"], s["error"]) for s in job["steps"]]
+    bodies = [(s["path"], s["body"]) for s in job["steps"]]
+    assert bodies[0] == ("/devices/AF00BEEF", {"command": "enqueue_print", "device_type": "mining_drone", "quantity": 3})
+    gather = next(b for p, b in bodies if p == "/devices/MC91FF22" and b["command"] == "set_directive")
+    assert gather["directive"] == "gather_resources" and gather["configuration"]["conductive"] == 150
+    assert "structural" not in gather["configuration"] or gather["configuration"]["structural"] <= 300
+    deliver = next(b for p, b in bodies if p == "/devices/TC000001" and b["command"] == "set_directive")
+    assert deliver["configuration"]["route"] == {"collect": "SOL-BELT-1", "deliver": "SOL-3-L4"}
+    assert [i["device_type"] for i in world.queues["AF00BEEF"]] == ["mining_drone"] * 3
+    # unticking gather survives a plan refresh
+    r = client.post("/blueprints/plan", data={**data, "_planned": "1"}, headers=HX)
+    assert 'name="gather" >' in r.text or 'name="gather" ' in r.text and 'name="gather" checked' not in r.text
+
+
+def test_planner_without_mining_controller_warns():
+    from rsweb.production import production_steps
+    steps = production_steps("AF1", "autofactory AF1", [("mining_drone", 2)], {"rares": 10}, None, None, "X-3-L4", True)
+    assert [s["body"]["command"] for s in steps] == ["enqueue_print"]
+
+
+def _arrive(client, n):
+    client.portal.call(client.app.state.worker.handle_event, {
+        "id": f"66666666666{n:02d}-0", "event": "travel.arrived", "device_code": "11ADA230", "device_type": "heaven_vessel",
+        "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1"}, "created_at": "2026-09-30T12:00:00+00:00"})
+
+
+def _beacon_jobs(client):
+    return [j for j in client.portal.call(client.app.state.worker.automations.jobs) if j["rule"] == "deploy_beacon"]
+
+
+def test_beacon_deployed_once_per_system(client):
+    client.post("/automations/rules/deploy_beacon", data={"enabled": "on", "count_others": "on"}, headers=HX)
+    _arrive(client, 1)
+    assert len(_beacon_jobs(client)) == 1
+    # the device list hasn't caught up yet, and the vessel keeps arriving at places in the system
+    _arrive(client, 2)
+    _arrive(client, 3)
+    assert len(_beacon_jobs(client)) == 1
+
+
+def test_beacon_skipped_when_one_is_already_there(client):
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices.append({"device_code": "FB999999", "device_type": "ftl_beacon", "location": "SOL-5", "status": "monitoring",
+                          "replicant_code": "77F75255", "features": ["monitor"], "available_commands": []})
+    client.post("/automations/rules/deploy_beacon", data={"enabled": "on", "count_others": "on"}, headers=HX)
+    _arrive(client, 4)
+    assert _beacon_jobs(client) == []
+
+
+def test_beacon_skipped_for_another_players_beacon(client):
+    world = client.app.state.api.http._transport.app.state.world
+    world.foreign_devices.append({"device_code": "OTHER001", "device_type": "ftl_beacon", "location": "SOL-2",
+                                  "owner_replicant_code": "4A1F0B22", "owner_name": "helga-3"})
+    client.post("/automations/rules/deploy_beacon", data={"enabled": "on", "count_others": "on"}, headers=HX)
+    _arrive(client, 5)
+    assert _beacon_jobs(client) == []
+    # with the option off, someone else's beacon doesn't count
+    client.post("/automations/rules/deploy_beacon", data={"enabled": "on"}, headers=HX)
+    _arrive(client, 6)
+    assert len(_beacon_jobs(client)) == 1
+
+
+def test_ami_schedule_add_run_and_idle_check(client):
+    page = client.get("/automations", headers=H).text
+    assert "AMI schedules" in page and 'value="kind:mining"' in page
+    r = client.get("/automations/schedule-form?target=TC000001", headers=HX)
+    assert '<option value="delivery">' in r.text or 'value="shuttle"' in r.text
+    # transport controller TC000001 is idle; TR000001 is an idle transport drone at the same location
+    r = client.post("/automations/schedules", data={"target": "TC000001", "directive": "shuttle", "f.collect": "SOL-BELT-1",
+                                                    "f.deliver": "SOL-3-L4", "every_minutes": "15", "only_idle": "on",
+                                                    "adopt": "on", "launch": "on", "name": "belt shuttle"}, headers=HX)
+    assert r.headers.get("HX-Refresh") == "true", r.text
+    eng = client.app.state.worker.automations
+    sched = client.portal.call(eng.schedules)[0]
+    assert sched["configuration"] == {"collect": "SOL-BELT-1", "deliver": "SOL-3-L4"} and sched["every_minutes"] == 15
+    r = client.post(f"/automations/schedules/{sched['id']}/run", headers=HX)
+    assert "TC000001: started, adopting 1" in r.text, r.text
+    job = client.portal.call(eng.jobs)[-1]
+    assert [s["body"]["command"] for s in job["steps"]] == ["adopt", "set_directive", "launch"]
+    assert job["steps"][0]["body"]["devices"] == ["TR000001"] and job["status"] == "done"
+    # the mining controller is coordinating -> skipped while busy, run once its directive completes
+    client.post("/automations/schedules", data={"target": "kind:mining", "directive": "gather_evenly", "every_minutes": "30",
+                                                "only_idle": "on", "launch": "on"}, headers=HX)
+    msched = client.portal.call(eng.schedules)[1]
+    r = client.post(f"/automations/schedules/{msched['id']}/run", headers=HX)
+    assert "MC91FF22: busy" in r.text
+    client.portal.call(client.app.state.worker.handle_event, {"id": "5555555555555-0", "event": "directive.completed",
+        "device_code": "MC91FF22", "device_type": "ami_mining_controller", "payload": {"directive": "gather_evenly"},
+        "created_at": "2026-09-30T12:00:00+00:00"})
+    r = client.post(f"/automations/schedules/{msched['id']}/run", headers=HX)
+    assert "MC91FF22: started" in r.text and "last directive completed" in r.text
+
+
+def test_ami_schedules_need_master_switch_and_respect_interval(client):
+    eng = client.app.state.worker.automations
+    client.post("/automations/schedules", data={"target": "TC000001", "directive": "consolidate", "f.deliver": "SOL-3-L4",
+                                                "every_minutes": "60", "launch": "on"}, headers=HX)
+    client.portal.call(eng.tick)
+    assert client.portal.call(eng.schedules)[0]["last_run"] is None  # master switch off
+    client.post("/automations/rules/ami_schedules", data={"enabled": "on"}, headers=HX)
+    client.portal.call(eng.tick)
+    first = client.portal.call(eng.schedules)[0]["last_run"]
+    assert first
+    client.portal.call(eng.tick)
+    assert client.portal.call(eng.schedules)[0]["last_run"] == first  # not due again for an hour
+
+
+def test_auto_survey_uses_carried_ami_survey_controller(client):
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices.append({"device_code": "SC000001", "device_type": "ami_survey_controller", "location": "SOL-BELT-1",
+                          "status": "stowed", "replicant_code": "77F75255", "features": ["cruise", "ami", "stow"],
+                          "available_commands": ["deploy", "adopt", "set_directive", "launch", "stow"]})
+    world.move_seconds = 0.03
+    client._seen = len(world.events)
+    client.post("/automations/rules/auto_survey", data={"enabled": "on", "use_ami": "on", "include_belts": "on",
+                                                        "max_targets": "5", "return_and_stow": "on"}, headers=HX)
+    _arrive(client, 7)
+    eng = client.app.state.worker.automations
+
+    async def finished():
+        return all(j["status"] not in ("running", "waiting") for j in await eng.jobs())
+    _pump(client, finished)
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "auto_survey"][-1]
+    assert job["meta"].get("ami") and job["status"] == "done", [(s["desc"], s["status"], s["error"]) for s in job["steps"]]
+    cmds = [(s["path"], s["body"]["command"]) for s in job["steps"]]
+    assert cmds[0] == ("/devices/SC000001", "deploy") and ("/devices/SV000001", "deploy") in cmds
+    final = job["steps"][-2]["body"]
+    assert final["directive"] == "survey_system" and final["configuration"] == {"planets": "all", "moons": "none", "recall": True}
+
+
+def test_idle_miners_handed_to_mining_controller(client):
+    eng = client.app.state.worker.automations
+    client.post("/automations/rules/restart_idle_miners", data={"enabled": "on", "prefer_ami": "on", "resource": "same",
+                                                                "cooldown_minutes": "10"}, headers=HX)
+    client.portal.call(eng.tick)
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "restart_idle_miners"][-1]
+    assert job["steps"][0]["body"] == {"command": "adopt", "devices": ["2AC61212"]}
+    assert len(job["steps"]) == 1  # controller is coordinating: adopt only, no relaunch
+    acts = client.portal.call(client.app.state.db.fetchall, "SELECT body FROM actions WHERE user='automation'")
+    assert not any('"start_mining"' in (a["body"] or "") for a in acts)

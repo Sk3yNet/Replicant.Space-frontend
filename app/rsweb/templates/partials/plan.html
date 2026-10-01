@@ -5,4 +5,32 @@
   {% for r in rows %}<tr><td>{{ r.resource }}</td><td class="num">{{ r.need | num }}</td><td class="num">{{ r.have | num }}</td>
     <td class="num {{ 'lv-alert' if r.short else 'lv-done' }}">{{ r.short | num if r.short else '✓' }}</td></tr>{% endfor %}
 </table>
+
+<div class="tpanel" style="margin-top:10px">
+  <input type="hidden" name="_planned" value="1">
+  {% if not printer %}<p class="lv-alert small">No printer available.</p>{% else %}
+  {% if printer.kind == 'replicant' %}<p class="muted small">Vessel printers have no queue: one device at a time, and only when nothing else is printing.{% if lines | map(attribute=1) | sum > 1 %} <span class="lv-alert">Plan 1 device or pick an autofactory.</span>{% endif %}</p>{% endif %}
+  {% if short %}
+    {% if mining %}
+      <label style="text-transform:none;display:block"><input type="checkbox" name="gather" {{ 'checked' if gather_on }}>
+        Gather the shortfall with
+        <select name="mining">{% for m in minings %}<option value="{{ m.device_code }}" {{ 'selected' if m.device_code == mining.device_code }}>{{ m.device_type | human }} {{ m.device_code }} @ {{ m.location }} · {{ m.status }}</option>{% endfor %}</select></label>
+      <div class="muted small">Sets its directive to <code>gather_resources</code> for exactly what's short, then launches it — this replaces its current directive.</div>
+      {% if mining.location != location %}
+        {% if transport %}
+          <label style="text-transform:none;display:block;margin-top:6px"><input type="checkbox" name="deliver" {{ 'checked' if deliver_on }}>
+            Move it from {{ mining.location }} to {{ location }} with
+            <select name="transport">{% for t in transports %}<option value="{{ t.device_code }}" {{ 'selected' if t.device_code == transport.device_code }}>{{ t.device_type | human }} {{ t.device_code }} · {{ t.status }}</option>{% endfor %}</select></label>
+        {% else %}
+          <p class="lv-alert small">Mining happens at {{ mining.location }} but the printer is at {{ location }}, and there's no AMI transport controller in {{ star }} to move it — the prints will wait until the materials get there.</p>
+        {% endif %}
+      {% endif %}
+    {% else %}
+      <p class="lv-alert small">Short on materials and there's no AMI mining controller in {{ star }}. You can still queue: {{ 'the autofactory will wait for the materials.' if printer.autofactory else 'a vessel printer may refuse until stock is there.' }}</p>
+    {% endif %}
+  {% endif %}
+  <button type="button" style="margin-top:8px" hx-post="/blueprints/queue-plan" hx-target="#plan-result" hx-include="closest form">
+    Queue on {{ printer.name }}{% if short and mining %} &amp; gather{% endif %}</button>
+  {% endif %}
+</div>
 {% endif %}

@@ -47,21 +47,32 @@ RULES: list[Rule] = [
     Rule("scan_on_arrival", "System scan on arrival",
          "When a replicant's vessel arrives in a system we have no scan for, run a system scan so the "
          "planets and belts are known (other rules and the Systems page use it)."),
+    Rule("ami_schedules", "Run AMI schedules",
+         "Master switch for the AMI schedules below: every N minutes each schedule checks its controller(s); "
+         "if one is idle (or its directive finished) it adopts idle drones of the right kind at its location, "
+         "sets the directive and launches it. The controllers do the actual work."),
     Rule("auto_survey", "Auto-survey new systems",
-         "When a vessel arrives in a system with un-surveyed bodies, deploy the survey drones it carries and have "
-         "them travel to each planet and belt in turn: scan planets, search belts, then move on. Targets are split "
-         "across drones. Already-surveyed bodies are skipped.",
-         [Option("use_idle", "bool", "Also use idle survey drones already in the system", True),
+         "When a vessel arrives in a system with un-surveyed bodies: if an AMI survey controller is there or carried, "
+         "deploy it and the survey drones, have it adopt them and run survey_system. Otherwise the drones are "
+         "driven body by body (scan planets, search belts). Already-surveyed bodies are skipped.",
+         [Option("use_ami", "bool", "Use an AMI survey controller when one is available", True),
+          Option("use_idle", "bool", "Also use idle survey drones already in the system", True),
           Option("include_moons", "bool", "Include moons", False, help="Gas giants can have dozens of moons"),
           Option("include_belts", "bool", "Search asteroid belts", True),
           Option("max_targets", "int", "Max bodies per system", 20),
           Option("return_and_stow", "bool", "Return to the vessel and stow when finished", True)]),
     Rule("deploy_beacon", "Deploy an FTL beacon in new systems",
-         "When a vessel arrives in a system where you have no FTL beacon and it carries one, deploy it "
-         "(beacons log traffic through the system)."),
+         "When a vessel arrives in a system with no FTL beacon and it carries one, deploy it (beacons log traffic "
+         "through the system). Before deploying it asks the game which beacons are in the system, and it never "
+         "deploys twice in the same system.",
+         [Option("count_others", "bool", "Also skip systems where another player already has a beacon", True,
+                 help="Uses a replicant's view of the system when one is there")]),
     Rule("restart_idle_miners", "Restart idle mining drones",
-         "Every minute, any mining drone sitting idle at a belt is told to start mining again.",
-         [Option("resource", "choice", "Resource", "same", ["same"] + RESOURCES,
+         "Every minute, any mining drone sitting idle at a belt gets back to work. Drones an AMI mining controller "
+         "already manages are left alone; with a controller at the same location the drone is handed to it "
+         "(adopt, and launch if the controller is idle) instead of being told to mine directly.",
+         [Option("prefer_ami", "bool", "Hand idle drones to a mining controller at the same location", True),
+          Option("resource", "choice", "Resource (when mining directly)", "same", ["same"] + RESOURCES,
                  help="'same' = whatever it mined last (falls back to structural)"),
           Option("cooldown_minutes", "int", "Wait between retries for the same drone (min)", 10)]),
 ]
@@ -360,6 +371,10 @@ class AutomationEngine:
                 if st["critical"]:
                     st["status"] = "failed"
                     job["status"] = "failed"
+                    if job["rule"] == "deploy_beacon" and job.get("meta", {}).get("star"):
+                        done = await self.db.kv_get("beacon_systems", {}) or {}
+                        done.pop(job["meta"]["star"], None)  # it didn't happen: allow a later retry
+                        await self.db.kv_set("beacon_systems", done)
                     await self._update(job)
                     await self.log(job["rule"], f"stopped: {job['title']} — {st['desc']} failed: {err}", "alert", notify=True)
                     return
@@ -446,6 +461,55 @@ class AutomationEngine:
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
             await self.rule_restart_idle_miners()
+            await self.run_due_schedules()
+
+    # --- AMI schedules ---------------------------------------------------------------------------------
+    async def schedules(self) -> list[dict]:
+        return await self.db.kv_get("ami_schedules", []) or []
+
+    async def save_schedules(self, items: list[dict]) -> None:
+        await self.db.kv_set("ami_schedules", items)
+
+    async def run_due_schedules(self) -> None:
+        from .ami_schedule import due
+        if not await self.rule_cfg("ami_schedules"):
+            return
+        items = await self.schedules()
+        changed = False
+        for sched in items:
+            if due(sched):
+                await self.run_schedule(sched)
+                changed = True
+        if changed:
+            await self.save_schedules(items)
+
+    async def run_schedule(self, sched: dict, manual: bool = False) -> list[str]:
+        """Apply one schedule now. Mutates sched['last_run'/'last_result']; returns what happened per controller."""
+        from .ami_schedule import adoptable, controller_idle, managed_by, schedule_steps, targets_of
+        devices = await self.devices()
+        managed = await managed_by(self.db)
+        busy = self.busy_devices(await self.jobs())
+        results = []
+        for ctrl in targets_of(sched, devices):
+            code = ctrl["device_code"]
+            if code in busy:
+                results.append(f"{code}: already running a job")
+                continue
+            idle, why = await controller_idle(self.db, ctrl)
+            if sched.get("only_idle", True) and not idle:
+                results.append(f"{code}: busy ({why})")
+                continue
+            adopt = adoptable(devices, ctrl, managed) if sched.get("adopt", True) else []
+            job = await self.create_job("ami_schedules", f"{sched.get('name') or sched['directive']} → {code}", code,
+                                        schedule_steps(ctrl, sched, adopt), {"schedule": sched.get("id"), "devices": adopt},
+                                        force=manual)
+            results.append(f"{code}: {'started' if job else 'planned (dry run)'}"
+                           + (f", adopting {len(adopt)}" if adopt else "") + f" ({why})")
+        if not results:
+            results.append("no matching controllers")
+        sched["last_run"] = _now().isoformat(timespec="seconds")
+        sched["last_result"] = "; ".join(results)
+        return results
 
     # --- helpers for rules ------------------------------------------------------------------------
     def busy_devices(self, jobs: list[dict]) -> set[str]:
@@ -515,7 +579,7 @@ class AutomationEngine:
         stowed = None
         if "deploy_beacon" in enabled:
             stowed = await self.stowed_in(vessel)
-            await self.rule_deploy_beacon(vessel, star, stowed)
+            await self.rule_deploy_beacon(vessel, star, stowed, s["rules"]["deploy_beacon"])
         if "auto_survey" in enabled:
             stowed = stowed if stowed is not None else await self.stowed_in(vessel)
             await self.rule_auto_survey(vessel, dest, star, stowed, s["rules"]["auto_survey"])
@@ -537,17 +601,59 @@ class AutomationEngine:
         else:
             await self.log("scan_on_arrival", f"scan of {star} failed: {err}", "alert")
 
-    async def rule_deploy_beacon(self, vessel: str, star: str, stowed: list[dict]) -> None:
-        devs = await self.devices()
-        if any("beacon" in (d.get("device_type") or "") and d.get("status") != "stowed"
-               and star_of(d.get("location")) == star for d in devs):
-            return
+    async def beacon_in_system(self, star: str, count_others: bool) -> str | None:
+        """Why we should NOT deploy a beacon in `star` (None = go ahead)."""
+        # 1. one we deployed (or started deploying) ourselves — the device list can lag behind
+        done = await self.db.kv_get("beacon_systems", {}) or {}
+        if star in done:
+            return f"already deployed one there ({done[star]})"
+        for j in await self.jobs():
+            if j["rule"] == "deploy_beacon" and j.get("meta", {}).get("star") == star and j["status"] in ("running", "waiting"):
+                return "a deploy job for this system already ran"
+        # 2. ask the game: your own devices filtered to beacons in this system
+        try:
+            body = await self.api.request("GET", "/devices", params={"device_type": "ftl_beacon", "location": star, "limit": 50},
+                                          background=True)
+            mine = [d for d in (body or {}).get("devices") or []
+                    if "beacon" in (d.get("device_type") or "") and not str(d.get("status", "")).startswith("stowed")
+                    and star_of(d.get("location")) == star]
+        except ApiError:
+            mine = [d for d in await self.devices()
+                    if "beacon" in (d.get("device_type") or "") and not str(d.get("status", "")).startswith("stowed")
+                    and star_of(d.get("location")) == star]
+        if mine:
+            return f"your beacon {mine[0].get('device_code')} is there"
+        # 3. other players' beacons, seen by a replicant in the system
+        if count_others:
+            reps = await self.db.kv_get("replicants", {}) or {}
+            rep = next((c for c, r in reps.items() if star_of(r.get("location") or r.get("current_location")) == star), None)
+            if rep:
+                try:
+                    body = await self.api.request("GET", f"/replicants/{rep}/scan/devices",
+                                                  params={"device_type": "ftl_beacon", "limit": 50}, background=True)
+                    theirs = [d for d in (body or {}).get("devices") or [] if "beacon" in (d.get("device_type") or "")]
+                    if theirs:
+                        return f"{theirs[0].get('owner_name') or 'another player'}'s beacon {theirs[0].get('device_code')} is there"
+                except ApiError:
+                    pass
+        return None
+
+    async def rule_deploy_beacon(self, vessel: str, star: str, stowed: list[dict], cfg: dict | None = None) -> None:
+        cfg = cfg or {}
         beacon = next((i for i in stowed if "beacon" in (i.get("device_type") or "")), None)
         if not beacon:
             return
-        await self.create_job("deploy_beacon", f"deploy FTL beacon {beacon['device_code']} at {star}", beacon["device_code"],
-                              [step(f"deploy beacon {beacon['device_code']}", f"/devices/{beacon['device_code']}",
-                                    {"command": "deploy"}, critical=True)])
+        why = await self.beacon_in_system(star, bool(cfg.get("count_others", True)))
+        if why:
+            log.info("deploy_beacon: skipping %s — %s", star, why)
+            return
+        job = await self.create_job("deploy_beacon", f"deploy FTL beacon {beacon['device_code']} at {star}", beacon["device_code"],
+                                    [step(f"deploy beacon {beacon['device_code']}", f"/devices/{beacon['device_code']}",
+                                          {"command": "deploy"}, critical=True)], {"star": star})
+        if job:  # remember straight away, so the next arrival in this system doesn't deploy another
+            done = await self.db.kv_get("beacon_systems", {}) or {}
+            done[star] = beacon["device_code"]
+            await self.db.kv_set("beacon_systems", done)
 
     async def rule_auto_survey(self, vessel: str, vessel_loc: str, star: str, stowed: list[dict], cfg: dict) -> None:
         jobs = await self.jobs()
@@ -564,8 +670,11 @@ class AutomationEngine:
         if not targets:
             return
         busy = self.busy_devices(jobs)
+        if cfg.get("use_ami", True) and await self.survey_with_ami(vessel, vessel_loc, star, stowed, cfg, busy):
+            return
         drones = [(i["device_code"], True) for i in stowed
-                  if "survey" in (i.get("device_type") or "") and i["device_code"] not in busy]
+                  if "survey" in (i.get("device_type") or "") and i["device_code"] not in busy
+                  and "controller" not in (i.get("device_type") or "")]
         if cfg.get("use_idle", True):
             have = {d for d, _ in drones}
             for d in await self.devices():
@@ -601,6 +710,45 @@ class AutomationEngine:
             await self.create_job("auto_survey", f"survey {star} with {drone} ({len(mine)} bodies)", drone, steps,
                                   {"star": star, "targets": [t["target"] for t in mine]})
 
+    async def survey_with_ami(self, vessel: str, vessel_loc: str, star: str, stowed: list[dict], cfg: dict,
+                              busy: set) -> bool:
+        """Survey via an AMI survey controller (carried or already in the system). True if a job was made."""
+        devices = await self.devices()
+        carried_ctrl = next((i for i in stowed if "survey" in (i.get("device_type") or "") and "controller" in (i.get("device_type") or "")
+                             and i["device_code"] not in busy), None)
+        in_system = next((d for d in devices if "survey" in (d.get("device_type") or "") and "controller" in (d.get("device_type") or "")
+                          and star_of(d.get("location")) == star and not str(d.get("status", "")).startswith("stowed")
+                          and d["device_code"] not in busy), None)
+        ctrl = carried_ctrl or in_system
+        if not ctrl:
+            return False
+        code = ctrl["device_code"]
+        steps = []
+        if carried_ctrl:
+            st = step(f"deploy survey controller {code}", f"/devices/{code}", {"command": "deploy"},
+                      wait=["device.deployed"], timeout=SHORT_TIMEOUT, critical=True)
+            st["wait_device"] = code
+            steps.append(st)
+        drones = [i["device_code"] for i in stowed if "survey_drone" in (i.get("device_type") or "") and i["device_code"] not in busy]
+        for dcode in drones:
+            st = step(f"deploy {dcode}", f"/devices/{dcode}", {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT)
+            st["wait_device"] = dcode
+            steps.append(st)
+        if cfg.get("use_idle", True):
+            drones += [d["device_code"] for d in devices if "survey_drone" in (d.get("device_type") or "")
+                       and d.get("location") == (ctrl.get("location") if not carried_ctrl else vessel_loc)
+                       and str(d.get("status", "")).startswith("idle") and d["device_code"] not in busy | set(drones)]
+        if drones:
+            steps.append(step(f"{code}: adopt {len(drones)} survey drone(s)", f"/devices/{code}", {"command": "adopt", "devices": drones}))
+        config = {"planets": "all", "moons": "all" if cfg.get("include_moons") else "none",
+                  "recall": bool(cfg.get("return_and_stow", True))}
+        steps.append(step(f"{code}: survey_system", f"/devices/{code}",
+                          {"command": "set_directive", "directive": "survey_system", "configuration": config}, critical=True))
+        steps.append(step(f"{code}: launch", f"/devices/{code}", {"command": "launch"}))
+        job = await self.create_job("auto_survey", f"survey {star} with AMI {code} ({len(drones)} drones)", code, steps,
+                                    {"star": star, "devices": drones, "ami": True})
+        return True if job is not None or (await self.settings())["dry_run"] else False
+
     async def rule_restart_idle_miners(self) -> None:
         cfg = await self.rule_cfg("restart_idle_miners")
         if not cfg:
@@ -610,14 +758,24 @@ class AutomationEngine:
         busy = self.busy_devices(await self.jobs())
         now = _now()
         dry = (await self.settings())["dry_run"]
-        for d in await self.devices():
+        from .ami_schedule import controller_idle, is_controller, kind_of, managed_by
+        managed = await managed_by(self.db)
+        devices = await self.devices()
+        handed: dict[str, list[str]] = {}
+        for d in devices:
             code = d.get("device_code")
             if (d.get("device_type") != "mining_drone" or str(d.get("status")) != "idle"
-                    or "BELT" not in (d.get("location") or "") or code in busy
+                    or "BELT" not in (d.get("location") or "") or code in busy or code in managed
                     or "start_mining" not in (d.get("available_commands") or ["start_mining"])):
                 continue
             last = _ts(attempts.get(code))
             if last and now - last < cooldown:
+                continue
+            ctrl = next((c for c in devices if is_controller(c) and kind_of(c.get("device_type")) == "mining"
+                         and c.get("location") == d.get("location")), None) if cfg.get("prefer_ami", True) else None
+            if ctrl:
+                handed.setdefault(ctrl["device_code"], []).append(code)
+                attempts[code] = now.isoformat(timespec="seconds")
                 continue
             resource = cfg.get("resource") or "same"
             if resource == "same":
@@ -634,4 +792,12 @@ class AutomationEngine:
                                          f"auto: restart {code}")
             await self.log("restart_idle_miners", f"restarted {code} on {resource}" if ok else f"could not restart {code}: {err}",
                            "info" if ok else "alert")
+        for ccode, drones in handed.items():
+            ctrl = next(c for c in devices if c.get("device_code") == ccode)
+            idle, _ = await controller_idle(self.db, ctrl)
+            steps = [step(f"{ccode}: adopt idle {', '.join(drones)}", f"/devices/{ccode}", {"command": "adopt", "devices": drones})]
+            if idle:
+                steps.append(step(f"{ccode}: launch", f"/devices/{ccode}", {"command": "launch"}))
+            await self.create_job("restart_idle_miners", f"hand {len(drones)} idle miner(s) to {ccode}", ccode, steps,
+                                  {"devices": drones})
         await self.db.kv_set("miner_restarts", attempts)

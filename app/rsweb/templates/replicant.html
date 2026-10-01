@@ -48,12 +48,11 @@
     <h3>Print on vessel</h3>
     <form class="inline" hx-post="/replicants/{{ code }}/print" hx-target="#act-result">
       <select name="device_type">{% for b in blueprints %}<option value="{{ b.device_type }}">{{ b.device_type | human }} ({{ b.print_time | int }}s)</option>{% endfor %}</select>
-      <input type="number" name="quantity" value="1" min="1" style="width:60px" title="quantity">
-      <button>Add to queue</button>
+      <button>Print</button>
     </form>
+    <div class="muted small">Vessel printers have no queue: one at a time. Queue several on an autofactory.</div>
     <div class="row" style="margin-top:6px">
       <button class="small ghost" hx-post="/replicants/{{ code }}/print" hx-vals='{"command": "cancel"}' hx-target="#act-result" hx-confirm="Cancel the current print?">Cancel print</button>
-      <button class="small ghost" hx-post="/replicants/{{ code }}/print" hx-vals='{"command": "clear_queue"}' hx-target="#act-result" hx-confirm="Clear the print queue?">Clear queue</button>
     </div>
     <h3>BobNet</h3>
     <form class="inline" hx-post="/replicants/{{ code }}/message" hx-target="#act-result">

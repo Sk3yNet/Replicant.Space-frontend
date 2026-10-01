@@ -122,3 +122,13 @@ details summary { cursor: pointer; color: var(--muted); }
 .res-grid.cargo { grid-template-columns: repeat(2, minmax(200px, 1fr)); }
 .res-grid .res .small { white-space: nowrap; }
 .field select { max-width: 100%; }
+.tree details.tnode { border-left: 1px solid var(--line); margin: 2px 0 2px 6px; padding-left: 10px; }
+.tree details.tnode.sys { border-left: 3px solid var(--accent); margin: 8px 0; }
+.tree details.tnode > summary { padding: 5px 4px; border-radius: 6px; display: list-item; }
+.tree details.tnode > summary:hover { background: var(--panel2); }
+.tree details.tnode > summary > * { margin-right: 6px; }
+.tree details.tnode.sys > summary { font-size: 15px; }
+.tree .tchildren { margin-left: 6px; }
+.tree .tpanel { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 4px 0 8px; }
+.pq-box { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.pq .timer { margin: 0; }

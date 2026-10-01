@@ -12,7 +12,7 @@
       <dt>Replicant</dt><dd><a href="/replicants/{{ dev.replicant_code }}">{{ dev.replicant_code }}</a></dd>
       {% set cap = dev.operational_capacity | capacity %}{% if cap is not none %}<dt>Capacity</dt><dd>{{ cap | round | int }}%</dd>{% endif %}
       <dt>Features</dt><dd>{{ (dev.features or []) | join(', ') }}</dd>
-      {% for k, v in dev.items() if k not in ('device_code','device_type','replicant_code','location','features','available_commands','operational_capacity','status') %}
+      {% for k, v in dev.items() if k not in ('device_code','device_type','replicant_code','location','features','available_commands','operational_capacity','status') and not (pq and k in ('print_queue', 'queue')) %}
         <dt>{{ k | human }}</dt><dd>{% if v is mapping or (v is iterable and v is not string) %}<details><summary>{{ v | length }} item(s)</summary><pre>{{ v | pretty }}</pre></details>{% else %}{{ v }}{% endif %}</dd>
       {% endfor %}
     </dl>
@@ -22,6 +22,11 @@
     </form>
     <div id="tag-result"></div>
   </div>
+
+  {% if pq %}<div class="card">
+    <h2>Print queue</h2>
+    {% with dev=pq.dev, queue=pq.queue, cur=pq.cur, remaining=pq.remaining, exact=pq.exact, blueprints=pq.blueprints, outcome=None, cancel_cmd=pq.cancel_cmd, compact=False %}{% include "partials/print_queue.html" %}{% endwith %}
+  </div>{% endif %}
 
   <div class="card">
     <h2>Command</h2>
