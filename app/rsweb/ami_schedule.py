@@ -71,7 +71,7 @@ async def controller_idle(db, ctrl: dict) -> tuple[bool, str]:
         state = str(dirv.get("_eval_state") or "")
         if not dirv or str(ctrl.get("ami_directive_status") or "") not in ("active", ""):
             return True, f"directive {ctrl.get('ami_directive_status') or 'none'}"
-        if state.startswith(("exhausted", "idle", "done", "complete")):
+        if state.startswith(("exhausted", "idle", "done", "complete", "no_targets", "no_sources")):
             return True, f"{dirv.get('name')}: {state.split(':')[0]}"
         return False, f"{dirv.get('name')}: {state.split(':')[0] or 'running'}"
     row = await db.fetchone("SELECT event, created_at FROM events WHERE device_code=? AND event LIKE 'directive.%' "

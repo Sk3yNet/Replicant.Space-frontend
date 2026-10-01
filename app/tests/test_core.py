@@ -942,10 +942,10 @@ def test_loadout_plan_spares_prints_and_carriers():
     steps = lo.delivery_steps(dl[0], p["by_code"], stars, True)
     bodies = [(s["path"], s["body"]) for s in steps]
     assert ("/devices/A1", {"configuration": {"add_tags": ["to:bbb"]}}) in bodies
-    assert ("/devices/A1", {"command": "attach", "device": "CAR"}) in bodies   # surge carriers take attached devices
+    assert ("/devices/CAR", {"command": "attach", "device": "A1"}) in bodies   # the carrier attaches the cargo
     assert ("/devices/CAR", {"command": "travel", "destination": "BBB-5-L4"}) in bodies
-    assert ("/devices/A3", {"command": "detach"}) in bodies
-    board = next(st for st in steps if st["body"] == {"command": "attach", "device": "CAR"})
+    assert ("/devices/CAR", {"command": "detach", "device": "A3"}) in bodies
+    board = next(st for st in steps if st["body"] == {"command": "attach", "device": "A1"})
     assert board["critical"]          # no boarding → the carrier doesn't fly off without it
     assert ("/devices/A3", {"configuration": {"add_tags": ["home:bbb"], "remove_tags": ["to:bbb"]}}) in bodies
     assert bodies[-1] == ("/devices/CAR", {"command": "travel", "destination": "AAA-OORT"})
@@ -1140,11 +1140,16 @@ def test_material_routes_source_to_nearest_destination():
     r = lo.material_routes(cfg, devices, inv, stars, set(), cur, managed)[0][0]
     assert [a["code"] for a in r["adopt"]] == ["FR3"] and not r["resend"] and not r["tag"]
     assert not any(st["body"] and st["body"].get("command") == "set_directive" for st in lo.ferry_steps(r))
-    # the only controller runs in-system transport drones → it is not given the ferry
+    # the only controller is on in-system work (consolidate) → it is not given the ferry
     devices2 = [dict(ctrl, tags=[]), {"device_code": "TD1", "device_type": "transport_drone", "location": "AAA-BELT-1", "status": "idle"},
                 devices[1]]
-    routes, unmet = lo.material_routes(cfg, devices2, inv, stars, set(), {}, {"TD1": "TA"})
-    assert routes == [] and any("second one for ferrying" in u["why"] for u in unmet)
+    cur2 = {"TA": {"directive": "consolidate", "configuration": {}, "finished": False}}
+    routes, unmet = lo.material_routes(cfg, devices2, inv, stars, set(), cur2, {"TD1": "TA"})
+    assert routes == [] and any("in-system work" in u["why"] for u in unmet)
+    # a controller already ferrying with drones on taxi plates is fine to keep (the game's own ferry does that)
+    cur3 = {"TA": {"directive": "ferry", "configuration": {"collect": "X", "deliver": "Y"}, "finished": False}}
+    routes, _ = lo.material_routes(cfg, devices2, inv, stars, set(), cur3, {"TD1": "TA"})
+    assert routes and routes[0]["controller"] == "TA" and routes[0]["resend"]
     # no freighter at all → says so
     routes, unmet = lo.material_routes(cfg, [dict(ctrl, tags=[])], inv, stars, set(), {}, {})
     assert routes == [] and any("no cargo freighter" in u["why"] for u in unmet)
@@ -1347,15 +1352,15 @@ def test_real_device_list_quirks():
     # 926637CA is in ITHVALAI but run by FALQUORYX's controller: released, and its duplicate home tag cleaned up
     assert p["releases"] == {"F32E05A7": ["926637CA"]}
     assert "home:falquoryx" in p["tag_remove"]["926637CA"] and "home:ithvalai" not in p["tag_remove"]["926637CA"]
-    # the ferry is not given to DF451241: it runs transport drones as well as the freighter
-    routes, unmet = lo.material_routes(cfg, devices, {"FALQUORYX-BELT-1": {"carbon": 100}}, stars, set(), {},
-                                       {d["device_code"]: d["controller_device_code"] for d in devices if d.get("controller_device_code")})
-    assert routes == [] and any("runs both in-system drones/haulers and cargo freighters" in u["why"] for u in unmet)
+    # the ferry is not given to DF451241: it's on in-system work (consolidate)
+    cur = {"DF451241": {"directive": "consolidate", "configuration": {"deliver": "FALQUORYX-BELT-1"}, "finished": False}}
+    managed = {d["device_code"]: d["controller_device_code"] for d in devices if d.get("controller_device_code")}
+    routes, unmet = lo.material_routes(cfg, devices, {"FALQUORYX-BELT-1": {"carbon": 100}}, stars, set(), cur, managed)
+    assert routes == [] and any("in-system work" in u["why"] for u in unmet)
     # with a second controller, the freighter is released by DF451241 and adopted by the new one
     devices.append({"device_code": "TF000001", "device_type": "ami_transport_controller", "location": "FALQUORYX-BELT-1",
                     "status": "idle", "features": ["ami"], "available_commands": ["adopt", "set_directive"], "tags": []})
-    routes, _ = lo.material_routes(cfg, devices, {"FALQUORYX-BELT-1": {"carbon": 100}}, stars, set(), {},
-                                   {d["device_code"]: d["controller_device_code"] for d in devices if d.get("controller_device_code")})
+    routes, _ = lo.material_routes(cfg, devices, {"FALQUORYX-BELT-1": {"carbon": 100}}, stars, set(), cur, managed)
     r = routes[0]
     assert r["controller"] == "TF000001" and r["release"] == {"DF451241": ["57C506F0"]}
     bodies = [st["body"] for st in lo.ferry_steps(r)]
@@ -1380,3 +1385,27 @@ def test_print_queue_uses_printing_block(client):
     cur = client.portal.call(printqueue.current, client.app.state.db, dev)
     assert cur["device_type"] == "maintenance_drone" and cur["completes_at"].startswith("2026-10-01T16:36") and cur["tags"] == ["to:ithvalai"]
     assert printqueue.items(dev)[0]["tags"] == ["to:ithvalai"]
+
+
+def test_real_surge_plates_and_queue_space():
+    from rsweb import loadouts as lo
+    plate = lambda code, **kw: {"device_code": code, "device_type": "surge_plate", "location": "FFF-1-L4", "status": "idle",  # noqa: E731
+                                "attach_capacity": 1, "features": ["surge", "cruise", "attach", "stow", "taxi"],
+                                "available_commands": ["attach", "detach", "deploy", "stow", "travel"], **kw}
+    devices = [
+        plate("TAXI0001", taxi_mode="taxi", tags=["taxi"], controller_device_code="0E158313"),   # serving a ferry
+        plate("FREE0001", tags=["home:fff"]),
+        {"device_code": "TD000001", "device_type": "transport_drone", "location": "FFF-1-L4", "status": "idle",
+         "available_commands": ["collect_resources", "deposit_resources", "recall", "travel"], "tags": ["to:aaa"]},
+        {"device_code": "AF", "device_type": "autofactory", "location": "FFF-BELT-1", "status": "printing (maintenance_drone)",
+         "available_commands": ["enqueue_print"], "printing": {"device_type": "maintenance_drone"},
+         "print_queue": [{"device_type": "surge_plate"}] * 9},
+    ]
+    bps = [{"device_type": "autofactory", "queue_size": 10}, {"device_type": "survey_drone", "resources": {"structural": 1}}]
+    cfg = {"phases": [{"id": "p", "name": "P", "order": 1, "wants": {"survey_drone": 2}}], "systems": {"AAA": "p"}}
+    stars = {"AAA": {"position": {"x": 0, "y": 0, "z": 0}}, "FFF": {"position": {"x": 1, "y": 0, "z": 0}}}
+    p = lo.plan(cfg, devices, bps, {"FFF-BELT-1": {"structural": 100}}, stars, {}, set(), [], {})
+    # the transport drone (can't be stowed) rides the free plate, not the taxi plate
+    assert [(d["carrier"], d["mode"], d["devices"]) for d in p["deliveries"]] == [("FREE0001", "attach", ["TD000001"])]
+    # the factory queue is full (9 queued + 1 printing of 10): no print is attempted
+    assert p["prints"] == [] and any("queue is full" in u["why"] for u in p["unmet"])

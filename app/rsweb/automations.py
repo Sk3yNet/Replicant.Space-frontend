@@ -389,6 +389,9 @@ class AutomationEngine:
                 eta = _ts(resp.get("arrives_at")) or _ts(resp.get("completes_at"))
                 if eta:
                     st["timeout"] = max(st.get("timeout", STEP_TIMEOUT), (eta - _now()).total_seconds() + 1800)
+            if not ok and "already at destination" in (err or "").lower():
+                ok, st["note"] = True, err  # nothing to do: count it as done and move on
+                st["wait"] = []
             if not ok:
                 st["error"] = err
                 if st["tries"] < 2 and "rate" in (err or "").lower():
@@ -897,6 +900,11 @@ class AutomationEngine:
             return
         if star in (await self.db.kv_get("ami_surveyed", {}) or {}):
             return  # an AMI survey_system already covered every body
+        for d in await self.devices():
+            st_ = str(((d.get("ami_directive") or {}).get("_eval_state")) or "")
+            if "survey" in (d.get("device_type") or "") and star_of(d.get("location")) == star and st_.startswith("no_targets"):
+                await self.mark_system_surveyed(star, d["device_code"])  # the controller says there's nothing left to survey
+                return
         started = (await self.db.kv_get("ami_survey_started", {}) or {}).get(star)
         if started and (_now() - (_ts(started) or _now())).total_seconds() < 12 * 3600:
             return  # an AMI survey of this system is (or was recently) under way; don't restart it on every arrival
@@ -997,6 +1005,15 @@ class AutomationEngine:
             await self.db.kv_set("ami_survey_started", started)
         return True if job is not None or (await self.settings())["dry_run"] else False
 
+    async def exhausted_places(self) -> list[str]:
+        """Places the game told us are mined out ("Belt exhausted", or a controller's exhausted state), for 12 h."""
+        ex = await self.db.kv_get("exhausted_places", {}) or {}
+        now = _now()
+        live = {k: v for k, v in ex.items() if (now - (_ts(v) or now)).total_seconds() < 12 * 3600}
+        if len(live) != len(ex):
+            await self.db.kv_set("exhausted_places", live)
+        return list(live)
+
     async def rule_salvage(self) -> list[str]:
         """See salvage.py. Returns what it did (for the log / tests)."""
         cfg = await self.rule_cfg("salvage_when_depleted")
@@ -1022,7 +1039,7 @@ class AutomationEngine:
         done: list[str] = []
         for star in sorted({star_of(d.get("location")) for d in miners}):
             res = await system_resources(self.db, star)
-            dry = sv.worked_out(res)
+            dry = sv.worked_out(res) | {p for p in await self.exhausted_places() if star_of(p) == star}
             sal = sv.available_salvage(res)
             dead_sal = {x["code"] for x in res.get("salvage") or [] if x.get("depleted")}
             for k in [k for k, v in assigned.items() if k in dead_sal]:
@@ -1103,7 +1120,7 @@ class AutomationEngine:
         managed = await managed_by(self.db)
         devices = await self.devices()
         handed: dict[str, list[str]] = {}
-        dry_belts: set[str] = set()
+        dry_belts: set[str] = set(await self.exhausted_places())
         if await self.rule_cfg("salvage_when_depleted"):
             from .salvage import worked_out
             from .targets import system_resources
@@ -1140,6 +1157,11 @@ class AutomationEngine:
                 continue
             ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "start_mining", "resource_type": resource},
                                          f"auto: restart {code}")
+            if not ok and "exhausted" in (err or "").lower():
+                from .salvage import belt_of
+                ex = await self.db.kv_get("exhausted_places", {}) or {}
+                ex[belt_of(d.get("location")) or d.get("location")] = now_iso()
+                await self.db.kv_set("exhausted_places", ex)
             await self.log("restart_idle_miners", f"restarted {code} on {resource}" if ok else f"could not restart {code}: {err}",
                            "info" if ok else "alert")
         for ccode, drones in handed.items():

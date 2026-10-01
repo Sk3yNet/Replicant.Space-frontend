@@ -197,7 +197,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             surplus = max(0, len(have) - want)
             # who stays: non-spare first, busy ones (can't be moved anyway), then idle-less-healthy last
             # away from home (e.g. out delivering) is never picked as spare
-            ranked = sorted(have, key=lambda d: (SPARE in (d.get("tags") or []), star_of(d.get("location")) == star,
+            ranked = sorted(have, key=lambda d: (SPARE in (d.get("tags") or []), not d.get("controller_device_code"),
+                                                 star_of(d.get("location")) == star,
                                                  d["device_code"] not in busy, _idle(d), -_cap(d), d["device_code"]))
             keep, extra = ranked[:len(have) - surplus], ranked[len(have) - surplus:]
             for d in keep:
@@ -234,6 +235,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     prints: list[dict] = []
     factories = [d for d in pool if is_factory(d) and d["device_code"] not in busy]
 
+    qcap_default = {b["device_type"]: int(b.get("queue_size") or 0) for b in blueprints}
+    queue_free: dict[str, int] = {}
+    for f in factories:
+        cap = int(qcap_default.get(f.get("device_type")) or f.get("queue_capacity") or 10)
+        used_q = len(f.get("print_queue") or []) + (1 if f.get("printing") or str(f.get("status") or "").startswith("printing") else 0)
+        queue_free[f["device_code"]] = max(0, cap - used_q)
+
     def factory_for(t: str, star: str) -> tuple[dict | None, str]:
         bp = bps.get(t)
         if not bp:
@@ -242,7 +250,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if not factories:
             return None, "no autofactory"
         best = None
-        for f in sorted(factories, key=lambda f: (star_of(f.get("location")) != star, _dist(star_of(f.get("location")), star, pos))):
+        open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0]
+        if not open_f:
+            return None, "every autofactory's print queue is full"
+        for f in sorted(open_f, key=lambda f: (star_of(f.get("location")) != star, _dist(star_of(f.get("location")), star, pos))):
             stock = as_amounts(inventory.get(f.get("location")) or {})
             free = {r: stock.get(r, 0.0) - reserved[f.get("location")][r] for r in cost}
             if all(free[r] >= v for r, v in cost.items()):
@@ -279,6 +290,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                         stock = as_amounts(inventory.get(f.get("location")) or {})
                         n = min(need, min((int((stock.get(r, 0) - reserved[f["location"]][r]) // v) for r, v in cost.items() if v > 0),
                                           default=need))
+                    n = min(n, queue_free.get(f["device_code"], n))
+                    queue_free[f["device_code"]] = queue_free.get(f["device_code"], n) - n
                     for r, v in cost.items():
                         reserved[f["location"]][r] += v * n
                     prints.append({"factory": f["device_code"], "factory_star": star_of(f.get("location")),
@@ -286,7 +299,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     row["printing"] = n
                     need -= n
                     if need > 0:
-                        unmet.append({"star": star, "type": row["type"], "n": need, "why": f"materials for only {n}"})
+                        unmet.append({"star": star, "type": row["type"], "n": need,
+                                      "why": f"room/materials for only {n} on {f['device_code']} this pass"})
                 else:
                     unmet.append({"star": star, "type": row["type"], "n": need, "why": why})
             elif need > 0:
@@ -296,6 +310,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     releases: dict[str, list[str]] = defaultdict(list)
     for d in pool:
         cs = ctrl_star(d)
+        ctrl_type = next((x.get("device_type") or "" for x in devices if x.get("device_code") == d.get("controller_device_code")), "")
+        if "transport" in ctrl_type:
+            continue  # a ferry's drones, freighters and taxi plates are meant to be in other systems
         if cs and cs != star_of(d.get("location")) and d["device_code"] not in busy and d["device_code"] not in moves:
             releases[d["controller_device_code"]].append(d["device_code"])
 
@@ -320,14 +337,17 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
 
     carriers = [d for d in devices if d["device_code"] not in busy and can_surge(d) and _carrier_cap(d, bps) > 0
                 and not (ignore & set(d.get("tags") or [])) and (s["use_replicant_vessels"] or d["device_code"] not in replicant_hosts)
-                and not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed"))]
+                and not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed"))
+                and d.get("taxi_mode") != "taxi" and "taxi" not in (d.get("tags") or [])   # taxi plates serve a ferry
+                and not d.get("controller_device_code")]
     used: set[str] = set()
     deliveries = []
     for (here, dest), codes in sorted(batches.items()):
         codes = sorted(codes)
         while codes:
+            stowable = all("stow" in (by_code[x].get("available_commands") or ["stow"]) for x in codes)
             options = [c for c in carriers if star_of(c.get("location")) == here and c["device_code"] not in used
-                       and c["device_code"] not in codes]
+                       and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")]
             if not options:
                 unmet.append({"star": dest, "type": ", ".join(sorted({by_code[c].get('device_type') for c in codes})),
                               "n": len(codes), "why": f"waiting for a surge-capable carrier in {here}"})
@@ -482,9 +502,12 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool) 
     # Boarding and unloading are critical: if a device doesn't get on, the carrier must not fly off without it
     # (and it must not be re-homed to a system it never reached); if it can't get off, it must not ride back.
     for code in dl["devices"]:
-        if attach:
-            st = step(f"attach {code} to {carrier}", f"/devices/{code}", {"command": "attach", "device": carrier},
+        if attach:  # the carrier does the attaching: POST /devices/<carrier> {"command": "attach", "device": <cargo>}
+            st = step(f"{carrier}: attach {code}", f"/devices/{carrier}", {"command": "attach", "device": code},
                       wait=["device.attached"], timeout=SHORT_TIMEOUT, critical=True)
+            st["wait_device"] = carrier
+            steps.append(st)
+            continue
         else:
             st = step(f"stow {code} in {carrier}", f"/devices/{code}", {"command": "stow", "target": carrier},
                       wait=["device.stowed"], timeout=SHORT_TIMEOUT, critical=True)
@@ -493,7 +516,8 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool) 
     steps.append(move(dest, f"deliver {len(dl['devices'])} to {dest_star}", dest_star))
     for code in dl["devices"]:
         if attach:
-            st = step(f"detach {code} in {dest_star}", f"/devices/{code}", {"command": "detach"}, critical=True)
+            st = step(f"{carrier}: detach {code} in {dest_star}", f"/devices/{carrier}", {"command": "detach", "device": code},
+                      critical=True)
         else:
             st = step(f"deploy {code} in {dest_star}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
                       timeout=SHORT_TIMEOUT, critical=True)
@@ -508,8 +532,9 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool) 
 def arrived_steps(code: str, d: dict, stowed_in: dict) -> list[dict]:
     steps = []
     status = str(d.get("status") or "")
-    if "attach" in status:
-        steps.append(step(f"detach {code}", f"/devices/{code}", {"command": "detach"}, critical=True))
+    if d.get("attached_to_device_code") or "attach" in status:
+        carrier = d.get("attached_to_device_code") or stowed_in.get(code)
+        steps.append(step(f"{carrier}: detach {code}", f"/devices/{carrier}", {"command": "detach", "device": code}, critical=True))
     elif code in stowed_in or status.startswith("stowed"):
         st = step(f"deploy {code}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT,
                   critical=True)
@@ -634,26 +659,32 @@ def material_routes(cfg: dict, devices: list[dict], inventory: dict[str, dict], 
             unmet.append({"star": src, "type": "materials", "n": 0, "why": f"no AMI transport controller in {src} to ferry to {dest}"})
             continue
 
+        IN_SYSTEM = ("delivery", "shuttle", "consolidate")
+
+        def directive_of(c: dict) -> str | None:
+            cur = current.get(c["device_code"]) or {}
+            return None if cur.get("finished") else cur.get("directive")
+
+        # never the controller on in-system work (delivery/shuttle/consolidate): a ferry would replace that job.
+        # A controller already ferrying keeps its fleet as it is — the game's ferry also uses transport
+        # drones riding surge plates in taxi mode, so drones under a ferry controller are fine.
+        ferry_ctrls = [c for c in ctrls if directive_of(c) not in IN_SYSTEM or FERRY_TAG in (c.get("tags") or [])]
+        if not ferry_ctrls:
+            busy_c = ", ".join(f"{c['device_code']} ({directive_of(c)})" for c in ctrls)
+            unmet.append({"star": src, "type": "materials", "n": 0,
+                          "why": f"every transport controller in {src} is on in-system work [{busy_c}] — add one for ferrying"})
+            continue
+
         def rank(c: dict) -> tuple:
             fleet = runs(c["device_code"])
-            return (FERRY_TAG not in (c.get("tags") or []), not any(is_freighter(x) for x in fleet),
-                    any(not is_freighter(x) for x in fleet), c["device_code"])
-        def in_system(c: dict) -> list[str]:
-            return [x["device_code"] for x in runs(c["device_code"]) if not is_freighter(x)]
-        # never the controller running drones/haulers: a ferry directive would replace its in-system job
-        ferry_ctrls = [c for c in ctrls if not in_system(c)]
-        if not ferry_ctrls:
-            mixed = [c for c in ctrls if any(is_freighter(x) for x in runs(c["device_code"]))]
-            why = (f"{mixed[0]['device_code']} runs both in-system drones/haulers and cargo freighters — add a second transport "
-                   f"controller in {src} for the freighters (the freighters will be released to it)" if mixed else
-                   f"the transport controller in {src} runs in-system drones/haulers — add a second one for ferrying")
-            unmet.append({"star": src, "type": "materials", "n": 0, "why": why})
-            continue
+            return (FERRY_TAG not in (c.get("tags") or []), directive_of(c) != "ferry",
+                    not any(is_freighter(x) for x in fleet), c["device_code"])
         ctrl = sorted(ferry_ctrls, key=rank)[0]
         code = ctrl["device_code"]
         fleet = [x for x in runs(code) if is_freighter(x)]
         held = [d for d in devices if is_freighter(d) and star_of(d.get("location")) == src
-                and managed.get(d["device_code"]) not in (None, code) and str(d.get("status") or "").startswith("idle")]
+                and managed.get(d["device_code"]) not in (None, code) and str(d.get("status") or "").startswith("idle")
+                and directive_of(by_code.get(managed[d["device_code"]], {"device_code": ""})) in IN_SYSTEM]
         release: dict[str, list[str]] = {}
         for d in held:  # a freighter stuck under the in-system controller moves over to the ferry controller
             release.setdefault(managed[d["device_code"]], []).append(d["device_code"])
@@ -662,7 +693,7 @@ def material_routes(cfg: dict, devices: list[dict], inventory: dict[str, dict], 
                         and (d["device_code"] not in managed or d in held)
                         and d["device_code"] not in busy and not (ignore & set(d.get("tags") or []))
                         and bound_for(d, set(stars) | {src, dest}) in (None, src)), key=lambda d: d["device_code"])
-        if not fleet and not adopt:
+        if not fleet and not adopt and not runs(code):
             unmet.append({"star": src, "type": "materials", "n": 0, "why": f"no cargo freighter in {src} for {code} to ferry with"})
             continue
         collect = pickup_point(src, inventory)

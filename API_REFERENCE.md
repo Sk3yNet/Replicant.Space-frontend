@@ -800,3 +800,41 @@ Legacy `event_type` names seen (webhook / replicant events / device logs): `devi
 - **FTL slingshot** — PATCH `configuration.linked_device`, then teleport with slingshot code as `target`; drops to 5% capacity per use, needs ≥80%.
 - **Galactic observatory** — `prospect` (optional `direction` vector) → `prospect.completed`.
 - **Autofactory** — queued printing (`enqueue_print` etc.), decommission recycling, blueprint discovery; modular.
+
+---
+
+## Confirmed from live data (2026-10-01)
+
+**Device list fields** (`GET /devices`): `controller_device_code` (AMI controller running it, or null), `stowed_in_device_code`,
+`attached_to_device_code`, `attached_devices` (carrier side), `attach_capacity`, `stow_capacity`/`stow_used`/`stowed_devices`,
+`cargo` (list of `{quantity, resource_type}`), `cargo_capacity`/`cargo_used`, `in_control_range` (bool), `hosting_replicant`,
+`location` = null while stowed, `taxi_mode` ("taxi") on surge plates, `scan` `{target, started_at, completes_at, progress_percent}`
+on surveying drones, `tracking_site_id`.
+AMI controllers: `ami_directive` `{name, config, _eval_state}`, `ami_directive_status` ("active" / null), `available_directives`.
+`_eval_state` values seen: `exhausted:[resources]:<place>`, `idle`, `idle:no_sources`, `no_targets:recalling`,
+`active:1l:0d`, `searching:4:0`. Survey controllers also offer `belt_search`.
+Autofactory: `print_queue` items `{device_type, notify: {device}, tags}` (tags **are** kept), `printing`
+`{device_type, started_at, completes_at, eta_seconds, progress_percent, tags}`, queue capacity = blueprint `queue_size` (10);
+the error is `Not enough queue space (N available, M requested)` and the running print takes a slot.
+
+**Surge plates:** `available_commands` include `attach`/`detach`; the **carrier** attaches the cargo
+(`POST /devices/<plate> {"command": "attach", "device": <cargo>}`); telling the cargo to attach fails with
+"Device does not have attach capability". `device.detached` comes from the plate with `{target_code, target_type}`.
+Transport drones/haulers have no `stow`/`deploy` ("Cannot deploy a transport drone") — they can only ride attach carriers.
+Plates in `taxi_mode: "taxi"` under a transport controller carry its drones between systems for a `ferry`
+(the ferry digest shows drones `surging`, then `device.detached`).
+
+**travel.arrived:** `{destination, origin, travel_type, attached_devices, recalling}`; a surge arrival has star codes
+(`origin: "AEMEROTH"`, `destination: "FALQUORYX"`) and lands at an entry point (`location: FALQUORYX-1-L4`).
+Travel to where it already is fails with "Already at destination".
+
+**Mining:** `start_mining` on an exhausted belt → "Belt exhausted - no active resource sites". Belt `resource_sites` was `[]`
+for an exhausted belt. A moon with salvage stock showed it as `inventory` (`AEMEROTH-6-7`: 277 structural);
+`GET /locations/<...-SAL-n>` → "Planet not found" (use the body code).
+
+**Events:** `GET /events?event_type=…` does **not** filter (returns everything); filter client-side.
+`ami.transport.digest` payload: `{directive, devices[{device_code, status, last_event}], report{collect, deliver,
+cargo_capacity, cargo_carried, fleet{delivering, loading, waiting}, resources{device: {res: qty}}}}`. `ami.released` `{devices: [{device_code, device_type}]}`.
+
+**Blueprints:** cargo_freighter cargo 500 (print 1200 s); transport_hauler 80; transport_drone 20; cargo_vessel stow 50 / cargo 200 / attach 3;
+surge_plate attach 1; surge_platform 4; surge_carrier 9; mobile_fleet 36; autofactory queue 10.
