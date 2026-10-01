@@ -305,7 +305,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             load, codes = codes[:room], codes[room:]
             used.add(c["device_code"])
             deliveries.append({"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
-                               "devices": load, "replicant": replicant_hosts.get(c["device_code"])})
+                               "devices": load, "replicant": replicant_hosts.get(c["device_code"]), "mode": carry_mode(c, bps)})
 
     return {"report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
@@ -313,14 +313,33 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             "by_code": by_code}
 
 
-def _carrier_cap(d: dict, bps: dict) -> float:
-    for src in (d, bps.get(d.get("device_type")) or {}):
+ATTACH_CARRIERS = ("surge_plate", "surge_platform", "surge_carrier", "mobile_fleet")
+
+
+def carry_mode(d: dict, bps: dict) -> str:
+    """"attach" for surge plates/platforms/carriers/fleets (devices attach to them and ride along on a surge),
+    "stow" for vessels with a hold."""
+    t = d.get("device_type") or ""
+    if any(k in t for k in ATTACH_CARRIERS):
+        return "attach"
+    for src in (d, bps.get(t) or {}):
         try:
-            v = float(src.get("stow_capacity"))
-            if v > 0:
-                return v
+            if float(src.get("attach_capacity") or 0) > 0 and not float(src.get("stow_capacity") or 0):
+                return "attach"
         except (TypeError, ValueError):
             pass
+    return "stow"
+
+
+def _carrier_cap(d: dict, bps: dict) -> float:
+    for src in (d, bps.get(d.get("device_type")) or {}):
+        for key in ("stow_capacity", "attach_capacity"):
+            try:
+                v = float(src.get(key))
+                if v > 0:
+                    return v
+            except (TypeError, ValueError):
+                pass
     t = d.get("device_type") or ""
     return {"surge_plate": 1, "surge_platform": 4, "surge_carrier": 9, "mobile_fleet": 36}.get(t, 0)
 
@@ -413,16 +432,26 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool) 
         w["wait_device"] = code
         w["seq0_from"] = first + i
         steps.append(w)
+    attach = dl.get("mode") == "attach"
+    # Boarding and unloading are critical: if a device doesn't get on, the carrier must not fly off without it
+    # (and it must not be re-homed to a system it never reached); if it can't get off, it must not ride back.
     for code in dl["devices"]:
-        st = step(f"stow {code} in {carrier}", f"/devices/{code}", {"command": "stow", "target": carrier},
-                  wait=["device.stowed"], timeout=SHORT_TIMEOUT)
+        if attach:
+            st = step(f"attach {code} to {carrier}", f"/devices/{code}", {"command": "attach", "device": carrier},
+                      wait=["device.attached"], timeout=SHORT_TIMEOUT, critical=True)
+        else:
+            st = step(f"stow {code} in {carrier}", f"/devices/{code}", {"command": "stow", "target": carrier},
+                      wait=["device.stowed"], timeout=SHORT_TIMEOUT, critical=True)
         st["wait_device"] = code
         steps.append(st)
     steps.append(move(dest, f"deliver {len(dl['devices'])} to {dest_star}", dest_star))
     for code in dl["devices"]:
-        st = step(f"deploy {code} in {dest_star}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
-                  timeout=SHORT_TIMEOUT)
-        st["wait_device"] = code
+        if attach:
+            st = step(f"detach {code} in {dest_star}", f"/devices/{code}", {"command": "detach"}, critical=True)
+        else:
+            st = step(f"deploy {code} in {dest_star}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
+                      timeout=SHORT_TIMEOUT, critical=True)
+            st["wait_device"] = code
         steps.append(st)
         steps.append(rehome_step(code, by_code.get(code, {}), dest_star))
     if carriers_return and cloc:
@@ -432,8 +461,12 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool) 
 
 def arrived_steps(code: str, d: dict, stowed_in: dict) -> list[dict]:
     steps = []
-    if code in stowed_in or str(d.get("status") or "").startswith("stowed"):
-        st = step(f"deploy {code}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT)
+    status = str(d.get("status") or "")
+    if "attach" in status:
+        steps.append(step(f"detach {code}", f"/devices/{code}", {"command": "detach"}, critical=True))
+    elif code in stowed_in or status.startswith("stowed"):
+        st = step(f"deploy {code}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT,
+                  critical=True)
         st["wait_device"] = code
         steps.append(st)
     dest = next((t[3:].upper() for t in d.get("tags") or [] if t.startswith("to:")), None) or star_of(d.get("location"))
@@ -460,7 +493,8 @@ def describe(p: dict) -> list[str]:
     for code, dest in p["self_moves"]:
         out.append(f"{code} ({p['by_code'][code].get('device_type')}) flies to {dest}")
     for dl in p["deliveries"]:
-        out.append(f"{dl['carrier']} carries {', '.join(dl['devices'])} from {dl['from']} to {dl['to']}")
+        how = "attaches" if dl.get("mode") == "attach" else "stows"
+        out.append(f"{dl['carrier']} {how} {', '.join(dl['devices'])} and carries them from {dl['from']} to {dl['to']}")
     for code in p["arrived"]:
         out.append(f"{code} has arrived: deploy if stowed, clear its to:/spare tags")
     for r in p.get("routes") or []:

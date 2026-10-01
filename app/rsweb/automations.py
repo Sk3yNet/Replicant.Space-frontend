@@ -289,7 +289,18 @@ class AutomationEngine:
             "INSERT INTO actions(at, user, method, path, body, status, response) VALUES(?,?,?,?,?,?,?)",
             (now_iso(), "automation", method, path, json.dumps(body) if body is not None else None, status,
              json.dumps(resp, default=str)[:20000] if resp is not None else None))
+        if err is None and method == "PATCH" and isinstance(resp, dict) and isinstance(resp.get("tags"), list):
+            await self.remember_tags(path.rstrip("/").split("/")[-1], resp["tags"])
         return err is None, resp, err
+
+    async def remember_tags(self, code: str, tags: list[str]) -> None:
+        """Update the cached device list right away, so the next pass doesn't redo tag changes before the next sync."""
+        devices = await self.db.kv_get("devices", []) or []
+        for d in devices:
+            if d.get("device_code") == code:
+                d["tags"] = list(tags)
+                await self.db.kv_set("devices", devices)
+                return
 
     # --- jobs --------------------------------------------------------------------------------------
     async def create_job(self, rule: str, title: str, device: str | None, steps: list[dict], meta: dict | None = None,
@@ -396,6 +407,14 @@ class AutomationEngine:
                 st["status"] = "skipped"
                 await self.log(job["rule"], f"{job['title']}: skipped '{st['desc']}' ({err})", "alert")
                 job["idx"] += 1
+                done_steps = [x for x in job["steps"][:job["idx"]] if x["method"] != "WAIT"]
+                last3, last6 = done_steps[-3:], done_steps[-6:]
+                if ((len(last3) == 3 and all(x["status"] == "skipped" and x.get("error") == err for x in last3))
+                        or (len(last6) == 6 and all(x["status"] == "skipped" for x in last6))):
+                    job["status"] = "failed"
+                    await self._update(job)
+                    await self.log(job["rule"], f"stopped: {job['title']} — 3 steps in a row failed with: {err}", "alert", notify=True)
+                    return
                 await self._update(job)
                 continue
             if st["wait"]:
@@ -441,14 +460,20 @@ class AutomationEngine:
             if name == "directive.completed" and "survey" in (ev.get("device_type") or ""):
                 await self.mark_system_surveyed(star_of(ev.get("location")) or ev.get("star") or "", ev.get("device_code"))
             # a print ordered for a system came out: remember its code until the device list shows it
-            if name == "print.completed" and any(str(t).startswith("to:") for t in p.get("tags") or []):
+            if name == "print.completed":
                 from .loadouts import to_tag
                 orders = await self.db.kv_get("loadout_orders", []) or []
-                for o in orders:
-                    if not o.get("device_code") and o["device_type"] == p.get("device_type") and to_tag(o["star"]) in p["tags"]:
-                        o["device_code"] = p.get("new_device_code") or "?"
-                        break
-                await self.db.kv_set("loadout_orders", orders)
+                tags = [str(t) for t in p.get("tags") or []]
+                hit = next((o for o in orders if not o.get("device_code") and o["device_type"] == p.get("device_type")
+                            and (to_tag(o["star"]) in tags or o.get("factory") == ev.get("device_code"))), None)
+                if hit:
+                    new = p.get("new_device_code")
+                    hit["device_code"] = new or "?"
+                    await self.db.kv_set("loadout_orders", orders)
+                    if new and to_tag(hit["star"]) not in tags:
+                        # the game didn't carry the print's tags over: tag it ourselves so it is routed, not re-printed
+                        await self.send("PATCH", f"/devices/{new}", {"configuration": {"add_tags": [to_tag(hit["star"])]}},
+                                        f"auto: tag new {p.get('device_type')} {new} for {hit['star']}")
             # wake waiting jobs
             for job in await self.jobs():
                 if job["status"] != "waiting":
@@ -536,19 +561,32 @@ class AutomationEngine:
         stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
         reps = await self.db.kv_get("replicants", {}) or {}
         hosts = {r.get("hosted_device_code"): code for code, r in reps.items() if r.get("hosted_device_code")}
-        busy = self.busy_devices(await self.jobs())
+        jobs = await self.jobs()
+        busy = self.busy_devices(jobs)
+        for j in jobs:  # a carrier whose delivery just failed (out of comms, mid-surge …) sits out for 30 minutes
+            fin = _ts(j.get("finished_at") or j.get("created_at"))
+            if j["rule"] == "loadouts" and j["status"] == "failed" and fin and (_now() - fin).total_seconds() < 1800:
+                busy.add(j.get("device"))
+                busy.update(j.get("meta", {}).get("devices", []))
         from .loadouts import material_routes
         p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
                  await self.db.kv_get("stowed_map", {}) or {}, only)
         current = {}
         for d in devices:
             if "transport" in (d.get("device_type") or ""):
-                row = await self.db.fetchone("SELECT event, payload FROM events WHERE device_code=? AND event LIKE 'directive.%' "
+                row = await self.db.fetchone("SELECT event, payload, created_at FROM events WHERE device_code=? AND event LIKE 'directive.%' "
                                              "ORDER BY seq DESC LIMIT 1", (d["device_code"],))
                 if row:
                     pl = json.loads(row["payload"] or "{}")
                     current[d["device_code"]] = {"directive": pl.get("directive"), "configuration": pl.get("configuration"),
-                                                 "finished": row["event"] in ("directive.completed", "directive.cleared", "directive.paused")}
+                                                 "finished": row["event"] in ("directive.completed", "directive.cleared", "directive.paused"),
+                                                 "at": row["created_at"]}
+        sent = await self.db.kv_get("loadout_ferries", {}) or {}
+        for ctrl, f in sent.items():
+            cur = current.get(ctrl)
+            later_finish = cur and cur.get("finished") and (cur.get("at") or "") > (f.get("at") or "")
+            if not later_finish:  # what we sent is still what it's doing, whatever the event payloads say
+                current[ctrl] = {"directive": "ferry", "configuration": f.get("configuration"), "finished": False}
         cfg_only = {**cfg, "roles": {k: v for k, v in cfg["roles"].items() if not only or k in only}}
         routes, unmet = material_routes(cfg_only, devices, inv, stars, busy, current)
         p["routes"], p["unmet"] = routes, p["unmet"] + unmet
@@ -585,9 +623,14 @@ class AutomationEngine:
                 "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']}", dl["carrier"],
                 lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"]),
                 {"devices": dl["devices"], "star": dl["to"]}, force=manual))
+        ferries = await self.db.kv_get("loadout_ferries", {}) or {}
         for r in p.get("routes") or []:
-            started += bool(await self.create_job("loadouts", f"loadouts: ferry {r['source']} → {r['dest']}", r["controller"],
-                                                  lo.ferry_steps(r), {"devices": [], "star": r["dest"]}, force=manual))
+            job = await self.create_job("loadouts", f"loadouts: ferry {r['source']} → {r['dest']}", r["controller"],
+                                        lo.ferry_steps(r), {"devices": [], "star": r["dest"]}, force=manual)
+            if job:
+                started += 1
+                ferries[r["controller"]] = {"configuration": {"collect": r["collect"], "deliver": r["deliver"]}, "at": now_iso()}
+        await self.db.kv_set("loadout_ferries", ferries)
         for code in p["arrived"]:
             steps = lo.arrived_steps(code, p["by_code"][code], stowed_in)
             if steps:
@@ -833,6 +876,9 @@ class AutomationEngine:
             return
         if star in (await self.db.kv_get("ami_surveyed", {}) or {}):
             return  # an AMI survey_system already covered every body
+        started = (await self.db.kv_get("ami_survey_started", {}) or {}).get(star)
+        if started and (_now() - (_ts(started) or _now())).total_seconds() < 12 * 3600:
+            return  # an AMI survey of this system is (or was recently) under way; don't restart it on every arrival
         scan = await self.system_scan(star)
         if not scan:
             await self.log("auto_survey", f"no scan data for {star}; enable 'System scan on arrival' or scan manually")
@@ -924,6 +970,10 @@ class AutomationEngine:
         steps.append(step(f"{code}: launch", f"/devices/{code}", {"command": "launch"}))
         job = await self.create_job("auto_survey", f"survey {star} with AMI {code} ({len(drones) + len(already)} drones)", code, steps,
                                     {"star": star, "devices": drones, "ami": True})
+        if job:
+            started = await self.db.kv_get("ami_survey_started", {}) or {}
+            started[star] = now_iso()
+            await self.db.kv_set("ami_survey_started", started)
         return True if job is not None or (await self.settings())["dry_run"] else False
 
     async def rule_salvage(self) -> list[str]:

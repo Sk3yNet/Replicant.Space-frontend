@@ -942,9 +942,11 @@ def test_loadout_plan_spares_prints_and_carriers():
     steps = lo.delivery_steps(dl[0], p["by_code"], stars, True)
     bodies = [(s["path"], s["body"]) for s in steps]
     assert ("/devices/A1", {"configuration": {"add_tags": ["to:bbb"]}}) in bodies
-    assert ("/devices/A1", {"command": "stow", "target": "CAR"}) in bodies
+    assert ("/devices/A1", {"command": "attach", "device": "CAR"}) in bodies   # surge carriers take attached devices
     assert ("/devices/CAR", {"command": "travel", "destination": "BBB-5-L4"}) in bodies
-    assert ("/devices/A3", {"command": "deploy"}) in bodies
+    assert ("/devices/A3", {"command": "detach"}) in bodies
+    board = next(st for st in steps if st["body"] == {"command": "attach", "device": "CAR"})
+    assert board["critical"]          # no boarding → the carrier doesn't fly off without it
     assert ("/devices/A3", {"configuration": {"add_tags": ["home:bbb"], "remove_tags": ["to:bbb"]}}) in bodies
     assert bodies[-1] == ("/devices/CAR", {"command": "travel", "destination": "AAA-OORT"})
     pr = lo.print_steps(p["prints"][0])[0]["body"]
@@ -1195,3 +1197,39 @@ def test_loadout_home_tags_keep_devices_counted_while_away():
     b = {r["type"]: r for r in p["report"]["BBB"]["rows"]}
     assert "surge_carrier" not in b or b["surge_carrier"]["have"] == 0   # not counted (or made spare) where it's visiting
     assert "spare" not in p["tag_add"].get("CAR", [])
+
+
+
+def test_job_stops_after_repeated_failures(client):
+    eng = client.app.state.worker.automations
+    from rsweb.automations import step
+    steps = [step(f"travel {i}", "/devices/NOPE0000", {"command": "travel", "destination": f"SOL-{i}"}) for i in range(10)]
+    job = client.portal.call(eng.create_job, "auto_survey", "doomed", "NOPE0000", steps, {}, True)
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
+    assert job["status"] == "failed" and sum(1 for st in job["steps"] if st["status"] == "skipped") == 3
+
+
+def test_ami_survey_not_restarted_on_every_arrival(client):
+    eng = client.app.state.worker.automations
+
+    async def go():
+        started = {"SOL": __import__("rsweb.db", fromlist=["now_iso"]).now_iso()}
+        await client.app.state.db.kv_set("ami_survey_started", started)
+        await eng.rule_auto_survey("11ADA230", "SOL-BELT-1", "SOL", [], {"use_ami": True})
+        return [j for j in await eng.jobs() if j["rule"] == "auto_survey"]
+    assert client.portal.call(go) == []
+
+
+def test_print_completed_tags_new_device_for_its_system(client):
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.portal.call(client.app.state.db.kv_set, "loadout_orders",
+                       [{"star": "SOL", "device_type": "survey_drone", "factory": "AF00BEEF", "at": "2026-10-01T00:00:00+00:00"}])
+    world.devices.append({"device_code": "NEW00001", "device_type": "survey_drone", "location": "SOL-3-L4", "status": "idle",
+                          "features": [], "available_commands": []})
+    client.portal.call(client.app.state.worker.handle_event,
+                       {"id": "5555555555555-0", "event": "print.completed", "device_code": "AF00BEEF", "device_type": "autofactory",
+                        "location": "SOL-3-L4", "payload": {"device_type": "survey_drone", "new_device_code": "NEW00001", "tags": []},
+                        "created_at": "2026-10-01T00:00:00+00:00"})
+    assert "to:sol" in next(d for d in world.devices if d["device_code"] == "NEW00001")["tags"]
+    assert client.portal.call(client.app.state.db.kv_get, "loadout_orders")[0]["device_code"] == "NEW00001"
