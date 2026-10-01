@@ -122,7 +122,7 @@ details summary { cursor: pointer; color: var(--muted); }
 .res-grid.cargo { grid-template-columns: repeat(2, minmax(200px, 1fr)); }
 .res-grid .res .small { white-space: nowrap; }
 .field select { max-width: 100%; }
-.tree details.tnode { border-left: 1px solid var(--line); margin: 2px 0 2px 6px; padding-left: 10px; }
+.tree details.tnode { border-left: 1px solid var(--line); margin: 2px 0; padding-left: 8px; }
 .tree details.tnode.sys { border-left: 3px solid var(--accent); margin: 8px 0; }
 .tree details.tnode > summary { padding: 5px 4px; border-radius: 6px; display: list-item; }
 .tree details.tnode > summary:hover { background: var(--panel2); }
@@ -130,7 +130,10 @@ details summary { cursor: pointer; color: var(--muted); }
 .tree details.tnode.sys > summary { font-size: 15px; }
 .tree details.tnode.type { border-left: 2px solid var(--line); }
 .tree details.tnode.type > summary { color: var(--text); }
-.tree .tchildren { margin-left: 6px; }
+/* each level sits clearly to the right of its parent: system → type → device → stowed */
+.tree .tchildren { margin-left: 22px; }
+.tree .tbody { margin-left: 22px; }
+.tree .tbody > .tchildren { margin-left: 0; }
 .tree .tpanel { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 4px 0 8px; }
 .pq-box { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .pq .timer { margin: 0; }

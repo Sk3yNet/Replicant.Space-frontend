@@ -888,3 +888,115 @@ def test_idle_miners_handed_to_mining_controller(client):
     assert len(job["steps"]) == 1  # controller is coordinating: adopt only, no relaunch
     acts = client.portal.call(client.app.state.db.fetchall, "SELECT body FROM actions WHERE user='automation'")
     assert not any('"start_mining"' in (a["body"] or "") for a in acts)
+
+
+def _lo_world():
+    def dev(code, t, loc, status="idle", **kw):
+        return {"device_code": code, "device_type": t, "location": loc, "status": status,
+                "features": kw.pop("features", ["cruise", "stow"]), "available_commands": kw.pop("cmds", ["travel", "stow", "deploy"]),
+                "operational_capacity": 100.0, **kw}
+    devices = [
+        dev("A1", "mining_drone", "AAA-BELT-1"), dev("A2", "mining_drone", "AAA-BELT-1", "mining (carbon)"),
+        dev("A3", "mining_drone", "AAA-BELT-1"), dev("A4", "mining_drone", "AAA-BELT-1", "mining (rares)"),
+        dev("AC", "ami_mining_controller", "AAA-BELT-1", "coordinating"),
+        dev("CAR", "surge_carrier", "AAA-OORT", features=["surge", "cruise"], cmds=["travel", "deploy"], stow_capacity=9),
+        dev("AF", "autofactory", "AAA-3-L4", cmds=["enqueue_print", "dequeue_print", "clear_queue"], features=["print"]),
+        dev("BS", "survey_drone", "BBB-2"),
+        dev("CC", "ami_mining_controller", "CCC-BELT-1", tags=["spare"]),
+        dev("CK", "mining_drone", "CCC-BELT-1", tags=["spare", "keep"]),
+        dev("HV", "heaven_vessel", "AAA-BELT-1", features=["surge", "cruise", "print"], stow_capacity=10),
+    ]
+    cfg = {"phases": [{"id": "outpost", "name": "Outpost", "order": 1,
+                       "wants": {"mining_drone": 2, "ami_mining_controller": 1, "survey_drone": 2}}],
+           "systems": {"AAA": "outpost", "BBB": "outpost"}, "ignore_tags": ["keep"]}
+    bps = [{"device_type": "survey_drone", "resources": {"structural": 100}, "print_time": 240},
+           {"device_type": "mining_drone", "resources": {"structural": 100}, "print_time": 180},
+           {"device_type": "ami_mining_controller", "resources": {"rares": 500}, "print_time": 600}]
+    inv = {"AAA-3-L4": {"structural": 250.0}}
+    stars = {"AAA": {"designation": "AAA", "position": {"x": 0, "y": 0, "z": 0}, "entry_point": "AAA-OORT"},
+             "BBB": {"designation": "BBB", "position": {"x": 3, "y": 0, "z": 0}, "entry_point": "BBB-5-L4"},
+             "CCC": {"designation": "CCC", "position": {"x": 9, "y": 0, "z": 0}}}
+    return cfg, devices, bps, inv, stars
+
+
+def test_loadout_plan_spares_prints_and_carriers():
+    from rsweb import loadouts as lo
+    cfg, devices, bps, inv, stars = _lo_world()
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    a, b = p["report"]["AAA"], p["report"]["BBB"]
+    assert {r["type"]: (r["have"], r["short"], r["surplus"]) for r in a["rows"]} == {
+        "mining_drone": (4, 0, 2), "ami_mining_controller": (1, 0, 0), "survey_drone": (0, 2, 0)}
+    # the two idle drones are the extras, and they go to BBB (which has none)
+    assert sorted(p["moves"][c] for c in ("A1", "A3")) == ["BBB", "BBB"]
+    assert p["moves"]["CC"] == "BBB"           # spare controller from the unphased system
+    assert "CK" not in p["moves"]              # ignored tag: never moved
+    dl = p["deliveries"]
+    assert len(dl) == 1 and dl[0]["carrier"] == "CAR" and sorted(dl[0]["devices"]) == ["A1", "A3"]
+    assert any("carrier in CCC" in u["why"] for u in p["unmet"])   # nothing can carry CC yet
+    # survey drones: 2 short in AAA and in BBB, stock covers 2 prints at AF in total
+    assert sum(pr["n"] for pr in p["prints"]) == 2 and all(pr["factory"] == "AF" for pr in p["prints"])
+    assert any(u["type"] == "survey_drone" for u in p["unmet"])
+    steps = lo.delivery_steps(dl[0], p["by_code"], stars, True)
+    bodies = [(s["path"], s["body"]) for s in steps]
+    assert ("/devices/A1", {"configuration": {"add_tags": ["to:bbb"]}}) in bodies
+    assert ("/devices/A1", {"command": "stow", "target": "CAR"}) in bodies
+    assert ("/devices/CAR", {"command": "travel", "destination": "BBB-5-L4"}) in bodies
+    assert ("/devices/A3", {"command": "deploy"}) in bodies
+    assert ("/devices/A3", {"configuration": {"remove_tags": ["to:bbb"]}}) in bodies
+    assert bodies[-1] == ("/devices/CAR", {"command": "travel", "destination": "AAA-OORT"})
+    pr = lo.print_steps(p["prints"][0])[0]["body"]
+    assert pr["command"] == "enqueue_print" and pr["tags"][0].startswith("to:")
+    assert "HV" not in p["by_code"]            # the replicant's vessel is never counted or used
+
+
+def test_loadout_incoming_and_arrivals_and_unspare():
+    from rsweb import loadouts as lo
+    cfg, devices, bps, inv, stars = _lo_world()
+    # A1 and A3 already on their way; a survey drone was ordered for BBB; BS arrived tagged to:bbb
+    for d in devices:
+        if d["device_code"] in ("A1", "A3"):
+            d["tags"] = ["to:bbb"]
+        if d["device_code"] == "BS":
+            d["tags"] = ["to:bbb", "spare"]
+    orders = [{"star": "BBB", "device_type": "survey_drone", "factory": "AF", "at": "2026-01-01T00:00:00+00:00"}]
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), orders, {})
+    b = {r["type"]: r for r in p["report"]["BBB"]["rows"]}
+    assert b["mining_drone"]["incoming"] == 2 and b["mining_drone"]["short"] == 0
+    assert b["survey_drone"]["incoming"] == 1 and b["survey_drone"]["short"] == 0
+    assert "BS" in p["arrived"]
+    steps = lo.arrived_steps("BS", p["by_code"]["BS"], {})
+    assert steps[-1]["body"] == {"configuration": {"remove_tags": ["to:bbb", "spare"]}}
+    # AAA now has exactly 2 drones locally (A2, A4) — nothing more is marked spare there
+    a = {r["type"]: r for r in p["report"]["AAA"]["rows"]}
+    assert a["mining_drone"]["have"] == 2 and a["mining_drone"]["surplus"] == 0
+    # a spare in a system that becomes short loses the tag
+    for d in devices:
+        if d["device_code"] == "A2":
+            d["tags"] = ["spare"]
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), orders, {})
+    assert p["tag_remove"].get("A2") == ["spare"]
+
+
+def test_loadouts_page_and_apply_against_mock(client):
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_devices)
+    assert "Loadouts" in client.get("/", headers=H).text
+    r = client.post("/loadouts/phases", data={"new_phase": "Mining hub"}, headers=HX)
+    assert r.headers.get("HX-Refresh")
+    cfg = client.portal.call(client.app.state.db.kv_get, "loadouts")
+    pid = cfg["phases"][0]["id"]
+    client.post("/loadouts/phases", data={f"name:{pid}": "Mining hub", f"order:{pid}": "1",
+                                          f"want:{pid}:mining_drone": "2", f"want:{pid}:survey_drone": ""}, headers=HX)
+    client.post("/loadouts/system", data={"star": "SOL", "phase": pid}, headers=HX)
+    client.post("/loadouts/settings", data={"ignore_tags": "keep, Reserve", "print_missing": "on", "need_stock": "on"}, headers=HX)
+    cfg = client.portal.call(client.app.state.db.kv_get, "loadouts")
+    assert cfg["phases"][0]["wants"] == {"mining_drone": 2} and cfg["ignore_tags"] == ["keep", "reserve"]
+    page = client.get("/loadouts", headers=H).text
+    assert "Mining hub" in page and "2 spare" in page and "as spare" in page
+    r = client.post("/loadouts/apply", data={"star": "SOL"}, headers=HX)
+    assert "Applied to SOL" in r.text
+    spares = [d["device_code"] for d in world.devices if "spare" in (d.get("tags") or [])]
+    assert len(spares) == 2 and all(c.startswith("2AC6121") for c in spares)
+    # survey drones aren't in the phase: untouched
+    assert not any("spare" in (d.get("tags") or []) for d in world.devices if d["device_type"] == "survey_drone")
+    assert "◆ Mining hub" in client.get("/tree", headers=H).text

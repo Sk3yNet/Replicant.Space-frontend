@@ -1612,5 +1612,127 @@ async def tree_view(request: Request, user: str = Depends(current_user)):
     bps = normalize_blueprints(await db.kv_get("blueprints", []))
     carriers = {d["device_code"] for d in st["devices"] if d.get("device_code") and carrier_mod.is_carrier(d, bps)}
     systems = build_tree(st["devices"], st["replicants"], await db.kv_get("stowed_map", {}) or {}, carriers)
-    return await page(request, user, "tree.html", "tree", systems=systems, order_commands=order_commands,
+    lcfg = await request.app.state.worker.automations.loadout_cfg()
+    phases = {star: next((p["name"] for p in lcfg["phases"] if p["id"] == pid), None) for star, pid in lcfg["systems"].items()}
+    return await page(request, user, "tree.html", "tree", systems=systems, phases=phases, order_commands=order_commands,
                       dangerous=DANGEROUS, synced=await db.kv_updated("devices"))
+
+
+# --- loadouts ----------------------------------------------------------------------------------
+from . import loadouts as lo  # noqa: E402
+
+
+async def loadout_ctx(request: Request) -> dict:
+    eng = request.app.state.worker.automations
+    db = request.app.state.db
+    cfg = await eng.loadout_cfg()
+    st = await load_state(request)
+    bps = normalize_blueprints(await db.kv_get("blueprints", []))
+    types = sorted({b["device_type"] for b in bps} | {d.get("device_type") for d in st["devices"] if d.get("device_type")}
+                   - {"heaven_vessel"})
+    p = await eng.loadout_plan()
+    present = Counter(lo.star_of(d.get("location")) for d in st["devices"])
+    stars = sorted(set(present) | set(cfg["systems"]), key=lambda s: (s not in cfg["systems"], -present.get(s, 0), s))
+    jobs = [j for j in await eng.jobs() if j["rule"] == "loadouts"]
+    tagged = defaultdict(list)
+    for d in st["devices"]:
+        for t in d.get("tags") or []:
+            if t == lo.SPARE or t.startswith("to:"):
+                tagged[t].append(d)
+    rule = (await eng.settings())["rules"].get("loadouts", {})
+    return {"cfg": cfg, "types": types, "plan": p, "lines": lo.describe(p), "stars": stars, "present": present,
+            "active_jobs": [j for j in jobs if j["status"] in ("running", "waiting")],
+            "recent_jobs": [j for j in reversed(jobs) if j["status"] not in ("running", "waiting")][:8],
+            "orders": await eng.loadout_orders(), "tagged": dict(tagged), "rule": rule,
+            "last": await db.kv_get("loadouts_last", {}) or {},
+            "all_tags": sorted({t for d in st["devices"] for t in (d.get("tags") or [])})}
+
+
+async def save_loadouts(request: Request, cfg: dict) -> None:
+    await request.app.state.db.kv_set("loadouts", cfg)
+
+
+@router.get("/loadouts", response_class=HTMLResponse)
+async def loadouts_page(request: Request, user: str = Depends(current_user)):
+    return await page(request, user, "loadouts.html", "loadouts", **await loadout_ctx(request))
+
+
+@router.post("/loadouts/phases", response_class=HTMLResponse)
+async def loadouts_save_phases(request: Request, user: str = Depends(current_user)):
+    form = await request.form()
+    cfg = await request.app.state.worker.automations.loadout_cfg()
+    for ph in cfg["phases"]:
+        pid = ph["id"]
+        ph["name"] = (form.get(f"name:{pid}") or ph["name"]).strip()
+        try:
+            ph["order"] = int(form.get(f"order:{pid}") or ph.get("order") or 0)
+        except ValueError:
+            pass
+        wants = {}
+        for key, val in form.multi_items():
+            if key.startswith(f"want:{pid}:") and str(val).strip() != "":
+                try:
+                    wants[key[len(f"want:{pid}:"):]] = max(0, int(val))
+                except ValueError:
+                    pass
+        ph["wants"] = wants
+    new = (form.get("new_phase") or "").strip()
+    if new:
+        pid = re.sub(r"[^a-z0-9]+", "-", new.lower()).strip("-") or "phase"
+        while any(p["id"] == pid for p in cfg["phases"]):
+            pid += "-2"
+        copy = next((p for p in cfg["phases"] if p["id"] == form.get("copy_from")), None)
+        cfg["phases"].append({"id": pid, "name": new, "order": max([p.get("order", 0) for p in cfg["phases"]] or [0]) + 1,
+                              "wants": dict((copy or {}).get("wants") or {})})
+    await save_loadouts(request, cfg)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/loadouts/phases/{pid}/delete", response_class=HTMLResponse)
+async def loadouts_delete_phase(request: Request, pid: str, user: str = Depends(current_user)):
+    cfg = await request.app.state.worker.automations.loadout_cfg()
+    cfg["phases"] = [p for p in cfg["phases"] if p["id"] != pid]
+    cfg["systems"] = {s: v for s, v in cfg["systems"].items() if v != pid}
+    await save_loadouts(request, cfg)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/loadouts/system", response_class=HTMLResponse)
+async def loadouts_set_system(request: Request, star: str = Form(...), phase: str = Form(""),
+                              user: str = Depends(current_user)):
+    cfg = await request.app.state.worker.automations.loadout_cfg()
+    if phase:
+        cfg["systems"][star] = phase
+    else:
+        cfg["systems"].pop(star, None)
+    await save_loadouts(request, cfg)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/loadouts/settings", response_class=HTMLResponse)
+async def loadouts_settings(request: Request, user: str = Depends(current_user)):
+    form = await request.form()
+    cfg = await request.app.state.worker.automations.loadout_cfg()
+    cfg["ignore_tags"] = sorted({t.strip().lower() for t in re.split(r"[,\s]+", form.get("ignore_tags") or "") if t.strip()}
+                                - {lo.SPARE})
+    for k in ("print_missing", "need_stock", "carriers_return", "use_replicant_vessels"):
+        cfg["settings"][k] = form.get(k) == "on"
+    await save_loadouts(request, cfg)
+    return HTMLResponse('<span class="lv-done small">Saved.</span>', headers={"HX-Refresh": "true"})
+
+
+@router.post("/loadouts/apply", response_class=HTMLResponse)
+async def loadouts_apply(request: Request, star: str = Form(""), user: str = Depends(current_user)):
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        lines = await eng.apply_loadouts({star} if star else None, manual=True)
+    body = "".join(f"<li>{line}</li>" for line in lines) or "<li>Nothing to do: every phased system matches its loadout.</li>"
+    return HTMLResponse(f'<div class="result ok"><strong>Applied{" to " + star if star else ""}</strong><ul class="small">{body}</ul>'
+                        f'<div class="small muted">Follow the jobs below or on the Automations page.</div></div>',
+                        headers={"HX-Trigger": "loadouts-changed"})
+
+
+@router.post("/loadouts/orders/clear", response_class=HTMLResponse)
+async def loadouts_clear_orders(request: Request, user: str = Depends(current_user)):
+    await request.app.state.db.kv_set("loadout_orders", [])
+    return HTMLResponse("", headers={"HX-Refresh": "true"})

@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Loadouts{% endblock %}
+{% block content %}
+<div class="row between">
+  <h1>Loadouts <span class="muted small">{{ cfg.systems | length }} phased systems · {{ cfg.phases | length }} phases</span></h1>
+  <div class="row">
+    <span class="small {{ 'lv-done' if rule.enabled else 'muted' }}">Auto-apply {{ ('on, every ' ~ rule.every_minutes ~ ' min') if rule.enabled else 'off' }}
+      · <a href="/automations">Automations →</a></span>
+    <button hx-post="/loadouts/apply" hx-target="#lo-result" hx-confirm="Apply loadouts to every phased system now?">Apply all now</button>
+  </div>
+</div>
+<div id="lo-result">{% if last.at %}<p class="muted small">Last pass {{ last.at | ago }}{% if last.dry_run %} (dry run, nothing sent){% endif %}: {{ last.jobs }} job(s) started.</p>{% endif %}</div>
+
+<div class="grid g2">
+<div>
+  <div class="card">
+    <h2>Systems</h2>
+    {% if not cfg.phases %}<p class="lv-alert small">Create a phase below first, then give systems a phase.</p>{% endif %}
+    <table class="small">
+      <tr><th>System</th><th>Phase</th><th class="num">Devices</th><th>Status</th><th></th></tr>
+      {% for star in stars %}{% set rep = plan.report.get(star) %}
+      <tr>
+        <td><a href="/systems/{{ star }}"><b>{{ star }}</b></a></td>
+        <td><form hx-post="/loadouts/system" hx-trigger="change">
+          <input type="hidden" name="star" value="{{ star }}">
+          <select name="phase"><option value="">— none —</option>
+            {% for ph in cfg.phases %}<option value="{{ ph.id }}" {{ 'selected' if cfg.systems.get(star) == ph.id }}>{{ ph.name }}</option>{% endfor %}
+          </select></form></td>
+        <td class="num">{{ present.get(star, 0) }}</td>
+        <td>{% if not rep %}<span class="muted">not managed</span>
+          {% elif not rep.short and not rep.surplus %}<span class="lv-done">✓ matches</span>
+          {% else %}{% if rep.short %}<span class="lv-alert">short {{ rep.short }}</span>{% endif %}
+            {% if rep.surplus %}<span class="pill small">{{ rep.surplus }} spare</span>{% endif %}{% endif %}</td>
+        <td>{% if rep %}<button class="small ghost" hx-post="/loadouts/apply" hx-vals='{"star": "{{ star }}"}' hx-target="#lo-result">Apply</button>{% endif %}</td>
+      </tr>
+      {% if rep %}<tr><td colspan="5" style="padding-top:0">
+        <details><summary class="muted">{{ rep.phase.name }} — {{ rep.rows | length }} device types</summary>
+        <table class="small">
+          <tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th class="num">Incoming</th><th class="num">Short</th><th>Spare / filling from</th></tr>
+          {% for r in rep.rows %}<tr>
+            <td>{{ r.type | human }}</td><td class="num">{{ r.want }}</td><td class="num">{{ r.have }}</td>
+            <td class="num">{{ r.incoming or '' }}</td>
+            <td class="num {{ 'lv-alert' if r.short }}">{{ r.short or '' }}</td>
+            <td class="mono">{% for c in r.spare %}<a href="/devices/{{ c }}">{{ c }}</a> {% endfor %}
+              {% if r.from_spares %}<span class="muted">← </span>{% for c in r.from_spares %}<a href="/devices/{{ c }}">{{ c }}</a> {% endfor %}{% endif %}
+              {% if r.printing %}<span class="muted">print {{ r.printing }}</span>{% endif %}</td>
+          </tr>{% endfor %}
+        </table></details></td></tr>{% endif %}
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Next pass would…</h2>
+    {% if lines %}<ul class="small">{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted small">Nothing to do.</p>{% endif %}
+    <p class="muted small">Recomputed on every page load. "Apply" runs it now; the Automations rule runs it on a timer (and respects Dry run).</p>
+  </div>
+
+  <div class="card">
+    <h2>Spare &amp; on the way</h2>
+    {% set spares = tagged.get('spare', []) %}
+    <div class="small"><b>Spare</b> ({{ spares | length }}):
+      {% for d in spares %}<a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> <span class="muted">{{ d.device_type | human }} @ {{ d.location | star_of }}</span>{{ ' · ' if not loop.last }}{% else %}<span class="muted">none</span>{% endfor %}</div>
+    {% for t, ds in tagged.items() if t.startswith('to:') %}
+      <div class="small"><b>{{ t }}</b>: {% for d in ds %}<a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> <span class="muted">{{ d.device_type | human }} @ {{ d.location }}</span>{{ ' · ' if not loop.last }}{% endfor %}</div>
+    {% endfor %}
+    <h3>Prints ordered</h3>
+    {% if orders %}<table class="small"><tr><th>For</th><th>Type</th><th>On</th><th>Ordered</th><th>Status</th></tr>
+      {% for o in orders %}<tr><td>{{ o.star }}</td><td>{{ o.device_type | human }}</td><td class="mono"><a href="/devices/{{ o.factory }}">{{ o.factory }}</a></td>
+        <td>{{ o.at | ago }}</td><td>{{ ('printed ' ~ o.device_code) if o.device_code else 'queued' }}</td></tr>{% endfor %}</table>
+      <button class="small ghost" hx-post="/loadouts/orders/clear" hx-confirm="Forget these orders? Use this if you cleared a queue by hand — they stop counting as incoming.">Forget orders</button>
+    {% else %}<p class="muted small">None waiting.</p>{% endif %}
+    <h3>Jobs</h3>
+    {% for j in active_jobs %}<div class="small"><span class="pill st-work">{{ j.status }}</span> {{ j.title }} · step {{ j.idx + 1 }}/{{ j.steps | length }}{% if j.steps[j.idx] is defined %}: {{ j.steps[j.idx].desc }}{% endif %}</div>
+    {% else %}<p class="muted small">No loadout jobs running.</p>{% endfor %}
+    {% for j in recent_jobs %}<div class="small muted">{{ j.status }} · {{ j.title }}</div>{% endfor %}
+  </div>
+</div>
+
+<div>
+  <div class="card">
+    <h2>Phases</h2>
+    <p class="muted small">A phase is a stage of a system's development, and how many of each device a system at that stage should have.
+      Leave a box empty for "don't care" (never counted, marked spare or filled); 0 means none wanted, so any there become spare.</p>
+    <form hx-post="/loadouts/phases" hx-swap="none">
+      <div style="overflow-x:auto">
+      <table class="small">
+        <tr><th>Device type</th>{% for ph in cfg.phases %}<th class="num">
+          <input name="name:{{ ph.id }}" value="{{ ph.name }}" style="width:150px"><br>
+          <span class="muted">order</span> <input type="number" name="order:{{ ph.id }}" value="{{ ph.order }}" style="width:46px">
+          <button type="button" class="small ghost" hx-post="/loadouts/phases/{{ ph.id }}/delete" hx-confirm="Delete phase {{ ph.name }}? Systems at this phase go back to 'none'." title="delete">✕</button>
+        </th>{% endfor %}</tr>
+        {% for t in types %}<tr><td>{{ t | human }}</td>
+          {% for ph in cfg.phases %}<td class="num"><input type="number" min="0" name="want:{{ ph.id }}:{{ t }}" value="{{ ph.wants.get(t, '') }}" style="width:56px"></td>{% endfor %}
+        </tr>{% endfor %}
+      </table>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input name="new_phase" placeholder="new phase, e.g. 2 Mining outpost" size="26">
+        {% if cfg.phases %}<select name="copy_from"><option value="">start empty</option>{% for ph in cfg.phases %}<option value="{{ ph.id }}">copy {{ ph.name }}</option>{% endfor %}</select>{% endif %}
+        <button>Save phases</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Settings</h2>
+    <form hx-post="/loadouts/settings" hx-target="#lo-saved">
+      <label>Ignore devices with these tags</label>
+      <input name="ignore_tags" value="{{ cfg.ignore_tags | join(', ') }}" placeholder="keep, reserve, fleet-713" list="lo-tags" style="width:100%">
+      <datalist id="lo-tags">{% for t in all_tags if t != 'spare' and not t.startswith('to:') %}<option value="{{ t }}">{% endfor %}</datalist>
+      <div class="muted small">Comma separated. A device with any of them is invisible to loadouts: not counted, never tagged spare, never moved.</div>
+      <label style="text-transform:none;display:block;margin-top:8px"><input type="checkbox" name="print_missing" {{ 'checked' if cfg.settings.print_missing }}> Print what spares can't cover</label>
+      <label style="text-transform:none;display:block"><input type="checkbox" name="need_stock" {{ 'checked' if cfg.settings.need_stock }}> Only on an autofactory whose stock already covers the cost</label>
+      <label style="text-transform:none;display:block"><input type="checkbox" name="carriers_return" {{ 'checked' if cfg.settings.carriers_return }}> Carriers fly back after a delivery</label>
+      <label style="text-transform:none;display:block"><input type="checkbox" name="use_replicant_vessels" {{ 'checked' if cfg.settings.use_replicant_vessels }}> Allow replicant vessels as carriers <span class="muted">(moves your replicant)</span></label>
+      <div class="row" style="margin-top:8px"><button>Save settings</button><span id="lo-saved"></span></div>
+    </form>
+  </div>
+</div>
+</div>
+{% endblock %}

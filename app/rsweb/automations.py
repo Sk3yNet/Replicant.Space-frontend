@@ -51,6 +51,11 @@ RULES: list[Rule] = [
          "Master switch for the AMI schedules below: every N minutes each schedule checks its controller(s); "
          "if one is idle (or its directive finished) it adopts idle drones of the right kind at its location, "
          "sets the directive and launches it. The controllers do the actual work."),
+    Rule("loadouts", "Keep systems at their loadout",
+         "Every N minutes, apply the Loadouts page: mark devices above a system's loadout as spare, send spares to "
+         "systems that are short, print what's still missing on an autofactory that has the materials, and carry "
+         "it there. Devices with an ignored tag are never touched.",
+         [Option("every_minutes", "int", "Run every (minutes)", 15)]),
     Rule("auto_survey", "Auto-survey new systems",
          "When a vessel arrives in a system with un-surveyed bodies: if an AMI survey controller is there or carried, "
          "deploy it and the survey drones, have it adopt them and run survey_system. Otherwise the drones are "
@@ -421,6 +426,15 @@ class AutomationEngine:
                     surveyed = await self.db.kv_get("surveyed", {}) or {}
                     surveyed[target] = now_iso()
                     await self.db.kv_set("surveyed", surveyed)
+            # a print ordered for a system came out: remember its code until the device list shows it
+            if name == "print.completed" and any(str(t).startswith("to:") for t in p.get("tags") or []):
+                from .loadouts import to_tag
+                orders = await self.db.kv_get("loadout_orders", []) or []
+                for o in orders:
+                    if not o.get("device_code") and o["device_type"] == p.get("device_type") and to_tag(o["star"]) in p["tags"]:
+                        o["device_code"] = p.get("new_device_code") or "?"
+                        break
+                await self.db.kv_set("loadout_orders", orders)
             # wake waiting jobs
             for job in await self.jobs():
                 if job["status"] != "waiting":
@@ -462,6 +476,97 @@ class AutomationEngine:
                     await self._advance(job["id"])
             await self.rule_restart_idle_miners()
             await self.run_due_schedules()
+            await self.run_due_loadouts()
+
+    # --- loadouts --------------------------------------------------------------------------------------
+    async def loadout_cfg(self) -> dict:
+        from .loadouts import normalize
+        return normalize(await self.db.kv_get("loadouts", {}) or {})
+
+    async def loadout_orders(self) -> list[dict]:
+        """Prints ordered for a system and not yet seen as a device (they count as incoming)."""
+        orders = await self.db.kv_get("loadout_orders", []) or []
+        codes = {d.get("device_code") for d in await self.devices()}
+        jobs = {j["id"]: j for j in await self.jobs()}
+        now = _now()
+        keep = []
+        for o in orders:
+            if o.get("device_code") and o["device_code"] in codes:
+                continue  # the printed device is in the device list now, tagged for its system
+            j = jobs.get(o.get("job"))
+            if j and (j["status"] == "failed" or (j["steps"] and j["steps"][0]["status"] == "skipped")):
+                continue  # the enqueue didn't happen
+            at = _ts(o.get("at"))
+            if at and (now - at).total_seconds() > 48 * 3600:
+                continue
+            keep.append(o)
+        if len(keep) != len(orders):
+            await self.db.kv_set("loadout_orders", keep)
+        return keep
+
+    async def loadout_plan(self, only: set[str] | None = None) -> dict:
+        from .loadouts import plan
+        from .shapes import normalize_blueprints, normalize_inventory
+        cfg = await self.loadout_cfg()
+        devices = await self.devices()
+        bps = normalize_blueprints(await self.db.kv_get("blueprints", []))
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
+        reps = await self.db.kv_get("replicants", {}) or {}
+        hosts = {r.get("hosted_device_code"): code for code, r in reps.items() if r.get("hosted_device_code")}
+        busy = self.busy_devices(await self.jobs())
+        return plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
+                    await self.db.kv_get("stowed_map", {}) or {}, only)
+
+    async def apply_loadouts(self, only: set[str] | None = None, manual: bool = False) -> list[str]:
+        from . import loadouts as lo
+        cfg = await self.loadout_cfg()
+        p = await self.loadout_plan(only)
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
+        stowed_in = {c: k for k, kids in (await self.db.kv_get("stowed_map", {}) or {}).items() for c in kids}
+        lines = lo.describe(p)
+        started = 0
+        tags = lo.tag_steps(p)
+        if tags:
+            started += bool(await self.create_job("loadouts", f"loadouts: spare tags ({len(tags)})", None, tags,
+                                                  {"devices": []}, force=manual))
+        orders = await self.db.kv_get("loadout_orders", []) or []
+        for pr in p["prints"]:
+            job = await self.create_job("loadouts", f"loadouts: print {pr['n']}× {pr['device_type']} for {pr['star']}",
+                                        pr["factory"], lo.print_steps(pr), {"devices": [], "star": pr["star"]}, force=manual)
+            if job:
+                started += 1
+                orders += [{"star": pr["star"], "device_type": pr["device_type"], "factory": pr["factory"],
+                            "at": now_iso(), "job": job["id"]} for _ in range(pr["n"])]
+        await self.db.kv_set("loadout_orders", orders)
+        for code, dest in p["self_moves"]:
+            started += bool(await self.create_job("loadouts", f"loadouts: {code} → {dest}", code,
+                                                  lo.self_move_steps(code, dest, stars, p["by_code"][code]),
+                                                  {"devices": [code], "star": dest}, force=manual))
+        for dl in p["deliveries"]:
+            started += bool(await self.create_job(
+                "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']}", dl["carrier"],
+                lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"]),
+                {"devices": dl["devices"], "star": dl["to"]}, force=manual))
+        for code in p["arrived"]:
+            steps = lo.arrived_steps(code, p["by_code"][code], stowed_in)
+            if steps:
+                started += bool(await self.create_job("loadouts", f"loadouts: {code} arrived", code, steps,
+                                                      {"devices": [code]}, force=manual))
+        await self.db.kv_set("loadouts_last", {"at": now_iso(), "lines": lines, "jobs": started,
+                                               "dry_run": (await self.settings())["dry_run"] and not manual})
+        return lines
+
+    async def run_due_loadouts(self) -> None:
+        cfg = await self.rule_cfg("loadouts")
+        if not cfg:
+            return
+        last = _ts(((await self.db.kv_get("loadouts_last", {})) or {}).get("at"))
+        if last and (_now() - last).total_seconds() < 60 * max(1, int(cfg.get("every_minutes") or 15)):
+            return
+        await self.apply_loadouts()
 
     # --- AMI schedules ---------------------------------------------------------------------------------
     async def schedules(self) -> list[dict]:

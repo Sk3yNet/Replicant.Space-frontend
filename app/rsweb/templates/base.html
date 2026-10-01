@@ -17,7 +17,7 @@
   <nav class="main">
     {% for key, href, label in [
       ("dashboard", "/", "Dashboard"), ("tree", "/tree", "Tree"), ("fleet", "/fleet", "Fleet"), ("systems", "/systems", "Systems"),
-      ("map", "/map", "Galaxy"), ("blueprints", "/blueprints", "Blueprints"), ("ami", "/ami", "AMI"),
+      ("map", "/map", "Galaxy"), ("blueprints", "/blueprints", "Blueprints"), ("loadouts", "/loadouts", "Loadouts"), ("ami", "/ami", "AMI"),
       ("automations", "/automations", "Automations"), ("events", "/events", "Events"), ("messages", "/messages", "Messages"), ("console", "/console", "Console")] %}
       <a href="{{ href }}" class="{{ 'on' if active == key }}">{{ label }}{% if key == 'messages' and rate.unread %}<span class="badge">{{ rate.unread }}</span>{% endif %}</a>
     {% endfor %}
