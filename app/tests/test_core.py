@@ -445,7 +445,7 @@ def test_auto_survey_end_to_end_against_mock(client):
     # the vessel arrives at SOL-BELT-1
     arrival = {"id": "9999999999999-0", "event": "travel.arrived", "category": "travel", "device_code": "11ADA230",
                "device_type": "heaven_vessel", "location": "SOL-BELT-1", "star": "SOL",
-               "payload": {"destination": "SOL-BELT-1"}, "created_at": "2026-09-30T12:00:00+00:00"}
+               "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"}, "created_at": "2026-09-30T12:00:00+00:00"}
     client.portal.call(client.app.state.worker.handle_event, arrival)
 
     async def finished():
@@ -479,7 +479,7 @@ def test_dry_run_sends_nothing(client):
     r = client.post("/automations/survey-now", data={"vessel": "11ADA230"}, headers=HX)
     assert r.status_code == 200
     arrival = {"id": "8888888888888-0", "event": "travel.arrived", "device_code": "11ADA230", "device_type": "heaven_vessel",
-               "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1"}, "created_at": "2026-09-30T12:00:00+00:00"}
+               "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"}, "created_at": "2026-09-30T12:00:00+00:00"}
     client.portal.call(client.app.state.worker.handle_event, arrival)
     after = client.portal.call(client.app.state.db.fetchone, "SELECT COUNT(*) n FROM actions WHERE user='automation'")
     assert after["n"] == before["n"] == 0
@@ -771,7 +771,7 @@ def test_planner_without_mining_controller_warns():
 def _arrive(client, n):
     client.portal.call(client.app.state.worker.handle_event, {
         "id": f"66666666666{n:02d}-0", "event": "travel.arrived", "device_code": "11ADA230", "device_type": "heaven_vessel",
-        "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1"}, "created_at": "2026-09-30T12:00:00+00:00"})
+        "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"}, "created_at": "2026-09-30T12:00:00+00:00"})
 
 
 def _beacon_jobs(client):
@@ -1130,3 +1130,40 @@ def test_loadout_roles_page(client):
     assert r.headers.get("HX-Refresh")
     page = client.get("/loadouts", headers=H).text
     assert 'value="source" selected' in page and "materials from SOL: no destination system set" in page
+
+
+def test_arrival_rules_ignore_in_system_hops_and_surveyed_systems(client):
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.get("/systems/SOL", headers=H)  # cache the scan
+    client.post("/automations/rules/auto_survey", data={"enabled": "on", "use_idle": "on", "include_belts": "on",
+                                                        "max_targets": "20", "use_ami": "on"}, headers=HX)
+
+    def arrive(n, **payload):
+        client.portal.call(client.app.state.worker.handle_event, {
+            "id": f"77777777777{n:02d}-0", "event": "travel.arrived", "device_code": "TC000001", "device_type": "transport",
+            "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1", **payload}, "created_at": "2026-09-30T12:00:00+00:00"})
+
+    def survey_jobs():
+        return [j for j in client.portal.call(eng.jobs) if j["rule"] == "auto_survey"]
+
+    arrive(1, origin="SOL-3")                     # a transport hopping inside SOL: nothing happens
+    assert survey_jobs() == []
+    # an AMI survey controller finishing survey_system marks every body in SOL as surveyed …
+    client.portal.call(client.app.state.worker.handle_event, {
+        "id": "7777777777799-0", "event": "directive.completed", "device_code": "SC000001", "device_type": "ami_survey_controller",
+        "location": "SOL-BELT-1", "star": "SOL", "payload": {"directive": "survey_system"}, "created_at": "2026-09-30T12:00:00+00:00"})
+    surveyed = client.portal.call(client.app.state.db.kv_get, "surveyed")
+    assert {"SOL-3", "SOL-5", "SOL-BELT-1"} <= set(surveyed)
+    # … so even a surge arrival from another system doesn't start a survey there again
+    arrive(2, origin="ABOTEIN-OORT", travel_type="surge")
+    assert survey_jobs() == []
+
+
+def test_arrived_from_elsewhere(client):
+    eng = client.app.state.worker.automations
+    f = lambda p: client.portal.call(eng.arrived_from_elsewhere, {"device_code": "X1", "payload": p}, "SOL")  # noqa: E731
+    assert f({"origin": "SOL-3"}) is False
+    assert f({"origin": "ABOTEIN-OORT"}) is True
+    assert f({"travel_type": "surge_hop"}) is True
+    assert f({}) is False      # no origin known at all: treated as a local move

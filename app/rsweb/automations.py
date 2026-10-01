@@ -431,11 +431,15 @@ class AutomationEngine:
             p = ev.get("payload") or {}
             # remember what has been surveyed
             if name in ("scan.completed", "search.completed"):
-                target = p.get("scan_target") or p.get("search_target") or ev.get("location")
+                target = (p.get("scan_target") or p.get("search_target") or p.get("target") or p.get("body")
+                          or p.get("designation") or ev.get("location"))
                 if target:
                     surveyed = await self.db.kv_get("surveyed", {}) or {}
                     surveyed[target] = now_iso()
                     await self.db.kv_set("surveyed", surveyed)
+            # an AMI survey controller finished survey_system: the whole system counts as surveyed
+            if name == "directive.completed" and "survey" in (ev.get("device_type") or ""):
+                await self.mark_system_surveyed(star_of(ev.get("location")) or ev.get("star") or "", ev.get("device_code"))
             # a print ordered for a system came out: remember its code until the device list shows it
             if name == "print.completed" and any(str(t).startswith("to:") for t in p.get("tags") or []):
                 from .loadouts import to_tag
@@ -702,6 +706,32 @@ class AutomationEngine:
         return None
 
     # --- rules -------------------------------------------------------------------------------------------
+    async def mark_system_surveyed(self, star: str, by: str | None = None) -> None:
+        if not star:
+            return
+        done = await self.db.kv_get("ami_surveyed", {}) or {}
+        done[star] = now_iso()
+        await self.db.kv_set("ami_surveyed", done)
+        scan = await self.system_scan(star)
+        if scan:
+            surveyed = await self.db.kv_get("surveyed", {}) or {}
+            for t in survey_targets(scan, {}, True, True, 10_000):
+                surveyed.setdefault(t["target"], now_iso())
+            await self.db.kv_set("surveyed", surveyed)
+        await self.log("auto_survey", f"{star} fully surveyed" + (f" by {by}" if by else ""))
+
+    async def arrived_from_elsewhere(self, ev: dict, star: str) -> bool:
+        """True when this arrival brought the device into `star` from another system (not an in-system hop)."""
+        p = ev.get("payload") or {}
+        if str(p.get("travel_type") or "").startswith("surge"):
+            return True
+        origin = p.get("origin")
+        if not origin:
+            row = await self.db.fetchone("SELECT payload FROM events WHERE device_code=? AND event='travel.departed' "
+                                         "ORDER BY seq DESC LIMIT 1", (ev.get("device_code"),))
+            origin = (json.loads(row["payload"] or "{}") if row else {}).get("origin")
+        return bool(origin) and star_of(origin) != star
+
     async def on_arrival(self, ev: dict) -> None:
         vessel = ev.get("device_code")
         p = ev.get("payload") or {}
@@ -709,6 +739,8 @@ class AutomationEngine:
         star = star_of(dest) or ev.get("star")
         if not vessel or not star:
             return
+        if not await self.arrived_from_elsewhere(ev, star):
+            return  # moving around inside a system never re-triggers the arrival rules
         s = await self.settings()
         enabled = {rid for rid, cfg in s["rules"].items() if cfg.get("enabled")}
         if not enabled:
@@ -799,6 +831,8 @@ class AutomationEngine:
         if any(j["rule"] == "auto_survey" and j["status"] in ("running", "waiting") and j["meta"].get("star") == star
                for j in jobs):
             return
+        if star in (await self.db.kv_get("ami_surveyed", {}) or {}):
+            return  # an AMI survey_system already covered every body
         scan = await self.system_scan(star)
         if not scan:
             await self.log("auto_survey", f"no scan data for {star}; enable 'System scan on arrival' or scan manually")
@@ -877,6 +911,10 @@ class AutomationEngine:
             drones += [d["device_code"] for d in devices if "survey_drone" in (d.get("device_type") or "")
                        and d.get("location") == (ctrl.get("location") if not carried_ctrl else vessel_loc)
                        and str(d.get("status", "")).startswith("idle") and d["device_code"] not in busy | set(drones)]
+        from .ami_schedule import managed_by
+        already = [d for d, c in (await managed_by(self.db)).items() if c == code]
+        if not drones and not already:
+            return False  # a controller with no drones can't survey anything; let the drone path decide
         if drones:
             steps.append(step(f"{code}: adopt {len(drones)} survey drone(s)", f"/devices/{code}", {"command": "adopt", "devices": drones}))
         config = {"planets": "all", "moons": "all" if cfg.get("include_moons") else "none",
@@ -884,7 +922,7 @@ class AutomationEngine:
         steps.append(step(f"{code}: survey_system", f"/devices/{code}",
                           {"command": "set_directive", "directive": "survey_system", "configuration": config}, critical=True))
         steps.append(step(f"{code}: launch", f"/devices/{code}", {"command": "launch"}))
-        job = await self.create_job("auto_survey", f"survey {star} with AMI {code} ({len(drones)} drones)", code, steps,
+        job = await self.create_job("auto_survey", f"survey {star} with AMI {code} ({len(drones) + len(already)} drones)", code, steps,
                                     {"star": star, "devices": drones, "ami": True})
         return True if job is not None or (await self.settings())["dry_run"] else False
 
