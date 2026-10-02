@@ -874,3 +874,8 @@ window; the `category=mining` filter returned nothing — use `after=` to get re
 all ami_*_controller types, maintenance_drone, ftl_beacon, ftl_relay, ftl_slingshot, system_ward, surge_plate, replicant_matrix.
 No stow on transport_drone, transport_hauler, cargo_freighter, autofactory, heaven_vessel. The player confirms drones ride in a
 heaven_vessel hold.
+
+**Partial exhaustion (live 2026-10-02T20:39Z):** a mining controller can report `exhausted:['silicates', 'structural']:<belt>`
+while its drones keep mining other resources there; `active:{'carbon': 1, 'silicates': 1, 'structural': 2}:<belt>` is the
+healthy state (drones per resource). **Detach after arrival:** several deliveries failed on `detach` with "Target device is not
+attached to this carrier" — the carrier had already released the cargo; treated as done.

@@ -221,7 +221,9 @@ def roster(fleet: dict, devices: list[dict]) -> dict:
                    {star_of(next((c.get("location") for c in ms if c["device_code"] == v), "")) for v in riding.values()} - {""})
     return {"members": ms, "rows": rows, "carriers": carriers, "riding": riding, "stars": stars,
             "capacity": sum(capacity(c) for c in carriers), "hold": sum(hold(c) for c in carriers),
-            "passengers": [d for d in ms if not is_carrier(d) and not flies_itself(d)]}
+            "passengers": [d for d in ms if not is_carrier(d) and not flies_itself(d)],
+            "loose": [d for d in ms if not is_carrier(d) and not flies_itself(d)
+                      and not aboard(d, {c["device_code"] for c in carriers})]}
 
 
 def next_phase(role: str, m: dict) -> str | None:

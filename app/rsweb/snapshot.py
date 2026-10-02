@@ -233,7 +233,10 @@ def diagnose(snap: dict) -> dict:
                      and d["device_code"] not in managed and str(d.get("status") or "").startswith("idle")]
         notes = []
         st = str(dv["state"] or "")
-        if not dv["name"]:
+        fleet = next((t[6:] for t in c.get("tags") or [] if t.startswith("fleet:")), None)
+        if not dv["name"] and fleet:
+            notes.append(f"fleet {fleet}: idle until you launch a mission (the app's rules leave fleet devices alone)")
+        elif not dv["name"]:
             notes.append("no directive: it won't do anything until one is set" +
                          (" (an AMI schedule targets it)" if sched_for(c) else " and no AMI schedule targets it"))
         elif st.startswith("exhausted"):
@@ -245,6 +248,9 @@ def diagnose(snap: dict) -> dict:
             if place and belt_of(place) is None and best:
                 notes.append(f"exhausted at {place}, where its drones are (not a belt) — {best} has {open_b[best]} open site(s): "
                              "the drones need to come back to the belt (Salvage when depleted → back to the belt does this)")
+            elif mining:
+                notes.append(f"partly exhausted ({st.split(':')[1] if st.count(':') >= 2 else st}) — its drones are mining "
+                             "the other resources, which is fine")
             elif place and place == best:
                 notes.append(f"stale 'exhausted' at {place}: the belt has {open_b[best]} open site(s) again — re-set the directive and launch")
             else:
@@ -362,10 +368,10 @@ def diagnose(snap: dict) -> dict:
     no_sites = sorted({r["belt"]["belt"] for r in drone_rows if r["state"] != "mining" and r["belt"].get("open_sites") == 0})
     if no_sites:
         headline.append(f"belts with no open sites: {', '.join(no_sites)}")
-    no_dir = [c["code"] for c in ctrl_rows if not c["directive"]["name"]]
+    no_dir = [c["code"] for c in ctrl_rows if not c["directive"]["name"] and not any(t.startswith("fleet:") for t in c["tags"])]
     if no_dir:
         headline.append(f"controllers with no directive: {', '.join(no_dir)}")
-    ex = [c["code"] for c in ctrl_rows if str(c["directive"]["state"] or "").startswith("exhausted")]
+    ex = [c["code"] for c in ctrl_rows if str(c["directive"]["state"] or "").startswith("exhausted") and not c["mining"]]
     if ex:
         headline.append(f"controllers reporting exhausted: {', '.join(ex)}")
     off = [r for r in ("restart_idle_miners", "ami_schedules", "reopen_sites") if not on.get(r)]

@@ -149,6 +149,8 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
         if not belt:
             continue
         kids = [k for k, v in run_by.items() if v == code and (by.get(k) or {}).get("device_type") == "mining_drone"]
+        if any(str((by.get(k) or {}).get("status") or "").startswith("mining") for k in kids):
+            continue  # partly exhausted (some resources) but its drones are mining the rest: leave it alone
         away = sorted(k for k in kids if (by.get(k) or {}).get("location") and by[k]["location"] != belt
                       and not str(by[k].get("status") or "").startswith(("travel", "cruis", "surg", "recall")))
         why = (f"exhausted at {place}, its drones are away from {belt}" if place and place != belt else

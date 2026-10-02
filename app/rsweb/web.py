@@ -2194,17 +2194,27 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
 async def fleets_control(request: Request, fid: str, action: str = Form(...), user: str = Depends(current_user)):
     eng, items = await _fleets(request)
     f = next((x for x in items if x["id"] == fid), None)
+    if f and action == "end" and not f.get("mission"):
+        f["mission"] = {"status": "ended", "targets": [], "log": []}   # no mission yet: just gather everyone aboard
     m = (f or {}).get("mission") or {}
     if not f or not m:
         return HTMLResponse("", status_code=404)
     async with eng.lock:
         if m.get("job"):
             await eng.cancel(m["job"])
-        if action == "recall":
+        if action == "end":
+            m["status"], m["end_here"] = "running", True
+            m.pop("end_started", None)
+            eng._mlog(m, "end mission ordered: recall everything aboard the carriers and stay here")
+        elif action == "recall":
             m["status"], m["phase"] = "running", ("work" if f["role"] != "trade" else "trade")
             if f["role"] == "explore":
                 m["targets"] = (m.get("targets") or [])[:m.get("idx", 0) + 1]  # no further targets
             eng._mlog(m, "recall ordered")
+        elif action == "resume" and m.get("end_here"):
+            m["status"] = "running"
+            m.pop("end_started", None)   # re-run the recall & board
+            eng._mlog(m, "resumed (end mission & board)")
         elif action == "resume":
             m["status"] = "running"
             # re-run the phase that stalled

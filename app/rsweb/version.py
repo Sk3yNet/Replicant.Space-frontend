@@ -16,11 +16,18 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.6.1"
+VERSION = "1.7.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.7.0", "2026-10-02", "Fleets: 'End mission & board' — stop the mission now, clear controller directives, bring every device "
+                            "back aboard its carriers (stow or attach) and stay where it is. 'Board everyone' does the same for an "
+                            "idle fleet. 'Recall now' is now 'Recall & return home'."),
+    ("1.6.3", "2026-10-02", "Diagnostics: an idle fleet controller with no directive is shown as waiting for a mission, not as a problem."),
+    ("1.6.2", "2026-10-02", "Back to the belt leaves a controller alone while its drones are mining (partial exhaustion, e.g. "
+                            "exhausted:['silicates','structural'] while mining the rest). A detach that fails with 'not attached to "
+                            "this carrier' counts as done (carriers release cargo on arrival)."),
     ("1.6.1", "2026-10-02", "Fleets: whether a device fits in a hold comes from its own features/commands (stow), not a type list; "
                             "live data confirms drones and controllers stow, transport drones/haulers don't."),
     ("1.6.0", "2026-10-02", "Fleets: cargo vessels (50 hold + 3 attach) and other vessels with a hold count as carriers. The carrying "

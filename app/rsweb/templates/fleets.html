@@ -14,7 +14,7 @@
 <div class="card" style="margin-bottom:14px">
   <div class="row between">
     <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }} · <code>fleet:{{ f.id }}</code></span></h2>
-    <span>{% if m.status %}<span class="pill {{ {'running': 'st-work', 'done': 'lv-done', 'stalled': 'lv-alert'}.get(m.status, '') }}">{{ m.status }}{% if m.status == 'running' %}: {{ m.phase }}{% endif %}</span>{% endif %}</span>
+    <span>{% if m.status %}<span class="pill {{ {'running': 'st-work', 'done': 'lv-done', 'stalled': 'lv-alert', 'ended': 'lv-done'}.get(m.status, '') }}">{{ m.status }}{% if m.status == 'running' %}: {{ m.phase }}{% endif %}</span>{% endif %}</span>
   </div>
   <div class="grid g2">
     <div>
@@ -77,11 +77,22 @@
         {% if m.watch_note and m.phase == 'watch' %}<div class="small">watching: {{ m.watch_note }}</div>{% endif %}
         {% if f.job %}<div class="small muted">job: {{ f.job.title }} · step {{ f.job.idx + 1 }}/{{ f.job.steps | length }}{% if f.job.steps[f.job.idx] is defined %} — {{ f.job.steps[f.job.idx].desc }}{% endif %}</div>{% endif %}
         <div class="row" style="margin-top:6px">
-          <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "recall"}' hx-swap="none">Recall now</button>
+          <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "end"}' hx-swap="none"
+                  hx-confirm="End the mission now? Controllers stop, every device returns to its place on a fleet carrier, and the fleet stays where it is."
+                  title="Stop work, bring every device back aboard its carriers, stay in this system">End mission &amp; board</button>
+          <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "recall"}' hx-swap="none"
+                  title="Finish up: recall, fly home and unload">Recall &amp; return home</button>
           {% if m.status == 'stalled' %}<button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "resume"}' hx-swap="none">Retry</button>{% endif %}
           <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "stop"}' hx-swap="none" hx-confirm="Stop the mission? Devices stay where they are.">Stop</button>
         </div>
       {% else %}
+        {% if m.status == 'ended' %}<p class="small">Last mission ended early{% if m.log %}: {{ m.log[-1].text }}{% endif %}.</p>{% endif %}
+        {% if r.loose %}
+        <div class="row small" style="margin-bottom:6px">
+          <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "end"}' hx-swap="none"
+                  title="Bring every member back aboard a fleet carrier where it is">Board everyone</button>
+          <span class="muted">{{ r.loose | length }} member(s) not aboard: {{ r.loose | map(attribute='device_code') | join(', ') }}</span></div>
+        {% endif %}
         <h3>New mission</h3>
         <form hx-post="/fleets/{{ f.id }}/mission" hx-swap="none">
           {% if f.role == 'trade' %}

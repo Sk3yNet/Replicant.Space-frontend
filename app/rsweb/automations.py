@@ -428,6 +428,11 @@ class AutomationEngine:
             if not ok and "already at destination" in (err or "").lower():
                 ok, st["note"] = True, err  # nothing to do: count it as done and move on
                 st["wait"] = []
+            if (not ok and (st.get("body") or {}).get("command") == "detach"
+                    and "not attached to this carrier" in (err or "").lower()):
+                # seen live: carriers let go of their cargo on arrival, so the device is already off — that's the goal
+                ok, st["note"] = True, err
+                st["wait"] = []
             if not ok:
                 st["error"] = err
                 if st["tries"] < 2 and "rate" in (err or "").lower():
@@ -1156,7 +1161,7 @@ class AutomationEngine:
                     self._mlog(m, "deliver mode, but no destination system is set on the Loadouts page — hauling instead")
             return fl.mining_work_steps(fleet, devices, belt, deliver_to)
         if phase == "recall":
-            haul = m.get("belt") if fleet["role"] == "mining" and not m.get("deliver_to") else None
+            haul = m.get("belt") if fleet["role"] == "mining" and not m.get("deliver_to") and not m.get("end_here") else None
             return fl.recall_steps(fleet, devices, inv, haul), []
         if phase == "return":
             return fl.travel_steps(fleet, devices, fleet["home"], stars), []
@@ -1200,6 +1205,32 @@ class AutomationEngine:
                 m["status"] = "stalled"
                 self._mlog(m, f"stalled in {m.get('phase')}: {next((s.get('error') for s in j['steps'] if s['status'] == 'failed'), 'a step failed')}")
                 await self.log("fleets", f"{fleet['name']}: stalled in {m.get('phase')}", "alert", notify=True)
+                changed = True
+                continue
+            if m.get("end_here"):
+                # "End mission & board": one recall job (directives cleared, everyone back aboard a carrier), then stop
+                # where the fleet is — no return trip
+                if m.get("end_started"):
+                    at = ", ".join(fl.roster(fleet, devices)["stars"]) or "?"
+                    m["status"], m["job"] = "ended", None
+                    m.pop("end_here", None), m.pop("end_started", None)
+                    self._mlog(m, f"mission ended early — fleet aboard its carriers in {at}")
+                    await self.log("fleets", f"{fleet['name']}: mission ended early, fleet aboard in {at}", notify=True)
+                    changed = True
+                    continue
+                m["phase"], m["phase_at"], m["end_started"] = "recall", now_iso(), True
+                steps, problems = await self.fleet_phase_steps(fleet, m, "recall", devices)
+                for pr in problems:
+                    self._mlog(m, f"recall: {pr}")
+                if steps:
+                    codes = [d["device_code"] for d in fl.members(fleet, devices)]
+                    job = await self.create_job("fleets", f"{fleet['name']}: end mission & board", None, steps,
+                                                {"devices": codes, "fleet": fleet["id"]}, force=True)
+                    m["job"] = job["id"] if job else None
+                    self._mlog(m, f"ending: recall & board, {len(steps)} step(s)")
+                else:
+                    m["job"] = None
+                    self._mlog(m, "ending: everyone is already aboard")
                 changed = True
                 continue
             phases = fl.PHASES[fleet["role"]]

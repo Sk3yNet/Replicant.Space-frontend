@@ -2319,7 +2319,8 @@ def test_live_diagnosis_runs_clean():
     assert "0 of 12 mining drones are mining" in d["headline"]
     ctrl = {c["code"]: c for c in d["controllers"]}
     assert any("drones are away" in n or "back to" in n for n in ctrl["84EE1EF1"]["notes"])
-    assert any("no AMI schedule targets it" in n for n in ctrl["D0011B15"]["notes"])   # fleet controllers aren't schedule targets
+    assert any("idle until you launch a mission" in n for n in ctrl["D0011B15"]["notes"])   # fleet controllers wait for a mission
+    assert not any("D0011B15" in h for h in d["headline"])
 
 
 def test_live_back_to_belt_rule_and_schedule(client):
@@ -2372,3 +2373,94 @@ def test_stowable_follows_live_device_data():
     for t in ("transport_drone", "transport_hauler", "cargo_freighter"):
         if t in by_type:
             assert not fl.stowable(by_type[t]), t
+
+
+def _live_b():
+    import pathlib
+    return json.loads((pathlib.Path(__file__).parent / "fixtures" / "live_2026-10-02b.json").read_text())
+
+
+def test_live_after_recovery_leaves_partly_exhausted_controller_alone():
+    """Second snapshot (20:39Z): every drone mining; F32E05A7 reports exhausted for silicates/structural only."""
+    from rsweb import salvage as sv
+    from rsweb.snapshot import devices_of, diagnose
+    snap = _live_b()
+    devices = devices_of(snap)
+    belts = {c["path"].split("/")[2]: c["body"] for c in snap["calls"] if c["path"].startswith("/locations/")}
+    open_sites = {b: sv.open_site_count(d) for b, d in belts.items()}
+    ctrls = [d for d in devices if d.get("device_type") == "ami_mining_controller"]
+    assert sv.back_to_belt_plan(ctrls, devices, snap["app"]["managed_by"], open_sites,
+                                {b.split("-")[0]: [b] for b in belts}, set()) == []
+    snap["app"].update(jobs=[], log=[])
+    d = diagnose(snap)
+    assert "12 of 12 mining drones are mining" in d["headline"]
+    assert not any("reporting exhausted" in h for h in d["headline"])
+    f = next(c for c in d["controllers"] if c["code"] == "F32E05A7")
+    assert any("partly exhausted" in n for n in f["notes"]) and not any("stale" in n for n in f["notes"])
+
+
+def test_detach_already_released_counts_as_done(client):
+    from rsweb.automations import step
+    eng = client.app.state.worker.automations
+    world = client.app.state.api.http._transport.app.state.world
+    async def fake_send(method, path, body, why):
+        return False, None, "Target device is not attached to this carrier"
+    orig = eng.send
+    eng.send = fake_send
+    try:
+        job = client.portal.call(eng.create_job, "loadouts", "detach test", "SP000001",
+                                 [step("SP000001: detach X", "/devices/SP000001", {"command": "detach", "device": "X"}, critical=True),
+                                  step("tag X", "/devices/X", {"configuration": {"add_tags": ["home:sol"]}}, method="PATCH")],
+                                 {"devices": []}, True)
+    finally:
+        eng.send = orig
+    j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
+    assert j["steps"][0]["status"] == "done" and j["status"] != "failed"
+
+
+def test_fleet_end_mission_and_board(client):
+    eng = client.app.state.worker.automations
+    fleet, devices = _fleet_world()
+    fleet["mission"] = {"status": "running", "phase": "watch", "targets": ["AEM"], "belt": "AEM-BELT-1", "log": []}
+    for d in devices:
+        if d["device_code"] == "MC000001":
+            d["ami_directive"] = {"name": "gather_evenly"}
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(eng.save_fleets, [fleet])
+    page = client.get("/fleets", headers=H).text
+    assert "End mission &amp; board" in page and "Recall &amp; return home" in page
+    r = client.post(f"/fleets/{fleet['id']}/control", data={"action": "end"}, headers=HX)
+    assert r.headers.get("HX-Refresh")
+    f = client.portal.call(eng.fleets)[0]
+    m = f["mission"]
+    assert m["phase"] == "recall" and m.get("end_started") and m["status"] in ("running", "stalled")
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == m["job"]) if m.get("job") else None
+    assert job and job["title"].endswith("end mission & board")
+    cmds = [(s["path"], (s["body"] or {}).get("command")) for s in job["steps"]]
+    assert ("/devices/MC000001", "clear_directive") in cmds
+    assert not any(c == "collect_resources" for _, c in cmds)          # ending early: no hauling
+    assert any(c in ("attach", "stow") for _, c in cmds)                # everyone boards a carrier
+    assert not any(p.endswith("MF000001") and c == "travel" for p, c in cmds)   # no trip home
+    # once the recall job is over, the mission ends where it is
+    jobs = client.portal.call(eng.jobs)
+    for j in jobs:
+        if j["id"] == m["job"]:
+            j["status"] = "done"
+    client.portal.call(eng.save_jobs, jobs)
+    f = client.portal.call(eng.fleets)[0]
+    f["mission"]["status"] = "running"
+    client.portal.call(eng.save_fleets, [f])
+    client.portal.call(eng.run_fleets)
+    f = client.portal.call(eng.fleets)[0]
+    assert f["mission"]["status"] == "ended" and "ended early" in f["mission"]["log"][-1]["text"]
+
+
+def test_fleet_board_everyone_without_a_mission(client):
+    eng = client.app.state.worker.automations
+    fleet, devices = _fleet_world()
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(eng.save_fleets, [fleet])
+    assert "Board everyone" in client.get("/fleets", headers=H).text
+    client.post(f"/fleets/{fleet['id']}/control", data={"action": "end"}, headers=HX)
+    m = client.portal.call(eng.fleets)[0]["mission"]
+    assert m["phase"] == "recall" and m.get("end_started")
