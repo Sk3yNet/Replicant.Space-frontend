@@ -540,6 +540,7 @@ class AutomationEngine:
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
+            await self.run_fleets()
             await self.rule_contracts()
             await self.rule_reopen_sites()
             await self.rule_salvage()
@@ -954,6 +955,8 @@ class AutomationEngine:
         if cfg.get("use_idle", True):
             have = {d for d, _ in drones}
             for d in await self.devices():
+                if any(t.startswith("fleet:") for t in d.get("tags") or []):
+                    continue
                 if ("survey" in (d.get("device_type") or "") and star_of(d.get("location")) == star
                         and str(d.get("status", "")).startswith("idle") and d["device_code"] not in busy | have):
                     drones.append((d["device_code"], False))
@@ -989,7 +992,7 @@ class AutomationEngine:
     async def survey_with_ami(self, vessel: str, vessel_loc: str, star: str, stowed: list[dict], cfg: dict,
                               busy: set) -> bool:
         """Survey via an AMI survey controller (carried or already in the system). True if a job was made."""
-        devices = await self.devices()
+        devices = [d for d in await self.devices() if not any(t.startswith("fleet:") for t in d.get("tags") or [])]
         carried_ctrl = next((i for i in stowed if "survey" in (i.get("device_type") or "") and "controller" in (i.get("device_type") or "")
                              and i["device_code"] not in busy), None)
         in_system = next((d for d in devices if "survey" in (d.get("device_type") or "") and "controller" in (d.get("device_type") or "")
@@ -1041,6 +1044,139 @@ class AutomationEngine:
         if len(live) != len(ex):
             await self.db.kv_set("exhausted_places", live)
         return list(live)
+
+    # --- mobile fleets ---------------------------------------------------------------------------------
+    async def fleets(self) -> list[dict]:
+        return await self.db.kv_get("fleets", []) or []
+
+    async def save_fleets(self, items: list[dict]) -> None:
+        await self.db.kv_set("fleets", items)
+
+    def _mlog(self, m: dict, text: str) -> None:
+        m.setdefault("log", []).append({"at": now_iso(), "text": text})
+        m["log"] = m["log"][-60:]
+
+    async def fleet_phase_steps(self, fleet: dict, m: dict, phase: str, devices: list[dict]) -> tuple[list[dict], list[str]]:
+        from . import fleets as fl
+        from . import loadouts as lo
+        from .shapes import normalize_inventory
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {x.get("designation"): x for x in (cat.get("stars") or []) if isinstance(x, dict)}
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        target = (m.get("targets") or [None])[m.get("idx", 0)] if m.get("targets") else None
+        opts = m.get("opts") or {}
+        if phase == "assemble":
+            return fl.assemble_steps(fleet, devices)
+        if phase == "gather":
+            plan = fl.gather_plan(fleet, devices, stars, self.busy_devices(await self.jobs()))
+            if plan["recruit"]:
+                self._mlog(m, "recruiting spares: " + ", ".join(f"{d['device_code']} ({d.get('device_type')})" for d in plan["recruit"]))
+            if plan["tour"]:
+                self._mlog(m, f"{plan['carrier']} collects from " + ", ".join(f"{s_} ({len(ds)})" for s_, ds in plan["tour"]))
+            return fl.gather_steps(fleet, plan, stars), plan["problems"]
+        if phase == "travel":
+            return fl.travel_steps(fleet, devices, target, stars), []
+        if phase == "deploy":
+            return fl.unload_steps(fleet, devices), []
+        if phase == "work":
+            if fleet["role"] == "explore":
+                return fl.explore_work_steps(fleet, devices)
+            belt = fl.richest_belt(target, await self.system_scan(target))
+            m["belt"] = belt
+            deliver_to = None
+            if opts.get("deliver"):
+                cfg = await self.loadout_cfg()
+                pos = {k: (v or {}).get("position") or {} for k, v in stars.items()}
+                dests = [s for s, r in cfg["roles"].items() if r == "destination" and s != target]
+                if dests:
+                    near = min(dests, key=lambda d: (lo._dist(target, d, pos), d))
+                    deliver_to = lo.drop_point(near, devices, inv, stars)
+                    m["deliver_to"] = deliver_to
+                else:
+                    self._mlog(m, "deliver mode, but no destination system is set on the Loadouts page — hauling instead")
+            return fl.mining_work_steps(fleet, devices, belt, deliver_to)
+        if phase == "recall":
+            haul = m.get("belt") if fleet["role"] == "mining" and not m.get("deliver_to") else None
+            return fl.recall_steps(fleet, devices, inv, haul), []
+        if phase == "return":
+            return fl.travel_steps(fleet, devices, fleet["home"], stars), []
+        if phase == "unload":
+            steps = fl.unload_steps(fleet, devices)
+            pile = lo.drop_point(fleet["home"], devices, inv, stars)
+            for d in fl.members(fleet, devices):
+                if int(d.get("cargo_used") or 0) > 0 and d.get("device_type") in ("cargo_freighter", "transport_hauler", "transport_drone"):
+                    st = step(f"{d['device_code']} → {pile}", f"/devices/{d['device_code']}", {"command": "travel", "destination": pile},
+                              wait=["travel.arrived"], match={"destination": pile})
+                    st["wait_device"] = d["device_code"]
+                    steps += [st, step(f"{d['device_code']}: unload", f"/devices/{d['device_code']}", {"command": "deposit_resources"})]
+            return steps, []
+        if phase == "load":
+            t = m.get("trade") or {}
+            return fl.trade_load_steps(fleet, devices, t.get("price") or {}, lo.pickup_point(fleet["home"], inv))
+        if phase == "deliver":
+            return fl.trade_deliver_steps(fleet, devices, (m.get("trade") or {}).get("location") or ""), []
+        if phase == "trade":
+            t = m.get("trade") or {}
+            return [step(f"trade {t.get('trade_code')} at {t.get('controller')}", f"/devices/{t.get('controller')}/trades/{t.get('trade_code')}",
+                         None, critical=True)], []
+        return [], []
+
+    async def run_fleets(self) -> None:
+        from . import fleets as fl
+        items = await self.fleets()
+        if not any((f.get("mission") or {}).get("status") == "running" for f in items):
+            return
+        jobs = {j["id"]: j for j in await self.jobs()}
+        devices = await self.devices()
+        changed = False
+        for fleet in items:
+            m = fleet.get("mission") or {}
+            if m.get("status") != "running":
+                continue
+            j = jobs.get(m.get("job"))
+            if j and j["status"] in ("running", "waiting"):
+                continue
+            if j and j["status"] == "failed":
+                m["status"] = "stalled"
+                self._mlog(m, f"stalled in {m.get('phase')}: {next((s.get('error') for s in j['steps'] if s['status'] == 'failed'), 'a step failed')}")
+                await self.log("fleets", f"{fleet['name']}: stalled in {m.get('phase')}", "alert", notify=True)
+                changed = True
+                continue
+            phases = fl.PHASES[fleet["role"]]
+            if m.get("phase") == "watch":
+                done, why, upd = fl.watch_done(fleet, m, devices, now_iso())
+                m.update(upd)
+                if m.get("watch_note") != why:
+                    m["watch_note"] = why
+                    changed = True
+                if not done and not m.pop("recall_now", False):
+                    continue
+                self._mlog(m, f"work done ({why})")
+            # next phase (skipping any with nothing to do)
+            for _ in range(12):
+                nxt = fl.next_phase(fleet["role"], m)
+                if not nxt:
+                    m["status"], m["job"] = "done", None
+                    self._mlog(m, "mission complete")
+                    await self.log("fleets", f"{fleet['name']}: mission complete", notify=True)
+                    break
+                m["phase"], m["phase_at"] = nxt, now_iso()
+                if nxt == "watch":
+                    self._mlog(m, "on station — watching until the work is done")
+                    break
+                steps, problems = await self.fleet_phase_steps(fleet, m, nxt, devices)
+                for pr in problems:
+                    self._mlog(m, f"{nxt}: {pr}")
+                if not steps:
+                    continue
+                codes = [d["device_code"] for d in fl.members(fleet, devices)]
+                job = await self.create_job("fleets", f"{fleet['name']}: {nxt}", None, steps, {"devices": codes, "fleet": fleet["id"]}, force=True)
+                m["job"] = job["id"] if job else None
+                self._mlog(m, f"{nxt}: {len(steps)} step(s)")
+                break
+            changed = True
+        if changed:
+            await self.save_fleets(items)
 
     async def rule_contracts(self, force: bool = False) -> list[str]:
         """See gameevents.py. Fulfil ready events; optionally deliver shortfalls / send a nearby replicant."""
@@ -1119,7 +1255,7 @@ class AutomationEngine:
             return []
         from . import sites
         from .ami_schedule import managed_by
-        devices = await self.devices()
+        devices = [d for d in await self.devices() if not any(t.startswith("fleet:") for t in d.get("tags") or [])]
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
         managed = await managed_by(self.db)
@@ -1193,8 +1329,9 @@ class AutomationEngine:
             t = _ts(cool.get(code))
             return bool(t and now - t < cooldown)
 
-        miners = [d for d in devices if d.get("device_type") == "mining_drone" or
-                  (is_controller(d) and kind_of(d.get("device_type")) == "mining")]
+        miners = [d for d in devices if (d.get("device_type") == "mining_drone" or
+                  (is_controller(d) and kind_of(d.get("device_type")) == "mining"))
+                  and not any(t.startswith("fleet:") for t in d.get("tags") or [])]
         done: list[str] = []
         for star in sorted({star_of(d.get("location")) for d in miners}):
             res = await system_resources(self.db, star)
@@ -1291,6 +1428,8 @@ class AutomationEngine:
                 dry_belts |= worked_out(await system_resources(self.db, star))
         for d in devices:
             code = d.get("device_code")
+            if any(t.startswith("fleet:") for t in d.get("tags") or []):
+                continue  # a fleet's drones are run by the fleet
             if (d.get("device_type") != "mining_drone" or str(d.get("status")) != "idle"
                     or "BELT" not in (d.get("location") or "") or code in busy or code in managed
                     or "start_mining" not in (d.get("available_commands") or ["start_mining"])):

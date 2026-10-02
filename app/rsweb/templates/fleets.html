@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Fleets{% endblock %}
+{% block content %}
+<div class="row between"><h1>Fleets <span class="muted small">{{ fleets | length }}</span></h1>
+  <form class="inline" hx-post="/fleets" hx-swap="none">
+    <input name="name" placeholder="fleet name, e.g. Prospector-1" required size="18">
+    <select name="role">{% for r in roles %}<option>{{ r }}</option>{% endfor %}</select>
+    <select name="home">{% for s in stars %}<option>{{ s }}</option>{% endfor %}</select>
+    <button>New fleet</button></form></div>
+<p class="muted small">A fleet's devices carry a <code>fleet:&lt;id&gt;</code> tag, so loadouts and the other rules leave them alone even in a
+  busy system. Surge plates / platforms / carriers / mobile fleets in the fleet carry the rest; freighters surge themselves.</p>
+
+{% for f in fleets %}{% set r = f.roster %}{% set m = f.mission or {} %}
+<div class="card" style="margin-bottom:14px">
+  <div class="row between">
+    <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }} · <code>fleet:{{ f.id }}</code></span></h2>
+    <span>{% if m.status %}<span class="pill {{ {'running': 'st-work', 'done': 'lv-done', 'stalled': 'lv-alert'}.get(m.status, '') }}">{{ m.status }}{% if m.status == 'running' %}: {{ m.phase }}{% endif %}</span>{% endif %}</span>
+  </div>
+  <div class="grid g2">
+    <div>
+      <h3>Loadout <span class="muted small">carry capacity {{ r.capacity }} · {{ r.passengers | length }} passenger(s) · in {{ r.stars | join(', ') or '—' }}</span></h3>
+      <form hx-post="/fleets/{{ f.id }}/edit" hx-swap="none">
+        <table class="small"><tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th>Devices</th></tr>
+          {% for row in r.rows %}<tr><td>{{ row.type | human }}</td>
+            <td class="num"><input type="number" min="0" name="want:{{ row.type }}" value="{{ row.want or '' }}" style="width:52px"></td>
+            <td class="num {{ 'lv-alert' if row.short }}">{{ row.have }}</td>
+            <td class="mono">{% for c in row.codes %}<a href="/devices/{{ c }}">{{ c }}</a>{% if c in r.riding %}<span class="muted" title="riding {{ r.riding[c] }}">↑</span>{% endif %} {% endfor %}</td></tr>{% endfor %}
+          <tr><td><select name="_newtype" onchange="this.closest('tr').querySelector('input').name='want:'+this.value">
+                <option value="">+ add a type…</option>{% for t in types %}<option value="{{ t }}">{{ t | human }}</option>{% endfor %}</select></td>
+            <td class="num"><input type="number" min="0" name="want:" style="width:52px"></td><td colspan="2"></td></tr>
+        </table>
+        <div class="row" style="margin-top:6px">
+          <input name="name" value="{{ f.name }}" size="14"><select name="role">{% for ro in roles %}<option {{ 'selected' if ro == f.role }}>{{ ro }}</option>{% endfor %}</select>
+          <select name="home">{% for s in stars %}<option {{ 'selected' if s == f.home }}>{{ s }}</option>{% endfor %}</select>
+          <button class="small">Save</button>
+          {% if r.rows | selectattr('short') | list %}<button type="button" class="small" hx-post="/fleets/{{ f.id }}/print" hx-target="#fp-{{ f.id }}">Print what's missing</button>{% endif %}
+          <button class="small ghost" name="delete" value="1" hx-confirm="Delete fleet {{ f.name }}? Its devices keep their fleet tag until you remove them.">Delete</button>
+        </div>
+      </form>
+      <div id="fp-{{ f.id }}"></div>
+      <details style="margin-top:8px"><summary class="small">Add / remove devices</summary>
+        <form hx-post="/fleets/{{ f.id }}/members" hx-swap="none">
+          <div class="small" style="max-height:220px;overflow:auto">
+            {% for d in r.members %}<label style="text-transform:none;display:block"><input type="checkbox" name="remove" value="{{ d.device_code }}">
+              remove <span class="mono">{{ d.device_code }}</span> {{ d.device_type | human }} <span class="muted">@ {{ d.location or 'in transit' }} · {{ d.status }}</span></label>{% endfor %}
+            {% for d in free if d.status != 'stowed' %}<label style="text-transform:none;display:block"><input type="checkbox" name="add" value="{{ d.device_code }}">
+              add <span class="mono">{{ d.device_code }}</span> {{ d.device_type | human }} <span class="muted">@ {{ d.location }} · {{ d.status }}{% if d.controller_device_code %} · run by {{ d.controller_device_code }}{% endif %}</span></label>{% endfor %}
+          </div>
+          <button class="small" style="margin-top:6px">Apply</button>
+        </form></details>
+    </div>
+    <div>
+      {% if m.status == 'running' or m.status == 'stalled' %}
+        <h3>Mission → {{ (m.targets or []) | join(' → ') }}</h3>
+        <div class="small">{% set ph = phases[f.role] %}{% for p in ph %}<span class="pill small {{ 'st-work' if p == m.phase else ('lv-done' if m.phase in ph and loop.index0 < ph.index(m.phase) else '') }}">{{ p }}</span> {% endfor %}
+          {% if f.role == 'explore' %}<span class="muted">· target {{ (m.idx or 0) + 1 }}/{{ (m.targets or []) | length }}</span>{% endif %}</div>
+        {% if m.watch_note and m.phase == 'watch' %}<div class="small">watching: {{ m.watch_note }}</div>{% endif %}
+        {% if f.job %}<div class="small muted">job: {{ f.job.title }} · step {{ f.job.idx + 1 }}/{{ f.job.steps | length }}{% if f.job.steps[f.job.idx] is defined %} — {{ f.job.steps[f.job.idx].desc }}{% endif %}</div>{% endif %}
+        <div class="row" style="margin-top:6px">
+          <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "recall"}' hx-swap="none">Recall now</button>
+          {% if m.status == 'stalled' %}<button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "resume"}' hx-swap="none">Retry</button>{% endif %}
+          <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "stop"}' hx-swap="none" hx-confirm="Stop the mission? Devices stay where they are.">Stop</button>
+        </div>
+      {% else %}
+        <h3>New mission</h3>
+        <form hx-post="/fleets/{{ f.id }}/mission" hx-swap="none">
+          {% if f.role == 'trade' %}
+            <select name="trade" style="width:100%">{% for code, t in traders.items() %}{% for tr in t.trades %}
+              <option value='{{ {"controller": code, "trade_code": tr.trade_code, "star": t.star, "location": t.location, "price": (tr.criteria or {}).get("resources") or {}} | tojson }}'>
+                {{ t.shop_name or t.owner_name }} @ {{ t.location }} — {{ tr.name }}: pay {% for r2, q in ((tr.criteria or {}).resources or {}).items() %}{{ q }} {{ r2 }} {% endfor %}→ get {% for r2, q in ((tr.rewards or {}).resources or {}).items() %}{{ q }} {{ r2 }} {% endfor %}{% for r2, q in ((tr.rewards or {}).devices or {}).items() %}{{ q }}× {{ r2 }} {% endfor %}</option>{% endfor %}{% endfor %}</select>
+            <button type="button" class="small ghost" hx-post="/fleets/traders" hx-swap="none">Refresh traders</button>
+          {% else %}
+            <input name="targets" placeholder="{{ 'systems to explore, in order: KELMONENT, LORSELAN' if f.role == 'explore' else 'target system, e.g. KELMONENT' }}" style="width:100%" list="fl-stars">
+            <datalist id="fl-stars">{% for s in stars %}<option value="{{ s }}">{% endfor %}</datalist>
+          {% endif %}
+          {% if f.role == 'mining' %}
+            <label style="text-transform:none;display:block"><input type="checkbox" name="deliver"> Ferry to the nearest destination system while mining (otherwise freighters haul it home on recall)</label>
+            <label style="text-transform:none">Recall after exhausted for <input type="number" name="exhausted_minutes" value="30" style="width:56px"> min with no site being searched</label>
+          {% endif %}
+          <div><button style="margin-top:6px">Launch mission</button></div>
+        </form>
+        {% if m.status %}<div class="small muted">last mission: {{ m.status }} → {{ (m.targets or []) | join(', ') }}</div>{% endif %}
+      {% endif %}
+      {% if m.log %}<details {{ 'open' if m.status in ('running', 'stalled') }}><summary class="small">Mission log</summary>
+        <ul class="small">{% for l in m.log | reverse %}<li><span class="muted">{{ l.at | ago }}</span> {{ l.text }}</li>{% endfor %}</ul></details>{% endif %}
+    </div>
+  </div>
+</div>
+{% else %}<div class="card"><p class="muted">No fleets yet. Create one above, add its devices, set its loadout, then launch a mission.</p></div>{% endfor %}
+{% endblock %}

@@ -1651,3 +1651,188 @@ def test_tag_hygiene_for_spare_devices():
     assert p["tag_remove"]["28C47D66"] == ["spare"]                    # taxi plates serve a ferry
     assert p["tag_remove"]["512FE0F9"] == ["spare"]                    # working for a controller
     assert "6B208B47" not in p["tag_remove"]                           # a free spare stays spare
+
+
+def _fleet_world():
+    T = ["fleet:prospector-1"]
+    def dev(code, t, loc, **kw):
+        return {"device_code": code, "device_type": t, "location": loc, "status": kw.pop("status", "idle"),
+                "tags": kw.pop("tags", T), "available_commands": kw.pop("cmds", ["travel"]), **kw}
+    devices = [
+        dev("MF000001", "mobile_fleet", "AEM-5-L4", features=["surge", "cruise", "attach"], attach_capacity=36, attached_devices=[]),
+        dev("MC000001", "ami_mining_controller", "AEM-5-L4"),
+        dev("SC000001", "ami_survey_controller", "AEM-BELT-1"),
+        dev("TC000001", "ami_transport_controller", "AEM-5-L4"),
+        dev("MD000001", "mining_drone", "AEM-5-L4"), dev("MD000002", "mining_drone", "AEM-5-L4", attached_to_device_code="MF000001"),
+        dev("SD000001", "survey_drone", "AEM-BELT-1"),
+        dev("CF000001", "cargo_freighter", "AEM-5-L4", features=["surge", "cruise", "transport"], cargo_capacity=500, cargo_used=0),
+        dev("LOST0001", "mining_drone", "FAL-BELT-1"),                       # a member stranded elsewhere
+        dev("LOCAL001", "mining_drone", "AEM-5-L4", tags=["home:aem"]),      # not in the fleet
+    ]
+    fleet = {"id": "prospector-1", "name": "Prospector-1", "role": "mining", "home": "AEM",
+             "wants": {"mobile_fleet": 1, "mining_drone": 4, "ami_mining_controller": 1}}
+    return fleet, devices
+
+
+def test_fleet_roster_assemble_and_travel():
+    from rsweb import fleets as fl
+    fleet, devices = _fleet_world()
+    r = fl.roster(fleet, devices)
+    assert r["capacity"] == 36 and "LOCAL001" not in [d["device_code"] for d in r["members"]]
+    md = next(x for x in r["rows"] if x["type"] == "mining_drone")
+    assert md["have"] == 3 and md["short"] == 1 and "MD000002" in r["riding"]
+    steps, problems = fl.assemble_steps(fleet, devices)
+    bodies = [(s["path"], s["body"]) for s in steps]
+    # the survey pair at the belt fly to the carrier first; the freighter flies itself, so it doesn't board
+    assert ("/devices/SC000001", {"command": "travel", "destination": "AEM-5-L4"}) in bodies
+    assert ("/devices/MF000001", {"command": "attach", "device": "MD000001"}) in bodies
+    assert ("/devices/MF000001", {"command": "attach", "device": "MD000002"}) not in bodies     # already on board
+    assert not any(b and b.get("device") == "CF000001" for _, b in bodies)
+    assert not any("LOST0001" in p for p in problems)          # left to the gather phase
+    trav = [(s["path"], s["body"]) for s in fl.travel_steps(fleet, devices, "KEL", {"KEL": {"entry_point": "KEL-3-L4"}}) if s["body"]]
+    assert sorted(trav) == [("/devices/CF000001", {"command": "travel", "destination": "KEL-3-L4"}),
+                            ("/devices/MF000001", {"command": "travel", "destination": "KEL-3-L4"})]
+
+
+def test_fleet_mining_work_watch_and_phases():
+    from rsweb import fleets as fl
+    fleet, devices = _fleet_world()
+    for d in devices:
+        if fl.fleet_of(d):
+            d["location"] = "KEL-3-L4"
+    steps, problems = fl.mining_work_steps(fleet, devices, "KEL-BELT-1", "FAL-BELT-1")
+    bodies = [s["body"] for s in steps if s["body"]]
+    assert {"command": "set_directive", "directive": "belt_search", "configuration": {}} in bodies
+    assert {"command": "set_directive", "directive": "gather_evenly", "configuration": {}} in bodies
+    assert {"command": "set_directive", "directive": "ferry", "configuration": {"collect": "KEL-BELT-1", "deliver": "FAL-BELT-1"}} in bodies
+    assert {"command": "adopt", "devices": ["MD000001", "MD000002", "LOST0001"]} in bodies and not problems
+    # watch: exhausted, nothing searching → done only after the time limit
+    mc = next(d for d in devices if d["device_code"] == "MC000001")
+    mc["ami_directive"] = {"name": "gather_evenly", "_eval_state": "exhausted:['rares']:KEL-BELT-1"}
+    m = {"opts": {"exhausted_minutes": 30}}
+    done, why, upd = fl.watch_done(fleet, m, devices, "2026-10-02T10:00:00+00:00")
+    assert not done and upd["exhausted_since"] == "2026-10-02T10:00:00+00:00"
+    m.update(upd)
+    assert fl.watch_done(fleet, m, devices, "2026-10-02T10:31:00+00:00")[0]
+    next(d for d in devices if d["device_code"] == "SD000001")["status"] = "searching"
+    assert not fl.watch_done(fleet, m, devices, "2026-10-02T10:31:00+00:00")[0]      # still finding sites
+    # explore runs work→watch→recall per target, then goes home
+    m = {"phase": "recall", "idx": 0, "targets": ["A", "B"]}
+    assert fl.next_phase("explore", m) == "travel" and m["idx"] == 1
+    m["phase"] = "recall"
+    assert fl.next_phase("explore", m) == "return"
+    assert fl.next_phase("mining", {"phase": "unload"}) is None
+
+
+def test_fleet_devices_are_left_alone_by_loadouts_and_ami():
+    from rsweb import loadouts as lo
+    from rsweb.ami_schedule import adoptable
+    fleet, devices = _fleet_world()
+    cfg = {"phases": [{"id": "p", "name": "P", "order": 1, "wants": {"mining_drone": 0}}], "systems": {"AEM": "p"}}
+    p = lo.plan(cfg, devices, [], {}, {}, {}, set(), [], {})
+    assert set(p["tag_add"]) == {"LOCAL001"}                     # only the non-fleet drone is touched
+    local_ctrl = {"device_code": "XC", "device_type": "ami_mining_controller", "location": "AEM-5-L4", "tags": []}
+    assert adoptable(devices, local_ctrl, {}) == ["LOCAL001"]
+    fleet_ctrl = next(d for d in devices if d["device_code"] == "MC000001")
+    assert adoptable(devices, fleet_ctrl, {}) == ["MD000001"]     # its own fleet's idle drone at its location
+
+
+def test_fleet_pages_and_mission_launch(client):
+    eng = client.app.state.worker.automations
+    r = client.post("/fleets", data={"name": "Prospector 1", "role": "mining", "home": "SOL"}, headers=HX)
+    assert r.headers.get("HX-Refresh")
+    fleet, devices = _fleet_world()
+    for d in devices:
+        if fl_tag := next((t for t in d["tags"] if t.startswith("fleet:")), None):
+            d["tags"] = ["fleet:prospector-1"]
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    page = client.get("/fleets", headers=H).text
+    assert "Prospector 1" in page and "fleet:prospector-1" in page and "carry capacity 36" in page
+    client.post("/fleets/prospector-1/edit", data={"name": "Prospector 1", "role": "mining", "home": "SOL",
+                                                   "want:mining_drone": "4", "want:mobile_fleet": "1"}, headers=HX)
+    r = client.post("/fleets/prospector-1/mission", data={"targets": "KEL", "exhausted_minutes": "30"}, headers=HX)
+    f = client.portal.call(eng.fleets)[0]
+    assert f["mission"]["status"] == "running" and f["mission"]["phase"] == "assemble"
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "fleets" and j.get("meta", {}).get("fleet") == "prospector-1"][-1]
+    assert any((s["body"] or {}).get("command") == "attach" for s in job["steps"])
+    # the mock doesn't know these devices, so boarding fails → the mission stalls and says why
+    client.portal.call(eng.run_fleets)
+    f = client.portal.call(eng.fleets)[0]
+    assert f["mission"]["status"] == "stalled" and "stalled in assemble" in f["mission"]["log"][-1]["text"]
+    assert "Retry" in client.get("/fleets", headers=H).text
+    # membership: adding a device swaps its home/spare tags for the fleet tag
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_devices)
+    world.devices[1]["tags"] = ["home:sol", "spare"]
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.post("/fleets/prospector-1/members", data={"add": world.devices[1]["device_code"]}, headers=HX)
+    assert world.devices[1]["tags"] == ["fleet:prospector-1"]
+
+
+def test_fleet_print_shortfall_tags_prints(client):
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.portal.call(eng.save_fleets, [{"id": "p1", "name": "P1", "role": "mining", "home": "SOL", "wants": {"mining_drone": 2}}])
+    r = client.post("/fleets/p1/print", headers=HX)
+    assert "print 2× mining drone" in r.text
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "chain"][-1]
+    assert job["steps"][0]["path"] == "/devices/AF00BEEF"
+    assert job["steps"][0]["body"] == {"command": "enqueue_print", "device_type": "mining_drone", "quantity": 2, "tags": ["fleet:p1"]}
+
+
+def test_printed_devices_go_home_on_a_surge_platform():
+    from rsweb import loadouts as lo
+    devices = [
+        {"device_code": "AF", "device_type": "autofactory", "location": "FAL-BELT-1", "status": "printing (survey_drone)",
+         "available_commands": ["enqueue_print"], "tags": ["home:fal"]},
+        {"device_code": "PL000001", "device_type": "surge_platform", "location": "FAL-1-L4", "status": "idle", "attach_capacity": 4,
+         "features": ["surge", "cruise", "attach", "taxi"], "taxi_mode": "taxi", "available_commands": ["attach", "detach", "travel"],
+         "tags": ["home:fal"]},
+        # printed here for AEM (tagged home:aem by an older pass, or to:aem by the print) — both must be delivered
+        {"device_code": "SD1", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["home:aem"],
+         "available_commands": ["travel", "scan"]},
+        {"device_code": "SD2", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["to:aem"],
+         "available_commands": ["travel", "scan"]},
+        # away but working for a controller there: left alone
+        {"device_code": "MD1", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["home:aem"],
+         "controller_device_code": "XC"},
+    ]
+    stars = {"FAL": {"position": {"x": 0, "y": 0, "z": 0}}, "AEM": {"position": {"x": 1, "y": 0, "z": 0}, "entry_point": "AEM-5-L4"}}
+    p = lo.plan({"phases": [], "systems": {}}, devices, [], {}, stars, {}, set(), [], {})
+    assert p["returning"] == ["SD1"]
+    assert [(d["carrier"], d["mode"], sorted(d["devices"]), d["to"]) for d in p["deliveries"]] == [("PL000001", "attach", ["SD1", "SD2"], "AEM")]
+    bodies = [s["body"] for s in lo.delivery_steps(p["deliveries"][0], p["by_code"], stars, True)]
+    assert {"command": "travel", "destination": "FAL-1-L4"} in bodies                    # drones fly to the platform first
+    assert {"command": "attach", "device": "SD1"} in bodies and {"command": "travel", "destination": "AEM-5-L4"} in bodies
+    assert any("send it back to AEM" in line for line in lo.describe(p))
+
+
+
+def test_fleet_gather_collects_strays_and_recruits_spares():
+    from rsweb import fleets as fl
+    fleet, devices = _fleet_world()
+    fleet["wants"]["mining_drone"] = 5     # has 3 (MD1, MD2, LOST) → 2 short
+    devices += [
+        {"device_code": "SPARE01", "device_type": "mining_drone", "location": "FAL-2", "status": "idle", "tags": ["spare"]},
+        {"device_code": "SPARE02", "device_type": "mining_drone", "location": "ITH-BELT-1", "status": "idle", "tags": ["spare"]},
+        {"device_code": "SPARE03", "device_type": "mining_drone", "location": "AEM-3", "status": "idle", "tags": ["spare"]},
+        {"device_code": "BUSY01", "device_type": "mining_drone", "location": "AEM-3", "status": "idle", "tags": ["spare"],
+         "controller_device_code": "X"},
+        {"device_code": "SPARE04", "device_type": "survey_drone", "location": "AEM-3", "status": "idle", "tags": ["spare"]},  # not needed
+    ]
+    stars = {"AEM": {"position": {"x": 0, "y": 0, "z": 0}}, "FAL": {"position": {"x": 2, "y": 0, "z": 0}, "entry_point": "FAL-1-L4"},
+             "ITH": {"position": {"x": 9, "y": 0, "z": 0}}}
+    plan = fl.gather_plan(fleet, devices, stars, set())
+    # nearest spares first: SPARE03 is in AEM with the carrier (boards next assemble/at travel), SPARE01 in FAL
+    assert [d["device_code"] for d in plan["recruit"]] == ["SPARE03", "SPARE01"]
+    assert plan["carrier"] == "MF000001"
+    assert [(s_, sorted(d["device_code"] for d in ds)) for s_, ds in plan["tour"]] == [("AEM", ["SPARE03"]), ("FAL", ["LOST0001", "SPARE01"])]
+    bodies = [(st["path"], st["body"]) for st in fl.gather_steps(fleet, plan, stars)]
+    assert ("/devices/SPARE01", {"configuration": {"add_tags": ["fleet:prospector-1"], "remove_tags": ["spare"]}}) in bodies
+    assert ("/devices/MF000001", {"command": "travel", "destination": "FAL-1-L4"}) in bodies
+    assert ("/devices/LOST0001", {"command": "travel", "destination": "FAL-1-L4"}) in bodies
+    assert ("/devices/MF000001", {"command": "attach", "device": "SPARE01"}) in bodies
+    # SPARE03 boards right where the carrier is (no carrier trip), before it sets off
+    i_local = bodies.index(("/devices/MF000001", {"command": "attach", "device": "SPARE03"}))
+    assert ("/devices/SPARE03", {"command": "travel", "destination": "AEM-5-L4"}) in bodies
+    assert i_local < bodies.index(("/devices/MF000001", {"command": "travel", "destination": "FAL-1-L4"}))

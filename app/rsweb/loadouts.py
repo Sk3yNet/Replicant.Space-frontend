@@ -128,7 +128,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             stowed_in[d["device_code"]] = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
 
     def visible(d: dict) -> bool:
-        return not (ignore & set(d.get("tags") or [])) and d.get("device_code") not in replicant_hosts
+        tags = set(d.get("tags") or [])
+        return not (ignore & tags) and d.get("device_code") not in replicant_hosts and not any(t.startswith("fleet:") for t in tags)
 
     pool = [d for d in devices if visible(d)]
     loc_of = {d.get("device_code"): d.get("location") for d in devices}
@@ -321,6 +322,18 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             elif need > 0:
                 unmet.append({"star": star, "type": row["type"], "n": need, "why": "no spares (printing is off)"})
 
+    # devices away from their home system with nothing to do there (e.g. printed on another system's autofactory,
+    # or left behind) go home — by surging themselves or on a carrier, like any other delivery
+    returning = []
+    for d in pool:
+        code, home = d["device_code"], home_of(d, known_stars)
+        here = star_of(d.get("location"))
+        if (home and here and here != home and code not in moves and code not in busy and not d.get("controller_device_code")
+                and SPARE not in (d.get("tags") or []) and not bound_for(d, known_stars)
+                and str(d.get("status") or "").startswith(("idle", "stowed"))):
+            moves[code] = home
+            returning.append(code)
+
     # tag hygiene, for every device (whether or not its type is in a phase):
     #  • run by a controller (working) or a taxi plate → never spare
     #  • spare → no home tag (spare = belongs to no system)
@@ -369,8 +382,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     carriers = [d for d in devices if d["device_code"] not in busy and can_surge(d) and _carrier_cap(d, bps) > 0
                 and not (ignore & set(d.get("tags") or [])) and (s["use_replicant_vessels"] or d["device_code"] not in replicant_hosts)
                 and not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed"))
-                and d.get("taxi_mode") != "taxi" and "taxi" not in (d.get("tags") or [])   # taxi plates serve a ferry
-                and not d.get("controller_device_code")]
+                and not d.get("controller_device_code")]   # run by a controller (e.g. a ferry's taxi plates) = busy
     moving = set(moves) | {c for c, _ in self_moves}
     carriers = [c for c in carriers if c["device_code"] not in moving and not bound_for(c, known_stars)]
     used: set[str] = set()
@@ -395,7 +407,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             deliveries.append({"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
                                "devices": load, "replicant": replicant_hosts.get(c["device_code"]), "mode": carry_mode(c, bps)})
 
-    return {"releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
+    return {"returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
             "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
             "by_code": by_code}
@@ -601,6 +613,9 @@ def describe(p: dict) -> list[str]:
     for dl in p["deliveries"]:
         how = "attaches" if dl.get("mode") == "attach" else "stows"
         out.append(f"{dl['carrier']} {how} {', '.join(dl['devices'])} and carries them from {dl['from']} to {dl['to']}")
+    for code in p.get("returning") or []:
+        d = p["by_code"].get(code, {})
+        out.append(f"{code} ({d.get('device_type')}) is away from home in {star_of(d.get('location'))}: send it back to {p['moves'].get(code)}")
     for code in p["arrived"]:
         out.append(f"{code} has arrived: deploy if stowed, clear its to:/spare tags")
     for r in p.get("routes") or []:

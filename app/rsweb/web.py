@@ -1902,3 +1902,200 @@ async def game_event_settings(request: Request, fulfil: str = Form(""), user: st
     s["fulfil"] = fulfil.strip()
     await request.app.state.db.kv_set("event_settings", s)
     return HTMLResponse('<span class="lv-done small">Saved.</span>')
+
+
+# --- mobile fleets ----------------------------------------------------------------------------
+from . import fleets as fl  # noqa: E402
+
+
+async def fleets_ctx(request: Request) -> dict:
+    eng = request.app.state.worker.automations
+    st = await load_state(request)
+    items = await eng.fleets()
+    bps = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
+    types = sorted({b["device_type"] for b in bps} | {d.get("device_type") for d in st["devices"] if d.get("device_type")})
+    jobs = {j["id"]: j for j in await eng.jobs()}
+    for f in items:
+        f["roster"] = fl.roster(f, st["devices"])
+        m = f.get("mission") or {}
+        f["job"] = jobs.get(m.get("job"))
+    free = [d for d in st["devices"] if not fl.fleet_of(d) and d.get("device_code") not in
+            {r.get("hosted_device_code") for r in st["replicants"].values()}]
+    stars_seen = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")})
+    traders = await request.app.state.db.kv_get("traders_cache", {}) or {}
+    return {"fleets": items, "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
+            "stars": stars_seen, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
+
+
+@router.get("/fleets", response_class=HTMLResponse)
+async def fleets_page(request: Request, user: str = Depends(current_user)):
+    return await page(request, user, "fleets.html", "fleets", **await fleets_ctx(request))
+
+
+async def _fleets(request: Request) -> tuple[Any, list[dict]]:
+    eng = request.app.state.worker.automations
+    return eng, await eng.fleets()
+
+
+@router.post("/fleets", response_class=HTMLResponse)
+async def fleets_create(request: Request, name: str = Form(...), role: str = Form("mining"), home: str = Form(""),
+                        user: str = Depends(current_user)):
+    eng, items = await _fleets(request)
+    fid = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:20] or "fleet"
+    while any(f["id"] == fid for f in items):
+        fid += "-2"
+    items.append({"id": fid, "name": name.strip(), "role": role if role in fl.ROLES else "mining", "home": home.upper(), "wants": {}})
+    await eng.save_fleets(items)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/edit", response_class=HTMLResponse)
+async def fleets_edit(request: Request, fid: str, user: str = Depends(current_user)):
+    form = await request.form()
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f:
+        return HTMLResponse("", status_code=404)
+    if form.get("delete") == "1":
+        items = [x for x in items if x["id"] != fid]
+    else:
+        f["name"] = (form.get("name") or f["name"]).strip()
+        f["home"] = (form.get("home") or f["home"]).upper()
+        f["role"] = form.get("role") if form.get("role") in fl.ROLES else f["role"]
+        wants = {}
+        for k, v in form.multi_items():
+            if k.startswith("want:") and str(v).strip():
+                try:
+                    if int(v) > 0:
+                        wants[k[5:]] = int(v)
+                except ValueError:
+                    pass
+        f["wants"] = wants
+    await eng.save_fleets(items)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/members", response_class=HTMLResponse)
+async def fleets_members(request: Request, fid: str, user: str = Depends(current_user)):
+    """Add (tag) or remove (untag) devices. Fleet devices drop their home:/spare/to: tags — the fleet owns them."""
+    form = await request.form()
+    tag = fl.fleet_tag(fid)
+    st = await load_state(request)
+    by = {d.get("device_code"): d for d in st["devices"]}
+    eng = request.app.state.worker.automations
+    steps = []
+    for code in form.getlist("add"):
+        d = by.get(code) or {}
+        rem = [t for t in d.get("tags") or [] if t.startswith(("home:", "to:", "fleet:")) or t == "spare"]
+        steps.append(auto.step(f"{code} joins {fid}", f"/devices/{code}",
+                               {"configuration": {"add_tags": [tag], **({"remove_tags": rem} if rem else {})}}, method="PATCH"))
+    for code in form.getlist("remove"):
+        steps.append(auto.step(f"{code} leaves {fid}", f"/devices/{code}", {"configuration": {"remove_tags": [tag]}}, method="PATCH"))
+    if not steps:
+        return HTMLResponse('<div class="result err">Pick at least one device.</div>')
+    async with eng.lock:
+        await eng.create_job("fleets", f"fleet {fid}: {len(steps)} membership change(s)", None, steps, {"devices": []}, force=True)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/mission", response_class=HTMLResponse)
+async def fleets_mission(request: Request, fid: str, user: str = Depends(current_user)):
+    form = await request.form()
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f:
+        return HTMLResponse("", status_code=404)
+    if (f.get("mission") or {}).get("status") == "running":
+        return HTMLResponse('<div class="result err">This fleet is already on a mission — recall or stop it first.</div>')
+    targets = [t.strip().upper() for t in re.split(r"[,\s]+", form.get("targets") or "") if t.strip()]
+    m = {"status": "running", "phase": None, "idx": 0, "targets": targets, "started_at": now_iso(), "log": [],
+         "opts": {"deliver": form.get("deliver") == "on", "exhausted_minutes": int(form.get("exhausted_minutes") or 30)}}
+    if f["role"] == "trade":
+        try:
+            m["trade"] = json.loads(form.get("trade") or "{}")
+        except ValueError:
+            return HTMLResponse('<div class="result err">Pick a trade.</div>')
+        m["targets"] = [m["trade"].get("star")]
+    if not m["targets"] or not m["targets"][0]:
+        return HTMLResponse('<div class="result err">Give the mission a target system.</div>')
+    if f["role"] == "mining":
+        m["targets"] = m["targets"][:1]
+    f["mission"] = m
+    await eng.save_fleets(items)
+    async with eng.lock:
+        await eng.run_fleets()
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/control", response_class=HTMLResponse)
+async def fleets_control(request: Request, fid: str, action: str = Form(...), user: str = Depends(current_user)):
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    m = (f or {}).get("mission") or {}
+    if not f or not m:
+        return HTMLResponse("", status_code=404)
+    async with eng.lock:
+        if m.get("job"):
+            await eng.cancel(m["job"])
+        if action == "recall":
+            m["status"], m["phase"] = "running", ("work" if f["role"] != "trade" else "trade")
+            if f["role"] == "explore":
+                m["targets"] = (m.get("targets") or [])[:m.get("idx", 0) + 1]  # no further targets
+            eng._mlog(m, "recall ordered")
+        elif action == "resume":
+            m["status"] = "running"
+            # re-run the phase that stalled
+            ph = fl.PHASES[f["role"]]
+            cur = m.get("phase")
+            m["phase"] = ph[ph.index(cur) - 1] if cur in ph and ph.index(cur) > 0 else None
+            eng._mlog(m, "resumed")
+        elif action == "stop":
+            m["status"] = "stopped"
+            eng._mlog(m, "stopped (devices stay where they are)")
+        m["job"] = None
+        await eng.save_fleets(items)
+        await eng.run_fleets()
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/traders", response_class=HTMLResponse)
+async def fleets_traders(request: Request, user: str = Depends(current_user)):
+    """Refresh the trader directory and each trader's trades (one request per trader, at most 10)."""
+    st = await load_state(request)
+    api = request.app.state.api
+    rep = next(iter(st["replicants"]), None)
+    if not rep:
+        return HTMLResponse('<span class="lv-alert small">No replicant to ask.</span>')
+    try:
+        traders = ((await api.get(f"/replicants/{rep}/traders")) or {}).get("traders") or []
+    except ApiError as e:
+        return HTMLResponse(f'<span class="lv-alert small">{e.message}</span>')
+    out = {}
+    for t in traders[:10]:
+        code = t.get("controller_code")
+        try:
+            trades = ((await api.get(f"/devices/{code}/trades")) or {}).get("trades") or []
+        except ApiError:
+            trades = []
+        out[code] = {**t, "trades": trades}
+    await request.app.state.db.kv_set("traders_cache", out)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/print", response_class=HTMLResponse)
+async def fleets_print(request: Request, fid: str, user: str = Depends(current_user)):
+    """Queue the fleet's shortfall on an autofactory (home system first); prints come out already in the fleet."""
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    st = await load_state(request)
+    short = fl.short_list(f, st["devices"]) if f else {}
+    if not short:
+        return HTMLResponse('<div class="result ok">Nothing missing.</div>')
+    facs = [d for d in st["devices"] if "enqueue_print" in (d.get("available_commands") or [])]
+    facs.sort(key=lambda d: (star_of(d.get("location")) != f["home"], d.get("device_code")))
+    if not facs:
+        return HTMLResponse('<div class="result err">No autofactory to print on.</div>')
+    fac = facs[0]["device_code"]
+    steps = [auto.step(f"print {n}× {t} for {f['name']}", f"/devices/{fac}",
+                       {"command": "enqueue_print", "device_type": t, "quantity": n, "tags": [fl.fleet_tag(fid)]}) for t, n in short.items()]
+    return await start_chain(request, user, f"fleet {f['name']}: print {fl.summarize(short)}", steps[0], steps[1:], fac)
