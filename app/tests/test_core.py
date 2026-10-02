@@ -2524,3 +2524,19 @@ def test_locations_list_hides_sites_only_seen_in_old_events(client):
     s7 = next(x for x in res["sites_shown"] if x["code"] == "SOL-BELT-1-SITE-7")
     assert s7["remaining_pct"] == {"carbon": 40.0, "structural": 0.0}
     assert "20% left" in client.get("/systems/SOL", headers=H).text
+
+
+def test_live_mined_out_belt_with_searches_running():
+    """21:40Z: FALQUORYX-BELT-1 lists no sites (SITE-79 'fully depleted'); 4 survey drones are ~90% through a search."""
+    import pathlib
+    from rsweb.snapshot import diagnose
+    snap = json.loads((pathlib.Path(__file__).parent / "fixtures" / "live_2026-10-02c.json").read_text())
+    snap["app"].update(jobs=[], log=[])
+    d = diagnose(snap)
+    assert "8 of 12 mining drones are mining" in d["headline"]
+    h = next(x for x in d["headline"] if x.startswith("belts with no open sites"))
+    assert "FALQUORYX-BELT-1 (searching, new sites due 2026-10-02T17:46:10-04:00)" in h
+    r = next(x for x in d["drones"] if x["code"] == "01BA3403")
+    assert any("4 survey drone(s) searching FALQUORYX-BELT-1, 89.2%+ done" in f for f in r["fix"])
+    c = next(x for x in d["controllers"] if x["code"] == "F32E05A7")
+    assert not any("survey drones must search" in n for n in c["notes"])

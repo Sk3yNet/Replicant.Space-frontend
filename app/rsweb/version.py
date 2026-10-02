@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.7.1"
+VERSION = "1.7.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.7.2", "2026-10-02", "Diagnostics: a belt with no open sites shows the survey searches under way there (drones, % done, when "
+                            "the first new site is due) instead of telling you to start a search."),
     ("1.7.1", "2026-10-02", "Devices missing from GET /devices (e.g. freighters surging between systems) are kept for up to 12 h "
                             "at their last position, flagged in transit, unless an event says they're gone — fleets and loadouts "
                             "keep counting them. Sites/salvage only show on the map and Locations list while they're live; sites at "

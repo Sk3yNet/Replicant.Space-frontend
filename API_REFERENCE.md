@@ -885,3 +885,7 @@ attached to this carrier" — the carrier had already released the cargo; treate
 a device that drops out of the list for up to 12 h (flag `unlisted`, last known location, `location_stale`) unless a
 decommission/destroy/transfer event names it. Belt sites (`resources_remaining_pct`) fall per resource as they're mined; a belt can
 list `resource_sites: []` when no site is open (FALQUORYX-BELT-1 at 21:24Z).
+
+**Searching survey drones (live 2026-10-02T21:40Z):** status `searching`, with `scan: {target: "<belt>", started_at, completes_at,
+eta_seconds, progress_percent}` — the same field as a body scan. Four searches at FALQUORYX-BELT-1 took ~67 min each (20:39→21:47Z).
+Four mining drones used up four fresh sites (all resources 100%) in roughly 80 minutes (open at 20:05Z, none left by 21:24Z).

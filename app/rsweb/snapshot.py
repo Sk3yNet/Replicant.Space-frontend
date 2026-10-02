@@ -222,7 +222,26 @@ def diagnose(snap: dict) -> dict:
                 "sites": [{"code": s.get("designation") or s.get("site"), "resource": s.get("resource_type") or s.get("resource"),
                            "level": s.get("availability"), "qty": s.get("quantity") or s.get("remaining")}
                           for s in (sites or []) if isinstance(s, dict)],
-                "trackers": trackers, "marked_exhausted": b in exhausted}
+                "trackers": trackers, "marked_exhausted": b in exhausted, "searches": searches_at(b)}
+
+    def searches_at(b: str) -> dict | None:
+        """Survey drones searching this belt: how many, how far along, when the first new site is due."""
+        runs = [d.get("scan") or {} for d in devices if str(d.get("status") or "").startswith("searching")
+                and ((d.get("scan") or {}).get("target") == b or (d.get("location") or "") == b)]
+        if not runs:
+            return None
+        ends = sorted(x.get("completes_at") for x in runs if x.get("completes_at"))
+        pct = [float(x["progress_percent"]) for x in runs if x.get("progress_percent") is not None]
+        return {"drones": len(runs), "progress": round(min(pct), 1) if pct else None, "first_due": ends[0] if ends else None,
+                "last_due": ends[-1] if ends else None}
+
+    def search_note(b: str | None) -> str | None:
+        sr = searches_at(b) if b else None
+        if not sr:
+            return None
+        return (f"{sr['drones']} survey drone(s) searching {b}" + (f", {sr['progress']}%+ done" if sr["progress"] is not None else "")
+                + (f" — new site(s) due {sr['first_due']}" if sr["first_due"] else "")
+                + "; mining resumes once they open (back to the belt re-launches the controller)")
 
     ctrl_rows = []
     for c in [d for d in devices if is_mining_ctrl(d)]:
@@ -255,7 +274,8 @@ def diagnose(snap: dict) -> dict:
                 notes.append(f"stale 'exhausted' at {place}: the belt has {open_b[best]} open site(s) again — re-set the directive and launch")
             else:
                 notes.append(f"its directive reports exhausted at {place or '?'}"
-                             + ("; no belt in this system has open sites — survey drones must search" if sb and not best
+                             + ("; no belt in this system has open sites" + ("" if any(searches_at(b) for b in sb) else " — survey drones must search")
+                                if sb and not best
                                 else "" if best else "; its system's belts weren't read"))
         elif st.startswith("idle"):
             notes.append(f"directive {dv['name']} is idle ({st})")
@@ -267,7 +287,7 @@ def diagnose(snap: dict) -> dict:
             notes.append(f"{len(here_idle)} idle unmanaged drone(s) at its location it could adopt: {', '.join(here_idle)}")
         bi = belt_info(belt_of(c.get("location")))
         if bi.get("open_sites") == 0:
-            notes.append(f"{bi['belt']} lists no open sites — mining needs a survey drone to search and keep tracking one")
+            notes.append(search_note(bi["belt"]) or f"{bi['belt']} lists no open sites — mining needs a survey drone to search and keep tracking one")
         ctrl_rows.append({"code": c["device_code"], "location": c.get("location"), "status": c.get("status"),
                           "in_control_range": c.get("in_control_range"), "directive": dv, "drones": kids, "mining": mining,
                           "schedules": sched_for(c), "belt": bi, "notes": notes, "tags": c.get("tags") or []})
@@ -302,8 +322,12 @@ def diagnose(snap: dict) -> dict:
             why.append("reserved: fleet member or tagged to: another system — the in-system rules leave it alone")
         if b and bi.get("open_sites") == 0:
             why.append(f"{b} has no open resource sites" + (" (marked exhausted by the app)" if bi.get("marked_exhausted") else ""))
-            fix.append("open a site: survey drone `search` at the belt and leave it tracking (Re-open sites rule: "
-                       + ("on" if on.get("reopen_sites") else "OFF") + ")")
+            sn = search_note(b)
+            if sn:
+                fix.append(f"nothing to do — {sn}")
+            else:
+                fix.append("open a site: survey drone `search` at the belt and leave it tracking (Re-open sites rule: "
+                           + ("on" if on.get("reopen_sites") else "OFF") + ")")
         elif b and bi.get("open_sites") is None:
             why.append(f"{b} wasn't read in this snapshot (request cap)")
         if ctrl:
@@ -367,7 +391,11 @@ def diagnose(snap: dict) -> dict:
         headline.append(f"{len(drone_rows) - n_idle} of {len(drone_rows)} mining drones are mining")
     no_sites = sorted({r["belt"]["belt"] for r in drone_rows if r["state"] != "mining" and r["belt"].get("open_sites") == 0})
     if no_sites:
-        headline.append(f"belts with no open sites: {', '.join(no_sites)}")
+        bits = []
+        for b in no_sites:
+            sr = searches_at(b)
+            bits.append(f"{b} (searching, new sites due {sr['first_due']})" if sr and sr.get("first_due") else b)
+        headline.append(f"belts with no open sites: {', '.join(bits)}")
     no_dir = [c["code"] for c in ctrl_rows if not c["directive"]["name"] and not any(t.startswith("fleet:") for t in c["tags"])]
     if no_dir:
         headline.append(f"controllers with no directive: {', '.join(no_dir)}")
