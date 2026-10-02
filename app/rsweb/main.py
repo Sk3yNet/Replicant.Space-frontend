@@ -1,6 +1,7 @@
 """FastAPI application factory."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,11 +32,30 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         hub = Hub()
         worker = Worker(s, db, api, hub)
         app.state.settings, app.state.db, app.state.api, app.state.hub, app.state.worker = s, db, api, hub, worker
+        from . import version as ver
+        me, prev = await ver.register_start(db)
+        for line in ver.start_notes(me, prev):
+            await worker.automations.log("engine", line, "info")
+        logging.getLogger("rsweb").info("rsweb %s run %s", ver.label(), me["run"])
+
+        async def beat():
+            while True:
+                await asyncio.sleep(60)
+                try:
+                    await ver.heartbeat(db)
+                except Exception:  # never let the heartbeat take the app down
+                    pass
+        hb = asyncio.create_task(beat(), name="heartbeat")
         if not s.disable_background:
             worker.start()
         try:
             yield
         finally:
+            hb.cancel()
+            try:
+                await ver.register_stop(db)
+            except Exception:
+                pass
             await worker.stop()
             await api.close()
             await db.close()

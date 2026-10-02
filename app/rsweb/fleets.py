@@ -73,6 +73,47 @@ def flies_itself(d: dict) -> bool:
     return "surge" in (d.get("features") or []) and not is_carrier(d)
 
 
+def type_profile(t: str, bps: dict[str, dict], devices: list[dict]) -> dict:
+    """How a device type fits on carriers: {"carrier": attach points it brings (0 if none), "flies": surges itself}.
+    From a device of that type if there is one, else its blueprint, else the known carrier sizes."""
+    sample = next((d for d in devices if d.get("device_type") == t), None) or {}
+    bp = bps.get(t) or {}
+    feats = set(sample.get("features") or bp.get("features") or [])
+    cap = 0
+    for src in (sample, bp):
+        try:
+            cap = cap or int(src.get("attach_capacity") or 0)
+        except (TypeError, ValueError):
+            pass
+    cap = cap or CAPACITY.get(t, 0)
+    carrier = cap if any(k in t for k in ATTACH_TYPES) and cap > 0 else 0
+    return {"carrier": carrier, "flies": bool(not carrier and "surge" in feats)}
+
+
+def attach_points(fleet: dict, devices: list[dict], bps: dict[str, dict], rows: list[dict] | None = None) -> dict:
+    """Attach points the fleet's carriers offer vs the points its riders need — now (members) and at full loadout
+    (each type at max(want, have)). Riders are devices that are neither carriers nor surge-capable themselves."""
+    rows = rows if rows is not None else roster(fleet, devices)["rows"]
+    ms = members(fleet, devices)
+    now_avail = sum(capacity(d) for d in ms if is_carrier(d))
+    now_need = sum(1 for d in ms if not is_carrier(d) and not flies_itself(d))
+    riding = sum(1 for d in ms if d.get("attached_to_device_code") in {c["device_code"] for c in ms if is_carrier(c)})
+    plan_avail = plan_need = 0
+    for r in rows:
+        prof = type_profile(r["type"], bps, devices)
+        n = max(int(r.get("want") or 0), int(r.get("have") or 0))
+        r["profile"] = prof
+        if prof["carrier"]:
+            plan_avail += prof["carrier"] * n
+        elif not prof["flies"]:
+            plan_need += n
+    def short(avail: int, need: int) -> dict:
+        gap = max(0, need - avail)
+        return {"available": avail, "needed": need, "short": gap,
+                "fix": (f"{-(-gap // 9)} surge carrier(s) or {-(-gap // 4)} surge platform(s)" if gap else "")}
+    return {"now": {**short(now_avail, now_need), "attached": riding}, "plan": short(plan_avail, plan_need)}
+
+
 def kind(d: dict) -> str:
     t = d.get("device_type") or ""
     if "controller" in t:

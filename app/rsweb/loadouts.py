@@ -364,12 +364,33 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if cs and cs != star_of(d.get("location")) and d["device_code"] not in busy and d["device_code"] not in moves:
             releases[d["controller_device_code"]].append(d["device_code"])
 
+    # controllers and the devices they run (a controller leaving lets its drones go and drops its directive first)
+    managed_map: dict[str, list[str]] = defaultdict(list)
+    for d in devices:
+        if d.get("controller_device_code"):
+            managed_map[d["controller_device_code"]].append(d["device_code"])
+
     # 4: deliveries for everything bound somewhere else
     by_code = {d["device_code"]: d for d in pool}
     arrived, self_moves, batches = [], [], defaultdict(list)
+    def why_busy(d: dict) -> str:
+        st = str(d.get("status") or "")
+        if d.get("in_control_range") is False:
+            return "out of comms range"
+        if d.get("location_stale"):
+            return "its position is unknown right now"
+        if st.startswith(("tracking", "searching")):
+            return f"it is {st} (moving it would close the site)"
+        return "a running job is using it (see Automations)"
+
     for code, dest in moves.items():
         d = by_code.get(code)
-        if not d or code in busy:
+        if not d:
+            continue
+        if code in busy:
+            if star_of(d.get("location")) != dest:
+                unmet.append({"star": dest, "type": d.get("device_type") or "device", "n": 1,
+                              "why": f"{code} can't leave {star_of(d.get('location')) or '?'} yet: {why_busy(d)}"})
             continue
         here = star_of(d.get("location"))
         if here == dest:
@@ -420,7 +441,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     return {"returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
             "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
-            "by_code": by_code}
+            "by_code": by_code, "managed": managed_map}
 
 
 ATTACH_CARRIERS = ("surge_plate", "surge_platform", "surge_carrier", "mobile_fleet")
@@ -500,9 +521,29 @@ def release_step(d: dict) -> list[dict]:
     return [step(f"{c}: release {d['device_code']}", f"/devices/{c}", {"command": "release", "devices": [d["device_code"]]})]
 
 
-def self_move_steps(code: str, dest_star: str, stars: dict, d: dict) -> list[dict]:
-    tags = set(d.get("tags") or [])
+def is_ami_controller(d: dict) -> bool:
+    return "set_directive" in (d.get("available_commands") or []) or (
+        "controller" in (d.get("device_type") or "") and "ami" in (d.get("device_type") or ""))
+
+
+def leave_steps(d: dict, managed: dict[str, list[str]] | None = None) -> list[dict]:
+    """Before a device leaves its system: free it from its own controller, and if it *is* an AMI controller
+    (e.g. a new survey controller put to work where it was printed), stop its directive and let its drones go."""
     steps = release_step(d)
+    if is_ami_controller(d):
+        code = d["device_code"]
+        kids = sorted((managed or {}).get(code) or [])
+        if kids:
+            steps.append(step(f"{code}: release {len(kids)} device(s) before leaving", f"/devices/{code}",
+                              {"command": "release", "devices": kids}))
+        if d.get("ami_directive") or kids:
+            steps.append(step(f"{code}: clear directive before leaving", f"/devices/{code}", {"command": "clear_directive"}))
+    return steps
+
+
+def self_move_steps(code: str, dest_star: str, stars: dict, d: dict, managed: dict | None = None) -> list[dict]:
+    tags = set(d.get("tags") or [])
+    steps = leave_steps(d, managed)
     if to_tag(dest_star) not in tags or SPARE in tags:
         steps.append(tag_step(code, [to_tag(dest_star)] if to_tag(dest_star) not in tags else None,
                               [SPARE] if SPARE in tags else None))
@@ -521,7 +562,7 @@ def rehome_step(code: str, d: dict, star: str) -> dict:
     return tag_step(code, [home_tag(star)], sorted(set(old) | {to_tag(star)}))
 
 
-def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool) -> list[dict]:
+def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, managed: dict | None = None) -> list[dict]:
     carrier, cloc, dest_star = dl["carrier"], dl["carrier_loc"], dl["to"]
     dest = destination(dest_star, stars)
     rep = dl.get("replicant")
@@ -536,7 +577,7 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool) 
 
     steps: list[dict] = []
     for code in dl["devices"]:
-        steps += release_step(by_code.get(code, {}))
+        steps += leave_steps(by_code.get(code, {}) or {"device_code": code}, managed)
     for code in dl["devices"]:  # mark them as on their way (and not spare any more)
         tags = set(by_code.get(code, {}).get("tags") or [])
         add = [to_tag(dest_star)] if to_tag(dest_star) not in tags else None

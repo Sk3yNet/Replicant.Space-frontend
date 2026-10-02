@@ -18,13 +18,14 @@
     {% for key, href, label in [
       ("dashboard", "/", "Dashboard"), ("tree", "/tree", "Tree"), ("fleet", "/fleet", "Fleet"), ("systems", "/systems", "Systems"),
       ("map", "/map", "Galaxy"), ("blueprints", "/blueprints", "Blueprints"), ("loadouts", "/loadouts", "Loadouts"), ("gameevents", "/game-events", "Contracts"), ("fleets", "/fleets", "Fleets"), ("ami", "/ami", "AMI"),
-      ("automations", "/automations", "Automations"), ("events", "/events", "Events"), ("messages", "/messages", "Messages"), ("console", "/console", "Console")] %}
+      ("automations", "/automations", "Automations"), ("events", "/events", "Events"), ("messages", "/messages", "Messages"), ("console", "/console", "Console"), ("diagnostics", "/diagnostics", "Diagnostics")] %}
       <a href="{{ href }}" class="{{ 'on' if active == key }}">{{ label }}{% if key == 'messages' and rate.unread %}<span class="badge">{{ rate.unread }}</span>{% endif %}</a>
     {% endfor %}
     <a href="/notifications" class="{{ 'on' if active == 'notifications' }}">🔔<span id="notif-badge" sse-swap="badge">{% include "partials/badge.html" with context %}</span></a>
   </nav>
   <span class="spacer"></span>
   <div id="rate" sse-swap="rate">{% include "partials/rate.html" %}</div>
+  <a href="/account#server" class="small muted mono" title="App version · code fingerprint — history on the Account page">v{{ APP_VERSION }}</a>
   <a href="/account" class="small muted" title="Signed in via Google">{{ user }}</a>
   <a href="/oauth2/sign_out?rd=/" class="small muted">sign out</a>
 </header>

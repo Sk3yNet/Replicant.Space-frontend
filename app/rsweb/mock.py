@@ -473,9 +473,13 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             return ok({"location_type": "belt", "location": code, "belt": SOL_SCAN["asteroid_belt"]["belts"][0],
                        "devices": [], "inventory": [], "resource_sites": [{"designation": f"{code}-SITE-1", "resource_type": "structural", "availability": "high", "quantity": 5200},
                                           {"designation": f"{code}-SITE-2", "resource_type": "rares", "availability": "low", "quantity": 340}]})
-        if "-SAL-" in code:
-            return ok({"location": code, "location_type": "salvage", "salvage": {"designation": code, "name": "Derelict hauler",
-                       "salvage_type": "wreck", "resources": {"structural": 260, "conductive": 75}}, "devices": [], "inventory": []})
+        if "-SAL-" in code:   # like the game: salvage codes aren't locations
+            return ok({"error": "Planet not found"}, 404)
+        if code == "SOL-3-1":  # the body the salvage sits on — shape as seen live (GET /locations/KELMONENT-1)
+            return ok({"location": code, "location_type": "rocky", "moon": {"designation": code, "type": "rocky", "scanned": True},
+                       "resource_sites": [{"designation": "SOL-3-1-SAL-1", "name": "Derelict hauler", "site_type": "salvage",
+                                           "site_index": 0, "resources_remaining_pct": {"structural": 86.67, "conductive": 93.75}}],
+                       "devices": [], "inventory": []})
         if code.count("-") >= 1 and code.split("-")[0] == "SOL":
             return ok({"location": code, "planet": {"designation": code, "type": "rocky", "surface_temp_c": 14.0, "mass_earth": 1.0,
                                                    "scanned": True, "tags": ["rocky"]}, "devices": [], "inventory": [], "resource_sites": []})

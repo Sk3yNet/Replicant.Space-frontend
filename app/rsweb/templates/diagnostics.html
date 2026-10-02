@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Diagnostics{% endblock %}
+{% block content %}
+<div class="row between">
+  <h1>Diagnostics</h1>
+  <form class="inline" hx-post="/diagnostics/snapshot" hx-swap="none">
+    <input name="stars" placeholder="systems (blank = all), e.g. KELMONENT ITHVALAI" size="34">
+    <button>Capture live snapshot</button>
+  </form>
+</div>
+<p class="muted small">Read-only: about 60 GET requests at most, on the background budget, so automations and polling keep working.
+  It reads every device, stockpiles, the mining controllers, the belts your miners are at, recent mining/AMI events and the logs
+  of idle drones, and bundles them with the app's own rule settings, jobs and log. Your API token is never included.
+  <b>Download</b> the JSON and attach it in the chat to test against live data.</p>
+<div id="diag">
+  {% include "partials/diagnostics_body.html" %}
+</div>
+{% endblock %}

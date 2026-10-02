@@ -241,7 +241,7 @@ async def system_resources(db, star: str) -> dict:
             if code and code.startswith(star):
                 amounts, total = site_quantity(p)
                 salvage[code] = {"code": code, "name": p.get("name"), "type": p.get("salvage_type"), "amounts": amounts,
-                                 "total": total, "at": r["created_at"], "source": "discovered"}
+                                 "base": dict(amounts), "total": total, "at": r["created_at"], "source": "discovered"}
         else:
             code = p.get("site")
             if code and code.startswith(star) and code not in sites:
@@ -249,12 +249,32 @@ async def system_resources(db, star: str) -> dict:
                                "level": p.get("availability"), "amounts": {}, "total": None, "at": None, "source": "mining"}
     known_at = None
     listed: dict[str, set[str]] = {}   # belt -> sites its latest detail lists (anything else there has closed)
+    body_listed: dict[str, set[str]] = {}   # body -> salvage its latest detail lists (anything else there is used up)
     for r in await db.fetchall("SELECT key, value, updated_at FROM kv WHERE key LIKE ?", (f"loc:{star}-%",)):
         loc = r["key"][4:]
         detail = json.loads(r["value"])
         if "resource_sites" in detail and (detail.get("location_type") == "belt" or "-BELT-" in loc and "-SITE-" not in loc):
             listed[loc] = {(_site_code(x) if isinstance(x, dict) else x) for x in detail.get("resource_sites") or []}
         for site in detail.get("resource_sites") or []:
+            if isinstance(site, dict) and (site.get("site_type") == "salvage" or "-SAL-" in (_site_code(site) or "")):
+                # a body lists its salvage as resource sites: {designation, name, site_type: "salvage",
+                # resources_remaining_pct: {res: pct}} — amounts = discovered amounts × remaining %
+                code = _site_code(site)
+                body_listed.setdefault(loc, set()).add(code)
+                prev = salvage.get(code, {})
+                pct = {k: float(v) for k, v in (site.get("resources_remaining_pct") or {}).items() if _num(v) is not None}
+                base = prev.get("base") or {}
+                amounts, total = site_quantity(site)
+                if not amounts and pct:
+                    amounts = {k: base[k] * v / 100 for k, v in pct.items() if k in base and v > 0}
+                    total = sum(amounts.values()) if all(k in base for k, v in pct.items() if v > 0) else None
+                salvage[code] = {"code": code, "name": site.get("name") or prev.get("name"),
+                                 "type": site.get("salvage_type") or prev.get("type") or "salvage",
+                                 "amounts": amounts, "base": base, "total": total, "remaining_pct": pct,
+                                 "used_up": bool(pct) and all(v <= 0 for v in pct.values()),
+                                 "at": r["updated_at"], "source": "location"}
+                known_at = max(known_at or "", r["updated_at"] or "")
+                continue
             if not isinstance(site, dict):
                 if isinstance(site, str):
                     sites.setdefault(site, {"code": site, "belt": loc, "resource": None, "level": None, "amounts": {},
@@ -267,6 +287,15 @@ async def system_resources(db, star: str) -> dict:
                            "amounts": amounts, "total": total, "at": r["updated_at"], "source": "location"}
             known_at = max(known_at or "", r["updated_at"] or "")
         sal = detail.get("salvage") or (detail if "-SAL-" in loc else None)
+        for item in (sal if isinstance(sal, list) else []):   # a body's detail listing its salvage
+            if isinstance(item, dict) and (item.get("designation") or item.get("code")):
+                code = item.get("designation") or item.get("code")
+                amounts, total = site_quantity(item)
+                prev = salvage.get(code, {})
+                salvage[code] = {"code": code, "name": item.get("name") or prev.get("name"),
+                                 "type": item.get("salvage_type") or prev.get("type"),
+                                 "amounts": amounts or prev.get("amounts", {}), "total": total if total is not None else prev.get("total"),
+                                 "at": r["updated_at"], "source": "location"}
         if isinstance(sal, dict):
             code = sal.get("designation") or loc
             amounts, total = site_quantity(sal)
@@ -311,7 +340,13 @@ async def system_resources(db, star: str) -> dict:
         if x["depleted"] or (b in listed and x["code"] not in listed[b]):
             hidden.add(x["code"])
             x["closed"] = not x["depleted"]
-    hidden |= {x["code"] for x in salvage.values() if x["depleted"] or (x.get("total") is not None and x["total"] <= 0)}
+    from .salvage import body_of
+    for x in salvage.values():
+        x["body"] = body_of(x["code"])
+        if x["body"] in body_listed and x["code"] not in body_listed[x["body"]]:
+            x["used_up"] = True    # its body no longer lists it
+    hidden |= {x["code"] for x in salvage.values() if x["depleted"] or x.get("used_up")
+               or (x.get("total") is not None and x["total"] <= 0)}
     return {"star": star, "hidden": hidden,
             "sites_shown": sorted((x for x in sites.values() if x["code"] not in hidden), key=lambda s: s["code"]),
             "salvage_shown": sorted((x for x in salvage.values() if x["code"] not in hidden), key=lambda s: s["code"]),

@@ -1,0 +1,57 @@
+{% if status.state == 'running' %}
+  <div class="card"><b>Capturing…</b> {{ status.done or 0 }} / {{ status.total or 60 }} requests
+    <span class="muted small mono">{{ status.path or '' }}</span></div>
+  {# keep polling until it finishes #}
+  <div hx-get="/diagnostics" hx-trigger="load delay:2s" hx-target="#diag" hx-swap="innerHTML"></div>
+{% elif status.state == 'failed' %}
+  <div class="card"><span class="lv-alert">Snapshot failed: {{ status.error }}</span></div>
+{% endif %}
+{% if snap and status.state != 'running' %}
+<div class="card">
+  <div class="row between">
+    <h2 style="margin:0">Mining diagnosis <span class="muted small">captured {{ snap.captured_at | ago }}{% if snap.app.server %} by v{{ snap.app.server.version }}{% endif %} · {{ snap.requests }} requests
+      {% if snap.skipped %}· {{ snap.skipped | length }} skipped (cap){% endif %}{% if snap.partial_device_list %} · <span class="lv-alert">device list was partial (replicant travelling?)</span>{% endif %}</span></h2>
+    <a class="button small" href="/diagnostics/snapshot.json" hx-boost="false" download>Download snapshot (JSON)</a>
+  </div>
+  {% if diag.headline %}<ul class="small">{% for h in diag.headline %}<li>{{ h }}</li>{% endfor %}</ul>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Mining controllers</h2>
+  {% if diag.controllers %}
+  <table class="small"><tr><th>Controller</th><th>Location</th><th>Directive</th><th>State</th><th class="num">Drones</th><th class="num">Mining</th><th>Belt sites</th><th>Notes</th></tr>
+    {% for c in diag.controllers %}<tr>
+      <td class="mono"><a href="/devices/{{ c.code }}">{{ c.code }}</a></td><td>{{ c.location }}</td>
+      <td>{{ c.directive.name or '—' }}{% if c.directive.status and c.directive.status != 'active' %} <span class="lv-alert">{{ c.directive.status }}</span>{% endif %}</td>
+      <td class="mono">{{ c.directive.state or '' }}</td><td class="num">{{ c.drones | length }}</td><td class="num">{{ c.mining | length }}</td>
+      <td>{% if c.belt.belt %}{{ c.belt.open_sites if c.belt.open_sites is not none else '?' }} open{% endif %}</td>
+      <td>{% for n in c.notes %}<div>{{ n }}</div>{% endfor %}{% if c.schedules %}<div class="muted">schedule: {% for s in c.schedules %}{{ s.directive }} every {{ s.every_minutes }} min{{ '' if s.enabled else ' (off)' }}{% if s.last_run %}, last {{ s.last_run | ago }}{% endif %}{{ '; ' if not loop.last }}{% endfor %}</div>{% endif %}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted small">No AMI mining controllers in scope.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Mining drones <span class="muted small">{{ diag.drones | selectattr('state', 'equalto', 'mining') | list | length }} of {{ diag.drones | length }} mining</span></h2>
+  <table class="small"><tr><th>Drone</th><th>Location</th><th>Status</th><th>Controller</th><th>Belt</th><th>Why it isn't mining</th><th>What would fix it</th></tr>
+    {% for d in diag.drones %}<tr{% if d.state == 'mining' %} class="muted"{% endif %}>
+      <td class="mono"><a href="/devices/{{ d.code }}">{{ d.code }}</a></td><td>{{ d.location or '—' }}</td><td>{{ d.status }}</td>
+      <td class="mono">{{ d.controller or '—' }}</td>
+      <td>{% if d.belt.belt %}{{ d.belt.open_sites if d.belt.open_sites is not none else '?' }} open{% if d.belt.trackers %} · {{ d.belt.trackers | length }} tracking{% endif %}{% endif %}</td>
+      <td>{% for w in d.why %}<div>{{ w }}</div>{% endfor %}{% if d.last_log %}<div class="muted">last log: {{ d.last_log }}</div>{% endif %}</td>
+      <td>{% for f in d.fix %}<div>{{ f }}</div>{% endfor %}</td></tr>{% endfor %}
+  </table>
+</div>
+
+{% if diag.failed_jobs or diag.recent_alerts %}
+<div class="card">
+  <h2>Recent problems</h2>
+  {% for j in diag.failed_jobs %}<div class="small"{% if j.age and j.age != 'current' %} style="opacity:.6"{% endif %}><b>{{ j.title }}</b>: <span class="lv-alert">{{ j.error }}</span>
+    {% if j.age and j.age != 'current' %}<span class="pill small">{{ ('v' ~ j.v) if j.v else '' }} {{ j.age }}</span>{% endif %}</div>{% endfor %}
+  {% for a in diag.recent_alerts %}{% if a is string %}<div class="small lv-alert">{{ a }}</div>{% else %}
+    <div class="small"{% if a.age != 'current' %} style="opacity:.6"{% endif %}><span class="lv-alert">{{ a.text }}</span> <span class="muted">{{ a.at | ago }}</span>
+    {% if a.age != 'current' %}<span class="pill small">{{ ('v' ~ a.v) if a.v else '' }} {{ a.age }}</span>{% endif %}</div>{% endif %}{% endfor %}
+</div>
+{% endif %}
+{% elif not snap and status.state != 'running' %}
+<div class="card"><p class="muted">No snapshot yet. Click <b>Capture live snapshot</b>.</p></div>
+{% endif %}

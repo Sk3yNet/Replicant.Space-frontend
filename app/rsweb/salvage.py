@@ -48,7 +48,7 @@ def worked_out(res: dict) -> set[str]:
 
 
 def available_salvage(res: dict) -> list[dict]:
-    out = [s for s in res.get("salvage") or [] if not s.get("depleted") and (s.get("total") is None or s["total"] > 0)]
+    out = [s for s in res.get("salvage") or [] if not s.get("depleted") and not s.get("used_up") and (s.get("total") is None or s["total"] > 0)]
     return sorted(out, key=lambda s: (s.get("total") is None, -(s.get("total") or 0), s["code"]))
 
 

@@ -34,4 +34,19 @@
     {% else %}<tr><td class="muted" colspan="5">No commands yet.</td></tr>{% endfor %}
   </table>
 </div>
+<div class="card" style="margin-top:14px" id="server">
+  <h2>Server <span class="muted small">{{ app_version }} · this run {{ RUN_ID }}</span></h2>
+  <table class="small">
+    <tr><th>Run</th><th>Version</th><th>Code</th><th>Started</th><th>Last seen</th><th>Ended</th></tr>
+    {% for r in runs[:20] %}<tr{% if r.run == RUN_ID %} class="lv-done"{% endif %}>
+      <td class="mono">{{ r.run }}{% if r.run == RUN_ID %} (this){% endif %}</td><td>v{{ r.version }}</td><td class="mono">{{ r.fingerprint }}</td>
+      <td>{{ r.started_at | local }}</td><td>{{ r.last_seen | ago }}</td>
+      <td>{% if r.run == RUN_ID %}running{% elif r.stopped_at %}stopped {{ r.stopped_at | local }}{% else %}<span class="lv-alert">not clean (last seen {{ r.last_seen | local }})</span>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="6" class="muted">No runs recorded.</td></tr>{% endfor %}
+  </table>
+  <h3>Version history</h3>
+  <ul class="small">{% for v, d, text in changes %}<li><b>v{{ v }}</b> <span class="muted">{{ d }}</span> — {{ text }}</li>{% endfor %}</ul>
+  <p class="muted small">Log entries and jobs from an earlier run or older version are greyed and tagged on the Automations page.
+    Entries before 1.4.0 carry no version ("unversioned").</p>
+</div>
 {% endblock %}

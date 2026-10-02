@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import json
 import pytest
 from fastapi.testclient import TestClient
 
@@ -1025,11 +1026,14 @@ def test_system_resources_and_map_places(client):
     page = client.get("/systems/SOL", headers=H).text
     assert "Resources available" in page and "Derelict hauler" in page and "SOL-3-1-SAL-1" in page
     r = client.post("/systems/SOL/resources/refresh", headers=HX)
-    assert r.headers.get("HX-Refresh")
+    assert "open mining site(s)" in r.text and "salvage body" in r.text and "Could not read" not in r.text
     res = client.portal.call(system_resources, client.app.state.db, "SOL")
     assert res["totals"]["structural"]["sites"] == 5200 and res["totals"]["rares"]["sites"] == 340
-    assert res["totals"]["structural"]["salvage"] == 260   # location detail is newer than the discovery event
-    assert res["mineable"] == 5540 and res["salvageable"] == 335
+    # the body's detail gives % remaining of what was discovered (300 structural, 80 conductive)
+    assert res["totals"]["structural"]["salvage"] == pytest.approx(260, abs=0.1)
+    assert res["mineable"] == 5540 and res["salvageable"] == pytest.approx(335, abs=0.1)
+    sal = next(x for x in res["salvage"] if x["code"] == "SOL-3-1-SAL-1")
+    assert sal["body"] == "SOL-3-1" and sal["remaining_pct"] == {"structural": 86.67, "conductive": 93.75}
     page = client.get("/systems/SOL", headers=H).text
     assert 'class="marker place place-site' in page and 'class="marker place place-salvage' in page
     assert "SITE-1 · 5,200" in page or "SITE-1 · 5200" in page
@@ -1747,7 +1751,7 @@ def test_fleet_pages_and_mission_launch(client):
             d["tags"] = ["fleet:prospector-1"]
     client.portal.call(client.app.state.db.kv_set, "devices", devices)
     page = client.get("/fleets", headers=H).text
-    assert "Prospector 1" in page and "fleet:prospector-1" in page and "carry capacity 36" in page
+    assert "Prospector 1" in page and "fleet:prospector-1" in page and "36 available · 7 needed" in page
     client.post("/fleets/prospector-1/edit", data={"name": "Prospector 1", "role": "mining", "home": "SOL",
                                                    "want:mining_drone": "4", "want:mobile_fleet": "1"}, headers=HX)
     r = client.post("/fleets/prospector-1/mission", data={"targets": "KEL", "exhausted_minutes": "30"}, headers=HX)
@@ -1936,3 +1940,258 @@ def test_fleet_loadout_editor_lines(client):
     # Save without autosave refreshes the page; everything removed → empty loadout
     r = client.post("/fleets/p1/edit", data={"lines": "1", "name": "P1", "role": "mining", "home": "SOL"}, headers=HX)
     assert r.headers.get("HX-Refresh") and client.portal.call(eng.fleets)[0]["wants"] == {}
+
+
+def _bound_controller_world():
+    return [
+        {"device_code": "PL000001", "device_type": "surge_platform", "location": "FAL-1-L4", "status": "idle", "attach_capacity": 4,
+         "features": ["surge", "cruise", "attach"], "available_commands": ["attach", "detach", "travel"], "tags": ["home:fal"]},
+        # printed in FAL for ITHVALAI, but an "all survey controllers" schedule put it to work there
+        {"device_code": "SC000001", "device_type": "ami_survey_controller", "location": "FAL-BELT-1", "status": "coordinating",
+         "features": ["cruise", "ami"], "available_commands": ["adopt", "release", "set_directive", "clear_directive", "launch", "travel"],
+         "ami_directive": {"name": "belt_search", "config": {}, "_eval_state": "searching:1:0"}, "ami_directive_status": "active",
+         "tags": ["home:ithvalai", "to:ithvalai"]},
+        {"device_code": "SD000001", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "idle",
+         "controller_device_code": "SC000001", "tags": ["home:fal"]},
+        {"device_code": "SD000002", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["to:ithvalai"]},
+    ]
+
+
+def test_bound_controller_drops_its_work_and_leaves():
+    from rsweb import loadouts as lo
+    stars = {"FAL": {"position": {"x": 0, "y": 0, "z": 0}}, "ITHVALAI": {"position": {"x": 1, "y": 0, "z": 0}, "entry_point": "ITHVALAI-2-L4"}}
+    p = lo.plan({"phases": [], "systems": {}}, _bound_controller_world(), [], {}, stars, {}, set(), [], {})
+    dl = next(d for d in p["deliveries"] if "SC000001" in d["devices"])
+    assert dl["to"] == "ITHVALAI" and dl["mode"] == "attach"
+    steps = lo.delivery_steps(dl, p["by_code"], stars, True, p["managed"])
+    bodies = [(s["path"], s["body"]) for s in steps]
+    rel = bodies.index(("/devices/SC000001", {"command": "release", "devices": ["SD000001"]}))
+    clr = bodies.index(("/devices/SC000001", {"command": "clear_directive"}))
+    att = bodies.index(("/devices/PL000001", {"command": "attach", "device": "SC000001"}))
+    assert rel < clr < att
+    # a busy bound device says why it isn't moving
+    p = lo.plan({"phases": [], "systems": {}}, _bound_controller_world(), [], {}, stars, {}, {"SC000001"}, [], {})
+    assert any("SC000001 can't leave FAL yet" in u["why"] for u in p["unmet"])
+
+
+def test_work_rules_skip_devices_bound_elsewhere():
+    from rsweb.ami_schedule import adoptable, targets_of, in_transit
+    devices = _bound_controller_world()
+    assert in_transit(devices[1]) and not in_transit(devices[0])
+    assert not in_transit({"device_code": "X", "location": "ITHVALAI-2-L4", "tags": ["to:ithvalai"]})   # arrived
+    assert [d["device_code"] for d in targets_of({"target": "kind:survey"}, devices)] == []
+    other = {"device_code": "SC2", "device_type": "ami_survey_controller", "location": "FAL-BELT-1", "status": "idle", "tags": []}
+    assert adoptable(devices + [other], other, {"SD000001": "SC000001"}) == []    # SD000002 is bound for ITHVALAI
+
+
+def test_fleet_attach_points():
+    from rsweb import fleets as fl
+    fleet, devices = _fleet_world()
+    bps = {"surge_platform": {"device_type": "surge_platform", "features": ["surge", "attach"], "attach_capacity": 4},
+           "transport_hauler": {"device_type": "transport_hauler", "features": ["cruise", "transport"]}}
+    pt = fl.attach_points(fleet, devices, bps)
+    # members: one mobile fleet (36); riders = 3 controllers + 3 mining drones + 1 survey drone; the freighter flies itself
+    assert pt["now"] == {"available": 36, "needed": 7, "short": 0, "fix": "", "attached": 1}
+    assert pt["plan"]["available"] == 36 and pt["plan"]["needed"] == 8      # 4 mining drones wanted (3 have)
+    # swap the mobile fleet for one platform and add 10 haulers → short
+    fleet["wants"] = {"surge_platform": 1, "transport_hauler": 10}
+    devices = [d for d in devices if d["device_type"] != "mobile_fleet"]
+    pt = fl.attach_points(fleet, devices, bps)
+    assert pt["now"]["available"] == 0 and pt["now"]["short"] == 7
+    assert pt["plan"]["available"] == 4 and pt["plan"]["needed"] == 17 and pt["plan"]["short"] == 13
+    assert pt["plan"]["fix"] == "2 surge carrier(s) or 4 surge platform(s)"
+    assert fl.type_profile("cargo_freighter", bps, devices) == {"carrier": 0, "flies": True}
+
+
+def _arrival_world():
+    A = ["adopt", "release", "set_directive", "launch", "activate"]
+    return [
+        {"device_code": "MC1", "device_type": "ami_mining_controller", "location": "ITH-BELT-1", "status": "coordinating",
+         "features": ["ami"], "available_commands": A, "ami_directive": {"name": "gather_evenly"}, "tags": ["home:ith"]},
+        {"device_code": "SC1", "device_type": "ami_survey_controller", "location": "ITH-3", "status": "idle",
+         "features": ["ami"], "available_commands": A, "tags": ["home:ith"]},
+        {"device_code": "TC1", "device_type": "ami_transport_controller", "location": "ITH-2-L4", "status": "idle",
+         "features": ["ami"], "available_commands": A, "tags": ["home:ith", "ferry"]},          # ferry: never takes drones
+        # delivered to the entry point: not where the controllers work
+        {"device_code": "MD1", "device_type": "mining_drone", "location": "ITH-2-L4", "status": "idle", "tags": ["home:ith"]},
+        {"device_code": "SD1", "device_type": "survey_drone", "location": "ITH-2-L4", "status": "idle", "tags": ["home:ith"]},
+        {"device_code": "TD1", "device_type": "transport_drone", "location": "ITH-2-L4", "status": "idle", "tags": ["home:ith"]},
+        {"device_code": "MD2", "device_type": "mining_drone", "location": "ITH-BELT-1", "status": "mining (carbon)",
+         "controller_device_code": "MC1", "tags": ["home:ith"]},                                  # already run
+        {"device_code": "MD3", "device_type": "mining_drone", "location": "ITH-2-L4", "status": "idle", "tags": ["home:fal"]},  # passing through
+        {"device_code": "MD4", "device_type": "mining_drone", "location": "ITH-2-L4", "status": "idle", "tags": ["to:fal"]},    # leaving
+        {"device_code": "MD5", "device_type": "mining_drone", "location": "ITH-2-L4", "status": "idle", "tags": ["spare"]},     # spare
+        {"device_code": "MT1", "device_type": "maintenance_drone", "location": "ITH-2-L4", "status": "inactive",
+         "available_commands": ["activate", "travel"], "tags": ["home:ith"]},
+        {"device_code": "MT2", "device_type": "maintenance_drone", "location": "FAL-2-L4", "status": "inactive",
+         "available_commands": ["activate", "travel"], "tags": ["home:ith"]},                     # not home yet
+    ]
+
+
+def test_arrivals_join_their_systems_controller():
+    from rsweb.ami_schedule import handoffs, handoff_steps
+    hs = handoffs(_arrival_world(), {}, set())
+    assert [(h["drone"], h["controller"]) for h in hs] == [("MD1", "MC1"), ("SD1", "SC1")]   # TD1: only a ferry controller there
+    md = hs[0]
+    bodies = [(s["path"], s["body"]) for s in handoff_steps(md)]
+    assert bodies == [("/devices/MD1", {"command": "travel", "destination": "ITH-BELT-1"}),
+                      ("/devices/MC1", {"command": "adopt", "devices": ["MD1"]}),
+                      ("/devices/MC1", {"command": "launch"})]                                  # MC1 is running a directive
+    assert [s["body"]["command"] for s in handoff_steps(hs[1])] == ["travel", "adopt"]          # SC1 is idle: no launch
+    assert handoffs(_arrival_world(), {"MD1": "MC9"}, {"SD1"}) == []                           # managed per digests / busy
+
+
+def test_inactive_arrivals_are_activated_once():
+    from rsweb.ami_schedule import wakeups
+    w = _arrival_world()
+    from rsweb.ami_schedule import wakeup_steps
+    assert wakeups(w, set(), {}) == [{"code": "MT1", "activate": False, "patrol": True}]
+    assert [s["body"] for s in wakeup_steps(wakeups(w, set(), {})[0])] == [{"command": "set_directive", "directive": "patrol"}]
+    ctrl = {"device_code": "SC9", "device_type": "ami_survey_controller", "location": "ITH-3", "status": "inactive",
+            "available_commands": ["activate"], "tags": ["home:ith"]}
+    assert wakeups([ctrl], set(), {}) == [{"code": "SC9", "activate": True, "patrol": False}]
+    assert wakeups(w, set(), {"MT1": "ITH"}) == []           # already done on this arrival
+    # active at home but idle with no directive: patrol only; already patrolling: nothing
+    w[10].update(status="idle")
+    assert wakeups(w, set(), {}) == [{"code": "MT1", "activate": False, "patrol": True}]
+    w[10].update(status="patrolling", ami_directive={"name": "patrol"})
+    assert wakeups(w, set(), {}) == []
+
+
+def test_loadout_pass_hands_off_and_activates(client):
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.db.kv_set, "devices", _arrival_world())
+    lines = client.portal.call(eng.apply_loadouts, None, True)
+    assert "MD1 joins controller MC1 (flies ITH-2-L4 → ITH-BELT-1)" in lines
+    assert any(l.startswith("patrol MT1") for l in lines)
+    jobs = client.portal.call(eng.jobs)
+    assert any(j["title"] == "loadouts: patrol MT1" for j in jobs)
+    assert any(j["title"] == "loadouts: MC1 adopts MD1" for j in jobs)
+    assert client.portal.call(client.app.state.db.kv_get, "loadout_woken", {}) == {"MT1": "ITH"}
+
+
+def test_refresh_without_a_scan_reads_the_star_and_salvage_bodies(client):
+    db = client.app.state.db
+    client.portal.call(db.execute, "DELETE FROM systems WHERE star=?", ("SOL",))
+    r = client.post("/systems/SOL/resources/refresh", headers=HX)
+    assert "read 1 belt(s): 2 open mining site(s)" in r.text
+    row = client.portal.call(db.fetchone, "SELECT data FROM systems WHERE star=?", ("SOL",))
+    assert row and "asteroid_belt" in row["data"]           # GET /locations/SOL stood in for the missing scan
+
+
+def test_body_salvage_percentages_and_used_up():
+    import asyncio
+    from rsweb.targets import system_resources
+
+    class FakeDB:
+        def __init__(self, kv, events):
+            self.kv, self.events = kv, events
+        async def fetchall(self, q, args=()):
+            if "FROM events" in q:
+                return self.events
+            if "FROM kv" in q:
+                return [{"key": k, "value": json.dumps(v), "updated_at": "2026-10-02T10:00:00"} for k, v in self.kv.items()]
+            return []
+        async def fetchone(self, q, args=()):
+            return None
+        async def kv_get(self, k, default=None):
+            return default
+    body = {"location": "KELMONENT-1", "location_type": "planet", "resource_sites": [
+        {"designation": "KELMONENT-1-SAL-2", "name": "Orbital Debris Field", "site_type": "salvage", "site_index": 1,
+         "resources_remaining_pct": {"conductive": 100, "structural": 100}},
+        {"designation": "KELMONENT-1-SAL-1", "name": "Ejected Instrument Package", "site_type": "salvage", "site_index": 0,
+         "resources_remaining_pct": {"rares": 100, "silicates": 100, "volatiles": 100}}]}
+    events = [{"event": "salvage.discovered", "created_at": "2026-10-01T00:00:00", "payload": json.dumps(
+                   {"designation": "KELMONENT-1-SAL-2", "resources": {"conductive": 40, "structural": 120}})},
+              {"event": "salvage.discovered", "created_at": "2026-10-01T00:00:00", "payload": json.dumps(
+                   {"designation": "KELMONENT-1-SAL-3", "resources": {"carbon": 50}})}]   # no longer listed: used up
+    res = asyncio.run(system_resources(FakeDB({"loc:KELMONENT-1": body}, events), "KELMONENT"))
+    shown = {x["code"]: x for x in res["salvage_shown"]}
+    assert set(shown) == {"KELMONENT-1-SAL-1", "KELMONENT-1-SAL-2"} and "KELMONENT-1-SAL-3" in res["hidden"]
+    assert shown["KELMONENT-1-SAL-2"]["amounts"] == {"conductive": 40, "structural": 120} and shown["KELMONENT-1-SAL-2"]["total"] == 160
+    assert shown["KELMONENT-1-SAL-1"]["amounts"] == {} and shown["KELMONENT-1-SAL-1"]["total"] is None   # % known, amounts not
+    assert res["sites_shown"] == []                         # salvage isn't counted as mining sites
+
+
+def test_diagnostics_snapshot_and_mining_diagnosis(client):
+    import asyncio
+    db = client.app.state.db
+    assert "No snapshot yet" in client.get("/diagnostics", headers=H).text
+    r = client.post("/diagnostics/snapshot", data={"stars": ""}, headers=HX)
+    assert r.headers.get("HX-Refresh")
+    for _ in range(100):
+        st = client.portal.call(db.kv_get, "snapshot_status", {})
+        if st.get("state") != "running":
+            break
+        client.portal.call(asyncio.sleep, 0.05)
+    assert st["state"] == "done", st
+    snap = client.portal.call(db.kv_get, "snapshot_last", None)
+    paths = [c["path"] for c in snap["calls"]]
+    assert "/devices" in paths and "/inventory" in paths and any(p.startswith("/locations/") for p in paths)
+    assert snap["requests"] <= 60 and "diagnosis" in snap and "rules" in snap["app"]
+    page = client.get("/diagnostics", headers=H).text
+    assert "Mining diagnosis" in page and "Mining drones" in page
+    dl = client.get("/diagnostics/snapshot.json", headers=H)
+    assert dl.headers["content-type"].startswith("application/json") and "attachment" in dl.headers["content-disposition"]
+    assert "dev" not in json.loads(dl.text).get("token", "")      # no token field at all
+    assert '"api_token"' not in dl.text
+
+
+def test_mining_diagnosis_reasons():
+    from rsweb.snapshot import diagnose
+    devs = [
+        {"device_code": "MC1", "device_type": "ami_mining_controller", "location": "KEL-BELT-1", "features": ["ami"], "status": "coordinating",
+         "ami_directive": {"name": "gather_evenly", "_eval_state": "exhausted:[carbon]:KEL-BELT-1"}, "ami_directive_status": "active"},
+        {"device_code": "MD1", "device_type": "mining_drone", "location": "KEL-BELT-1", "status": "idle", "controller_device_code": "MC1"},
+        {"device_code": "MD2", "device_type": "mining_drone", "location": "KEL-2-L4", "status": "idle"},
+        {"device_code": "MD3", "device_type": "mining_drone", "location": "KEL-BELT-1", "status": "mining (carbon)", "controller_device_code": "MC1"},
+        {"device_code": "MC2", "device_type": "ami_mining_controller", "location": "ITH-BELT-1", "features": ["ami"], "status": "idle"},
+    ]
+    snap = {"calls": [{"path": "/devices", "status": 200, "body": {"devices": devs}},
+                      {"path": "/locations/KEL-BELT-1", "status": 200, "body": {"location_type": "belt", "resource_sites": []}}],
+            "app": {"rules": {"restart_idle_miners": {"enabled": False}, "reopen_sites": {"enabled": True}}, "schedules": [], "jobs": []}}
+    d = diagnose(snap)
+    rows = {r["code"]: r for r in d["drones"]}
+    assert rows["MD3"]["state"] == "mining"
+    assert any("no open resource sites" in w for w in rows["MD1"]["why"]) and any("reports exhausted" in w for w in rows["MD1"]["why"])
+    assert any("isn't a belt" in w for w in rows["MD2"]["why"]) and any("Restart idle miners" in f or "rule is OFF" in w
+                                                                         for f in rows["MD2"]["fix"] for w in rows["MD2"]["why"])
+    ctrl = {c["code"]: c for c in d["controllers"]}
+    assert any("no directive" in n for n in ctrl["MC2"]["notes"])
+    assert "1 of 3 mining drones are mining" in d["headline"] and any("KEL-BELT-1" in h for h in d["headline"])
+
+
+def test_server_runs_and_versioned_log(client):
+    from rsweb import version as ver
+    db = client.app.state.db
+    runs = client.portal.call(db.kv_get, "server_runs", [])
+    assert runs[-1]["run"] == ver.RUN_ID and runs[-1]["version"] == ver.VERSION and runs[-1]["fingerprint"] == ver.FINGERPRINT
+    log = client.portal.call(db.kv_get, "automation_log", [])
+    start = next(e for e in log if e["text"].startswith("server started"))
+    assert start["v"] == ver.VERSION and start["run"] == ver.RUN_ID and start["rule"] == "engine"
+    # an entry from before versioning and one from an older version are told apart
+    log += [{"at": "2026-09-30T10:00:00", "rule": "loadouts", "level": "alert", "text": "old problem"},
+            {"at": "2026-10-01T10:00:00", "rule": "loadouts", "level": "alert", "text": "older version problem", "v": "1.3.0", "run": "x"}]
+    client.portal.call(db.kv_set, "automation_log", log)
+    page = client.get("/automations", headers=H).text
+    assert "unversioned" in page and "v1.3.0 older version" in page and "<b>server started" in page
+    acct = client.get("/account", headers=H).text
+    assert 'id="server"' in acct and ver.RUN_ID in acct and f"v{ver.VERSION}" in acct and "Version history" in acct
+    assert f"v{ver.VERSION}" in client.get("/", headers=H).text      # header label
+
+
+def test_start_notes_explain_restarts_and_upgrades():
+    from rsweb import version as ver
+    me = {"run": ver.RUN_ID, "version": ver.VERSION, "fingerprint": ver.FINGERPRINT}
+    assert "no earlier run on record" in " ".join(ver.start_notes(me, None))
+    crashed = {"run": "r1", "version": "1.3.0", "fingerprint": "abc", "started_at": "2026-10-01T00:00:00",
+               "last_seen": "2026-10-01T05:00:00", "stopped_at": None}
+    lines = ver.start_notes(me, crashed)
+    assert any("did not stop cleanly — last seen 2026-10-01T05:00:00" in l for l in lines)
+    assert any(l == f"upgraded v1.3.0 → v{ver.VERSION}" for l in lines)
+    assert any(l.strip().startswith("v1.4.0 (") for l in lines) and not any(l.strip().startswith("v1.3.0 (") for l in lines)
+    same = {**crashed, "version": ver.VERSION, "fingerprint": "zzz", "stopped_at": "2026-10-01T05:00:00"}
+    lines = ver.start_notes(me, same)
+    assert any("stopped cleanly" in l for l in lines) and any("code changed (zzz →" in l for l in lines)
+    assert ver.age_of({"run": ver.RUN_ID}, []) == "current" and ver.age_of({}, []) == "unversioned"
+    assert ver.age_of({"run": "x", "v": ver.VERSION}, []) == "earlier run" and ver.age_of({"run": "x", "v": "0.9"}, []) == "older version"

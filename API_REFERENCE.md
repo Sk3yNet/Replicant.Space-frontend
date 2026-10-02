@@ -854,3 +854,11 @@ A replicant must be present at the location, with the criteria materials there; 
 **Device list while the replicant travels:** `GET /devices` returns an **empty first page with a `next_cursor`**
 (`{"devices": [], "next_cursor": 894310}`) — a partial snapshot. The client keeps devices missing from such a
 snapshot from the last good list (flagged `location_stale`) and doesn't command them until a full list arrives.
+
+**Maintenance drones (confirmed by player):** they only need `{"command": "set_directive", "directive": "patrol"}` on the drone itself; no `activate` is required.
+
+**Salvage lives on its body (live, `GET /locations/KELMONENT-1`):** salvage codes aren't locations ("Planet not found"); the
+body lists them in `resource_sites` as `{designation: "KELMONENT-1-SAL-2", name: "Orbital Debris Field", site_type: "salvage",
+site_index: 1, resources_remaining_pct: {conductive: 100, structural: 100}}` — percentages, not quantities. The client multiplies
+the `salvage.discovered` amounts by the remaining %; salvage the body no longer lists counts as used up. A planet's detail also
+has `moons: [{designation, inventory, location_type, name, scanned, type}]` and `planet {…}`; `location_type: "planet"`.

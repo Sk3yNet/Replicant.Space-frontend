@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import hashlib
 import json
 import math
@@ -14,7 +15,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from .api import ApiError
@@ -34,6 +35,9 @@ from .ingest import duplicate_timers
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
+from . import version as appver  # noqa: E402
+templates.env.globals.update(app_version=appver.label(), APP_VERSION=appver.VERSION, RUN_ID=appver.RUN_ID, entry_age=appver.age_of)
+log = logging.getLogger("rsweb.web")
 router = APIRouter()
 
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
@@ -946,26 +950,63 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
 
 @router.post("/systems/{star}/resources/refresh", response_class=HTMLResponse)
 async def system_resources_refresh(request: Request, star: str, user: str = Depends(current_user)):
-    """Re-read belts and salvage locations so site quantities are current (one GET each, at most 15)."""
+    """Re-read the system's belts (open mining sites) and the bodies its salvage sits on (at most 15 GETs).
+    Belts come from the stored system scan; without one, GET /locations/<STAR> (same body as a scan) supplies them,
+    plus any belt our devices or events have been at. Salvage codes (X-1-SAL-2) aren't locations: read the body (X-1)."""
+    from .salvage import body_of
     star = star.upper()
     db, api = request.app.state.db, request.app.state.api
     row = await db.fetchone("SELECT data FROM systems WHERE star=?", (star,))
     scan = json.loads(row["data"]) if row else {}
-    codes = [b.get("designation") for b in ((scan.get("asteroid_belt") or {}).get("belts")) or [] if b.get("designation")]
+    belts = [b.get("designation") for b in ((scan.get("asteroid_belt") or {}).get("belts")) or [] if b.get("designation")]
+    failed: list[str] = []
+    if not belts:
+        try:
+            sysd = await api.get(f"/locations/{star}")
+            if isinstance(sysd, dict) and (sysd.get("asteroid_belt") or sysd.get("planets")):
+                belts = [b.get("designation") for b in ((sysd.get("asteroid_belt") or {}).get("belts")) or [] if b.get("designation")]
+                if not row:
+                    await db.execute("INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                                     (star, json.dumps(sysd), now_iso()))
+        except ApiError as e:
+            failed.append(f"{star}: {e.message}")
+    st = await load_state(request)
+    pat = re.compile(rf"\b{re.escape(star)}-BELT-\d+\b")
+    for d in st["devices"]:
+        belts += pat.findall(d.get("location") or "")
+    for r in await db.fetchall("SELECT DISTINCT location FROM events WHERE location LIKE ?", (f"{star}-BELT-%",)):
+        belts += pat.findall(r["location"] or "")
+    belts = list(dict.fromkeys(b.upper() for b in belts if "-SITE-" not in b))
     res = await system_resources(db, star)
-    codes += [x["code"] for x in res["salvage"] if not x["depleted"]]
-    done, failed = 0, []
-    for code in list(dict.fromkeys(codes))[:15]:
+    bodies = list(dict.fromkeys(body_of(x["code"]) for x in res["salvage"] if not x["depleted"]))
+    read_belts, read_bodies, open_sites = 0, 0, 0
+    for code in (belts + [c for c in bodies if c not in belts])[:15]:
         try:
             data = await api.get(f"/locations/{code}")
-            if isinstance(data, dict) and data:
-                await db.kv_set(f"loc:{code.upper()}", data)
-                done += 1
         except ApiError as e:
             failed.append(f"{code}: {e.message}")
-    if failed and not done:
-        return HTMLResponse(f'<span class="lv-alert small">Could not read: {"; ".join(failed[:3])}</span>')
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
+            continue
+        if isinstance(data, dict) and data:
+            await db.kv_set(f"loc:{code.upper()}", data)
+            if code in belts:
+                read_belts += 1
+                open_sites += len(data.get("resource_sites") or [])
+            else:
+                read_bodies += 1
+    bits = []
+    if read_belts:
+        bits.append(f"read {read_belts} belt(s): {open_sites} open mining site(s)")
+    elif not belts:
+        bits.append("no belts known for this system — run a system scan here first")
+    if read_bodies:
+        bits.append(f"read {read_bodies} salvage body/bodies")
+    msg = "; ".join(bits)
+    if read_belts and not open_sites:
+        msg += (". Belts only list sites that are open: a survey drone's <code>search</code> at the belt (or an AMI survey "
+                "controller on <code>belt_search</code>) opens one, and it stays open while the drone tracks it.")
+    err = f'<div class="lv-alert small">Could not read: {"; ".join(failed[:4])}</div>' if failed else ""
+    reload = '<script>setTimeout(function(){location.reload()}, 2500)</script>' if (read_belts or read_bodies) else ""
+    return HTMLResponse(f'<div class="small">{msg}</div>{err}{reload}')
 
 
 @router.get("/locations/{code}", response_class=HTMLResponse)
@@ -1400,9 +1441,63 @@ async def account(request: Request, user: str = Depends(current_user)):
     db = request.app.state.db
     actions = await db.fetchall("SELECT * FROM actions ORDER BY id DESC LIMIT 50")
     sync = {k: await db.kv_get(f"sync:{k}") for k in ("account", "devices", "inventory", "messages", "catalogue")}
-    return await page(request, user, "account.html", "account", account=await db.kv_get("account", {}),
+    runs = list(reversed(await db.kv_get("server_runs", []) or []))
+    return await page(request, user, "account.html", "account", runs=runs, changes=appver.CHANGES,
+                      account=await db.kv_get("account", {}),
                       achievements=await db.kv_get("achievements", {}), actions=actions, sync=sync,
                       hub_listeners=request.app.state.hub.listeners)
+
+
+# --- diagnostics: live snapshot + mining diagnosis ----------------------------------------------------
+async def _snapshot_run(app, stars: set[str] | None) -> None:
+    from . import snapshot as snapmod
+    db = app.state.db
+
+    async def progress(done: int, total: int, path: str) -> None:
+        await db.kv_set("snapshot_status", {"state": "running", "done": done, "total": total, "path": path, "at": now_iso()})
+    try:
+        snap = await snapmod.capture(app.state.api, db, app.state.worker.automations, stars, progress=progress)
+        await db.kv_set("snapshot_last", snap)
+        await db.kv_set("snapshot_status", {"state": "done", "done": snap["requests"], "total": snap["requests"], "at": now_iso()})
+    except Exception as e:  # report, never crash the app
+        log.exception("snapshot failed")
+        await db.kv_set("snapshot_status", {"state": "failed", "error": str(e), "at": now_iso()})
+
+
+@router.get("/diagnostics", response_class=HTMLResponse)
+async def diagnostics(request: Request, user: str = Depends(current_user)):
+    db = request.app.state.db
+    snap = await db.kv_get("snapshot_last", None)
+    status = await db.kv_get("snapshot_status", {}) or {}
+    tmpl = "partials/diagnostics_body.html" if request.headers.get("hx-request") else "diagnostics.html"
+    ctx = {"snap": snap, "diag": (snap or {}).get("diagnosis"), "status": status}
+    if tmpl.startswith("partials"):
+        return partial(request, tmpl, **ctx)
+    return await page(request, user, tmpl, "diagnostics", **ctx)
+
+
+@router.post("/diagnostics/snapshot", response_class=HTMLResponse)
+async def diagnostics_snapshot(request: Request, user: str = Depends(current_user)):
+    form = await request.form()
+    stars = {x.strip().upper() for x in re.split(r"[,\s]+", form.get("stars") or "") if x.strip()} or None
+    db = request.app.state.db
+    st = await db.kv_get("snapshot_status", {}) or {}
+    t = getattr(request.app.state, "snapshot_task", None)
+    if st.get("state") == "running" and t and not t.done():
+        return HTMLResponse('<div class="result err">A snapshot is already running.</div>')
+    await db.kv_set("snapshot_status", {"state": "running", "done": 0, "total": 60, "at": now_iso()})
+    request.app.state.snapshot_task = asyncio.create_task(_snapshot_run(request.app, stars))
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.get("/diagnostics/snapshot.json")
+async def diagnostics_download(request: Request, user: str = Depends(current_user)):
+    snap = await request.app.state.db.kv_get("snapshot_last", None)
+    if not snap:
+        return HTMLResponse("No snapshot yet.", status_code=404)
+    name = f"replicant-snapshot-{(snap.get('captured_at') or 'x')[:19].replace(':', '')}.json"
+    return Response(json.dumps(snap, indent=1, default=str), media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 CONSOLE_PRESETS = [
@@ -1915,15 +2010,18 @@ async def fleets_ctx(request: Request) -> dict:
     bps = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
     types = sorted({b["device_type"] for b in bps} | {d.get("device_type") for d in st["devices"] if d.get("device_type")})
     jobs = {j["id"]: j for j in await eng.jobs()}
+    bp_by = {b["device_type"]: b for b in bps}
     for f in items:
         f["roster"] = fl.roster(f, st["devices"])
+        f["points"] = fl.attach_points(f, st["devices"], bp_by, f["roster"]["rows"])
         m = f.get("mission") or {}
         f["job"] = jobs.get(m.get("job"))
     free = [d for d in st["devices"] if not fl.fleet_of(d) and d.get("device_code") not in
             {r.get("hosted_device_code") for r in st["replicants"].values()}]
     stars_seen = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")})
     traders = await request.app.state.db.kv_get("traders_cache", {}) or {}
-    return {"fleets": items, "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
+    profiles = {t: fl.type_profile(t, bp_by, st["devices"]) for t in types}
+    return {"profiles": profiles, "fleets": items, "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
             "stars": stars_seen, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
 
 

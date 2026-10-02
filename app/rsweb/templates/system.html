@@ -77,9 +77,10 @@
     </table>{% endif %}
     {% if res.salvage_shown %}<h3>Salvage</h3>
     <table class="small"><tr><th>Location</th><th>What</th><th>Contents</th><th class="num">Total</th></tr>
-      {% for x in res.salvage_shown %}<tr><td><a hx-get="/locations/{{ x.code }}" hx-target="#loc-panel" href="/locations/{{ x.code }}">{{ x.code }}</a></td>
+      {% for x in res.salvage_shown %}<tr><td><a hx-get="/locations/{{ x.body }}" hx-target="#loc-panel" href="/locations/{{ x.body }}" title="on {{ x.body }}">{{ x.code }}</a></td>
         <td>{{ x.name or '' }}{% if x.type %} <span class="muted">{{ x.type | human }}</span>{% endif %}</td>
-        <td>{% for r, q in x.amounts.items() %}{{ r }} {{ q | num }}{{ ', ' if not loop.last }}{% endfor %}</td>
+        <td>{% if x.remaining_pct %}{% for r, pc in x.remaining_pct.items() %}{{ r }}{% if r in x.amounts %} {{ x.amounts[r] | num }}{% endif %} <span class="muted">{{ pc | round | int }}%</span>{{ ', ' if not loop.last }}{% endfor %}
+            {% else %}{% for r, q in x.amounts.items() %}{{ r }} {{ q | num }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</td>
         <td class="num">{{ 'depleted' if x.depleted else (x.total | num if x.total is not none else '?') }}</td></tr>{% endfor %}
     </table>{% endif %}
   </div>

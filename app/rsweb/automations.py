@@ -26,6 +26,12 @@ log = logging.getLogger("rsweb.auto")
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 
 
+
+def _reserved(d: dict) -> bool:
+    """Fleet members and devices bound for another system are left out of the in-system work rules."""
+    from .ami_schedule import reserved
+    return reserved(d)
+
 @dataclass
 class Option:
     name: str
@@ -55,8 +61,12 @@ RULES: list[Rule] = [
     Rule("loadouts", "Keep systems at their loadout",
          "Every N minutes, apply the Loadouts page: mark devices above a system's loadout as spare, send spares to "
          "systems that are short, print what's still missing on an autofactory that has the materials, and carry "
-         "it there. Devices with an ignored tag are never touched.",
-         [Option("every_minutes", "int", "Run every (minutes)", 15)]),
+         "it there. Devices with an ignored tag are never touched. Idle drones in the system they belong to that no "
+         "controller runs fly to that system's controller of the right kind and are adopted (it launches if it's already "
+         "running a directive). Maintenance drones and AMI controllers that arrive home inactive are activated, once.",
+         [Option("every_minutes", "int", "Run every (minutes)", 15),
+          Option("adopt_arrivals", "bool", "Hand unmanaged drones to their system's controller", True),
+          Option("activate_arrivals", "bool", "Set maintenance drones to patrol / activate inactive AMI controllers when they arrive home", True)]),
     Rule("contracts", "Work on contracts (in-game events)",
          "Every few minutes, for each open event: if what it asks for is at its location and a replicant is there, fulfil it "
          "(POST /locations/<location>/events/<designation>). Optionally have the system's in-system transport controller "
@@ -263,7 +273,8 @@ class AutomationEngine:
 
     async def log(self, rule: str, text: str, level: str = "info", notify: bool = False) -> None:
         entries = await self.db.kv_get("automation_log", []) or []
-        entries.append({"at": now_iso(), "rule": rule, "level": level, "text": text})
+        from .version import RUN_ID, VERSION
+        entries.append({"at": now_iso(), "rule": rule, "level": level, "text": text, "v": VERSION, "run": RUN_ID})
         await self.db.kv_set("automation_log", entries[-MAX_LOG:])
         log.info("[%s] %s", rule, text)
         if notify:
@@ -335,6 +346,8 @@ class AutomationEngine:
         job = {"id": f"{rule}-{int(_now().timestamp() * 1000)}-{len(jobs)}", "rule": rule, "title": title,
                "device": device, "steps": steps, "idx": 0, "status": "running", "created_at": now_iso(),
                "meta": meta or {}}
+        from .version import RUN_ID, VERSION
+        job["v"], job["run"] = VERSION, RUN_ID
         jobs.append(job)
         await self.save_jobs(jobs)
         await self.log(rule, f"started: {title} ({len(steps)} steps)")
@@ -658,12 +671,12 @@ class AutomationEngine:
         await self.db.kv_set("loadout_orders", orders)
         for code, dest in p["self_moves"]:
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {dest}", code,
-                                                  lo.self_move_steps(code, dest, stars, p["by_code"][code]),
+                                                  lo.self_move_steps(code, dest, stars, p["by_code"][code], p.get("managed")),
                                                   {"devices": [code], "star": dest}, force=manual))
         for dl in p["deliveries"]:
             started += bool(await self.create_job(
                 "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']}", dl["carrier"],
-                lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"]),
+                lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed")),
                 {"devices": dl["devices"], "star": dl["to"]}, force=manual))
         ferries = await self.db.kv_get("loadout_ferries", {}) or {}
         for r in p.get("routes") or []:
@@ -681,9 +694,41 @@ class AutomationEngine:
             if steps:
                 started += bool(await self.create_job("loadouts", f"loadouts: {code} arrived", code, steps,
                                                       {"devices": [code]}, force=manual))
+        started += await self._arrival_followups(cfg, p, manual, lines)
         await self.db.kv_set("loadouts_last", {"at": now_iso(), "lines": lines, "jobs": started,
                                                "dry_run": (await self.settings())["dry_run"] and not manual})
         return lines
+
+    async def _arrival_followups(self, cfg: dict, p: dict, manual: bool, lines: list[str]) -> int:
+        """After the moves: drones that reached their system join its controller; inactive maintenance drones and
+        AMI controllers that reached home are switched on (once per arrival)."""
+        from .ami_schedule import handoff_steps, handoffs, managed_by, wakeup_steps, wakeups
+        rc = {"adopt_arrivals": True, "activate_arrivals": True, **((await self.settings())["rules"].get("loadouts") or {})}
+        devices = await self.devices()
+        busy = self.busy_devices(await self.jobs())
+        skip = set(p.get("moves") or {}) | set(p.get("arrived") or []) | {c for dl in p.get("deliveries") or [] for c in dl["devices"]} \
+            | {dl["carrier"] for dl in p.get("deliveries") or []}
+        started = 0
+        if rc.get("adopt_arrivals", True):
+            for h in handoffs(devices, await managed_by(self.db), busy, skip, set(cfg.get("ignore_tags") or [])):
+                lines.append(f"{h['drone']} joins controller {h['controller']}"
+                             + (f" (flies {h['from']} → {h['to']})" if h["from"] != h["to"] else ""))
+                started += bool(await self.create_job("loadouts", f"loadouts: {h['controller']} adopts {h['drone']}", h["controller"],
+                                                      handoff_steps(h), {"devices": [h["drone"]]}, force=manual))
+        if rc.get("activate_arrivals", True):
+            done = await self.db.kv_get("loadout_woken", {}) or {}
+            by = {d.get("device_code"): d for d in devices}
+            for w in wakeups(devices, busy, done, skip):
+                code = w["code"]
+                what = " + ".join(x for x, on in (("activate", w["activate"]), ("patrol", w["patrol"])) if on)
+                lines.append(f"{what} {code} ({by[code].get('device_type')}) — it's home")
+                job = await self.create_job("loadouts", f"loadouts: {what} {code}", code, wakeup_steps(w),
+                                            {"devices": [code]}, force=manual)
+                if job:
+                    started += 1
+                    done[code] = star_of(by[code].get("location"))
+            await self.db.kv_set("loadout_woken", done)
+        return started
 
     async def run_due_loadouts(self) -> None:
         cfg = await self.rule_cfg("loadouts")
@@ -955,7 +1000,7 @@ class AutomationEngine:
         if cfg.get("use_idle", True):
             have = {d for d, _ in drones}
             for d in await self.devices():
-                if any(t.startswith("fleet:") for t in d.get("tags") or []):
+                if _reserved(d):
                     continue
                 if ("survey" in (d.get("device_type") or "") and star_of(d.get("location")) == star
                         and str(d.get("status", "")).startswith("idle") and d["device_code"] not in busy | have):
@@ -992,7 +1037,7 @@ class AutomationEngine:
     async def survey_with_ami(self, vessel: str, vessel_loc: str, star: str, stowed: list[dict], cfg: dict,
                               busy: set) -> bool:
         """Survey via an AMI survey controller (carried or already in the system). True if a job was made."""
-        devices = [d for d in await self.devices() if not any(t.startswith("fleet:") for t in d.get("tags") or [])]
+        devices = [d for d in await self.devices() if not _reserved(d)]
         carried_ctrl = next((i for i in stowed if "survey" in (i.get("device_type") or "") and "controller" in (i.get("device_type") or "")
                              and i["device_code"] not in busy), None)
         in_system = next((d for d in devices if "survey" in (d.get("device_type") or "") and "controller" in (d.get("device_type") or "")
@@ -1255,7 +1300,7 @@ class AutomationEngine:
             return []
         from . import sites
         from .ami_schedule import managed_by
-        devices = [d for d in await self.devices() if not any(t.startswith("fleet:") for t in d.get("tags") or [])]
+        devices = [d for d in await self.devices() if not _reserved(d)]
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
         managed = await managed_by(self.db)
@@ -1331,7 +1376,7 @@ class AutomationEngine:
 
         miners = [d for d in devices if (d.get("device_type") == "mining_drone" or
                   (is_controller(d) and kind_of(d.get("device_type")) == "mining"))
-                  and not any(t.startswith("fleet:") for t in d.get("tags") or [])]
+                  and not _reserved(d)]
         done: list[str] = []
         for star in sorted({star_of(d.get("location")) for d in miners}):
             res = await system_resources(self.db, star)
@@ -1428,7 +1473,7 @@ class AutomationEngine:
                 dry_belts |= worked_out(await system_resources(self.db, star))
         for d in devices:
             code = d.get("device_code")
-            if any(t.startswith("fleet:") for t in d.get("tags") or []):
+            if _reserved(d):
                 continue  # a fleet's drones are run by the fleet
             if (d.get("device_type") != "mining_drone" or str(d.get("status")) != "idle"
                     or "BELT" not in (d.get("location") or "") or code in busy or code in managed
