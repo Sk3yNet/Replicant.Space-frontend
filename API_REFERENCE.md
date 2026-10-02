@@ -844,3 +844,9 @@ surge_plate attach 1; surge_platform 4; surge_carrier 9; mobile_fleet 36; autofa
 the site. Searches take longer each time (diminishing returns); mined-out sites regenerate slowly. Mining drones use every open
 site at their location (no site argument). AMI survey controllers have a `belt_search` directive (config `{}`, at the controller's
 location; `_eval_state` like `searching:4:0`).
+
+**In-game events (live):** `event.discovered` `{designation: "AEMEROTH-2-EVT-001", location: "AEMEROTH-2", title, description,
+category: "resource_trade", event_type, tier, criteria: [{name: "default", resources: {carbon: 150, silicates: 200}, devices: []}],
+rewards: {civilisation_points, completion_achievement, resources: {volatiles: 150}, xp}}`.
+`event.completed` `{designation, location, event_type, tier, consumed: {resources: {...}}, rewards: {...}}`.
+A replicant must be present at the location, with the criteria materials there; then `POST /v1/locations/{location}/events/{designation}` (no body) fulfils it (confirmed).

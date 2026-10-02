@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Contracts{% endblock %}
+{% block content %}
+<h1>Contracts <span class="muted small">in-game events · {{ open | length }} open</span></h1>
+<p class="muted small">Discovered events and what they ask for. A replicant must be at the event's location to fulfil one; the
+  criteria are consumed from what's there. Progress counts stock at the location and across its system.</p>
+
+{% for e in open %}{% set p = e.prog %}{% set b = p.best %}
+<div class="card" style="margin-bottom:12px">
+  <div class="row between">
+    <h2 style="margin:0">{{ e.title }} <span class="muted small">{{ e.designation }} · tier {{ e.tier }} · {{ (e.category or e.event_type or '') | human }}</span></h2>
+    <span class="pill {{ {'ready': 'st-work', 'needs replicant': 'st-move', 'deliver': 'st-idle'}.get(p.state, 'lv-alert') }}">{{ p.state }}</span>
+  </div>
+  <div class="small"><a href="/systems/{{ e.star }}">{{ e.location }}</a> · discovered {{ e.discovered_at | ago }}</div>
+  {% if e.description %}<p class="muted small">{{ e.description }}</p>{% endif %}
+  <div class="grid g2">
+    <div>
+      {% for c in p.criteria %}
+      <h3 style="margin:6px 0">{{ 'Criteria' if c.name == 'default' else c.name | human }} {% if c.ready_here %}<span class="lv-done small">✓ all here</span>{% elif c.ready_system %}<span class="small">in system — needs delivering</span>{% endif %}</h3>
+      <table class="small"><tr><th>Needs</th><th class="num">Qty</th><th class="num">At {{ e.location }}</th><th class="num">In {{ e.star }}</th></tr>
+        {% for x in c.resources %}<tr><td>{{ x.resource }}</td><td class="num">{{ x.need | num }}</td>
+          <td class="num {{ 'lv-done' if not x.short_here else '' }}">{{ x.at_location | num }}</td>
+          <td class="num {{ 'lv-alert' if x.short_system else '' }}">{{ x.in_system | num }}</td></tr>{% endfor %}
+        {% for x in c.devices %}<tr><td>{{ x.device_type | human }}</td><td class="num">{{ x.need }}</td>
+          <td class="num">{{ x.at_location }}</td><td class="num {{ 'lv-alert' if x.short_system else '' }}">{{ x.in_system }}</td></tr>{% endfor %}
+      </table>
+      {% endfor %}
+    </div>
+    <div>
+      <div class="small"><b>Rewards:</b> {% for k, v in (e.rewards or {}).items() if k != 'resources' %}{{ k | human }} {{ v }}{{ ' · ' }}{% endfor %}
+        {% for r, q in ((e.rewards or {}).resources or {}).items() %}{{ q }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}</div>
+      <div class="small" style="margin-top:6px"><b>Replicant:</b>
+        {% if p.present %}{% for r in p.present %}<span class="pill st-move small">⬢ {{ r.name }}</span> here{% endfor %}
+        {% elif p.nearby %}{% for r in p.nearby %}{{ r.name }} at {{ r.location }}{{ ', ' if not loop.last }}{% endfor %} (same system)
+        {% else %}<span class="lv-alert">none in {{ e.star }}</span>{% endif %}</div>
+      {% if e.plan.short %}<div class="small" style="margin-top:6px"><b>To bring here:</b>
+        {% for l in e.plan.legs %}<div>· {% for r, q in l.requirement.items() %}{{ q }} {{ r }}{{ ', ' if not loop.last }}{% endfor %} from {{ l.collect }}</div>{% endfor %}
+        {% if e.plan.missing %}<div class="lv-alert">· missing in {{ e.star }}: {% for r, q in e.plan.missing.items() %}{{ q | round | int }} {{ r }}{{ ', ' if not loop.last }}{% endfor %} — mine or ferry it in</div>{% endif %}
+        {% if e.plan.legs %}<div class="muted">with {{ e.plan.controller.device_code if e.plan.controller else '— no in-system transport controller —' }}</div>{% endif %}
+      </div>{% endif %}
+      <div class="row" style="margin-top:8px">
+        {% if not p.present %}
+          <form class="inline" hx-post="/game-events/{{ e.designation }}/bring" hx-target="#ge-{{ e.designation }}">
+            <select name="replicant">{% for code, r in replicants.items() %}<option value="{{ code }}">{{ r.name or code }} @ {{ r.location or r.current_location }}</option>{% endfor %}</select>
+            <button class="small">Send replicant</button></form>
+        {% endif %}
+        {% if e.plan.legs %}<button class="small" hx-post="/game-events/{{ e.designation }}/deliver" hx-target="#ge-{{ e.designation }}">Deliver materials</button>{% endif %}
+        <button class="small {{ '' if p.state == 'ready' else 'ghost' }}" hx-post="/game-events/{{ e.designation }}/fulfil" hx-target="#ge-{{ e.designation }}"
+                {% if p.state != 'ready' %}hx-confirm="Not everything looks ready ({{ p.state }}). Try anyway?"{% endif %}>Fulfil</button>
+      </div>
+      <div id="ge-{{ e.designation }}"></div>
+    </div>
+  </div>
+</div>
+{% else %}<div class="card"><p class="muted">No open events. They appear here when a scan or arrival discovers one (event.discovered).</p></div>{% endfor %}
+
+<div class="grid g2">
+  <div class="card">
+    <h2>Completed</h2>
+    {% for e in closed %}<div class="small"><b>{{ e.title }}</b> <span class="muted">{{ e.designation }} · {{ e.status }} {{ e.closed_at | ago }}</span>
+      {% if e.consumed %} · used {% for r, q in (e.consumed.resources or {}).items() %}{{ q }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
+      {% if e.rewards %} · got {% for r, q in (e.rewards.resources or {}).items() %}{{ q }} {{ r }}, {% endfor %}{{ e.rewards.xp or 0 }} XP{% endif %}</div>
+    {% else %}<p class="muted small">None yet.</p>{% endfor %}
+  </div>
+  <div class="card">
+    <h2>How to fulfil</h2>
+    <form hx-post="/game-events/settings" hx-target="#ge-saved">
+      <input name="fulfil" value="{{ settings.fulfil or '' }}" style="width:100%" placeholder='POST /locations/{location}/events/{designation}'>
+      <div class="muted small">The request the <b>Fulfil</b> button sends: <code>METHOD /path {json body}</code>. Placeholders: <code>{designation}</code>,
+        <code>{replicant}</code> (one at the location), <code>{location}</code>, <code>{criteria}</code>. Leave blank for the game's call: <code>POST /locations/{location}/events/{designation}</code>.</div>
+      <div class="row" style="margin-top:6px"><button class="small">Save</button><span id="ge-saved"></span></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

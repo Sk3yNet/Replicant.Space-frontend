@@ -57,6 +57,15 @@ RULES: list[Rule] = [
          "systems that are short, print what's still missing on an autofactory that has the materials, and carry "
          "it there. Devices with an ignored tag are never touched.",
          [Option("every_minutes", "int", "Run every (minutes)", 15)]),
+    Rule("contracts", "Work on contracts (in-game events)",
+         "Every few minutes, for each open event: if what it asks for is at its location and a replicant is there, fulfil it "
+         "(POST /locations/<location>/events/<designation>). Optionally have the system's in-system transport controller "
+         "deliver the shortfall from other stockpiles, and send a replicant that's already in the same system.",
+         [Option("auto_fulfil", "bool", "Fulfil as soon as it's ready", True),
+          Option("auto_deliver", "bool", "Deliver missing materials from elsewhere in the system", False),
+          Option("send_replicant", "bool", "Send a replicant already in the same system once the materials are there", False,
+                 help="Moves your replicant"),
+          Option("every_minutes", "int", "Check every (minutes)", 5)]),
     Rule("reopen_sites", "Re-open resource sites at worked-out belts",
          "Belts never run out, but only open sites can be mined, and a survey drone opens one by searching and then "
          "stays there tracking it. When a mining controller reports exhausted (or a drone is refused because the belt "
@@ -531,6 +540,7 @@ class AutomationEngine:
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
+            await self.rule_contracts()
             await self.rule_reopen_sites()
             await self.rule_salvage()
             await self.rule_restart_idle_miners()
@@ -1031,6 +1041,76 @@ class AutomationEngine:
         if len(live) != len(ex):
             await self.db.kv_set("exhausted_places", live)
         return list(live)
+
+    async def rule_contracts(self, force: bool = False) -> list[str]:
+        """See gameevents.py. Fulfil ready events; optionally deliver shortfalls / send a nearby replicant."""
+        cfg = await self.rule_cfg("contracts")
+        if not cfg:
+            return []
+        from . import gameevents as gev
+        from .shapes import normalize_inventory
+        state = await self.db.kv_get("contracts_state", {}) or {}
+        last = _ts(state.get("_last"))
+        if not force and last and (_now() - last).total_seconds() < 60 * max(1, int(cfg.get("every_minutes") or 5)):
+            return []
+        state["_last"] = now_iso()
+        devices = await self.devices()
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        reps = await self.db.kv_get("replicants", {}) or {}
+        settings = await self.db.kv_get("event_settings", {}) or {}
+        tmpl = (settings.get("fulfil") or "").strip() or gev.DEFAULT_FULFIL
+        jobs = await self.jobs()
+        busy = self.busy_devices(jobs)
+        done = []
+        for des, e in (await gev.load(self.db)).items():
+            if e["status"] != "open" or not e.get("location"):
+                continue
+            prog = gev.progress(e, inv, devices, reps)
+            tried = state.get(des) or {}
+            if prog["state"] == "ready" and cfg.get("auto_fulfil", True):
+                t = _ts(tried.get("fulfil"))
+                if t and (_now() - t).total_seconds() < 1800:
+                    continue  # tried recently; let the event stream catch up (or the error be read)
+                rep = prog["present"][0]["code"]
+                filled = (tmpl.replace("{designation}", des).replace("{replicant}", rep).replace("{location}", e["location"])
+                          .replace("{criteria}", (prog.get("best") or {}).get("name") or "default"))
+                method, _, rest = filled.partition(" ")
+                path, _, body = rest.partition(" ")
+                job = await self.create_job("contracts", f"fulfil {e.get('title')} at {e['location']}", None,
+                                            [step(f"fulfil {des}", path, json.loads(body) if body.strip() else None, method=method.upper())],
+                                            {"event": des})
+                tried["fulfil"] = now_iso()
+                done.append(f"fulfil {des}" + ("" if job else " (dry run)"))
+            elif prog["state"] == "deliver" and cfg.get("auto_deliver"):
+                plan = gev.delivery_plan(e, prog, devices)
+                ctrl = plan["controller"]
+                t = _ts(tried.get("deliver"))
+                if not ctrl or ctrl["device_code"] in busy or not plan["legs"] or (t and (_now() - t).total_seconds() < 3600):
+                    continue
+                leg = plan["legs"][0]  # one leg per check; the next check sends the next pile
+                code = ctrl["device_code"]
+                await self.create_job("contracts", f"deliver for {e.get('title')}: {leg['collect']} → {leg['deliver']}", code,
+                                      [step(f"{code}: delivery", f"/devices/{code}",
+                                            {"command": "set_directive", "directive": "delivery",
+                                             "configuration": {"route": {"collect": leg["collect"], "deliver": leg["deliver"]},
+                                                               "requirement": leg["requirement"]}}, critical=True),
+                                       step(f"{code}: launch", f"/devices/{code}", {"command": "launch"})], {"event": des})
+                tried["deliver"] = now_iso()
+                done.append(f"deliver {des}")
+            elif prog["state"] == "needs replicant" and cfg.get("send_replicant") and prog["nearby"]:
+                t = _ts(tried.get("send"))
+                if t and (_now() - t).total_seconds() < 3600:
+                    continue
+                rep = prog["nearby"][0]["code"]
+                st = step(f"{rep} → {e['location']}", f"/replicants/{rep}/travel", {"destination": e["location"]},
+                          wait=["travel.arrived"], match={"destination": e["location"]})
+                await self.create_job("contracts", f"send {prog['nearby'][0]['name']} to {e['location']} for {e.get('title')}",
+                                      None, [st], {"event": des})
+                tried["send"] = now_iso()
+                done.append(f"send {rep} → {e['location']}")
+            state[des] = tried
+        await self.db.kv_set("contracts_state", state)
+        return done
 
     async def rule_reopen_sites(self) -> list[str]:
         """See sites.py."""

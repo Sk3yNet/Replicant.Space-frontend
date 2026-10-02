@@ -900,11 +900,12 @@ def build_system_view(star: str, scan: dict, devices: list[dict], inventory: lis
                                       "stock": inv.get(loc, {})})
     # every other known location: resource sites, salvage, Lagrange points, objects, outer system
     qty = {x["code"]: x for x in ((res or {}).get("sites", []) + (res or {}).get("salvage", []))}
+    hidden = (res or {}).get("hidden") or set()
     drawn = {p.get("designation") for p in planets} | {star}
     shapes["places"] = []
     for t in places or []:
         code = t["code"]
-        if code in drawn or t["category"] in ("star", "planet", "belt", "other"):
+        if code in drawn or code in hidden or t["category"] in ("star", "planet", "belt", "other"):
             continue
         xy = loc_xy(code)
         if not xy:
@@ -937,7 +938,7 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     view = build_system_view(star, scan, st["devices"], st["inventory"], sys_t["targets"], res)
     reps = [r for r in st["replicants"].values() if star_of(r.get("location") or r.get("current_location")) == star]
     game_locs = {k: v for k, v in (st["locations"] or {}).items() if star_of(k) == star}
-    qty = {x["code"]: x for x in res["sites"] + res["salvage"]}
+    qty = {x["code"]: x for x in res["sites_shown"] + res["salvage_shown"]}
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err,
                       updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t,
                       CATEGORY_LABEL=CATEGORY_LABEL, game_locs=game_locs, qty=qty)
@@ -1805,3 +1806,99 @@ async def loadouts_apply(request: Request, star: str = Form(""), user: str = Dep
 async def loadouts_clear_orders(request: Request, user: str = Depends(current_user)):
     await request.app.state.db.kv_set("loadout_orders", [])
     return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+# --- in-game events (contracts) --------------------------------------------------------------
+from . import gameevents as gev  # noqa: E402
+
+
+async def game_events_ctx(request: Request) -> dict:
+    db = request.app.state.db
+    st = await load_state(request)
+    inv = {i.get("location"): i.get("items") or {} for i in st["inventory"]}
+    evs = await gev.load(db)
+    settings = await db.kv_get("event_settings", {}) or {}
+    open_, closed = [], []
+    for e in sorted(evs.values(), key=lambda e: e.get("discovered_at") or "", reverse=True):
+        if e["status"] == "open":
+            e["prog"] = gev.progress(e, inv, st["devices"], st["replicants"])
+            e["plan"] = gev.delivery_plan(e, e["prog"], st["devices"])
+            open_.append(e)
+        else:
+            closed.append(e)
+    return {"open": open_, "closed": closed[:30], "replicants": st["replicants"], "settings": settings}
+
+
+@router.get("/game-events", response_class=HTMLResponse)
+async def game_events_page(request: Request, user: str = Depends(current_user)):
+    return await page(request, user, "game_events.html", "gameevents", **await game_events_ctx(request))
+
+
+async def _event(request: Request, des: str) -> tuple[dict, dict]:
+    ctx = await game_events_ctx(request)
+    e = next((x for x in ctx["open"] if x["designation"] == des), None)
+    return e, ctx
+
+
+@router.post("/game-events/{des}/bring", response_class=HTMLResponse)
+async def game_event_bring(request: Request, des: str, replicant: str = Form(...), user: str = Depends(current_user)):
+    e, _ = await _event(request, des)
+    if not e:
+        return HTMLResponse('<div class="result err">That event is no longer open.</div>')
+    return await run_action(request, user, "POST", f"/replicants/{replicant}/travel", {"destination": e["location"]},
+                            f"{replicant} → {e['location']} for {e['title']}")
+
+
+@router.post("/game-events/{des}/deliver", response_class=HTMLResponse)
+async def game_event_deliver(request: Request, des: str, user: str = Depends(current_user)):
+    e, _ = await _event(request, des)
+    if not e:
+        return HTMLResponse('<div class="result err">That event is no longer open.</div>')
+    plan = e["plan"]
+    ctrl = plan["controller"]
+    if not plan["legs"]:
+        msg = "Nothing to move: everything needed is already at the location." if not plan["short"] else \
+            f"Not enough in {e['star']}: missing {', '.join(f'{int(q)} {r}' for r, q in plan['missing'].items())}."
+        return HTMLResponse(f'<div class="result {"ok" if not plan["short"] else "err"}">{msg}</div>')
+    if not ctrl:
+        return HTMLResponse(f'<div class="result err">No in-system AMI transport controller in {e["star"]} to deliver with.</div>')
+    code = ctrl["device_code"]
+    steps = []
+    for leg in plan["legs"][:3]:
+        st = auto.step(f"{code}: deliver {', '.join(f'{q} {r}' for r, q in leg['requirement'].items())} {leg['collect']} → {leg['deliver']}",
+                       f"/devices/{code}", {"command": "set_directive", "directive": "delivery",
+                                            "configuration": {"route": {"collect": leg["collect"], "deliver": leg["deliver"]},
+                                                              "requirement": leg["requirement"]}},
+                       wait=["directive.completed"], timeout=6 * 3600)
+        steps += [st, auto.step(f"{code}: launch", f"/devices/{code}", {"command": "launch"})]
+    # only wait between legs; the last one finishes on its own
+    if steps:
+        steps[-2]["wait"] = []
+    return await start_chain(request, user, f"event {e['title']}: deliver to {e['location']}", steps[0], steps[1:], code)
+
+
+@router.post("/game-events/{des}/fulfil", response_class=HTMLResponse)
+async def game_event_fulfil(request: Request, des: str, replicant: str = Form(""), user: str = Depends(current_user)):
+    e, ctx = await _event(request, des)
+    if not e:
+        return HTMLResponse('<div class="result err">That event is no longer open.</div>')
+    tmpl = (ctx["settings"].get("fulfil") or "").strip() or gev.DEFAULT_FULFIL
+    rep = replicant or (e["prog"]["present"][0]["code"] if e["prog"]["present"] else "")
+    best = (e["prog"].get("best") or {}).get("name") or "default"
+    filled = (tmpl.replace("{designation}", des).replace("{replicant}", rep).replace("{location}", e["location"])
+              .replace("{criteria}", best))
+    method, _, rest = filled.partition(" ")
+    path, _, body = rest.partition(" ")
+    try:
+        payload = json.loads(body) if body.strip() else None
+    except ValueError:
+        return HTMLResponse('<div class="result err">The fulfil body isn\'t valid JSON.</div>')
+    return await run_action(request, user, method.upper(), path, payload, f"fulfil {e['title']} ({des})")
+
+
+@router.post("/game-events/settings", response_class=HTMLResponse)
+async def game_event_settings(request: Request, fulfil: str = Form(""), user: str = Depends(current_user)):
+    s = await request.app.state.db.kv_get("event_settings", {}) or {}
+    s["fulfil"] = fulfil.strip()
+    await request.app.state.db.kv_set("event_settings", s)
+    return HTMLResponse('<span class="lv-done small">Saved.</span>')

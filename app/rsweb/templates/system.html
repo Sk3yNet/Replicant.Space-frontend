@@ -65,18 +65,19 @@
         <td class="num">{{ t.salvage | num if t.salvage else '' }}</td><td class="num">{{ t.stock | num if t.stock else '' }}</td></tr>{% endfor %}
       <tr><th>Total</th><th></th><th class="num">{{ res.mineable | num }}</th><th class="num">{{ res.salvageable | num }}</th><th class="num">{{ res.totals.values() | sum(attribute='stock') | num }}</th></tr>
     </table>
+    {% if res.hidden %}<p class="muted small">{{ res.hidden | length }} used-up salvage / depleted or closed site(s) hidden. Belts never run out — open new sites by searching with survey drones.</p>{% endif %}
     {% if res.unknown_sites %}<p class="muted small">{{ res.unknown_sites }} site(s) with no quantity yet — "Refresh quantities" reads them from the game.</p>{% endif %}
     {% else %}<p class="muted small">Nothing known yet. "Refresh quantities" reads the belts and salvage here (needs presence or a relay).</p>{% endif %}
 
-    {% if res.sites %}<h3>Mining sites</h3>
+    {% if res.sites_shown %}<h3>Mining sites</h3>
     <table class="small"><tr><th>Site</th><th>Resource</th><th>Level</th><th class="num">Available</th></tr>
-      {% for x in res.sites %}<tr class="{{ 'muted' if x.depleted }}"><td><a hx-get="/locations/{{ x.code }}" hx-target="#loc-panel" href="/locations/{{ x.code }}">{{ x.code }}</a></td>
+      {% for x in res.sites_shown %}<tr><td><a hx-get="/locations/{{ x.code }}" hx-target="#loc-panel" href="/locations/{{ x.code }}">{{ x.code }}</a></td>
         <td>{{ x.resource or (x.amounts.keys() | join(', ')) }}</td><td>{{ x.level or '' }}</td>
         <td class="num">{{ 'depleted' if x.depleted else (x.total | num if x.total is not none else '?') }}</td></tr>{% endfor %}
     </table>{% endif %}
-    {% if res.salvage %}<h3>Salvage</h3>
+    {% if res.salvage_shown %}<h3>Salvage</h3>
     <table class="small"><tr><th>Location</th><th>What</th><th>Contents</th><th class="num">Total</th></tr>
-      {% for x in res.salvage %}<tr class="{{ 'muted' if x.depleted }}"><td><a hx-get="/locations/{{ x.code }}" hx-target="#loc-panel" href="/locations/{{ x.code }}">{{ x.code }}</a></td>
+      {% for x in res.salvage_shown %}<tr><td><a hx-get="/locations/{{ x.code }}" hx-target="#loc-panel" href="/locations/{{ x.code }}">{{ x.code }}</a></td>
         <td>{{ x.name or '' }}{% if x.type %} <span class="muted">{{ x.type | human }}</span>{% endif %}</td>
         <td>{% for r, q in x.amounts.items() %}{{ r }} {{ q | num }}{{ ', ' if not loop.last }}{% endfor %}</td>
         <td class="num">{{ 'depleted' if x.depleted else (x.total | num if x.total is not none else '?') }}</td></tr>{% endfor %}

@@ -1507,3 +1507,100 @@ def test_schedule_skips_exhausted_and_salvaging_controllers(client):
     res = client.portal.call(eng.run_schedule, sched)
     assert any("M1: exhausted" in r for r in res) and any(r.startswith("M2:") and ("salvage" in r or "busy" in r) for r in res)
     assert not [j for j in client.portal.call(eng.jobs) if j["rule"] == "ami_schedules"]
+
+
+def test_used_up_salvage_and_closed_sites_are_hidden(client):
+    from rsweb.targets import system_resources, system_targets
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_devices)
+    for ev in [e for e in world.events if e["event"] == "salvage.discovered"]:
+        client.portal.call(client.app.state.worker.handle_event, dict(ev))
+    client.get("/systems/SOL", headers=H)
+    client.post("/systems/SOL/resources/refresh", headers=HX)
+    db = client.app.state.db
+    # salvage used up, one site depleted
+    client.portal.call(client.app.state.worker.handle_event, _ev(401, "salvage.depleted", site="SOL-3-1-SAL-1", location="SOL-3-1"))
+    client.portal.call(client.app.state.worker.handle_event, _ev(402, "site.depleted", site="SOL-BELT-1-SITE-2"))
+    # a site we only know from an old mining event, which the belt's latest detail no longer lists → closed
+    client.portal.call(client.app.state.worker.handle_event, _ev(403, "mining.started", site="SOL-BELT-1-SITE-9", resource_type="carbon"))
+    res = client.portal.call(system_resources, db, "SOL")
+    assert {"SOL-3-1-SAL-1", "SOL-BELT-1-SITE-2", "SOL-BELT-1-SITE-9"} <= res["hidden"]
+    assert [x["code"] for x in res["sites_shown"]] == ["SOL-BELT-1-SITE-1"] and res["salvage_shown"] == []
+    codes = {t["code"] for t in client.portal.call(system_targets, db, "SOL")["targets"]}
+    assert "SOL-3-1-SAL-1" not in codes and "SOL-BELT-1-SITE-2" not in codes and "SOL-BELT-1" in codes
+    page = client.get("/systems/SOL", headers=H).text
+    assert "SOL-3-1-SAL-1" not in page and "SOL-BELT-1-SITE-9" not in page and "hidden" in page
+    # the salvage rule still knows it's used up
+    assert any(x["code"] == "SOL-3-1-SAL-1" and x["depleted"] for x in res["salvage"])
+
+
+def test_contracts_tracker_progress_and_actions(client):
+    from rsweb import gameevents as gev
+    w = client.app.state.worker
+    client.portal.call(w.sync_devices)
+    client.portal.call(w.sync_inventory)
+    client.portal.call(w.sync_account)
+    disc = {"category": "resource_trade", "criteria": [{"devices": [], "name": "default", "resources": {"carbon": 100, "structural": 350}}],
+            "description": "Orbital stations are degrading.", "designation": "SOL-3-L4-EVT-001", "event_type": "atmospheric_harvest",
+            "location": "SOL-3-L4", "rewards": {"civilisation_points": 1, "resources": {"volatiles": 200}, "xp": 500},
+            "tier": 1, "title": "Atmospheric Harvest"}
+    client.portal.call(w.handle_event, {"id": "4444444444444-0", "event": "event.discovered", "category": "event",
+                                        "location": "SOL-3-L4", "star": "SOL", "payload": disc, "created_at": "2026-10-01T10:00:00+00:00"})
+    evs = client.portal.call(gev.load, client.app.state.db)
+    e = evs["SOL-3-L4-EVT-001"]
+    assert e["status"] == "open" and e["title"] == "Atmospheric Harvest"
+    page = client.get("/game-events", headers=H).text
+    assert "Atmospheric Harvest" in page and "Contracts" in page
+    # SOL-3-L4 has 400 structural and no carbon; SOL-BELT-1 has 180 carbon → deliver carbon from the belt
+    ctx = client.portal.call(__import__("rsweb.web", fromlist=["x"]).game_events_ctx, type("R", (), {"app": client.app})())
+    ev = ctx["open"][0]
+    rows = {x["resource"]: x for x in ev["prog"]["best"]["resources"]}
+    assert rows["structural"]["short_here"] == 0 and rows["carbon"]["short_here"] == 100 and rows["carbon"]["short_system"] == 0
+    assert ev["prog"]["state"] == "deliver"
+    assert ev["plan"]["legs"] == [{"collect": "SOL-BELT-1", "deliver": "SOL-3-L4", "requirement": {"carbon": 100}}]
+    r = client.post("/game-events/SOL-3-L4-EVT-001/deliver", headers=HX)
+    assert "TC000001" in r.text
+    job = [j for j in client.portal.call(w.automations.jobs) if j["rule"] == "chain"][-1]
+    assert job["steps"][0]["body"]["configuration"] == {"route": {"collect": "SOL-BELT-1", "deliver": "SOL-3-L4"}, "requirement": {"carbon": 100}}
+    # fulfil uses the game's call by default
+    assert "/locations/SOL-3-L4/events/SOL-3-L4-EVT-001" in client.post("/game-events/SOL-3-L4-EVT-001/fulfil", headers=HX).text
+    client.post("/game-events/settings", data={"fulfil": 'POST /replicants/{replicant}/events/{designation} {"criteria": "{criteria}"}'}, headers=HX)
+    r = client.post("/game-events/SOL-3-L4-EVT-001/fulfil", data={"replicant": "77F75255"}, headers=HX)
+    assert "/replicants/77F75255/events/SOL-3-L4-EVT-001" in r.text
+    # completion closes it and records what it used
+    client.portal.call(w.handle_event, {"id": "4444444444445-0", "event": "event.completed", "category": "event", "location": "SOL-3-L4",
+                                        "payload": {"designation": "SOL-3-L4-EVT-001", "consumed": {"resources": {"carbon": 100, "structural": 350}},
+                                                    "rewards": {"xp": 500, "resources": {"volatiles": 200}}, "tier": 1},
+                                        "created_at": "2026-10-01T11:00:00+00:00"})
+    page = client.get("/game-events", headers=H).text
+    assert "No open events" in page and "used 100 carbon" in page
+
+
+def test_freighter_at_destination_counts_for_its_ferry_controllers_system():
+    from rsweb import loadouts as lo
+    devices = [{"device_code": "TF", "device_type": "ami_transport_controller", "location": "AEM-BELT-1", "status": "coordinating"},
+               {"device_code": "57C506F0", "device_type": "cargo_freighter", "location": "FAL-BELT-1", "status": "idle",
+                "controller_device_code": "TF", "tags": []}]
+    cfg = {"phases": [{"id": "p", "name": "P", "order": 1, "wants": {"cargo_freighter": 1}}], "systems": {"AEM": "p", "FAL": "p"}}
+    p = lo.plan(cfg, devices, [], {}, {}, {}, set(), [], {})
+    aem = {r["type"]: r for r in p["report"]["AEM"]["rows"]}["cargo_freighter"]
+    fal = {r["type"]: r for r in p["report"]["FAL"]["rows"]}["cargo_freighter"]
+    assert aem["have"] == 1 and aem["away"] == ["57C506F0"] and fal["have"] == 0
+    assert "home:aem" in p["tag_add"]["57C506F0"]
+
+
+
+def test_contracts_rule_fulfils_when_ready(client):
+    w = client.app.state.worker
+    eng = _enable(client, "contracts")
+    client.portal.call(w.sync_inventory)
+    disc = {"criteria": [{"devices": [], "name": "default", "resources": {"structural": 350}}], "designation": "SOL-BELT-1-EVT-001",
+            "location": "SOL-BELT-1", "title": "Belt Need", "tier": 1, "rewards": {"xp": 10}}
+    client.portal.call(w.handle_event, {"id": "4444444444450-0", "event": "event.discovered", "category": "event",
+                                        "location": "SOL-BELT-1", "payload": disc, "created_at": "2026-10-01T10:00:00+00:00"})
+    client.portal.call(client.app.state.db.kv_set, "replicants", {"77F75255": {"name": "bob-1", "location": "SOL-BELT-1"}})
+    done = client.portal.call(eng.rule_contracts, True)
+    assert done == ["fulfil SOL-BELT-1-EVT-001"]
+    act = client.portal.call(client.app.state.db.fetchone, "SELECT method, path FROM actions ORDER BY id DESC LIMIT 1")
+    assert (act["method"], act["path"]) == ("POST", "/locations/SOL-BELT-1/events/SOL-BELT-1-EVT-001")
+    assert client.portal.call(eng.rule_contracts, True) == []   # not retried straight away

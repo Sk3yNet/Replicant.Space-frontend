@@ -142,8 +142,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         c = d.get("controller_device_code")
         return star_of(loc_of.get(c)) if c and loc_of.get(c) else None
 
+    ctrl_types = {d.get("device_code"): d.get("device_type") or "" for d in devices}
+
     def effective_home(d: dict) -> str | None:
         cs = ctrl_star(d)
+        if cs and "transport" in ctrl_types.get(d.get("controller_device_code"), ""):
+            return cs  # a ferry's freighters/drones/plates belong to the controller's system wherever the run takes them
         if cs and cs == star_of(d.get("location")):
             return cs  # adopted by a controller where it is: it works there now
         return home_of(d, known_stars)

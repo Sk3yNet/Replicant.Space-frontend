@@ -162,7 +162,9 @@ async def system_targets(db, star: str) -> dict:
             bits.append(f"{t['devices']} of your devices")
         t["label"] = " · ".join(bits)
 
-    targets = sorted(found.values(), key=lambda t: (CATEGORY_ORDER.index(t["category"]), t["code"]))
+    hidden = (await system_resources(db, star))["hidden"]
+    targets = sorted((t for t in found.values() if t["code"] not in hidden),
+                     key=lambda t: (CATEGORY_ORDER.index(t["category"]), t["code"]))
     by_cat: dict[str, list] = defaultdict(list)
     for t in targets:
         by_cat[t["category"]].append(t)
@@ -246,9 +248,12 @@ async def system_resources(db, star: str) -> dict:
                 sites[code] = {"code": code, "belt": code.rsplit("-SITE-", 1)[0], "resource": p.get("resource_type") or p.get("new_resource"),
                                "level": p.get("availability"), "amounts": {}, "total": None, "at": None, "source": "mining"}
     known_at = None
+    listed: dict[str, set[str]] = {}   # belt -> sites its latest detail lists (anything else there has closed)
     for r in await db.fetchall("SELECT key, value, updated_at FROM kv WHERE key LIKE ?", (f"loc:{star}-%",)):
         loc = r["key"][4:]
         detail = json.loads(r["value"])
+        if "resource_sites" in detail and (detail.get("location_type") == "belt" or "-BELT-" in loc and "-SITE-" not in loc):
+            listed[loc] = {(_site_code(x) if isinstance(x, dict) else x) for x in detail.get("resource_sites") or []}
         for site in detail.get("resource_sites") or []:
             if not isinstance(site, dict):
                 if isinstance(site, str):
@@ -297,7 +302,20 @@ async def system_resources(db, star: str) -> dict:
                     totals[res]["level"] = lvl
     order = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
     totals_sorted = dict(sorted(totals.items(), key=lambda kv: (order.index(kv[0]) if kv[0] in order else 99, kv[0])))
-    return {"star": star, "sites": sorted(sites.values(), key=lambda s: (s["depleted"], s["code"])),
+    # Hidden from display: salvage that's used up (it never comes back), and sites that are depleted or closed
+    # (a belt's latest detail no longer lists them — e.g. the tracking survey drone left). Belts themselves stay:
+    # they never run out; new sites are opened by searching.
+    hidden: set[str] = set()
+    for x in sites.values():
+        b = x.get("belt")
+        if x["depleted"] or (b in listed and x["code"] not in listed[b]):
+            hidden.add(x["code"])
+            x["closed"] = not x["depleted"]
+    hidden |= {x["code"] for x in salvage.values() if x["depleted"] or (x.get("total") is not None and x["total"] <= 0)}
+    return {"star": star, "hidden": hidden,
+            "sites_shown": sorted((x for x in sites.values() if x["code"] not in hidden), key=lambda s: s["code"]),
+            "salvage_shown": sorted((x for x in salvage.values() if x["code"] not in hidden), key=lambda s: s["code"]),
+            "sites": sorted(sites.values(), key=lambda s: (s["depleted"], s["code"])),
             "salvage": sorted(salvage.values(), key=lambda s: (s["depleted"], s["code"])), "totals": totals_sorted,
             "known_at": known_at, "unknown_sites": sum(1 for s in sites.values() if s["total"] is None and not s["depleted"]),
             "mineable": sum(t["sites"] for t in totals.values()), "salvageable": sum(t["salvage"] for t in totals.values())}
