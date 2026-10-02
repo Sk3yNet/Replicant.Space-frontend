@@ -1962,15 +1962,50 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
         f["name"] = (form.get("name") or f["name"]).strip()
         f["home"] = (form.get("home") or f["home"]).upper()
         f["role"] = form.get("role") if form.get("role") in fl.ROLES else f["role"]
-        wants = {}
-        for k, v in form.multi_items():
-            if k.startswith("want:") and str(v).strip():
-                try:
-                    if int(v) > 0:
-                        wants[k[5:]] = int(v)
-                except ValueError:
-                    pass
-        f["wants"] = wants
+        if any(k.startswith("want:") for k in form.keys()):   # bulk form (older template / API use)
+            wants = {}
+            for k, v in form.multi_items():
+                if k.startswith("want:") and k[5:] and str(v).strip():
+                    try:
+                        if int(v) > 0:
+                            wants[k[5:]] = int(v)
+                    except ValueError:
+                        pass
+            f["wants"] = wants
+    await eng.save_fleets(items)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/want", response_class=HTMLResponse)
+async def fleets_want(request: Request, fid: str, user: str = Depends(current_user)):
+    """Set one loadout line. A new type defaults to 1; qty 0 removes the type completely — the line goes
+    and any member devices of that type leave the fleet (their fleet tag is removed)."""
+    form = await request.form()
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    t = (form.get("type") or "").strip()
+    if not f or not t:
+        return HTMLResponse("", status_code=404 if not f else 400)
+    raw = str(form.get("qty") if form.get("qty") is not None else "1").strip()
+    try:
+        qty = int(raw or 0)
+    except ValueError:
+        qty = 1
+    wants = dict(f.get("wants") or {})
+    if qty > 0:
+        wants[t] = qty
+    else:
+        wants.pop(t, None)
+        st = await load_state(request)
+        tag = fl.fleet_tag(fid)
+        steps = [auto.step(f"{d['device_code']} leaves {fid}", f"/devices/{d['device_code']}",
+                           {"configuration": {"remove_tags": [tag]}}, method="PATCH")
+                 for d in fl.members(f, st["devices"]) if d.get("device_type") == t]
+        if steps:
+            async with eng.lock:
+                await eng.create_job("fleets", f"fleet {fid}: {t} removed ({len(steps)} device(s) released)",
+                                     None, steps, {"devices": []}, force=True)
+    f["wants"] = wants
     await eng.save_fleets(items)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 

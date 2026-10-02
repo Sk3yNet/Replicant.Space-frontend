@@ -1888,3 +1888,27 @@ def test_sync_devices_with_empty_first_page(client):
         app.router.routes.pop(0)
     devs = client.portal.call(client.app.state.db.kv_get, "devices")
     assert len(devs) == n and sum(1 for d in devs if d.get("location_stale")) == 5
+
+
+def test_fleet_loadout_lines_add_and_remove(client):
+    eng = client.app.state.worker.automations
+    client.portal.call(eng.save_fleets, [{"id": "p1", "name": "P1", "role": "mining", "home": "SOL", "wants": {}}])
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices[1]["tags"] = ["fleet:p1"]
+    dtype, code = world.devices[1]["device_type"], world.devices[1]["device_code"]
+    client.portal.call(client.app.state.worker.sync_devices)
+    # picking a type adds it straight away with qty 1 (no qty sent)
+    r = client.post("/fleets/p1/want", data={"type": "ftl_relay_x"}, headers=HX)
+    assert r.headers.get("HX-Refresh") and client.portal.call(eng.fleets)[0]["wants"] == {"ftl_relay_x": 1}
+    client.post("/fleets/p1/want", data={"type": "ftl_relay_x", "qty": "3"}, headers=HX)
+    client.post("/fleets/p1/want", data={"type": dtype, "qty": "1"}, headers=HX)
+    page = client.get("/fleets", headers=H).text
+    assert 'hx-post="/fleets/p1/want"' in page and "✕" in page
+    # Save (name/role/home) no longer touches the loadout
+    client.post("/fleets/p1/edit", data={"name": "P1b", "role": "mining", "home": "SOL"}, headers=HX)
+    assert client.portal.call(eng.fleets)[0]["wants"] == {"ftl_relay_x": 3, dtype: 1}
+    # qty 0 removes the line entirely and releases that type's members
+    client.post("/fleets/p1/want", data={"type": dtype, "qty": "0"}, headers=HX)
+    assert client.portal.call(eng.fleets)[0]["wants"] == {"ftl_relay_x": 3}
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "fleets"][-1]
+    assert job["steps"][0]["path"] == f"/devices/{code}" and job["steps"][0]["body"] == {"configuration": {"remove_tags": ["fleet:p1"]}}
