@@ -73,7 +73,7 @@
     <table class="small"><tr><th>Site</th><th>Resource</th><th>Level</th><th class="num">Available</th></tr>
       {% for x in res.sites_shown %}<tr><td><a hx-get="/locations/{{ x.code }}" hx-target="#loc-panel" href="/locations/{{ x.code }}">{{ x.code }}</a></td>
         <td>{{ x.resource or (x.amounts.keys() | join(', ')) }}</td><td>{{ x.level or '' }}</td>
-        <td class="num">{{ 'depleted' if x.depleted else (x.total | num if x.total is not none else '?') }}</td></tr>{% endfor %}
+        <td class="num">{% if x.depleted %}depleted{% elif x.total is not none %}{{ x.total | num }}{% elif x.remaining_pct %}<span title="{% for r, pc in x.remaining_pct.items() %}{{ r }} {{ pc | round | int }}%{{ ', ' if not loop.last }}{% endfor %}">{{ (x.remaining_pct.values() | sum / (x.remaining_pct | length)) | round | int }}% left</span>{% else %}?{% endif %}</td></tr>{% endfor %}
     </table>{% endif %}
     {% if res.salvage_shown %}<h3>Salvage</h3>
     <table class="small"><tr><th>Location</th><th>What</th><th>Contents</th><th class="num">Total</th></tr>

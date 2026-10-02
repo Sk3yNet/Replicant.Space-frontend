@@ -565,6 +565,7 @@ class AutomationEngine:
                     await self._advance(job["id"])
             await self.run_fleets()
             await self.rule_contracts()
+            await self.refresh_known_belts()
             await self.rule_reopen_sites()
             await self.rule_salvage()
             await self.rule_restart_idle_miners()
@@ -1419,6 +1420,19 @@ class AutomationEngine:
             out[b] = open_site_count(detail)
         await self.db.kv_set("belt_reads", reads)
         return out
+
+    async def refresh_known_belts(self, every_minutes: int = 20, max_belts: int = 8) -> list[str]:
+        """Keep the belts your devices are at current (open sites appear and close all the time), so closed or used-up
+        sites drop off the System page and map without a manual refresh. One GET per belt, at most every 20 min."""
+        from .salvage import belt_of
+        last = _ts(await self.db.kv_get("belts_refreshed_at", None))
+        if last and _now() - last < timedelta(minutes=every_minutes):
+            return []
+        belts = sorted({b for d in await self.devices() for b in [belt_of(d.get("location"))] if b})[:max_belts]
+        await self.db.kv_set("belts_refreshed_at", _now().isoformat(timespec="seconds"))
+        if belts:
+            await self.belt_open_sites(belts, max_age_minutes=every_minutes)
+        return belts
 
     async def system_belts(self, stars: set[str]) -> dict[str, list[str]]:
         out: dict[str, list[str]] = {}

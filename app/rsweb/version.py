@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.7.1", "2026-10-02", "Devices missing from GET /devices (e.g. freighters surging between systems) are kept for up to 12 h "
+                            "at their last position, flagged in transit, unless an event says they're gone — fleets and loadouts "
+                            "keep counting them. Sites/salvage only show on the map and Locations list while they're live; sites at "
+                            "0% everywhere count as used up; belts your devices are at are re-read every 20 min."),
     ("1.7.0", "2026-10-02", "Fleets: 'End mission & board' — stop the mission now, clear controller directives, bring every device "
                             "back aboard its carriers (stow or attach) and stay where it is. 'Board everyone' does the same for an "
                             "idle fleet. 'Recall now' is now 'Recall & return home'."),

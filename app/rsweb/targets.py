@@ -162,8 +162,13 @@ async def system_targets(db, star: str) -> dict:
             bits.append(f"{t['devices']} of your devices")
         t["label"] = " · ".join(bits)
 
-    hidden = (await system_resources(db, star))["hidden"]
-    targets = sorted((t for t in found.values() if t["code"] not in hidden),
+    res = await system_resources(db, star)
+    hidden = res["hidden"]
+    # a site or salvage is shown only while the resource data counts it as live — codes picked up from old event
+    # payloads (digests, logs) never went through the depleted / closed checks
+    live = {x["code"] for x in res["sites_shown"]} | {x["code"] for x in res["salvage_shown"]}
+    targets = sorted((t for t in found.values() if t["code"] not in hidden
+                      and (t["category"] not in ("site", "salvage") or t["code"] in live)),
                      key=lambda t: (CATEGORY_ORDER.index(t["category"]), t["code"]))
     by_cat: dict[str, list] = defaultdict(list)
     for t in targets:
@@ -282,9 +287,11 @@ async def system_resources(db, star: str) -> dict:
                 continue
             code = _site_code(site) or f"{loc}-SITE-?"
             amounts, total = site_quantity(site)
+            pct = {k: float(v) for k, v in (site.get("resources_remaining_pct") or {}).items() if _num(v) is not None}
             sites[code] = {"code": code, "belt": loc, "resource": site.get("resource_type") or site.get("resource"),
                            "level": site.get("availability") or site.get("abundance") or site.get("richness"),
-                           "amounts": amounts, "total": total, "at": r["updated_at"], "source": "location"}
+                           "amounts": amounts, "total": total, "at": r["updated_at"], "source": "location",
+                           "remaining_pct": pct, "used_up": bool(pct) and all(v <= 0 for v in pct.values())}
             known_at = max(known_at or "", r["updated_at"] or "")
         sal = detail.get("salvage") or (detail if "-SAL-" in loc else None)
         for item in (sal if isinstance(sal, list) else []):   # a body's detail listing its salvage
@@ -337,7 +344,7 @@ async def system_resources(db, star: str) -> dict:
     hidden: set[str] = set()
     for x in sites.values():
         b = x.get("belt")
-        if x["depleted"] or (b in listed and x["code"] not in listed[b]):
+        if x["depleted"] or x.get("used_up") or (b in listed and x["code"] not in listed[b]):
             hidden.add(x["code"])
             x["closed"] = not x["depleted"]
     from .salvage import body_of

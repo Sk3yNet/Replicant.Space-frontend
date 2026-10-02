@@ -27,7 +27,7 @@
             <td class="num"><input type="number" min="0" name="qty" value="{{ row.want or '' }}" data-old="{{ row.want or '' }}" style="width:52px"></td>
             <td class="num {{ 'lv-alert' if row.short }}">{{ row.have }}</td>
             <td class="num muted lp">{% if row.profile.carrier or row.profile.hold %}{% if row.profile.hold %}▣{{ row.profile.hold }} {% endif %}{% if row.profile.carrier %}+{{ row.profile.carrier }}{% endif %}{% elif row.profile.flies %}✈{% elif row.profile.stowable %}−1 ▣{% else %}−1{% endif %}</td>
-            <td class="mono">{% for c in row.codes %}<a href="/devices/{{ c }}">{{ c }}</a>{% if c in r.riding %}<span class="muted" title="riding {{ r.riding[c] }}">↑</span>{% endif %} {% endfor %}</td>
+            <td class="mono">{% for c in row.codes %}<a href="/devices/{{ c }}">{{ c }}</a>{% if c in r.riding %}<span class="muted" title="riding {{ r.riding[c] }}">↑</span>{% endif %}{% if c in r.unlisted %}<span class="muted" title="in transit: the game leaves it out of the device list while it surges — last known position shown">⇢</span>{% endif %} {% endfor %}</td>
             <td><button type="button" class="small ghost lx" title="Remove {{ row.type | human }} from this fleet">✕</button></td></tr>{% endfor %}
           <tr class="lnew"><td><select name="type"><option value="">+ add a type…</option>{% for t in types %}<option value="{{ t }}">{{ t | human }}</option>{% endfor %}</select></td>
             <td class="num"><input type="number" min="0" name="qty" style="width:52px"></td><td></td><td class="num muted lp"></td><td></td>

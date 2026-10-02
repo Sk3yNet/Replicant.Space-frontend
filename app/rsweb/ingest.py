@@ -92,14 +92,25 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
-def merge_device_snapshot(prev: list[dict], new: list[dict], partial: bool = False) -> list[dict] | None:
-    """Guard the device list against partial snapshots (e.g. while the replicant is surging the game can
-    report devices without a location). None = ignore this snapshot entirely.
+GONE_EVENTS = ("device.decommissioned", "device.destroyed", "device.transferred", "device.owner_changed", "hub.destroyed")
+UNLISTED_KEEP_HOURS = 12
+
+
+def merge_device_snapshot(prev: list[dict], new: list[dict], partial: bool = False, gone: set[str] | None = None,
+                          now: str | None = None) -> list[dict] | None:
+    """Guard the device list against snapshots that leave devices out. None = ignore this snapshot entirely.
 
     • an empty or far-shorter list than last time (< half) is ignored
+    • partial snapshot (empty first page with a cursor, while the replicant travels): what it left out is kept, stale
+    • complete snapshot: a device that was there last time but isn't now is kept for up to 12 h, flagged
+      `unlisted` + `location_stale`, unless an event says it's gone (decommissioned, destroyed, given away).
+      Seen live (2026-10-02): cargo freighters that are *surging* between systems are missing from GET /devices
+      until they arrive — without this they vanished from fleets and loadouts.
     • a device that comes back with location null but isn't stowed/attached keeps its last known
       location, marked `location_stale: true`, so loadouts don't count it as gone
     """
+    gone = gone or set()
+    now = now or _iso(datetime.now(timezone.utc))
     if prev and not new:
         return None
     if partial and prev:
@@ -108,9 +119,29 @@ def merge_device_snapshot(prev: list[dict], new: list[dict], partial: bool = Fal
         new = new + [{**d, "location_stale": True} for d in prev if d.get("device_code") not in seen]
     elif prev and len(new) < len(prev) / 2:
         return None
+    else:
+        seen = {d.get("device_code") for d in new}
+        keep = []
+        for d in prev:
+            code = d.get("device_code")
+            if code in seen or code in gone:
+                continue
+            since = d.get("unlisted_since") or now
+            try:
+                age_h = (datetime.fromisoformat(now) - datetime.fromisoformat(since)).total_seconds() / 3600
+            except ValueError:
+                age_h = 0
+            if age_h > UNLISTED_KEEP_HOURS:
+                continue
+            st = str(d.get("status") or "")
+            keep.append({**d, "unlisted": True, "unlisted_since": since, "location_stale": True,
+                         "status": st if st.startswith(("surg", "travel", "cruis")) else (st or "unlisted")})
+        new = new + keep
     last = {d.get("device_code"): d.get("location") for d in prev if d.get("location")}
     out = []
     for d in new:
+        if not d.get("unlisted"):
+            d = {k: v for k, v in d.items() if k not in ("unlisted", "unlisted_since")}
         if not d.get("location") and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code") \
                 and last.get(d.get("device_code")):
             d = {**d, "location": last[d["device_code"]], "location_stale": True}
@@ -387,7 +418,16 @@ class Worker:
             if not cursor:
                 break
         prev = await self.db.kv_get("devices", []) or []
-        devices = merge_device_snapshot(prev, devices, partial)
+        listed = {d.get("device_code") for d in devices}
+        missing = [d.get("device_code") for d in prev if d.get("device_code") not in listed]
+        gone: set[str] = set()
+        if missing and not partial:
+            marks = ",".join("?" * len(GONE_EVENTS))
+            rows = await self.db.fetchall(
+                f"SELECT DISTINCT device_code FROM events WHERE event IN ({marks}) AND device_code IN ({','.join('?' * len(missing))})",
+                (*GONE_EVENTS, *missing))
+            gone = {r["device_code"] for r in rows}
+        devices = merge_device_snapshot(prev, devices, partial, gone)
         if devices is None:
             log.warning("device sync returned an incomplete list (%s → fewer); keeping the previous one", len(prev))
             return

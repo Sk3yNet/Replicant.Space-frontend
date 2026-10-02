@@ -879,3 +879,9 @@ heaven_vessel hold.
 while its drones keep mining other resources there; `active:{'carbon': 1, 'silicates': 1, 'structural': 2}:<belt>` is the
 healthy state (drones per resource). **Detach after arrival:** several deliveries failed on `detach` with "Target device is not
 attached to this carrier" — the carrier had already released the cargo; treated as done.
+
+**Devices in transit are not listed (live 2026-10-02T21:24Z):** cargo freighters that were `surging` between systems (ferry digest
+`last_event: travel.departed`, `status: surging`) were **absent** from `GET /devices` — a complete, non-partial list. The client keeps
+a device that drops out of the list for up to 12 h (flag `unlisted`, last known location, `location_stale`) unless a
+decommission/destroy/transfer event names it. Belt sites (`resources_remaining_pct`) fall per resource as they're mined; a belt can
+list `resource_sites: []` when no site is open (FALQUORYX-BELT-1 at 21:24Z).

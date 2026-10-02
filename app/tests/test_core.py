@@ -1050,6 +1050,7 @@ def _salvage_setup(client, drop_controller=False):
     world = client.app.state.api.http._transport.app.state.world
     if drop_controller:
         world.devices = [d for d in world.devices if "controller" not in d["device_type"]]
+        client.portal.call(client.app.state.db.kv_set, "devices", [])   # (a device just missing from the list is kept as unlisted)
     client.portal.call(client.app.state.worker.sync_devices)
     eng = client.app.state.worker.automations
 
@@ -2464,3 +2465,62 @@ def test_fleet_board_everyone_without_a_mission(client):
     client.post(f"/fleets/{fleet['id']}/control", data={"action": "end"}, headers=HX)
     m = client.portal.call(eng.fleets)[0]["mission"]
     assert m["phase"] == "recall" and m.get("end_started")
+
+
+def test_surging_devices_missing_from_the_list_are_kept():
+    """Live (2026-10-02T21:24Z): two cargo freighters surging between systems were absent from GET /devices."""
+    from rsweb.ingest import merge_device_snapshot
+    prev = [{"device_code": f"D{i}", "device_type": "mining_drone", "location": "AEM-BELT-1", "status": "mining"} for i in range(6)]
+    prev.append({"device_code": "57C506F0", "device_type": "cargo_freighter", "location": "AEMEROTH-6-33", "status": "collecting",
+                 "tags": ["home:aemeroth"], "controller_device_code": "0E158313"})
+    new = [dict(d) for d in prev[:6]]
+    out = merge_device_snapshot(prev, new, False, set(), now="2026-10-02T21:24:43+00:00")
+    f = next(d for d in out if d["device_code"] == "57C506F0")
+    assert f["unlisted"] and f["location_stale"] and f["location"] == "AEMEROTH-6-33" and f["tags"] == ["home:aemeroth"]
+    assert f["unlisted_since"] == "2026-10-02T21:24:43+00:00"
+    # still missing next sync: keeps its first-missed time; gone after 12 h
+    out2 = merge_device_snapshot(out, new, False, set(), now="2026-10-02T23:00:00+00:00")
+    assert next(d for d in out2 if d["device_code"] == "57C506F0")["unlisted_since"] == "2026-10-02T21:24:43+00:00"
+    assert not any(d["device_code"] == "57C506F0" for d in merge_device_snapshot(out, new, False, set(), now="2026-10-03T10:00:00+00:00"))
+    # back in the list: flags cleared
+    back = new + [{**prev[6], "location": "ITHVALAI-2-L4", "status": "idle"}]
+    f = next(d for d in merge_device_snapshot(out, back, False, set()) if d["device_code"] == "57C506F0")
+    assert "unlisted" not in f and "location_stale" not in f and f["location"] == "ITHVALAI-2-L4"
+    # decommissioned (an event says so): dropped at once
+    assert not any(d["device_code"] == "57C506F0" for d in merge_device_snapshot(out, new, False, {"57C506F0"}))
+
+
+def test_unlisted_freighter_still_counts_in_loadouts_and_fleets():
+    from rsweb import fleets as fl
+    from rsweb import loadouts as lo
+    devices = [
+        {"device_code": "TC1", "device_type": "ami_transport_controller", "location": "AEM-BELT-1", "status": "coordinating",
+         "ami_directive": {"name": "ferry"}, "tags": ["home:aem", "ferry"]},
+        {"device_code": "CF1", "device_type": "cargo_freighter", "location": "AEM-6-33", "status": "surging", "unlisted": True,
+         "location_stale": True, "controller_device_code": "TC1", "tags": ["home:aem", "fleet:haul"], "features": ["surge", "transport"]},
+    ]
+    cfg = {"phases": [{"id": "p1", "name": "Outpost", "wants": {"cargo_freighter": 1}}], "systems": {"AEM": "p1"}}
+    p = lo.plan(cfg, [devices[0], {**devices[1], "tags": ["home:aem"]}], [], {}, {"AEM": {}}, {}, set(), [], {})
+    row = next(r for r in p["report"]["AEM"]["rows"] if r["type"] == "cargo_freighter")
+    assert row["have"] == 1 and row["short"] == 0 and p["prints"] == []      # counted, not re-printed
+    r = fl.roster({"id": "haul", "wants": {"cargo_freighter": 1}}, devices)
+    assert [d["device_code"] for d in r["members"]] == ["CF1"] and r["unlisted"] == {"CF1"}
+
+
+def test_locations_list_hides_sites_only_seen_in_old_events(client):
+    from rsweb.targets import system_targets, system_resources
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "loc:SOL-BELT-1", {"location_type": "belt", "resource_sites": [
+        {"designation": "SOL-BELT-1-SITE-7", "resources_remaining_pct": {"carbon": 40, "structural": 0}},
+        {"designation": "SOL-BELT-1-SITE-8", "resources_remaining_pct": {"carbon": 0, "structural": 0}}]})
+    # an old digest names a site that has since closed
+    client.portal.call(client.app.state.worker.handle_event,
+                       _ev(901, "ami.mining.digest", location="SOL-BELT-1", report={"site": "SOL-BELT-1-SITE-3"}))
+    t = client.portal.call(system_targets, db, "SOL")
+    codes = {x["code"] for x in t["targets"]}
+    assert "SOL-BELT-1-SITE-7" in codes
+    assert "SOL-BELT-1-SITE-3" not in codes and "SOL-BELT-1-SITE-8" not in codes   # closed / all 0 %
+    res = client.portal.call(system_resources, db, "SOL")
+    s7 = next(x for x in res["sites_shown"] if x["code"] == "SOL-BELT-1-SITE-7")
+    assert s7["remaining_pct"] == {"carbon": 40.0, "structural": 0.0}
+    assert "20% left" in client.get("/systems/SOL", headers=H).text

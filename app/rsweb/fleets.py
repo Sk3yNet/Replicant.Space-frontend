@@ -222,6 +222,7 @@ def roster(fleet: dict, devices: list[dict]) -> dict:
     return {"members": ms, "rows": rows, "carriers": carriers, "riding": riding, "stars": stars,
             "capacity": sum(capacity(c) for c in carriers), "hold": sum(hold(c) for c in carriers),
             "passengers": [d for d in ms if not is_carrier(d) and not flies_itself(d)],
+            "unlisted": {d["device_code"] for d in ms if d.get("unlisted")},
             "loose": [d for d in ms if not is_carrier(d) and not flies_itself(d)
                       and not aboard(d, {c["device_code"] for c in carriers})]}
 
