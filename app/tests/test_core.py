@@ -1633,3 +1633,21 @@ def test_freighter_stranded_under_in_system_controller_is_released():
                                                  "finished": False}}, {})
     assert routes and routes[0]["controller"] == "0E158313" and [a["code"] for a in routes[0]["adopt"]] == ["57C506F0"]
     assert not routes[0]["resend"]                              # adopt only; its ferry keeps running
+
+
+def test_tag_hygiene_for_spare_devices():
+    from rsweb import loadouts as lo
+    devices = [  # from the player's list
+        {"device_code": "1DE93245", "device_type": "transport_hauler", "location": "FALQUORYX-1", "status": "idle",
+         "tags": ["home:falquoryx", "spare"]},
+        {"device_code": "28C47D66", "device_type": "surge_plate", "location": "FALQUORYX-1-L4", "status": "idle",
+         "tags": ["spare", "taxi"], "taxi_mode": "taxi"},
+        {"device_code": "512FE0F9", "device_type": "mining_drone", "location": "AEMEROTH-5-L4", "status": "idle",
+         "controller_device_code": "84EE1EF1", "tags": ["spare"]},
+        {"device_code": "6B208B47", "device_type": "transport_drone", "location": "FALQUORYX-BELT-1", "status": "idle", "tags": ["spare"]},
+    ]
+    p = lo.plan({"phases": [], "systems": {}}, devices, [], {}, {}, {}, set(), [], {})
+    assert p["tag_remove"]["1DE93245"] == ["home:falquoryx"]           # spare → no home, even with no phase for haulers
+    assert p["tag_remove"]["28C47D66"] == ["spare"]                    # taxi plates serve a ferry
+    assert p["tag_remove"]["512FE0F9"] == ["spare"]                    # working for a controller
+    assert "6B208B47" not in p["tag_remove"]                           # a free spare stays spare

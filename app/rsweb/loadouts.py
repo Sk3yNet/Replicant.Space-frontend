@@ -321,6 +321,21 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             elif need > 0:
                 unmet.append({"star": star, "type": row["type"], "n": need, "why": "no spares (printing is off)"})
 
+    # tag hygiene, for every device (whether or not its type is in a phase):
+    #  • run by a controller (working) or a taxi plate → never spare
+    #  • spare → no home tag (spare = belongs to no system)
+    for d in pool:
+        code, tags = d["device_code"], set(d.get("tags") or [])
+        if code in moves or SPARE not in tags or SPARE in tag_remove[code]:
+            continue
+        if d.get("controller_device_code") or d.get("taxi_mode") == "taxi" or "taxi" in tags:
+            tag_remove[code].add(SPARE)
+            tag_add[code].discard(SPARE)
+        else:
+            homes = {t for t in tags if t.startswith("home:")}
+            if homes:
+                tag_remove[code].update(homes)
+
     # a device run by a controller in another system (e.g. delivered without being released) is let go
     releases: dict[str, list[str]] = defaultdict(list)
     for d in pool:
