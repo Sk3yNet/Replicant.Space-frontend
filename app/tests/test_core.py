@@ -1578,7 +1578,8 @@ def test_contracts_tracker_progress_and_actions(client):
 
 def test_freighter_at_destination_counts_for_its_ferry_controllers_system():
     from rsweb import loadouts as lo
-    devices = [{"device_code": "TF", "device_type": "ami_transport_controller", "location": "AEM-BELT-1", "status": "coordinating"},
+    devices = [{"device_code": "TF", "device_type": "ami_transport_controller", "location": "AEM-BELT-1", "status": "coordinating",
+                "ami_directive": {"name": "ferry", "config": {}, "_eval_state": "active:1l:0d"}},
                {"device_code": "57C506F0", "device_type": "cargo_freighter", "location": "FAL-BELT-1", "status": "idle",
                 "controller_device_code": "TF", "tags": []}]
     cfg = {"phases": [{"id": "p", "name": "P", "order": 1, "wants": {"cargo_freighter": 1}}], "systems": {"AEM": "p", "FAL": "p"}}
@@ -1604,3 +1605,31 @@ def test_contracts_rule_fulfils_when_ready(client):
     act = client.portal.call(client.app.state.db.fetchone, "SELECT method, path FROM actions ORDER BY id DESC LIMIT 1")
     assert (act["method"], act["path"]) == ("POST", "/locations/SOL-BELT-1/events/SOL-BELT-1-EVT-001")
     assert client.portal.call(eng.rule_contracts, True) == []   # not retried straight away
+
+
+
+def test_freighter_stranded_under_in_system_controller_is_released():
+    """The real case: 57C506F0 sits idle in AEMEROTH, still run by FALQUORYX's consolidate controller DF451241."""
+    from rsweb import loadouts as lo
+    devices = [{"device_code": "DF451241", "device_type": "ami_transport_controller", "location": "FALQUORYX-BELT-1",
+                "status": "coordinating", "ami_directive": {"name": "consolidate", "config": {"deliver": "FALQUORYX-BELT-1"},
+                                                            "_eval_state": "idle:no_sources"}},
+               {"device_code": "0E158313", "device_type": "ami_transport_controller", "location": "AEMEROTH-BELT-1",
+                "status": "coordinating", "ami_directive": {"name": "ferry", "config": {"collect": "AEMEROTH-6-7", "deliver": "FALQUORYX-BELT-1"},
+                                                            "_eval_state": "active:1l:0d"}},
+               {"device_code": "57C506F0", "device_type": "cargo_freighter", "location": "AEMEROTH-5-L4", "status": "idle",
+                "controller_device_code": "DF451241", "tags": ["home:aemeroth"], "cargo_used": 0}]
+    cfg = {"phases": [{"id": "p", "name": "P", "order": 1, "wants": {"cargo_freighter": 1}}], "systems": {"AEMEROTH": "p", "FALQUORYX": "p"},
+           "roles": {"AEMEROTH": "source", "FALQUORYX": "destination"}}
+    stars = {"AEMEROTH": {"position": {"x": 0, "y": 0, "z": 0}}, "FALQUORYX": {"position": {"x": 1, "y": 0, "z": 0}}}
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
+    assert p["releases"] == {"DF451241": ["57C506F0"]}          # the consolidate controller lets it go
+    aem = {r["type"]: r for r in p["report"]["AEMEROTH"]["rows"]}["cargo_freighter"]
+    assert aem["have"] == 1                                    # it counts where it is (and is tagged)
+    # next pass, released: AEMEROTH's ferry controller takes it on
+    devices[2]["controller_device_code"] = None
+    routes, _ = lo.material_routes(cfg, devices, {"AEMEROTH-6-7": {"structural": 277}}, stars, set(),
+                                   {"0E158313": {"directive": "ferry", "configuration": {"collect": "AEMEROTH-6-7", "deliver": "FALQUORYX-BELT-1"},
+                                                 "finished": False}}, {})
+    assert routes and routes[0]["controller"] == "0E158313" and [a["code"] for a in routes[0]["adopt"]] == ["57C506F0"]
+    assert not routes[0]["resend"]                              # adopt only; its ferry keeps running

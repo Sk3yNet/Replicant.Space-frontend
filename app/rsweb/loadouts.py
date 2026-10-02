@@ -142,11 +142,16 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         c = d.get("controller_device_code")
         return star_of(loc_of.get(c)) if c and loc_of.get(c) else None
 
-    ctrl_types = {d.get("device_code"): d.get("device_type") or "" for d in devices}
+    by_code_all = {d.get("device_code"): d for d in devices}
+
+    def is_ferry_ctrl(code: str | None) -> bool:
+        c = by_code_all.get(code) or {}
+        return "transport" in (c.get("device_type") or "") and (
+            ((c.get("ami_directive") or {}).get("name") == "ferry") or FERRY_TAG in (c.get("tags") or []))
 
     def effective_home(d: dict) -> str | None:
         cs = ctrl_star(d)
-        if cs and "transport" in ctrl_types.get(d.get("controller_device_code"), ""):
+        if cs and is_ferry_ctrl(d.get("controller_device_code")):
             return cs  # a ferry's freighters/drones/plates belong to the controller's system wherever the run takes them
         if cs and cs == star_of(d.get("location")):
             return cs  # adopted by a controller where it is: it works there now
@@ -320,9 +325,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     releases: dict[str, list[str]] = defaultdict(list)
     for d in pool:
         cs = ctrl_star(d)
-        ctrl_type = next((x.get("device_type") or "" for x in devices if x.get("device_code") == d.get("controller_device_code")), "")
-        if "transport" in ctrl_type:
+        if is_ferry_ctrl(d.get("controller_device_code")) or d.get("taxi_mode") == "taxi":
             continue  # a ferry's drones, freighters and taxi plates are meant to be in other systems
+        # anything else (incl. an in-system transport controller on delivery/shuttle/consolidate) can't use a device
+        # that's in another system: release it so it can work where it is
         if cs and cs != star_of(d.get("location")) and d["device_code"] not in busy and d["device_code"] not in moves:
             releases[d["controller_device_code"]].append(d["device_code"])
 
