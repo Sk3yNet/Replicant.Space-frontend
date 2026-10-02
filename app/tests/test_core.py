@@ -1903,7 +1903,7 @@ def test_fleet_loadout_lines_add_and_remove(client):
     client.post("/fleets/p1/want", data={"type": "ftl_relay_x", "qty": "3"}, headers=HX)
     client.post("/fleets/p1/want", data={"type": dtype, "qty": "1"}, headers=HX)
     page = client.get("/fleets", headers=H).text
-    assert 'hx-post="/fleets/p1/want"' in page and "✕" in page
+    assert 'loadout-form' in page and "✕" in page
     # Save (name/role/home) no longer touches the loadout
     client.post("/fleets/p1/edit", data={"name": "P1b", "role": "mining", "home": "SOL"}, headers=HX)
     assert client.portal.call(eng.fleets)[0]["wants"] == {"ftl_relay_x": 3, dtype: 1}
@@ -1912,3 +1912,27 @@ def test_fleet_loadout_lines_add_and_remove(client):
     assert client.portal.call(eng.fleets)[0]["wants"] == {"ftl_relay_x": 3}
     job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "fleets"][-1]
     assert job["steps"][0]["path"] == f"/devices/{code}" and job["steps"][0]["body"] == {"configuration": {"remove_tags": ["fleet:p1"]}}
+
+
+def test_fleet_loadout_editor_lines(client):
+    eng = client.app.state.worker.automations
+    client.portal.call(eng.save_fleets, [{"id": "p1", "name": "P1", "role": "mining", "home": "SOL", "wants": {}}])
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices[1]["tags"] = ["fleet:p1"]
+    dtype, code = world.devices[1]["device_type"], world.devices[1]["device_code"]
+    client.portal.call(client.app.state.worker.sync_devices)
+    base = {"lines": "1", "name": "P1", "role": "mining", "home": "SOL", "autosave": "1"}
+    # several lines; a blank line and a qty-0 line are ignored
+    r = client.post("/fleets/p1/edit", data={**base, "type": [dtype, "survey_drone", "", "relay_x"], "qty": ["2", "1", "", "0"]}, headers=HX)
+    assert "Loadout saved" in r.text and not r.headers.get("HX-Refresh")
+    assert client.portal.call(eng.fleets)[0]["wants"] == {dtype: 2, "survey_drone": 1}
+    page = client.get("/fleets", headers=H).text
+    assert page.count('class="lnew"') == 1 and 'name="lines"' in page
+    # removing a type with members (release) drops the line and releases them
+    client.post("/fleets/p1/edit", data={**base, "type": [dtype, "survey_drone"], "qty": ["0", "1"], "release": dtype}, headers=HX)
+    assert client.portal.call(eng.fleets)[0]["wants"] == {"survey_drone": 1}
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "fleets"][-1]
+    assert job["steps"][0]["path"] == f"/devices/{code}"
+    # Save without autosave refreshes the page; everything removed → empty loadout
+    r = client.post("/fleets/p1/edit", data={"lines": "1", "name": "P1", "role": "mining", "home": "SOL"}, headers=HX)
+    assert r.headers.get("HX-Refresh") and client.portal.call(eng.fleets)[0]["wants"] == {}

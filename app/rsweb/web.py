@@ -1962,7 +1962,18 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
         f["name"] = (form.get("name") or f["name"]).strip()
         f["home"] = (form.get("home") or f["home"]).upper()
         f["role"] = form.get("role") if form.get("role") in fl.ROLES else f["role"]
-        if any(k.startswith("want:") for k in form.keys()):   # bulk form (older template / API use)
+        wants = None
+        if form.get("lines"):   # the loadout editor: parallel type / qty lists, blank or 0 lines ignored
+            wants = {}
+            for t, q in zip(form.getlist("type"), form.getlist("qty")):
+                t = (t or "").strip()
+                try:
+                    q = int(str(q).strip() or 0)
+                except ValueError:
+                    q = 0
+                if t and q > 0:
+                    wants[t] = wants.get(t, 0) + q
+        elif any(k.startswith("want:") for k in form.keys()):   # older bulk form / API use
             wants = {}
             for k, v in form.multi_items():
                 if k.startswith("want:") and k[5:] and str(v).strip():
@@ -1971,7 +1982,23 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
                             wants[k[5:]] = int(v)
                     except ValueError:
                         pass
+        if wants is not None:
             f["wants"] = wants
+            gone = {t for t in form.getlist("release") if t and t not in wants}
+            if gone:
+                st = await load_state(request)
+                tag = fl.fleet_tag(fid)
+                steps = [auto.step(f"{d['device_code']} leaves {fid}", f"/devices/{d['device_code']}",
+                                   {"configuration": {"remove_tags": [tag]}}, method="PATCH")
+                         for d in fl.members(f, st["devices"]) if d.get("device_type") in gone]
+                if steps:
+                    async with eng.lock:
+                        await eng.create_job("fleets", f"fleet {fid}: {', '.join(sorted(gone))} removed ({len(steps)} device(s) released)",
+                                             None, steps, {"devices": []}, force=True)
+        if form.get("autosave") and form.get("delete") != "1":
+            await eng.save_fleets(items)
+            n = sum((f.get("wants") or {}).values())
+            return HTMLResponse(f'<span class="muted">Loadout saved · {len(f.get("wants") or {})} type(s), {n} device(s)</span>')
     await eng.save_fleets(items)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 

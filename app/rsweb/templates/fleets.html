@@ -19,19 +19,20 @@
   <div class="grid g2">
     <div>
       <h3>Loadout <span class="muted small">carry capacity {{ r.capacity }} · {{ r.passengers | length }} passenger(s) · in {{ r.stars | join(', ') or '—' }}</span></h3>
-      <form hx-post="/fleets/{{ f.id }}/edit" hx-swap="none">
+      <form hx-post="/fleets/{{ f.id }}/edit" hx-swap="none" class="loadout-form" data-fid="{{ f.id }}" data-name="{{ f.name }}">
+        <input type="hidden" name="lines" value="1">
         <table class="small"><tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th>Devices</th><th></th></tr>
-          {% for row in r.rows %}<tr{% if not row.want %} class="muted" title="Not in the loadout — set a quantity to keep, or remove"{% endif %}><td>{{ row.type | human }}</td>
-            <td class="num"><input type="number" min="0" value="{{ row.want }}" style="width:52px" data-old="{{ row.want }}" data-have="{{ row.have }}"
-                 hx-post="/fleets/{{ f.id }}/want" hx-trigger="want-change" hx-vals='js:{"type": "{{ row.type }}", "qty": event.target.value}' hx-swap="none"
-                 onchange="fleetWant(this)"></td>
+          {% for row in r.rows %}<tr data-have="{{ row.have }}" data-type="{{ row.type }}"{% if not row.want %} class="muted" title="Not in the loadout — set a quantity to keep it"{% endif %}>
+            <td>{{ row.type | human }}<input type="hidden" name="type" value="{{ row.type }}"></td>
+            <td class="num"><input type="number" min="0" name="qty" value="{{ row.want or '' }}" data-old="{{ row.want or '' }}" style="width:52px"></td>
             <td class="num {{ 'lv-alert' if row.short }}">{{ row.have }}</td>
             <td class="mono">{% for c in row.codes %}<a href="/devices/{{ c }}">{{ c }}</a>{% if c in r.riding %}<span class="muted" title="riding {{ r.riding[c] }}">↑</span>{% endif %} {% endfor %}</td>
-            <td><button type="button" class="small ghost" title="Remove {{ row.type | human }} from this fleet" hx-post="/fleets/{{ f.id }}/want" hx-vals='{"type": "{{ row.type }}", "qty": "0"}' hx-swap="none"
-                 {% if row.have %}hx-confirm="Remove {{ row.type | human }} from {{ f.name }}? Its {{ row.have }} device(s) will leave the fleet."{% endif %}>✕</button></td></tr>{% endfor %}
-          <tr><td colspan="5"><select hx-post="/fleets/{{ f.id }}/want" hx-trigger="change[this.value]" hx-vals='js:{"type": event.target.value, "qty": "1"}' hx-swap="none">
-                <option value="">+ add a type…</option>{% for t in types if t not in (f.wants or {}) %}<option value="{{ t }}">{{ t | human }}</option>{% endfor %}</select></td></tr>
+            <td><button type="button" class="small ghost lx" title="Remove {{ row.type | human }} from this fleet">✕</button></td></tr>{% endfor %}
+          <tr class="lnew"><td><select name="type"><option value="">+ add a type…</option>{% for t in types %}<option value="{{ t }}">{{ t | human }}</option>{% endfor %}</select></td>
+            <td class="num"><input type="number" min="0" name="qty" style="width:52px"></td><td colspan="2"></td>
+            <td><button type="button" class="small ghost lx" title="Clear this line">✕</button></td></tr>
         </table>
+        <div class="small muted" id="ls-{{ f.id }}" style="min-height:1.2em"></div>
         <div class="row" style="margin-top:6px">
           <input name="name" value="{{ f.name }}" size="14"><select name="role">{% for ro in roles %}<option {{ 'selected' if ro == f.role }}>{{ ro }}</option>{% endfor %}</select>
           <select name="home">{% for s in stars %}<option {{ 'selected' if s == f.home }}>{{ s }}</option>{% endfor %}</select>
@@ -91,13 +92,55 @@
 </div>
 {% else %}<div class="card"><p class="muted">No fleets yet. Create one above, add its devices, set its loadout, then launch a mission.</p></div>{% endfor %}
 <script>
-function fleetWant(el) {
-  const v = parseInt(el.value || "0", 10), have = parseInt(el.dataset.have || "0", 10);
-  if (v <= 0 && have > 0 && !confirm("Remove this type from the fleet? Its " + have + " device(s) will leave the fleet.")) {
-    el.value = el.dataset.old; return;
+// Fleet loadout editor: picking a type in the last blank line sets qty 1 and opens a new blank line below.
+// Every change saves the whole list; lines with no type, no qty or qty 0 are ignored. Removing a type that
+// has member devices asks first, and those devices then leave the fleet.
+(function () {
+  function save(form) {
+    htmx.ajax("POST", "/fleets/" + form.dataset.fid + "/edit",
+              {source: form, values: {autosave: "1"}, target: "#ls-" + form.dataset.fid, swap: "innerHTML"});
   }
-  el.value = isNaN(v) || v < 0 ? 0 : v;
-  htmx.trigger(el, "want-change");
-}
+  function blankLine(tr) {
+    const n = tr.cloneNode(true);
+    n.querySelector("select").value = ""; n.querySelector("input[name=qty]").value = "";
+    tr.after(n);
+  }
+  function release(form, tr) {   // returns false if the user backs out
+    const have = parseInt(tr.dataset.have || "0", 10);
+    if (have > 0) {
+      const label = tr.querySelector("td").textContent.trim();
+      if (!confirm("Remove " + label + " from " + form.dataset.name + "? Its " + have + " device(s) will leave the fleet.")) return false;
+      const h = document.createElement("input"); h.type = "hidden"; h.name = "release"; h.value = tr.dataset.type; form.appendChild(h);
+    }
+    return true;
+  }
+  document.addEventListener("change", function (e) {
+    const form = e.target.closest(".loadout-form"), tr = e.target.closest("tr");
+    if (!form || !tr) return;            // name / role / home wait for Save
+    if (e.target.tagName === "SELECT") {
+      const q = tr.querySelector("input[name=qty]");
+      if (e.target.value && !(parseInt(q.value, 10) > 0)) q.value = 1;
+      if (e.target.value && tr.classList.contains("lnew") && !tr.nextElementSibling) blankLine(tr);
+    } else if (e.target.name === "qty" && tr.dataset.type) {
+      const v = parseInt(e.target.value || "0", 10);
+      if (!(v > 0) && !release(form, tr)) { e.target.value = e.target.dataset.old; return; }
+      if (!(v > 0) && parseInt(tr.dataset.have || "0", 10) > 0) tr.style.display = "none";
+      e.target.dataset.old = e.target.value;
+    }
+    save(form);
+  });
+  document.addEventListener("click", function (e) {
+    const b = e.target.closest(".loadout-form .lx"); if (!b) return;
+    const form = b.closest(".loadout-form"), tr = b.closest("tr");
+    if (tr.classList.contains("lnew")) {
+      const blanks = form.querySelectorAll("tr.lnew");
+      if (blanks.length > 1) tr.remove(); else { tr.querySelector("select").value = ""; tr.querySelector("input[name=qty]").value = ""; }
+    } else {
+      if (!release(form, tr)) return;
+      tr.querySelector("input[name=qty]").value = ""; tr.style.display = "none";
+    }
+    save(form);
+  });
+})();
 </script>
 {% endblock %}
