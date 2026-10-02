@@ -1461,7 +1461,10 @@ async def _snapshot_run(app, stars: set[str] | None) -> None:
         await db.kv_set("snapshot_status", {"state": "done", "done": snap["requests"], "total": snap["requests"], "at": now_iso()})
     except Exception as e:  # report, never crash the app
         log.exception("snapshot failed")
-        await db.kv_set("snapshot_status", {"state": "failed", "error": str(e), "at": now_iso()})
+        import traceback
+        tb = traceback.extract_tb(e.__traceback__)[-1]
+        await db.kv_set("snapshot_status", {"state": "failed", "at": now_iso(),
+                                            "error": f"{type(e).__name__}: {e} ({tb.filename.rsplit('/', 1)[-1]} line {tb.lineno})"})
 
 
 @router.get("/diagnostics", response_class=HTMLResponse)

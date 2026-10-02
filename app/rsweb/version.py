@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.4.1", "2026-10-02", "Fix: snapshot failed on devices with no location (stowed: location null). A diagnosis error no longer "
+                            "loses the capture; failures name the file and line."),
     ("1.4.0", "2026-10-02", "Version + server-run history: log entries and jobs are stamped with version/run; restarts are logged "
                             "with what changed; snapshots carry the history so old information can be told apart."),
     ("1.3.3", "2026-10-02", "Diagnostics page: live read-only snapshot (download as JSON) and a per-drone mining diagnosis."),

@@ -2195,3 +2195,39 @@ def test_start_notes_explain_restarts_and_upgrades():
     assert any("stopped cleanly" in l for l in lines) and any("code changed (zzz →" in l for l in lines)
     assert ver.age_of({"run": ver.RUN_ID}, []) == "current" and ver.age_of({}, []) == "unversioned"
     assert ver.age_of({"run": "x", "v": ver.VERSION}, []) == "earlier run" and ver.age_of({"run": "x", "v": "0.9"}, []) == "older version"
+
+
+def test_diagnosis_handles_null_locations():
+    from rsweb.snapshot import diagnose
+    devs = [{"device_code": "MD1", "device_type": "mining_drone", "location": None, "status": "stowed", "stowed_in_device_code": "V1"},
+            {"device_code": "MD2", "device_type": "mining_drone", "location": "K-BELT-1", "status": "idle"},
+            {"device_code": "SD1", "device_type": "survey_drone", "location": None, "status": "stowed"},
+            {"device_code": "MC1", "device_type": "ami_mining_controller", "location": None, "features": ["ami"], "status": "stowed"}]
+    snap = {"calls": [{"path": "/devices", "status": 200, "body": {"devices": devs}},
+                      {"path": "/locations/K-BELT-1", "status": 200, "body": {"resource_sites": []}}],
+            "app": {"rules": {}, "schedules": [], "jobs": [], "log": [{"level": "alert", "text": None}]}}
+    d = diagnose(snap)
+    rows = {r["code"]: r for r in d["drones"]}
+    assert rows["MD1"]["state"] == "stowed" and any("stowed" in w for w in rows["MD1"]["why"])
+    assert "diagnosis failed" not in " ".join(d["headline"])
+
+
+def test_snapshot_capture_with_stowed_devices(client):
+    import asyncio
+    world = client.app.state.api.http._transport.app.state.world
+    for d in world.devices:
+        if d["device_type"] == "mining_drone":
+            d.update(location=None, status="stowed", stowed_in_device_code="2AC61200")
+            break
+    db = client.app.state.db
+    client.post("/diagnostics/snapshot", data={"stars": ""}, headers=HX)
+    for _ in range(100):
+        st = client.portal.call(db.kv_get, "snapshot_status", {})
+        if st.get("state") != "running":
+            break
+        client.portal.call(asyncio.sleep, 0.05)
+    assert st["state"] == "done", st
+    snap = client.portal.call(db.kv_get, "snapshot_last", None)
+    assert not any("diagnosis failed" in h for h in snap["diagnosis"]["headline"])
+    assert any(r["state"] == "stowed" for r in snap["diagnosis"]["drones"])
+    assert "Mining drones" in client.get("/diagnostics", headers=H).text

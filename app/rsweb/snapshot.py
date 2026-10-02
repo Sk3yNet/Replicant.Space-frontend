@@ -141,7 +141,14 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
     snap = {"version": SNAPSHOT_VERSION, "captured_at": _now().isoformat(timespec="seconds"),
             "scope": sorted(stars) if stars else "all", "partial_device_list": partial,
             "requests": len(calls), "skipped": skipped, "calls": calls, "app": app}
-    snap["diagnosis"] = diagnose(snap)
+    try:
+        snap["diagnosis"] = diagnose(snap)
+    except Exception as e:  # keep the raw capture even if the diagnosis trips over unexpected data
+        import traceback
+        tb = traceback.extract_tb(e.__traceback__)[-1]
+        snap["diagnosis"] = {"headline": [f"diagnosis failed: {type(e).__name__}: {e} (snapshot.py line {tb.lineno}) — "
+                                          "the raw snapshot is still complete; download it"],
+                             "drones": [], "controllers": [], "rules_on": {}, "recent_alerts": [], "failed_jobs": []}
     return snap
 
 
@@ -197,7 +204,7 @@ def diagnose(snap: dict) -> dict:
             return {}
         det = belts.get(b)
         sites = (det or {}).get("resource_sites") if det else None
-        trackers = [d["device_code"] for d in devices if d.get("location", "").startswith(b) and
+        trackers = [d["device_code"] for d in devices if (d.get("location") or "").startswith(b) and
                     str(d.get("status") or "").startswith(("tracking", "searching"))]
         return {"belt": b, "read": det is not None, "open_sites": len(sites) if sites is not None else None,
                 "sites": [{"code": s.get("designation") or s.get("site"), "resource": s.get("resource_type") or s.get("resource"),
