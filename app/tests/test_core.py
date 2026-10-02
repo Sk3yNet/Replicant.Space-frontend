@@ -1836,3 +1836,55 @@ def test_fleet_gather_collects_strays_and_recruits_spares():
     i_local = bodies.index(("/devices/MF000001", {"command": "attach", "device": "SPARE03"}))
     assert ("/devices/SPARE03", {"command": "travel", "destination": "AEM-5-L4"}) in bodies
     assert i_local < bodies.index(("/devices/MF000001", {"command": "travel", "destination": "FAL-1-L4"}))
+
+
+def test_device_snapshot_guard_while_replicant_travels():
+    from rsweb.ingest import merge_device_snapshot
+    from rsweb import loadouts as lo
+    prev = [{"device_code": f"D{i}", "device_type": "mining_drone", "location": "AEM-BELT-1", "status": "idle", "tags": ["home:aem"]}
+            for i in range(6)]
+    assert merge_device_snapshot(prev, []) is None                       # empty → keep the old list
+    assert merge_device_snapshot(prev, prev[:2]) is None                 # far shorter → keep the old list
+    blank = [{**d, "location": None} for d in prev]                      # mid-surge: no locations
+    merged = merge_device_snapshot(prev, blank)
+    assert all(d["location"] == "AEM-BELT-1" and d["location_stale"] for d in merged)
+    stowed = [{**prev[0], "location": None, "stowed_in_device_code": "V1"}]
+    assert merge_device_snapshot(prev[:1], stowed)[0]["location"] is None   # genuinely stowed stays as is
+    cfg = {"phases": [{"id": "p", "name": "P", "order": 1, "wants": {"mining_drone": 2}}], "systems": {"AEM": "p"}}
+    p = lo.plan(cfg, merged, [], {}, {}, {}, set(), [], {})
+    assert p["tag_add"] == {} and p["moves"] == {} and any(u["type"] == "data" for u in p["unmet"])
+    assert any("waiting for good data" in line for line in lo.describe(p))
+
+
+def test_partial_device_pages_while_travelling():
+    from rsweb.ingest import merge_device_snapshot
+    prev = [{"device_code": f"D{i}", "location": "AEM-BELT-1", "status": "idle"} for i in range(80)]
+    page2 = [{"device_code": f"D{i}", "location": "FAL-BELT-1", "status": "idle"} for i in range(50, 80)]
+    merged = merge_device_snapshot(prev, page2, partial=True)       # empty first page + cursor → partial
+    assert len(merged) == 80
+    assert sum(1 for d in merged if d.get("location_stale")) == 50
+    assert next(d for d in merged if d["device_code"] == "D60")["location"] == "FAL-BELT-1"   # fresh data wins
+
+
+def test_sync_devices_with_empty_first_page(client):
+    world = client.app.state.api.http._transport.app.state.world
+    w = client.app.state.worker
+    client.portal.call(w.sync_devices)
+    n = len(client.portal.call(client.app.state.db.kv_get, "devices"))
+    app = client.app.state.api.http._transport.app
+    # make the mock behave like the game mid-travel: first page empty but with a cursor
+    from starlette.routing import Route
+    orig = [r for r in app.router.routes if getattr(r, "path", "") == "/v1/devices"][0]
+    async def travelling(request):
+        from starlette.responses import JSONResponse
+        cur = request.query_params.get("cursor")
+        if not cur:
+            return JSONResponse({"devices": [], "next_cursor": 5})
+        return JSONResponse({"devices": world.devices[5:], "next_cursor": None})
+    app.router.routes.insert(0, Route("/v1/devices", travelling))
+    try:
+        client.portal.call(w.sync_devices)
+    finally:
+        app.router.routes.pop(0)
+    devs = client.portal.call(client.app.state.db.kv_get, "devices")
+    assert len(devs) == n and sum(1 for d in devs if d.get("location_stale")) == 5

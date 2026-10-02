@@ -132,11 +132,15 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         return not (ignore & tags) and d.get("device_code") not in replicant_hosts and not any(t.startswith("fleet:") for t in tags)
 
     pool = [d for d in devices if visible(d)]
+    stale = [d for d in pool if d.get("location_stale") or not (d.get("location") or d.get("stowed_in_device_code")
+                                                                   or d.get("attached_to_device_code"))]
     loc_of = {d.get("device_code"): d.get("location") for d in devices}
     for d in devices:
         if d.get("in_control_range") is False:  # out of comms range: can't be commanded right now
             busy = set(busy) | {d.get("device_code")}
         if str(d.get("status") or "").startswith(("tracking", "searching")):  # moving it would close its site
+            busy = set(busy) | {d.get("device_code")}
+        if d.get("location_stale"):  # last known position only (partial snapshot): count it, don't command it
             busy = set(busy) | {d.get("device_code")}
 
     def ctrl_star(d: dict) -> str | None:
@@ -407,6 +411,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             deliveries.append({"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
                                "devices": load, "replicant": replicant_hosts.get(c["device_code"]), "mode": carry_mode(c, bps)})
 
+    if pool and len(stale) > len(pool) / 2:
+        # most positions unknown (e.g. mid-surge snapshot): report, but act on nothing this pass
+        unmet.append({"star": "", "type": "data", "n": len(stale),
+                      "why": f"{len(stale)} of {len(pool)} devices have no current location — skipping this pass"})
+        return {"returning": [], "releases": {}, "report": report, "tag_add": {}, "tag_remove": {}, "moves": {}, "prints": [],
+                "self_moves": [], "deliveries": [], "arrived": [], "unmet": unmet, "by_code": by_code, "stale": len(stale)}
     return {"returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
             "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
@@ -627,7 +637,9 @@ def describe(p: dict) -> list[str]:
         fleet = len(r.get("fleet") or []) + len(r.get("adopt") or [])
         out.append(f"{r['controller']} {' and '.join(bits)} ({r['source']} → nearest destination {r['dest']}, {fleet} freighter(s))")
     for u in p["unmet"]:
-        if u["type"] == "materials":
+        if u["type"] == "data":
+            out.append(f"waiting for good data: {u['why']}")
+        elif u["type"] == "materials":
             out.append(f"materials from {u['star']}: {u['why']}")
         else:
             out.append(f"can't fill {u['n']}× {u['type']} in {u['star']}: {u['why']}")

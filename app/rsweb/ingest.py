@@ -92,6 +92,32 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
+def merge_device_snapshot(prev: list[dict], new: list[dict], partial: bool = False) -> list[dict] | None:
+    """Guard the device list against partial snapshots (e.g. while the replicant is surging the game can
+    report devices without a location). None = ignore this snapshot entirely.
+
+    • an empty or far-shorter list than last time (< half) is ignored
+    • a device that comes back with location null but isn't stowed/attached keeps its last known
+      location, marked `location_stale: true`, so loadouts don't count it as gone
+    """
+    if prev and not new:
+        return None
+    if partial and prev:
+        # keep what this snapshot left out, flagged stale; take everything it did return
+        seen = {d.get("device_code") for d in new}
+        new = new + [{**d, "location_stale": True} for d in prev if d.get("device_code") not in seen]
+    elif prev and len(new) < len(prev) / 2:
+        return None
+    last = {d.get("device_code"): d.get("location") for d in prev if d.get("location")}
+    out = []
+    for d in new:
+        if not d.get("location") and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code") \
+                and last.get(d.get("device_code")):
+            d = {**d, "location": last[d["device_code"]], "location_stale": True}
+        out.append(d)
+    return out
+
+
 class Worker:
     def __init__(self, settings: Settings, db: DB, api: RSClient, hub: Hub):
         self.s, self.db, self.api, self.hub = settings, db, api, hub
@@ -348,7 +374,23 @@ class Worker:
         self.hub.publish("state", "account")
 
     async def sync_devices(self) -> None:
-        devices = await self.api.paged("/devices", "devices")
+        # page by hand: while the replicant travels the game returns an EMPTY first page that still has a
+        # next_cursor — a partial snapshot, so anything missing from it is kept from the last good one
+        devices, cursor, partial = [], None, False
+        for _ in range(40):
+            body = await self.api.get("/devices", background=True, limit=50, cursor=cursor) or {}
+            page = body.get("devices") or []
+            cursor = body.get("next_cursor")
+            if not page and cursor:
+                partial = True
+            devices.extend(page)
+            if not cursor:
+                break
+        prev = await self.db.kv_get("devices", []) or []
+        devices = merge_device_snapshot(prev, devices, partial)
+        if devices is None:
+            log.warning("device sync returned an incomplete list (%s → fewer); keeping the previous one", len(prev))
+            return
         await self.db.kv_set("devices", devices)
         self.hub.publish("state", "devices")
         try:

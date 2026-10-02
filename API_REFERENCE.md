@@ -850,3 +850,7 @@ category: "resource_trade", event_type, tier, criteria: [{name: "default", resou
 rewards: {civilisation_points, completion_achievement, resources: {volatiles: 150}, xp}}`.
 `event.completed` `{designation, location, event_type, tier, consumed: {resources: {...}}, rewards: {...}}`.
 A replicant must be present at the location, with the criteria materials there; then `POST /v1/locations/{location}/events/{designation}` (no body) fulfils it (confirmed).
+
+**Device list while the replicant travels:** `GET /devices` returns an **empty first page with a `next_cursor`**
+(`{"devices": [], "next_cursor": 894310}`) — a partial snapshot. The client keeps devices missing from such a
+snapshot from the last good list (flagged `location_stale`) and doesn't command them until a full list arrives.
