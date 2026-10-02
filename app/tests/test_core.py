@@ -1075,7 +1075,7 @@ def test_salvage_rule_switches_ami_when_belt_worked_out(client):
     assert len(jobs) == 1 and jobs[0]["device"] == "MC91FF22"
     body = next(s["body"] for s in jobs[0]["steps"] if (s["body"] or {}).get("command") == "set_directive")
     assert body == {"command": "set_directive", "directive": "gather_salvage",
-                    "configuration": {"location": "SOL-3-1", "recall": False}}   # the body, not the -SAL- code
+                    "configuration": {"location": "SOL-3-1", "recall": True}}    # the body, not the -SAL- code; recall brings drones back
     # no drones are sent on their own while the AMI handles the system
     assert not any(j["device"].startswith("2AC6121") for j in jobs)
 
@@ -1751,7 +1751,7 @@ def test_fleet_pages_and_mission_launch(client):
             d["tags"] = ["fleet:prospector-1"]
     client.portal.call(client.app.state.db.kv_set, "devices", devices)
     page = client.get("/fleets", headers=H).text
-    assert "Prospector 1" in page and "fleet:prospector-1" in page and "36 available · 7 needed" in page
+    assert "Prospector 1" in page and "fleet:prospector-1" in page and "attach 7 / 36" in page
     client.post("/fleets/prospector-1/edit", data={"name": "Prospector 1", "role": "mining", "home": "SOL",
                                                    "want:mining_drone": "4", "want:mobile_fleet": "1"}, headers=HX)
     r = client.post("/fleets/prospector-1/mission", data={"targets": "KEL", "exhausted_minutes": "30"}, headers=HX)
@@ -1991,17 +1991,57 @@ def test_fleet_attach_points():
            "transport_hauler": {"device_type": "transport_hauler", "features": ["cruise", "transport"]}}
     pt = fl.attach_points(fleet, devices, bps)
     # members: one mobile fleet (36); riders = 3 controllers + 3 mining drones + 1 survey drone; the freighter flies itself
-    assert pt["now"] == {"available": 36, "needed": 7, "short": 0, "fix": "", "attached": 1}
-    assert pt["plan"]["available"] == 36 and pt["plan"]["needed"] == 8      # 4 mining drones wanted (3 have)
+    # (the test devices list no stow command, so they all need attach points)
+    assert (pt["now"]["available"], pt["now"]["needed"], pt["now"]["short"], pt["now"]["attached"]) == (36, 7, 0, 1)
+    assert pt["now"]["attach"] == {"available": 36, "needed": 7}
+    assert pt["plan"]["attach"]["available"] == 36 and pt["plan"]["needed"] == 8      # 4 mining drones wanted (3 have)
     # swap the mobile fleet for one platform and add 10 haulers → short
     fleet["wants"] = {"surge_platform": 1, "transport_hauler": 10}
     devices = [d for d in devices if d["device_type"] != "mobile_fleet"]
     pt = fl.attach_points(fleet, devices, bps)
     assert pt["now"]["available"] == 0 and pt["now"]["short"] == 7
-    assert pt["plan"]["available"] == 4 and pt["plan"]["needed"] == 17 and pt["plan"]["short"] == 13
-    assert pt["plan"]["fix"] == "2 surge carrier(s) or 4 surge platform(s)"
-    assert fl.type_profile("cargo_freighter", bps, devices) == {"carrier": 0, "flies": True}
+    assert pt["plan"]["attach"]["available"] == 4 and pt["plan"]["needed"] == 17 and pt["plan"]["short"] == 13
+    assert pt["plan"]["fix"].startswith("2 surge carrier(s), 4 surge platform(s)")
+    assert fl.type_profile("cargo_freighter", bps, devices) == {"carrier": 0, "hold": 0, "flies": True, "stowable": False}
 
+
+def test_cargo_vessel_counts_hold_and_attach():
+    from rsweb import fleets as fl
+    T = ["fleet:hauler"]
+    def dev(code, t, **kw):
+        return {"device_code": code, "device_type": t, "location": "FAL-1-L4", "status": "idle", "tags": T, **kw}
+    stow_cmds = ["travel", "stow", "deploy"]
+    devices = [dev("CV1", "cargo_vessel", features=["surge", "cruise", "stow", "attach"], stow_capacity=50, attach_capacity=3,
+                   available_commands=["travel", "attach", "detach"])]
+    devices += [dev(f"MD{i}", "mining_drone", features=["cruise", "mine", "stow"], available_commands=stow_cmds) for i in range(6)]
+    devices += [dev(f"TD{i}", "transport_drone", features=["cruise", "transport"], available_commands=["travel"]) for i in range(2)]
+    fleet = {"id": "hauler", "name": "Hauler", "role": "mining", "home": "FAL",
+             "wants": {"cargo_vessel": 1, "mining_drone": 6, "transport_drone": 4}}
+    assert fl.is_carrier(devices[0]) and fl.hold(devices[0]) == 50 and fl.capacity(devices[0]) == 3
+    pt = fl.attach_points(fleet, devices, {})
+    assert pt["now"]["hold"] == {"available": 50, "needed": 6, "used": 6} and pt["now"]["attach"] == {"available": 3, "needed": 2}
+    assert pt["now"]["short"] == 0 and pt["now"]["available"] == 53
+    # loadout: 4 transport drones need attach points, only 3 → short 1 (the hold can't take them)
+    assert pt["plan"]["attach"] == {"available": 3, "needed": 4} and pt["plan"]["short"] == 1
+    assert pt["plan"]["fix"] == "1 surge carrier(s), 1 surge platform(s) or 1 cargo vessel(s)"
+    prof = fl.type_profile("cargo_vessel", {}, [])   # from known sizes, no device or blueprint
+    assert prof["carrier"] == 3 and prof["hold"] == 50 and not prof["flies"]
+    # assemble: transport drones attach, mining drones stow themselves into the vessel
+    steps, problems = fl.assemble_steps(fleet, devices)
+    bodies = [(s["path"], s["body"]) for s in steps]
+    assert problems == []
+    assert ("/devices/CV1", {"command": "attach", "device": "TD0"}) in bodies and ("/devices/CV1", {"command": "attach", "device": "TD1"}) in bodies
+    assert sum(1 for p, b in bodies if b and b.get("command") == "stow" and b.get("target") == "CV1") == 6
+    # unload: deploy the stowed, detach the attached
+    for d in devices:
+        if d["device_type"] == "mining_drone":
+            d["stowed_in_device_code"] = "CV1"
+        elif d["device_type"] == "transport_drone":
+            d["attached_to_device_code"] = "CV1"
+    cmds = sorted(((s["body"] or {}).get("command"), s["path"]) for s in fl.unload_steps(fleet, devices))
+    assert cmds.count(("deploy", "/devices/MD0")) == 1 and ("detach", "/devices/CV1") in cmds
+    # only the carrier flies; stowed and attached members ride along
+    assert {s["path"] for s in fl.travel_steps(fleet, devices, "AEM", {}) if s["method"] != "WAIT"} == {"/devices/CV1"}
 
 def _arrival_world():
     A = ["adopt", "release", "set_directive", "launch", "activate"]
@@ -2231,3 +2271,104 @@ def test_snapshot_capture_with_stowed_devices(client):
     assert not any("diagnosis failed" in h for h in snap["diagnosis"]["headline"])
     assert any(r["state"] == "stowed" for r in snap["diagnosis"]["drones"])
     assert "Mining drones" in client.get("/diagnostics", headers=H).text
+
+
+def _live():
+    import pathlib
+    return json.loads((pathlib.Path(__file__).parent / "fixtures" / "live_2026-10-02.json").read_text())
+
+
+def test_live_back_to_belt_plan():
+    """From the 2026-10-02 snapshot: 0 of 12 drones mining, every controller 'exhausted' though both read belts have
+    open sites at 100%. AEMEROTH's drones sat at used-up salvage on AEMEROTH-4-2; FALQUORYX's controller was paused
+    with a stale 'exhausted' at its own belt."""
+    from rsweb import salvage as sv
+    from rsweb.snapshot import devices_of
+    snap = _live()
+    devices = devices_of(snap)
+    belts = {c["path"].split("/")[2]: c["body"] for c in snap["calls"] if c["path"].startswith("/locations/")}
+    open_sites = {b: sv.open_site_count(d) for b, d in belts.items()}
+    assert open_sites == {"AEMEROTH-BELT-1": 2, "FALQUORYX-BELT-1": 4}
+    ctrls = [d for d in devices if d.get("device_type") == "ami_mining_controller" and not any(t.startswith("fleet:") for t in d.get("tags") or [])]
+    plans = {p["ctrl"]: p for p in sv.back_to_belt_plan(ctrls, devices, snap["app"]["managed_by"], open_sites,
+                                                       {"AEMEROTH": ["AEMEROTH-BELT-1"], "FALQUORYX": ["FALQUORYX-BELT-1"]}, set())}
+    aem = plans["84EE1EF1"]
+    assert aem["belt"] == "AEMEROTH-BELT-1" and not aem["move_ctrl"] and aem["directive"] == "gather_evenly"
+    assert set(aem["away"]) == {"1886BD05", "399FF11C", "607F9110", "EB6DF4A3"} and "AEMEROTH-4-2" in aem["why"]
+    fal = plans["F32E05A7"]
+    assert fal["belt"] == "FALQUORYX-BELT-1" and fal["away"] == [] and "stale" in fal["why"]
+    assert "90DEC78F" not in plans          # ITHVALAI's belt wasn't read: no open sites known → nothing guessed
+    steps = sv.back_to_belt_steps(aem)
+    cmds = [(s["path"], (s["body"] or {}).get("command")) for s in steps]
+    assert cmds[0] == ("/devices/84EE1EF1", "release") and ("/devices/84EE1EF1", "adopt") in cmds
+    assert cmds[-2:] == [("/devices/84EE1EF1", "set_directive"), ("/devices/84EE1EF1", "launch")]
+    assert sum(1 for p, c in cmds if c == "travel") == 4
+    assert [s["body"]["command"] for s in sv.back_to_belt_steps(fal) if s["body"]] == ["set_directive", "launch"]
+    # with ITHVALAI's belt open, its controller (at the entry point) flies there with its drones
+    plans = {p["ctrl"]: p for p in sv.back_to_belt_plan(ctrls, devices, snap["app"]["managed_by"],
+                                                       {**open_sites, "ITHVALAI-BELT-1": 3}, {"ITHVALAI": ["ITHVALAI-BELT-1"]}, set())}
+    ith = plans["90DEC78F"]
+    assert ith["belt"] == "ITHVALAI-BELT-1" and ith["move_ctrl"] and len(ith["away"]) == 4
+
+
+def test_live_diagnosis_runs_clean():
+    from rsweb.snapshot import diagnose
+    snap = _live()
+    snap["app"].update(jobs=[], log=[])
+    d = diagnose(snap)
+    assert "0 of 12 mining drones are mining" in d["headline"]
+    ctrl = {c["code"]: c for c in d["controllers"]}
+    assert any("drones are away" in n or "back to" in n for n in ctrl["84EE1EF1"]["notes"])
+    assert any("no AMI schedule targets it" in n for n in ctrl["D0011B15"]["notes"])   # fleet controllers aren't schedule targets
+
+
+def test_live_back_to_belt_rule_and_schedule(client):
+    from rsweb.snapshot import devices_of
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+    snap = _live()
+    client.portal.call(db.kv_set, "devices", devices_of(snap))
+    for c in snap["calls"]:
+        if c["path"].startswith("/locations/"):
+            client.portal.call(db.kv_set, f"loc:{c['path'].split('/')[2]}", c["body"])
+    client.portal.call(db.kv_set, "belt_reads", {"AEMEROTH-BELT-1": "2099-01-01T00:00:00+00:00",
+                                                 "FALQUORYX-BELT-1": "2099-01-01T00:00:00+00:00"})
+
+    async def enable():
+        s = await eng.settings()
+        s["rules"]["salvage_when_depleted"]["enabled"] = True
+        await eng.save_settings(s)
+    client.portal.call(enable)
+    client.portal.call(eng.save_schedules, snap["app"]["schedules"])
+    done = client.portal.call(eng.rule_back_to_belt, {"back_to_belt": True})
+    assert sorted(d.split(" ")[0] for d in done) == ["84EE1EF1", "F32E05A7"]
+    jobs = {j["device"]: j for j in client.portal.call(eng.jobs) if j["rule"] == "salvage_when_depleted"}
+    assert "bringing 4 drone(s)" in jobs["84EE1EF1"]["title"] and "stale" in jobs["F32E05A7"]["title"]
+    # second pass: cooling down / busy — nothing new
+    assert client.portal.call(eng.rule_back_to_belt, {"back_to_belt": True}) == []
+    # the schedule no longer writes off a stale 'exhausted' at a belt that has open sites
+    sched = dict(snap["app"]["schedules"][0])
+    devs = devices_of(snap)
+    for d in devs:
+        if d["device_code"] == "F32E05A7":
+            d["ami_directive_status"] = "active"
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(db.kv_set, "automation_jobs", [])
+    res = client.portal.call(eng.run_schedule, sched)
+    by = {r.split(":")[0]: r for r in res}
+    assert "exhausted at AEMEROTH-4-2" in by["84EE1EF1"] and "brings them back" in by["84EE1EF1"]
+    assert "won't help" not in by["F32E05A7"]
+
+
+def test_stowable_follows_live_device_data():
+    from rsweb import fleets as fl
+    snap = _live()
+    from rsweb.snapshot import devices_of
+    by_type = {}
+    for d in devices_of(snap):
+        by_type.setdefault(d["device_type"], d)
+    for t in ("mining_drone", "survey_drone", "ami_mining_controller", "ami_transport_controller"):
+        assert fl.stowable(by_type[t]), t
+    for t in ("transport_drone", "transport_hauler", "cargo_freighter"):
+        if t in by_type:
+            assert not fl.stowable(by_type[t]), t

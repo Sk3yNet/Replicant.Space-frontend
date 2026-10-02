@@ -21,12 +21,12 @@
       <h3>Loadout <span class="muted small">in {{ r.stars | join(', ') or '—' }}</span></h3>
       <form hx-post="/fleets/{{ f.id }}/edit" hx-swap="none" class="loadout-form" data-fid="{{ f.id }}" data-name="{{ f.name }}">
         <input type="hidden" name="lines" value="1">
-        <table class="small"><tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th class="num" title="Attach points: + offered by a carrier, − needed by a rider; ✈ surges itself">Attach</th><th>Devices</th><th></th></tr>
+        <table class="small"><tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th class="num" title="▣N hold slots and +N attach points a carrier offers; −1 ▣ a rider that can go in a hold, −1 one that needs an attach point; ✈ surges itself">Seats</th><th>Devices</th><th></th></tr>
           {% for row in r.rows %}<tr data-have="{{ row.have }}" data-type="{{ row.type }}"{% if not row.want %} class="muted" title="Not in the loadout — set a quantity to keep it"{% endif %}>
             <td>{{ row.type | human }}<input type="hidden" name="type" value="{{ row.type }}"></td>
             <td class="num"><input type="number" min="0" name="qty" value="{{ row.want or '' }}" data-old="{{ row.want or '' }}" style="width:52px"></td>
             <td class="num {{ 'lv-alert' if row.short }}">{{ row.have }}</td>
-            <td class="num muted lp">{% if row.profile.carrier %}+{{ row.profile.carrier }}{% elif row.profile.flies %}✈{% else %}−1{% endif %}</td>
+            <td class="num muted lp">{% if row.profile.carrier or row.profile.hold %}{% if row.profile.hold %}▣{{ row.profile.hold }} {% endif %}{% if row.profile.carrier %}+{{ row.profile.carrier }}{% endif %}{% elif row.profile.flies %}✈{% elif row.profile.stowable %}−1 ▣{% else %}−1{% endif %}</td>
             <td class="mono">{% for c in row.codes %}<a href="/devices/{{ c }}">{{ c }}</a>{% if c in r.riding %}<span class="muted" title="riding {{ r.riding[c] }}">↑</span>{% endif %} {% endfor %}</td>
             <td><button type="button" class="small ghost lx" title="Remove {{ row.type | human }} from this fleet">✕</button></td></tr>{% endfor %}
           <tr class="lnew"><td><select name="type"><option value="">+ add a type…</option>{% for t in types %}<option value="{{ t }}">{{ t | human }}</option>{% endfor %}</select></td>
@@ -34,14 +34,19 @@
             <td><button type="button" class="small ghost lx" title="Clear this line">✕</button></td></tr>
         </table>
         {% set pt = f.points %}
+        {% macro budget(b) -%}
+          {%- if b.hold.available %}hold {{ b.hold.needed }} / {{ b.hold.available }}{% if b.hold.needed > b.hold.available %} ({{ b.hold.needed - b.hold.available }} overflow to attach){% endif %} · {% endif -%}
+          attach {{ b.attach.needed }} / {{ b.attach.available }}
+          {%- if b.short %} · short {{ b.short }} attach point(s) — add {{ b.fix }}{% elif b.needed %} · fits{% endif -%}
+        {%- endmacro %}
         <div class="small attach-points" style="margin-top:6px">
-          <div><b>Attach points now</b> (members):
-            <span class="{{ 'lv-alert' if pt.now.short }}">{{ pt.now.available }} available · {{ pt.now.needed }} needed</span>
-            <span class="muted">· {{ pt.now.attached }} attached</span>
-            {% if pt.now.short %}<span class="lv-alert">· short {{ pt.now.short }} — add {{ pt.now.fix }}</span>{% endif %}</div>
-          <div><b>At full loadout</b>:
-            <span class="ap-plan {{ 'lv-alert' if pt.plan.short }}">{{ pt.plan.available }} available · {{ pt.plan.needed }} needed{% if pt.plan.short %} · short {{ pt.plan.short }} — add {{ pt.plan.fix }}{% elif pt.plan.needed %} · {{ pt.plan.available - pt.plan.needed }} spare{% endif %}</span></div>
-          <div class="muted">Carriers (surge plates, platforms, carriers, mobile fleets) offer points. Devices that can't surge need one each. Freighters and other surge-capable devices fly themselves.</div>
+          <div><b>Carrying now</b> (members, needed / available):
+            <span class="{{ 'lv-alert' if pt.now.short }}">{{ budget(pt.now) }}</span>
+            <span class="muted">· {{ pt.now.stowed }} stowed · {{ pt.now.attached }} attached</span></div>
+          <div><b>At full loadout</b>: <span class="ap-plan {{ 'lv-alert' if pt.plan.short }}">{{ budget(pt.plan) }}</span></div>
+          <div class="muted">Carriers offer hold slots and attach points: surge plate 1, platform 4, carrier 9 and mobile fleet 36 attach points; cargo vessel 50 hold + 3 attach.
+            Devices that can't surge need a seat. Stowable ones (drones, controllers) go in a hold first. Transport drones and haulers can't stow, so they need attach points.
+            Freighters and other surge-capable devices fly themselves.</div>
         </div>
         <div class="small muted" id="ls-{{ f.id }}" style="min-height:1.2em"></div>
         <div class="row" style="margin-top:6px">
@@ -110,24 +115,36 @@
 (function () {
   let PROFILES = {};
   try { PROFILES = JSON.parse(document.getElementById("type-profiles").textContent); } catch (e) {}
+  function cellText(p) {
+    if (p.carrier || p.hold) return (p.hold ? "▣" + p.hold + " " : "") + (p.carrier ? "+" + p.carrier : "");
+    return p.flies ? "✈" : (p.stowable ? "−1 ▣" : "−1");
+  }
+  function budgetText(h, a, sn, an) {   // same rules as fleets._budget
+    const inHold = Math.min(h, sn), attNeed = an + (sn - inHold), gap = Math.max(0, attNeed - a);
+    let t = (h ? "hold " + sn + " / " + h + (sn > h ? " (" + (sn - h) + " overflow to attach)" : "") + " · " : "") + "attach " + attNeed + " / " + a;
+    if (gap) t += " · short " + gap + " attach point(s) — add " + Math.ceil(gap / 9) + " surge carrier(s), " + Math.ceil(gap / 4) +
+      " surge platform(s) or " + Math.ceil(gap / 3) + " cargo vessel(s)";
+    else if (sn + an) t += " · fits";
+    return [t, gap];
+  }
   function points(form) {   // live "at full loadout" line, from the lines as edited
-    let avail = 0, need = 0;
+    let h = 0, a = 0, sn = 0, an = 0;
     form.querySelectorAll("tr").forEach(function (tr) {
       if (tr.style.display === "none") return;
       const sel = tr.querySelector("select[name=type]"), hid = tr.querySelector("input[type=hidden][name=type]");
       const t = sel ? sel.value : (hid ? hid.value : ""), q = tr.querySelector("input[name=qty]");
       const lp = tr.querySelector(".lp");
       if (!t || !q) { if (lp && sel) lp.textContent = ""; return; }
-      const p = PROFILES[t] || {carrier: 0, flies: false};
-      const cell = tr.querySelector(".lp"); if (cell) cell.textContent = p.carrier ? "+" + p.carrier : (p.flies ? "✈" : "−1");
+      const p = PROFILES[t] || {carrier: 0, hold: 0, flies: false, stowable: true};
+      if (lp) lp.textContent = cellText(p);
       const n = Math.max(parseInt(q.value || "0", 10) || 0, parseInt(tr.dataset.have || "0", 10) || 0);
-      if (p.carrier) avail += p.carrier * n; else if (!p.flies) need += n;
+      if (p.carrier || p.hold) { h += (p.hold || 0) * n; a += (p.carrier || 0) * n; }
+      else if (!p.flies) { if (p.stowable) sn += n; else an += n; }
     });
     const el = form.querySelector(".ap-plan"); if (!el) return;
-    const gap = Math.max(0, need - avail);
-    el.textContent = avail + " available · " + need + " needed" + (gap ? " · short " + gap + " — add " + Math.ceil(gap / 9) +
-      " surge carrier(s) or " + Math.ceil(gap / 4) + " surge platform(s)" : (need ? " · " + (avail - need) + " spare" : ""));
-    el.classList.toggle("lv-alert", gap > 0);
+    const r = budgetText(h, a, sn, an);
+    el.textContent = r[0];
+    el.classList.toggle("lv-alert", r[1] > 0);
   }
   function save(form) {
     points(form);

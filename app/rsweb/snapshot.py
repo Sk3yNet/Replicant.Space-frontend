@@ -100,12 +100,20 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
 
     # 4. the belts miners and controllers are at (open resource sites)
     belts = sorted({b for d in in_scope if (is_miner(d) or is_mining_ctrl(d)) for b in [belt_of(d.get("location"))] if b})
+    import json as _json
+    for star in sorted({star_of(c.get("location")) for c in ctrls if c.get("location")}):  # every belt in a mining system
+        row = await db.fetchone("SELECT data FROM systems WHERE star=?", (star,))
+        scan = _json.loads(row["data"]) if row else {}
+        belts += [b["designation"] for b in ((scan.get("asteroid_belt") or {}).get("belts")) or []
+                  if b.get("designation") and b["designation"] not in belts]
     for b in belts[:12]:
         await get(f"/locations/{b}")
 
     # 5. recent mining + AMI events
-    await get("/events", category="mining", limit=100)
-    await get("/events", category="ami", limit=100)
+    # /events returns oldest-first from the start of the window: ask for the last few hours, not the whole day
+    since = (_now() - timedelta(hours=3)).isoformat(timespec="seconds")
+    await get("/events", after=since, limit=100)
+    await get("/events", category="ami", after=since, limit=100)
 
     # 6. idle (not mining) drones: detail + their latest log lines
     idle = [d for d in in_scope if is_miner(d) and not str(d.get("status") or "").startswith("mining")]
@@ -130,6 +138,8 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "exhausted_places": await db.kv_get("exhausted_places", {}) or {},
         "reopen_state": await db.kv_get("reopen_state", {}) or {},
         "managed_by": await managed_by(db),
+        "salvage_state": await db.kv_get("salvage_state", {}) or {},
+        "belt_reads": await db.kv_get("belt_reads", {}) or {},
         "loadouts_last": await db.kv_get("loadouts_last", {}) or {},
         "fleets": [{"id": f.get("id"), "role": f.get("role"), "mission": (f.get("mission") or {}).get("status")}
                    for f in await eng.fleets()],
@@ -189,7 +199,8 @@ def diagnose(snap: dict) -> dict:
         out = []
         for s in schedules:
             t = s.get("target") or ""
-            if t == c.get("device_code") or (t == "kind:mining" and (not s.get("star") or s.get("star") == star_of(c.get("location")))):
+            if t == c.get("device_code") or (t == "kind:mining" and not reserved(c)
+                                              and (not s.get("star") or s.get("star") == star_of(c.get("location")))):
                 out.append({"id": s.get("id"), "directive": s.get("directive"), "enabled": s.get("enabled", True),
                             "every_minutes": s.get("every_minutes"), "last_run": s.get("last_run")})
         return out
@@ -206,7 +217,8 @@ def diagnose(snap: dict) -> dict:
         sites = (det or {}).get("resource_sites") if det else None
         trackers = [d["device_code"] for d in devices if (d.get("location") or "").startswith(b) and
                     str(d.get("status") or "").startswith(("tracking", "searching"))]
-        return {"belt": b, "read": det is not None, "open_sites": len(sites) if sites is not None else None,
+        from .salvage import open_site_count
+        return {"belt": b, "read": det is not None, "open_sites": open_site_count(det) if det is not None else None,
                 "sites": [{"code": s.get("designation") or s.get("site"), "resource": s.get("resource_type") or s.get("resource"),
                            "level": s.get("availability"), "qty": s.get("quantity") or s.get("remaining")}
                           for s in (sites or []) if isinstance(s, dict)],
@@ -225,7 +237,20 @@ def diagnose(snap: dict) -> dict:
             notes.append("no directive: it won't do anything until one is set" +
                          (" (an AMI schedule targets it)" if sched_for(c) else " and no AMI schedule targets it"))
         elif st.startswith("exhausted"):
-            notes.append(f"its directive reports {st}: nothing left it can mine for that directive here")
+            from .salvage import exhausted_place
+            place = exhausted_place(st)
+            sb = [b for b in belts if star_of(b) == star_of(c.get("location"))]
+            open_b = {b: belt_info(b).get("open_sites") for b in sb}
+            best = max((b for b, n in open_b.items() if n), key=lambda b: open_b[b], default=None)
+            if place and belt_of(place) is None and best:
+                notes.append(f"exhausted at {place}, where its drones are (not a belt) — {best} has {open_b[best]} open site(s): "
+                             "the drones need to come back to the belt (Salvage when depleted → back to the belt does this)")
+            elif place and place == best:
+                notes.append(f"stale 'exhausted' at {place}: the belt has {open_b[best]} open site(s) again — re-set the directive and launch")
+            else:
+                notes.append(f"its directive reports exhausted at {place or '?'}"
+                             + ("; no belt in this system has open sites — survey drones must search" if sb and not best
+                                else "" if best else "; its system's belts weren't read"))
         elif st.startswith("idle"):
             notes.append(f"directive {dv['name']} is idle ({st})")
         if dv["name"] and str(dv["status"] or "active") != "active":

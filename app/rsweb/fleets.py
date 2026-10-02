@@ -33,7 +33,8 @@ PHASES = {
     "trade": ["load", "assemble", "gather", "travel", "deliver", "trade", "recall", "return", "unload"],
 }
 ATTACH_TYPES = ("surge_plate", "surge_platform", "surge_carrier", "mobile_fleet")
-CAPACITY = {"surge_plate": 1, "surge_platform": 4, "surge_carrier": 9, "mobile_fleet": 36}
+CAPACITY = {"surge_plate": 1, "surge_platform": 4, "surge_carrier": 9, "mobile_fleet": 36, "cargo_vessel": 3}
+HOLD = {"cargo_vessel": 50, "heaven_vessel": 10, "racing_vessel": 5}   # stow capacity (devices in the hold)
 
 
 def star_of(loc: str | None) -> str:
@@ -53,65 +54,143 @@ def members(fleet: dict, devices: list[dict]) -> list[dict]:
     return [d for d in devices if tag in (d.get("tags") or [])]
 
 
+def _int(v) -> int:
+    try:
+        return max(0, int(v or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def capacity(d: dict) -> int:
-    for k in ("attach_capacity",):
-        try:
-            v = int(d.get(k) or 0)
-            if v > 0:
-                return v
-        except (TypeError, ValueError):
-            pass
-    return CAPACITY.get(d.get("device_type") or "", 0)
+    """Attach points (devices ride on the outside: plates, platforms, carriers, mobile fleets, cargo vessel 3)."""
+    return _int(d.get("attach_capacity")) or CAPACITY.get(d.get("device_type") or "", 0)
+
+
+def hold(d: dict) -> int:
+    """Hold slots (devices stowed inside: cargo vessel 50, heaven vessel 10, racing vessel 5)."""
+    return _int(d.get("stow_capacity")) or HOLD.get(d.get("device_type") or "", 0)
 
 
 def is_carrier(d: dict) -> bool:
-    return "surge" in (d.get("features") or []) and capacity(d) > 0 and \
-        any(k in (d.get("device_type") or "") for k in ATTACH_TYPES)
+    t = d.get("device_type") or ""
+    if "surge" not in (d.get("features") or []):
+        return False
+    return (capacity(d) > 0 and (any(k in t for k in ATTACH_TYPES) or hold(d) > 0 or _int(d.get("attach_capacity")) > 0)) \
+        or hold(d) > 0
 
 
 def flies_itself(d: dict) -> bool:
     return "surge" in (d.get("features") or []) and not is_carrier(d)
 
 
+def stowable(d: dict) -> bool:
+    """Can ride in a hold: the device itself has the `stow` feature (or stow/deploy commands). In live data
+    (2026-10-02) drones, AMI controllers, maintenance drones, beacons, relays, wards and surge plates do;
+    transport drones and haulers don't, so those need attach points."""
+    if "stow" in (d.get("features") or []):
+        return True
+    cmds = d.get("available_commands") or []
+    if "stow" in cmds or "deploy" in cmds:
+        return True
+    if d.get("features") or cmds:
+        return False
+    t = d.get("device_type") or ""        # nothing known about it: only the transport types are known not to stow
+    return not ("transport_drone" in t or "transport_hauler" in t)
+
+
+def seats(c: dict, devices: list[dict] | None = None) -> dict:
+    """Free hold slots and attach points on a carrier right now."""
+    inside = len(c.get("stowed_devices") or []) or _int(c.get("stow_used"))
+    outside = len(c.get("attached_devices") or [])
+    if devices is not None:
+        inside = max(inside, sum(1 for d in devices if d.get("stowed_in_device_code") == c.get("device_code")))
+        outside = max(outside, sum(1 for d in devices if d.get("attached_to_device_code") == c.get("device_code")))
+    return {"hold": max(0, hold(c) - inside), "attach": max(0, capacity(c) - outside)}
+
+
+def take_seat(free: dict, d: dict) -> str | None:
+    """Pick 'stow' (hold first, keeps attach points for devices that can't stow) or 'attach'; mutates free."""
+    if stowable(d) and free["hold"] > 0:
+        free["hold"] -= 1
+        return "stow"
+    if free["attach"] > 0:
+        free["attach"] -= 1
+        return "attach"
+    return None
+
+
+def board_step(carrier: str, code: str, mode: str) -> dict:
+    if mode == "stow":   # the cargo stows itself into the carrier
+        st = step(f"stow {code} in {carrier}", f"/devices/{code}", {"command": "stow", "target": carrier},
+                  wait=["device.stowed"], timeout=SHORT_TIMEOUT, critical=True)
+        st["wait_device"] = code
+        return st
+    st = step(f"{carrier}: attach {code}", f"/devices/{carrier}", {"command": "attach", "device": code},
+              wait=["device.attached"], timeout=SHORT_TIMEOUT, critical=True)
+    st["wait_device"] = carrier
+    return st
+
+
+def aboard(d: dict, carriers: set[str]) -> str | None:
+    c = d.get("attached_to_device_code") or d.get("stowed_in_device_code")
+    return c if c in carriers else None
+
+
 def type_profile(t: str, bps: dict[str, dict], devices: list[dict]) -> dict:
-    """How a device type fits on carriers: {"carrier": attach points it brings (0 if none), "flies": surges itself}.
-    From a device of that type if there is one, else its blueprint, else the known carrier sizes."""
+    """How a device type fits a fleet: {"carrier": attach points it brings, "hold": hold slots it brings,
+    "flies": surges itself, "stowable": can ride in a hold}. From a device of that type, else its blueprint,
+    else the known sizes."""
     sample = next((d for d in devices if d.get("device_type") == t), None) or {}
     bp = bps.get(t) or {}
-    feats = set(sample.get("features") or bp.get("features") or [])
-    cap = 0
-    for src in (sample, bp):
-        try:
-            cap = cap or int(src.get("attach_capacity") or 0)
-        except (TypeError, ValueError):
-            pass
-    cap = cap or CAPACITY.get(t, 0)
-    carrier = cap if any(k in t for k in ATTACH_TYPES) and cap > 0 else 0
-    return {"carrier": carrier, "flies": bool(not carrier and "surge" in feats)}
+    probe = {"device_type": t, "features": sample.get("features") or bp.get("features") or [],
+             "attach_capacity": sample.get("attach_capacity") or bp.get("attach_capacity"),
+             "stow_capacity": sample.get("stow_capacity") or bp.get("stow_capacity"),
+             "available_commands": sample.get("available_commands")}
+    if t in CAPACITY or t in HOLD or any(k in t for k in ATTACH_TYPES):
+        probe["features"] = list(set(probe["features"]) | {"surge"})   # known carriers surge even if the blueprint says less
+    carrier = is_carrier(probe)
+    return {"carrier": capacity(probe) if carrier else 0, "hold": hold(probe) if carrier else 0,
+            "flies": bool(not carrier and "surge" in probe["features"]), "stowable": stowable(probe)}
+
+
+def _budget(hold_av: int, att_av: int, stow_need: int, att_only: int) -> dict:
+    in_hold = min(hold_av, stow_need)
+    att_need = att_only + (stow_need - in_hold)          # what doesn't fit in the holds rides outside
+    gap = max(0, att_need - att_av)
+    return {"available": hold_av + att_av, "needed": stow_need + att_only, "short": gap,
+            "hold": {"available": hold_av, "needed": stow_need, "used": in_hold},
+            "attach": {"available": att_av, "needed": att_need},
+            "fix": (f"{-(-gap // 9)} surge carrier(s), {-(-gap // 4)} surge platform(s) or {-(-gap // 3)} cargo vessel(s)"
+                    if gap else "")}
 
 
 def attach_points(fleet: dict, devices: list[dict], bps: dict[str, dict], rows: list[dict] | None = None) -> dict:
-    """Attach points the fleet's carriers offer vs the points its riders need — now (members) and at full loadout
-    (each type at max(want, have)). Riders are devices that are neither carriers nor surge-capable themselves."""
+    """Carrying budget — hold slots and attach points the fleet's carriers offer vs what its riders need, now (members)
+    and at full loadout (each type at max(want, have)). Riders are members that aren't carriers and can't surge.
+    Stowable riders go in holds first; the rest (and hold overflow) need attach points."""
     rows = rows if rows is not None else roster(fleet, devices)["rows"]
     ms = members(fleet, devices)
-    now_avail = sum(capacity(d) for d in ms if is_carrier(d))
-    now_need = sum(1 for d in ms if not is_carrier(d) and not flies_itself(d))
-    riding = sum(1 for d in ms if d.get("attached_to_device_code") in {c["device_code"] for c in ms if is_carrier(c)})
-    plan_avail = plan_need = 0
+    cars = [d for d in ms if is_carrier(d)]
+    riders = [d for d in ms if not is_carrier(d) and not flies_itself(d)]
+    codes = {c["device_code"] for c in cars}
+    now = _budget(sum(hold(c) for c in cars), sum(capacity(c) for c in cars),
+                  sum(1 for d in riders if stowable(d)), sum(1 for d in riders if not stowable(d)))
+    now["attached"] = sum(1 for d in ms if d.get("attached_to_device_code") in codes)
+    now["stowed"] = sum(1 for d in ms if d.get("stowed_in_device_code") in codes)
+    h = a = sn = an = 0
     for r in rows:
         prof = type_profile(r["type"], bps, devices)
         n = max(int(r.get("want") or 0), int(r.get("have") or 0))
         r["profile"] = prof
-        if prof["carrier"]:
-            plan_avail += prof["carrier"] * n
+        if prof["carrier"] or prof["hold"]:
+            h += prof["hold"] * n
+            a += prof["carrier"] * n
         elif not prof["flies"]:
-            plan_need += n
-    def short(avail: int, need: int) -> dict:
-        gap = max(0, need - avail)
-        return {"available": avail, "needed": need, "short": gap,
-                "fix": (f"{-(-gap // 9)} surge carrier(s) or {-(-gap // 4)} surge platform(s)" if gap else "")}
-    return {"now": {**short(now_avail, now_need), "attached": riding}, "plan": short(plan_avail, plan_need)}
+            if prof["stowable"]:
+                sn += n
+            else:
+                an += n
+    return {"now": now, "plan": _budget(h, a, sn, an)}
 
 
 def kind(d: dict) -> str:
@@ -141,7 +220,7 @@ def roster(fleet: dict, devices: list[dict]) -> dict:
     stars = sorted({star_of(d.get("location")) for d in ms if d.get("location")} |
                    {star_of(next((c.get("location") for c in ms if c["device_code"] == v), "")) for v in riding.values()} - {""})
     return {"members": ms, "rows": rows, "carriers": carriers, "riding": riding, "stars": stars,
-            "capacity": sum(capacity(c) for c in carriers),
+            "capacity": sum(capacity(c) for c in carriers), "hold": sum(hold(c) for c in carriers),
             "passengers": [d for d in ms if not is_carrier(d) and not flies_itself(d)]}
 
 
@@ -179,32 +258,41 @@ def _wait_arrive(code: str, dest: str, match: str | None = None) -> dict:
 
 
 def assemble_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], list[str]]:
-    """Get every passenger attached to a fleet carrier. Returns (steps, problems)."""
+    """Get every passenger aboard a fleet carrier — stowed in a hold when it can be, else attached. Returns (steps, problems)."""
     r = roster(fleet, devices)
-    carriers = sorted(r["carriers"], key=lambda c: -capacity(c))
+    carriers = sorted(r["carriers"], key=lambda c: (-(hold(c) + capacity(c)), c["device_code"]))
     if not carriers:
-        return [], ["the fleet has no surge carrier (mobile fleet / surge carrier / platform / plate)"]
-    room = {c["device_code"]: capacity(c) - len(c.get("attached_devices") or []) for c in carriers}
+        return [], ["the fleet has no surge carrier (mobile fleet / surge carrier / platform / plate / cargo vessel)"]
+    codes = {c["device_code"] for c in carriers}
+    free = {c["device_code"]: seats(c, devices) for c in carriers}
     loc = {c["device_code"]: c.get("location") for c in carriers}
-    steps, problems, moves, attach = [], [], [], []
-    for d in r["passengers"]:
+    steps, problems, moves, board = [], [], [], []
+    # devices that can't stow first, so they get the attach points before stowable ones overflow onto them
+    for d in sorted(r["passengers"], key=lambda d: (stowable(d), d["device_code"])):
         code = d["device_code"]
-        if d.get("attached_to_device_code") in room:
-            continue  # already on board
+        if aboard(d, codes):
+            continue
         here = star_of(d.get("location"))
-        c = next((c for c in carriers if room[c["device_code"]] > 0 and star_of(loc[c["device_code"]]) == here), None)
+        mode, c = None, None
+        for cand in carriers:
+            if star_of(loc[cand["device_code"]]) != here:
+                continue
+            mode = take_seat(free[cand["device_code"]], d)
+            if mode:
+                c = cand
+                break
         if not c:
             if here and not any(star_of(loc[x]) == here for x in loc):
                 continue  # in a system with no fleet carrier: the gather phase picks it up
-            problems.append(f"{code} ({d.get('device_type')}) is in {here or 'transit'} with no fleet carrier room there")
+            problems.append(f"{code} ({d.get('device_type')}) is in {here or 'transit'} with no "
+                            + ("hold or attach" if stowable(d) else "attach") + " room on a fleet carrier there")
             continue
-        room[c["device_code"]] -= 1
         if d.get("location") != loc[c["device_code"]]:
             if "travel" not in (d.get("available_commands") or ["travel"]):
                 problems.append(f"{code} can't travel to {loc[c['device_code']]} to board")
                 continue
             moves.append((code, loc[c["device_code"]]))
-        attach.append((c["device_code"], code))
+        board.append((c["device_code"], code, mode))
     first = len(steps)
     for code, dest in moves:
         steps.append(step(f"{code} → {dest} (board)", f"/devices/{code}", {"command": "travel", "destination": dest}, critical=True))
@@ -212,11 +300,8 @@ def assemble_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], list[s
         w = _wait_arrive(code, dest)
         w["seq0_from"] = first + i
         steps.append(w)
-    for carrier, code in attach:
-        st = step(f"{carrier}: attach {code}", f"/devices/{carrier}", {"command": "attach", "device": code},
-                  wait=["device.attached"], timeout=SHORT_TIMEOUT, critical=True)
-        st["wait_device"] = carrier
-        steps.append(st)
+    for carrier, code, mode in board:
+        steps.append(board_step(carrier, code, mode))
     return steps, problems
 
 
@@ -243,8 +328,12 @@ def gather_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str]) -
     load = {c["device_code"]: sum(1 for d in r["passengers"] if d.get("attached_to_device_code") == c["device_code"]
                                   or (star_of(d.get("location")) == star_of(c.get("location")) and not d.get("attached_to_device_code")))
             for c in carriers}
-    tourer = max(carriers, key=lambda c: (capacity(c) - load[c["device_code"]], c["device_code"]))
-    room = capacity(tourer) - load[tourer["device_code"]]
+    tourer = max(carriers, key=lambda c: (hold(c) + capacity(c) - load[c["device_code"]], c["device_code"]))
+    free = seats(tourer, devices)
+    # passengers already in the tourer's system will take seats first (assemble boards them)
+    for d in sorted((d for d in r["passengers"] if not d.get("attached_to_device_code") and not d.get("stowed_in_device_code")
+                     and star_of(d.get("location")) == star_of(tourer.get("location"))), key=lambda d: (stowable(d), d["device_code"])):
+        take_seat(free, d)
     base = star_of(tourer.get("location"))
     picks: list[dict] = []
     problems: list[str] = []
@@ -269,12 +358,16 @@ def gather_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str]) -
             recruit.append(d)
             if not flies_itself(d):
                 picks.append(d)   # boards the touring carrier (also when it's in a system the fleet already has a carrier in)
-    if len(picks) > room:
-        for d in picks[room:]:
+    seated, dropped = [], set()
+    for d in sorted(picks, key=lambda d: (stowable(d), d["device_code"])):   # attach-only devices claim attach points first
+        mode = take_seat(free, d)
+        if mode:
+            seated.append({**d, "_board": mode})
+        else:
+            dropped.add(d["device_code"])
             problems.append(f"no room on {tourer['device_code']} for {d['device_code']} in {star_of(d.get('location'))}")
-        dropped = {d["device_code"] for d in picks[room:]}
-        recruit = [d for d in recruit if d["device_code"] not in dropped]
-        picks = picks[:room]
+    recruit = [d for d in recruit if d["device_code"] not in dropped]
+    picks = sorted(seated, key=lambda d: d["device_code"])
     # visit the systems nearest-first from the tourer's system
     by_star: dict[str, list[dict]] = {}
     for d in picks:
@@ -316,10 +409,7 @@ def gather_steps(fleet: dict, plan: dict, stars: dict) -> list[dict]:
             w["seq0_from"] = first + i
             steps.append(w)
         for d in ds:
-            a = step(f"{carrier}: attach {d['device_code']}", f"/devices/{carrier}", {"command": "attach", "device": d["device_code"]},
-                     wait=["device.attached"], timeout=SHORT_TIMEOUT, critical=True)
-            a["wait_device"] = carrier
-            steps.append(a)
+            steps.append(board_step(carrier, d["device_code"], d.get("_board") or "attach"))
     return steps
 
 
@@ -327,7 +417,8 @@ def travel_steps(fleet: dict, devices: list[dict], star: str, stars: dict) -> li
     """Carriers (with whatever is attached) and self-surging members fly to `star`."""
     r = roster(fleet, devices)
     dest = destination(star, stars)
-    movers = [d for d in r["members"] if is_carrier(d) or (flies_itself(d) and not d.get("attached_to_device_code"))]
+    movers = [d for d in r["members"] if (is_carrier(d) or flies_itself(d))
+              and not d.get("attached_to_device_code") and not d.get("stowed_in_device_code")]
     steps = [step(f"{d['device_code']} → {dest}", f"/devices/{d['device_code']}", {"command": "travel", "destination": dest}, critical=True)
              for d in movers if star_of(d.get("location")) != star]
     n = len(steps)
@@ -346,6 +437,11 @@ def unload_steps(fleet: dict, devices: list[dict]) -> list[dict]:
         c = d.get("attached_to_device_code")
         if c in carriers:
             out.append(step(f"{c}: detach {d['device_code']}", f"/devices/{c}", {"command": "detach", "device": d["device_code"]}))
+        elif d.get("stowed_in_device_code") in carriers:
+            st = step(f"deploy {d['device_code']} from {d['stowed_in_device_code']}", f"/devices/{d['device_code']}",
+                      {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT)
+            st["wait_device"] = d["device_code"]
+            out.append(st)
     return out
 
 

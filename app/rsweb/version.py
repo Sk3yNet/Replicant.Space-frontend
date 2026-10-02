@@ -16,11 +16,20 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.4.1"
+VERSION = "1.6.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.6.1", "2026-10-02", "Fleets: whether a device fits in a hold comes from its own features/commands (stow), not a type list; "
+                            "live data confirms drones and controllers stow, transport drones/haulers don't."),
+    ("1.6.0", "2026-10-02", "Fleets: cargo vessels (50 hold + 3 attach) and other vessels with a hold count as carriers. The carrying "
+                            "budget shows hold slots and attach points separately; stowable riders go in a hold first, transport "
+                            "drones/haulers need attach points. Boarding stows or attaches accordingly; unloading deploys or detaches."),
+    ("1.5.0", "2026-10-02", "Back to the belt: mining controllers left 'exhausted' at used-up salvage (or stale-exhausted / paused at a "
+                            "belt that has re-opened) bring their drones back, re-adopt and relaunch. AMI schedules no longer write off "
+                            "a stale 'exhausted'. Salvage recall defaults on. Snapshot reads every belt in mining systems and the "
+                            "last 3 h of events. Clean shutdown within Docker's stop timeout."),
     ("1.4.1", "2026-10-02", "Fix: snapshot failed on devices with no location (stowed: location null). A diagnosis error no longer "
                             "loses the capture; failures name the file and line."),
     ("1.4.0", "2026-10-02", "Version + server-run history: log entries and jobs are stamped with version/run; restarts are logged "

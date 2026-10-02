@@ -12,4 +12,6 @@ VOLUME /data
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"
 # One worker: the event ingester and rate limiter live in-process.
-CMD ["uvicorn", "rsweb.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# --timeout-graceful-shutdown: open SSE streams would otherwise hold shutdown until Docker kills the container (10 s),
+# so the app never records a clean stop.
+CMD ["uvicorn", "rsweb.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*", "--timeout-graceful-shutdown", "4"]

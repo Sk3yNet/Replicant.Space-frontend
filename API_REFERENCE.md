@@ -862,3 +862,15 @@ body lists them in `resource_sites` as `{designation: "KELMONENT-1-SAL-2", name:
 site_index: 1, resources_remaining_pct: {conductive: 100, structural: 100}}` — percentages, not quantities. The client multiplies
 the `salvage.discovered` amounts by the remaining %; salvage the body no longer lists counts as used up. A planet's detail also
 has `moons: [{designation, inventory, location_type, name, scanned, type}]` and `planet {…}`; `location_type: "planet"`.
+
+**AMI mining controllers (live snapshot 2026-10-02):** `_eval_state` `exhausted:[...]:<place>` names where the *drones* are, which can
+be a body (`AEMEROTH-4-2`) after `gather_salvage` with `recall: false`; `gather_evenly` then stays exhausted there even when the
+controller's own belt has open sites. A directive can be `ami_directive_status: "paused"` with device `status: "paused"`.
+Controller detail also has `controlled_devices`, `linked_device`, `location_name`, `queue_size`. Belt `resource_sites` items:
+`{designation, name, site_index, resources_remaining_pct: {res: pct}}` (no quantities). `GET /events` is oldest-first within the
+window; the `category=mining` filter returned nothing — use `after=` to get recent events.
+
+**Who can be stowed (live device list 2026-10-02):** `stow` feature + `stow`/`deploy` commands on mining_drone, survey_drone,
+all ami_*_controller types, maintenance_drone, ftl_beacon, ftl_relay, ftl_slingshot, system_ward, surge_plate, replicant_matrix.
+No stow on transport_drone, transport_hauler, cargo_freighter, autofactory, heaven_vessel. The player confirms drones ride in a
+heaven_vessel hold.

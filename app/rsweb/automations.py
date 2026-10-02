@@ -89,9 +89,14 @@ RULES: list[Rule] = [
          "When every known resource site at a belt is depleted and the system has salvage: an AMI mining controller "
          "in the system is switched to gather_salvage on the biggest salvage (adopting idle drones there) and launched. "
          "With no mining controller in the system, idle mining drones at the worked-out belt fly to the salvage and "
-         "mine it. When a salvage runs out, the next one is picked.",
+         "mine it. When a salvage runs out, the next one is picked. Back to the belt: a mining controller whose directive "
+         "is exhausted at a body (its drones left at used-up salvage), stale-exhausted at a belt that has re-opened, paused, "
+         "or done with salvage, while a belt in its system has open sites, gets its drones flown back, re-adopted, and its "
+         "directive re-set and launched.",
          [Option("use_ami", "bool", "Use the system's AMI mining controller when there is one", True),
-          Option("recall", "bool", "AMI: recall its drones when the salvage is used up", False),
+          Option("recall", "bool", "AMI: recall its drones when the salvage is used up", True),
+          Option("back_to_belt", "bool", "Bring controllers and drones back to a belt once it has open sites again", True),
+          Option("back_cooldown_minutes", "int", "Back to the belt: wait before re-trying the same controller (min)", 30),
           Option("drones_per_salvage", "int", "Drones per salvage when there's no AMI (0 = all on one)", 3),
           Option("cooldown_minutes", "int", "Wait before re-trying the same device (min)", 10)]),
     Rule("auto_survey", "Auto-survey new systems",
@@ -781,8 +786,18 @@ class AutomationEngine:
                 results.append(f"{code}: on salvage — left alone")
                 continue
             if not manual and dv.get("name") == sched["directive"] and state.startswith("exhausted"):
-                results.append(f"{code}: exhausted on {sched['directive']} — re-sending it won't help until sites re-open")
-                continue
+                from .salvage import belt_of, exhausted_place, open_site_count
+                place = exhausted_place(state)
+                pb = belt_of(place)
+                if pb and pb == place and open_site_count(await self.db.kv_get(f"loc:{pb}", None)) > 0:
+                    pass  # stale: the belt it ran dry at has open sites again — re-sending restarts it
+                elif place and not pb:
+                    results.append(f"{code}: exhausted at {place} (its drones are off the belt) — 'Salvage when depleted' "
+                                   "brings them back to a belt with open sites")
+                    continue
+                else:
+                    results.append(f"{code}: exhausted on {sched['directive']} at {place or '?'} — re-sending it won't help until sites re-open")
+                    continue
             adopt = adoptable(devices, ctrl, managed) if sched.get("adopt", True) else []
             job = await self.create_job("ami_schedules", f"{sched.get('name') or sched['directive']} → {code}", code,
                                         schedule_steps(ctrl, sched, adopt), {"schedule": sched.get("id"), "devices": adopt},
@@ -1354,11 +1369,86 @@ class AutomationEngine:
         await self.db.kv_set("reopen_state", state)
         return done
 
+    async def belt_open_sites(self, belts: list[str], max_age_minutes: int = 10) -> dict[str, int]:
+        """Open-site counts for belts, re-reading each belt's detail if our copy is older than max_age_minutes."""
+        from .salvage import open_site_count
+        reads = await self.db.kv_get("belt_reads", {}) or {}
+        now = _now()
+        out: dict[str, int] = {}
+        for b in dict.fromkeys(belts):
+            t = _ts(reads.get(b))
+            detail = await self.db.kv_get(f"loc:{b}", None)
+            if detail is None or not t or now - t > timedelta(minutes=max_age_minutes):
+                try:
+                    detail = await self.api.request("GET", f"/locations/{b}", background=True)
+                    await self.db.kv_set(f"loc:{b}", detail or {})
+                    reads[b] = now.isoformat(timespec="seconds")
+                except ApiError:
+                    pass
+            out[b] = open_site_count(detail)
+        await self.db.kv_set("belt_reads", reads)
+        return out
+
+    async def system_belts(self, stars: set[str]) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = {}
+        for star in stars:
+            row = await self.db.fetchone("SELECT data FROM systems WHERE star=?", (star,))
+            scan = json.loads(row["data"]) if row else {}
+            out[star] = [b["designation"] for b in ((scan.get("asteroid_belt") or {}).get("belts")) or [] if b.get("designation")]
+        return out
+
+    async def rule_back_to_belt(self, cfg: dict) -> list[str]:
+        """Mining controllers stuck 'exhausted' at a body (drones left at used-up salvage), with a stale 'exhausted' at a
+        belt that has re-opened, paused, or done with salvage — while a belt in their system has open sites: bring the
+        drones back to the belt, re-adopt them, re-set the directive and launch."""
+        from . import salvage as sv
+        from .ami_schedule import is_controller, kind_of, managed_by, targets_of
+        devices = await self.devices()
+        ctrls = [d for d in devices if is_controller(d) and kind_of(d.get("device_type")) == "mining" and not _reserved(d)]
+        def candidate(c: dict) -> bool:
+            dv = c.get("ami_directive") if isinstance(c.get("ami_directive"), dict) else {}
+            st = str(dv.get("_eval_state") or "")
+            return (st.startswith("exhausted") or str(c.get("ami_directive_status") or "") == "paused"
+                    or (dv.get("name") == "gather_salvage" and st.startswith(sv.FINISHED_STATES)))
+        cands = [c for c in ctrls if candidate(c)]
+        if not cands:
+            return []
+        stars = {star_of(c.get("location")) for c in cands}
+        sysb = await self.system_belts(stars)
+        for c in cands:  # the controller's own belt counts even if the scan doesn't list it
+            b = sv.belt_of(c.get("location"))
+            if b and b not in sysb.setdefault(star_of(c.get("location")), []):
+                sysb[star_of(c.get("location"))].append(b)
+        open_sites = await self.belt_open_sites([b for bl in sysb.values() for b in bl])
+        state = await self.db.kv_get("salvage_state", {}) or {}
+        back = state.setdefault("back", {})
+        cool = timedelta(minutes=int(cfg.get("back_cooldown_minutes") or 30))
+        now = _now()
+        skip = self.busy_devices(await self.jobs()) | {k for k, v in back.items() if _ts(v) and now - _ts(v) < cool}
+        directive_for = {}
+        for sched in await self.schedules():   # use the directive an AMI schedule gives that controller, if any
+            if sched.get("enabled", True):
+                for c in targets_of(sched, devices):
+                    directive_for.setdefault(c["device_code"], sched["directive"])
+        done = []
+        for p in sv.back_to_belt_plan(cands, devices, await managed_by(self.db), open_sites, sysb, skip, directive_for):
+            job = await self.create_job("salvage_when_depleted",
+                                        f"{p['ctrl']}: back to {p['belt']} ({p['why']})"
+                                        + (f", bringing {len(p['away'])} drone(s)" if p["away"] else ""),
+                                        p["ctrl"], sv.back_to_belt_steps(p), {"devices": p["away"], "belt": p["belt"]})
+            back[p["ctrl"]] = now.isoformat(timespec="seconds")
+            done.append(f"{p['ctrl']} → {p['belt']}" + (" (planned, dry run)" if not job else ""))
+        await self.db.kv_set("salvage_state", {**(await self.db.kv_get("salvage_state", {}) or {}), "back": back})
+        return done
+
     async def rule_salvage(self) -> list[str]:
         """See salvage.py. Returns what it did (for the log / tests)."""
         cfg = await self.rule_cfg("salvage_when_depleted")
         if not cfg:
             return []
+        back_done: list[str] = []
+        if cfg.get("back_to_belt", True):
+            back_done = await self.rule_back_to_belt(cfg)
         from . import salvage as sv
         from .ami_schedule import adoptable, controller_idle, is_controller, kind_of, managed_by
         from .targets import system_resources
@@ -1449,8 +1539,10 @@ class AutomationEngine:
                 cool[code] = now.isoformat(timespec="seconds")
                 counts[target["code"]] += 1
                 done.append(f"{code} → {target['code']}")
+        prev = await self.db.kv_get("salvage_state", {}) or {}
+        state["back"] = prev.get("back", state.get("back", {}))   # written by rule_back_to_belt this pass
         await self.db.kv_set("salvage_state", state)
-        return done
+        return back_done + done
 
     async def rule_restart_idle_miners(self) -> None:
         cfg = await self.rule_cfg("restart_idle_miners")

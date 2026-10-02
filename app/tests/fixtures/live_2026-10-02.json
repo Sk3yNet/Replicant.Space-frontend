@@ -1,0 +1,3965 @@
+{
+ "note": "Trimmed from a live snapshot (v1.4.1, 2026-10-02T20:05Z): devices, mining controllers, belts.",
+ "captured_at": "2026-10-02T20:05:13+00:00",
+ "calls": [
+  {
+   "path": "/devices",
+   "params": {
+    "limit": 50
+   },
+   "at": "2026-10-02T20:05:06+00:00",
+   "status": 200,
+   "body": {
+    "devices": [
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "clear_queue",
+       "deactivate",
+       "dequeue_print",
+       "detect_object",
+       "enqueue_print",
+       "retarget",
+       "start_mining",
+       "stellar_census",
+       "system_scan",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "A53A86C0",
+      "device_type": "heaven_vessel",
+      "features": [
+       "surge",
+       "cruise",
+       "system_scan",
+       "mine",
+       "cradle",
+       "print",
+       "census"
+      ],
+      "hosting_replicant": {
+       "name": "Sk3y-1",
+       "replicant_code": "D9351B81"
+      },
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "print_queue": [],
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stow_capacity": 10,
+      "stow_used": 2,
+      "stowed_devices": [
+       {
+        "device_code": "5515B8A6",
+        "device_type": "replicant_matrix"
+       },
+       {
+        "device_code": "E28DBE58",
+        "device_type": "ftl_slingshot"
+       }
+      ],
+      "stowed_in_device_code": null,
+      "tags": []
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "deploy",
+       "replicate",
+       "stow"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "5515B8A6",
+      "device_type": "replicant_matrix",
+      "features": [
+       "stow",
+       "matrix"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": null,
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "stowed",
+      "stowed_in_device_code": "A53A86C0",
+      "tags": []
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "84EE1EF1",
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "399FF11C",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-4-2",
+      "location_name": null,
+      "operational_capacity": 93.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "512FE0F9",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-1-L4",
+      "location_name": null,
+      "operational_capacity": 90.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "84EE1EF1",
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "607F9110",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-4-2",
+      "location_name": null,
+      "operational_capacity": 95.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "stow"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "E28DBE58",
+      "device_type": "ftl_slingshot",
+      "features": [
+       "slingshot",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": "A8A82D6F",
+      "location": null,
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "stowed",
+      "stowed_in_device_code": "A53A86C0",
+      "tags": []
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "90FDF02C",
+      "device_type": "system_ward",
+      "features": [
+       "cruise",
+       "ward",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-OORT",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "warding",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "453D2055",
+      "device_type": "system_ward",
+      "features": [
+       "cruise",
+       "ward",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-OORT",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "warding",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "AE0FE42C",
+      "device_type": "system_ward",
+      "features": [
+       "cruise",
+       "ward",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-OORT",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "warding",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "30035DA5",
+      "device_type": "system_ward",
+      "features": [
+       "cruise",
+       "ward",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "LORSELAN-OORT",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "warding",
+      "stowed_in_device_code": null,
+      "tags": []
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T14:00:40-04:00",
+      "device_code": "8F3A305B",
+      "device_type": "system_ward",
+      "features": [
+       "cruise",
+       "ward",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "KELMONENT-OORT",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "warding",
+      "stowed_in_device_code": null,
+      "tags": []
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "9CC8B5E8",
+      "created_at": "2026-09-29T16:48:11-04:00",
+      "device_code": "802E5C12",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "tracking",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ],
+      "tracking_site_id": 18175887
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "84EE1EF1",
+      "created_at": "2026-09-29T16:59:28-04:00",
+      "device_code": "EB6DF4A3",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-4-2",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "exhausted:['carbon', 'conductive', 'rares', 'silicates', 'structural', 'volatiles']:AEMEROTH-4-2",
+       "config": {},
+       "name": "gather_evenly"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "gather_resources",
+       "maintain_ratios",
+       "gather_evenly",
+       "deplete_smallest",
+       "gather_salvage"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T17:47:27-04:00",
+      "device_code": "84EE1EF1",
+      "device_type": "ami_mining_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-BELT-1",
+      "location_name": null,
+      "operational_capacity": 90.03999999999962,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "72779B6A",
+      "created_at": "2026-09-29T17:56:03-04:00",
+      "device_code": "A9B9B55B",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-BELT-1",
+      "location_name": null,
+      "operational_capacity": 95.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "tracking",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ],
+      "tracking_site_id": 18158547
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "9CC8B5E8",
+      "created_at": "2026-09-29T18:02:55-04:00",
+      "device_code": "2CD0621D",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "tracking",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ],
+      "tracking_site_id": 18176055
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "84EE1EF1",
+      "created_at": "2026-09-29T18:25:11-04:00",
+      "device_code": "1886BD05",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-4-2",
+      "location_name": null,
+      "operational_capacity": 97.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "idle",
+       "config": {},
+       "name": "patrol"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "repair",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "patrol"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T18:40:24-04:00",
+      "device_code": "175EE46B",
+      "device_type": "maintenance_drone",
+      "features": [
+       "cruise",
+       "repair",
+       "stow",
+       "ami"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 92.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "9CC8B5E8",
+      "created_at": "2026-09-29T19:45:02-04:00",
+      "device_code": "6781B60C",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "tracking",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ],
+      "tracking_site_id": 18175525
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 80,
+      "cargo_used": 0,
+      "controller_device_code": null,
+      "created_at": "2026-09-29T22:24:52-04:00",
+      "device_code": "1DE93245",
+      "device_type": "transport_hauler",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "spare"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "clear_queue",
+       "compact",
+       "deactivate",
+       "decommission",
+       "dequeue_print",
+       "enqueue_print",
+       "recall",
+       "travel",
+       "unfurl"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T23:12:10-04:00",
+      "device_code": "3E95BD59",
+      "device_type": "autofactory",
+      "features": [
+       "cruise",
+       "print",
+       "modular"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "print_queue": [
+       {
+        "device_type": "cargo_freighter",
+        "notify": {
+         "device": null
+        },
+        "tags": [
+         "fleet:prospectors"
+        ]
+       },
+       {
+        "device_type": "cargo_vessel",
+        "notify": {
+         "device": null
+        },
+        "tags": [
+         "fleet:prospectors"
+        ]
+       },
+       {
+        "device_type": "ftl_beacon",
+        "notify": {
+         "device": null
+        },
+        "tags": [
+         "fleet:prospectors"
+        ]
+       },
+       {
+        "device_type": "ftl_beacon",
+        "notify": {
+         "device": null
+        },
+        "tags": [
+         "fleet:prospectors"
+        ]
+       },
+       {
+        "device_type": "ftl_beacon",
+        "notify": {
+         "device": null
+        },
+        "tags": [
+         "fleet:prospectors"
+        ]
+       },
+       {
+        "device_type": "maintenance_drone",
+        "notify": {
+         "device": null
+        },
+        "tags": [
+         "fleet:prospectors"
+        ]
+       }
+      ],
+      "queue_size": 10,
+      "replicant_code": "D9351B81",
+      "status": "waiting_for_resources",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ],
+      "waiting_for": {
+       "conductive": {
+        "have": 267,
+        "need": 275
+       },
+       "volatiles": {
+        "have": 27,
+        "need": 100
+       }
+      }
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 20,
+      "cargo_used": 0,
+      "controller_device_code": "DF451241",
+      "created_at": "2026-09-29T23:20:32-04:00",
+      "device_code": "374C62A7",
+      "device_type": "transport_drone",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 20,
+      "cargo_used": 0,
+      "controller_device_code": null,
+      "created_at": "2026-09-29T23:27:12-04:00",
+      "device_code": "2DB4062A",
+      "device_type": "transport_drone",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 20,
+      "cargo_used": 0,
+      "controller_device_code": "DF451241",
+      "created_at": "2026-09-29T23:33:52-04:00",
+      "device_code": "11799063",
+      "device_type": "transport_drone",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "stow"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T23:35:32-04:00",
+      "device_code": "810BF842",
+      "device_type": "ftl_beacon",
+      "features": [
+       "stow",
+       "audit",
+       "comms"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-KUIPER",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "monitoring",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "stow"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T23:37:12-04:00",
+      "device_code": "1B6B8DD0",
+      "device_type": "ftl_beacon",
+      "features": [
+       "stow",
+       "audit",
+       "comms"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "LORSELAN-KUIPER",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "monitoring",
+      "stowed_in_device_code": null,
+      "tags": []
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "stow"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T23:38:53-04:00",
+      "device_code": "C5B98CFC",
+      "device_type": "ftl_beacon",
+      "features": [
+       "stow",
+       "audit",
+       "comms"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-OORT",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "monitoring",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "completed:delivered",
+       "config": {
+        "requirement": {
+         "carbon": 100,
+         "structural": 350
+        },
+        "route": {
+         "collect": "FALQUORYX-BELT-1",
+         "deliver": "FALQUORYX-5"
+        }
+       },
+       "name": "delivery"
+      },
+      "ami_directive_status": "completed",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "delivery",
+       "ferry",
+       "shuttle",
+       "consolidate"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-29T23:43:33-04:00",
+      "device_code": "DF451241",
+      "device_type": "ami_transport_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 500,
+      "cargo_used": 0,
+      "controller_device_code": "0E158313",
+      "created_at": "2026-09-30T07:27:50-04:00",
+      "device_code": "57C506F0",
+      "device_type": "cargo_freighter",
+      "features": [
+       "surge",
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-6-33",
+      "location_name": null,
+      "operational_capacity": 96.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "collecting",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "9CC8B5E8",
+      "created_at": "2026-09-30T07:32:50-04:00",
+      "device_code": "2BC7C095",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "tracking",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ],
+      "tracking_site_id": 18175874
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "72779B6A",
+      "created_at": "2026-09-30T07:37:51-04:00",
+      "device_code": "2571B989",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "tracking",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ],
+      "tracking_site_id": 18158783
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "exhausted:['carbon', 'conductive', 'rares', 'silicates', 'structural', 'volatiles']:FALQUORYX-BELT-1",
+       "config": {},
+       "name": "gather_evenly"
+      },
+      "ami_directive_status": "paused",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "gather_resources",
+       "maintain_ratios",
+       "gather_evenly",
+       "deplete_smallest",
+       "gather_salvage"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T09:18:44-04:00",
+      "device_code": "F32E05A7",
+      "device_type": "ami_mining_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 93.42399999999975,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "paused",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T10:49:00-04:00",
+      "device_code": "61FD6E3C",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-1-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "90DEC78F",
+      "created_at": "2026-09-30T11:20:22-04:00",
+      "device_code": "926637CA",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "message",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T11:42:11-04:00",
+      "device_code": "4A8A3109",
+      "device_type": "ftl_relay",
+      "features": [
+       "cruise",
+       "relay",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "relaying",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "message",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T11:55:31-04:00",
+      "device_code": "D10C403F",
+      "device_type": "ftl_relay",
+      "features": [
+       "cruise",
+       "relay",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-5-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "relaying",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     }
+    ],
+    "next_cursor": 894310
+   }
+  },
+  {
+   "path": "/devices",
+   "params": {
+    "limit": 50,
+    "cursor": 894310
+   },
+   "at": "2026-10-02T20:05:07+00:00",
+   "status": 200,
+   "body": {
+    "devices": [
+     {
+      "ami_directive": {
+       "_eval_state": "searching:2:0",
+       "config": {},
+       "name": "belt_search"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "survey_system",
+       "belt_search"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T12:38:23-04:00",
+      "device_code": "72779B6A",
+      "device_type": "ami_survey_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "idle:no_resources:AEMEROTH-6-33",
+       "config": {
+        "collect": "AEMEROTH-6-33",
+        "deliver": "FALQUORYX-BELT-1"
+       },
+       "name": "ferry"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "delivery",
+       "ferry",
+       "shuttle",
+       "consolidate"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T13:32:19-04:00",
+      "device_code": "0E158313",
+      "device_type": "ami_transport_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "ferry",
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 20,
+      "cargo_used": 0,
+      "controller_device_code": "0E158313",
+      "created_at": "2026-09-30T13:46:49-04:00",
+      "device_code": "946018BC",
+      "device_type": "transport_drone",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-6-33",
+      "location_name": null,
+      "operational_capacity": 91.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "collecting",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "searching:4:0",
+       "config": {},
+       "name": "belt_search"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "survey_system",
+       "belt_search"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T14:00:36-04:00",
+      "device_code": "9CC8B5E8",
+      "device_type": "ami_survey_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [
+       {
+        "quantity": 20,
+        "resource_type": "structural"
+       }
+      ],
+      "cargo_capacity": 20,
+      "cargo_used": 20,
+      "controller_device_code": null,
+      "created_at": "2026-09-30T14:06:47-04:00",
+      "device_code": "6B208B47",
+      "device_type": "transport_drone",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2-L4",
+      "location_name": null,
+      "operational_capacity": 97.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "idle",
+       "config": {},
+       "name": "patrol"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "repair",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "patrol"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T14:42:52-04:00",
+      "device_code": "7CB0E2C0",
+      "device_type": "maintenance_drone",
+      "features": [
+       "cruise",
+       "repair",
+       "stow",
+       "ami"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-6-33",
+      "location_name": null,
+      "operational_capacity": 99.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attach_capacity": 1,
+      "attached_devices": [],
+      "attached_to_device_code": null,
+      "available_commands": [
+       "attach",
+       "change_owner",
+       "configure",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "detach",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T22:04:10-04:00",
+      "device_code": "28C47D66",
+      "device_type": "surge_plate",
+      "features": [
+       "surge",
+       "cruise",
+       "attach",
+       "stow",
+       "taxi"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-1-L4",
+      "location_name": null,
+      "operational_capacity": 96.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx",
+       "taxi"
+      ],
+      "taxi_mode": "taxi"
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "message",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T22:14:50-04:00",
+      "device_code": "E2E048F1",
+      "device_type": "ftl_relay",
+      "features": [
+       "cruise",
+       "relay",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-1-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "relaying",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "attach_capacity": 1,
+      "attached_devices": [],
+      "attached_to_device_code": null,
+      "available_commands": [
+       "attach",
+       "change_owner",
+       "configure",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "detach",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T22:27:56-04:00",
+      "device_code": "67EE8B3A",
+      "device_type": "surge_plate",
+      "features": [
+       "surge",
+       "cruise",
+       "attach",
+       "stow",
+       "taxi"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-1-L4",
+      "location_name": null,
+      "operational_capacity": 99.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx",
+       "taxi"
+      ],
+      "taxi_mode": "taxi"
+     },
+     {
+      "attach_capacity": 1,
+      "attached_devices": [],
+      "attached_to_device_code": null,
+      "available_commands": [
+       "attach",
+       "change_owner",
+       "configure",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "detach",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-09-30T23:34:22-04:00",
+      "device_code": "94EC8F75",
+      "device_type": "surge_plate",
+      "features": [
+       "surge",
+       "cruise",
+       "attach",
+       "stow",
+       "taxi"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-1-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx",
+       "taxi"
+      ],
+      "taxi_mode": "taxi"
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "message",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T07:41:26-04:00",
+      "device_code": "3B5B634C",
+      "device_type": "ftl_relay",
+      "features": [
+       "cruise",
+       "relay",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "KELMONENT-1-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "relaying",
+      "stowed_in_device_code": null,
+      "tags": []
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "message",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T07:54:46-04:00",
+      "device_code": "1FD43111",
+      "device_type": "ftl_relay",
+      "features": [
+       "cruise",
+       "relay",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "LORSELAN-1-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "relaying",
+      "stowed_in_device_code": null,
+      "tags": []
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "stow"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T07:56:27-04:00",
+      "device_code": "0326C785",
+      "device_type": "ftl_beacon",
+      "features": [
+       "stow",
+       "audit",
+       "comms"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "KELMONENT-KUIPER",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "monitoring",
+      "stowed_in_device_code": null,
+      "tags": []
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "stow"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T07:58:07-04:00",
+      "device_code": "11543198",
+      "device_type": "ftl_beacon",
+      "features": [
+       "stow",
+       "audit",
+       "comms"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "monitoring",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "90DEC78F",
+      "created_at": "2026-10-01T08:08:54-04:00",
+      "device_code": "48EB5540",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2",
+      "location_name": null,
+      "operational_capacity": 95.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "90DEC78F",
+      "created_at": "2026-10-01T08:18:54-04:00",
+      "device_code": "5E43DD0E",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2",
+      "location_name": null,
+      "operational_capacity": 97.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "90DEC78F",
+      "created_at": "2026-10-01T08:28:54-04:00",
+      "device_code": "6CCA2019",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "F32E05A7",
+      "created_at": "2026-10-01T08:38:54-04:00",
+      "device_code": "ECCC023B",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "retarget",
+       "start_mining",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "F32E05A7",
+      "created_at": "2026-10-01T08:48:54-04:00",
+      "device_code": "01BA3403",
+      "device_type": "mining_drone",
+      "features": [
+       "cruise",
+       "mine",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 91.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T09:36:33-04:00",
+      "device_code": "D0D3FD0E",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "LORSELAN-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "tracking",
+      "stowed_in_device_code": null,
+      "tags": [],
+      "tracking_site_id": 18158227
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T10:22:34-04:00",
+      "device_code": "F9D1CF25",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "KELMONENT-3",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": []
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T11:44:06-04:00",
+      "device_code": "599B65A6",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-5-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 20,
+      "cargo_used": 0,
+      "controller_device_code": null,
+      "created_at": "2026-10-01T11:50:46-04:00",
+      "device_code": "79232652",
+      "device_type": "transport_drone",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-5-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 80,
+      "cargo_used": 0,
+      "controller_device_code": null,
+      "created_at": "2026-10-01T12:10:03-04:00",
+      "device_code": "A8B55B80",
+      "device_type": "transport_hauler",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "spare"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 20,
+      "cargo_used": 0,
+      "controller_device_code": null,
+      "created_at": "2026-10-01T13:44:43-04:00",
+      "device_code": "EDE70565",
+      "device_type": "transport_drone",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-5-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "spare"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 80,
+      "cargo_used": 0,
+      "controller_device_code": null,
+      "created_at": "2026-10-01T14:10:43-04:00",
+      "device_code": "41F55EE3",
+      "device_type": "transport_hauler",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-1-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "spare"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 80,
+      "cargo_used": 0,
+      "controller_device_code": null,
+      "created_at": "2026-10-01T14:24:43-04:00",
+      "device_code": "4B8D5DB0",
+      "device_type": "transport_hauler",
+      "features": [
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "exhausted:['carbon', 'conductive', 'rares', 'silicates', 'structural', 'volatiles']:ITHVALAI-2",
+       "config": {},
+       "name": "gather_evenly"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "gather_resources",
+       "maintain_ratios",
+       "gather_evenly",
+       "deplete_smallest",
+       "gather_salvage"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T15:26:35-04:00",
+      "device_code": "90DEC78F",
+      "device_type": "ami_mining_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "assigned:1:0",
+       "config": {
+        "moons": "all",
+        "planets": "all",
+        "recall": true
+       },
+       "name": "survey_system"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "survey_system",
+       "belt_search"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T15:51:43-04:00",
+      "device_code": "6C4E3D1F",
+      "device_type": "ami_survey_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "idle:no_resources:ITHVALAI-2",
+       "config": {
+        "collect": "ITHVALAI-2",
+        "deliver": "FALQUORYX-BELT-1"
+       },
+       "name": "ferry"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "delivery",
+       "ferry",
+       "shuttle",
+       "consolidate"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T16:21:43-04:00",
+      "device_code": "9A046413",
+      "device_type": "ami_transport_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "ferry",
+       "home:ithvalai"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "idle",
+       "config": {},
+       "name": "patrol"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "repair",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "patrol"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T16:36:43-04:00",
+      "device_code": "165D978C",
+      "device_type": "maintenance_drone",
+      "features": [
+       "cruise",
+       "repair",
+       "stow",
+       "ami"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "attach_capacity": 1,
+      "attached_devices": [],
+      "attached_to_device_code": null,
+      "available_commands": [
+       "attach",
+       "change_owner",
+       "configure",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "detach",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T16:56:43-04:00",
+      "device_code": "0214156E",
+      "device_type": "surge_plate",
+      "features": [
+       "surge",
+       "cruise",
+       "attach",
+       "stow",
+       "taxi"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-1-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx",
+       "taxi"
+      ],
+      "taxi_mode": "taxi"
+     },
+     {
+      "attach_capacity": 1,
+      "attached_devices": [],
+      "attached_to_device_code": null,
+      "available_commands": [
+       "attach",
+       "change_owner",
+       "configure",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "detach",
+       "recall",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T17:16:43-04:00",
+      "device_code": "2B30CEB4",
+      "device_type": "surge_plate",
+      "features": [
+       "surge",
+       "cruise",
+       "attach",
+       "stow",
+       "taxi"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 95.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "spare"
+      ],
+      "taxi_mode": "manual"
+     },
+     {
+      "ami_directive": null,
+      "ami_directive_status": null,
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "delivery",
+       "ferry",
+       "shuttle",
+       "consolidate"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T17:46:43-04:00",
+      "device_code": "A06CC025",
+      "device_type": "ami_transport_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "6C4E3D1F",
+      "created_at": "2026-10-01T17:51:43-04:00",
+      "device_code": "DA53F456",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "tracking",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ],
+      "tracking_site_id": 18177611
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "6C4E3D1F",
+      "created_at": "2026-10-01T17:56:43-04:00",
+      "device_code": "0BE9B6FD",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "tracking",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ],
+      "tracking_site_id": 18177802
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "6C4E3D1F",
+      "created_at": "2026-10-01T18:01:43-04:00",
+      "device_code": "9E7250AF",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-1-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "ami_directive": null,
+      "ami_directive_status": null,
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "delivery",
+       "ferry",
+       "shuttle",
+       "consolidate"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T18:33:53-04:00",
+      "device_code": "41B61485",
+      "device_type": "ami_transport_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:falquoryx"
+      ]
+     },
+     {
+      "ami_directive": {
+       "_eval_state": "active:[('silicates', 32)]",
+       "config": {
+        "requirement": {
+         "silicates": 32
+        },
+        "route": {
+         "collect": "AEMEROTH-2-2",
+         "deliver": "AEMEROTH-2"
+        }
+       },
+       "name": "delivery"
+      },
+      "ami_directive_status": "active",
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "delivery",
+       "ferry",
+       "shuttle",
+       "consolidate"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T19:09:23-04:00",
+      "device_code": "93773686",
+      "device_type": "ami_transport_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-5-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "coordinating",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": "6C4E3D1F",
+      "created_at": "2026-10-01T19:14:23-04:00",
+      "device_code": "DE711C53",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "recall",
+       "scan",
+       "search",
+       "stow",
+       "travel"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T20:54:18-04:00",
+      "device_code": "02164469",
+      "device_type": "survey_drone",
+      "features": [
+       "cruise",
+       "survey",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "AEMEROTH-5-L4",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:aemeroth"
+      ]
+     },
+     {
+      "attached_to_device_code": null,
+      "available_commands": [
+       "change_owner",
+       "collect_resources",
+       "deactivate",
+       "decommission",
+       "deposit_resources",
+       "recall",
+       "travel"
+      ],
+      "cargo": [],
+      "cargo_capacity": 500,
+      "cargo_used": 0,
+      "controller_device_code": "9A046413",
+      "created_at": "2026-10-01T22:48:40-04:00",
+      "device_code": "9FF89427",
+      "device_type": "cargo_freighter",
+      "features": [
+       "surge",
+       "cruise",
+       "transport"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "ITHVALAI-2",
+      "location_name": null,
+      "operational_capacity": 97.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "collecting",
+      "stowed_in_device_code": null,
+      "tags": [
+       "home:ithvalai"
+      ]
+     },
+     {
+      "ami_directive": null,
+      "ami_directive_status": null,
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "gather_resources",
+       "maintain_ratios",
+       "gather_evenly",
+       "deplete_smallest",
+       "gather_salvage"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-01T23:48:43-04:00",
+      "device_code": "D0011B15",
+      "device_type": "ami_mining_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "fleet:prospectors"
+      ]
+     },
+     {
+      "ami_directive": null,
+      "ami_directive_status": null,
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "survey_system",
+       "belt_search"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-02T00:13:43-04:00",
+      "device_code": "639A138D",
+      "device_type": "ami_survey_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "fleet:prospectors"
+      ]
+     },
+     {
+      "ami_directive": null,
+      "ami_directive_status": null,
+      "attached_to_device_code": null,
+      "available_commands": [
+       "activate",
+       "adopt",
+       "assemble",
+       "change_owner",
+       "clear_directive",
+       "deactivate",
+       "decommission",
+       "deploy",
+       "launch",
+       "recall",
+       "release",
+       "set_directive",
+       "stow",
+       "travel",
+       "withdraw"
+      ],
+      "available_directives": [
+       "delivery",
+       "ferry",
+       "shuttle",
+       "consolidate"
+      ],
+      "controller_device_code": null,
+      "created_at": "2026-10-02T00:43:43-04:00",
+      "device_code": "C5820434",
+      "device_type": "ami_transport_controller",
+      "features": [
+       "ami",
+       "cruise",
+       "stow"
+      ],
+      "in_control_range": true,
+      "linked_device": null,
+      "location": "FALQUORYX-BELT-1",
+      "location_name": null,
+      "operational_capacity": 100.0,
+      "queue_size": 0,
+      "replicant_code": "D9351B81",
+      "status": "idle",
+      "stowed_in_device_code": null,
+      "tags": [
+       "fleet:prospectors"
+      ]
+     }
+    ],
+    "next_cursor": null
+   }
+  },
+  {
+   "path": "/devices/84EE1EF1",
+   "params": {},
+   "at": "2026-10-02T20:05:08+00:00",
+   "status": 200,
+   "body": {
+    "ami_directive": {
+     "_eval_state": "exhausted:['carbon', 'conductive', 'rares', 'silicates', 'structural', 'volatiles']:AEMEROTH-4-2",
+     "config": {},
+     "name": "gather_evenly"
+    },
+    "ami_directive_status": "active",
+    "attached_to_device_code": null,
+    "available_commands": [
+     "activate",
+     "adopt",
+     "assemble",
+     "change_owner",
+     "clear_directive",
+     "deactivate",
+     "decommission",
+     "deploy",
+     "launch",
+     "recall",
+     "release",
+     "set_directive",
+     "stow",
+     "travel",
+     "withdraw"
+    ],
+    "available_directives": [
+     "gather_resources",
+     "maintain_ratios",
+     "gather_evenly",
+     "deplete_smallest",
+     "gather_salvage"
+    ],
+    "controlled_devices": [
+     {
+      "device_code": "EB6DF4A3",
+      "device_type": "mining_drone",
+      "location": "AEMEROTH-4-2",
+      "status": "idle"
+     },
+     {
+      "device_code": "1886BD05",
+      "device_type": "mining_drone",
+      "location": "AEMEROTH-4-2",
+      "status": "idle"
+     },
+     {
+      "device_code": "399FF11C",
+      "device_type": "mining_drone",
+      "location": "AEMEROTH-4-2",
+      "status": "idle"
+     },
+     {
+      "device_code": "607F9110",
+      "device_type": "mining_drone",
+      "location": "AEMEROTH-4-2",
+      "status": "idle"
+     }
+    ],
+    "controller_device_code": null,
+    "created_at": "2026-09-29T17:47:27-04:00",
+    "device_code": "84EE1EF1",
+    "device_type": "ami_mining_controller",
+    "features": [
+     "ami",
+     "cruise",
+     "stow"
+    ],
+    "in_control_range": true,
+    "linked_device": null,
+    "location": "AEMEROTH-BELT-1",
+    "location_name": null,
+    "operational_capacity": 90.03999999999962,
+    "queue_size": 0,
+    "replicant_code": "D9351B81",
+    "status": "coordinating",
+    "stowed_in_device_code": null,
+    "tags": [
+     "home:aemeroth"
+    ]
+   }
+  },
+  {
+   "path": "/devices/F32E05A7",
+   "params": {},
+   "at": "2026-10-02T20:05:09+00:00",
+   "status": 200,
+   "body": {
+    "ami_directive": {
+     "_eval_state": "exhausted:['carbon', 'conductive', 'rares', 'silicates', 'structural', 'volatiles']:FALQUORYX-BELT-1",
+     "config": {},
+     "name": "gather_evenly"
+    },
+    "ami_directive_status": "paused",
+    "attached_to_device_code": null,
+    "available_commands": [
+     "activate",
+     "adopt",
+     "assemble",
+     "change_owner",
+     "clear_directive",
+     "deactivate",
+     "decommission",
+     "deploy",
+     "launch",
+     "recall",
+     "release",
+     "set_directive",
+     "stow",
+     "travel",
+     "withdraw"
+    ],
+    "available_directives": [
+     "gather_resources",
+     "maintain_ratios",
+     "gather_evenly",
+     "deplete_smallest",
+     "gather_salvage"
+    ],
+    "controlled_devices": [
+     {
+      "device_code": "01BA3403",
+      "device_type": "mining_drone",
+      "location": "FALQUORYX-BELT-1",
+      "status": "idle"
+     },
+     {
+      "device_code": "ECCC023B",
+      "device_type": "mining_drone",
+      "location": "FALQUORYX-BELT-1",
+      "status": "idle"
+     }
+    ],
+    "controller_device_code": null,
+    "created_at": "2026-09-30T09:18:44-04:00",
+    "device_code": "F32E05A7",
+    "device_type": "ami_mining_controller",
+    "features": [
+     "ami",
+     "cruise",
+     "stow"
+    ],
+    "in_control_range": true,
+    "linked_device": null,
+    "location": "FALQUORYX-BELT-1",
+    "location_name": null,
+    "operational_capacity": 93.42399999999975,
+    "queue_size": 0,
+    "replicant_code": "D9351B81",
+    "status": "paused",
+    "stowed_in_device_code": null,
+    "tags": [
+     "home:falquoryx"
+    ]
+   }
+  },
+  {
+   "path": "/devices/90DEC78F",
+   "params": {},
+   "at": "2026-10-02T20:05:09+00:00",
+   "status": 200,
+   "body": {
+    "ami_directive": {
+     "_eval_state": "exhausted:['carbon', 'conductive', 'rares', 'silicates', 'structural', 'volatiles']:ITHVALAI-2",
+     "config": {},
+     "name": "gather_evenly"
+    },
+    "ami_directive_status": "active",
+    "attached_to_device_code": null,
+    "available_commands": [
+     "activate",
+     "adopt",
+     "assemble",
+     "change_owner",
+     "clear_directive",
+     "deactivate",
+     "decommission",
+     "deploy",
+     "launch",
+     "recall",
+     "release",
+     "set_directive",
+     "stow",
+     "travel",
+     "withdraw"
+    ],
+    "available_directives": [
+     "gather_resources",
+     "maintain_ratios",
+     "gather_evenly",
+     "deplete_smallest",
+     "gather_salvage"
+    ],
+    "controlled_devices": [
+     {
+      "device_code": "926637CA",
+      "device_type": "mining_drone",
+      "location": "ITHVALAI-2-L4",
+      "status": "idle"
+     },
+     {
+      "device_code": "6CCA2019",
+      "device_type": "mining_drone",
+      "location": "ITHVALAI-2",
+      "status": "idle"
+     },
+     {
+      "device_code": "48EB5540",
+      "device_type": "mining_drone",
+      "location": "ITHVALAI-2",
+      "status": "idle"
+     },
+     {
+      "device_code": "5E43DD0E",
+      "device_type": "mining_drone",
+      "location": "ITHVALAI-2",
+      "status": "idle"
+     }
+    ],
+    "controller_device_code": null,
+    "created_at": "2026-10-01T15:26:35-04:00",
+    "device_code": "90DEC78F",
+    "device_type": "ami_mining_controller",
+    "features": [
+     "ami",
+     "cruise",
+     "stow"
+    ],
+    "in_control_range": true,
+    "linked_device": null,
+    "location": "ITHVALAI-2-L4",
+    "location_name": null,
+    "operational_capacity": 100.0,
+    "queue_size": 0,
+    "replicant_code": "D9351B81",
+    "status": "coordinating",
+    "stowed_in_device_code": null,
+    "tags": [
+     "home:ithvalai"
+    ]
+   }
+  },
+  {
+   "path": "/devices/D0011B15",
+   "params": {},
+   "at": "2026-10-02T20:05:09+00:00",
+   "status": 200,
+   "body": {
+    "ami_directive": null,
+    "ami_directive_status": null,
+    "attached_to_device_code": null,
+    "available_commands": [
+     "activate",
+     "adopt",
+     "assemble",
+     "change_owner",
+     "clear_directive",
+     "deactivate",
+     "decommission",
+     "deploy",
+     "launch",
+     "recall",
+     "release",
+     "set_directive",
+     "stow",
+     "travel",
+     "withdraw"
+    ],
+    "available_directives": [
+     "gather_resources",
+     "maintain_ratios",
+     "gather_evenly",
+     "deplete_smallest",
+     "gather_salvage"
+    ],
+    "controlled_devices": [],
+    "controller_device_code": null,
+    "created_at": "2026-10-01T23:48:43-04:00",
+    "device_code": "D0011B15",
+    "device_type": "ami_mining_controller",
+    "features": [
+     "ami",
+     "cruise",
+     "stow"
+    ],
+    "in_control_range": true,
+    "linked_device": null,
+    "location": "FALQUORYX-BELT-1",
+    "location_name": null,
+    "operational_capacity": 100.0,
+    "queue_size": 0,
+    "replicant_code": "D9351B81",
+    "status": "idle",
+    "stowed_in_device_code": null,
+    "tags": [
+     "fleet:prospectors"
+    ]
+   }
+  },
+  {
+   "path": "/locations/AEMEROTH-BELT-1",
+   "params": {},
+   "at": "2026-10-02T20:05:10+00:00",
+   "status": 200,
+   "body": {
+    "belt": {
+     "density": "dense",
+     "designation": "AEMEROTH-BELT-1",
+     "inner_radius_au": 0.58,
+     "outer_radius_au": 0.86,
+     "resources": {
+      "carbon": "low",
+      "conductive": "scarce",
+      "rares": "low",
+      "silicates": "high",
+      "structural": "moderate",
+      "volatiles": "scarce"
+     }
+    },
+    "devices": [
+     {
+      "device_code": "84EE1EF1",
+      "device_type": "ami_mining_controller",
+      "status": "coordinating"
+     },
+     {
+      "device_code": "72779B6A",
+      "device_type": "ami_survey_controller",
+      "status": "coordinating"
+     },
+     {
+      "device_code": "0E158313",
+      "device_type": "ami_transport_controller",
+      "status": "coordinating"
+     },
+     {
+      "device_code": "A9B9B55B",
+      "device_type": "survey_drone",
+      "status": "tracking"
+     },
+     {
+      "device_code": "2571B989",
+      "device_type": "survey_drone",
+      "status": "tracking"
+     }
+    ],
+    "inventory": [],
+    "location": "AEMEROTH-BELT-1",
+    "location_type": "belt",
+    "resource_sites": [
+     {
+      "designation": "AEMEROTH-BELT-1-SITE-4",
+      "name": "AEMEROTH-BELT-1 Site 4",
+      "resources_remaining_pct": {
+       "carbon": 100,
+       "conductive": 100,
+       "rares": 100,
+       "silicates": 100,
+       "structural": 100,
+       "volatiles": 100
+      },
+      "site_index": 4
+     },
+     {
+      "designation": "AEMEROTH-BELT-1-SITE-5",
+      "name": "AEMEROTH-BELT-1 Site 5",
+      "resources_remaining_pct": {
+       "carbon": 100,
+       "conductive": 100,
+       "rares": 100,
+       "silicates": 100,
+       "structural": 100,
+       "volatiles": 100
+      },
+      "site_index": 5
+     }
+    ]
+   }
+  },
+  {
+   "path": "/locations/FALQUORYX-BELT-1",
+   "params": {},
+   "at": "2026-10-02T20:05:10+00:00",
+   "status": 200,
+   "body": {
+    "belt": {
+     "density": "dense",
+     "designation": "FALQUORYX-BELT-1",
+     "inner_radius_au": 0.94,
+     "outer_radius_au": 1.42,
+     "resources": {
+      "carbon": "moderate",
+      "conductive": "moderate",
+      "rares": "low",
+      "silicates": "high",
+      "structural": "high",
+      "volatiles": "moderate"
+     }
+    },
+    "devices": [
+     {
+      "device_code": "D0011B15",
+      "device_type": "ami_mining_controller",
+      "status": "idle"
+     },
+     {
+      "device_code": "F32E05A7",
+      "device_type": "ami_mining_controller",
+      "status": "paused"
+     },
+     {
+      "device_code": "9CC8B5E8",
+      "device_type": "ami_survey_controller",
+      "status": "coordinating"
+     },
+     {
+      "device_code": "639A138D",
+      "device_type": "ami_survey_controller",
+      "status": "idle"
+     },
+     {
+      "device_code": "C5820434",
+      "device_type": "ami_transport_controller",
+      "status": "idle"
+     },
+     {
+      "device_code": "41B61485",
+      "device_type": "ami_transport_controller",
+      "status": "idle"
+     },
+     {
+      "device_code": "DF451241",
+      "device_type": "ami_transport_controller",
+      "status": "coordinating"
+     },
+     {
+      "device_code": "3E95BD59",
+      "device_type": "autofactory",
+      "status": "waiting_for_resources"
+     },
+     {
+      "device_code": "11543198",
+      "device_type": "ftl_beacon",
+      "status": "monitoring"
+     },
+     {
+      "device_code": "4A8A3109",
+      "device_type": "ftl_relay",
+      "status": "relaying"
+     },
+     {
+      "device_code": "175EE46B",
+      "device_type": "maintenance_drone",
+      "status": "coordinating"
+     },
+     {
+      "device_code": "01BA3403",
+      "device_type": "mining_drone",
+      "status": "idle"
+     },
+     {
+      "device_code": "ECCC023B",
+      "device_type": "mining_drone",
+      "status": "idle"
+     },
+     {
+      "device_code": "2B30CEB4",
+      "device_type": "surge_plate",
+      "status": "idle"
+     },
+     {
+      "device_code": "6781B60C",
+      "device_type": "survey_drone",
+      "status": "tracking"
+     },
+     {
+      "device_code": "2BC7C095",
+      "device_type": "survey_drone",
+      "status": "tracking"
+     },
+     {
+      "device_code": "802E5C12",
+      "device_type": "survey_drone",
+      "status": "tracking"
+     },
+     {
+      "device_code": "2CD0621D",
+      "device_type": "survey_drone",
+      "status": "tracking"
+     },
+     {
+      "device_code": "11799063",
+      "device_type": "transport_drone",
+      "status": "idle"
+     },
+     {
+      "device_code": "374C62A7",
+      "device_type": "transport_drone",
+      "status": "idle"
+     },
+     {
+      "device_code": "A8B55B80",
+      "device_type": "transport_hauler",
+      "status": "idle"
+     }
+    ],
+    "inventory": [
+     {
+      "quantity": 1468,
+      "resource_type": "carbon"
+     },
+     {
+      "quantity": 267,
+      "resource_type": "conductive"
+     },
+     {
+      "quantity": 59,
+      "resource_type": "rares"
+     },
+     {
+      "quantity": 3155,
+      "resource_type": "silicates"
+     },
+     {
+      "quantity": 4647,
+      "resource_type": "structural"
+     },
+     {
+      "quantity": 27,
+      "resource_type": "volatiles"
+     }
+    ],
+    "location": "FALQUORYX-BELT-1",
+    "location_type": "belt",
+    "resource_sites": [
+     {
+      "designation": "FALQUORYX-BELT-1-SITE-76",
+      "name": "FALQUORYX-BELT-1 Site 76",
+      "resources_remaining_pct": {
+       "carbon": 100,
+       "conductive": 100,
+       "rares": 100,
+       "silicates": 100,
+       "structural": 100,
+       "volatiles": 100
+      },
+      "site_index": 76
+     },
+     {
+      "designation": "FALQUORYX-BELT-1-SITE-77",
+      "name": "FALQUORYX-BELT-1 Site 77",
+      "resources_remaining_pct": {
+       "carbon": 100,
+       "conductive": 100,
+       "rares": 100,
+       "silicates": 100,
+       "structural": 100,
+       "volatiles": 100
+      },
+      "site_index": 77
+     },
+     {
+      "designation": "FALQUORYX-BELT-1-SITE-78",
+      "name": "FALQUORYX-BELT-1 Site 78",
+      "resources_remaining_pct": {
+       "carbon": 100,
+       "conductive": 100,
+       "rares": 100,
+       "silicates": 100,
+       "structural": 100,
+       "volatiles": 100
+      },
+      "site_index": 78
+     },
+     {
+      "designation": "FALQUORYX-BELT-1-SITE-79",
+      "name": "FALQUORYX-BELT-1 Site 79",
+      "resources_remaining_pct": {
+       "carbon": 100,
+       "conductive": 100,
+       "rares": 100,
+       "silicates": 100,
+       "structural": 100,
+       "volatiles": 100
+      },
+      "site_index": 79
+     }
+    ]
+   }
+  }
+ ],
+ "app": {
+  "schedules": [
+   {
+    "id": "s1790872442871",
+    "name": "All gather",
+    "target": "kind:mining",
+    "star": "",
+    "directive": "gather_evenly",
+    "configuration": {},
+    "every_minutes": 30,
+    "only_idle": true,
+    "adopt": true,
+    "launch": true,
+    "enabled": true,
+    "last_run": "2026-10-02T19:47:54+00:00",
+    "last_result": "84EE1EF1: exhausted on gather_evenly \u2014 re-sending it won't help until sites re-open; F32E05A7: exhausted on gather_evenly \u2014 re-sending it won't help until sites re-open; 90DEC78F: exhausted on gather_evenly \u2014 re-sending it won't help until sites re-open"
+   }
+  ],
+  "rules": {
+   "scan_on_arrival": {
+    "enabled": true
+   },
+   "auto_survey": {
+    "enabled": true,
+    "use_idle": true,
+    "include_moons": true,
+    "include_belts": true,
+    "max_targets": 20,
+    "return_and_stow": true,
+    "use_ami": true
+   },
+   "deploy_beacon": {
+    "enabled": true,
+    "count_others": true
+   },
+   "restart_idle_miners": {
+    "enabled": true,
+    "resource": "same",
+    "cooldown_minutes": 60,
+    "prefer_ami": true
+   },
+   "ami_schedules": {
+    "enabled": true
+   },
+   "loadouts": {
+    "enabled": true,
+    "every_minutes": 15,
+    "adopt_arrivals": true,
+    "activate_arrivals": true
+   },
+   "salvage_when_depleted": {
+    "enabled": true,
+    "use_ami": true,
+    "recall": false,
+    "drones_per_salvage": 3,
+    "cooldown_minutes": 10
+   },
+   "reopen_sites": {
+    "enabled": true,
+    "use_ami": true,
+    "drones_per_belt": 2,
+    "cooldown_minutes": 30
+   },
+   "contracts": {
+    "enabled": true,
+    "auto_fulfil": true,
+    "auto_deliver": true,
+    "send_replicant": true,
+    "every_minutes": 30
+   }
+  },
+  "managed_by": {
+   "399FF11C": "84EE1EF1",
+   "607F9110": "84EE1EF1",
+   "EB6DF4A3": "84EE1EF1",
+   "1886BD05": "84EE1EF1",
+   "374C62A7": "DF451241",
+   "11799063": "DF451241",
+   "A9B9B55B": "72779B6A",
+   "2571B989": "72779B6A",
+   "946018BC": "0E158313",
+   "802E5C12": "9CC8B5E8",
+   "2CD0621D": "9CC8B5E8",
+   "6781B60C": "9CC8B5E8",
+   "2BC7C095": "9CC8B5E8",
+   "ECCC023B": "F32E05A7",
+   "01BA3403": "F32E05A7",
+   "57C506F0": "0E158313",
+   "9FF89427": "9A046413",
+   "DA53F456": "6C4E3D1F",
+   "0BE9B6FD": "6C4E3D1F",
+   "9E7250AF": "6C4E3D1F",
+   "DE711C53": "6C4E3D1F",
+   "926637CA": "90DEC78F",
+   "48EB5540": "90DEC78F",
+   "5E43DD0E": "90DEC78F",
+   "6CCA2019": "90DEC78F"
+  }
+ }
+}
