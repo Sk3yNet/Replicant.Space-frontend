@@ -43,6 +43,8 @@ class Settings:
     poll_messages: int = int(os.getenv("POLL_MESSAGES", "300"))
     poll_blueprints: int = int(os.getenv("POLL_BLUEPRINTS", "300"))
     poll_catalogue: int = int(os.getenv("POLL_CATALOGUE", "1800"))
+    poll_traffic: int = int(os.getenv("POLL_TRAFFIC", "600"))     # beacon audit logs, one GET per beacon
+    poll_objects: int = int(os.getenv("POLL_OBJECTS", "900"))     # incoming asteroids, one GET per tracked object
 
     # A gap this long between page loads starts a new "visit" (drives the since-last-login digest).
     visit_gap_minutes: int = int(os.getenv("VISIT_GAP_MINUTES", "30"))

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Traffic{% endblock %}
+{% block content %}
+<div class="row between">
+  <h1>Traffic &amp; contact</h1>
+  <span class="small muted">{% if state.read_at %}beacons read {{ state.read_at | ago }}{% else %}not read yet{% endif %}
+    <button class="small" hx-post="/traffic/refresh" hx-target="#tr-msg">Read beacons now</button></span>
+</div>
+<div id="tr-msg"></div>
+
+<div class="card">
+  <h2>Civilisation contact</h2>
+  <p class="small muted">A civilisation only sends follow-up requests (the daily messages about new events) when an FTL beacon is deployed
+    <b>at the planet or moon</b> of one of its events. A beacon in the system's Kuiper belt or Oort cloud logs traffic but
+    doesn't count for this. The rule places one as soon as a survey discovers an event, so it's already there when you complete it. Rule <a href="/automations">Beacons at civilisation event sites</a> is
+    <b>{{ 'on' if rules.civ_beacons.enabled else 'off' }}</b>.</p>
+  {% if coverage %}
+  <table class="small"><tr><th>Location</th><th>Life</th><th>Events done</th><th>Open</th><th>Beacon here</th><th>Other beacons in system</th><th>State</th><th></th></tr>
+    {% for r in coverage %}<tr>
+      <td class="mono"><a href="/locations/{{ r.location }}">{{ r.location }}</a></td>
+      <td>{% if r.life %}{{ r.life.life_stage }}{% if r.life.species %} · {{ r.life.species }}{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% for e in r.completed %}<div>{{ e.title or e.designation }}{% if e.tier %} <span class="muted">T{{ e.tier }}</span>{% endif %}</div>{% else %}<span class="muted">—</span>{% endfor %}</td>
+      <td>{% for e in r.open %}<div><a href="/game-events">{{ e.title or e.designation }}</a></div>{% else %}<span class="muted">—</span>{% endfor %}</td>
+      <td class="mono">{% for b in r.beacon %}<a href="/devices/{{ b }}">{{ b }}</a> {% else %}<span class="muted">none</span>{% endfor %}</td>
+      <td class="mono small">{% for b in r.system_beacons %}<div><a href="/devices/{{ b.code }}">{{ b.code }}</a> <span class="muted">{{ b.location }}</span></div>{% else %}<span class="muted">—</span>{% endfor %}</td>
+      <td>{% if r.state == 'needs beacon' %}<span class="lv-alert">needs a beacon</span>{% elif r.state == 'covered' %}✓ covered{% else %}<span class="muted">{{ r.state }}</span>{% endif %}</td>
+      <td>{% if not r.beacon %}{% set p = placements[r.location] %}
+        <div class="small muted">{{ p.text }}</div>
+        {% if p.kind != 'none' %}<button class="small" hx-post="/traffic/beacon" hx-vals='{"location": "{{ r.location }}"}' hx-target="next .tr-out"
+          {% if p.kind in ('carry', 'fetch', 'factory') %}hx-confirm="{{ p.text }}?"{% endif %}>Place beacon</button><div class="tr-out"></div>{% endif %}
+      {% endif %}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted small">No event locations or inhabited bodies known yet. Events show up here once discovered; inhabited bodies once their system is scanned.</p>{% endif %}
+  {% if redundant %}
+  <div class="small" style="margin-top:8px"><b>Redundant beacons</b> — any beacon logs its whole system, so these aren't needed where they are:
+    {% for r in redundant %}<div><a class="mono" href="/devices/{{ r.code }}">{{ r.code }}</a> {{ r.location }} <span class="muted">— {{ r.why }}</span></div>{% endfor %}
+    <button class="small ghost" hx-post="/traffic/spare-redundant" hx-target="next .tr-sp"
+      hx-confirm="Tag these beacons spare? The Loadouts pass then gathers them at the spare depot.">Mark spare</button><div class="tr-sp"></div></div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Visitors <span class="muted small">other replicants your beacons have logged · rule <a href="/automations">Visitor alerts</a> {{ 'on' if rules.visitor_alerts.enabled else 'off' }}</span></h2>
+  {% if summary %}
+  <table class="small"><tr><th>Replicant</th><th>Systems</th><th class="num">Devices</th><th class="num">Arrivals</th><th class="num">Departures</th><th>Types</th><th>Last seen</th></tr>
+    {% for s in summary %}<tr>
+      <td><a href="/replicants/{{ s.replicant_code }}">{{ s.name or s.replicant_code }}</a>{% if s.is_npc %} <span class="pill small">NPC</span>{% endif %} <span class="mono muted">{{ s.replicant_code }}</span></td>
+      <td>{% for x in s.stars %}<a href="/traffic?star={{ x }}">{{ x }}</a>{{ ', ' if not loop.last }}{% endfor %}</td>
+      <td class="num">{{ s.devices }}</td><td class="num">{{ s.arrivals }}</td><td class="num">{{ s.departures }}</td>
+      <td>{% for t, n in s.types.items() %}{{ n }}× {{ t | human }}{{ ', ' if not loop.last }}{% endfor %}</td>
+      <td>{{ s.last_seen | ago }}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted small">No other replicants logged yet.</p>{% endif %}
+</div>
+
+<div class="card">
+  <div class="row between">
+    <h2>Traffic log <span class="muted small">{{ total }} entries kept</span></h2>
+    <form class="inline small" method="get" action="/traffic">
+      <select name="star"><option value="">all systems</option>{% for s in stars %}<option {{ 'selected' if s == star }}>{{ s }}</option>{% endfor %}</select>
+      <label><input type="checkbox" name="others" value="1" {{ 'checked' if others }}> others only</label>
+      <button class="small ghost">Filter</button>
+    </form>
+  </div>
+  <p class="small muted">Beacons: {% for b in beacons %}<a class="mono" href="/devices/{{ b.device_code }}">{{ b.device_code }}</a> {{ b.location }}{% if state.errors and state.errors[b.device_code] %} <span class="lv-alert">{{ state.errors[b.device_code] }}</span>{% endif %}{{ ' · ' if not loop.last }}{% else %}none deployed — deploy an FTL beacon to log a system's traffic.{% endfor %}</p>
+  {% if entries %}
+  <table class="small"><tr><th>When</th><th>System</th><th>Who</th><th>Device</th><th></th><th>Location</th><th>Vector</th></tr>
+    {% for e in entries %}{% set theirs = e.replicant_code not in mine %}<tr{% if not theirs %} class="muted"{% endif %}>
+      <td>{{ e.logged_at | ago }}</td><td>{{ e.star }}</td>
+      <td>{% if theirs %}<b>{{ (profiles[e.replicant_code] or {}).name or e.replicant_code }}</b>{% if (profiles[e.replicant_code] or {}).is_npc %} <span class="pill small">NPC</span>{% endif %}{% else %}you{% endif %}</td>
+      <td><span class="mono">{{ e.device_code }}</span> {{ e.device_type | human }}</td>
+      <td>{{ '→ in' if e.travel_type == 'arrival' else '← out' }}</td><td class="mono">{{ e.location }}</td>
+      <td class="mono muted">{{ e.vector or '' }}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted small">Nothing logged yet{% if star %} for {{ star }}{% endif %}.</p>{% endif %}
+</div>
+{% endblock %}

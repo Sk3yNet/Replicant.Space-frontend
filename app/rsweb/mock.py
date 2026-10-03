@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 
 def iso(dt: datetime | None = None) -> str:
@@ -80,6 +80,8 @@ BLUEPRINTS = [
     {"device_type": "cargo_vessel", "short_description": "Hauls devices: 50 in the hold, 3 attached.", "features": ["surge", "cruise", "attach"],
      "stow_capacity": 50, "attach_capacity": 3, "cargo_capacity": 200, "print_time": 2400,
      "resources": {"structural": 900, "conductive": 250, "silicates": 200}},
+    {"device_type": "propulsor_plate", "short_description": "Pushes an asteroid off course.", "features": ["cruise", "divert", "stow"],
+     "print_time": 300, "resources": {"structural": 150, "conductive": 60}},
     {"device_type": "autofactory", "short_description": "Queued printing.", "features": ["print", "modular"], "print_time": 1800,
      "resources": {"structural": 800, "conductive": 300, "silicates": 200, "rares": 30}},
 ]
@@ -135,6 +137,10 @@ class World:
         self.foreign_devices: list[dict] = []
         self.queues: dict[str, list] = {}
         self.af_print_seconds = 45.0
+        self.audit: dict[str, list[dict]] = {}       # beacon -> audit rows (newest last)
+        self.trades: dict[str, list[dict]] = {}      # trade controller -> trades
+        self.objects: dict[str, dict] = {}           # STAR-OBJ-n -> object
+        self.profiles: dict[str, dict] = {}          # other replicants' public profiles
         self.xp = 87340
 
     def af_next(self, af: dict) -> None:
@@ -242,6 +248,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
 
     @app.get("/v1/replicants/{code}")
     async def replicant(code: str):
+        if code in world.profiles:
+            return ok(world.profiles[code])
         return ok({"name": "bob-1", "replicant_code": code, "hosted_device_code": HOST, "location": world.location,
                    "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "status": "stationary", "experience_points": 1245,
                    "stowed_devices": [{"device_code": "3CA5D7E4", "device_type": "replicant_matrix"}]})
@@ -389,6 +397,16 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             return ok({"status": "queue_cleared", "queue": [], "queue_length": 0})
         if cmd == "set_directive":
             world.emit("directive.set", d, directive=body.get("directive"), configuration=body.get("configuration"))
+            if any(k in d["device_type"] for k in ("maintenance", "trade")):
+                d["ami_directive"] = {"name": body.get("directive"), "config": body.get("configuration") or {}, "_eval_state": "idle"}
+                d["ami_directive_status"] = "active"
+        if cmd == "activate" and "propulsor" in d["device_type"]:
+            d["status"] = "diverting"
+            obj = world.objects.get(d["location"])
+            if obj:
+                obj["active_propulsors"] = obj.get("active_propulsors", 0) + 1
+                obj["current_thrust_per_hour"] = 4.0 * obj["active_propulsors"]
+            world.emit("diversion.activated", d, object_designation=d["location"], size_class="large")
         loop = asyncio.get_running_loop()
         if cmd == "travel":
             secs = world.move_seconds
@@ -449,6 +467,38 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             return ok({"device_code": code, "status": "scanning"}, 202)
         return ok({"device_code": code, "status": d["status"], "command": cmd})
 
+    @app.get("/v1/devices/{code}/audit")
+    async def audit(code: str, latest: bool = False, limit: int = 20):
+        rows = list(world.audit.get(code, []))
+        if latest:
+            rows = list(reversed(rows))
+        return ok({"audit": rows[:limit]})
+
+    @app.get("/v1/devices/{code}/trades")
+    async def trades(code: str):
+        return ok({"trades": world.trades.get(code, [])})
+
+    @app.post("/v1/devices/{code}/trades")
+    async def trade_create(code: str, request: Request):
+        body = await request.json()
+        tr = {"name": body["name"], "trade_code": f"TRD-{len(world.trades.get(code, [])) + 1:06X}", "current_stock": body["stock"],
+              "initial_stock": body["stock"], "criteria": body["criteria"], "rewards": body["rewards"], "created_at": iso()}
+        world.trades.setdefault(code, []).append(tr)
+        return ok(tr, 201)
+
+    @app.delete("/v1/devices/{code}/trades/{trade}")
+    async def trade_delete(code: str, trade: str):
+        world.trades[code] = [t for t in world.trades.get(code, []) if t["trade_code"] != trade]
+        return Response(status_code=204)
+
+    @app.post("/v1/devices/{code}/trades/{trade}")
+    async def trade_execute(code: str, trade: str):
+        t = next((t for t in world.trades.get(code, []) if t["trade_code"] == trade), None)
+        if not t:
+            return ok({"error": "Trade not found"}, 404)
+        t["current_stock"] -= 1
+        return ok({"status": "trade_completed", "trade_code": trade})
+
     @app.patch("/v1/devices/{code}")
     async def patch_device(code: str, request: Request):
         body = await request.json()
@@ -477,6 +527,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             return ok({"location_type": "belt", "location": code, "belt": SOL_SCAN["asteroid_belt"]["belts"][0],
                        "devices": [], "inventory": [], "resource_sites": [{"designation": f"{code}-SITE-1", "resource_type": "structural", "availability": "high", "quantity": 5200},
                                           {"designation": f"{code}-SITE-2", "resource_type": "rares", "availability": "low", "quantity": 340}]})
+        if code in world.objects:
+            return ok({"location": code, "location_type": "object", "object": world.objects[code], "devices": [], "inventory": []})
         if "-SAL-" in code:   # like the game: salvage codes aren't locations
             return ok({"error": "Planet not found"}, 404)
         if code == "SOL-3-1":  # the body the salvage sits on — shape as seen live (GET /locations/KELMONENT-1)

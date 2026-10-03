@@ -63,6 +63,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     app = FastAPI(title="Replicant Space client", lifespan=lifespan, docs_url=None, redoc_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     app.include_router(web.router)
+    from . import web_ops
+    app.include_router(web_ops.router)
     app.add_exception_handler(web.AuthError, web.auth_error_handler)
     return app
 

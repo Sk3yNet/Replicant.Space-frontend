@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Upkeep{% endblock %}
+{% block content %}
+<div class="row between">
+  <h1>Upkeep</h1>
+  <button class="small" hx-post="/maintenance/run" hx-target="#mt-msg"
+          hx-confirm="Set every idle maintenance drone to patrol, and print one for systems with badly worn devices and none?">Run now</button>
+</div>
+<div id="mt-msg"></div>
+<p class="small muted">Devices wear down with use. A maintenance drone repairs only while on the <b>patrol</b> directive: it takes the most
+  worn device in its system back to 100 %, then the next. Vessels that can print self-repair below 30 % (1 %/h).
+  Rule <a href="/automations">Keep maintenance drones patrolling</a> is <b>{{ 'on' if cfg.enabled else 'off' }}</b>
+  · worn below {{ cfg.threshold }} % · critical below {{ cfg.critical }} % · print missing drones {{ 'on' if cfg.print_missing else 'off' }}.</p>
+
+{% for r in report %}
+<div class="card">
+  <div class="row between">
+    <h2 style="margin:0"><a href="/systems/{{ r.star }}">{{ r.star }}</a>
+      <span class="small {{ 'lv-alert' if r.needs_attention else 'muted' }}">{{ r.verdict }}</span>
+      <span class="small muted">{{ r.devices }} devices · worst {{ r.min }} % · average {{ r.avg }} %</span></h2>
+    {% if r.needs_attention %}<button class="small ghost" hx-post="/maintenance/run" hx-vals='{"star": "{{ r.star }}"}' hx-target="next .mt-out">Fix {{ r.star }}</button>{% endif %}
+  </div>
+  <div class="mt-out"></div>
+  <div class="small">Maintenance drones:
+    {% for m in r.drones %}<span class="mono"><a href="/devices/{{ m.code }}">{{ m.code }}</a></span>
+      {% if m.patrol %}patrolling{% else %}<span class="lv-alert">no patrol</span>{% endif %}
+      {% if m.repair %}· repairing <a class="mono" href="/devices/{{ m.repair.target }}">{{ m.repair.target }}</a>{% if m.repair.progress is not none %} {{ m.repair.progress }} %{% endif %}{% if m.repair.eta_seconds %}, {{ (m.repair.eta_seconds / 60) | round(0) | int }} min left{% endif %}{% endif %}
+      {% if not m.placed %}<span class="muted">({{ m.status }})</span>{% endif %}{{ ' · ' if not loop.last }}
+    {% else %}<span class="muted">none</span>{% endfor %}</div>
+  {% if r.damaged %}
+  <table class="small"><tr><th>Device</th><th>Type</th><th>Location</th><th class="num">Capacity</th><th></th></tr>
+    {% for d in r.damaged %}<tr><td class="mono"><a href="/devices/{{ d.code }}">{{ d.code }}</a></td><td>{{ d.type | human }}</td><td>{{ d.location }}</td>
+      <td class="num {{ 'lv-alert' if d.capacity < (cfg.critical or 60) }}">{{ d.capacity }} %</td>
+      <td>{% if d.self_repairs %}<span class="muted">self-repairing</span>{% endif %}
+        {% set ds = r.drones | selectattr('placed') | list %}{% if ds %}
+        <button class="small ghost" hx-post="/maintenance/repair" hx-vals='{"target": "{{ d.code }}", "drone": "{{ ds[0].code }}"}' hx-target="next .mt-r">Repair now</button><span class="mt-r"></span>{% endif %}</td></tr>{% endfor %}
+  </table>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

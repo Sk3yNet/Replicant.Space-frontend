@@ -150,6 +150,9 @@
       <label style="text-transform:none;display:block"><input type="checkbox" name="need_stock" {{ 'checked' if cfg.settings.need_stock }}> Only on an autofactory whose stock already covers the cost</label>
       <label style="text-transform:none;display:block"><input type="checkbox" name="carriers_return" {{ 'checked' if cfg.settings.carriers_return }}> Carriers fly back after a delivery</label>
       <label style="text-transform:none;display:block"><input type="checkbox" name="use_replicant_vessels" {{ 'checked' if cfg.settings.use_replicant_vessels }}> Allow replicant vessels as carriers <span class="muted">(moves your replicant)</span></label>
+      <label style="text-transform:none;display:block"><input type="checkbox" name="gather_spares" {{ 'checked' if cfg.settings.gather_spares }}> Gather idle spares at the spare depot</label>
+      <label style="text-transform:none;display:block">Spare depot <input name="spare_depot" value="{{ cfg.settings.spare_depot or '' }}" size="14" placeholder="automatic">
+        <span class="muted">now: {{ depot or 'none' }} — blank = a materials destination system with an autofactory</span></label>
       <div class="row" style="margin-top:8px"><button>Save settings</button><span id="lo-saved"></span></div>
     </form>
   </div>

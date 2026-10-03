@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Defence{% endblock %}
+{% block content %}
+<div class="row between">
+  <h1>Asteroid defence</h1>
+  <span class="small muted">{% if read_at %}read {{ read_at | ago }}{% endif %}
+    <button class="small" hx-post="/defence/read" hx-target="#df-msg">Read objects now</button></span>
+</div>
+<div id="df-msg"></div>
+<p class="small muted">Asteroids on a collision course are diverted by taking propulsors to the asteroid, deploying and activating them; each
+  running propulsor builds thrust until impact likelihood reaches 0 %. Required strength grows as impact gets closer, so act early.
+  Rule <a href="/automations">Asteroid defence</a> is <b>{{ 'on' if cfg.enabled else 'off' }}</b>
+  (activate idle {{ 'on' if cfg.activate else 'off' }} · send idle {{ 'on' if cfg.send_idle else 'off' }} ·
+  print shortfall {{ 'on' if cfg.print_missing else 'off' }}).</p>
+
+{% for a in report %}{% set o = objs[a.designation] %}
+<div class="card">
+  <div class="row between">
+    <h2 style="margin:0"><a class="mono" href="/locations/{{ a.designation }}">{{ a.designation }}</a> → {{ a.target or '?' }}
+      <span class="small {{ 'lv-alert' if a.threat else 'muted' }}">{{ a.verdict }}</span></h2>
+    {% if a.threat %}<button class="small" hx-post="/defence/{{ a.designation }}/act" hx-target="next .df-out"
+      hx-confirm="Activate idle propulsors, send idle ones and print the shortfall for {{ a.designation }} now?">Defend now</button>{% endif %}
+  </div>
+  <div class="df-out"></div>
+  <table class="small">
+    <tr><th>Impact</th><td>{% if a.eta %}{{ a.eta | local }} ({% if a.hours_left is not none %}{{ '%.1f' | format(a.hours_left) }} h{% endif %}){% else %}?{% endif %} · likelihood {{ a.likelihood | num }} %</td></tr>
+    <tr><th>Strength</th><td>required {{ a.required | num }} · progress {{ a.progress | num }} % · still needed {{ (a.remaining | round | int) if a.remaining is not none else "?" }}</td></tr>
+    <tr><th>Propulsors</th><td>{{ a.active }} running (game) · yours there: {% for c in a.ours_here %}<a class="mono" href="/devices/{{ c }}">{{ c }}</a>{% if c in a.ours_idle %} <span class="lv-alert">idle</span>{% endif %} {% else %}none{% endfor %}
+      {% if a.enroute %}· {{ a.enroute }} on the way / on order{% endif %}</td></tr>
+    <tr><th>Estimate</th><td>{% if a.needed is not none %}<b>~{{ a.needed }}</b> propulsor(s) needed to finish in time{% else %}not enough data{% endif %}
+      · {{ a.thrust_each }} thrust/h each, {{ a.thrust_source }}
+      {% if a.rate_pct_per_hour %}· observed {{ a.rate_pct_per_hour }} %/h → done in {{ a.done_in_hours }} h{% endif %}</td></tr>
+    <tr><th>Object</th><td>{{ a.mass_class or o.size_class or '' }} {{ a.composition or '' }} · status {{ a.status }}{% if o.closed %} · closed: {{ o.closed }}{% endif %}
+      {% if o.read_error %}<span class="lv-alert">read failed: {{ o.read_error }}</span>{% endif %}
+      · propulsor blueprint: {{ a.diverter_types | join(', ') if a.diverter_types else 'none known' }}</td></tr>
+  </table>
+</div>
+{% else %}
+<div class="card"><p class="muted">No incoming objects detected. They appear here from <span class="mono">system.object_detected</span> events, or add one by its code.</p></div>
+{% endfor %}
+
+<div class="card">
+  <form class="inline small" hx-post="/defence/track" hx-target="#df-msg">
+    Track an object: <input name="designation" placeholder="e.g. DELTA-OBJ-3" size="16"> <button class="small ghost">Track</button>
+  </form>
+</div>
+{% endblock %}

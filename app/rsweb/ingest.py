@@ -174,6 +174,8 @@ class Worker:
             asyncio.create_task(self._poll_loop("messages", self.s.poll_messages, self.sync_messages), name="p-msg"),
             asyncio.create_task(self._poll_loop("blueprints", self.s.poll_blueprints, self.sync_blueprints), name="p-bp"),
             asyncio.create_task(self._poll_loop("catalogue", self.s.poll_catalogue, self.sync_catalogue), name="p-cat"),
+            asyncio.create_task(self._poll_loop("traffic", self.s.poll_traffic, self.automations.sync_traffic), name="p-traffic"),
+            asyncio.create_task(self._poll_loop("objects", self.s.poll_objects, self.automations.poll_objects), name="p-objects"),
         ]
 
     async def stop(self) -> None:

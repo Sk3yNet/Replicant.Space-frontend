@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Shop{% endblock %}
+{% block content %}
+<h1>Trade shop</h1>
+<p class="small muted">A shop is an <b>AMI trade controller</b> with the <span class="mono">trade</span> directive. With an active FTL relay
+  (or system hub) in its system it's listed in the galactic directory; without one it trades locally only. A trade's rewards go into escrow
+  when you create it — you need them at the shop's location for the whole stock — and come back if you remove it.</p>
+
+{% for s in shops %}
+<div class="card">
+  <div class="row between">
+    <h2 style="margin:0">{{ s.config.name or 'Unnamed shop' }} <span class="mono small"><a href="/devices/{{ s.code }}">{{ s.code }}</a></span>
+      <span class="small muted">{{ s.location }} · {{ s.status }}</span>
+      {% if s.listed %}<span class="pill small">listed via {{ s.relay }}</span>{% elif s.configured %}<span class="small lv-alert">not listed — no relay in {{ s.star }}</span>{% else %}<span class="small lv-alert">not set up</span>{% endif %}</h2>
+    <button class="small ghost" hx-post="/shop/{{ s.code }}/refresh" hx-swap="none">Read trades</button>
+  </div>
+
+  <details {{ 'open' if not s.configured }}><summary class="small">Shop details</summary>
+    <form class="small" hx-post="/shop/{{ s.code }}/configure" hx-target="next .sh-out">
+      <div class="row"><label>Name <input name="name" value="{{ s.config.name or '' }}" size="28" required></label>
+        <label>Announcement (on BobNet) <input name="announcement" value="{{ s.config.announcement or '' }}" size="40"></label></div>
+      <label>Description<br><textarea name="description" rows="2" style="width:100%">{{ s.config.description or '' }}</textarea></label>
+      <button class="small">{{ 'Update shop' if s.configured else 'Open shop' }}</button>
+    </form><div class="sh-out"></div>
+  </details>
+
+  <h3>Trades {% if s.trades_at %}<span class="small muted">read {{ s.trades_at | ago }}</span>{% endif %}
+    {% if s.trades_error %}<span class="small lv-alert">{{ s.trades_error }}</span>{% endif %}</h3>
+  {% if s.trades %}
+  <table class="small"><tr><th>Trade</th><th>Buyer pays</th><th>Buyer gets</th><th class="num">Stock</th><th></th></tr>
+    {% for t in s.trades %}<tr><td>{{ t.name }} <span class="mono muted">{{ t.trade_code }}</span></td>
+      <td>{{ describe(t.criteria) }}</td><td>{{ describe(t.rewards) }}</td>
+      <td class="num">{{ t.current_stock }}/{{ t.initial_stock }}{% if t.current_stock == 0 %} <span class="lv-alert">sold out</span>{% endif %}</td>
+      <td><button class="small ghost" hx-post="/shop/{{ s.code }}/trades/{{ t.trade_code }}/delete" hx-target="next .sh-d"
+        hx-confirm="Remove {{ t.name }}? What's left in escrow comes back to you.">Remove</button><span class="sh-d"></span></td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted small">No trades{{ ' read yet' if not s.trades_at }}.</p>{% endif %}
+
+  <details><summary class="small">Add a trade</summary>
+    <form class="small" hx-post="/shop/{{ s.code }}/trades" hx-target="next .sh-out">
+      <div class="row"><label>Name <input name="name" size="28" required></label><label>Stock <input name="stock" type="number" min="1" value="1" style="width:5em"></label></div>
+      <table class="small"><tr><th></th>{% for r in resources %}<th>{{ r }}</th>{% endfor %}<th>Devices</th></tr>
+        {% for side, label in [('cr', 'Buyer pays'), ('rw', 'Buyer gets')] %}<tr><th>{{ label }}</th>
+          {% for r in resources %}<td><input name="{{ side }}_{{ r }}" type="number" min="0" style="width:5em"></td>{% endfor %}
+          <td>{% for i in range(2) %}<div><input name="{{ side }}_dev_type_{{ i }}" list="sh-types" size="16" placeholder="device type">
+            <input name="{{ side }}_dev_n_{{ i }}" type="number" min="0" style="width:4em"></div>{% endfor %}</td></tr>{% endfor %}
+      </table>
+      <datalist id="sh-types">{% for t in device_types %}<option value="{{ t }}">{% endfor %}</datalist>
+      <div class="muted">At {{ s.location }} now: {% for r, q in s.inventory.items() %}{{ q | num }} {{ r }}{{ ', ' if not loop.last }}{% else %}no resources{% endfor %}
+        {% if s.devices_here %}· {% for t, n in s.devices_here.items() %}{{ n }}× {{ t | human }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</div>
+      <label><input type="checkbox" name="anyway" value="1"> try anyway if the escrow check fails</label>
+      <button class="small">Add trade</button>
+    </form><div class="sh-out"></div>
+  </details>
+</div>
+{% else %}
+<div class="card"><p class="muted">You have no AMI trade controller. Print one (if you have the blueprint), deploy it where you want the shop
+  — ideally in a system with an FTL relay so it's listed — and it shows up here.</p></div>
+{% endfor %}
+
+<div class="card">
+  <div class="row between"><h2 style="margin:0">Other traders</h2>
+    <button class="small ghost" hx-post="/fleets/traders" hx-swap="none">Refresh traders</button></div>
+  {% if traders %}
+  <table class="small"><tr><th>Shop</th><th>Where</th><th>Trade</th><th>You pay</th><th>You get</th><th class="num">Stock</th><th></th></tr>
+    {% for code, t in traders.items() %}{% for tr in t.trades %}<tr>
+      <td>{{ t.shop_name or '—' }} <span class="muted">{{ t.owner_name }}</span>{% if t.owner_replicant_code in mine %} <span class="pill small">yours</span>{% endif %}</td>
+      <td>{{ t.location }}</td><td>{{ tr.name }}</td><td>{{ describe(tr.criteria) }}</td><td>{{ describe(tr.rewards) }}</td>
+      <td class="num">{{ tr.current_stock }}</td>
+      <td><button class="small" hx-post="/shop/buy" hx-vals='{"controller": "{{ code }}", "trade_code": "{{ tr.trade_code }}"}' hx-target="next .sh-b"
+        hx-confirm="Buy {{ tr.name }} at {{ t.location }}: pay {{ describe(tr.criteria) }}, get {{ describe(tr.rewards) }}?">Buy</button><span class="sh-b"></span></td></tr>{% endfor %}{% endfor %}
+  </table>
+  {% else %}<p class="muted small">No traders read yet.</p>{% endif %}
+</div>
+{% endblock %}

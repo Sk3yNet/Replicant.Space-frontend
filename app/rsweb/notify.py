@@ -27,7 +27,13 @@ NOTIFY_DONE = {
     "teleport.completed", "story.awakened", "salvage.discovered", "event.discovered",
     "triangulation.complete", "simulation.completed", "hub.activated", "relay.activated",
 }
+# Info-level events that still raise a notification.
+NOTIFY_INFO = {"multiplayer.replicant_entered", "hub.maintained", "trade.created", "trade.deleted"}
 NOISY = {"ami.mining.digest", "ami.survey.digest", "ami.transport.digest", "bobnet.new", "experience.gained"}
+
+
+def star_of_loc(loc: str | None) -> str:
+    return (loc or "").split("-")[0]
 
 
 def level_of(event: str) -> str:
@@ -110,6 +116,24 @@ def describe(ev: dict) -> str:
             return f"Event discovered: {p.get('title') or p.get('designation')}"
         case "event.completed":
             return f"Event completed: {p.get('designation')}"
+        case "multiplayer.replicant_entered":
+            return f"Replicant {p.get('replicant_name') or p.get('replicant_code')} entered {ev.get('star') or star_of_loc(loc) or 'your system'}"
+        case "multiplayer.replicant_left":
+            return f"Replicant {p.get('replicant_name') or p.get('replicant_code')} left {ev.get('star') or star_of_loc(loc) or 'your system'}"
+        case "trade.created":
+            return f"Trade {p.get('name') or p.get('trade_code')} listed (stock {p.get('stock')})"
+        case "trade.deleted":
+            return f"Trade {p.get('name') or p.get('trade_code')} removed ({p.get('remaining_stock')} left, escrow released)"
+        case "diversion.activated":
+            return f"{who} started diverting {p.get('object_designation')}"
+        case "diversion.diverted":
+            return f"Asteroid {p.get('object_designation')} diverted ({p.get('outcome')})"
+        case "diversion.partial":
+            return f"Asteroid {p.get('object_designation')} partly diverted ({p.get('outcome')})"
+        case "diversion.impacted":
+            return f"Asteroid {p.get('object_designation')} impacted"
+        case "hub.maintained":
+            return f"Hub maintained, capacity {p.get('capacity')}"
         case "site.depleted" | "salvage.depleted":
             return f"Site depleted: {p.get('site')}"
         case _ if e.startswith("ami.") and e.endswith(".digest"):
@@ -125,13 +149,19 @@ def notification_for(ev: dict) -> dict | None:
         level = "alert"
     elif e in NOTIFY_DONE:
         level = "done"
-    elif e == "message.new":
+    elif e == "message.new" or e in NOTIFY_INFO:
         level = "info"
     else:
         return None
     link = f"/devices/{ev['device_code']}" if ev.get("device_code") else "/events"
     if e == "message.new":
         link = "/messages"
+    elif e.startswith("multiplayer."):
+        link = "/traffic"
+    elif e.startswith(("diversion.", "system.object_detected")):
+        link = "/defence"
+    elif e.startswith("trade."):
+        link = "/shop"
     return {"level": level, "title": describe(ev), "link": link}
 
 

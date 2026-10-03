@@ -187,7 +187,8 @@ def test_auth_required(client):
 
 @pytest.mark.parametrize("path", ["/", "/fleet", "/devices/2AC61210", "/replicants/77F75255", "/systems", "/systems/SOL",
                                   "/map", "/api/map.json", "/blueprints", "/ami", "/events", "/notifications",
-                                  "/messages", "/account", "/console", "/digest?hours=24", "/locations/SOL-BELT-1"])
+                                  "/messages", "/account", "/console", "/digest?hours=24", "/locations/SOL-BELT-1",
+                                  "/traffic", "/defence", "/maintenance", "/shop", "/automations"])
 def test_pages_render(client, path):
     r = client.get(path, headers=H)
     assert r.status_code == 200, r.text[:500]
@@ -2835,3 +2836,36 @@ def test_pinned_devices_reach_their_spot():
     # moving to another system drops a pin for the old one
     rh = lo.rehome_step("SD1", devs[1], "AEMEROTH")
     assert "at:ithvalai-3" in rh["body"]["configuration"]["remove_tags"]
+
+
+def test_new_print_bound_elsewhere_is_dispatched_at_once(client):
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+
+    async def enable():
+        s = await eng.settings()
+        s["rules"]["loadouts"]["enabled"] = True
+        await eng.save_settings(s)
+    client.portal.call(enable)
+    devices = [
+        {"device_code": "AF1", "device_type": "autofactory", "location": "FAL-BELT-1", "status": "printing (mining_drone)",
+         "available_commands": ["enqueue_print"], "tags": ["home:fal"]},
+        {"device_code": "PL1", "device_type": "surge_plate", "location": "FAL-1-L4", "status": "idle", "attach_capacity": 1,
+         "features": ["surge", "attach", "taxi"], "taxi_mode": "taxi", "available_commands": ["attach", "detach", "travel"],
+         "tags": ["home:fal", "taxi"]},
+        {"device_code": "NEW1", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "idle",
+         "available_commands": ["travel", "stow", "deploy"], "tags": ["to:ith"]},
+    ]
+    client.portal.call(db.kv_set, "devices", devices)
+    cat = {"stars": [{"designation": "FAL", "position": {"x": 0, "y": 0, "z": 0}, "entry_point": "FAL-1-L4"},
+                     {"designation": "ITH", "position": {"x": 1, "y": 0, "z": 0}, "entry_point": "ITH-2-L4"}]}
+    client.portal.call(db.kv_set, "stars", cat)
+    client.portal.call(client.app.state.worker.handle_event,
+                       _ev(950, "print.completed", device_code="AF1", device_type="mining_drone", new_device_code="NEW1",
+                           tags=["to:ith"], location="FAL-BELT-1"))
+    assert "NEW1" in client.portal.call(db.kv_get, "dispatch_pending", {})
+    started = client.portal.call(eng.dispatch_new_prints)
+    assert started == ["PL1 carries NEW1 to ITH"]
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "loadouts"][-1]
+    assert job["title"].endswith("(just printed)") and job["device"] == "PL1"
+    assert client.portal.call(db.kv_get, "dispatch_pending", {}) == {}

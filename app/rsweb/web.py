@@ -1858,6 +1858,7 @@ async def loadout_ctx(request: Request) -> dict:
     consolidation = [co.describe(x) for x in await eng.consolidate_plan()]
     consolidate_on = bool(((await eng.settings())["rules"].get("consolidate") or {}).get("enabled"))
     return {"cfg": cfg, "types": types, "plan": p, "lines": lo.describe(p), "stars": stars, "present": present, "audit": audit,
+            "depot": lo.spare_depot(cfg, st["devices"]),
             "consolidation": consolidation, "consolidate_on": consolidate_on,
             "active_jobs": [j for j in jobs if j["status"] in ("running", "waiting")],
             "recent_jobs": [j for j in reversed(jobs) if j["status"] not in ("running", "waiting")][:8],
@@ -1944,8 +1945,9 @@ async def loadouts_settings(request: Request, user: str = Depends(current_user))
     cfg = await request.app.state.worker.automations.loadout_cfg()
     cfg["ignore_tags"] = sorted({t.strip().lower() for t in re.split(r"[,\s]+", form.get("ignore_tags") or "") if t.strip()}
                                 - {lo.SPARE})
-    for k in ("print_missing", "need_stock", "carriers_return", "use_replicant_vessels"):
+    for k in ("print_missing", "need_stock", "carriers_return", "use_replicant_vessels", "gather_spares"):
         cfg["settings"][k] = form.get(k) == "on"
+    cfg["settings"]["spare_depot"] = (form.get("spare_depot") or "").strip().upper()
     await save_loadouts(request, cfg)
     return HTMLResponse('<span class="lv-done small">Saved.</span>', headers={"HX-Refresh": "true"})
 

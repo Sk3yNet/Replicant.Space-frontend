@@ -20,6 +20,7 @@ from typing import Any
 from .api import ApiError
 from .db import now_iso
 from .shapes import as_amounts  # noqa: F401  (kept for rule authors)
+from .ops_rules import OpsRules
 
 log = logging.getLogger("rsweb.auto")
 
@@ -48,6 +49,7 @@ class Rule:
     title: str
     description: str
     options: list[Option] = field(default_factory=list)
+    default_on: bool = False   # rules that only watch and alert start switched on
 
 
 RULES: list[Rule] = [
@@ -128,6 +130,49 @@ RULES: list[Rule] = [
          "deploys twice in the same system.",
          [Option("count_others", "bool", "Also skip systems where another player already has a beacon", True,
                  help="Uses a replicant's view of the system when one is there")]),
+    Rule("visitor_alerts", "Visitor alerts (beacon traffic)",
+         "Every few minutes the app reads each deployed FTL beacon's traffic log (who arrived and left the system). "
+         "When another replicant's devices arrive in one of your systems you get a notification. The full log is on "
+         "the Traffic page.",
+         [Option("include_npcs", "bool", "Also alert on NPC replicants", True),
+          Option("repeat_hours", "int", "Don't repeat an alert for the same replicant and system within (hours)", 6)],
+         default_on=True),
+    Rule("civ_beacons", "Beacons at civilisation event sites",
+         "Civilisations only send their follow-up requests (the daily messages about new events) when an FTL beacon is "
+         "deployed AT the planet or moon of one of their events — a beacon in the Kuiper belt or Oort cloud doesn't count. "
+         "As soon as a survey discovers an event (and every 10 minutes for older ones) this puts a beacon at that body, so "
+         "it's already there when you complete the event. Beacons can't fly, so, cheapest first: a vessel in the system "
+         "that carries one flies there and deploys it; a vessel picks up a loose beacon (tagged civ or spare — e.g. one "
+         "just printed) and takes it there; a replicant at the body prints one on its vessel; otherwise one is printed on "
+         "the system's autofactory (tagged civ) and fetched on a later pass.",
+         [Option("print_beacons", "bool", "Print a beacon on the system's autofactory when none is free", True,
+                 help="60 structural + 20 conductive each"),
+          Option("allow_print", "bool", "Print on a replicant's vessel when the replicant is at the body", True),
+          Option("use_replicant_vessel", "bool", "Also use vessels that host your replicant to carry beacons", False,
+                 help="Moves your replicant"),
+          Option("spare_redundant", "bool", "Mark beacons a system doesn't need as spare", True,
+                 help="Once a system has a beacon at a civilisation's body, its other beacons (e.g. Kuiper/Oort) are spare; "
+                      "the Loadouts pass gathers spares at the spare depot")]),
+    Rule("asteroid_defence", "Asteroid defence",
+         "Tracks incoming asteroids (from system.object_detected and by reading the object every 15 minutes): hours to "
+         "impact, likelihood, required strength and progress, and estimates how many propulsors it takes to divert it in "
+         "time. Alerts when the picture changes. It can activate idle propulsors at the asteroid, send idle ones in the "
+         "system there, and print the shortfall on the system's autofactory (sent straight to the asteroid when it can fly).",
+         [Option("activate", "bool", "Activate idle propulsors at the asteroid", True),
+          Option("send_idle", "bool", "Send idle propulsors in the system to the asteroid", True),
+          Option("print_missing", "bool", "Print the shortfall on the system's autofactory", False, help="Spends resources"),
+          Option("max_prints", "int", "Most propulsors to print per asteroid at a time", 6)],
+         default_on=True),
+    Rule("maintenance", "Keep maintenance drones patrolling",
+         "A maintenance drone only repairs on the `patrol` directive (it then fixes the most worn device in its system, one "
+         "after another). Every N minutes, any maintenance drone sitting in a system without patrol gets it (fleet members "
+         "and drones bound for another system are left alone). A system with a device below the critical level and no "
+         "maintenance drone raises an alert once a day, or gets one printed on its autofactory.",
+         [Option("every_minutes", "int", "Run every (minutes)", 15),
+          Option("threshold", "int", "Count a device as worn below (%)", 80),
+          Option("critical", "int", "Act when a system's worst device is below (%)", 60),
+          Option("print_missing", "bool", "Print a maintenance drone for a system that has none", False, help="Spends resources")],
+         default_on=True),
     Rule("restart_idle_miners", "Restart idle mining drones",
          "Every minute, any mining drone sitting idle at a belt gets back to work. Drones an AMI mining controller "
          "already manages are left alone; with a controller at the same location the drone is handed to it "
@@ -254,7 +299,7 @@ def survey_targets(scan: dict, surveyed: dict, include_moons: bool, include_belt
     return out[:max(0, max_targets)]
 
 
-class AutomationEngine:
+class AutomationEngine(OpsRules):
     def __init__(self, db, api, hub, worker):
         self.db, self.api, self.hub, self.worker = db, api, hub, worker
         self.lock = asyncio.Lock()
@@ -267,7 +312,7 @@ class AutomationEngine:
         rules = s.setdefault("rules", {})
         for r in RULES:
             cfg = rules.setdefault(r.id, {})
-            cfg.setdefault("enabled", False)
+            cfg.setdefault("enabled", r.default_on)
             for o in r.options:
                 cfg.setdefault(o.name, o.default)
         return s
@@ -534,6 +579,15 @@ class AutomationEngine:
                         # the game didn't carry the print's tags over: tag it ourselves so it is routed, not re-printed
                         await self.send("PATCH", f"/devices/{new}", {"configuration": {"add_tags": [to_tag(hit["star"])]}},
                                         f"auto: tag new {p.get('device_type')} {new} for {hit['star']}")
+            # a print that's bound for another system: dispatch it as soon as it's out, not at the next loadout pass
+            if name == "print.completed":
+                new = p.get("new_device_code")
+                tags = [str(t) for t in p.get("tags") or []]
+                hit_order = any(o.get("device_code") == new for o in await self.db.kv_get("loadout_orders", []) or [])
+                if new and (hit_order or any(t.startswith("to:") for t in tags)):
+                    pend = await self.db.kv_get("dispatch_pending", {}) or {}
+                    pend[new] = now_iso()
+                    await self.db.kv_set("dispatch_pending", pend)
             # wake waiting jobs
             for job in await self.jobs():
                 if job["status"] != "waiting":
@@ -552,6 +606,10 @@ class AutomationEngine:
                 except Exception as e:
                     log.exception("salvage rule failed")
                     await self.log("engine", f"salvage rule failed: {e}", "alert")
+            if name in ("event.discovered", "event.completed", "print.completed"):
+                await self.civ_on_event(ev)
+            if name == "system.object_detected":
+                asyncio.create_task(self._locked_sync_objects())
             # rules triggered by arrivals
             if name == "travel.arrived":
                 try:
@@ -580,6 +638,7 @@ class AutomationEngine:
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
             await self.run_fleets()
+            await self.dispatch_new_prints()
             await self.rule_contracts()
             await self.refresh_known_belts()
             await self.track_viability()
@@ -589,6 +648,9 @@ class AutomationEngine:
             await self.rule_restart_idle_miners()
             await self.run_due_schedules()
             await self.run_due_loadouts()
+            for line in await self.civ_beacon_pass():
+                await self.log("civ_beacons", line)
+            await self.maintenance_pass()
 
     # --- loadouts --------------------------------------------------------------------------------------
     async def loadout_cfg(self) -> dict:
@@ -701,12 +763,14 @@ class AutomationEngine:
         await self.db.kv_set("loadout_orders", orders)
         for code, dest in p["self_moves"]:
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {dest}", code,
-                                                  lo.self_move_steps(code, dest, stars, p["by_code"][code], p.get("managed")),
+                                                  lo.self_move_steps(code, dest, stars, p["by_code"][code], p.get("managed"),
+                                                                    gathering=code in set(p.get("gathering") or [])),
                                                   {"devices": [code], "star": dest}, force=manual))
         for dl in p["deliveries"]:
             started += bool(await self.create_job(
                 "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']}", dl["carrier"],
-                lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed")),
+                lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
+                                                  gathering=set(p.get("gathering") or [])),
                 {"devices": dl["devices"], "star": dl["to"]}, force=manual))
         ferries = await self.db.kv_get("loadout_ferries", {}) or {}
         for r in p.get("routes") or []:
@@ -761,6 +825,67 @@ class AutomationEngine:
                     started += 1
                     done[code] = star_of(by[code].get("location"))
             await self.db.kv_set("loadout_woken", done)
+        return started
+
+    async def dispatch_new_prints(self, max_wait_minutes: int = 15) -> list[str]:
+        """Prints that just came out bound for another system: refresh the device list until they show up, then start
+        only the deliveries (carrier or own surge) that involve them — the rest waits for the regular pass."""
+        from . import loadouts as lo
+        pend = await self.db.kv_get("dispatch_pending", {}) or {}
+        if not pend or not await self.rule_cfg("loadouts"):
+            return []
+        now = _now()
+        pend = {c: at for c, at in pend.items() if _ts(at) and (now - _ts(at)).total_seconds() < max_wait_minutes * 60}
+        codes = {d.get("device_code") for d in await self.devices()}
+        if not set(pend) <= codes and self.worker:
+            last = _ts(await self.db.kv_get("dispatch_sync_at", None))
+            if not last or (now - last).total_seconds() >= 20:   # the new device isn't listed yet: re-read (≤ every 20 s)
+                await self.db.kv_set("dispatch_sync_at", now.isoformat(timespec="seconds"))
+                try:
+                    await self.worker.sync_devices()
+                except Exception as e:  # noqa: BLE001 — try again next tick
+                    log.info("dispatch: device sync failed: %s", e)
+                codes = {d.get("device_code") for d in await self.devices()}
+        ready = {c for c in pend if c in codes}
+        if not ready:
+            await self.db.kv_set("dispatch_pending", pend)
+            return []
+        tried = _ts(await self.db.kv_get("dispatch_try_at", None))
+        if tried and (now - tried).total_seconds() < 30:
+            return []
+        await self.db.kv_set("dispatch_try_at", now.isoformat(timespec="seconds"))
+        cfg = await self.loadout_cfg()
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
+        p = await self.loadout_plan()
+        started: list[str] = []
+        for code, dest in p["self_moves"]:
+            if code in ready:
+                if await self.create_job("loadouts", f"loadouts: {code} → {dest} (just printed)", code,
+                                         lo.self_move_steps(code, dest, stars, p["by_code"][code], p.get("managed"),
+                                                                    gathering=code in set(p.get("gathering") or [])),
+                                         {"devices": [code], "star": dest}):
+                    started.append(f"{code} flies to {dest}")
+                ready.discard(code), pend.pop(code, None)
+        for dl in p["deliveries"]:
+            if ready & set(dl["devices"]):
+                if await self.create_job("loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']} "
+                                         "(just printed)", dl["carrier"],
+                                         lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
+                                                  gathering=set(p.get("gathering") or [])),
+                                         {"devices": dl["devices"], "star": dl["to"]}):
+                    started.append(f"{dl['carrier']} carries {', '.join(dl['devices'])} to {dl['to']}")
+                for c in dl["devices"]:
+                    ready.discard(c), pend.pop(c, None)
+        for u in p["unmet"]:   # nothing free to carry it now: say so, and leave it to the regular pass
+            if "waiting for a surge-capable carrier" in u.get("why", "") and ready:
+                await self.log("loadouts", f"just printed {', '.join(sorted(ready))}: {u['why']} — the next pass retries")
+                for c in list(ready):
+                    pend.pop(c, None)
+                break
+        await self.db.kv_set("dispatch_pending", pend)
+        for line in started:
+            await self.log("loadouts", f"dispatched right after printing: {line}")
         return started
 
     async def run_due_loadouts(self) -> None:

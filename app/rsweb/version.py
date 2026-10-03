@@ -16,11 +16,27 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.10.0"
+VERSION = "1.12.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.12.0", "2026-10-03", "Redundant beacons (a system that already has a beacon at a civilisation's body, or a second beacon in a "
+                             "system) are tagged spare — Traffic page 'Mark spare' or the civ beacon rule. Loadouts gather idle spares "
+                             "at a spare depot (set it, or automatic: a materials destination system with an autofactory); they stay "
+                             "spare there. Carriers pick up devices that can't fly (beacons) by going to them."),
+    ("1.11.1", "2026-10-03", "Beacons at civilisation event sites: placed as soon as a survey discovers an event (not only on "
+                             "completion). New ways to get one there: a vessel picks up a loose beacon tagged civ/spare and carries "
+                             "it; otherwise one is printed on the system's autofactory (tagged civ) and fetched on a later pass. "
+                             "Vessels hosting your replicant are only used if you allow it."),
+    ("1.11.0", "2026-10-03", "Traffic page: each beacon's audit log read every 10 min, visitor alerts for other replicants, and "
+                             "civilisation contact (civ follow-up requests need a beacon AT the body where you completed an event — "
+                             "Kuiper/Oort beacons don't count) with Place beacon + rule 'Beacons at civilisation event sites'. "
+                             "Defence page + rule: incoming asteroids, propulsors needed vs time left, activate/send/print. "
+                             "Upkeep page + rule: maintenance drones kept on patrol, wear per system. Shop page: open a trade shop, "
+                             "add/remove trades (escrow check), buy from other traders. README roadmap."),
+    ("1.10.1", "2026-10-03", "A print bound for another system is dispatched as soon as it comes out (print.completed → device "
+                             "list refreshed → its delivery or own surge started), instead of waiting for the next loadout pass."),
     ("1.10.0", "2026-10-03", "Print queue 'deliver to': choose a system and a location (or type one) when adding a print. Same system: "
                              "the game's oncomplete travel takes it there; another system: to:<system> + at:<location> tags, the loadout "
                              "pass delivers it and then sends it on to the spot. at: pins keep devices at their spot (sent back if "
