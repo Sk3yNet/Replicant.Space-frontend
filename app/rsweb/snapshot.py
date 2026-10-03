@@ -140,6 +140,7 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "managed_by": await managed_by(db),
         "salvage_state": await db.kv_get("salvage_state", {}) or {},
         "belt_reads": await db.kv_get("belt_reads", {}) or {},
+        "viability": await eng.viability_report(),
         "loadouts_last": await db.kv_get("loadouts_last", {}) or {},
         "fleets": [{"id": f.get("id"), "role": f.get("role"), "mission": (f.get("mission") or {}).get("status")}
                    for f in await eng.fleets()],

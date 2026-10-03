@@ -16,11 +16,22 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.7.2"
+VERSION = "1.9.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.9.1", "2026-10-02", "Fix: print queue Remove sent a 1-based index; dequeue_print is 0-based, so it removed the next item."),
+    ("1.9.0", "2026-10-02", "New rule 'Consolidate stockpiles at the autofactory': stray piles in a system (e.g. contract leftovers) are "
+                            "hauled to its autofactory by a free in-system transport controller (delivery directive), piles with what "
+                            "the factory is waiting for first; open contract locations are left alone. Shown on the Loadouts page."),
+    ("1.8.1", "2026-10-02", "Loadout changes reassign controllers: devices made spare are released by their controller (no more spare "
+                            "tag flip-flopping while a controller still runs them). New 'Tags & controllers check' on the Loadouts "
+                            "page lists any mismatch between tags, controller assignments and the loadouts, and whether the next pass fixes it."),
+    ("1.8.0", "2026-10-02", "Belt viability: tracks search times and site lifetimes per belt (from data already read), shows search ÷ "
+                            "site life, survey drones needed to keep the miners busy and a verdict on each System page and in "
+                            "Diagnostics; 'Belt viability alerts' rule warns once when a belt passes the threshold and names the "
+                            "nearest cheaper belt."),
     ("1.7.2", "2026-10-02", "Diagnostics: a belt with no open sites shows the survey searches under way there (drones, % done, when "
                             "the first new site is due) instead of telling you to start a search."),
     ("1.7.1", "2026-10-02", "Devices missing from GET /devices (e.g. freighters surging between systems) are kept for up to 12 h "

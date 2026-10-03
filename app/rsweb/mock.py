@@ -378,10 +378,10 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             return ok({"status": "enqueued", "queue": list(q), "queue_length": len(q)})
         if cmd == "dequeue_print":
             q = world.queues.setdefault(code, [])
-            i = int(body.get("index") or 0)
-            if not 1 <= i <= len(q):
+            i = int(body.get("index") or 0)       # 0-based, like the game (confirmed by the player)
+            if not 0 <= i < len(q):
                 return ok({"error": "Invalid queue index"}, 400)
-            removed = q.pop(i - 1)
+            removed = q.pop(i)
             return ok({"status": "dequeued", "removed": removed, "queue": list(q), "queue_length": len(q)})
         if cmd == "clear_queue":
             world.queues[code] = []

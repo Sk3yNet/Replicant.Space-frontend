@@ -194,6 +194,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 out.append(d)
         return out
 
+    made_spare: set[str] = set()   # extras this pass: tagged spare and let go by their controller
     # 1-2: count, mark extras as spare, un-spare what's needed
     donors: dict[str, list[dict]] = defaultdict(list)  # type -> spare devices anywhere
     for star, pid in cfg["systems"].items():
@@ -225,6 +226,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 if SPARE in (d.get("tags") or []):
                     tag_remove[d["device_code"]].add(SPARE)
             for d in extra:  # spare: drop its home, so it belongs to no system until it's assigned again
+                made_spare.add(d["device_code"])
                 tags = set(d.get("tags") or [])
                 if SPARE not in tags:
                     tag_add[d["device_code"]].add(SPARE)
@@ -338,6 +340,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             moves[code] = home
             returning.append(code)
 
+    def governed(d: dict) -> bool:
+        """A loadout phase for the system it's in covers its type (so 'spare' there is the loadout's own call)."""
+        ph = phase_of(cfg, star_of(d.get("location")))
+        return bool(ph and (d.get("device_type") or "device") in (ph.get("wants") or {}))
+
     # tag hygiene, for every device (whether or not its type is in a phase):
     #  • run by a controller (working) or a taxi plate → never spare
     #  • spare → no home tag (spare = belongs to no system)
@@ -345,9 +352,23 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         code, tags = d["device_code"], set(d.get("tags") or [])
         if code in moves or SPARE not in tags or SPARE in tag_remove[code]:
             continue
-        if d.get("controller_device_code") or d.get("taxi_mode") == "taxi" or "taxi" in tags:
+        taxi = d.get("taxi_mode") == "taxi" or "taxi" in tags
+        if taxi or is_ferry_ctrl(d.get("controller_device_code")):
+            # a taxi plate, or a ferry's freighter/plate: it belongs to its ferry, never spare
             tag_remove[code].add(SPARE)
             tag_add[code].discard(SPARE)
+            made_spare.discard(code)
+        elif d.get("controller_device_code") and not governed(d):
+            # spare tag left over, but no loadout covers this type here and a controller is using it: it's working
+            tag_remove[code].add(SPARE)
+            tag_add[code].discard(SPARE)
+            made_spare.discard(code)
+        elif d.get("controller_device_code"):
+            # spare (the loadout doesn't need it) but a controller still runs it: let it go, keep it spare
+            made_spare.add(code)
+            homes = {t for t in tags if t.startswith("home:")}
+            if homes:
+                tag_remove[code].update(homes)
         else:
             homes = {t for t in tags if t.startswith("home:")}
             if homes:
@@ -363,6 +384,14 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         # that's in another system: release it so it can work where it is
         if cs and cs != star_of(d.get("location")) and d["device_code"] not in busy and d["device_code"] not in moves:
             releases[d["controller_device_code"]].append(d["device_code"])
+    # a device the loadout no longer wants (made spare) is let go by its controller, so the spare tag sticks and the
+    # device is free to be sent where it's needed (a ferry's freighters and taxi plates stay with their ferry)
+    for code in sorted(made_spare):
+        d = by_code_all.get(code) or {}
+        c = d.get("controller_device_code")
+        if (c and code not in busy and code not in moves and not is_ferry_ctrl(c) and d.get("taxi_mode") != "taxi"
+                and code not in releases.get(c, [])):
+            releases[c].append(code)
 
     # controllers and the devices they run (a controller leaving lets its drones go and drops its directive first)
     managed_map: dict[str, list[str]] = defaultdict(list)
@@ -441,7 +470,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     return {"returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
             "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
-            "by_code": by_code, "managed": managed_map}
+            "by_code": by_code, "managed": managed_map, "made_spare": sorted(made_spare)}
 
 
 ATTACH_CARRIERS = ("surge_plate", "surge_platform", "surge_carrier", "mobile_fleet")
@@ -645,7 +674,12 @@ def describe(p: dict) -> list[str]:
     """Plain-language list of what a pass would do."""
     out = []
     for ctrl, codes in sorted((p.get("releases") or {}).items()):
-        out.append(f"{ctrl} releases {', '.join(codes)} (run from another system)")
+        spare = [c for c in codes if c in set(p.get("made_spare") or [])]
+        other = [c for c in codes if c not in spare]
+        if spare:
+            out.append(f"{ctrl} releases {', '.join(spare)} (no longer in the loadout: spare)")
+        if other:
+            out.append(f"{ctrl} releases {', '.join(other)} (run from another system)")
     homes = Counter(t for code, tags in p["tag_add"].items() if code not in p["moves"] for t in tags if t.startswith("home:"))
     for t, n in sorted(homes.items()):
         out.append(f"tag {n} device(s) {t} (they count for that system wherever they go)")
@@ -851,3 +885,61 @@ def ferry_steps(r: dict) -> list[dict]:
                            "configuration": {"collect": r["collect"], "deliver": r["deliver"]}}, critical=True))
     steps.append(step(f"{code}: launch", f"/devices/{code}", {"command": "launch"}))
     return steps
+
+# --- audit: do tags and controller assignments match the loadouts? ---------------------------------------------
+def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, handoff_drones: set[str] | None = None,
+          replicant_hosts: dict | None = None) -> list[dict]:
+    """Inconsistencies between tags, controller assignments and the loadouts, each with whether the next pass (`p`,
+    the current plan) or the arrival hand-off fixes it. Fleet and ignored devices are left out, like in the planner."""
+    cfg = normalize(cfg)
+    ignore = set(cfg["ignore_tags"])
+    known = set(stars) | {star_of(d.get("location")) for d in devices} | set(cfg["systems"])
+    by = {d.get("device_code"): d for d in devices}
+    loc_of = {d.get("device_code"): d.get("location") for d in devices}
+    releases = {c for codes in (p.get("releases") or {}).values() for c in codes}
+    tag_add, tag_rem = p.get("tag_add") or {}, p.get("tag_remove") or {}
+    moves, arrived = p.get("moves") or {}, set(p.get("arrived") or [])
+    handoff_drones = handoff_drones or set()
+    out: list[dict] = []
+
+    def add(d: dict, issue: str, fixed: bool, how: str) -> None:
+        out.append({"code": d["device_code"], "type": d.get("device_type"), "location": d.get("location"),
+                    "issue": issue, "fixed": fixed, "how": how})
+
+    for d in devices:
+        tags = set(d.get("tags") or [])
+        code = d.get("device_code")
+        if ignore & tags or any(t.startswith("fleet:") for t in tags) or code in (replicant_hosts or {}):
+            continue
+        here = star_of(d.get("location"))
+        homes = sorted(t for t in tags if t.startswith("home:"))
+        ctrl = d.get("controller_device_code")
+        ctrl_dev = by.get(ctrl) or {}
+        ferry = "transport" in (ctrl_dev.get("device_type") or "") and (
+            (ctrl_dev.get("ami_directive") or {}).get("name") == "ferry" or FERRY_TAG in (ctrl_dev.get("tags") or []))
+        taxi = d.get("taxi_mode") == "taxi" or "taxi" in tags
+        if SPARE in tags and ctrl and not ferry and not taxi:
+            add(d, f"tagged spare but still run by {ctrl}", code in releases or SPARE in tag_rem.get(code, []),
+                "released by its controller" if code in releases else "spare removed (still needed)")
+        if SPARE in tags and homes:
+            add(d, f"tagged spare and {', '.join(homes)}", bool(set(homes) & set(tag_rem.get(code, []))) or SPARE in tag_rem.get(code, []),
+                "home tag removed")
+        if len(homes) > 1:
+            add(d, f"{len(homes)} home tags: {', '.join(homes)}", bool(set(homes) & set(tag_rem.get(code, []))), "extra home tags removed")
+        if ctrl and loc_of.get(ctrl) and star_of(loc_of[ctrl]) != here and here and not ferry and not taxi:
+            add(d, f"run by {ctrl} in {star_of(loc_of[ctrl])} from another system", code in releases or code in moves,
+                "released" if code in releases else "moved")
+        if ctrl and homes and not ferry and not taxi and star_of(loc_of.get(ctrl)) and \
+                home_tag(star_of(loc_of.get(ctrl))) not in homes and SPARE not in tags:
+            add(d, f"{homes[0]} but its controller {ctrl} is in {star_of(loc_of.get(ctrl))}",
+                home_tag(star_of(loc_of.get(ctrl))) in tag_add.get(code, []), "re-homed to the controller's system")
+        dest = bound_for(d, known)
+        if dest and here == dest:
+            add(d, f"arrived in {dest} but still tagged to:{dest.lower()}", code in arrived, "arrival step re-homes it")
+        if homes and here and homes[0][5:] != here.lower()[:29] and not dest and SPARE not in tags and not ctrl \
+                and str(d.get("status") or "").startswith(("idle", "stowed")) and not d.get("location_stale"):
+            add(d, f"away from home ({homes[0]}) and idle in {here}", code in moves, "sent home")
+        if code in handoff_drones:
+            add(d, f"idle in its system with no controller", True, "adopted by the system's controller")
+    star_order = {s: i for i, s in enumerate(sorted(known))}
+    return sorted(out, key=lambda x: (x["fixed"], star_order.get(star_of(x["location"]), 0), x["code"]))

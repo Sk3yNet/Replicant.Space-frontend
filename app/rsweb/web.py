@@ -467,7 +467,8 @@ async def print_queue_action(request: Request, code: str, action: str = Form(...
     dev = await fetch_device(request, code)
     cmds = dev.get("available_commands") or []
     if action == "remove":
-        body, label = {"command": "dequeue_print", "index": index}, f"remove #{index} from {code}'s queue"
+        # `index` is the game's 0-based queue position (the panel shows #1 for index 0)
+        body, label = {"command": "dequeue_print", "index": index}, f"remove #{index + 1} from {code}'s queue"
     elif action == "clear":
         body, label = {"command": "clear_queue"}, f"clear {code}'s print queue"
     elif action == "cancel":
@@ -945,7 +946,8 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     qty = {x["code"]: x for x in res["sites_shown"] + res["salvage_shown"]}
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err,
                       updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t,
-                      CATEGORY_LABEL=CATEGORY_LABEL, game_locs=game_locs, qty=qty)
+                      CATEGORY_LABEL=CATEGORY_LABEL, game_locs=game_locs, qty=qty,
+                      viability=[v for v in await request.app.state.worker.automations.viability_report() if v["star"] == star])
 
 
 @router.post("/systems/{star}/resources/refresh", response_class=HTMLResponse)
@@ -1473,7 +1475,8 @@ async def diagnostics(request: Request, user: str = Depends(current_user)):
     snap = await db.kv_get("snapshot_last", None)
     status = await db.kv_get("snapshot_status", {}) or {}
     tmpl = "partials/diagnostics_body.html" if request.headers.get("hx-request") else "diagnostics.html"
-    ctx = {"snap": snap, "diag": (snap or {}).get("diagnosis"), "status": status}
+    ctx = {"snap": snap, "diag": (snap or {}).get("diagnosis"), "status": status,
+           "viability": await request.app.state.worker.automations.viability_report()}
     if tmpl.startswith("partials"):
         return partial(request, tmpl, **ctx)
     return await page(request, user, tmpl, "diagnostics", **ctx)
@@ -1797,7 +1800,18 @@ async def loadout_ctx(request: Request) -> dict:
             if t == lo.SPARE or t.startswith("to:"):
                 tagged[t].append(d)
     rule = (await eng.settings())["rules"].get("loadouts", {})
-    return {"cfg": cfg, "types": types, "plan": p, "lines": lo.describe(p), "stars": stars, "present": present,
+    from .ami_schedule import handoffs, managed_by
+    cat = await db.kv_get("stars", {}) or {}
+    star_cat = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
+    hosts = {r.get("hosted_device_code"): code for code, r in st["replicants"].items() if r.get("hosted_device_code")}
+    pending_handoffs = {h["drone"] for h in handoffs(st["devices"], await managed_by(db), eng.busy_devices(await eng.jobs()),
+                                                      set(p.get("moves") or {}), set(cfg.get("ignore_tags") or []), limit=200)}
+    audit = lo.audit(cfg, st["devices"], star_cat, p, pending_handoffs, hosts)
+    from . import consolidate as co
+    consolidation = [co.describe(x) for x in await eng.consolidate_plan()]
+    consolidate_on = bool(((await eng.settings())["rules"].get("consolidate") or {}).get("enabled"))
+    return {"cfg": cfg, "types": types, "plan": p, "lines": lo.describe(p), "stars": stars, "present": present, "audit": audit,
+            "consolidation": consolidation, "consolidate_on": consolidate_on,
             "active_jobs": [j for j in jobs if j["status"] in ("running", "waiting")],
             "recent_jobs": [j for j in reversed(jobs) if j["status"] not in ("running", "waiting")][:8],
             "orders": await eng.loadout_orders(), "tagged": dict(tagged), "rule": rule,

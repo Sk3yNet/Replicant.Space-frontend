@@ -60,9 +60,28 @@
   </div>
 
   <div class="card">
+    <h2>Tags &amp; controllers check
+      <span class="muted small">{% if not audit %}all consistent ✓{% else %}{{ audit | rejectattr('fixed') | list | length }} open · {{ audit | selectattr('fixed') | list | length }} fixed by the next pass{% endif %}</span></h2>
+    {% if audit %}<table class="small"><tr><th>Device</th><th>Where</th><th>Issue</th><th>Next pass</th></tr>
+      {% for a in audit %}<tr><td class="mono"><a href="/devices/{{ a.code }}">{{ a.code }}</a> <span class="muted">{{ a.type | human }}</span></td>
+        <td>{{ a.location or '—' }}</td><td>{{ a.issue }}</td>
+        <td>{% if a.fixed %}<span class="lv-done">✓ {{ a.how }}</span>{% else %}<span class="lv-alert">not handled</span>{% endif %}</td></tr>{% endfor %}
+    </table>{% else %}<p class="muted small">Every device's home / spare / to: tags and its controller match the loadouts.</p>{% endif %}
+    <p class="muted small">Checks, for every device outside fleets and ignored tags: spare devices still run by a controller; spare devices
+      that still have a home tag; more than one home tag; a home tag that doesn't match the system its controller is in; a controller in
+      another system; arrived devices still tagged <code>to:</code>; idle devices away from home; and idle drones in their system that no
+      controller runs. When you change a loadout, spare devices are released by their controller and moved devices are released before
+      leaving. On arrival they get the new <code>home:</code> tag and are adopted by that system's controller.</p>
+  </div>
+
+  <div class="card">
     <h2>Next pass would…</h2>
     {% if lines %}<ul class="small">{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>
     {% else %}<p class="muted small">Nothing to do.</p>{% endif %}
+    <h3>Consolidation at the autofactory {% if not consolidate_on %}<span class="pill small lv-alert">rule off</span>{% endif %}</h3>
+    {% if consolidation %}<ul class="small">{% for l in consolidation %}<li>{{ l }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted small">Every system's stockpiles are already at its autofactory.</p>{% endif %}
+    <p class="muted small">Turn on <b>Consolidate stockpiles at the autofactory</b> on the Automations page.</p>
     <p class="muted small"><b>Materials:</b> <i>source</i> systems send their biggest stockpile to the <i>nearest destination</i> with
       <b>cargo freighters</b> (surge drive) under a dedicated AMI transport controller — the <i>ferry controller</i>, tagged <code>ferry</code>.
       Each pass it adopts idle freighters in the source and gets a <code>ferry</code> directive; deliveries land at the destination's autofactory,

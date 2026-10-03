@@ -42,6 +42,9 @@
   </table>
 </div>
 
+{% from "partials/viability.html" import viability_table %}
+{% if viability %}<div class="card"><h2>Belt viability <span class="muted small">live, from the app's own records</span></h2>{{ viability_table(viability) }}</div>{% endif %}
+
 {% if diag.failed_jobs or diag.recent_alerts %}
 <div class="card">
   <h2>Recent problems</h2>

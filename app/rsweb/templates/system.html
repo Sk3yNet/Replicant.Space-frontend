@@ -51,6 +51,8 @@
   </div>
 </div>
 
+{% from "partials/viability.html" import viability_table %}
+{% if viability %}<div class="card" style="margin-top:14px"><h2>Belt viability</h2>{{ viability_table(viability) }}</div>{% endif %}
 <div class="grid g2" style="margin-top:14px">
   <div class="card">
     <div class="row between"><h2>Resources available</h2>

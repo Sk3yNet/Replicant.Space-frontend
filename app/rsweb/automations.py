@@ -67,6 +67,19 @@ RULES: list[Rule] = [
          [Option("every_minutes", "int", "Run every (minutes)", 15),
           Option("adopt_arrivals", "bool", "Hand unmanaged drones to their system's controller", True),
           Option("activate_arrivals", "bool", "Set maintenance drones to patrol / activate inactive AMI controllers when they arrive home", True)]),
+    Rule("consolidate", "Consolidate stockpiles at the autofactory",
+         "Every N minutes, in each system with an autofactory: any other stockpile above the minimum is hauled to the "
+         "autofactory's location by a free in-system transport controller (not the ferry, not a fleet's, with transport "
+         "drones or haulers, its last directive finished) — a `delivery` directive for what's in the pile, then launch. "
+         "Piles holding what the autofactory is waiting for go first; piles at an open contract's location are left alone.",
+         [Option("every_minutes", "int", "Run every (minutes)", 20),
+          Option("min_amount", "int", "Ignore piles smaller than (units)", 100)]),
+    Rule("belt_viability", "Belt viability alerts",
+         "Tracks every belt you mine: how long survey searches take there and how long a site lasts. Each open site holds "
+         "one tracking survey drone, so keeping one miner busy takes about 1 + search time / site life survey drones; "
+         "searches get slower every time. When search time passes the threshold below (as % of a site's life), you get an "
+         "alert suggesting the nearest belt that is cheaper to search. Figures are on each System page and in Diagnostics.",
+         [Option("move_at_percent", "int", "Alert when search time exceeds this % of a site's life", 250)]),
     Rule("contracts", "Work on contracts (in-game events)",
          "Every few minutes, for each open event: if what it asks for is at its location and a replicant is there, fulfil it "
          "(POST /locations/<location>/events/<designation>). Optionally have the system's in-system transport controller "
@@ -566,6 +579,8 @@ class AutomationEngine:
             await self.run_fleets()
             await self.rule_contracts()
             await self.refresh_known_belts()
+            await self.track_viability()
+            await self.rule_consolidate()
             await self.rule_reopen_sites()
             await self.rule_salvage()
             await self.rule_restart_idle_miners()
@@ -663,7 +678,8 @@ class AutomationEngine:
         lines = lo.describe(p)
         started = 0
         for ctrl, codes in sorted((p.get("releases") or {}).items()):
-            started += bool(await self.create_job("loadouts", f"loadouts: {ctrl} releases {len(codes)} device(s) in another system", ctrl,
+            why = "no longer in the loadout" if set(codes) <= set(p.get("made_spare") or []) else "in another system / spare"
+            started += bool(await self.create_job("loadouts", f"loadouts: {ctrl} releases {len(codes)} device(s) ({why})", ctrl,
                                                   [lo.step(f"{ctrl}: release {', '.join(codes)}", f"/devices/{ctrl}",
                                                            {"command": "release", "devices": codes})],
                                                   {"devices": codes}, force=manual))
@@ -1433,6 +1449,82 @@ class AutomationEngine:
         if belts:
             await self.belt_open_sites(belts, max_age_minutes=every_minutes)
         return belts
+
+    async def consolidate_plan(self, cfg: dict | None = None) -> list[dict]:
+        from . import consolidate as co
+        from . import gameevents as gev
+        from .shapes import normalize_blueprints, normalize_inventory
+        cfg = cfg or (await self.settings())["rules"].get("consolidate") or {}
+        devices = await self.devices()
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        protected = {e.get("location") for e in (await gev.load(self.db)).values() if e.get("status") == "open" and e.get("location")}
+        return co.plan(devices, inv, bps, self.busy_devices(await self.jobs()), protected, float(cfg.get("min_amount") or 100))
+
+    async def rule_consolidate(self, force: bool = False) -> list[str]:
+        from . import consolidate as co
+        cfg = await self.rule_cfg("consolidate")
+        if not cfg and not force:
+            return []
+        cfg = cfg or (await self.settings())["rules"].get("consolidate") or {}
+        last = _ts(await self.db.kv_get("consolidate_last", None))
+        if not force and last and _now() - last < timedelta(minutes=int(cfg.get("every_minutes") or 20)):
+            return []
+        await self.db.kv_set("consolidate_last", _now().isoformat(timespec="seconds"))
+        done = []
+        for p in await self.consolidate_plan(cfg):
+            if not p.get("controller"):
+                continue
+            job = await self.create_job("consolidate", f"consolidate: {p['collect']} → {p['deliver']} ({p['total']} units)",
+                                        p["controller"], co.steps(p), {"devices": [], "star": p["star"]}, force=force)
+            done.append(co.describe(p) + ("" if job else " (dry run)"))
+        return done
+
+    async def viability_report(self) -> list[dict]:
+        from . import viability as via
+        state = await self.db.kv_get("viability", {}) or {}
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
+        known: dict[str, int] = {}
+        for r in await self.db.fetchall("SELECT key, value FROM kv WHERE key LIKE 'loc:%-BELT-%'"):
+            b = via.belt_of(r["key"][4:])
+            if b and b == r["key"][4:]:
+                idx = [x.get("site_index") for x in (json.loads(r["value"]) or {}).get("resource_sites") or []
+                       if isinstance(x, dict) and x.get("site_index") is not None]
+                known[b] = max(idx) if idx else 0
+        cfg = (await self.settings())["rules"].get("belt_viability") or {}
+        return via.report(state, stars, (cfg.get("move_at_percent") or 250) / 100, known)
+
+    async def track_viability(self) -> list[str]:
+        """Fold this pass's device list and freshly read belt details into the viability record (no API calls);
+        alert once when a belt crosses into 'consider moving'."""
+        from . import viability as via
+        state = await self.db.kv_get("viability", {}) or {}
+        reads = await self.db.kv_get("belt_reads", {}) or {}
+        last = state.get("last_obs") or ""
+        details = {}
+        for b, at in reads.items():
+            if at and at > last:
+                details[b] = await self.db.kv_get(f"loc:{b}", None)
+        now = _now().isoformat(timespec="seconds")
+        state, notes = via.observe(state, await self.devices(), details, now)
+        state["last_obs"] = now
+        alerts: list[str] = []
+        cfg = await self.rule_cfg("belt_viability")
+        if cfg:
+            sent = state.setdefault("alerted", {})
+            for r in await self._viability_rows(state):
+                if r["verdict"] == "consider moving" and sent.get(r["belt"]) != "consider moving":
+                    text = via.alert_text(r)
+                    await self.log("belt_viability", text, "alert", notify=True)
+                    alerts.append(text)
+                sent[r["belt"]] = r["verdict"]
+        await self.db.kv_set("viability", state)
+        return alerts
+
+    async def _viability_rows(self, state: dict) -> list[dict]:
+        await self.db.kv_set("viability", state)   # report() reads the stored state
+        return await self.viability_report()
 
     async def system_belts(self, stars: set[str]) -> dict[str, list[str]]:
         out: dict[str, list[str]] = {}

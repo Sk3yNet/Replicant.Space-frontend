@@ -1,0 +1,21 @@
+{% macro viability_table(rows, show_star=False) %}
+  <table class="small"><tr><th>Belt</th><th class="num" title="median of the last searches">Search</th><th class="num" title="median life of the last closed sites">Site life</th>
+    <th class="num" title="search time ÷ site life">Ratio</th><th class="num">Miners</th><th class="num" title="survey drones at the belt / needed to keep the miners busy">Survey</th>
+    <th class="num" title="newest site number found here">Site #</th><th>Verdict</th></tr>
+  {% for v in rows %}<tr>
+    <td>{{ v.belt }}</td>
+    <td class="num">{{ (v.search_min | round | int ~ ' min') if v.search_min else '—' }}{% if v.trend and v.trend > 1.05 %} <span class="muted" title="latest searches vs the first ones">↑{{ v.trend }}×</span>{% endif %}</td>
+    <td class="num">{{ (v.site_life_min | round | int ~ ' min') if v.site_life_min else '—' }}</td>
+    <td class="num {{ 'lv-alert' if v.verdict == 'consider moving' }}">{{ v.ratio if v.ratio is not none else '—' }}</td>
+    <td class="num">{{ v.mining }}/{{ v.miners }}</td>
+    <td class="num {{ 'lv-alert' if v.survey_short }}">{{ v.survey }}{% if v.survey_needed %} / {{ v.survey_needed }}{% endif %}</td>
+    <td class="num">{{ v.max_index if v.max_index is not none else '—' }}</td>
+    <td><span class="pill small {{ {'consider moving': 'lv-alert', 'watch': 'st-work', 'ok': 'lv-done'}.get(v.verdict, '') }}">{{ v.verdict }}</span>
+      {% if v.move_to %}<div class="small">→ {{ v.move_to.belt }}{% if v.move_to.ly is not none and not v.move_to.same_system %} ({{ v.move_to.ly }} ly){% endif %},
+        {{ ('ratio ' ~ v.move_to.ratio) if v.move_to.ratio is not none else ('site # ' ~ (v.move_to.max_index or 0)) }}</div>{% endif %}
+      {% if v.survey_short and v.verdict != 'consider moving' %}<div class="small muted">+{{ v.survey_short }} survey drone(s) would keep the miners busy</div>{% endif %}</td></tr>
+  {% endfor %}</table>
+  <p class="muted small">Each open site holds one tracking survey drone, so a miner needs about 1 + search ÷ site life survey drones to stay busy.
+    Searches get slower every time on a belt. Figures fill in as searches run and sites close (a few hours of data);
+    "consider moving" is set on the Automations page (Belt viability alerts).</p>
+{% endmacro %}

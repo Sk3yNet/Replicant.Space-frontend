@@ -19,7 +19,8 @@ def has_queue(dev: dict) -> bool:
 
 
 def items(dev: dict) -> list[dict]:
-    """Normalise the waiting items; `index` is 1-based, as `dequeue_print` expects."""
+    """Normalise the waiting items. `index` is the 1-based position shown to the player; `api_index` is the 0-based
+    position `dequeue_print` expects (confirmed live: sending 1 removed the second item)."""
     raw = dev.get("print_queue")
     if raw is None:
         raw = dev.get("queue")
@@ -30,7 +31,7 @@ def items(dev: dict) -> list[dict]:
         if not isinstance(it, dict):
             continue
         notify = it.get("notify") or {}
-        out.append({"index": i, "device_type": it.get("device_type") or "?",
+        out.append({"index": i, "api_index": i - 1, "device_type": it.get("device_type") or "?",
                     "quantity": it.get("quantity"),
                     "notify": notify.get("device") if isinstance(notify, dict) else notify,
                     "tags": it.get("tags") or [], "oncomplete": it.get("oncomplete"),

@@ -34,8 +34,8 @@
           {% if it.oncomplete %}<span class="muted"> · then {{ it.oncomplete.command or it.oncomplete }}</span>{% endif %}</td>
         <td>{% if it.notify %}<a href="/devices/{{ it.notify }}" class="mono">{{ it.notify }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
         {% if not compact %}<td class="num"><button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
-              hx-vals='{"action": "remove", "index": {{ it.index }}}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
-              hx-confirm="Remove #{{ it.index }} {{ it.device_type | human }} from the queue?" title="dequeue_print index {{ it.index }}">Remove</button></td>{% endif %}
+              hx-vals='{"action": "remove", "index": {{ it.api_index }}}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
+              hx-confirm="Remove #{{ it.index }} {{ it.device_type | human }} from the queue?" title="dequeue_print index {{ it.api_index }} (0-based)">Remove</button></td>{% endif %}
       </tr>
       {% endfor %}
     </table>

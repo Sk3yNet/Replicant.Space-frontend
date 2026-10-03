@@ -334,10 +334,13 @@ def test_autofactory_print_queue_panel(client):
     panel = client.get("/devices/AF00BEEF/print-queue", headers=HX).text
     assert panel.count("Remove</button>") == 2 and "ftl beacon" in panel.lower()
     assert "all done in" in panel
-    # remove #1, then clear the rest
-    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "remove", "index": "1"}, headers=HX)
+    # the panel's #1 Remove button sends the game's 0-based index 0, and the right item goes
+    assert '"index": 0}' in panel and 'Remove #1 ' in panel
+    waiting = [x.get("device_type") for x in world.queues["AF00BEEF"]]
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "remove", "index": "0"}, headers=HX)
     assert "result ok" in r.text and r.text.count("Remove</button>") == 1
-    assert '"index": 1' in client.portal.call(client.app.state.db.fetchone, "SELECT body FROM actions ORDER BY id DESC LIMIT 1")["body"]
+    assert '"index": 0' in client.portal.call(client.app.state.db.fetchone, "SELECT body FROM actions ORDER BY id DESC LIMIT 1")["body"]
+    assert [x.get("device_type") for x in world.queues["AF00BEEF"]] == waiting[1:]
     r = client.post("/devices/AF00BEEF/print-queue", data={"action": "clear"}, headers=HX)
     assert "Queue is empty" in r.text
     # finishes, and the panel says idle
@@ -2540,3 +2543,191 @@ def test_live_mined_out_belt_with_searches_running():
     assert any("4 survey drone(s) searching FALQUORYX-BELT-1, 89.2%+ done" in f for f in r["fix"])
     c = next(x for x in d["controllers"] if x["code"] == "F32E05A7")
     assert not any("survey drones must search" in n for n in c["notes"])
+
+
+def _belt(*sites):
+    return {"location_type": "belt", "resource_sites": [
+        {"designation": f"FAL-BELT-1-SITE-{i}", "site_index": i, "resources_remaining_pct": {"carbon": pc}} for i, pc in sites]}
+
+
+def test_viability_observe_and_assess():
+    from rsweb import viability as via
+    st: dict = {}
+    miners = [{"device_code": f"MD{i}", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "mining (carbon)"} for i in range(4)]
+    survey = [{"device_code": f"SD{i}", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "searching",
+               "scan": {"target": "FAL-BELT-1", "started_at": f"2026-10-02T20:3{i}:00+00:00",
+                        "completes_at": f"2026-10-02T21:4{i}:00+00:00"}} for i in range(4)]
+    # 20:05 four fresh sites; searches seen at 20:40; sites gone by 21:25
+    via.observe(st, miners, {"FAL-BELT-1": _belt((76, 100), (77, 100), (78, 100), (79, 100))}, "2026-10-02T20:05:00+00:00")
+    via.observe(st, miners + survey, {}, "2026-10-02T20:40:00+00:00")
+    via.observe(st, miners + survey, {"FAL-BELT-1": _belt((79, 10))}, "2026-10-02T21:05:00+00:00")
+    _, notes = via.observe(st, miners + survey, {"FAL-BELT-1": _belt()}, "2026-10-02T21:25:00+00:00")
+    assert any("SITE-79 closed after ~80 min" in n for n in notes)
+    rec = st["belts"]["FAL-BELT-1"]
+    assert len(rec["searches"]) == 4 and rec["searches"][0]["minutes"] == 70.0 and rec["max_index"] == 79
+    a = via.assess("FAL-BELT-1", rec)
+    assert a["search_min"] == 70.0 and a["site_life_min"] == 60.0      # 76–78 closed at 21:05 (60 min), 79 at 21:25 (80)
+    assert a["ratio"] == 1.17 and a["verdict"] == "watch" and a["miners"] == 4 and a["survey_needed"] == 9
+    assert a["survey"] == 4 and a["survey_short"] == 5
+    # the same search seen twice isn't counted twice
+    via.observe(st, survey, {}, "2026-10-02T21:30:00+00:00")
+    assert len(st["belts"]["FAL-BELT-1"]["searches"]) == 4
+
+
+def test_viability_report_suggests_a_cheaper_belt():
+    from rsweb import viability as via
+    def rec(search, life, idx, miners=4):
+        return {"searches": [{"minutes": search}] * 3,
+                "sites": {f"S{i}": {"first": "2026-10-02T20:00:00+00:00", "closed": f"2026-10-02T20:{life:02d}:00+00:00"} for i in range(3)},
+                "max_index": idx, "miners": miners, "mining": 0, "survey": 4}
+    st = {"belts": {"FAL-BELT-1": rec(59, 20, 120), "ITH-BELT-1": rec(5, 40, 3)}}
+    stars = {"FAL": {"position": {"x": 0, "y": 0, "z": 0}}, "ITH": {"position": {"x": 3, "y": 4, "z": 0}},
+             "AEM": {"position": {"x": 1, "y": 0, "z": 0}}}
+    rows = via.report(st, stars, 2.5, {"AEM-BELT-1": 2})
+    fal = rows[0]
+    assert fal["belt"] == "FAL-BELT-1" and fal["verdict"] == "consider moving" and fal["ratio"] == 2.95
+    assert fal["move_to"]["belt"] == "AEM-BELT-1" and fal["move_to"]["ly"] == 1.0     # nearest cheaper: untracked, site #2
+    text = via.alert_text(fal)
+    assert "2.95× a site's life" in text and "AEM-BELT-1 (1.0 ly)" in text and "~16 survey drones" in text
+    assert next(r for r in rows if r["belt"] == "ITH-BELT-1")["verdict"] == "ok"
+
+
+def test_viability_engine_alerts_once_and_pages_render(client):
+    from rsweb import viability as via
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+    st = {"belts": {"SOL-BELT-1": {"searches": [{"minutes": 90}] * 3, "max_index": 80, "miners": 2, "mining": 0, "survey": 2,
+                                   "sites": {f"S{i}": {"first": "2026-10-02T20:00:00+00:00", "closed": "2026-10-02T20:30:00+00:00"}
+                                             for i in range(3)}}}}
+    client.portal.call(db.kv_set, "viability", st)
+
+    async def enable():
+        s = await eng.settings()
+        s["rules"]["belt_viability"]["enabled"] = True
+        await eng.save_settings(s)
+    client.portal.call(enable)
+    alerts = client.portal.call(eng.track_viability)
+    assert len(alerts) == 1 and "SOL-BELT-1: searches take 3.0× a site's life" in alerts[0]
+    assert client.portal.call(eng.track_viability) == []            # once per crossing
+    page = client.get("/systems/SOL", headers=H).text
+    assert "Belt viability" in page and "consider moving" in page
+    assert "Belt viability alerts" in client.get("/automations", headers=H).text
+
+
+def test_loadout_reduction_releases_spares_from_their_controller():
+    from rsweb import loadouts as lo
+    devs = [{"device_code": "MC1", "device_type": "ami_mining_controller", "location": "FAL-BELT-1", "status": "coordinating",
+             "tags": ["home:fal"], "features": ["ami"]}]
+    devs += [{"device_code": f"MD{i}", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "mining (carbon)",
+              "controller_device_code": "MC1", "tags": ["home:fal"]} for i in range(4)]
+    cfg = {"phases": [{"id": "p", "name": "P", "wants": {"mining_drone": 2}}], "systems": {"FAL": "p"}}
+    p = lo.plan(cfg, devs, [], {}, {"FAL": {}}, {}, set(), [], {})
+    assert len(p["made_spare"]) == 2
+    for code in p["made_spare"]:
+        assert lo.SPARE in p["tag_add"][code] and "home:fal" in p["tag_remove"][code]
+    assert sorted(p["releases"]["MC1"]) == p["made_spare"]
+    assert any("no longer in the loadout" in l for l in lo.describe(p))
+    # audit before the pass: nothing wrong yet (tags not applied); after tags applied but before release: fixed by the pass
+    for d in devs:
+        if d["device_code"] in p["made_spare"]:
+            d["tags"] = ["spare"]
+    p2 = lo.plan(cfg, devs, [], {}, {"FAL": {}}, {}, set(), [], {})
+    assert sorted(p2["releases"]["MC1"]) == p["made_spare"]            # still wanted gone: released, spare kept
+    assert not any(lo.SPARE in (p2["tag_remove"].get(c) or []) for c in p["made_spare"])
+    issues = lo.audit(cfg, devs, {"FAL": {}}, p2)
+    spare_issues = [a for a in issues if "spare but still run by" in a["issue"]]
+    assert len(spare_issues) == 2 and all(a["fixed"] and a["how"] == "released by its controller" for a in spare_issues)
+    # released: no longer flip-flops, nothing left to fix
+    for d in devs:
+        if d["device_code"] in p["made_spare"]:
+            d.pop("controller_device_code")
+    p3 = lo.plan(cfg, devs, [], {}, {"FAL": {}}, {}, set(), [], {})
+    assert not p3["releases"] and not any(lo.SPARE in (p3["tag_remove"].get(c) or []) for c in p["made_spare"])
+    assert [a for a in lo.audit(cfg, devs, {"FAL": {}}, p3) if not a["fixed"]] == []
+
+
+def test_audit_flags_mismatches():
+    from rsweb import loadouts as lo
+    devs = [
+        {"device_code": "MC1", "device_type": "ami_mining_controller", "location": "AEM-BELT-1", "status": "coordinating", "tags": ["home:aem"]},
+        {"device_code": "MD1", "device_type": "mining_drone", "location": "AEM-BELT-1", "status": "mining", "controller_device_code": "MC1",
+         "tags": ["home:fal"]},                                              # home tag ≠ controller's system
+        {"device_code": "MD2", "device_type": "mining_drone", "location": "FAL-1-L4", "status": "idle", "tags": ["home:fal", "home:aem"]},
+        {"device_code": "MD3", "device_type": "mining_drone", "location": "AEM-2-L4", "status": "idle", "tags": ["to:aem"]},   # arrived
+        {"device_code": "FL1", "device_type": "mining_drone", "location": "AEM-2-L4", "status": "idle", "tags": ["fleet:x", "spare", "home:aem"]},
+    ]
+    cfg = {"phases": [], "systems": {}}
+    p = lo.plan(cfg, devs, [], {}, {"AEM": {}, "FAL": {}}, {}, set(), [], {})
+    by = {}
+    for a in lo.audit(cfg, devs, {"AEM": {}, "FAL": {}}, p, {"MD3"}):
+        by.setdefault(a["code"], []).append(a)
+    assert any("controller MC1 is in AEM" in a["issue"] for a in by["MD1"])
+    assert any("2 home tags" in a["issue"] for a in by["MD2"])
+    assert any("still tagged to:aem" in a["issue"] and a["fixed"] for a in by["MD3"])
+    assert "FL1" not in by                                                      # fleets are the fleet's business
+
+
+def test_loadouts_page_shows_the_check(client):
+    page = client.get("/loadouts", headers=H).text
+    assert "Tags &amp; controllers check" in page
+
+
+def _live_c_inventory():
+    import pathlib
+    s = json.loads((pathlib.Path(__file__).parent / "fixtures" / "live_2026-10-02c.json").read_text())
+    return s
+
+
+def test_consolidate_falquoryx_leftovers():
+    """Live 21:40Z: autofactory at FALQUORYX-BELT-1 waiting for resources; 1,235 units left at FALQUORYX-5 by a contract delivery."""
+    from rsweb import consolidate as co
+    from rsweb.snapshot import devices_of
+    snap = _live_c_inventory()
+    devices = [d for d in devices_of(snap) if d["device_code"].startswith(("3E95", "DF45", "41B6", "C582", "374C", "1179"))]
+    assert {d["device_code"] for d in devices} >= {"3E95BD59", "DF451241"}
+    inv = {"FALQUORYX-BELT-1": [{"quantity": 1665, "resource_type": "carbon"}, {"quantity": 36, "resource_type": "volatiles"}, {"quantity": 6284, "resource_type": "structural"},
+                                {"quantity": 68, "resource_type": "rares"}],
+           "FALQUORYX-5": [{"quantity": 127, "resource_type": "conductive"}, {"quantity": 58, "resource_type": "rares"},
+                           {"quantity": 224, "resource_type": "silicates"}, {"quantity": 615, "resource_type": "structural"},
+                           {"quantity": 211, "resource_type": "volatiles"}],
+           "FALQUORYX-2": [{"quantity": 40, "resource_type": "carbon"}]}                         # below the minimum
+    fac = next(d for d in devices if d["device_code"] == "3E95BD59")
+    fac["printing"] = {"device_type": "survey_drone"}
+    bps = {"survey_drone": {"device_type": "survey_drone", "resources": {"volatiles": 100, "rares": 80, "structural": 50}}}
+    plans = co.plan(devices, inv, bps, set())
+    assert len(plans) == 1
+    p = plans[0]
+    assert p["controller"] == "DF451241" and p["collect"] == "FALQUORYX-5" and p["deliver"] == "FALQUORYX-BELT-1"
+    assert p["requirement"] == {"conductive": 127, "rares": 58, "silicates": 224, "structural": 615, "volatiles": 211}
+    assert p["helps"] == {"volatiles": 64, "rares": 12}
+    body = co.steps(p)[0]["body"]
+    assert body == {"command": "set_directive", "directive": "delivery",
+                    "configuration": {"route": {"collect": "FALQUORYX-5", "deliver": "FALQUORYX-BELT-1"}, "requirement": p["requirement"]}}
+    assert "has what the autofactory is waiting for: 12 rares, 64 volatiles" in co.describe(p)
+    # a contract staged there: left alone; controller busy / no drones: reported, not sent
+    assert co.plan(devices, inv, bps, set(), {"FALQUORYX-5"}) == []
+    waiting = co.plan(devices, inv, bps, {"DF451241"})
+    assert waiting[0]["controller"] is None and "no free in-system transport controller" in co.describe(waiting[0])
+
+
+def test_consolidate_rule_creates_job(client):
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+    devices = [
+        {"device_code": "AF1", "device_type": "autofactory", "location": "SOL-BELT-1", "status": "waiting_for_resources",
+         "available_commands": ["enqueue_print"], "tags": []},
+        {"device_code": "TC1", "device_type": "ami_transport_controller", "location": "SOL-BELT-1", "status": "idle",
+         "ami_directive": {"name": "delivery", "_eval_state": "completed:delivered"}, "ami_directive_status": "completed", "tags": []},
+        {"device_code": "TD1", "device_type": "transport_drone", "location": "SOL-BELT-1", "status": "idle", "controller_device_code": "TC1"},
+        {"device_code": "TC2", "device_type": "ami_transport_controller", "location": "SOL-3-L4", "status": "coordinating",
+         "ami_directive": {"name": "ferry"}, "tags": ["ferry"]},
+    ]
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": {"carbon": 500}},
+                                                {"location": "SOL-3", "items": {"structural": 300, "silicates": 50}}])
+    done = client.portal.call(eng.rule_consolidate, True)
+    assert len(done) == 1 and done[0].startswith("TC1 hauls SOL-3 (350 units) → autofactory at SOL-BELT-1")
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "consolidate"][-1]
+    assert job["device"] == "TC1"
+    page = client.get("/loadouts", headers=H).text
+    assert "Consolidation at the autofactory" in page

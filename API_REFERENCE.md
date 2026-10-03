@@ -481,7 +481,7 @@ Command bodies seen:
 {"command": "enqueue_print", "device_type": "mining_drone", "quantity": 1, "tags": ["fleet-713"],
  "controller": "MC91FF22", "oncomplete": {"command": "travel", "destination": "LERNA-BELT-1"}, "flatpack": false}
    // → {"queue": [], "queue_length": 0, "status": "enqueued"}; oncomplete supports travel, start_mining
-{"command": "dequeue_print", "index": 1}
+{"command": "dequeue_print", "index": 0}               // 0-based position in print_queue (confirmed by the player: 1 removed the 2nd item)
 {"command": "clear_queue"}
 ```
 Transport cargo capacities: transport drone 20, transport hauler 80, cargo freighter 500. Carriers: surge plate 1, surge platform 4, surge carrier 9, mobile fleet 36 devices.
@@ -889,3 +889,8 @@ list `resource_sites: []` when no site is open (FALQUORYX-BELT-1 at 21:24Z).
 **Searching survey drones (live 2026-10-02T21:40Z):** status `searching`, with `scan: {target: "<belt>", started_at, completes_at,
 eta_seconds, progress_percent}` — the same field as a body scan. Four searches at FALQUORYX-BELT-1 took ~67 min each (20:39→21:47Z).
 Four mining drones used up four fresh sites (all resources 100%) in roughly 80 minutes (open at 20:05Z, none left by 21:24Z).
+
+**Leftover contract piles (live 2026-10-02T21:40Z):** after a contract `delivery` (transport controller DF451241,
+`_eval_state: completed:delivered`, `ami_directive_status: completed`) the surplus stayed at the event body (FALQUORYX-5: 211 volatiles,
+58 rares, …) while the system's autofactory at FALQUORYX-BELT-1 sat `waiting_for_resources`. `GET /inventory` returns
+`{"locations": [{location, items: [{quantity, resource_type}]}], "next_cursor"}`.
