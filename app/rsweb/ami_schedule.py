@@ -96,8 +96,9 @@ def in_transit(d: dict) -> bool:
 
 
 def reserved(d: dict) -> bool:
-    """Not available to the in-system work rules: a fleet member, or a device on its way to another system."""
-    return bool(fleet_of(d)) or in_transit(d)
+    """Not available to the in-system work rules: a fleet member, a device on its way to another system, or a spare
+    (the loadout let it go so it can be sent where it's needed — re-adopting it here would undo that)."""
+    return bool(fleet_of(d)) or in_transit(d) or "spare" in (d.get("tags") or [])
 
 
 def adoptable(devices: list[dict], ctrl: dict, managed: dict[str, str]) -> list[str]:
@@ -110,7 +111,7 @@ def adoptable(devices: list[dict], ctrl: dict, managed: dict[str, str]) -> list[
                   if want in (d.get("device_type") or "") and d.get("location") == ctrl.get("location")
                   and str(d.get("status", "")).startswith("idle") and d.get("device_code") not in managed
                   and d.get("device_code") != ctrl.get("device_code") and not is_controller(d)
-                  and fleet_of(d) == fleet_of(ctrl) and not in_transit(d)
+                  and fleet_of(d) == fleet_of(ctrl) and not in_transit(d) and "spare" not in (d.get("tags") or [])
                   and not d.get("attached_to_device_code") and not d.get("stowed_in_device_code"))
 
 

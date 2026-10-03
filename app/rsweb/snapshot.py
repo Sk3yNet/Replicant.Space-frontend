@@ -142,6 +142,9 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "belt_reads": await db.kv_get("belt_reads", {}) or {},
         "viability": await eng.viability_report(),
         "loadouts_last": await db.kv_get("loadouts_last", {}) or {},
+        "loadouts": await db.kv_get("loadouts", {}) or {},              # phases, systems, roles, settings — to replay a pass
+        "loadout_orders": await db.kv_get("loadout_orders", []) or [],
+        "stowed_map": await db.kv_get("stowed_map", {}) or {},
         "fleets": [{"id": f.get("id"), "role": f.get("role"), "mission": (f.get("mission") or {}).get("status")}
                    for f in await eng.fleets()],
     }

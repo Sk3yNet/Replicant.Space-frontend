@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.12.1"
+VERSION = "1.12.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.12.2", "2026-10-03", "Moving a system's devices: when no surge carrier is in the system, the nearest free one elsewhere flies in, "
+                             "picks them up and goes back afterwards (seen live: 26 devices in AEMEROTH stuck 'waiting for a carrier'). "
+                             "Spare devices are no longer re-adopted by AMI schedules / Restart idle miners (released drones were being "
+                             "taken back within minutes). The ferry's controller, freighters, drones and taxi plates are never made spare; "
+                             "the beacon at a civilisation's body is never made spare. Snapshots include the loadout config."),
     ("1.12.1", "2026-10-03", "Civilisation beacons: an existing beacon in the system (e.g. the Kuiper/Oort one) is moved to the civ body "
                              "by a vessel before anything is printed; with no free vessel it waits instead of printing a second one. "
                              "Beacons already at a civilisation's body are never taken."),

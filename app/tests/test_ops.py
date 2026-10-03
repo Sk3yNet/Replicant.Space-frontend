@@ -341,3 +341,41 @@ def test_existing_system_beacon_is_moved_to_the_civ_body_before_printing_one():
     assert "needs a vessel with a hold" in tr.placement("X-3", [kb, af], {}, {}, keep={"X-3"})["text"]
     # a beacon already at another civilisation's body is never taken
     assert tr.placement("X-3", [cv, {**kb, "location": "X-2"}, af], {}, {}, keep={"X-3", "X-2"})["kind"] == "factory"
+
+
+# --- moving a system's devices to a new one (snapshot 2026-10-03 19:14) ---------------------------------------
+def test_spares_are_not_readopted_by_controllers():
+    from rsweb import ami_schedule as am
+    ctrl = {"device_code": "MC", "device_type": "ami_mining_controller", "location": "A-BELT-1"}
+    drone = {"device_code": "MD", "device_type": "mining_drone", "location": "A-BELT-1", "status": "idle"}
+    assert am.adoptable([ctrl, drone], ctrl, {}) == ["MD"]
+    assert am.adoptable([ctrl, {**drone, "tags": ["spare"]}], ctrl, {}) == []
+    assert am.reserved({**drone, "tags": ["spare"]})
+
+
+def test_carrier_flies_in_from_another_system_to_move_devices():
+    from rsweb import loadouts as lo
+    stars = {"AEM": {"position": {"x": 0, "y": 0, "z": 0}, "entry_point": "AEM-5-L4"},
+             "LOR": {"position": {"x": 2, "y": 0, "z": 0}}, "FAL": {"position": {"x": 1, "y": 0, "z": 0}}}
+    devices = [
+        {"device_code": "MD1", "device_type": "mining_drone", "location": "AEM-BELT-1", "status": "idle", "tags": ["spare"],
+         "features": ["cruise", "mine", "stow"], "available_commands": ["travel", "stow"]},
+        {"device_code": "PL1", "device_type": "surge_plate", "location": "FAL-1-L4", "status": "idle", "tags": ["home:fal", "taxi"],
+         "attach_capacity": 1, "features": ["surge", "cruise", "attach"], "available_commands": ["attach", "detach", "travel"]},
+        # the ferry's controller and freighter in AEM: never spare, never moved
+        {"device_code": "FC1", "device_type": "ami_transport_controller", "location": "AEM-BELT-1", "status": "coordinating",
+         "tags": ["ferry", "home:aem"]},
+        {"device_code": "FR1", "device_type": "cargo_freighter", "location": "AEM-BELT-1", "status": "collecting",
+         "tags": ["home:aem"], "controller_device_code": "FC1", "features": ["surge"]},
+    ]
+    cfg = {"phases": [{"id": "u", "name": "Unassigned", "wants": {"mining_drone": 0, "ami_transport_controller": 0, "cargo_freighter": 0}},
+                      {"id": "m", "name": "Mining", "wants": {"mining_drone": 1}}],
+           "systems": {"AEM": "u", "LOR": "m"}, "roles": {}}
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
+    assert "FC1" not in p["moves"] and "FR1" not in p["moves"] and "FC1" not in p["tag_add"]
+    dl = next(d for d in p["deliveries"] if d["devices"] == ["MD1"])
+    assert dl["carrier"] == "PL1" and dl["fetch_from"] == "FAL-1-L4" and dl["carrier_loc"] == "AEM-BELT-1"
+    steps = lo.delivery_steps(dl, p["by_code"], stars, True, p["managed"])
+    moves = [s["body"]["destination"] for s in steps if s["path"] == "/devices/PL1" and (s["body"] or {}).get("command") == "travel"]
+    assert moves == ["AEM-5-L4", "AEM-BELT-1", "LOR", "FAL-1-L4"]       # fly in, pick up, deliver, go back
+    assert any("flies in from FAL" in x for x in lo.describe(p))

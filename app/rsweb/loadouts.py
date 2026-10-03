@@ -168,11 +168,12 @@ def is_factory(d: dict) -> bool:
 
 def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict[str, dict], stars: dict[str, dict],
          replicant_hosts: dict[str, str], busy: set[str], orders: list[dict], stowed_map: dict[str, list[str]],
-         only: set[str] | None = None, open_sites: dict[str, int] | None = None) -> dict:
+         only: set[str] | None = None, open_sites: dict[str, int] | None = None, protect: set[str] | None = None) -> dict:
     """Work out what to tag, print and move. `only`: limit shortfall filling to these stars.
     `open_sites`: star → open mining sites on its belts (recently read); a system known to have none gets no extra
     mining drones (they'd sit idle) until sites open."""
     open_sites = open_sites or {}
+    protect = protect or set()   # devices that must stay where they are (e.g. the beacon at a civilisation's body)
     cfg = normalize(cfg)
     s = cfg["settings"]
     ignore = set(cfg["ignore_tags"])
@@ -275,9 +276,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                                                  star_of(d.get("location")) == star,
                                                  d["device_code"] not in busy, _idle(d), -_cap(d), d["device_code"]))
             keep, extra = ranked[:len(have) - surplus], ranked[len(have) - surplus:]
-            pinned = [d for d in extra if d["device_code"] in busy]  # busy (tracking a site, mid-job, out of range): never spare
+            # busy (tracking a site, mid-job, out of range), or part of the ferry (its controller, freighters, taxi plates):
+            # never spare
+            pinned = [d for d in extra if d["device_code"] in busy or d["device_code"] in protect or FERRY_TAG in (d.get("tags") or []) or "taxi" in (d.get("tags") or [])
+                      or d.get("taxi_mode") == "taxi" or is_ferry_ctrl(d.get("controller_device_code"))]
             if pinned:
-                extra = [d for d in extra if d["device_code"] not in busy]
+                extra = [d for d in extra if d not in pinned]
                 keep = keep + pinned
             for d in keep:
                 if SPARE in (d.get("tags") or []):
@@ -542,9 +546,19 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             options = [c for c in carriers if star_of(c.get("location")) == here and c["device_code"] not in used
                        and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")
                        and not (grounded and carry_mode(c, bps) == "attach")]
+            fetched_from = None
             if not options:
+                # none in this system: send the nearest free carrier from another system to pick them up
+                remote = [c for c in carriers if star_of(c.get("location")) not in (here, "") and c["device_code"] not in used
+                          and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")
+                          and not (grounded and carry_mode(c, bps) == "attach") and _free(c, bps, stowed_map) > 0]
+                remote.sort(key=lambda c: (_dist(star_of(c.get("location")), here, pos), -_free(c, bps, stowed_map), c["device_code"]))
+                if remote:
+                    options, fetched_from = remote[:1], remote[0].get("location")
+            if not options:
+                what = "gather at the depot" if set(codes) <= set(gathering) else f"go to {dest}"
                 unmet.append({"star": dest, "type": ", ".join(sorted({by_code[c].get('device_type') for c in codes})),
-                              "n": len(codes), "why": f"waiting for a surge-capable carrier in {here}"})
+                              "n": len(codes), "why": f"waiting for a surge-capable carrier in {here} (or a free one elsewhere) to {what}"})
                 break
             c = max(options, key=lambda c: (_free(c, bps, stowed_map), c["device_code"]))
             room = int(_free(c, bps, stowed_map))
@@ -553,8 +567,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 continue
             load, codes = codes[:room], codes[room:]
             used.add(c["device_code"])
-            deliveries.append({"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
-                               "devices": load, "replicant": replicant_hosts.get(c["device_code"]), "mode": carry_mode(c, bps)})
+            dl = {"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
+                  "devices": load, "replicant": replicant_hosts.get(c["device_code"]), "mode": carry_mode(c, bps)}
+            if fetched_from:
+                # it flies in first and loads where most of them are
+                spots = Counter(by_code[x].get("location") for x in load if can_travel(by_code[x]))
+                dl.update({"fetch_from": fetched_from, "carrier_loc": (spots.most_common(1)[0][0] if spots else by_code[load[0]].get("location"))})
+            deliveries.append(dl)
 
     # pinned devices (`at:<location>`) in their pin's system but somewhere else in it: send them to the spot
     pins = []
@@ -721,6 +740,10 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         return st
 
     steps: list[dict] = []
+    if dl.get("fetch_from"):   # the carrier comes over from another system first
+        steps.append(move(destination(dl["from"], stars), f"fly in from {star_of(dl['fetch_from'])} to pick up", dl["from"]))
+        if cloc and cloc != destination(dl["from"], stars):
+            steps.append(move(cloc, "pick-up point", cloc))
     for code in dl["devices"]:
         steps += leave_steps(by_code.get(code, {}) or {"device_code": code}, managed)
     for code in dl["devices"]:  # mark them as on their way (and not spare any more, unless just being gathered)
@@ -777,8 +800,9 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
             st["wait_device"] = code
         steps.append(st)
         steps.append(rehome_step(code, by_code.get(code, {}), dest_star, keep_spare=code in gathering))
-    if carriers_return and cloc:
-        steps.append(move(cloc, "return", star_of(cloc)))
+    back = dl.get("fetch_from") or cloc
+    if carriers_return and back:
+        steps.append(move(back, "return", star_of(back)))
     return steps
 
 
@@ -838,7 +862,8 @@ def describe(p: dict) -> list[str]:
         out.append(f"{code} ({p['by_code'][code].get('device_type')}) flies to {dest}")
     for dl in p["deliveries"]:
         how = "attaches" if dl.get("mode") == "attach" else "stows"
-        out.append(f"{dl['carrier']} {how} {', '.join(dl['devices'])} and carries them from {dl['from']} to {dl['to']}")
+        came = f" (flies in from {star_of(dl['fetch_from'])} to pick them up at {dl['carrier_loc']})" if dl.get("fetch_from") else ""
+        out.append(f"{dl['carrier']} {how} {', '.join(dl['devices'])} and carries them from {dl['from']} to {dl['to']}{came}")
     if p.get("gathering"):
         out.append(f"gather {len(p['gathering'])} idle spare(s) at the depot {p.get('depot')}: {', '.join(p['gathering'])}")
     for code in p.get("returning") or []:

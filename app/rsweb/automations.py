@@ -697,8 +697,11 @@ class AutomationEngine(OpsRules):
                 busy.add(j.get("device"))
                 busy.update(j.get("meta", {}).get("devices", []))
         from .loadouts import material_routes
+        from .traffic import beacons as _beacons
+        civ_locs = {r["location"] for r in await self.civ_coverage() if r.get("completed") or r.get("open")}
+        protect = {b["device_code"] for b in _beacons(devices) if b.get("location") in civ_locs}
         p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
-                 await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites())
+                 await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites(), protect)
         current = {}
         live: set[str] = set()
         for d in devices:
