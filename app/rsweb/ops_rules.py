@@ -71,7 +71,7 @@ class OpsRules:
                 lines.append(f"{loc}: a beacon is being printed for it — a vessel picks it up once it's out"
                              + ("" if p.get("has_vessel") else f" (needs a vessel with a hold in {row['star']})"))
                 continue
-            if p["kind"] == "none" or (p["kind"] == "print" and not (manual or cfg.get("allow_print", True))) \
+            if p["kind"] in ("none", "wait") or (p["kind"] == "print" and not (manual or cfg.get("allow_print", True))) \
                     or (p["kind"] == "factory" and not (manual or cfg.get("print_beacons", True))):
                 lines.append(f"{loc}: {p['text']}")
                 continue

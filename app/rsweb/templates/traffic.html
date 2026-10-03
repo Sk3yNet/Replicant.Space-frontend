@@ -26,7 +26,7 @@
       <td>{% if r.state == 'needs beacon' %}<span class="lv-alert">needs a beacon</span>{% elif r.state == 'covered' %}✓ covered{% else %}<span class="muted">{{ r.state }}</span>{% endif %}</td>
       <td>{% if not r.beacon %}{% set p = placements[r.location] %}
         <div class="small muted">{{ p.text }}</div>
-        {% if p.kind != 'none' %}<button class="small" hx-post="/traffic/beacon" hx-vals='{"location": "{{ r.location }}"}' hx-target="next .tr-out"
+        {% if p.kind not in ('none', 'wait') %}<button class="small" hx-post="/traffic/beacon" hx-vals='{"location": "{{ r.location }}"}' hx-target="next .tr-out"
           {% if p.kind in ('carry', 'fetch', 'factory') %}hx-confirm="{{ p.text }}?"{% endif %}>Place beacon</button><div class="tr-out"></div>{% endif %}
       {% endif %}</td></tr>{% endfor %}
   </table>

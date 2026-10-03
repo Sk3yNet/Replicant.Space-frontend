@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.12.0"
+VERSION = "1.12.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.12.1", "2026-10-03", "Civilisation beacons: an existing beacon in the system (e.g. the Kuiper/Oort one) is moved to the civ body "
+                             "by a vessel before anything is printed; with no free vessel it waits instead of printing a second one. "
+                             "Beacons already at a civilisation's body are never taken."),
     ("1.12.0", "2026-10-03", "Redundant beacons (a system that already has a beacon at a civilisation's body, or a second beacon in a "
                              "system) are tagged spare — Traffic page 'Mark spare' or the civ beacon rule. Loadouts gather idle spares "
                              "at a spare depot (set it, or automatic: a materials destination system with an autofactory); they stay "

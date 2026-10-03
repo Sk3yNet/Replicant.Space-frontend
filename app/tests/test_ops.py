@@ -322,3 +322,22 @@ def test_redundant_beacon_marked_spare_via_traffic_page(client):
     r = client.post("/traffic/spare-redundant", headers=HX)
     assert "BCN00003 at SOL-OORT marked spare" in r.text
     assert "spare" in next(d for d in world(client).devices if d["device_code"] == "BCN00003")["tags"]
+
+
+def test_existing_system_beacon_is_moved_to_the_civ_body_before_printing_one():
+    cv = {"device_code": "CV", "device_type": "cargo_vessel", "location": "X-BELT-1", "status": "idle", "features": ["cruise"],
+          "stow_capacity": 50, "available_commands": ["travel"]}
+    kb = {"device_code": "KB", "device_type": "ftl_beacon", "location": "X-KUIPER", "status": "monitoring", "tags": ["home:x"],
+          "available_commands": ["deploy", "stow"]}
+    af = {"device_code": "AF", "device_type": "autofactory", "location": "X-3-L4", "available_commands": ["enqueue_print"]}
+    p = tr.placement("X-3", [cv, kb, af], {}, {}, keep={"X-3"})
+    assert p["kind"] == "fetch" and p["beacon"] == "KB" and p["beacon_at"] == "X-KUIPER"
+    steps = tr.placement_steps(p, "X-3")
+    assert [s["body"].get("command") or "tags" for s in steps] == ["travel", "stow", "tags", "travel", "deploy"]
+    # the vessel is busy: wait for it rather than print a second beacon
+    p = tr.placement("X-3", [cv, kb, af], {}, {}, busy={"CV"}, keep={"X-3"})
+    assert p["kind"] == "wait" and "CV busy" in p["text"]
+    # no vessel with a hold at all: say so (a printed beacon couldn't get there either)
+    assert "needs a vessel with a hold" in tr.placement("X-3", [kb, af], {}, {}, keep={"X-3"})["text"]
+    # a beacon already at another civilisation's body is never taken
+    assert tr.placement("X-3", [cv, {**kb, "location": "X-2"}, af], {}, {}, keep={"X-3", "X-2"})["kind"] == "factory"

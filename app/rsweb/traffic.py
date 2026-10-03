@@ -290,16 +290,28 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
                     "replicant": hosts[code][0] if code in hosts else None,
                     "text": f"fly {v.get('device_type', 'vessel').replace('_', ' ')} {code} {v.get('location')} → {loc} "
                             f"and deploy beacon {b}" + moves(code)}
-    loose = [d for d in devices if "beacon" in (d.get("device_type") or "") and star_of(d.get("location")) == star
-             and deployed(d) and d.get("device_code") not in busy and d.get("location") not in keep and d.get("location") != loc
-             and {"civ", "spare"} & set(d.get("tags") or [])]
+    # any beacon of yours in this system that isn't at a civilisation's body can be moved there — it logs the whole
+    # system's traffic wherever it sits, so nothing is lost. Spare / civ-tagged ones first, then e.g. the Kuiper beacon.
+    loose = sorted((d for d in devices if "beacon" in (d.get("device_type") or "") and star_of(d.get("location")) == star
+                    and deployed(d) and d.get("device_code") not in busy and d.get("location") not in keep
+                    and d.get("location") != loc and "stow" in (d.get("available_commands") or ["stow"])),
+                   key=lambda d: (not ({"civ", "spare"} & set(d.get("tags") or [])), d.get("device_code") or ""))
     if loose and vessels:
         b, v = loose[0], vessels[0]
         code = v["device_code"]
         return {"kind": "fetch", "beacon": b["device_code"], "beacon_at": b["location"], "vessel": code, "from": v.get("location"),
-                "replicant": hosts[code][0] if code in hosts else None,
+                "replicant": hosts[code][0] if code in hosts else None, "moves_existing": True,
                 "text": f"{v.get('device_type', 'vessel').replace('_', ' ')} {code} picks up beacon {b['device_code']} at "
                         f"{b['location']}, flies it to {loc} and deploys it" + moves(code)}
+    if loose and not rep_here:
+        # there's a beacon to move but no free vessel with a hold right now: wait rather than print another
+        held = [v for v in devices if is_vessel(v) and star_of(v.get("location")) == star
+                and (use_replicant_vessel or v.get("device_code") not in hosts)]
+        b = loose[0]
+        return {"kind": "wait", "beacon": b["device_code"],
+                "text": f"beacon {b['device_code']} at {b['location']} can be moved there — "
+                        + (f"waiting for a vessel ({', '.join(v['device_code'] for v in held)} busy)" if held else
+                           f"needs a vessel with a hold in {star} to carry it")}
     if rep_here:
         host, rep, r = rep_here
         return {"kind": "print", "replicant": rep, "vessel": host,
