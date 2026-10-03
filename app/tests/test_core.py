@@ -2781,3 +2781,57 @@ def test_loadouts_fill_surveyors_before_miners():
     assert [pr["device_type"] for pr in p["prints"]] == ["survey_drone"] * len(p["prints"])
     assert sum(pr["n"] for pr in p["prints"]) == 3
     assert lo.fill_rank("ami_mining_controller") < lo.fill_rank("survey_drone") < lo.fill_rank("mining_drone") < lo.fill_rank("transport_drone")
+
+
+def test_print_with_a_destination(client):
+    world = client.app.state.api.http._transport.app.state.world
+    world.queues["AF00BEEF"] = []
+    db = client.app.state.db
+    here = next(d for d in world.devices if d["device_code"] == "AF00BEEF")["location"].split("-")[0]
+    # the location list for a system
+    opts = client.get(f"/print-queue/locations?dest_star={here}", headers=HX).text
+    assert f"anywhere in {here}" in opts and f'value="{here}-BELT-1"' in opts
+    # same system + a location: the game's oncomplete sends it, and it's pinned
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "add", "device_type": "survey_drone", "quantity": "1",
+                                                          "dest_star": here, "dest_loc": f"{here}-3"}, headers=HX)
+    assert "result ok" in r.text
+    body = json.loads(client.portal.call(db.fetchone, "SELECT body FROM actions ORDER BY id DESC LIMIT 1")["body"])
+    assert body["oncomplete"] == {"command": "travel", "destination": f"{here}-3"} and body["tags"] == [f"at:{here.lower()}-3"]
+    # another system + a typed location: to: and at: tags, an order counted for that system, no oncomplete
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "add", "device_type": "mining_drone", "quantity": "2",
+                                                          "dest_star": "ITHVALAI", "dest_text": "ithvalai-belt-1"}, headers=HX)
+    body = json.loads(client.portal.call(db.fetchone, "SELECT body FROM actions ORDER BY id DESC LIMIT 1")["body"])
+    assert body["tags"] == ["to:ithvalai", "at:ithvalai-belt-1"] and "oncomplete" not in body
+    orders = [o for o in client.portal.call(db.kv_get, "loadout_orders", []) if o.get("manual")]
+    assert len(orders) == 2 and orders[0]["star"] == "ITHVALAI" and orders[0]["location"] == "ITHVALAI-BELT-1"
+    assert all(x.get("tags") for x in world.queues["AF00BEEF"])
+    # a location outside the chosen system is refused
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "add", "device_type": "mining_drone", "quantity": "1",
+                                                          "dest_star": "ITHVALAI", "dest_text": "AEMEROTH-3"}, headers=HX)
+    assert "AEMEROTH-3 isn&#39;t in ITHVALAI" in r.text
+
+
+def test_pinned_devices_reach_their_spot():
+    from rsweb import loadouts as lo
+    from rsweb.ami_schedule import handoffs
+    devs = [
+        # delivered to ITHVALAI (still tagged to:), pinned to its belt
+        {"device_code": "MD1", "device_type": "mining_drone", "location": "ITHVALAI-2-L4", "status": "idle",
+         "tags": ["to:ithvalai", "at:ithvalai-belt-1"]},
+        # already home, pinned to planet 3, but sitting at the entry point
+        {"device_code": "SD1", "device_type": "survey_drone", "location": "ITHVALAI-2-L4", "status": "idle",
+         "tags": ["home:ithvalai", "at:ithvalai-3"]},
+        {"device_code": "SC1", "device_type": "ami_survey_controller", "location": "ITHVALAI-BELT-1", "status": "idle",
+         "features": ["ami"], "available_commands": ["adopt"], "tags": ["home:ithvalai"]},
+    ]
+    cfg = {"phases": [], "systems": {}}
+    p = lo.plan(cfg, devs, [], {}, {"ITHVALAI": {}}, {}, set(), [], {})
+    assert "MD1" in p["arrived"] and ("SD1", "ITHVALAI-3") in p["pins"]
+    steps = lo.arrived_steps("MD1", devs[0], {})
+    assert steps[-1]["body"] == {"command": "travel", "destination": "ITHVALAI-BELT-1"}
+    assert any("goes to ITHVALAI-3 (pinned there)" in l for l in lo.describe(p))
+    # the survey controller at the belt doesn't pull the pinned drone away
+    assert handoffs(devs, {}, set()) == []
+    # moving to another system drops a pin for the old one
+    rh = lo.rehome_step("SD1", devs[1], "AEMEROTH")
+    assert "at:ithvalai-3" in rh["body"]["configuration"]["remove_tags"]

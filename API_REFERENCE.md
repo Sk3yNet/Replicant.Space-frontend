@@ -897,3 +897,7 @@ Four mining drones used up four fresh sites (all resources 100%) in roughly 80 m
 
 **Moving a working drone (live 2026-10-03):** `travel` on a mining drone that is `mining (…)` fails with "Cannot cruise while
 mining" — even after its controller released it. Wait until it's idle (its site used up) before sending it elsewhere.
+
+**Print with a destination:** `enqueue_print` keeps `tags` on queue items and accepts `oncomplete: {"command": "travel", "destination": "<loc>"}`
+(shown on the queue item). The client uses oncomplete only within the autofactory's own system; other systems go through `to:`/`at:` tags
+and the loadout pass. Tag `at:<location>` = the client's pin (lower-case location code).

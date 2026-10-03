@@ -199,6 +199,9 @@ def handoffs(devices: list[dict], managed: dict[str, str], busy: set[str], skip:
             continue
         cands = [c for c in ctrls if kind_of(c.get("device_type")) == kind and star_of(c.get("location")) == here
                  and fleet_of(c) == fleet_of(d)]
+        pin = next((t[3:].upper() for t in tags if t.startswith("at:") and len(t) > 3), None)
+        if pin:  # pinned to a spot: only a controller already there may adopt it (it isn't flown away)
+            cands = [c for c in cands if c.get("location") == d.get("location") == pin]
         if not cands:
             continue
         c = min(cands, key=lambda c: (c.get("location") != d.get("location"), load.get(c["device_code"], 0), c["device_code"]))

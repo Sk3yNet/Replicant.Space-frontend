@@ -40,6 +40,16 @@ def to_tag(star: str) -> str:
     return "to:" + re.sub(r"[^a-z0-9\-_:.]", "", star.lower())[:29]
 
 
+def at_tag(location: str) -> str:
+    """Pin to an exact location (planet, moon, belt, L-point …): `at:<location>`, lower-case, ≤32 chars."""
+    return "at:" + re.sub(r"[^a-z0-9\-_:.]", "", location.lower())[:29]
+
+
+def pinned_at(d: dict) -> str | None:
+    """The location a device is pinned to (`at:` tag), upper-case like the game's codes."""
+    return next((t[3:].upper() for t in d.get("tags") or [] if t.startswith("at:") and len(t) > 3), None)
+
+
 def home_tag(star: str) -> str:
     return "home:" + re.sub(r"[^a-z0-9\-_:.]", "", star.lower())[:27]
 
@@ -498,13 +508,24 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             deliveries.append({"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
                                "devices": load, "replicant": replicant_hosts.get(c["device_code"]), "mode": carry_mode(c, bps)})
 
+    # pinned devices (`at:<location>`) in their pin's system but somewhere else in it: send them to the spot
+    pins = []
+    for d in pool:
+        code, pin = d["device_code"], pinned_at(d)
+        if (pin and star_of(pin) == star_of(d.get("location")) and d.get("location") != pin and code not in busy
+                and code not in moves and code not in arrived and not bound_for(d, known_stars) and not working(d)
+                and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+                and not d.get("location_stale") and str(d.get("status") or "").startswith(("idle", "inactive"))
+                and "travel" in (d.get("available_commands") or ["travel"])):
+            pins.append((code, pin))
+
     if pool and len(stale) > len(pool) / 2:
         # most positions unknown (e.g. mid-surge snapshot): report, but act on nothing this pass
         unmet.append({"star": "", "type": "data", "n": len(stale),
                       "why": f"{len(stale)} of {len(pool)} devices have no current location — skipping this pass"})
         return {"returning": [], "releases": {}, "report": report, "tag_add": {}, "tag_remove": {}, "moves": {}, "prints": [],
                 "self_moves": [], "deliveries": [], "arrived": [], "unmet": unmet, "by_code": by_code, "stale": len(stale)}
-    return {"returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
+    return {"pins": pins, "returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
             "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
             "by_code": by_code, "managed": managed_map, "made_spare": sorted(made_spare)}
@@ -624,7 +645,8 @@ def self_move_steps(code: str, dest_star: str, stars: dict, d: dict, managed: di
 
 def rehome_step(code: str, d: dict, star: str) -> dict:
     """On arrival: drop the to: tag (and any spare / old home), and make the new system its home."""
-    old = [t for t in d.get("tags") or [] if (t.startswith("home:") and t != home_tag(star)) or t == SPARE]
+    old = [t for t in d.get("tags") or [] if (t.startswith("home:") and t != home_tag(star)) or t == SPARE
+           or (t.startswith("at:") and star_of(t[3:].upper()) != star)]   # a pin for another system no longer applies
     return tag_step(code, [home_tag(star)], sorted(set(old) | {to_tag(star)}))
 
 
@@ -704,7 +726,17 @@ def arrived_steps(code: str, d: dict, stowed_in: dict) -> list[dict]:
         steps.append(st)
     dest = next((t[3:].upper() for t in d.get("tags") or [] if t.startswith("to:")), None) or star_of(d.get("location"))
     steps.append(rehome_step(code, d, dest))
+    pin = pinned_at(d)
+    if pin and star_of(pin) == dest and d.get("location") != pin:
+        steps.append(pin_step(code, pin))   # delivered to the system: now the exact spot it was ordered for
     return steps
+
+
+def pin_step(code: str, loc: str) -> dict:
+    st = step(f"{code} → {loc} (its at: pin)", f"/devices/{code}", {"command": "travel", "destination": loc},
+              wait=["travel.arrived"], match={"destination": loc})
+    st["wait_device"] = code
+    return st
 
 
 def describe(p: dict) -> list[str]:
@@ -739,7 +771,10 @@ def describe(p: dict) -> list[str]:
         d = p["by_code"].get(code, {})
         out.append(f"{code} ({d.get('device_type')}) is away from home in {star_of(d.get('location'))}: send it back to {p['moves'].get(code)}")
     for code in p["arrived"]:
-        out.append(f"{code} has arrived: deploy if stowed, clear its to:/spare tags")
+        out.append(f"{code} has arrived: deploy if stowed, clear its to:/spare tags"
+                   + (f", then go to {pinned_at(p['by_code'][code])}" if pinned_at(p["by_code"].get(code, {})) else ""))
+    for code, loc in p.get("pins") or []:
+        out.append(f"{code} ({p['by_code'][code].get('device_type')}) goes to {loc} (pinned there)")
     for r in p.get("routes") or []:
         bits = []
         if r.get("adopt"):

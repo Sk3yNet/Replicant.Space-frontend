@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.9.3"
+VERSION = "1.10.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.10.0", "2026-10-03", "Print queue 'deliver to': choose a system and a location (or type one) when adding a print. Same system: "
+                             "the game's oncomplete travel takes it there; another system: to:<system> + at:<location> tags, the loadout "
+                             "pass delivers it and then sends it on to the spot. at: pins keep devices at their spot (sent back if "
+                             "they wander; only a controller already there adopts them)."),
     ("1.9.3", "2026-10-03", "Loadouts fill shortfalls by role across all systems — AMI controllers, then survey drones, then mining "
                             "drones, then the rest — so surveyors are queued before the miners that depend on their sites."),
     ("1.9.2", "2026-10-03", "Loadouts: no extra miners sent to (or printed for) a system whose belts have no open sites; spares that "

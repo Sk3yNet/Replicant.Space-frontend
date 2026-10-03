@@ -372,7 +372,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             world.emit("mining.started", d, location=d["location"], resource_type=body.get("resource_type"), site="SOL-BELT-1-SITE-1")
         if cmd == "enqueue_print":
             q = world.queues.setdefault(code, [])
-            q.extend({"device_type": body.get("device_type"), "notify": {"device": None}}
+            q.extend({"device_type": body.get("device_type"), "notify": {"device": None}, "tags": list(body.get("tags") or []),
+                      **({"oncomplete": body["oncomplete"]} if body.get("oncomplete") else {})}
                      for _ in range(int(body.get("quantity") or 1)))
             world.af_next(d)
             return ok({"status": "enqueued", "queue": list(q), "queue_length": len(q)})

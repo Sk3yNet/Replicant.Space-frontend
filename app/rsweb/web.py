@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import hashlib
 import json
@@ -443,9 +444,30 @@ async def print_queue_ctx(request: Request, code: str, dev: dict, outcome: dict 
     remaining, exact = printqueue.remaining_seconds(cur, queue, bps)
     cmds = dev.get("available_commands") or []
     cancel_cmd = next((c for c in ("cancel_print", "cancel") if c in cmds), None)
+    cat = await db.kv_get("stars", {}) or {}
+    st = await load_state(request)
+    known = {star_of(d.get("location")) for d in st["devices"] if d.get("location")}
+    known |= {r["star"] for r in await db.fetchall("SELECT star FROM systems")}
     return {"code": code, "dev": dev, "queue": queue, "cur": cur, "remaining": remaining, "exact": exact,
             "blueprints": sorted(bps.values(), key=lambda b: b.get("device_type", "")), "outcome": outcome,
-            "cancel_cmd": cancel_cmd, "compact": compact}
+            "cancel_cmd": cancel_cmd, "compact": compact, "dest_stars": sorted(k for k in known if k),
+            "here_star": star_of(dev.get("location"))}
+
+
+@router.get("/print-queue/locations", response_class=HTMLResponse)
+async def print_queue_locations(request: Request, dest_star: str = "", user: str = Depends(current_user)):
+    """<option>s for the 'deliver to' location list of a system: planets, moons, belts, Lagrange points, entry point, outer."""
+    star = dest_star.upper()
+    if not star:
+        return HTMLResponse('<option value="">— system first —</option>')
+    t = await system_targets(request.app.state.db, star)
+    keep = ("planet", "moon", "belt", "lagrange", "outer", "object")
+    opts = ['<option value="">anywhere in ' + star + ' (entry point)</option>']
+    for x in t["targets"]:
+        if x["category"] in keep or x["category"].startswith(("planet", "moon")):
+            text = f'{x["code"]} · {CATEGORY_LABEL.get(x["category"], x["category"])}' + (f' — {x["note"]}' if x.get("note") else "")
+            opts.append(f'<option value="{html.escape(x["code"])}">{html.escape(text)}</option>')
+    return HTMLResponse("".join(opts))
 
 
 async def fetch_device(request: Request, code: str) -> dict:
@@ -463,7 +485,8 @@ async def print_queue_panel(request: Request, code: str, compact: int = 0, user:
 
 @router.post("/devices/{code}/print-queue", response_class=HTMLResponse)
 async def print_queue_action(request: Request, code: str, action: str = Form(...), index: int = Form(0),
-                             device_type: str = Form(""), quantity: int = Form(1), user: str = Depends(current_user)):
+                             device_type: str = Form(""), quantity: int = Form(1), dest_star: str = Form(""),
+                             dest_loc: str = Form(""), dest_text: str = Form(""), user: str = Depends(current_user)):
     dev = await fetch_device(request, code)
     cmds = dev.get("available_commands") or []
     if action == "remove":
@@ -477,6 +500,30 @@ async def print_queue_action(request: Request, code: str, action: str = Form(...
     elif action == "add" and device_type:
         q = max(1, quantity)
         body, label = {"command": "enqueue_print", "device_type": device_type, "quantity": q}, f"enqueue {q}× {device_type} on {code}"
+        loc = (dest_text or dest_loc or "").strip().upper()
+        star = (dest_star or "").strip().upper() or star_of(loc)
+        if loc and star_of(loc) != star:
+            dev2 = await fetch_device(request, code)
+            return partial(request, "partials/print_queue.html", **await print_queue_ctx(
+                request, code, dev2, {"label": label, "ok": False, "error": f"{loc} isn't in {star}", "method": "POST",
+                                      "path": f"/devices/{code}", "status": 400, "response": None}))
+        here = star_of(dev.get("location"))
+        tags: list[str] = []
+        if star and star != here:
+            tags.append(lo.to_tag(star))          # the loadout pass delivers it to that system …
+        if loc:
+            tags.append(lo.at_tag(loc))           # … and on to the exact spot (pinned there)
+            if not star or star == here:
+                body["oncomplete"] = {"command": "travel", "destination": loc}   # same system: the game sends it on completion
+        if tags:
+            body["tags"] = tags
+        if star or loc:
+            label += f" → {loc or star}"
+        if star and star != here:
+            orders = await request.app.state.db.kv_get("loadout_orders", []) or []
+            orders += [{"star": star, "device_type": device_type, "factory": code, "at": now_iso(), "manual": True,
+                        **({"location": loc} if loc else {})} for _ in range(q)]
+            await request.app.state.db.kv_set("loadout_orders", orders)
     else:
         return HTMLResponse('<div class="result err">Unknown queue action.</div>', status_code=400)
     outcome = await call_action(request, user, "POST", f"/devices/{code}", body, label)

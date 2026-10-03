@@ -31,7 +31,7 @@
       <tr><td class="num mono">{{ it.index }}</td>
         <td>{{ it.device_type | human }}{% if it.quantity and it.quantity > 1 %} ×{{ it.quantity }}{% endif %}
           {% if it.tags %}<span class="muted"> · {{ it.tags | join(', ') }}</span>{% endif %}
-          {% if it.oncomplete %}<span class="muted"> · then {{ it.oncomplete.command or it.oncomplete }}</span>{% endif %}</td>
+          {% if it.oncomplete %}<span class="muted"> · then {{ it.oncomplete.command or it.oncomplete }}{% if it.oncomplete.destination %} → {{ it.oncomplete.destination }}{% endif %}</span>{% endif %}</td>
         <td>{% if it.notify %}<a href="/devices/{{ it.notify }}" class="mono">{{ it.notify }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
         {% if not compact %}<td class="num"><button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
               hx-vals='{"action": "remove", "index": {{ it.api_index }}}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
@@ -49,10 +49,20 @@
       <input type="hidden" name="action" value="add">
       <select name="device_type">{% for b in blueprints %}<option value="{{ b.device_type }}">{{ b.device_type | human }} ({{ ((b.print_time or 0) / 60) | round(1) }}m)</option>{% endfor %}</select>
       <input type="number" name="quantity" value="1" min="1" style="width:60px" title="quantity">
+      <span class="small muted">deliver to</span>
+      <select name="dest_star" title="system to deliver it to (blank: stays where it's printed)"
+              hx-get="/print-queue/locations" hx-trigger="change" hx-target="next select" hx-swap="innerHTML" hx-include="this">
+        <option value="">— here —</option>{% for st in dest_stars %}<option value="{{ st }}">{{ st }}{{ ' (here)' if st == here_star }}</option>{% endfor %}</select>
+      <select name="dest_loc" title="exact location in that system"><option value="">— system first —</option></select>
+      <input name="dest_text" placeholder="or type a location" size="16" title="e.g. FALQUORYX-3-2 or ITHVALAI-BELT-1">
       <button type="submit">Add to queue</button>
       {% if queue %}<button type="button" class="small ghost" hx-post="/devices/{{ code }}/print-queue" hx-vals='{"action": "clear"}'
               hx-target="#pq-{{ code }}" hx-swap="outerHTML" hx-confirm="Clear all {{ queue | length }} waiting item(s)? The current print keeps going.">Clear queue</button>{% endif %}
     </form>
   {% endif %}
+  {% if not compact %}<p class="muted small">Deliver to: in this system the game sends it there as soon as it's printed (<code>oncomplete: travel</code>).
+    Elsewhere it's tagged <code>to:&lt;system&gt;</code> — the loadout pass flies it there (itself or on a carrier) — and then goes on to the location.
+    A location adds an <code>at:&lt;location&gt;</code> pin: it's brought back there if it wanders, and only a controller already
+    at that spot adopts it. Remove the tag to unpin.</p>{% endif %}
   {% if outcome %}{% with label=outcome.label, method=outcome.method, path=outcome.path, ok=outcome.ok, status=outcome.status, error=outcome.error, response=outcome.response, note=None %}{% include "partials/action_result.html" %}{% endwith %}{% endif %}
 </div>

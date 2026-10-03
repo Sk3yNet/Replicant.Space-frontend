@@ -518,7 +518,7 @@ class AutomationEngine:
                 await self.mark_system_surveyed(star_of(ev.get("location")) or ev.get("star") or "", ev.get("device_code"))
             # a print ordered for a system came out: remember its code until the device list shows it
             if name == "print.completed":
-                from .loadouts import to_tag
+                from .loadouts import at_tag, to_tag
                 orders = await self.db.kv_get("loadout_orders", []) or []
                 tags = [str(t) for t in p.get("tags") or []]
                 hit = next((o for o in orders if not o.get("device_code") and o["device_type"] == p.get("device_type")
@@ -527,6 +527,9 @@ class AutomationEngine:
                     new = p.get("new_device_code")
                     hit["device_code"] = new or "?"
                     await self.db.kv_set("loadout_orders", orders)
+                    if new and hit.get("location") and at_tag(hit["location"]) not in tags:
+                        await self.send("PATCH", f"/devices/{new}", {"configuration": {"add_tags": [at_tag(hit["location"])]}},
+                                        f"auto: pin {new} at {hit['location']}")
                     if new and to_tag(hit["star"]) not in tags:
                         # the game didn't carry the print's tags over: tag it ourselves so it is routed, not re-printed
                         await self.send("PATCH", f"/devices/{new}", {"configuration": {"add_tags": [to_tag(hit["star"])]}},
@@ -716,6 +719,9 @@ class AutomationEngine:
                 if r.get("resend", True):
                     ferries[r["controller"]] = {"configuration": {"collect": r["collect"], "deliver": r["deliver"]}, "at": now_iso()}
         await self.db.kv_set("loadout_ferries", ferries)
+        for code, loc in p.get("pins") or []:
+            started += bool(await self.create_job("loadouts", f"loadouts: {code} → {loc} (pinned)", code,
+                                                  [lo.pin_step(code, loc)], {"devices": [code]}, force=manual))
         for code in p["arrived"]:
             steps = lo.arrived_steps(code, p["by_code"][code], stowed_in)
             if steps:
