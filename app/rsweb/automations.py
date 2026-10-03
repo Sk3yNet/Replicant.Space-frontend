@@ -633,7 +633,7 @@ class AutomationEngine:
                 busy.update(j.get("meta", {}).get("devices", []))
         from .loadouts import material_routes
         p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
-                 await self.db.kv_get("stowed_map", {}) or {}, only)
+                 await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites())
         current = {}
         live: set[str] = set()
         for d in devices:
@@ -1525,6 +1525,19 @@ class AutomationEngine:
     async def _viability_rows(self, state: dict) -> list[dict]:
         await self.db.kv_set("viability", state)   # report() reads the stored state
         return await self.viability_report()
+
+    async def known_open_sites(self, max_age_hours: float = 2) -> dict[str, int]:
+        """star → open mining sites on its belts, from belt details read in the last couple of hours (stars whose belts
+        weren't read recently are left out = unknown)."""
+        from .salvage import open_site_count
+        reads = await self.db.kv_get("belt_reads", {}) or {}
+        out: dict[str, int] = {}
+        for b, at in reads.items():
+            t = _ts(at)
+            if not t or (_now() - t).total_seconds() > max_age_hours * 3600:
+                continue
+            out[star_of(b)] = out.get(star_of(b), 0) + open_site_count(await self.db.kv_get(f"loc:{b}", None))
+        return out
 
     async def system_belts(self, stars: set[str]) -> dict[str, list[str]]:
         out: dict[str, list[str]] = {}

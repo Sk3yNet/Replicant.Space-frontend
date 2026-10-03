@@ -27,6 +27,7 @@ from .automations import SHORT_TIMEOUT, STEP_TIMEOUT, step
 from .shapes import as_amounts
 
 SPARE = "spare"
+WORKING = ("mining", "searching", "tracking", "scanning", "collecting", "depositing", "printing", "repairing")
 DEFAULT_SETTINGS = {"print_missing": True, "need_stock": True, "carriers_return": True,
                     "use_replicant_vessels": False, "every_minutes": 15}
 
@@ -108,14 +109,29 @@ def can_surge(d: dict) -> bool:
     return "surge" in (d.get("features") or []) and "travel" in (d.get("available_commands") or ["travel"])
 
 
+FILL_ORDER = ("controller", "survey_drone", "mining_drone")
+
+
+def fill_rank(device_type: str | None) -> int:
+    """Order in which shortfalls are filled (spares, then prints): AMI controllers, survey drones, mining drones, the rest."""
+    t = device_type or ""
+    for i, k in enumerate(FILL_ORDER):
+        if k in t:
+            return i
+    return len(FILL_ORDER)
+
+
 def is_factory(d: dict) -> bool:
     return "enqueue_print" in (d.get("available_commands") or []) or "autofactory" in (d.get("device_type") or "")
 
 
 def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict[str, dict], stars: dict[str, dict],
          replicant_hosts: dict[str, str], busy: set[str], orders: list[dict], stowed_map: dict[str, list[str]],
-         only: set[str] | None = None) -> dict:
-    """Work out what to tag, print and move. `only`: limit shortfall filling to these stars."""
+         only: set[str] | None = None, open_sites: dict[str, int] | None = None) -> dict:
+    """Work out what to tag, print and move. `only`: limit shortfall filling to these stars.
+    `open_sites`: star → open mining sites on its belts (recently read); a system known to have none gets no extra
+    mining drones (they'd sit idle) until sites open."""
+    open_sites = open_sites or {}
     cfg = normalize(cfg)
     s = cfg["settings"]
     ignore = set(cfg["ignore_tags"])
@@ -252,6 +268,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if spare_now and code not in moves and code not in busy:
             donors[d.get("device_type") or "device"].append(d)
 
+    def working(d: dict) -> bool:
+        """Busy doing something it can't fly away from (seen live: 'Cannot cruise while mining')."""
+        return str(d.get("status") or "").startswith(WORKING)
+
     # 3: fill shortfalls — spares first, then prints
     reserved: dict[str, Counter] = defaultdict(Counter)  # location -> resources set aside in this plan
     prints: list[dict] = []
@@ -286,15 +306,23 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         return best, "queued without enough stock (it waits for materials)"
 
     stars_order = sorted(report, key=lambda st: (-report[st]["short"], st))
-    for star in stars_order:
-        if only and star not in only:
-            continue
-        for row in report[star]["rows"]:
+    # fill by role, across all systems: controllers, then survey drones (they open the sites), then miners, then the rest
+    # — with one autofactory, miners queued ahead of the surveyors would only sit idle at a belt with no open sites
+    work = sorted(((star, row) for star in stars_order if not (only and star not in only) for row in report[star]["rows"]),
+                  key=lambda sr: (fill_rank(sr[1]["type"]), stars_order.index(sr[0])))
+    for star, row in work:
+        if True:
             need = row["short"]
             if need <= 0:
                 continue
-            cands = sorted(donors.get(row["type"], []),
+            if row["type"] == "mining_drone" and open_sites.get(star) == 0:
+                # its belts have no open sites right now: more miners would only sit idle
+                unmet.append({"star": star, "type": row["type"], "n": need,
+                              "why": "waiting — no open mining sites in its belts right now (survey drones must open some first)"})
+                continue
+            cands = sorted((d for d in donors.get(row["type"], []) if star_of(d.get("location")) == star or not working(d)),
                            key=lambda d: (_dist(star_of(d.get("location")), star, pos), not _idle(d), -_cap(d), d["device_code"]))
+            held = [d for d in donors.get(row["type"], []) if d not in cands]
             for d in cands[:need]:
                 donors[row["type"]].remove(d)
                 code = d["device_code"]
@@ -303,6 +331,15 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 moves[code] = star
                 row.setdefault("from_spares", []).append(code)
                 need -= 1
+            if need > 0 and held:
+                # spares that are still working (mining, tracking …): they'll be sent once idle — don't print instead
+                wait = held[:need]
+                for d in wait:
+                    donors[row["type"]].remove(d)
+                row["held_spares"] = [d["device_code"] for d in wait]
+                unmet.append({"star": star, "type": row["type"], "n": len(wait),
+                              "why": f"spare(s) {', '.join(d['device_code'] for d in wait)} still working — sent once idle"})
+                need -= len(wait)
             if need > 0 and s["print_missing"]:
                 f, why = factory_for(row["type"], star)
                 if f:
@@ -939,6 +976,10 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
         if homes and here and homes[0][5:] != here.lower()[:29] and not dest and SPARE not in tags and not ctrl \
                 and str(d.get("status") or "").startswith(("idle", "stowed")) and not d.get("location_stale"):
             add(d, f"away from home ({homes[0]}) and idle in {here}", code in moves, "sent home")
+        cfleet = next((t for t in ctrl_dev.get("tags") or [] if t.startswith("fleet:")), None)
+        if ctrl and cfleet:
+            add(d, f"run by {ctrl}, a controller of {cfleet}, but not in that fleet", False,
+                f"release it from {ctrl}, or add it to the fleet")
         if code in handoff_drones:
             add(d, f"idle in its system with no controller", True, "adopted by the system's controller")
     star_order = {s: i for i, s in enumerate(sorted(known))}

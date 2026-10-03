@@ -894,3 +894,6 @@ Four mining drones used up four fresh sites (all resources 100%) in roughly 80 m
 `_eval_state: completed:delivered`, `ami_directive_status: completed`) the surplus stayed at the event body (FALQUORYX-5: 211 volatiles,
 58 rares, …) while the system's autofactory at FALQUORYX-BELT-1 sat `waiting_for_resources`. `GET /inventory` returns
 `{"locations": [{location, items: [{quantity, resource_type}]}], "next_cursor"}`.
+
+**Moving a working drone (live 2026-10-03):** `travel` on a mining drone that is `mining (…)` fails with "Cannot cruise while
+mining" — even after its controller released it. Wait until it's idle (its site used up) before sending it elsewhere.

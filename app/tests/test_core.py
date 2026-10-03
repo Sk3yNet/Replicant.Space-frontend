@@ -2731,3 +2731,53 @@ def test_consolidate_rule_creates_job(client):
     assert job["device"] == "TC1"
     page = client.get("/loadouts", headers=H).text
     assert "Consolidation at the autofactory" in page
+
+
+def test_loadouts_hold_miners_for_mined_out_systems_and_working_spares():
+    from rsweb import loadouts as lo
+    cfg = {"phases": [{"id": "big", "name": "Mine", "wants": {"mining_drone": 4}}, {"id": "small", "name": "S", "wants": {"mining_drone": 1}}],
+           "systems": {"AEM": "big", "FAL": "small"}}
+    devs = [{"device_code": f"F{i}", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "mining (carbon)",
+             "tags": ["home:fal"]} for i in range(3)]
+    stars = {"AEM": {}, "FAL": {}}
+    # AEM's belts have no open sites: nothing is sent or printed for it
+    p = lo.plan(cfg, devs, [], {}, stars, {}, set(), [], {}, None, {"AEM": 0, "FAL": 5})
+    assert not p["moves"] and not p["prints"]
+    assert any("no open mining sites" in u["why"] for u in p["unmet"] if u["star"] == "AEM")
+    # AEM has sites, FAL's spares are still mining: they wait (no "Cannot cruise while mining"), and nothing is printed instead
+    for d in devs[1:]:
+        d["tags"] = ["spare"]
+    p = lo.plan(cfg, devs, [], {}, stars, {}, set(), [], {}, None, {"AEM": 3, "FAL": 5})
+    assert not p["moves"]
+    assert any("still working — sent once idle" in u["why"] for u in p["unmet"])
+    assert sum(pr["n"] for pr in p["prints"] if pr["device_type"] == "mining_drone") <= 2   # only the 2 not covered by spares
+    # once idle they go
+    for d in devs[1:]:
+        d["status"] = "idle"
+    p = lo.plan(cfg, devs, [], {}, stars, {}, set(), [], {}, None, {"AEM": 3, "FAL": 5})
+    assert sorted(c for c, dest in p["moves"].items() if dest == "AEM") == ["F1", "F2"]
+
+
+def test_audit_flags_non_members_run_by_a_fleet_controller():
+    from rsweb import loadouts as lo
+    devs = [{"device_code": "C1", "device_type": "ami_transport_controller", "location": "FAL-BELT-1", "tags": ["fleet:prospectors"]},
+            {"device_code": "H1", "device_type": "transport_hauler", "location": "FAL-BELT-1", "status": "idle",
+             "controller_device_code": "C1", "tags": ["home:fal"]}]
+    cfg = {"phases": [], "systems": {}}
+    p = lo.plan(cfg, devs, [], {}, {}, {}, set(), [], {})
+    issues = lo.audit(cfg, devs, {}, p)
+    assert any(a["code"] == "H1" and "controller of fleet:prospectors, but not in that fleet" in a["issue"] and not a["fixed"] for a in issues)
+
+
+def test_loadouts_fill_surveyors_before_miners():
+    from rsweb import loadouts as lo
+    cfg = {"phases": [{"id": "m", "name": "Mine", "wants": {"mining_drone": 8, "survey_drone": 10}}],
+           "systems": {"AEM": "m", "ITH": "m"}, "settings": {"need_stock": False}}
+    fac = {"device_code": "AF", "device_type": "autofactory", "location": "FAL-BELT-1", "status": "idle",
+           "available_commands": ["enqueue_print"], "print_queue": [{"device_type": "x"}] * 7}   # 3 slots free
+    bps = [{"device_type": "mining_drone", "resources": {"structural": 1}, "queue_size": 10},
+           {"device_type": "survey_drone", "resources": {"structural": 1}}, {"device_type": "autofactory", "queue_size": 10}]
+    p = lo.plan(cfg, [fac], bps, {"FAL-BELT-1": {"structural": 1000}}, {"AEM": {}, "ITH": {}, "FAL": {}}, {}, set(), [], {})
+    assert [pr["device_type"] for pr in p["prints"]] == ["survey_drone"] * len(p["prints"])
+    assert sum(pr["n"] for pr in p["prints"]) == 3
+    assert lo.fill_rank("ami_mining_controller") < lo.fill_rank("survey_drone") < lo.fill_rank("mining_drone") < lo.fill_rank("transport_drone")

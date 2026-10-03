@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.9.1"
+VERSION = "1.9.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.9.3", "2026-10-03", "Loadouts fill shortfalls by role across all systems — AMI controllers, then survey drones, then mining "
+                            "drones, then the rest — so surveyors are queued before the miners that depend on their sites."),
+    ("1.9.2", "2026-10-03", "Loadouts: no extra miners sent to (or printed for) a system whose belts have no open sites; spares that "
+                            "are still working (mining, tracking …) wait until idle instead of failing 'Cannot cruise while mining', "
+                            "and aren't replaced by prints meanwhile. Tags check flags devices run by a fleet's controller that "
+                            "aren't in the fleet."),
     ("1.9.1", "2026-10-02", "Fix: print queue Remove sent a 1-based index; dequeue_print is 0-based, so it removed the next item."),
     ("1.9.0", "2026-10-02", "New rule 'Consolidate stockpiles at the autofactory': stray piles in a system (e.g. contract leftovers) are "
                             "hauled to its autofactory by a free in-system transport controller (delivery directive), piles with what "
