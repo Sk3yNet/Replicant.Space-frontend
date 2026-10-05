@@ -3180,3 +3180,18 @@ def test_planner_spreads_over_autofactories_at_the_same_stockpile(client):
     r = client.post("/blueprints/queue-plan", data={**data, "_planned": "1"}, headers=HX)
     job = client.portal.call(client.app.state.worker.automations.jobs)[-1]
     assert {s["path"] for s in job["steps"] if s["body"].get("command") == "enqueue_print"} == {"/devices/AF00BEEF"}
+
+
+def test_missions_cannot_target_a_system_with_a_home_fleet(client):
+    eng = client.app.state.worker.automations
+    client.post("/fleets", data={"name": "Scouts", "role": "explore", "home": "SOL"}, headers=HX)
+    client.portal.call(client.app.state.db.kv_set, "loadouts",
+                       {"phases": [{"id": "p", "name": "Outpost", "order": 1, "wants": {"survey_drone": 1}}],
+                        "systems": {"KEL": "p", "ABC": ""}})
+    page = client.get("/fleets", headers=H).text
+    assert "Not available as targets" in page and '<option value="KEL">' not in page
+    r = client.post("/fleets/scouts/mission", data={"targets": "ABC, KEL-BELT-1"}, headers=HX)
+    assert "KEL-BELT-1: has a home fleet" in r.text
+    assert not client.portal.call(eng.fleets)[0].get("mission")
+    r = client.post("/fleets/scouts/mission", data={"targets": "ABC"}, headers=HX)   # no phase: no home fleet
+    assert r.headers.get("HX-Refresh") and client.portal.call(eng.fleets)[0]["mission"]["targets"] == ["ABC"]

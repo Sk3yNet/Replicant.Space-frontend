@@ -102,7 +102,9 @@
             <button type="button" class="small ghost" hx-post="/fleets/traders" hx-swap="none">Refresh traders</button>
           {% else %}
             <input name="targets" placeholder="{{ 'systems to explore, in order: KELMONENT, LORSELAN' if f.role == 'explore' else 'target system, e.g. KELMONENT' }}" style="width:100%" list="fl-stars">
-            <datalist id="fl-stars">{% for s in stars %}<option value="{{ s }}">{% endfor %}</datalist>
+            <datalist id="fl-stars">{% for s in stars if s not in home_systems %}<option value="{{ s }}">{% endfor %}</datalist>
+            {% if home_systems %}<div class="muted small">Not available as targets (they have a home fleet, which is the
+              only one that works them): {{ home_systems | join(', ') }}</div>{% endif %}
           {% endif %}
           {% if f.role == 'mining' %}
             <label style="text-transform:none;display:block"><input type="checkbox" name="deliver"> Ferry to the nearest destination system while mining (otherwise freighters haul it home on recall)</label>

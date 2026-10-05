@@ -122,6 +122,12 @@ def normalize(cfg: Any) -> dict:
     return cfg
 
 
+def home_fleet_systems(cfg: dict) -> set[str]:
+    """Systems with a home fleet (today: a loadout phase). Only the home fleet works such a system: mobile mining and
+    explore missions can't target it, though fleets may pass through or wait there."""
+    return {star for star in cfg["systems"] if phase_of(cfg, star)}
+
+
 def phase_of(cfg: dict, star: str) -> dict | None:
     pid = cfg["systems"].get(star)
     return next((p for p in cfg["phases"] if p["id"] == pid), None) if pid else None

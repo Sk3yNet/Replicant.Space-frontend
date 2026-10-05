@@ -2169,7 +2169,9 @@ async def fleets_ctx(request: Request) -> dict:
     stars_seen = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")})
     traders = await request.app.state.db.kv_get("traders_cache", {}) or {}
     profiles = {t: fl.type_profile(t, bp_by, st["devices"]) for t in types}
-    return {"profiles": profiles, "fleets": items, "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
+    from .loadouts import home_fleet_systems
+    homes = sorted(home_fleet_systems(await eng.loadout_cfg()))
+    return {"profiles": profiles, "home_systems": homes, "fleets": items, "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
             "stars": stars_seen, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
 
 
@@ -2328,6 +2330,14 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         return HTMLResponse('<div class="result err">Give the mission a target system.</div>')
     if f["role"] == "mining":
         m["targets"] = m["targets"][:1]
+    if f["role"] in ("mining", "explore"):
+        from .loadouts import home_fleet_systems
+        homes = home_fleet_systems(await eng.loadout_cfg())
+        taken = [t for t in m["targets"] if star_of(t) in homes]
+        if taken:
+            return HTMLResponse(f'<div class="result err">{html.escape(", ".join(taken))}: '
+                                f'{"has" if len(taken) == 1 else "have"} a home fleet, and only the home fleet works its '
+                                'system. Pick a system without a loadout phase.</div>')
     f["mission"] = m
     await eng.save_fleets(items)
     async with eng.lock:
