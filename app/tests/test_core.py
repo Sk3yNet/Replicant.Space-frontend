@@ -450,7 +450,7 @@ def test_auto_survey_end_to_end_against_mock(client):
     # the vessel arrives at SOL-BELT-1
     arrival = {"id": "9999999999999-0", "event": "travel.arrived", "category": "travel", "device_code": "11ADA230",
                "device_type": "heaven_vessel", "location": "SOL-BELT-1", "star": "SOL",
-               "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"}, "created_at": "2026-09-30T12:00:00+00:00"}
+               "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"}, "created_at": iso(datetime.now(timezone.utc))}
     client.portal.call(client.app.state.worker.handle_event, arrival)
 
     async def finished():
@@ -484,7 +484,7 @@ def test_dry_run_sends_nothing(client):
     r = client.post("/automations/survey-now", data={"vessel": "11ADA230"}, headers=HX)
     assert r.status_code == 200
     arrival = {"id": "8888888888888-0", "event": "travel.arrived", "device_code": "11ADA230", "device_type": "heaven_vessel",
-               "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"}, "created_at": "2026-09-30T12:00:00+00:00"}
+               "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"}, "created_at": iso(datetime.now(timezone.utc))}
     client.portal.call(client.app.state.worker.handle_event, arrival)
     after = client.portal.call(client.app.state.db.fetchone, "SELECT COUNT(*) n FROM actions WHERE user='automation'")
     assert after["n"] == before["n"] == 0
@@ -779,7 +779,7 @@ def test_planner_without_mining_controller_warns():
 def _arrive(client, n):
     client.portal.call(client.app.state.worker.handle_event, {
         "id": f"66666666666{n:02d}-0", "event": "travel.arrived", "device_code": "11ADA230", "device_type": "heaven_vessel",
-        "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"}, "created_at": "2026-09-30T12:00:00+00:00"})
+        "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"}, "created_at": iso(datetime.now(timezone.utc))})
 
 
 def _beacon_jobs(client):
@@ -1194,7 +1194,7 @@ def test_arrival_rules_ignore_in_system_hops_and_surveyed_systems(client):
     def arrive(n, **payload):
         client.portal.call(client.app.state.worker.handle_event, {
             "id": f"77777777777{n:02d}-0", "event": "travel.arrived", "device_code": "TC000001", "device_type": "transport",
-            "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1", **payload}, "created_at": "2026-09-30T12:00:00+00:00"})
+            "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1", **payload}, "created_at": iso(datetime.now(timezone.utc))})
 
     def survey_jobs():
         return [j for j in client.portal.call(eng.jobs) if j["rule"] == "auto_survey"]
@@ -3086,3 +3086,39 @@ def test_replicant_slingshot_link_and_fire(client):
     client.portal.call(client.app.state.worker.sync_devices)
     r = client.post(f"/replicants/{REP}/slingshot", data={"slingshot": "SL000001"}, headers=HX)
     assert "at least 80" in r.text and len(world.teleports) == 1
+
+
+def test_late_events_are_kept_quiet_and_summarised(tmp_path):
+    """A replay after downtime (seen live: ~44 h of events after the 1.12.2 deadlock) raises no notifications
+    and fires no arrival / salvage rules; the first live event after it posts one catch-up note."""
+    async def go():
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        s = Settings(api_token="t", api_base="http://x/v1", db_path=str(tmp_path / "t.sqlite"))
+        w = Worker(s, db, RSClient(s, transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))), Hub())
+        fired = []
+
+        async def arrival(ev):
+            fired.append("arrival")
+
+        async def salvage():
+            fired.append("salvage")
+            return []
+        w.automations.on_arrival, w.automations.rule_salvage = arrival, salvage
+        old = datetime.now(timezone.utc) - timedelta(hours=44)
+        for i in range(5):
+            await w.handle_event(_ev(i, "site.depleted", created=old + timedelta(minutes=i), site=f"SOL-BELT-1-SITE-{i}"))
+        await w.handle_event(_ev(9, "travel.arrived", created=old, destination="SOL-4", origin="ALPHA-1"))
+        assert (await db.fetchone("SELECT COUNT(*) n FROM events"))["n"] == 6        # still in the feed
+        assert await db.fetchall("SELECT * FROM notifications") == []
+        assert fired == []
+        await w.handle_event(_ev(20, "site.depleted", site="SOL-BELT-1-SITE-20"))     # live again
+        titles = [r["title"] for r in await db.fetchall("SELECT title FROM notifications ORDER BY id")]
+        assert len(titles) == 2 and "caught up 6 late event(s) from the last 44 h" in titles[0]
+        assert titles[1] == "Site depleted: SOL-BELT-1-SITE-20"
+        assert fired == ["salvage"]
+        await w.handle_event(_ev(21, "site.depleted", site="SOL-BELT-1-SITE-21"))     # no second note
+        assert (await db.fetchone("SELECT COUNT(*) n FROM notifications"))["n"] == 3
+        await db.close()
+
+    run(go())

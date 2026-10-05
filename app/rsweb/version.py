@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.13.1"
+VERSION = "1.13.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.13.2", "2026-10-05", "Late events (over 30 min old when they arrive, e.g. the stream catching up after the 1.12.2 "
+                             "deadlock: ~44 h of site.depleted alerts at once) go in the Events feed without notifications, and "
+                             "don't fire the arrival or salvage rules; the first live event after them posts one catch-up note."),
     ("1.13.1", "2026-10-05", "Slingshot reworked to match the game docs: fire only a slingshot at the replicant's location "
                              "(teleport to its linked matrix); Link pairs a slingshot with a matrix at the same location (stowed in a "
                              "vessel that then carries it away). Relays: L4/L5 only."),

@@ -29,7 +29,17 @@ def _parse_ts(v: Any) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-BLUEPRINT_HINT_CATEGORIES = {"experience", "progression", "achievement", "story", "event", "trade", "simulation", "message"}
+# An event older than this when it reaches us is a replay (the stream catching up after downtime or a stall):
+# it goes in the feed, but raises no notification and triggers no reactive rules.
+LATE_EVENT = timedelta(minutes=30)
+
+
+def is_late(ev: dict, now: datetime | None = None) -> bool:
+    created = _parse_ts(ev.get("created_at"))
+    return bool(created) and (now or datetime.now(timezone.utc)) - created > LATE_EVENT
+
+
+BLUEPRINT_HINT_CATEGORIES ={"experience", "progression", "achievement", "story", "event", "trade", "simulation", "message"}
 
 
 def may_unlock_blueprint(ev: dict) -> bool:
@@ -156,6 +166,7 @@ class Worker:
         self.stream_state = "stopped"
         self.stream_since: str | None = None
         self._bp_refresh: asyncio.Task | None = None
+        self.late = {"n": 0, "oldest": None}   # late events since the last live one, for the catch-up note
         from .automations import AutomationEngine
         self.automations = AutomationEngine(db, api, hub, self)
 
@@ -218,7 +229,14 @@ class Worker:
         if not is_new:
             return
         await self.apply_timers(ev)
-        n = await notify.add_notification(self.db, ev)
+        late = is_late(ev)
+        if late:
+            self.late["n"] += 1
+            self.late["oldest"] = self.late["oldest"] or ev.get("created_at")
+            n = None
+        else:
+            await self.note_caught_up()
+            n = await notify.add_notification(self.db, ev)
         self.hub.publish("event", ev)
         if n:
             self.hub.publish("notify", n)
@@ -227,9 +245,20 @@ class Worker:
         if may_unlock_blueprint(ev):
             self.request_blueprint_refresh()
         try:
-            await self.automations.on_event(ev)
+            await self.automations.on_event(ev, late=late)
         except Exception:
             log.exception("automations failed on %s", ev.get("event"))
+
+    async def note_caught_up(self) -> None:
+        """First live event after a run of late ones: one note instead of a notification per replayed event."""
+        n, oldest = self.late["n"], self.late["oldest"]
+        if not n:
+            return
+        self.late = {"n": 0, "oldest": None}
+        since = _parse_ts(oldest)
+        span = f" from the last {(datetime.now(timezone.utc) - since).total_seconds() / 3600:.0f} h" if since else ""
+        await self.automations.log("engine", f"caught up {n} late event(s){span}: they're in the Events feed, "
+                                             "without notifications, and arrival / salvage rules skipped them", notify=True)
 
     # --- blueprints ------------------------------------------------------------------
     def request_blueprint_refresh(self, delay: float = 5.0) -> None:
@@ -281,7 +310,8 @@ class Worker:
                 if await self.db.insert_event(ev):
                     added += 1
                     await self.apply_timers(ev)
-                    await notify.add_notification(self.db, ev)
+                    if not is_late(ev):
+                        await notify.add_notification(self.db, ev)
                 cursor = str(ev.get("id"))
             nxt = (body or {}).get("next_cursor")
             if cursor:

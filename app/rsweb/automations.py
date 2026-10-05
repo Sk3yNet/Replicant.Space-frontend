@@ -636,7 +636,9 @@ class AutomationEngine(OpsRules):
                 await self.log(job["rule"], f"cancelled: {job['title']}")
 
     # --- event & tick handling ------------------------------------------------------------------
-    async def on_event(self, ev: dict) -> None:
+    async def on_event(self, ev: dict, late: bool = False) -> None:
+        """`late`: a replayed event (see ingest.LATE_EVENT). It still updates what we know and wakes waiting jobs,
+        but doesn't fire reactive rules: they'd act on a world that has moved on since."""
         async with self.lock:
             name = ev.get("event") or ""
             p = ev.get("payload") or {}
@@ -690,7 +692,7 @@ class AutomationEngine(OpsRules):
                     job["status"] = "running"
                     await self._update(job)
                     await self._advance(job["id"])
-            if name in ("site.depleted", "salvage.depleted"):
+            if name in ("site.depleted", "salvage.depleted") and not late:
                 try:
                     await self.rule_salvage()
                 except Exception as e:
@@ -701,7 +703,7 @@ class AutomationEngine(OpsRules):
             if name == "system.object_detected":
                 asyncio.create_task(self._locked_sync_objects())
             # rules triggered by arrivals
-            if name == "travel.arrived":
+            if name == "travel.arrived" and not late:
                 try:
                     await self.on_arrival(ev)
                 except Exception as e:
