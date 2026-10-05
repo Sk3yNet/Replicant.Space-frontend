@@ -229,7 +229,7 @@ def handoff_steps(h: dict) -> list[dict]:
     return steps
 
 
-WAKE_TYPES = ("maintenance", "ami_")
+WAKE_TYPES = ("maintenance", "ami_", "ftl_relay")
 
 
 def _needs_patrol(d: dict) -> bool:
@@ -258,6 +258,10 @@ def wakeups(devices: list[dict], busy: set[str], done: dict[str, str], skip: set
         maint = "maintenance" in t
         # maintenance drones only need the patrol directive (confirmed in game) — no activate
         activate = not maint and st.startswith("inactive") and "activate" in (d.get("available_commands") or ["activate"])
+        if "relay" in t:   # a relay can only be activated at a Lagrange point (confirmed by Joe); idle or inactive there → on
+            from .placement import is_lagrange
+            activate = (is_lagrange(d.get("location")) and st.startswith(("idle", "inactive"))
+                        and "activate" in (d.get("available_commands") or ["activate"]))
         patrol = maint and _needs_patrol(d) and st.startswith(("idle", "inactive", "stationary"))
         if activate or patrol:
             out.append({"code": code, "activate": activate, "patrol": patrol})

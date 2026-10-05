@@ -168,7 +168,8 @@ def is_factory(d: dict) -> bool:
 
 def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict[str, dict], stars: dict[str, dict],
          replicant_hosts: dict[str, str], busy: set[str], orders: list[dict], stowed_map: dict[str, list[str]],
-         only: set[str] | None = None, open_sites: dict[str, int] | None = None, protect: set[str] | None = None) -> dict:
+         only: set[str] | None = None, open_sites: dict[str, int] | None = None, protect: set[str] | None = None,
+         geo: dict[str, dict] | None = None) -> dict:
     """Work out what to tag, print and move. `only`: limit shortfall filling to these stars.
     `open_sites`: star → open mining sites on its belts (recently read); a system known to have none gets no extra
     mining drones (they'd sit idle) until sites open."""
@@ -271,8 +272,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             inc = incoming[star][t]
             surplus = max(0, len(have) - want)
             # who stays: non-spare first, busy ones (can't be moved anyway), then idle-less-healthy last
-            # away from home (e.g. out delivering) is never picked as spare
+            # away from home (e.g. out delivering) is never picked as spare; already tagged home:<star> beats untagged
+            # (seen live: FALQUORYX's home-tagged autofactory was about to be made spare in favour of a fresh untagged one)
             ranked = sorted(have, key=lambda d: (SPARE in (d.get("tags") or []), not d.get("controller_device_code"),
+                                                 home_tag(star) not in (d.get("tags") or []),
                                                  star_of(d.get("location")) == star,
                                                  d["device_code"] not in busy, _idle(d), -_cap(d), d["device_code"]))
             keep, extra = ranked[:len(have) - surplus], ranked[len(have) - surplus:]
@@ -586,13 +589,39 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 and "travel" in (d.get("available_commands") or ["travel"])):
             pins.append((code, pin))
 
+    # placement: relays at a Lagrange point, mining controllers at the belt, survey controllers at the belt (or the inner
+    # system without one) — see placement.py. Idle ones are sent there; working ones are only reported.
+    from . import placement as pl
+    places, misplaced = [], []
+    pinned_codes = {c for c, _ in pins}
+    geo = dict(geo or {})
+    for d in pool:
+        code, t, loc = d["device_code"], d.get("device_type"), d.get("location")
+        if (not pl.rule_for(t) or not loc or pinned_at(d) or code in moves or code in arrived or code in pinned_codes
+                or bound_for(d, known_stars) or d.get("stowed_in_device_code") or d.get("attached_to_device_code")
+                or d.get("location_stale") or SPARE in (d.get("tags") or [])):
+            continue
+        star = star_of(loc)
+        g = geo.get(star) or geo.setdefault(star, pl.geography(star, devices, None, (stars.get(star) or {}).get("entry_point")))
+        if pl.ok(t, loc, g):
+            continue
+        dest = pl.target(t, g)
+        idle = str(d.get("status") or "").startswith(("idle", "inactive"))
+        if (dest and idle and code not in busy and not working(d) and d.get("in_control_range") is not False
+                and "travel" in (d.get("available_commands") or ["travel"])):
+            places.append((code, dest))
+        else:
+            why = ("no " + ("L4/L5 Lagrange point" if pl.rule_for(t) == "lagrange" else "belt or planet") + f" known in {star} — scan it"
+                   if not dest else f"left alone while it's {d.get('status') or 'busy'}")
+            misplaced.append({"code": code, "type": t, "location": loc, "target": dest, "why": f"{pl.WHY[pl.rule_for(t)]}; {why}"})
+
     if pool and len(stale) > len(pool) / 2:
         # most positions unknown (e.g. mid-surge snapshot): report, but act on nothing this pass
         unmet.append({"star": "", "type": "data", "n": len(stale),
                       "why": f"{len(stale)} of {len(pool)} devices have no current location — skipping this pass"})
         return {"returning": [], "releases": {}, "report": report, "tag_add": {}, "tag_remove": {}, "moves": {}, "prints": [],
                 "self_moves": [], "deliveries": [], "arrived": [], "unmet": unmet, "by_code": by_code, "stale": len(stale)}
-    return {"pins": pins, "returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
+    return {"pins": pins, "places": places, "misplaced": misplaced, "returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
             "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
             "by_code": by_code, "managed": managed_map, "made_spare": sorted(made_spare), "gathering": sorted(gathering),
@@ -828,8 +857,8 @@ def arrived_steps(code: str, d: dict, stowed_in: dict) -> list[dict]:
     return steps
 
 
-def pin_step(code: str, loc: str) -> dict:
-    st = step(f"{code} → {loc} (its at: pin)", f"/devices/{code}", {"command": "travel", "destination": loc},
+def pin_step(code: str, loc: str, why: str = "its at: pin") -> dict:
+    st = step(f"{code} → {loc} ({why})", f"/devices/{code}", {"command": "travel", "destination": loc},
               wait=["travel.arrived"], match={"destination": loc})
     st["wait_device"] = code
     return st
@@ -874,6 +903,11 @@ def describe(p: dict) -> list[str]:
                    + (f", then go to {pinned_at(p['by_code'][code])}" if pinned_at(p["by_code"].get(code, {})) else ""))
     for code, loc in p.get("pins") or []:
         out.append(f"{code} ({p['by_code'][code].get('device_type')}) goes to {loc} (pinned there)")
+    for code, loc in p.get("places") or []:
+        out.append(f"{code} ({p['by_code'][code].get('device_type')}) is at {p['by_code'][code].get('location')}: "
+                   f"move it to {loc}")
+    for m in p.get("misplaced") or []:
+        out.append(f"{m['code']} ({m['type']}) is at {m['location']}: {m['why']}")
     for r in p.get("routes") or []:
         bits = []
         if r.get("adopt"):

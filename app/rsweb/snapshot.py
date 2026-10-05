@@ -145,6 +145,7 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "loadouts": await db.kv_get("loadouts", {}) or {},              # phases, systems, roles, settings — to replay a pass
         "loadout_orders": await db.kv_get("loadout_orders", []) or [],
         "stowed_map": await db.kv_get("stowed_map", {}) or {},
+        "engine": {**eng.engine_status(), **(await db.kv_get("engine_tick", {}) or {})},   # is the tick loop alive?
         "fleets": [{"id": f.get("id"), "role": f.get("role"), "mission": (f.get("mission") or {}).get("status")}
                    for f in await eng.fleets()],
     }
@@ -178,6 +179,21 @@ def devices_of(snap: dict) -> list[dict]:
             out.extend((c.get("body") or {}).get("devices") or [])
     details = {p.split("/")[2]: b for p, b in _bodies(snap, "/devices/").items() if p.count("/") == 2 and isinstance(b, dict)}
     return [{**d, **details.get(d.get("device_code"), {})} for d in out]
+
+
+def engine_headline(snap: dict) -> list[str]:
+    """The automation engine is stuck (lock held for long) or its ticks stopped finishing."""
+    eng = (snap.get("app") or {}).get("engine") or {}
+    cap = _ts(snap.get("captured_at"))
+    out = []
+    if eng.get("lock_held") and (eng.get("held_seconds") or 0) > 600:
+        out.append(f"AUTOMATIONS STALLED: engine busy for {eng['held_seconds'] // 60} min (held by {eng.get('held_by') or '?'}, "
+                   f"stage {eng.get('stage') or '-'}) — restart the app")
+    fin = _ts(eng.get("finished_at"))
+    if cap and fin and (cap - fin).total_seconds() > 900 and not out:
+        out.append(f"automation ticks haven't finished since {fin.isoformat(timespec='seconds')}"
+                   + (f" — last error: {eng['error']}" if eng.get("error") else ""))
+    return out
 
 
 def diagnose(snap: dict) -> dict:
@@ -390,7 +406,7 @@ def diagnose(snap: dict) -> dict:
                     "error": j.get("error") or next((s.get("error") for s in j.get("steps") or [] if s.get("error")), None)}
                    for j in app.get("jobs") or [] if j.get("status") in ("failed", "stalled")][-10:]
     n_idle = sum(1 for r in drone_rows if r["state"] != "mining")
-    headline = []
+    headline = engine_headline(snap)
     if drone_rows:
         headline.append(f"{len(drone_rows) - n_idle} of {len(drone_rows)} mining drones are mining")
     no_sites = sorted({r["belt"]["belt"] for r in drone_rows if r["state"] != "mining" and r["belt"].get("open_sites") == 0})

@@ -2869,3 +2869,220 @@ def test_new_print_bound_elsewhere_is_dispatched_at_once(client):
     job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "loadouts"][-1]
     assert job["title"].endswith("(just printed)") and job["device"] == "PL1"
     assert client.portal.call(db.kv_get, "dispatch_pending", {}) == {}
+
+
+# --- 1.12.3: engine lock deadlock, already-deployed, home-tagged keepers -----------------------------------------------
+
+def test_fleet_control_on_a_stalled_mission_does_not_deadlock(client):
+    """Live 2026-10-04: Stop/Resume/End on a stalled fleet took the engine lock, then cancel() took it again —
+    the request hung holding it and every tick and event waited behind it for ~43 h."""
+    import threading
+    eng = client.app.state.worker.automations
+    fleet, devices = _fleet_world()
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(eng.save_jobs, [{"id": "fleets-1-0", "rule": "fleets", "title": "x: deploy", "device": None,
+                                        "steps": [], "idx": 0, "status": "running", "created_at": "2026-10-04T02:54:07+00:00",
+                                        "meta": {}}])
+    fleet["mission"] = {"status": "stalled", "phase": "deploy", "targets": ["AEM"], "job": "fleets-1-0", "log": []}
+    client.portal.call(eng.save_fleets, [fleet])
+    out = {}
+    t = threading.Thread(target=lambda: out.setdefault("r", client.post(f"/fleets/{fleet['id']}/control",
+                                                                          data={"action": "stop"}, headers=HX)), daemon=True)
+    t.start()
+    t.join(15)
+    assert "r" in out, "fleet control hung (engine lock deadlock)"
+    assert not eng.lock.locked()
+    assert next(j for j in client.portal.call(eng.jobs) if j["id"] == "fleets-1-0")["status"] == "cancelled"
+    assert client.portal.call(eng.fleets)[0]["mission"]["status"] == "stopped"
+    # the reported follow-on symptom: adding a device to a fleet hung too (it waits for the same lock)
+    code = next(d["device_code"] for d in devices if "fleet:" not in " ".join(d.get("tags") or []))
+    out2 = {}
+    t = threading.Thread(target=lambda: out2.setdefault("r", client.post(f"/fleets/{fleet['id']}/members",
+                                                                           data={"add": code}, headers=HX)), daemon=True)
+    t.start()
+    t.join(15)
+    assert "r" in out2 and any("membership" in j["title"] for j in client.portal.call(eng.jobs))
+
+
+def test_engine_lock_is_reentrant_and_watchdog_alerts():
+    from rsweb.automations import EngineLock
+    import rsweb.automations as au
+
+    async def go():
+        lk = EngineLock()
+        async with lk:
+            async with lk:          # same task: no deadlock
+                assert lk.locked() and lk.holder
+            assert lk.locked()
+        assert not lk.locked() and lk.holder is None
+        # another task still waits for it
+        order = []
+
+        async def other():
+            async with lk:
+                order.append("other")
+        async with lk:
+            t = asyncio.create_task(other())
+            await asyncio.sleep(0.01)
+            order.append("first")
+        await t
+        assert order == ["first", "other"]
+
+    run(go())
+
+    class Eng(au.AutomationEngine):
+        def __init__(self):
+            super().__init__(None, None, None, None)
+            self.logged = []
+
+        async def log(self, rule, text, level="info", notify=False):
+            self.logged.append((level, text))
+
+    async def wd():
+        e = Eng()
+        await e.lock.acquire()
+        e.lock.since -= au.LOCK_ALERT_SECONDS + 5
+        e.stage = "run_fleets"
+        await e.watchdog()
+        await e.watchdog()                       # alerts once per stall
+        assert len(e.logged) == 1 and e.logged[0][0] == "alert" and "run_fleets" in e.logged[0][1]
+        e.lock.release()
+        await e.watchdog()
+        assert "running again" in e.logged[-1][1]
+
+    run(wd())
+
+
+def test_deploy_already_deployed_counts_as_done(client):
+    eng = client.app.state.worker.automations
+    from rsweb.automations import step
+    from rsweb.api import ApiError
+
+    async def go():
+        real = eng.send
+
+        async def fake(method, path, body, label):
+            if (body or {}).get("command") == "deploy":
+                return False, None, "Device is already deployed"
+            return await real(method, path, body, label)
+        eng.send = fake
+        steps = [step(f"deploy D{i}", f"/devices/D{i}", {"command": "deploy"}, wait=["device.deployed"]) for i in range(4)]
+        async with eng.lock:
+            job = await eng.create_job("fleets", "Surveyors: deploy", None, steps, force=True)
+        return next(j for j in await eng.jobs() if j["id"] == job["id"])
+
+    j = client.portal.call(go)
+    assert j["status"] == "done" and all(s["status"] == "done" for s in j["steps"])
+
+
+def test_loadout_surplus_keeps_the_home_tagged_device():
+    """Live 2026-10-05: FALQUORYX wants 1 autofactory and has 3; the one tagged home:falquoryx was being made spare."""
+    from rsweb import loadouts as lo
+    cfg, devices, bps, inv, stars = _lo_world()
+    cfg["phases"][0]["wants"]["autofactory"] = 1
+    for code in ("AF0", "AF1"):
+        devices.append({**next(d for d in devices if d["device_code"] == "AF"), "device_code": code})
+    next(d for d in devices if d["device_code"] == "AF1")["tags"] = ["home:aaa"]
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    row = next(r for r in p["report"]["AAA"]["rows"] if r["type"] == "autofactory")
+    assert row["surplus"] == 2 and "AF1" not in row["spare"]
+
+
+# --- 1.13.0: placement (relays at Lagrange points, controllers at the belt), slingshot ---------------------------------
+
+def test_placement_rules():
+    from rsweb import placement as pl
+    scan = {"entry_point": "AAA-5-L4", "asteroid_belt": {"belts": [{"designation": "AAA-BELT-1"}]},
+            "planets": [{"designation": "AAA-5", "orbital_distance_au": 1.2}, {"designation": "AAA-1", "orbital_distance_au": 0.1}]}
+    g = pl.geography("AAA", [], scan, "AAA-5-L4")
+    assert g["belts"] == ["AAA-BELT-1"] and g["lagrange"][0] == "AAA-5-L4" and g["inner"][0] == "AAA-1"
+    assert pl.ok("ftl_relay", "AAA-5-L4", g) and not pl.ok("ftl_relay", "AAA-BELT-1", g) and not pl.ok("ftl_relay", "AAA-5", g)
+    assert pl.target("ftl_relay", g) == "AAA-5-L4"
+    assert pl.ok("ami_mining_controller", "AAA-BELT-1", g) and not pl.ok("ami_mining_controller", "AAA-5-L4", g)
+    assert pl.target("ami_mining_controller", g) == "AAA-BELT-1"
+    assert not pl.ok("ami_survey_controller", "AAA-1", g)            # there is a belt: it goes there
+    nobelt = pl.geography("BBB", [], {"planets": [{"designation": "BBB-2", "orbital_distance_au": 0.3},
+                                                   {"designation": "BBB-1", "orbital_distance_au": 0.1}]}, "BBB-2-L4")
+    assert pl.target("ami_survey_controller", nobelt) == "BBB-1"
+    assert pl.ok("ami_survey_controller", "BBB-2-L4", nobelt) and not pl.ok("ami_survey_controller", "BBB-KUIPER", nobelt)
+    assert pl.target("ami_mining_controller", nobelt) is None
+    assert pl.ok("transport_drone", "BBB-KUIPER", nobelt)            # no rule for other types
+
+
+def test_loadout_plan_places_relays_and_controllers():
+    from rsweb import loadouts as lo
+    from rsweb import placement as pl
+    cfg, devices, bps, inv, stars = _lo_world()
+    devices.append({"device_code": "RL", "device_type": "ftl_relay", "location": "AAA-BELT-1", "status": "idle",
+                    "features": ["cruise", "relay"], "available_commands": ["travel", "activate"], "operational_capacity": 100.0})
+    devices.append({"device_code": "RL2", "device_type": "ftl_relay", "location": "AAA-3", "status": "relaying",
+                    "features": ["cruise", "relay"], "available_commands": ["travel", "activate"], "operational_capacity": 100.0})
+    devices.append({"device_code": "MC2", "device_type": "ami_mining_controller", "location": "BBB-5-L4", "status": "idle",
+                    "features": ["cruise", "ami"], "available_commands": ["travel"], "operational_capacity": 100.0})
+    geo = {"AAA": pl.geography("AAA", devices, None, "AAA-OORT"),
+           "BBB": pl.geography("BBB", devices, {"asteroid_belt": {"belts": [{"designation": "BBB-BELT-1"}]}}, "BBB-5-L4")}
+    geo["AAA"]["lagrange"] = ["AAA-3-L4"]
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {}, geo=geo)
+    places = dict(p["places"])
+    assert places.get("RL") == "AAA-3-L4"
+    assert "RL2" not in places and any(m["code"] == "RL2" for m in p["misplaced"])   # relaying: only reported
+    assert places.get("MC2") == "BBB-BELT-1"
+    assert "AC" not in places                                                      # already at the belt
+    assert any("RL" in line and "AAA-3-L4" in line for line in lo.describe(p))
+
+
+def test_relay_is_activated_only_at_a_lagrange_point():
+    from rsweb.ami_schedule import wakeups
+    devs = [{"device_code": "R1", "device_type": "ftl_relay", "location": "AAA-3-L4", "status": "idle", "tags": ["home:aaa"],
+             "available_commands": ["activate", "travel"]},
+            {"device_code": "R2", "device_type": "ftl_relay", "location": "AAA-BELT-1", "status": "idle", "tags": ["home:aaa"],
+             "available_commands": ["activate", "travel"]},
+            {"device_code": "R3", "device_type": "ftl_relay", "location": "AAA-4-L5", "status": "relaying", "tags": [],
+             "available_commands": ["activate"]}]
+    w = {x["code"]: x for x in wakeups(devs, set(), {})}
+    assert w.get("R1", {}).get("activate") and "R2" not in w and "R3" not in w
+
+
+def test_explore_fleet_takes_survey_controller_to_the_belt():
+    from rsweb import fleets as fl
+    fleet = {"id": "s", "name": "S", "role": "explore", "home": "AAA"}
+    devs = [{"device_code": "SC", "device_type": "ami_survey_controller", "location": "BBB-5-L4", "status": "idle", "tags": ["fleet:s"]},
+            {"device_code": "SD", "device_type": "survey_drone", "location": "BBB-5-L4", "status": "idle", "tags": ["fleet:s"]}]
+    steps, _ = fl.explore_work_steps(fleet, devs, "BBB-BELT-1")
+    bodies = [(st["path"], st["body"]) for st in steps]
+    assert bodies[0] == ("/devices/SC", {"command": "travel", "destination": "BBB-BELT-1"})
+    assert ("/devices/SD", {"command": "travel", "destination": "BBB-BELT-1"}) in bodies
+    i_adopt = next(i for i, b in enumerate(bodies) if (b[1] or {}).get("command") == "adopt")
+    assert all(st["method"] == "WAIT" for st in steps[2:i_adopt])
+
+
+def test_replicant_slingshot_link_and_fire(client):
+    """Docs /docs/ftl-slingshots/: link to an empty matrix at the slingshot's location (PATCH linked_device); the
+    replicant fires the slingshot where it is (teleport target = slingshot); ≥80 % capacity, 5 % after."""
+    from rsweb.mock import REP
+    world = client.app.state.api.http._transport.app.state.world
+    sl = {"device_code": "SL000001", "device_type": "ftl_slingshot", "location": "SOL-BELT-1", "status": "idle",
+          "features": ["slingshot", "stow"], "operational_capacity": 100.0, "linked_device": None, "replicant_code": REP,
+          "available_commands": ["deploy", "stow"]}
+    far = {**sl, "device_code": "SL000002", "location": "SOL-3-L4", "linked_device": "XX000009"}
+    mx = {"device_code": "MX000001", "device_type": "empty_replicant_matrix", "location": "SOL-BELT-1", "status": "idle",
+          "features": ["matrix"], "operational_capacity": 100.0, "replicant_code": REP, "available_commands": ["deploy"]}
+    mx2 = {**mx, "device_code": "MX000002", "location": "SOL-5"}
+    world.devices += [sl, far, mx, mx2]
+    client.portal.call(client.app.state.worker.sync_devices)
+    page = client.get(f"/replicants/{REP}", headers=H).text
+    assert "FTL slingshot" in page and "SL000001" in page and 'value="MX000001"' in page and 'value="MX000002"' not in page
+    r = client.post(f"/replicants/{REP}/slingshot", data={"slingshot": "SL000001"}, headers=HX)
+    assert "linked to a matrix yet" in r.text and not world.teleports
+    r = client.post(f"/replicants/{REP}/slingshot", data={"slingshot": "SL000002"}, headers=HX)
+    assert "go to the slingshot first" in r.text and not world.teleports
+    r = client.post("/slingshots/SL000001/link", data={"matrix": "MX000002"}, headers=HX)
+    assert "must be together" in r.text and not sl["linked_device"]
+    client.post("/slingshots/SL000001/link", data={"matrix": "MX000001"}, headers=HX)
+    assert sl["linked_device"] == "MX000001"
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.post(f"/replicants/{REP}/slingshot", data={"slingshot": "SL000001"}, headers=HX)
+    assert world.teleports == [(REP, "SL000001")]
+    client.portal.call(client.app.state.worker.sync_devices)
+    r = client.post(f"/replicants/{REP}/slingshot", data={"slingshot": "SL000001"}, headers=HX)
+    assert "at least 80" in r.text and len(world.teleports) == 1

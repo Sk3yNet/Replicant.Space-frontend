@@ -15,6 +15,7 @@ from collections import defaultdict
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import time
 from typing import Any
 
 from .api import ApiError
@@ -193,6 +194,55 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class EngineLock:
+    """The engine's lock, re-entrant per task and self-describing.
+
+    Seen live (1.12.2, 2026-10-04): a fleet control (Stop/Resume/End on a stalled mission) took the lock and then
+    called cancel(), which took it again. asyncio.Lock isn't re-entrant, so the request hung holding it and every
+    tick, every incoming event and every locked page waited behind it for ~43 h with nothing in the log.
+    The same task can now nest `async with lock`, and `holder` / `held_for()` tell the watchdog who has it."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._owner: asyncio.Task | None = None
+        self._depth = 0
+        self.holder: str | None = None
+        self.since: float | None = None
+
+    def locked(self) -> bool:
+        return self._lock.locked()
+
+    def held_for(self) -> float:
+        return time.monotonic() - self.since if self.since is not None and self._lock.locked() else 0.0
+
+    async def acquire(self) -> bool:
+        me = asyncio.current_task()
+        if me is not None and self._owner is me:
+            self._depth += 1
+            return True
+        await self._lock.acquire()
+        self._owner, self._depth = me, 1
+        self.holder = me.get_name() if me is not None else "?"
+        self.since = time.monotonic()
+        return True
+
+    def release(self) -> None:
+        self._depth -= 1
+        if self._depth <= 0:
+            self._owner, self._depth, self.holder, self.since = None, 0, None, None
+            self._lock.release()
+
+    async def __aenter__(self) -> "EngineLock":
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, *exc: Any) -> None:
+        self.release()
+
+
+LOCK_ALERT_SECONDS = 600     # the watchdog alerts once the engine lock has been held this long
+
+
 def _ts(v: str | None) -> datetime | None:
     if not v:
         return None
@@ -302,8 +352,10 @@ def survey_targets(scan: dict, surveyed: dict, include_moons: bool, include_belt
 class AutomationEngine(OpsRules):
     def __init__(self, db, api, hub, worker):
         self.db, self.api, self.hub, self.worker = db, api, hub, worker
-        self.lock = asyncio.Lock()
+        self.lock = EngineLock()
         self.task: asyncio.Task | None = None
+        self.stage: str | None = None          # what the current tick is doing (for the watchdog / snapshot)
+        self._lock_alerted = False
 
     # --- settings & persistence ---------------------------------------------------------
     async def settings(self) -> dict:
@@ -361,12 +413,45 @@ class AutomationEngine(OpsRules):
         await asyncio.sleep(15)
         while True:
             try:
+                await self.watchdog()
+                if self.lock.locked() and self.lock.held_for() > LOCK_ALERT_SECONDS:
+                    await asyncio.sleep(60)   # still stuck: don't queue up another tick behind it
+                    continue
                 await self.tick()
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as e:
                 log.exception("automation tick failed")
+                await self.note_tick(error=f"{type(e).__name__}: {e} (during {self.stage or '?'})")
             await asyncio.sleep(60)
+
+    async def watchdog(self) -> None:
+        """Alert (once per stall) when the engine lock has been held for over LOCK_ALERT_SECONDS."""
+        held = self.lock.held_for()
+        if held > LOCK_ALERT_SECONDS:
+            if not self._lock_alerted:
+                self._lock_alerted = True
+                await self.log("engine", f"automations stalled: the engine has been busy for {held / 60:.0f} min "
+                                         f"(held by {self.lock.holder or '?'}, tick stage: {self.stage or '-'}) — "
+                                         "nothing runs until it's free; restart the app if this persists", "alert", notify=True)
+        elif self._lock_alerted and not self.lock.locked():
+            self._lock_alerted = False
+            await self.log("engine", "automations running again", notify=True)
+
+    async def note_tick(self, started: str | None = None, error: str | None = None) -> None:
+        """Heartbeat for the snapshot: when the last tick started / finished, and the last tick error."""
+        hb = await self.db.kv_get("engine_tick", {}) or {}
+        if started:
+            hb["started_at"] = started
+        elif error:
+            hb["error"], hb["error_at"] = error, now_iso()
+        else:
+            hb["finished_at"] = now_iso()
+        await self.db.kv_set("engine_tick", hb)
+
+    def engine_status(self) -> dict:
+        return {"lock_held": self.lock.locked(), "held_by": self.lock.holder, "held_seconds": round(self.lock.held_for()),
+                "stage": self.stage}
 
     # --- sending commands -------------------------------------------------------------------
     async def send(self, method: str, path: str, body: Any, label: str) -> tuple[bool, Any, str | None]:
@@ -483,6 +568,11 @@ class AutomationEngine(OpsRules):
                 eta = _ts(resp.get("arrives_at")) or _ts(resp.get("completes_at"))
                 if eta:
                     st["timeout"] = max(st.get("timeout", STEP_TIMEOUT), (eta - _now()).total_seconds() + 1800)
+            if (not ok and (st.get("body") or {}).get("command") == "deploy"
+                    and "already deployed" in (err or "").lower()):
+                # seen live (2026-10-04, Surveyors fleet): drones already out — that's what the step wanted
+                ok, st["note"] = True, err
+                st["wait"] = []
             if not ok and "already at destination" in (err or "").lower():
                 ok, st["note"] = True, err  # nothing to do: count it as done and move on
                 st["wait"] = []
@@ -621,6 +711,8 @@ class AutomationEngine(OpsRules):
     async def tick(self) -> None:
         async with self.lock:
             now = _now()
+            self.stage = "jobs"
+            await self.note_tick(started=now_iso())
             for job in await self.jobs():
                 if job["status"] == "running":
                     await self._advance(job["id"])  # e.g. a rate-limited retry
@@ -637,25 +729,35 @@ class AutomationEngine(OpsRules):
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
-            await self.run_fleets()
-            await self.dispatch_new_prints()
-            await self.rule_contracts()
-            await self.refresh_known_belts()
-            await self.track_viability()
-            await self.rule_consolidate()
-            await self.rule_reopen_sites()
-            await self.rule_salvage()
-            await self.rule_restart_idle_miners()
-            await self.run_due_schedules()
-            await self.run_due_loadouts()
-            for line in await self.civ_beacon_pass():
-                await self.log("civ_beacons", line)
-            await self.maintenance_pass()
+            for stage in ("run_fleets", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+                          "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rule_restart_idle_miners",
+                          "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass"):
+                self.stage = stage
+                out = await getattr(self, stage)()
+                if stage == "civ_beacon_pass":
+                    for line in out or []:
+                        await self.log("civ_beacons", line)
+            self.stage = None
+            await self.note_tick()
 
     # --- loadouts --------------------------------------------------------------------------------------
     async def loadout_cfg(self) -> dict:
         from .loadouts import normalize
         return normalize(await self.db.kv_get("loadouts", {}) or {})
+
+    async def geography(self, devices: list[dict], stars: dict[str, dict]) -> dict[str, dict]:
+        """Per system: belts, Lagrange points and inner planets (from its scan, the catalogue and device positions)."""
+        from . import placement as pl
+        scans = {r["star"]: r["data"] for r in await self.db.fetchall("SELECT star, data FROM systems")}
+        belts_seen = list((await self.db.kv_get("belt_reads", {}) or {}).keys())
+        out = {}
+        for star in {star_of(d.get("location")) for d in devices if d.get("location")}:
+            try:
+                scan = json.loads(scans[star]) if star in scans else None
+            except ValueError:
+                scan = None
+            out[star] = pl.geography(star, devices, scan, (stars.get(star) or {}).get("entry_point"), belts_seen)
+        return out
 
     async def loadout_orders(self) -> list[dict]:
         """Prints ordered for a system and not yet seen as a device (they count as incoming)."""
@@ -701,7 +803,8 @@ class AutomationEngine(OpsRules):
         civ_locs = {r["location"] for r in await self.civ_coverage() if r.get("completed") or r.get("open")}
         protect = {b["device_code"] for b in _beacons(devices) if b.get("location") in civ_locs}
         p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
-                 await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites(), protect)
+                 await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites(), protect,
+                 await self.geography(devices, stars))
         current = {}
         live: set[str] = set()
         for d in devices:
@@ -789,6 +892,9 @@ class AutomationEngine(OpsRules):
         for code, loc in p.get("pins") or []:
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {loc} (pinned)", code,
                                                   [lo.pin_step(code, loc)], {"devices": [code]}, force=manual))
+        for code, loc in p.get("places") or []:
+            started += bool(await self.create_job("loadouts", f"loadouts: {code} → {loc} (placement)", code,
+                                                  [lo.pin_step(code, loc, "where its type works")], {"devices": [code]}, force=manual))
         for code in p["arrived"]:
             steps = lo.arrived_steps(code, p["by_code"][code], stowed_in)
             if steps:
@@ -1229,10 +1335,28 @@ class AutomationEngine(OpsRules):
             st = step(f"deploy {dcode}", f"/devices/{dcode}", {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT)
             st["wait_device"] = dcode
             steps.append(st)
+        here = ctrl.get("location") if not carried_ctrl else vessel_loc
         if cfg.get("use_idle", True):
             drones += [d["device_code"] for d in devices if "survey_drone" in (d.get("device_type") or "")
-                       and d.get("location") == (ctrl.get("location") if not carried_ctrl else vessel_loc)
+                       and d.get("location") == here
                        and str(d.get("status", "")).startswith("idle") and d["device_code"] not in busy | set(drones)]
+        # a survey controller works from the belt (or the inner system when there's none): take it and its drones there
+        from . import placement as pl
+        cat = await self.db.kv_get("stars", {}) or {}
+        entry = next((x.get("entry_point") for x in (cat.get("stars") or []) if isinstance(x, dict) and x.get("designation") == star), None)
+        geo = pl.geography(star, await self.devices(), await self.system_scan(star), entry)
+        spot = pl.target("ami_survey_controller", geo) if not pl.ok("ami_survey_controller", here, geo) else None
+        if spot and drones:
+            movers = [code] + drones
+            first = len(steps)
+            for c in movers:
+                steps.append(step(f"{c} → {spot}", f"/devices/{c}", {"command": "travel", "destination": spot},
+                                  critical=c == code))
+            for i, c in enumerate(movers):
+                w = step(f"wait for {c} at {spot}", "", None, method="WAIT", wait=["travel.arrived"],
+                         match={"destination": spot}, timeout=STEP_TIMEOUT)
+                w["wait_device"], w["seq0_from"] = c, first + i
+                steps.append(w)
         from .ami_schedule import managed_by
         already = [d for d, c in (await managed_by(self.db)).items() if c == code]
         if not drones and not already:
@@ -1296,7 +1420,13 @@ class AutomationEngine(OpsRules):
             return fl.unload_steps(fleet, devices), []
         if phase == "work":
             if fleet["role"] == "explore":
-                return fl.explore_work_steps(fleet, devices)
+                from . import placement as pl
+                geo = pl.geography(target or "", devices, await self.system_scan(target) if target else None,
+                                   (stars.get(target) or {}).get("entry_point"))
+                ctrl = next((d for d in fl.members(fleet, devices) if d.get("device_type") == "ami_survey_controller"), None)
+                spot = pl.target("ami_survey_controller", geo) if ctrl and not pl.ok("ami_survey_controller",
+                                                                                     ctrl.get("location"), geo) else None
+                return fl.explore_work_steps(fleet, devices, spot)
             belt = fl.richest_belt(target, await self.system_scan(target))
             m["belt"] = belt
             deliver_to = None

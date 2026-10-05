@@ -16,11 +16,25 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.12.2"
+VERSION = "1.13.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.13.1", "2026-10-05", "Slingshot reworked to match the game docs: fire only a slingshot at the replicant's location "
+                             "(teleport to its linked matrix); Link pairs a slingshot with a matrix at the same location (stowed in a "
+                             "vessel that then carries it away). Relays: L4/L5 only."),
+    ("1.13.0", "2026-10-05", "Placement: FTL relays go to a Lagrange point (they only activate there) and are activated "
+                             "there; AMI mining controllers go to the asteroid belt; AMI survey controllers go to the belt, or the "
+                             "inner system when there is none — loadout passes, the explore fleet's work phase and the arrival "
+                             "auto-survey. Working devices in the wrong spot are only reported. Replicant page: FTL slingshot card "
+                             "(link to a matrix if needed, then teleport; refuses below 80 % capacity)."),
+    ("1.12.3", "2026-10-05", "Fix: Stop/Resume/End on a stalled fleet mission deadlocked the automation engine (the page took the "
+                             "engine lock, then cancelled the mission's job, which took it again) — seen live: no rule, event or "
+                             "loadout pass ran for ~43 h. The engine lock is now re-entrant; a watchdog alerts when it is held for "
+                             "over 10 min, and snapshots show the engine status and last tick. Fleet deploy: 'Device is already "
+                             "deployed' counts as done. Loadouts: when a system has too many of a type, the device already tagged "
+                             "home:<system> is kept (FALQUORYX's home autofactory was about to be made spare)."),
     ("1.12.2", "2026-10-03", "Moving a system's devices: when no surge carrier is in the system, the nearest free one elsewhere flies in, "
                              "picks them up and goes back afterwards (seen live: 26 devices in AEMEROTH stuck 'waiting for a carrier'). "
                              "Spare devices are no longer re-adopted by AMI schedules / Restart idle miners (released drones were being "

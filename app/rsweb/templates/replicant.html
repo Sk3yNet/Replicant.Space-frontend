@@ -60,5 +60,41 @@
     </form>
     <div id="act-result"></div>
   </div>
+
+  <div class="card">
+    <h2>FTL slingshot</h2>
+    {% if slingshots %}
+    <table class="small">
+      <tr><th>Slingshot</th><th>Location</th><th class="num">Capacity</th><th>Linked to</th></tr>
+      {% for s in slingshots %}<tr><td><a class="mono" href="/devices/{{ s.device_code }}">{{ s.device_code }}</a></td>
+        <td>{{ s.location or s.status }}{% if s.location and s.location != loc %} <span class="muted">(not here)</span>{% endif %}</td>
+        <td class="num {% if (s.operational_capacity or 0) < SLINGSHOT_MIN %}lv-alert{% endif %}">{{ (s.operational_capacity or 0) | round(0) | int }}%</td>
+        <td class="mono">{{ s.linked_device or "—" }}</td></tr>{% endfor %}
+    </table>
+    {% set here_sl = slingshots | selectattr("location", "equalto", loc) | list %}
+    <h3>Fire</h3>
+    {% if here_sl %}
+    <form hx-post="/replicants/{{ code }}/slingshot" hx-target="#sling-result"
+          hx-confirm="Send {{ rep.name or code }} through the slingshot to its linked matrix?">
+      <div class="row">
+        <select name="slingshot">{% for s in here_sl %}<option value="{{ s.device_code }}">{{ s.device_code }} → {{ s.linked_device or "not linked" }} ({{ (s.operational_capacity or 0) | round(0) | int }}%)</option>{% endfor %}</select>
+        <button>Slingshot</button>
+      </div>
+    </form>
+    {% else %}<div class="muted small">No slingshot at {{ loc }} — the replicant fires one where it is.</div>{% endif %}
+    <h3>Link to a matrix</h3>
+    {% if matrices %}
+    {% for s in slingshots if s.location %}{% set ms = matrices | selectattr("_at", "equalto", s.location) | list %}{% if ms %}
+    <form class="inline" hx-post="/slingshots/{{ s.device_code }}/link" hx-target="#sling-result"
+          hx-confirm="Link {{ s.device_code }} to the chosen matrix?{% if s.linked_device %} This replaces its link to {{ s.linked_device }}.{% endif %}">
+      <span class="mono">{{ s.device_code }}</span> →
+      <select name="matrix">{% for m in ms %}<option value="{{ m.device_code }}">{{ m.device_code }} · {{ m.device_type | human }}{% if not m.location %} (stowed){% endif %}</option>{% endfor %}</select>
+      <button class="small">Link</button>
+    </form>{% endif %}{% endfor %}
+    {% else %}<div class="muted small">No matrix at a slingshot's location to link.</div>{% endif %}
+    <div class="muted small">A slingshot links to an empty replicant matrix at its own location, normally stowed in a vessel; the vessel then carries the matrix to the destination and the link holds. Firing needs the replicant at the slingshot and ≥{{ SLINGSHOT_MIN | int }}% capacity; it drops to 5% and a maintenance drone recharges it.</div>
+    <div id="sling-result"></div>
+    {% else %}<div class="muted">No FTL slingshots in your device list.</div>{% endif %}
+  </div>
 </div>
 {% endblock %}

@@ -495,7 +495,9 @@ def mining_work_steps(fleet: dict, devices: list[dict], belt: str, deliver_to: s
     return steps, problems
 
 
-def explore_work_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], list[str]]:
+def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None) -> tuple[list[dict], list[str]]:
+    """`spot`: where the survey controller should work (the belt, or the inner system without one — placement.py);
+    the controller and its drones go there first."""
     r = roster(fleet, devices)
     ms = [d for d in r["members"] if not is_carrier(d)]
     ctrl = next((d for d in ms if kind(d) == "survey_controller"), None)
@@ -507,6 +509,15 @@ def explore_work_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], li
             [] if drones else ["no survey controller or drones in the fleet"]
     code = ctrl["device_code"]
     steps = []
+    if spot:
+        go = [d for d in [ctrl] + [x for x in ms if x["device_code"] in drones] if d.get("location") != spot]
+        for d in go:
+            steps.append(step(f"{d['device_code']} → {spot}", f"/devices/{d['device_code']}",
+                              {"command": "travel", "destination": spot}, critical=d is ctrl))
+        for i, d in enumerate(go):
+            w = _wait_arrive(d["device_code"], spot)
+            w["seq0_from"] = i
+            steps.append(w)
     if drones:
         steps.append(step(f"{code}: adopt {len(drones)}", f"/devices/{code}", {"command": "adopt", "devices": drones}))
     steps.append(step(f"{code}: survey_system", f"/devices/{code}",

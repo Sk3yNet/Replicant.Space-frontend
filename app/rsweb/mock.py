@@ -129,6 +129,7 @@ class World:
             {"device_code": "FB000001", "device_type": "ftl_beacon", "location": "SOL-BELT-1", "status": "stowed",
              "features": ["monitor", "stow"], "operational_capacity": 100.0, "available_commands": ["deploy"]},
         ]
+        self.teleports: list[tuple[str, str]] = []
         self.move_seconds = 2.0
         for d in self.devices:
             d["replicant_code"] = REP
@@ -308,6 +309,19 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         asyncio.get_running_loop().call_later(secs, arrived)
         return ok({"status": "travel_initiated", "origin": world.location, "destination": dest, "departed_at": iso(),
                    "arrives_at": iso(arrive), "total_time_seconds": secs, "route": legs})
+
+    @app.post("/v1/replicants/{code}/teleport")
+    async def teleport(code: str, request: Request):
+        body = await request.json()
+        t = next((d for d in world.devices if d["device_code"] == body.get("target")), None)
+        if t is None:
+            return ok({"error": "Target not found"}, 404)
+        if "slingshot" in t["device_type"]:
+            if float(t.get("operational_capacity") or 0) < 80:
+                return ok({"error": "Slingshot capacity too low"}, 400)
+            t["operational_capacity"] = 5.0
+        world.teleports.append((code, body.get("target")))
+        return ok({"status": "teleporting", "target": body.get("target"), "completes_at": iso()}, 202)
 
     @app.post("/v1/replicants/{code}/scan")
     async def scan(code: str):
@@ -503,7 +517,12 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     async def patch_device(code: str, request: Request):
         body = await request.json()
         d = next((d for d in world.devices if d["device_code"] == code), None)
+        if d is None:
+            return ok({"error": "Device not found"}, 404)
         cfg = body.get("configuration") or {}
+        if "linked_device" in cfg:   # FTL slingshot
+            d["linked_device"] = cfg["linked_device"]
+            return ok({"device_code": code, "linked_device": d["linked_device"]})
         tags = set(d.get("tags") or []) | set(cfg.get("add_tags") or [])
         tags -= set(cfg.get("remove_tags") or [])
         d["tags"] = sorted(tags)
