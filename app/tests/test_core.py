@@ -1,5 +1,6 @@
 """Core behaviour: SSE parsing, rate limiting, safety blocks, timers, notifications, digest, auth."""
 import asyncio
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -3122,3 +3123,60 @@ def test_late_events_are_kept_quiet_and_summarised(tmp_path):
         await db.close()
 
     run(go())
+
+
+def test_split_prints_evenly_by_print_time():
+    from rsweb import printqueue as pq
+    bps = {"survey_drone": {"print_time": 240}, "mining_drone": {"print_time": 180}, "relay": {"print_time": 600}}
+    f = lambda code, **kw: {"device_code": code, "device_type": "autofactory", "status": "idle", **kw}  # noqa: E731
+    a, b, c = f("A"), f("B", status="printing (relay)", printing={"device_type": "relay"}), f("C")
+    load = {x["device_code"]: pq.load_seconds(x, bps) for x in (a, b, c)}
+    assert load == {"A": 0, "B": 600, "C": 0}
+    parts = pq.split([a, b, c], "mining_drone", 5, bps, load)
+    # A and C take the first four; B, 600 s behind, only gets the 5th once A and C would be past 540 s
+    assert [(x["device_code"], k) for x, k in parts] == [("A", 2), ("C", 3)] or \
+           [(x["device_code"], k) for x, k in parts] == [("A", 3), ("C", 2)]
+    parts = pq.split([a, b, c], "survey_drone", 4, bps, load)        # carries on from the load so far
+    assert sum(k for _, k in parts) == 4 and max(load.values()) - min(load.values()) <= 240
+    room = {"A": 1, "B": 0, "C": 0}
+    assert [(x["device_code"], k) for x, k in pq.split([a, b, c], "relay", 3, bps, {}, room)] == [("A", 1)]
+    assert pq.least_loaded([b, c], bps)["device_code"] == "C"
+
+
+def test_loadout_prints_spread_over_a_systems_autofactories():
+    from rsweb import loadouts as lo
+    cfg, devices, bps, inv, stars = _lo_world()
+    devices.append({**next(d for d in devices if d["device_code"] == "AF"), "device_code": "AF2"})
+    devices.append({**next(d for d in devices if d["device_code"] == "AF"), "device_code": "AF3",
+                    "status": "printing (ami_mining_controller)", "printing": {"device_type": "ami_mining_controller"}})
+    inv = {"AAA-3-L4": {"structural": 1000.0}}
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    per = Counter()
+    for pr in p["prints"]:
+        assert pr["device_type"] == "survey_drone"
+        per[pr["factory"]] += pr["n"]
+    # 3 survey drones short (2 in AAA, 1 in BBB): shared by AF and AF2; AF3 is 600 s into a controller, so it gets none
+    assert sum(per.values()) == 3 and sorted((per["AF"], per["AF2"])) == [1, 2] and not per["AF3"]
+    # one print per factory step, each tagged for its system
+    assert {pr["star"] for pr in p["prints"]} == {"AAA", "BBB"}
+
+
+def test_planner_spreads_over_autofactories_at_the_same_stockpile(client):
+    world = client.app.state.api.http._transport.app.state.world
+    af = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    world.devices.append({**af, "device_code": "AF00CAFE"})
+    world.queues["AF00BEEF"], world.queues["AF00CAFE"] = [], []
+    client.portal.call(client.app.state.worker.sync_devices)
+    data = {"printer": "device:AF00BEEF", "qty:mining_drone": "3", "qty:survey_drone": "1"}
+    r = client.post("/blueprints/plan", data=data, headers=HX)
+    assert "Spread over the 2 autofactories at SOL-3-L4" in r.text and 'name="split" checked' in r.text
+    assert "Queue on 2 autofactories" in r.text
+    r = client.post("/blueprints/queue-plan", data={**data, "_planned": "1", "split": "on"}, headers=HX)
+    job = client.portal.call(client.app.state.worker.automations.jobs)[-1]
+    queued = [(s["path"], s["body"]["device_type"], s["body"]["quantity"]) for s in job["steps"]
+              if s["body"].get("command") == "enqueue_print"]
+    assert sum(q for _, _, q in queued) == 4 and {p for p, _, _ in queued} == {"/devices/AF00BEEF", "/devices/AF00CAFE"}
+    # unticked: everything on the chosen printer, as before
+    r = client.post("/blueprints/queue-plan", data={**data, "_planned": "1"}, headers=HX)
+    job = client.portal.call(client.app.state.worker.automations.jobs)[-1]
+    assert {s["path"] for s in job["steps"] if s["body"].get("command") == "enqueue_print"} == {"/devices/AF00BEEF"}

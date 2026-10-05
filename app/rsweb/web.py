@@ -1286,7 +1286,19 @@ async def read_plan(request: Request, form) -> dict:
     mining = next((m for m in minings if m["device_code"] == form.get("mining")), minings[0] if minings else None)
     transport = next((t for t in transports if t["device_code"] == form.get("transport")), transports[0] if transports else None)
     planned = form.get("_planned") == "1"
+    # several autofactories at the printer's stockpile: spread the lines over them evenly by print time
+    peers = [d for d in st["devices"] if printer and printer.get("autofactory") and d.get("location") == location
+             and "autofactory" in (d.get("device_type") or "") and "enqueue_print" in (d.get("available_commands") or [])]
+    split_on = (form.get("split") == "on") if planned else True
+    parts, split_time = [], None
+    if len(peers) > 1 and lines:
+        load = {d["device_code"]: printqueue.load_seconds(d, bps) for d in peers}
+        start = dict(load)
+        for t, n in sorted(lines, key=lambda tn: -float((bps.get(tn[0]) or {}).get("print_time") or 0)):  # longest first
+            parts += [(f["device_code"], t, k) for f, k in printqueue.split(peers, t, n, bps, load)]
+        split_time = max(load[c] - start[c] for c in load)
     return {"rows": rows, "lines": lines, "location": location, "total_time": total_time, "printer": printer,
+            "peers": peers, "split_on": split_on, "parts": parts, "split_time": split_time,
             "gather_on": (form.get("gather") == "on") if planned else True,
             "deliver_on": (form.get("deliver") == "on") if planned else True,
             "short": {r["resource"]: r["short"] for r in rows if r["short"] > 0}, "star": star,
@@ -1312,11 +1324,14 @@ async def blueprint_queue_plan(request: Request, user: str = Depends(current_use
         return HTMLResponse('<div class="result err">Vessel printers have no queue and print one device at a time. '
                             'Plan 1 device, or pick an autofactory.</div>')
     gather = form.get("gather") == "on"
+    assign = p["parts"] if p["parts"] and form.get("split") == "on" else None
     steps = production.production_steps(printer["device"], printer["name"], p["lines"], p["short"],
                                         p["mining"] if gather else None,
                                         p["transport"] if form.get("deliver") == "on" else None,
-                                        p["location"], gather, vessel_replicant=printer["code"] if vessel else None)
-    title = f"production: {', '.join(f'{n}× {t}' for t, n in p['lines'])} on {printer['name']}"
+                                        p["location"], gather, vessel_replicant=printer["code"] if vessel else None,
+                                        assign=assign)
+    on = f"{len({c for c, _, _ in assign})} autofactories at {p['location']}" if assign else printer["name"]
+    title = f"production: {', '.join(f'{n}× {t}' for t, n in p['lines'])} on {on}"
     if gather and p["short"] and p["mining"]:
         title += f" + gather shortfall with {p['mining']['device_code']}"
     return await start_chain(request, user, title, steps[0], steps[1:], printer["device"])
@@ -2398,7 +2413,14 @@ async def fleets_print(request: Request, fid: str, user: str = Depends(current_u
     facs.sort(key=lambda d: (star_of(d.get("location")) != f["home"], d.get("device_code")))
     if not facs:
         return HTMLResponse('<div class="result err">No autofactory to print on.</div>')
-    fac = facs[0]["device_code"]
-    steps = [auto.step(f"print {n}× {t} for {f['name']}", f"/devices/{fac}",
-                       {"command": "enqueue_print", "device_type": t, "quantity": n, "tags": [fl.fleet_tag(fid)]}) for t, n in short.items()]
-    return await start_chain(request, user, f"fleet {f['name']}: print {fl.summarize(short)}", steps[0], steps[1:], fac)
+    # every autofactory in the chosen system shares the prints, evenly by print time
+    peers = [d for d in facs if star_of(d.get("location")) == star_of(facs[0].get("location"))]
+    bps = {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
+    load = {d["device_code"]: printqueue.load_seconds(d, bps) for d in peers}
+    steps = []
+    for t, n in sorted(short.items(), key=lambda tn: -float((bps.get(tn[0]) or {}).get("print_time") or 0)):
+        for fac, k in printqueue.split(peers, t, n, bps, load):
+            steps.append(auto.step(f"print {k}× {t} on {fac['device_code']} for {f['name']}", f"/devices/{fac['device_code']}",
+                                   {"command": "enqueue_print", "device_type": t, "quantity": k, "tags": [fl.fleet_tag(fid)]}))
+    return await start_chain(request, user, f"fleet {f['name']}: print {fl.summarize(short)}", steps[0], steps[1:],
+                             facs[0]["device_code"])

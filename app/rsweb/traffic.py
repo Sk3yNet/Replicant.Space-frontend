@@ -232,7 +232,8 @@ def is_vessel(d: dict) -> bool:
 
 
 def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[str, list[str]],
-              busy: set[str] | None = None, use_replicant_vessel: bool = True, keep: set[str] | None = None) -> dict:
+              busy: set[str] | None = None, use_replicant_vessel: bool = True, keep: set[str] | None = None,
+              bps: dict[str, dict] | None = None) -> dict:
     """How to get a beacon deployed at `loc` (beacons can't fly). Cheapest first:
       deploy — a replicant is at loc and its vessel carries one
       carry  — a vessel in the system carries one: fly it there, deploy
@@ -316,8 +317,9 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
         host, rep, r = rep_here
         return {"kind": "print", "replicant": rep, "vessel": host,
                 "text": f"{r.get('name') or rep} is at {loc}: print an FTL beacon on the vessel (≈100 s), then deploy it"}
-    fac = next((f for f in sorted(devices, key=lambda d: len(d.get("print_queue") or []))
-                if "enqueue_print" in (f.get("available_commands") or []) and star_of(f.get("location")) == star), None)
+    from . import printqueue as pq
+    fac = pq.least_loaded([f for f in devices if "enqueue_print" in (f.get("available_commands") or [])
+                           and star_of(f.get("location")) == star], bps or {})
     if fac:
         return {"kind": "factory", "factory": fac["device_code"], "factory_at": fac.get("location"),
                 "has_vessel": bool(vessels),

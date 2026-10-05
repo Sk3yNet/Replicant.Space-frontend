@@ -53,6 +53,8 @@ class OpsRules:
         devices = await self.devices()
         reps = await self.db.kv_get("replicants", {}) or {}
         stowed = await self.db.kv_get("stowed_map", {}) or {}
+        from .shapes import normalize_blueprints
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         rows = await self.civ_coverage()
         keep = {r["location"] for r in rows}
         lines = []
@@ -66,7 +68,7 @@ class OpsRules:
                 lines.append(f"{loc}: a beacon is already on its way")
                 continue
             p = tr.placement(loc, devices, reps, stowed, busy, use_replicant_vessel=manual or bool(cfg.get("use_replicant_vessel")),
-                             keep=keep)
+                             keep=keep, bps=bps)
             if p["kind"] == "factory" and loc in orders:
                 lines.append(f"{loc}: a beacon is being printed for it — a vessel picks it up once it's out"
                              + ("" if p.get("has_vessel") else f" (needs a vessel with a hold in {row['star']})"))
@@ -274,9 +276,11 @@ class OpsRules:
 
     # --- maintenance --------------------------------------------------------------------------------------------
     async def maintenance_pass(self, manual: bool = False, star: str | None = None) -> list[str]:
-        from . import upkeep as up
+        from . import printqueue as pq, upkeep as up
         from .automations import step
         from .loadouts import home_tag
+        from .shapes import normalize_blueprints
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         s = await self.settings()
         cfg = s["rules"].get("maintenance") or {}
         if not manual:
@@ -310,8 +314,8 @@ class OpsRules:
             o = _ts(orders.get(r["star"]))
             if o and (_now() - o).total_seconds() < 6 * 3600:
                 continue
-            fac = next((f for f in devices if "enqueue_print" in (f.get("available_commands") or [])
-                        and up.star_of(f.get("location")) == r["star"]), None)
+            fac = pq.least_loaded([f for f in devices if "enqueue_print" in (f.get("available_commands") or [])
+                                   and up.star_of(f.get("location")) == r["star"]], bps)
             if fac and (cfg.get("print_missing") or manual):
                 job = await self.create_job("maintenance", f"maintenance: print a maintenance drone for {r['star']}", fac["device_code"],
                                             [step(f"{fac['device_code']}: print maintenance_drone for {r['star']}",

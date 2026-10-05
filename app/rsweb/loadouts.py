@@ -12,6 +12,7 @@ How a pass works (plan() is pure; the engine turns the plan into jobs):
   3. Short → take `spare` devices from other systems (nearest first): they're tagged `to:<star>`
      and the `spare` tag is removed. Still short → print on an autofactory whose stock covers the
      cost (the system's own first); the print is tagged `to:<star>` so it is routed when it comes out.
+     With several autofactories in that system, the prints are spread over them evenly by print time.
   4. Delivery: a device tagged for another system flies there itself if it can surge; otherwise a
      surge-capable carrier in its system stows it, flies, and deploys it. On arrival the `to:` tag goes.
 Systems without a phase are left alone, except that `spare` devices there can be sent elsewhere.
@@ -23,6 +24,7 @@ import re
 from collections import Counter, defaultdict
 from typing import Any
 
+from . import printqueue as pq
 from .automations import SHORT_TIMEOUT, STEP_TIMEOUT, step
 from .shapes import as_amounts
 
@@ -331,6 +333,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         cap = int(qcap_default.get(f.get("device_type")) or f.get("queue_capacity") or 10)
         used_q = len(f.get("print_queue") or []) + (1 if f.get("printing") or str(f.get("status") or "").startswith("printing") else 0)
         queue_free[f["device_code"]] = max(0, cap - used_q)
+    load = {f["device_code"]: pq.load_seconds(f, bps) for f in factories}   # seconds of printing queued, per factory
 
     def factory_for(t: str, star: str) -> tuple[dict | None, str]:
         bp = bps.get(t)
@@ -397,17 +400,23 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                         stock = as_amounts(inventory.get(f.get("location")) or {})
                         n = min(need, min((int((stock.get(r, 0) - reserved[f["location"]][r]) // v) for r, v in cost.items() if v > 0),
                                           default=need))
-                    n = min(n, queue_free.get(f["device_code"], n))
-                    queue_free[f["device_code"]] = queue_free.get(f["device_code"], n) - n
-                    for r, v in cost.items():
-                        reserved[f["location"]][r] += v * n
-                    prints.append({"factory": f["device_code"], "factory_star": star_of(f.get("location")),
-                                   "device_type": row["type"], "n": n, "star": star, "note": why})
+                    # every autofactory in that system shares the work, evenly by print time (with need_stock, only
+                    # those at the same stockpile, since the stock check above was for that one)
+                    peers = [g for g in factories if star_of(g.get("location")) == star_of(f.get("location"))
+                             and (not s["need_stock"] or g.get("location") == f.get("location"))]
+                    parts = pq.split(peers, row["type"], n, bps, load, queue_free)
+                    n = sum(k for _, k in parts)
+                    for g, k in parts:
+                        for r, v in cost.items():
+                            reserved[g["location"]][r] += v * k
+                        prints.append({"factory": g["device_code"], "factory_star": star_of(g.get("location")),
+                                       "device_type": row["type"], "n": k, "star": star, "note": why})
                     row["printing"] = n
                     need -= n
                     if need > 0:
+                        on = ", ".join(g["device_code"] for g in peers)
                         unmet.append({"star": star, "type": row["type"], "n": need,
-                                      "why": f"room/materials for only {n} on {f['device_code']} this pass"})
+                                      "why": f"room/materials for only {n} on {on} this pass"})
                 else:
                     unmet.append({"star": star, "type": row["type"], "n": need, "why": why})
             elif need > 0:

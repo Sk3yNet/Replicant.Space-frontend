@@ -27,9 +27,13 @@ def controllers_in(devices: list[dict], star: str, kind: str) -> list[dict]:
 
 def production_steps(printer_device: str, printer_label: str, lines: list[tuple[str, int]], short: dict[str, float],
                      mining: dict | None, transport: dict | None, deliver_to: str | None, gather: bool,
-                     vessel_replicant: str | None = None) -> list[dict]:
+                     vessel_replicant: str | None = None, assign: list[tuple[str, str, int]] | None = None) -> list[dict]:
+    """`assign` [(autofactory, device_type, n)] spreads the lines over several autofactories instead of `printer_device`."""
     steps = []
-    for dtype, n in lines:
+    for code, dtype, n in assign or []:
+        steps.append(step(f"queue {n}× {dtype} on autofactory {code}", f"/devices/{code}",
+                          {"command": "enqueue_print", "device_type": dtype, "quantity": n}))
+    for dtype, n in [] if assign else lines:
         if vessel_replicant:  # heaven vessels have no queue: one print, straight away
             steps.append(step(f"print {dtype} on {printer_label}", f"/replicants/{vessel_replicant}/print", {"device_type": dtype}))
             continue

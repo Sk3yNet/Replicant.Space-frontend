@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.13.2"
+VERSION = "1.14.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.14.0", "2026-10-05", "Several autofactories in a system share the printing, evenly by print time (each print goes to the "
+                             "factory that would finish it first, counting its current print and queue): loadout passes, the "
+                             "Blueprints planner (Spread over N autofactories), fleet Print missing and defence propulsors; "
+                             "maintenance drones and civ beacons go to the least-loaded one."),
     ("1.13.2", "2026-10-05", "Late events (over 30 min old when they arrive, e.g. the stream catching up after the 1.12.2 "
                              "deadlock: ~44 h of site.depleted alerts at once) go in the Events feed without notifications, and "
                              "don't fire the arrival or salvage rules; the first live event after them posts one catch-up note."),

@@ -178,8 +178,10 @@ def plan(a: dict, devices: list[dict], bps: dict[str, dict], busy: set[str], cfg
             else:
                 n = min(short, max(1, int(cfg.get("max_prints") or 6)))
                 cruise = "cruise" in ((bps.get(t) or {}).get("features") or [])
-                out["print"] = {"factory": sorted(facs, key=lambda f: len(f.get("print_queue") or []))[0]["device_code"],
-                                "device_type": t, "n": n, "cruise": cruise}
+                from . import printqueue as pq
+                parts = pq.split(facs, t, n, bps, {f["device_code"]: pq.load_seconds(f, bps) for f in facs})
+                out["print"] = {"factory": parts[0][0]["device_code"], "device_type": t, "n": n, "cruise": cruise,
+                                "parts": [{"factory": f["device_code"], "n": k} for f, k in parts]}
                 if not cruise:
                     out["notes"].append(f"{t} can't fly: it has to be carried to {a['designation']}")
     elif short:
@@ -207,8 +209,10 @@ def plan_steps(a: dict, p: dict) -> list[tuple[str, list[dict], list[str]]]:
                 "tags": [at_tag(des), "divert"]}
         if pr["cruise"]:
             body["oncomplete"] = {"command": "travel", "destination": des}
+        parts = pr.get("parts") or [{"factory": pr["factory"], "n": pr["n"]}]
         jobs.append((f"defence: print {pr['n']}× {pr['device_type']} for {des}",
-                     [step(f"{pr['factory']}: print {pr['n']}× {pr['device_type']} → {des}", f"/devices/{pr['factory']}", body)],
+                     [step(f"{x['factory']}: print {x['n']}× {pr['device_type']} → {des}", f"/devices/{x['factory']}",
+                           {**body, "quantity": x["n"]}) for x in parts],
                      []))
     return jobs
 

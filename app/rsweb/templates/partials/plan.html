@@ -29,8 +29,14 @@
       <p class="lv-alert small">Short on materials and there's no AMI mining controller in {{ star }}. You can still queue: {{ 'the autofactory will wait for the materials.' if printer.autofactory else 'a vessel printer may refuse until stock is there.' }}</p>
     {% endif %}
   {% endif %}
+  {% if parts %}
+    <label style="text-transform:none;display:block;margin-top:6px"><input type="checkbox" name="split" {{ 'checked' if split_on }}>
+      Spread over the {{ peers | length }} autofactories at {{ location }}, evenly by print time
+      (≈ {{ (split_time / 60) | round(1) }} min instead of {{ (total_time / 60) | round(1) }} min)</label>
+    <div class="muted small">{% for c, t, n in parts %}{{ c }}: {{ n }}× {{ t | human }}{{ ' · ' if not loop.last }}{% endfor %}</div>
+  {% endif %}
   <button type="button" style="margin-top:8px" hx-post="/blueprints/queue-plan" hx-target="#plan-result" hx-include="closest form">
-    Queue on {{ printer.name }}{% if short and mining %} &amp; gather{% endif %}</button>
+    Queue on {{ (peers | length ~ ' autofactories') if parts and split_on else printer.name }}{% if short and mining %} &amp; gather{% endif %}</button>
   {% endif %}
 </div>
 {% endif %}

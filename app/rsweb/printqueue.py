@@ -105,3 +105,43 @@ def summary(queue: list[dict]) -> str:
     for it in queue:
         counts[it["device_type"]] = counts.get(it["device_type"], 0) + int(it.get("quantity") or 1)
     return ", ".join(f"{n}× {t.replace('_', ' ')}" for t, n in counts.items())
+
+
+# --- spreading prints over several autofactories --------------------------------------------------------------
+def load_seconds(dev: dict, bps: dict[str, dict]) -> float:
+    """Rough seconds of printing already on an autofactory: the current print plus its waiting queue, from the
+    device list alone (no events), so planners can call it for every factory."""
+    pr = dev.get("printing")
+    status = str(dev.get("status") or "")
+    cur = None
+    if isinstance(pr, dict) and pr.get("device_type"):
+        cur = pr
+    elif status.startswith("printing"):
+        cur = {"device_type": status[status.find("(") + 1:status.rfind(")")] if "(" in status else None}
+    secs, _ = remaining_seconds(cur, items(dev), bps)
+    return secs or 0.0
+
+
+def least_loaded(factories: list[dict], bps: dict[str, dict]) -> dict | None:
+    """The autofactory that would start a new print soonest."""
+    return min(factories, key=lambda f: (load_seconds(f, bps), len(items(f)), f.get("device_code") or ""), default=None)
+
+
+def split(factories: list[dict], device_type: str, n: int, bps: dict[str, dict], load: dict[str, float],
+          room: dict[str, int] | None = None) -> list[tuple[dict, int]]:
+    """Spread `n` prints of one type over `factories` evenly by print time: each one goes to the factory that would
+    finish it first. `load` (code -> seconds already queued) is updated, so successive calls balance across types;
+    `room` (code -> free queue slots), if given, caps each factory and is updated too."""
+    t = float((bps.get(device_type) or {}).get("print_time") or 0) or 1.0
+    got: dict[str, int] = {}
+    for _ in range(n):
+        open_f = [f for f in factories if room is None or room.get(f["device_code"], 1) > 0]
+        if not open_f:
+            break
+        f = min(open_f, key=lambda f: (load.get(f["device_code"], 0.0) + t, f["device_code"]))
+        code = f["device_code"]
+        load[code] = load.get(code, 0.0) + t
+        got[code] = got.get(code, 0) + 1
+        if room is not None:
+            room[code] = room.get(code, 1) - 1
+    return [(f, got[f["device_code"]]) for f in factories if got.get(f["device_code"])]
