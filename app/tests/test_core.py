@@ -3987,3 +3987,11 @@ def test_each_fleet_prints_on_its_own_autofactory():
     # no stock: a fleet's own factory still gets it, and it waits for materials there
     p = lo.plan({"phases": [], "fleets": fleets[:1], "fleets_migrated": True}, devices, bps, {}, stars, {}, set(), [], {})
     assert [(pr["factory"], pr["note"]) for pr in p["prints"]] == [("AF1", "the fleet's own autofactory; waits for materials")]
+    # a fleet's factory pinned at the stockpile (at: tag) stays there instead of being sent to the fleet's home
+    away = {"device_code": "AF2", "device_type": "autofactory", "location": "FAL-BELT-1", "status": "idle",
+            "available_commands": ["enqueue_print"], "tags": ["fleet:m1"]}
+    p = lo.plan({"phases": [], "fleets": fleets[1:2], "fleets_migrated": True}, [away], [], {}, stars, {}, set(), [], {})
+    assert p["returning"] == ["AF2"]
+    away["tags"].append("at:FAL-BELT-1")
+    p = lo.plan({"phases": [], "fleets": fleets[1:2], "fleets_migrated": True}, [away], [], {}, stars, {}, set(), [], {})
+    assert p["returning"] == []

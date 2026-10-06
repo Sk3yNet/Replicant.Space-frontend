@@ -547,6 +547,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         code, st = d["device_code"], str(d.get("status") or "")
         if star_of(d.get("location")) in ("", home):
             return False
+        if pinned_at(d) and star_of(pinned_at(d)) == star_of(d.get("location")):
+            return False   # pinned where it is (`at:` tag), e.g. a fleet's autofactory kept at the main stockpile
         if (code in job_busy or d.get("location_stale") or d.get("in_control_range") is False
                 or st.startswith(("travel", "cruis", "surg", "mining", "collecting", "depositing", "printing", "repairing"))):
             return False
