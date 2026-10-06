@@ -542,6 +542,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 moves[code] = home
                 returning.append(code)
                 busy.discard(code)
+    # already on their way home (to: tag from an earlier pass) but holding a site in the old system: same rule
+    for code, dest in list(moves.items()):
+        d = by_code_all.get(code) or {}
+        f = by_tag.get(fleet_tag_of(d) or "")
+        if code in busy and f and f["home"] == dest and left_behind(d, dest, fl.fleet_tag(f["id"])):
+            busy.discard(code)
 
     # spares nobody needs this pass are gathered at the depot (a delivery / autofactory system) for later use
     gathering: list[str] = []
@@ -652,7 +658,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         elif can_surge(d) and code not in stowed_in:
             self_moves.append((code, dest))
         else:
-            batches[(here, dest)].append(code)
+            batches[(here, dest, d.get("replicant_code"))].append(code)
     for d in pool:  # tagged earlier and already there
         dest = bound_for(d, known_stars)
         if dest and star_of(d.get("location")) == dest and d["device_code"] not in busy and d["device_code"] not in arrived:
@@ -667,27 +673,35 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     carriers = [c for c in carriers if c["device_code"] not in moving and not bound_for(c, known_stars)]
     used: set[str] = set()
     deliveries = []
-    for (here, dest), codes in sorted(batches.items()):
+    def same_owner(c: dict, owner: str | None) -> bool:
+        """A carrier can only take on devices of its own replicant (seen live 2026-10-06: Printing Hub's surge plates
+        and Miner 2's mobile fleet flew to ITHVALAI for Miner 1's drones, again and again: 'Target device belongs to a
+        different account')."""
+        return not owner or not c.get("replicant_code") or c["replicant_code"] == owner
+
+    for (here, dest, owner), codes in sorted(batches.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "")):
         codes = sorted(codes)
         while codes:
             stowable = all("stow" in (by_code[x].get("available_commands") or ["stow"]) for x in codes)
             grounded = any(not can_travel(by_code[x]) for x in codes)   # e.g. a beacon: the carrier picks it up, in its hold
             options = [c for c in carriers if star_of(c.get("location")) == here and c["device_code"] not in used
-                       and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")
+                       and same_owner(c, owner) and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")
                        and not (grounded and carry_mode(c, bps) == "attach")]
             fetched_from = None
             if not options:
                 # none in this system: send the nearest free carrier from another system to pick them up
                 remote = [c for c in carriers if star_of(c.get("location")) not in (here, "") and c["device_code"] not in used
-                          and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")
+                          and same_owner(c, owner) and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")
                           and not (grounded and carry_mode(c, bps) == "attach") and _free(c, bps, stowed_map) > 0]
                 remote.sort(key=lambda c: (_dist(star_of(c.get("location")), here, pos), -_free(c, bps, stowed_map), c["device_code"]))
                 if remote:
                     options, fetched_from = remote[:1], remote[0].get("location")
             if not options:
                 what = "gather at the depot" if set(codes) <= set(gathering) else f"go to {dest}"
+                whose = f" owned by {owner}" if owner else ""
                 unmet.append({"star": dest, "type": ", ".join(sorted({by_code[c].get('device_type') for c in codes})),
-                              "n": len(codes), "why": f"waiting for a surge-capable carrier in {here} (or a free one elsewhere) to {what}"})
+                              "n": len(codes), "why": f"waiting for a surge-capable carrier{whose} in {here} (or a free one "
+                                                      f"elsewhere) to {what} — a carrier can only take its own replicant's devices"})
                 break
             c = max(options, key=lambda c: (_free(c, bps, stowed_map), c["device_code"]))
             room = int(_free(c, bps, stowed_map))

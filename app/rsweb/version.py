@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.23.2"
+VERSION = "1.23.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.23.3", "2026-10-06", "Loadout deliveries only use a carrier owned by the same replicant as the devices it carries "
+     "(others are refused: 'belongs to a different account'). A mission carrier that arrives in the Kuiper belt or Oort cloud "
+     "flies to a Lagrange point (else a planet) before unloading. A stow that finds the device already aboard counts as done. "
+     "Devices already headed home are no longer held by a site they track in the old system."),
     ("1.23.2", "2026-10-06", "Moving a stationed fleet's home brings its whole working group: controllers that are coordinating, "
      "the drones they run and survey drones holding sites in the old system now go home too (the controllers drop their "
      "directives and let their drones go as they leave). Ferry freighters and taxi plates stay at their jobs. "

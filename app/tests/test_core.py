@@ -3884,6 +3884,7 @@ def test_new_home_brings_the_whole_working_group():
         D("MD1", "mining_drone", "ITH-BELT-1", controller_device_code="MC"),
         D("MD2", "mining_drone", "ITH-BELT-1", controller_device_code="MC"),
         D("SD1", "survey_drone", "ITH-BELT-1", "searching", controller_device_code="SC"),
+        D("SD2", "survey_drone", "ITH-BELT-1", "tracking", controller_device_code="SC", tags=["fleet:m1", "to:kel"]),
         D("BUSY", "mining_drone", "ITH-BELT-1", "mining (carbon)"),           # can't cruise while mining: next pass
         D("CV", "cargo_vessel", "ITH-2-L4", features=["surge", "cruise", "stow"], stow_capacity=50, tags=[]),
         # a bigger carrier right there, but its fleet is on a mission: not the planner's to use
@@ -3900,9 +3901,48 @@ def test_new_home_brings_the_whole_working_group():
     p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
     assert sorted(p["returning"]) == ["FC", "MC", "MD1", "MD2", "SC", "SD1"]
     dl = p["deliveries"][0]
+    assert "SD2" in dl["devices"]                    # tagged to go home on an earlier pass: its site doesn't hold it
     assert dl["carrier"] == "CV" and dl["to"] == "KEL"
     steps = lo.delivery_steps(dl, p["by_code"], stars, True, {"MC": ["MD1", "MD2"], "SC": ["SD1"]})
     descs = [s["desc"] for s in steps]
     assert "MC: release 2 device(s) before leaving" in descs and "MC: clear directive before leaving" in descs
     assert "SC: clear directive before leaving" in descs and "FC: clear directive before leaving" in descs
     assert not any(d.startswith("MC: release MD") for d in descs)          # let go once, by the controller leaving with them
+
+
+def test_deliveries_use_a_carrier_of_the_devices_owner():
+    """Live 2026-10-06: other replicants' surge plates kept flying in for Miner 1's drones and failing to attach them
+    ('Target device belongs to a different account')."""
+    from rsweb import loadouts as lo
+    D = lambda code, t, loc, owner, **kw: {"device_code": code, "device_type": t, "location": loc, "status": "idle",  # noqa: E731
+                                          "replicant_code": owner, **kw}
+    devices = [
+        D("MD1", "mining_drone", "ITH-BELT-1", "R1", tags=["fleet:m1"]),
+        D("PLATE", "surge_plate", "ITH-BELT-1", "R2", features=["surge", "attach"], attach_capacity=4, tags=[]),
+        D("MINE", "mobile_fleet", "KEL-4-L4", "R1", features=["surge", "stow"], stow_capacity=36, tags=["fleet:m1"]),
+    ]
+    stars = {"ITH": {"position": {"x": 0, "y": 0, "z": 0}}, "KEL": {"position": {"x": 1, "y": 0, "z": 0}, "entry_point": "KEL-4-L4"}}
+    fleets = [{"id": "m1", "name": "Miner 1", "home": "KEL", "station": True, "wants": {}}]
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
+    assert [(dl["carrier"], dl["devices"], dl.get("fetch_from")) for dl in p["deliveries"]] == [("MINE", ["MD1"], "KEL-4-L4")]
+    devices.pop()                                       # no carrier of R1's anywhere: wait, and say why
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
+    assert not p["deliveries"] and any("owned by R1" in u["why"] for u in p["unmet"])
+
+
+def test_mission_carrier_unloads_inside_the_system_not_at_the_kuiper_belt():
+    """Live 2026-10-06: the Surveyors' carrier arrived at LORQELYR-KUIPER (the entry point) and unloaded there."""
+    from rsweb import fleets as fl, placement as pl
+    devices = [
+        {"device_code": "HV", "device_type": "heaven_vessel", "location": "LOR-KUIPER", "status": "idle", "features": ["surge"],
+         "stow_capacity": 10, "tags": ["fleet:s"]},
+        {"device_code": "SC", "device_type": "ami_survey_controller", "location": None, "stowed_in_device_code": "HV",
+         "status": "stowed", "tags": ["fleet:s"]},
+    ]
+    fleet = {"id": "s", "name": "Surveyors", "role": "explore", "home": "FAL", "wants": {}}
+    geo = pl.geography("LOR", devices, {"planets": [{"designation": "LOR-2", "orbital_distance_au": 2},
+                                                    {"designation": "LOR-1", "orbital_distance_au": 1}]}, "LOR-KUIPER")
+    assert fl.deploy_spot(geo) == "LOR-1-L4"
+    descs = [s["desc"] for s in fl.unload_steps(fleet, devices, fl.deploy_spot(geo))]
+    assert descs == ["HV → LOR-1-L4 (to unload inside the system)", "wait for HV at LOR-1-L4", "deploy SC from HV"]
+    assert fl.deploy_spot(pl.geography("LOR", [], None, "LOR-KUIPER")) is None     # nothing known: unload where it is

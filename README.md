@@ -49,6 +49,8 @@ the nearest destination). Existing mobile fleets stay as they were: not statione
 `home:<star>` tag the fleet tag of the fleet stationed there (or drops the tag), and a device already on its way with an old
 `to:` tag joins the fleet there on arrival. Old diagnostics snapshots are read the same way.
 
+**Carriers and owners** (1.23.3): a carrier can only stow or attach devices that belong to its own replicant, so loadout deliveries pick a carrier with the same owner as the devices. With none free, the Loadouts page says which owner's carrier it's waiting for. **Deploying on a mission**: a carrier that arrives at the Kuiper belt or Oort cloud (often a system's entry point) first flies to a Lagrange point, or a planet when none is known, and unloads there.
+
 **Moving a stationed fleet** (1.23.2): change its **Home** on the Fleets page; that is a permanent move, unlike a mission. On the next loadout pass, every member still in the old system goes to the new home on a surge-capable carrier. That includes controllers that are coordinating, the drones they run and survey drones holding sites (those sites are given up). Each controller clears its directive and releases its drones as it leaves. Devices that are mining or collecting wait for the next pass. Ferry freighters and taxi plates are left at their jobs.
 
 **Fleet owner** (1.23.0): a replicant can only command devices it owns, so each fleet card has an **Owner** picker. *Set owner

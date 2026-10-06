@@ -618,10 +618,32 @@ def travel_steps(fleet: dict, devices: list[dict], star: str, stars: dict) -> li
     return steps if n else []
 
 
-def unload_steps(fleet: dict, devices: list[dict]) -> list[dict]:
+OUTER = ("KUIPER", "OORT")
+
+
+def deploy_spot(geo: dict) -> str | None:
+    """Where a carrier unloads in a system: a Lagrange point, else a planet — never the Kuiper belt or Oort cloud.
+    Seen live (2026-10-06): the Surveyors' carrier arrived at LORQELYR-KUIPER (the entry point) and unloaded there."""
+    lp = [x for x in geo.get("lagrange") or [] if not any(o in x for o in OUTER)]
+    return (lp or geo.get("inner") or [None])[0]
+
+
+def unload_steps(fleet: dict, devices: list[dict], spot: str | None = None) -> list[dict]:
+    """Deploy / detach every passenger. `spot`: carriers in the outer system fly there first."""
     r = roster(fleet, devices)
     carriers = {c["device_code"] for c in r["carriers"]}
     out = []
+    if spot:
+        loaded = {d.get("attached_to_device_code") or d.get("stowed_in_device_code") for d in r["members"]} & carriers
+        movers = [c for c in r["carriers"] if c["device_code"] in loaded and c.get("location") != spot
+                  and any(o in (c.get("location") or "") for o in OUTER)]
+        for c in movers:
+            out.append(step(f"{c['device_code']} → {spot} (to unload inside the system)", f"/devices/{c['device_code']}",
+                            {"command": "travel", "destination": spot}, critical=True))
+        for i, c in enumerate(movers):
+            w = _wait_arrive(c["device_code"], spot)
+            w["seq0_from"] = i
+            out.append(w)
     for d in r["members"]:
         c = d.get("attached_to_device_code")
         if c in carriers:

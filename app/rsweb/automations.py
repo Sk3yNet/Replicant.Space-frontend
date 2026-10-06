@@ -594,6 +594,11 @@ class AutomationEngine(OpsRules):
                 # seen live: carriers let go of their cargo on arrival, so the device is already off — that's the goal
                 ok, st["note"] = True, err
                 st["wait"] = []
+            if (not ok and (st.get("body") or {}).get("command") == "stow"
+                    and "already stowed" in (err or "").lower()):
+                # seen live (2026-10-06, Surveyors recall): the drone was already aboard — that's what the step wanted
+                ok, st["note"] = True, err
+                st["wait"] = []
             if (not ok and (st.get("body") or {}).get("command") == "change_owner"
                     and "already belongs to that replicant" in (err or "").lower()):
                 # seen live (2026-10-06): a second owner pass for a device the first had already moved
@@ -1528,7 +1533,13 @@ class AutomationEngine(OpsRules):
         if phase == "travel":
             return fl.travel_steps(fleet, devices, target, stars), []
         if phase == "deploy":
-            return fl.unload_steps(fleet, devices), []
+            from . import placement as pl
+            geo = pl.geography(target or "", devices, await self.system_scan(target) if target else None,
+                               (stars.get(target) or {}).get("entry_point"))
+            spot = fl.deploy_spot(geo)
+            if not spot:
+                self._mlog(m, f"nothing known inside {target} yet (no scan): unloading where the carrier is")
+            return fl.unload_steps(fleet, devices, spot), []
         if phase == "work":
             if fleet["role"] == "explore":
                 from . import placement as pl
