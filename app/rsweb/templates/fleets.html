@@ -1,22 +1,66 @@
 {% extends "base.html" %}
-{% block title %}Mobile fleets{% endblock %}
+{% block title %}Fleets{% endblock %}
 {% block content %}
-<div class="row between"><h1>Mobile fleets <span class="muted small">{{ fleets | length }}</span></h1>
+<div class="row between"><h1>Fleets <span class="muted small">{{ fleets | length }} · {{ fleets | selectattr('station') | list | length }} stationed · {{ templates | length }} templates</span></h1>
   <form class="inline" hx-post="/fleets" hx-swap="none">
-    <input name="name" placeholder="fleet name, e.g. Prospector-1" required size="18">
+    <input name="name" placeholder="fleet name, e.g. Sol home" required size="18">
     <select name="role">{% for r in roles %}<option>{{ r }}</option>{% endfor %}</select>
-    <select name="home">{% for s in stars %}<option>{{ s }}</option>{% endfor %}</select>
+    <input name="home" placeholder="home system" list="fl-all-stars" size="12" required>
+    <datalist id="fl-all-stars">{% for s in stars %}<option value="{{ s }}">{% endfor %}</datalist>
+    <select name="template"><option value="">custom loadout</option>{% for ph in templates %}<option value="{{ ph.id }}">{{ ph.name }}</option>{% endfor %}</select>
+    <label style="text-transform:none" title="Kept at its loadout in its home system by the loadout pass"><input type="checkbox" name="station" checked> stationed</label>
     <button>New fleet</button></form></div>
-<p class="muted small">A fleet's devices carry a <code>fleet:&lt;id&gt;</code> tag, so loadouts and the other rules leave them alone even in a
-  busy system. Surge plates / platforms / carriers / mobile fleets in the fleet carry the rest; freighters surge themselves.
-  A system's own devices are its <a href="/loadouts">home fleet</a>; mining and explore missions can't target a system that has one.
+<p class="muted small">A fleet is a named group of devices, tagged <code>fleet:&lt;id&gt;</code>, with a home system and a loadout (its own lines,
+  or a template). A <b>stationed</b> fleet is kept at its loadout in its home system: fleetless devices there join it, extras become
+  <code>spare</code>, spares are sent to it and what's still missing is printed. Its devices at home are that system's own, so the
+  in-system rules (AMI schedules, idle miners, salvage …) work them, and mining and explore missions can't target its home.
+  Any fleet can go on a mission; while it's away the rules leave its devices alone, and when it's done the loadout pass takes over again.
   Tags in a mess? <a href="/fleets/reform">Reset &amp; reform</a>.</p>
-{% with ids="fleet_fill" %}{% include "partials/rules_slot.html" %}{% endwith %}
+{% with ids="loadouts,fleet_fill" %}{% include "partials/rules_slot.html" %}{% endwith %}
+<div id="lo-result">{% if last.at %}<p class="muted small">Last loadout pass {{ last.at | ago }}{% if last.dry_run %} (dry run, nothing sent){% endif %}: {{ last.jobs }} job(s) started.
+  <button class="small ghost" hx-post="/loadouts/apply" hx-target="#lo-result" hx-confirm="Run the loadout pass for every stationed fleet now?">Apply all now</button></p>
+  {% else %}<p><button class="small ghost" hx-post="/loadouts/apply" hx-target="#lo-result" hx-confirm="Run the loadout pass for every stationed fleet now?">Apply all now</button></p>{% endif %}</div>
+
+<div class="card" style="margin-bottom:14px">
+  <h2>Overview</h2>
+  <table class="small">
+    <tr><th>Fleet</th><th>Home</th><th>Loadout</th><th title="Kept at its loadout in its home system">Stationed</th>
+      <th title="Send this fleet's home stockpile to another fleet's home, or take materials in">Materials</th><th>Status</th><th></th></tr>
+    {% for f in fleets %}{% set rep = f.report %}{% set m = f.mission or {} %}
+    <tr>
+      <td><a href="#fleet-{{ f.id }}"><b>{{ f.name }}</b></a> <span class="muted">{{ f.role }}</span></td>
+      <td><a href="/systems/{{ f.home }}">{{ f.home or '—' }}</a> <span class="muted">{{ present.get(f.home, 0) }} devices there</span></td>
+      <td>{{ (templates | selectattr('id', 'equalto', f.template) | map(attribute='name') | first) if f.template else 'custom' }}</td>
+      <td colspan="2"><form hx-post="/fleets/{{ f.id }}/station" hx-trigger="change" class="row" style="gap:6px;flex-wrap:nowrap">
+        <input type="checkbox" name="station" {{ 'checked' if f.station }} title="stationed">
+        <select name="materials">
+          <option value="">—</option>
+          <option value="self" {{ 'selected' if f.materials == 'self' }}>takes materials in ↘</option>
+          {% for g in fleets if g.id != f.id %}<option value="{{ g.id }}" {{ 'selected' if f.materials == g.id }}>send to {{ g.name }} ({{ g.home }}) ↗</option>{% endfor %}
+        </select></form>
+        {% if f.route %}<div class="muted">ferry {{ f.route.controller }}: {{ f.route.source }} → {{ f.route.dest }}</div>{% endif %}
+        {% if f.takes_from %}<div class="muted">from {{ f.takes_from | map(attribute='name') | join(', ') }}</div>{% endif %}</td>
+      <td>{% if m.status in ('running', 'stalled', 'ended', 'stopped') %}<span class="pill small {{ 'lv-alert' if m.status == 'stalled' else 'st-work' }}">mission: {{ m.status }}{% if m.status == 'running' %} · {{ m.phase }}{% endif %}</span>
+        {% elif not f.station %}<span class="muted">not stationed</span>
+        {% elif not rep %}<span class="muted">—</span>
+        {% elif not rep.short and not rep.surplus %}<span class="lv-done">✓ matches</span>
+        {% else %}{% if rep.short %}<span class="lv-alert">short {{ rep.short }}</span>{% endif %}
+          {% if rep.surplus %}<span class="pill small">{{ rep.surplus }} spare</span>{% endif %}{% endif %}</td>
+      <td>{% if rep %}<button class="small ghost" hx-post="/loadouts/apply" hx-vals='{"fleet": "{{ f.id }}"}' hx-target="#lo-result">Apply</button>{% endif %}</td>
+    </tr>
+    {% else %}<tr><td colspan="7" class="muted">No fleets yet. Create one above.</td></tr>{% endfor %}
+  </table>
+  <p class="muted small"><b>Materials:</b> a fleet set to <i>send to</i> another fleet has its home system's biggest stockpile ferried
+    to that fleet's home by <b>cargo freighters</b> (surge drive) under a dedicated AMI transport controller there, the <i>ferry
+    controller</i> (tagged <code>ferry</code>). A fleet that <i>takes materials in</i> is a destination: mining missions in deliver
+    mode ferry to the one they send to, else the nearest such fleet, and the spare depot defaults to one of them. Deliveries land at
+    the home system's autofactory, else its biggest stockpile, else its entry point. One route per system.</p>
+</div>
 
 {% for f in fleets %}{% set r = f.roster %}{% set m = f.mission or {} %}
 <div class="card" id="fleet-{{ f.id }}" style="margin-bottom:14px">
   <div class="row between">
-    <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }} · <code>fleet:{{ f.id }}</code></span></h2>
+    <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }}{% if f.station %} · stationed{% endif %} · <code>fleet:{{ f.id }}</code></span></h2>
     <span>{% if m.status %}<span class="pill {{ {'running': 'st-work', 'done': 'lv-done', 'stalled': 'lv-alert', 'ended': 'lv-done'}.get(m.status, '') }}">{{ m.status }}{% if m.status == 'running' %}: {{ m.phase }}{% endif %}</span>{% endif %}</span>
   </div>
   <div class="grid g2">
@@ -26,7 +70,7 @@
         <label style="text-transform:none">Template
           <select name="template"><option value="">— custom loadout —</option>
             {% for ph in templates %}<option value="{{ ph.id }}" {{ 'selected' if f.template == ph.id }}>{{ ph.name }}</option>{% endfor %}</select></label>
-        {% if f.template %}<span class="muted">the loadout follows this template (edit it under <a href="/loadouts">Home fleets › Templates</a>)</span>{% endif %}
+        {% if f.template %}<span class="muted">the loadout follows this template (edit it under <a href="#templates">Templates</a>)</span>{% endif %}
       </form>
       <form hx-post="/fleets/{{ f.id }}/edit" hx-swap="none" class="loadout-form" data-fid="{{ f.id }}" data-name="{{ f.name }}">
         <input type="hidden" name="lines" value="1">
@@ -64,12 +108,32 @@
           <input name="name" value="{{ f.name }}" size="14"><select name="role">{% for ro in roles %}<option {{ 'selected' if ro == f.role }}>{{ ro }}</option>{% endfor %}</select>
           <select name="home">{% for s in stars %}<option {{ 'selected' if s == f.home }}>{{ s }}</option>{% endfor %}</select>
           <button class="small">Save</button>
-          {% if r.rows | selectattr('short') | list %}<button type="button" class="small" hx-post="/fleets/{{ f.id }}/fill" hx-target="#fp-{{ f.id }}" title="Take idle spares of the missing types, nearest first">Fill from spares</button>
+          {% if f.report %}<button type="button" class="small" hx-post="/loadouts/apply" hx-vals='{"fleet": "{{ f.id }}"}' hx-target="#fp-{{ f.id }}"
+              title="Run the loadout pass for this fleet now: take fleetless devices at home, spares, prints, bring members home">Apply loadout now</button>
+          {% elif r.rows | selectattr('short') | list %}<button type="button" class="small" hx-post="/fleets/{{ f.id }}/fill" hx-target="#fp-{{ f.id }}" title="Take idle spares of the missing types, nearest first">Fill from spares</button>
             <button type="button" class="small" hx-post="/fleets/{{ f.id }}/print" hx-target="#fp-{{ f.id }}">Print what's missing</button>{% endif %}
           <button class="small ghost" name="delete" value="1" hx-confirm="Delete fleet {{ f.name }}? Its devices keep their fleet tag until you remove them.">Delete</button>
         </div>
       </form>
       <div id="fp-{{ f.id }}"></div>
+      {% if f.report %}{% set rep = f.report %}
+      <details style="margin-top:8px"><summary class="small">At its station: {{ rep.short or 0 }} short · {{ rep.surplus or 0 }} spare · incoming and away</summary>
+        <table class="small">
+          <tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th class="num">Incoming</th><th class="num">Short</th><th>Away from home</th><th>Spare / filling from</th></tr>
+          {% for row in rep.rows %}<tr>
+            <td>{{ row.type | human }}</td><td class="num">{{ row.want }}</td><td class="num">{{ row.have }}</td>
+            <td class="num">{{ row.incoming or '' }}</td>
+            <td class="num {{ 'lv-alert' if row.short }}">{{ row.short or '' }}</td>
+            <td class="mono">{% for c in row.away or [] %}<a href="/devices/{{ c }}" title="a member, counted here while it's away">{{ c }}</a> {% endfor %}</td>
+            <td class="mono">{% for c in row.spare %}<a href="/devices/{{ c }}" title="becomes spare this pass">{{ c }}</a> {% endfor %}
+              {% for c in row.spares_here or [] if c not in row.spare %}<a href="/devices/{{ c }}" class="muted" title="spare, parked here, in no fleet">{{ c }}</a> {% endfor %}
+              {% if row.from_spares %}<span class="muted">← </span>{% for c in row.from_spares %}<a href="/devices/{{ c }}">{{ c }}</a> {% endfor %}{% endif %}
+              {% if row.printing %}<span class="muted">print {{ row.printing }}</span>{% endif %}</td>
+          </tr>{% endfor %}
+        </table>
+        <p class="muted small">Have counts members and fleetless devices in {{ f.home }} that the fleet takes this pass. A template's
+          blank lines are "don't care"; a 0 means none wanted, so any there become spare.</p></details>
+      {% endif %}
       <details style="margin-top:8px"><summary class="small">Add / remove devices</summary>
         <form hx-post="/fleets/{{ f.id }}/members" hx-swap="none">
           <div class="small" style="max-height:220px;overflow:auto">
@@ -97,9 +161,15 @@
           {% if m.status == 'stalled' %}<button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "resume"}' hx-swap="none">Retry</button>{% endif %}
           <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "stop"}' hx-swap="none" hx-confirm="Stop the mission? Devices stay where they are.">Stop</button>
         </div>
+      {% elif m.status in ('ended', 'stopped') %}
+        <p class="small">Mission {{ m.status }}{% if m.log %}: {{ m.log[-1].text }}{% endif %}. The fleet stays where it is{% if f.station %}, not at its station,{% endif %} until you clear it.</p>
+        <div class="row small" style="margin-bottom:6px">
+          <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "station"}' hx-swap="none"
+                  title="Clear the mission{{ ': the loadout pass brings its devices home and keeps it at its loadout' if f.station }}">{{ 'Back to station' if f.station else 'Clear mission' }}</button>
+          <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "recall"}' hx-swap="none"
+                  title="Recall, fly home together and unload">Recall &amp; return home</button></div>
       {% else %}
-        {% if m.status == 'ended' %}<p class="small">Last mission ended early{% if m.log %}: {{ m.log[-1].text }}{% endif %}.</p>{% endif %}
-        {% if r.loose %}
+        {% if r.loose and not f.station %}
         <div class="row small" style="margin-bottom:6px">
           <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "end"}' hx-swap="none"
                   title="Bring every member back aboard a fleet carrier where it is">Board everyone</button>
@@ -115,11 +185,11 @@
           {% else %}
             <input name="targets" placeholder="{{ 'systems to explore, in order: KELMONENT, LORSELAN' if f.role == 'explore' else 'target system, e.g. KELMONENT' }}" style="width:100%" list="fl-stars">
             <datalist id="fl-stars">{% for s in stars if s not in home_systems %}<option value="{{ s }}">{% endfor %}</datalist>
-            {% if home_systems %}<div class="muted small">Not available as targets (they have a home fleet, which is the
-              only one that works them): {{ home_systems | join(', ') }}</div>{% endif %}
+            {% if home_systems %}<div class="muted small">Not available as targets (a stationed fleet works them):
+              {{ home_systems | join(', ') }}</div>{% endif %}
           {% endif %}
           {% if f.role == 'mining' %}
-            <label style="text-transform:none;display:block"><input type="checkbox" name="deliver"> Ferry to the nearest destination system while mining (otherwise freighters haul it home on recall)</label>
+            <label style="text-transform:none;display:block"><input type="checkbox" name="deliver"> Ferry while mining, to {{ (f.sends_to.name ~ ' (' ~ f.sends_to.home ~ ')') if f.sends_to else 'the nearest fleet that takes materials in' }} (otherwise freighters haul it home on recall)</label>
             <label style="text-transform:none">Recall after exhausted for <input type="number" name="exhausted_minutes" value="30" style="width:56px"> min with no site being searched</label>
           {% endif %}
           <div><button style="margin-top:6px">Launch mission</button></div>
@@ -131,7 +201,107 @@
     </div>
   </div>
 </div>
-{% else %}<div class="card"><p class="muted">No fleets yet. Create one above, add its devices, set its loadout, then launch a mission.</p></div>{% endfor %}
+{% else %}<div class="card"><p class="muted">No fleets yet. Create one above, add its devices, set its loadout, then station it at home or launch a mission.</p></div>{% endfor %}
+<div class="grid g2" style="margin-top:14px">
+<div>
+  <div class="card">
+    <h2>Next pass would…</h2>
+    {% if lines %}<ul class="small">{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted small">Nothing to do.</p>{% endif %}
+    <h3>Consolidation at the autofactory {% if not consolidate_on %}<span class="pill small lv-alert">rule off</span>{% endif %}</h3>
+    {% if consolidation %}<ul class="small">{% for l in consolidation %}<li>{{ l }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted small">Every system's stockpiles are already at its autofactory.</p>{% endif %}
+    <p class="muted small">Turn on <b>Consolidate stockpiles at the autofactory</b> on the Automations page.</p>
+    <p class="muted small"><b>Ferries:</b> each pass the ferry controller adopts idle freighters in the sending fleet's home and gets a
+      <code>ferry</code> directive. Transport drones and haulers stay on in-system work under a <i>second</i> transport controller; the
+      ferry controller is never given in-system jobs. Put the ferry controller and freighters in the sending fleet's loadout.</p>
+    <p class="muted small">Recomputed on every page load. "Apply" runs it now; the Automations rule runs it on a timer (and respects Dry run).</p>
+  </div>
+
+  <div class="card">
+    <h2>Tags &amp; controllers check
+      <span class="muted small">{% if not audit %}all consistent ✓{% else %}{{ audit | rejectattr('fixed') | list | length }} open · {{ audit | selectattr('fixed') | list | length }} fixed by the next pass{% endif %}</span></h2>
+    {% if audit %}<table class="small"><tr><th>Device</th><th>Where</th><th>Issue</th><th>Next pass</th></tr>
+      {% for a in audit %}<tr><td class="mono"><a href="/devices/{{ a.code }}">{{ a.code }}</a> <span class="muted">{{ a.type | human }}</span></td>
+        <td>{{ a.location or '—' }}</td><td>{{ a.issue }}</td>
+        <td>{% if a.fixed %}<span class="lv-done">✓ {{ a.how }}</span>{% else %}<span class="lv-alert">not handled</span>{% endif %}</td></tr>{% endfor %}
+    </table>{% else %}<p class="muted small">Every device's fleet / spare / to: tags and its controller match the fleets.</p>{% endif %}
+    <p class="muted small">Checks, for every device outside ignored tags and fleets away on a mission: spare devices still run by a
+      controller; spare devices that are still in a fleet; more than one fleet tag, or one for a fleet that doesn't exist; old
+      <code>home:</code> tags; a controller in another system; arrived devices still tagged <code>to:</code>; idle members away from
+      their fleet's home; drones run by another fleet's controller; and idle drones in their system that no controller runs. When a
+      loadout shrinks, spare devices are released by their controller and moved devices are released before leaving. On arrival they
+      join their fleet and are adopted by that system's controller.</p>
+  </div>
+
+  <div class="card">
+    <h2>Spare &amp; on the way</h2>
+    {% set spares = tagged.get('spare', []) %}
+    <div class="small"><b>Spare</b> ({{ spares | length }}):
+      {% for d in spares %}<a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> <span class="muted">{{ d.device_type | human }} @ {{ d.location | star_of }}</span>{{ ' · ' if not loop.last }}{% else %}<span class="muted">none</span>{% endfor %}</div>
+    {% for t, ds in tagged.items() if t.startswith('to:') %}
+      <div class="small"><b>{{ t }}</b>: {% for d in ds %}<a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> <span class="muted">{{ d.device_type | human }} @ {{ d.location }}</span>{{ ' · ' if not loop.last }}{% endfor %}</div>
+    {% endfor %}
+    <h3>Prints ordered</h3>
+    {% if orders %}<table class="small"><tr><th>For</th><th>Type</th><th>On</th><th>Ordered</th><th>Status</th></tr>
+      {% for o in orders %}<tr><td>{{ o.fleet or o.star }}</td><td>{{ o.device_type | human }}</td><td class="mono"><a href="/devices/{{ o.factory }}">{{ o.factory }}</a></td>
+        <td>{{ o.at | ago }}</td><td>{{ ('printed ' ~ o.device_code) if o.device_code else 'queued' }}</td></tr>{% endfor %}</table>
+      <button class="small ghost" hx-post="/loadouts/orders/clear" hx-confirm="Forget these orders? Use this if you cleared a queue by hand — they stop counting as incoming.">Forget orders</button>
+    {% else %}<p class="muted small">None waiting.</p>{% endif %}
+    <h3>Jobs</h3>
+    {% for j in active_jobs %}<div class="small"><span class="pill st-work">{{ j.status }}</span> {{ j.title }} · step {{ j.idx + 1 }}/{{ j.steps | length }}{% if j.steps[j.idx] is defined %}: {{ j.steps[j.idx].desc }}{% endif %}</div>
+    {% else %}<p class="muted small">No loadout jobs running.</p>{% endfor %}
+    {% for j in recent_jobs %}<div class="small muted">{{ j.status }} · {{ j.title }}</div>{% endfor %}
+  </div>
+</div>
+<div>
+  <div class="card" id="templates">
+    <h2>Templates <span class="muted small">(phases)</span></h2>
+    <p class="muted small">A template (phase) is a loadout fleets can share, e.g. a stage of a system's development: how many of each device
+      a fleet on it should have. Editing a template updates every fleet that follows it. A fleet's members keep their <code>fleet:</code> tag
+      wherever they go, so a carrier out on a delivery still counts at home (listed under "Away from home") and isn't made spare where it's
+      visiting. A device marked <code>spare</code> is in no fleet until it's sent to one.
+      Leave a box empty for "don't care" (never counted, marked spare or filled); 0 means none wanted, so a stationed fleet makes any spare.</p>
+    <form hx-post="/loadouts/phases" hx-swap="none">
+      <div style="overflow-x:auto">
+      <table class="small">
+        <tr><th>Device type</th>{% for ph in cfg.phases %}<th class="num">
+          <input name="name:{{ ph.id }}" value="{{ ph.name }}" style="width:150px"><br>
+          <span class="muted">order</span> <input type="number" name="order:{{ ph.id }}" value="{{ ph.order }}" style="width:46px">
+          <button type="button" class="small ghost" hx-post="/loadouts/phases/{{ ph.id }}/delete" hx-confirm="Delete template {{ ph.name }}? Fleets that follow it keep its loadout as their own." title="delete">✕</button>
+        </th>{% endfor %}</tr>
+        {% for t in types %}<tr><td>{{ t | human }}</td>
+          {% for ph in cfg.phases %}<td class="num"><input type="number" min="0" name="want:{{ ph.id }}:{{ t }}" value="{{ ph.wants.get(t, '') }}" style="width:56px"></td>{% endfor %}
+        </tr>{% endfor %}
+      </table>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input name="new_phase" placeholder="new template, e.g. 2 Mining outpost" size="26">
+        {% if cfg.phases %}<select name="copy_from"><option value="">start empty</option>{% for ph in cfg.phases %}<option value="{{ ph.id }}">copy {{ ph.name }}</option>{% endfor %}</select>{% endif %}
+        <button>Save templates</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Settings</h2>
+    <form hx-post="/loadouts/settings" hx-target="#lo-saved">
+      <label>Ignore devices with these tags</label>
+      <input name="ignore_tags" value="{{ cfg.ignore_tags | join(', ') }}" placeholder="keep, reserve, fleet-713" list="lo-tags" style="width:100%">
+      <datalist id="lo-tags">{% for t in all_tags if t != 'spare' and not t.startswith('to:') %}<option value="{{ t }}">{% endfor %}</datalist>
+      <div class="muted small">Comma separated. A device with any of them is invisible to the loadout pass: not counted, never tagged spare, never moved.</div>
+      <label style="text-transform:none;display:block;margin-top:8px"><input type="checkbox" name="print_missing" {{ 'checked' if cfg.settings.print_missing }}> Print what spares can't cover</label>
+      <label style="text-transform:none;display:block"><input type="checkbox" name="need_stock" {{ 'checked' if cfg.settings.need_stock }}> Only on an autofactory whose stock already covers the cost</label>
+      <label style="text-transform:none;display:block"><input type="checkbox" name="carriers_return" {{ 'checked' if cfg.settings.carriers_return }}> Carriers fly back after a delivery</label>
+      <label style="text-transform:none;display:block"><input type="checkbox" name="use_replicant_vessels" {{ 'checked' if cfg.settings.use_replicant_vessels }}> Allow replicant vessels as carriers <span class="muted">(moves your replicant)</span></label>
+      <label style="text-transform:none;display:block"><input type="checkbox" name="gather_spares" {{ 'checked' if cfg.settings.gather_spares }}> Gather idle spares at the spare depot</label>
+      <label style="text-transform:none;display:block">Spare depot <input name="spare_depot" value="{{ cfg.settings.spare_depot or '' }}" size="14" placeholder="automatic">
+        <span class="muted">now: {{ depot or 'none' }} — blank = the home of a fleet that takes materials in, with an autofactory</span></label>
+      <div class="row" style="margin-top:8px"><button>Save settings</button><span id="lo-saved"></span></div>
+    </form>
+  </div>
+</div>
+</div>
 <script id="type-profiles" type="application/json">{{ profiles | tojson }}</script>
 <script>
 // Fleet loadout editor: picking a type in the last blank line sets qty 1 and opens a new blank line below.

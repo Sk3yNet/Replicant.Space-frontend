@@ -278,7 +278,6 @@ class OpsRules:
     async def maintenance_pass(self, manual: bool = False, star: str | None = None) -> list[str]:
         from . import printqueue as pq, upkeep as up
         from .automations import step
-        from .loadouts import home_tag
         from .shapes import normalize_blueprints
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         s = await self.settings()
@@ -321,7 +320,7 @@ class OpsRules:
                                             [step(f"{fac['device_code']}: print maintenance_drone for {r['star']}",
                                                   f"/devices/{fac['device_code']}",
                                                   {"command": "enqueue_print", "device_type": "maintenance_drone", "quantity": 1,
-                                                   "tags": [home_tag(r["star"])]})], {"devices": []}, force=manual)
+                                                   "tags": []})], {"devices": []}, force=manual)
                 if job:
                     orders[r["star"]] = now_iso()
                 lines.append(f"{r['star']}: printing a maintenance drone on {fac['device_code']} "

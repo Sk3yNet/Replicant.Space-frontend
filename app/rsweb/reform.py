@@ -2,21 +2,22 @@
 
 For when the tags have got messy. plan() is pure; the Fleets page shows it as a preview and only sends it on confirm.
 
-What it rewrites — the assignment tags only: `home:<star>`, `to:<star>`, `fleet:<id>`, `spare`, `gather`.
-Kept as they are: `at:` pins, `civ`, `ferry`, `taxi`, the loadout's ignore tags (e.g. `keep`) and any tag of your own.
+What it rewrites — the assignment tags only: `fleet:<id>`, `to:<star>`, `spare`, `gather`, and old `home:<star>` tags.
+Kept as they are: `at:` pins, `civ`, `ferry`, `taxi`, the ignore tags (e.g. `keep`) and any tag of your own.
 Left alone entirely: ignored devices, the ferry's devices, devices in a running job (a delivery under way), moving, members of a
-fleet on a mission, and the replicants' own vessels.
+fleet away on a mission, and the replicants' own vessels.
 
 How devices are assigned, per system (where a device is, or where the carrier holding it is):
-  1. Mobile fleets keep their current members (wherever they are) up to the fleet's loadout, then take unassigned
-     devices (no fleet, and spare or untagged) in the system the fleet sits in to fill the gaps. Extra members leave.
-  2. The system's home fleet (it has a template) takes what's left, up to the template; current `home:` devices first.
-     Types the template leaves blank ("don't care") are home-tagged and never made spare.
-  3. Everything else in a system with a home fleet becomes `spare`. In a system without one, devices that were
-     spare stay spare and the rest are left untagged (systems without a template are left alone).
-Controllers: a drone run by a controller outside its new group (another system, another fleet, or the home fleet's
-controller for a fleet drone and vice versa) is released; with `full`, every drone is released. The next loadout pass
-and the fleets' own phases adopt idle drones in their group again.
+  1. Fleets that aren't stationed keep their current members (wherever they are) up to the fleet's loadout, then take
+     unassigned devices (no fleet, and spare or untagged) in the system the fleet sits in to fill the gaps. Extra members leave.
+  2. Stationed fleets take, in their home system, their own members first, then the other devices there, up to their
+     loadout (a template's 0 lines want none).
+  3. Everything else in a system with a stationed fleet becomes `spare` if a fleet there counts its type, and is left
+     untagged if none does (the system's own "don't care" devices). In a system without one, devices that were spare stay
+     spare and the rest are left untagged.
+Controllers: a drone run by a controller outside its new group (another system, another fleet) is released; a stationed
+fleet's devices and the fleetless devices in its home are one group. With `full`, every drone is released. The next loadout
+pass and the fleets' own phases adopt idle drones in their group again.
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ from collections import Counter, defaultdict
 
 from . import ami_schedule as amis
 from . import fleets as fl
-from .loadouts import home_tag, phase_of
+from .loadouts import home_tag
 
 ASSIGN_PREFIXES = ("home:", "to:", "fleet:")
 ASSIGN_TAGS = {"spare", "gather"}
@@ -53,7 +54,7 @@ def _moving(d: dict) -> bool:
 def plan(cfg: dict, devices: list[dict], fleets: list[dict], busy: set[str], hosts: set[str], full: bool = False) -> dict:
     by_code = {d["device_code"]: d for d in devices}
     ignore = set(cfg.get("ignore_tags") or [])
-    on_mission = {f["id"] for f in fleets if (f.get("mission") or {}).get("status") == "running"}
+    on_mission = {f["id"] for f in fleets if fl.away(f)}
     skipped: list[dict] = []
     pool: list[dict] = []
     for d in devices:
@@ -86,9 +87,9 @@ def plan(cfg: dict, devices: list[dict], fleets: list[dict], busy: set[str], hos
         return {t: max(0, n - got[t]) for t, n in wants.items() if n - got[t] > 0}
 
     short: dict[str, dict[str, int]] = {}
-    # 1. mobile fleets not on a mission, in the system most of their members are in (else their home)
+    # 1. fleets that aren't stationed (nor away), in the system most of their members are in (else their home)
     for f in fleets:
-        if f["id"] in on_mission:
+        if f["id"] in on_mission or f.get("station"):
             continue
         tag = fl.fleet_tag(f["id"])
         mine = [d for d in pool if tag in (d.get("tags") or [])]
@@ -103,24 +104,30 @@ def plan(cfg: dict, devices: list[dict], fleets: list[dict], busy: set[str], hos
         if gap:
             short[f"fleet {f['name']}"] = gap
 
-    # 2. home fleets, 3. spares
-    for star, ds in by_star.items():
-        ph = phase_of(cfg, star)
-        if not ph:
-            for d in ds:
-                if d["device_code"] not in group:
-                    group[d["device_code"]] = "spare" if "spare" in (d.get("tags") or []) else ""
-            continue
-        raw = ph.get("wants") or {}
-        counted = {t: int(n) for t, n in raw.items() if str(n).strip() not in ("", "None")}
-        dont_care = {d.get("device_type") for d in ds} - set(counted)
+    # 2. stationed fleets, at home
+    stationed = [f for f in fleets if f.get("station") and f.get("home") and f["id"] not in on_mission]
+    at_home: dict[str, list[dict]] = defaultdict(list)
+    for f in sorted(stationed, key=lambda f: (f["home"], f["id"])):
+        at_home[f["home"]].append(f)
+        tag, star = fl.fleet_tag(f["id"]), f["home"]
+        wants = fl.station_wants(f)
+        cands = [d for d in by_star.get(star, []) if fl.fleet_of(d) in (None, f["id"])]
         htag = home_tag(star)
-        gap = take(ds, counted, htag, lambda d, htag=htag: 0 if htag in (d.get("tags") or []) else 1)
+        gap = take(cands, wants, tag, lambda d, tag=tag, htag=htag: 0 if tag in (d.get("tags") or []) else
+                   1 if htag in (d.get("tags") or []) else 2)
         if gap:
-            short[f"{star} home fleet"] = gap
+            short[f"fleet {f['name']}"] = gap
+
+    # 3. the rest: spare where a stationed fleet counts the type, else untagged (spares elsewhere stay spare)
+    for star, ds in by_star.items():
+        counted = {t for f in at_home.get(star, []) for t in fl.station_wants(f)}
         for d in ds:
-            if d["device_code"] not in group:
-                group[d["device_code"]] = htag if d.get("device_type") in dont_care else "spare"
+            if d["device_code"] in group:
+                continue
+            if at_home.get(star):
+                group[d["device_code"]] = "spare" if d.get("device_type") in counted else ""
+            else:
+                group[d["device_code"]] = "spare" if "spare" in (d.get("tags") or []) else ""
 
     # tag changes: drop every assignment tag that isn't the new one, add the new one
     retag: list[dict] = []
@@ -140,7 +147,9 @@ def plan(cfg: dict, devices: list[dict], fleets: list[dict], busy: set[str], hos
         if not c or amis.drone_kind(d) is None:
             continue
         g, cg = group.get(d["device_code"], ""), group.get(c["device_code"], "")
-        if full or not g or g != cg or where(c, by_code) != where(d, by_code):
+        home_side = {fl.fleet_tag(f["id"]) for f in at_home.get(where(d, by_code), [])}
+        together = g == cg or (g == "" and cg in home_side) or (cg == "" and g in home_side)
+        if full or g == "spare" or not together or where(c, by_code) != where(d, by_code):
             releases[c["device_code"]].append(d["device_code"])
 
     counts = Counter(v or "(untagged)" for v in group.values())

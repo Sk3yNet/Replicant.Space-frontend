@@ -95,10 +95,37 @@ def in_transit(d: dict) -> bool:
     return any(t.startswith("to:") and t[3:] and t[3:] != here[:29] for t in d.get("tags") or [])
 
 
+# Fleets at their station (tag -> home system), set by the engine whenever it loads the fleets. A stationed fleet's
+# devices in its home system are that system's own devices, so the in-system rules work them as before.
+STATIONED: dict[str, str] = {}
+
+
+def set_stationed(homes: dict[str, str]) -> None:
+    STATIONED.clear()
+    STATIONED.update(homes)
+
+
+def on_mission(d: dict) -> bool:
+    """A fleet member the in-system rules must leave alone: its fleet is on a mission (or isn't stationed), or it's
+    outside its stationed fleet's home system."""
+    f = fleet_of(d)
+    if not f:
+        return False
+    home = STATIONED.get(f)
+    return not home or star_of(d.get("location")) != home
+
+
+def same_side(a: dict, b: dict) -> bool:
+    """May controller and drone work together: the same fleet, or one fleetless and the other a stationed fleet's
+    (home-system devices, whether or not the template counts their type)."""
+    fa, fb = fleet_of(a), fleet_of(b)
+    return fa == fb or (fa is None and fb in STATIONED) or (fb is None and fa in STATIONED)
+
+
 def reserved(d: dict) -> bool:
-    """Not available to the in-system work rules: a fleet member, a device on its way to another system, or a spare
-    (the loadout let it go so it can be sent where it's needed — re-adopting it here would undo that)."""
-    return bool(fleet_of(d)) or in_transit(d) or "spare" in (d.get("tags") or [])
+    """Not available to the in-system work rules: a fleet member away from its station, a device on its way to another
+    system, or a spare (the loadout let it go so it can be sent where it's needed — re-adopting it here would undo that)."""
+    return on_mission(d) or in_transit(d) or "spare" in (d.get("tags") or [])
 
 
 def adoptable(devices: list[dict], ctrl: dict, managed: dict[str, str]) -> list[str]:
@@ -111,7 +138,7 @@ def adoptable(devices: list[dict], ctrl: dict, managed: dict[str, str]) -> list[
                   if want in (d.get("device_type") or "") and d.get("location") == ctrl.get("location")
                   and str(d.get("status", "")).startswith("idle") and d.get("device_code") not in managed
                   and d.get("device_code") != ctrl.get("device_code") and not is_controller(d)
-                  and fleet_of(d) == fleet_of(ctrl) and not in_transit(d) and "spare" not in (d.get("tags") or [])
+                  and same_side(d, ctrl) and not in_transit(d) and "spare" not in (d.get("tags") or [])
                   and not d.get("attached_to_device_code") and not d.get("stowed_in_device_code"))
 
 
@@ -192,14 +219,14 @@ def handoffs(devices: list[dict], managed: dict[str, str], busy: set[str], skip:
         code, kind = d.get("device_code"), drone_kind(d)
         tags = set(d.get("tags") or [])
         here = star_of(d.get("location"))
-        homes = {t[5:] for t in tags if t.startswith("home:")}
+        homes = {t[5:] for t in tags if t.startswith("home:")}   # an old home: tag, until the loadout pass converts it
         if (not kind or not here or code in run_by or code in busy or code in skip or reserved(d) or "spare" in tags
                 or ignore & tags or not str(d.get("status") or "").startswith("idle") or d.get("location_stale")
                 or d.get("in_control_range") is False or d.get("stowed_in_device_code") or d.get("attached_to_device_code")
                 or (homes and here.lower()[:29] not in homes)):
             continue
         cands = [c for c in ctrls if kind_of(c.get("device_type")) == kind and star_of(c.get("location")) == here
-                 and fleet_of(c) == fleet_of(d)]
+                 and same_side(c, d)]
         pin = next((t[3:].upper() for t in tags if t.startswith("at:") and len(t) > 3), None)
         if pin:  # pinned to a spot: only a controller already there may adopt it (it isn't flown away)
             cands = [c for c in cands if c.get("location") == d.get("location") == pin]

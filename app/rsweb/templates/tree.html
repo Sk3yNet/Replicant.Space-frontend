@@ -72,7 +72,7 @@
       {% if s.counts.idle %}<span class="pill st-idle small">{{ s.counts.idle }} idle</span>{% endif %}
       {% if s.counts.stowed %}<span class="pill small">{{ s.counts.stowed }} stowed</span>{% endif %}
       {% for r in s.replicants %}<span class="pill st-move small">⬢ {{ r }}</span>{% endfor %}
-      {% if phases.get(s.star) %}<a class="pill small" href="/loadouts" onclick="event.stopPropagation()" title="loadout phase">◆ {{ phases[s.star] }}</a>{% endif %}
+      {% if phases.get(s.star) %}<a class="pill small" href="/fleets" onclick="event.stopPropagation()" title="stationed here">◆ {{ phases[s.star] }}</a>{% endif %}
       <a class="small" href="/systems/{{ s.star }}" onclick="event.stopPropagation()">system view →</a>
     </summary>
     <div class="tchildren">

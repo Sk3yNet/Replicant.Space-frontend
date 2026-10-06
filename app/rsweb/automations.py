@@ -61,17 +61,19 @@ RULES: list[Rule] = [
          "Master switch for the AMI schedules below: every N minutes each schedule checks its controller(s); "
          "if one is idle (or its directive finished) it adopts idle drones of the right kind at its location, "
          "sets the directive and launches it. The controllers do the actual work."),
-    Rule("loadouts", "Keep systems at their loadout",
-         "Every N minutes, apply the Loadouts page: mark devices above a system's loadout as spare, send spares to "
-         "systems that are short, print what's still missing on an autofactory that has the materials, and carry "
-         "it there. Devices with an ignored tag are never touched. Idle drones in the system they belong to that no "
+    Rule("loadouts", "Keep stationed fleets at their loadout",
+         "Every N minutes, for every stationed fleet (Fleets page) that isn't on a mission: devices in its home system with "
+         "no fleet join it up to its loadout, extras become spare, spares are sent to fleets that are short, what's still "
+         "missing is printed on an autofactory that has the materials and carried there, and fleets' materials are "
+         "ferried. Devices with an ignored tag are never touched. Idle drones in the system they belong to that no "
          "controller runs fly to that system's controller of the right kind and are adopted (it launches if it's already "
          "running a directive). Maintenance drones and AMI controllers that arrive home inactive are activated, once.",
          [Option("every_minutes", "int", "Run every (minutes)", 15),
           Option("adopt_arrivals", "bool", "Hand unmanaged drones to their system's controller", True),
           Option("activate_arrivals", "bool", "Set maintenance drones to patrol / activate inactive AMI controllers when they arrive home", True)]),
-    Rule("fleet_fill", "Fill mobile fleets from spares",
-         "Every N minutes, a mobile fleet that isn't on a mission and is short of its loadout (or its template's) takes "
+    Rule("fleet_fill", "Fill unstationed fleets from spares",
+         "Every N minutes, a fleet that isn't stationed (stationed ones are kept full by the loadout pass), isn't on a "
+         "mission and is short of its loadout (or its template's) takes "
          "idle spare devices of the missing types, nearest first: they get the fleet's tag, the fleet's carrier tours the "
          "systems they're in to pick them up and flies back, and spares that surge themselves fly to the fleet. Missions "
          "still recruit spares in their gather phase whether this is on or not.",
@@ -750,8 +752,29 @@ class AutomationEngine(OpsRules):
 
     # --- loadouts --------------------------------------------------------------------------------------
     async def loadout_cfg(self) -> dict:
+        """Templates, settings and ignore tags (kv "loadouts"), plus `fleets`: every fleet with its template resolved.
+        The first call after an upgrade turns the old home fleets and materials roles into fleets (fleets.migrate)."""
+        from . import fleets as fl
+        from .ami_schedule import set_stationed
         from .loadouts import normalize
-        return normalize(await self.db.kv_get("loadouts", {}) or {})
+        raw = await self.db.kv_get("loadouts", {}) or {}
+        items = await self.db.kv_get("fleets", []) or []
+        if not raw.get("fleets_migrated"):
+            cat = await self.db.kv_get("stars", {}) or {}
+            pos = {x.get("designation"): x.get("position") or {} for x in (cat.get("stars") or []) if isinstance(x, dict)}
+            had = {f.get("id") for f in items}
+            raw, items, changed = fl.migrate(raw, items, pos)
+            if changed:
+                await self.db.kv_set("fleets", items)
+                await self.db.kv_set("loadouts", raw)
+                for f in items:
+                    if f["id"] not in had:
+                        await self.log("fleets", f"home fleet of {f['home']} is now the stationed fleet {f['name']} "
+                                                 f"(fleet:{f['id']}); its devices get the fleet tag on the next loadout pass")
+        cfg = normalize(raw)
+        cfg["fleets"] = [fl.resolve_template(dict(f), cfg) for f in items]
+        set_stationed({fl.fleet_tag(f["id"]): f["home"] for f in cfg["fleets"] if fl.stationed(f)})
+        return cfg
 
     async def geography(self, devices: list[dict], stars: dict[str, dict]) -> dict[str, dict]:
         """Per system: belts, Lagrange points and inner planets (from its scan, the catalogue and device positions)."""
@@ -841,7 +864,8 @@ class AutomationEngine(OpsRules):
             later_finish = cur and cur.get("finished") and (cur.get("at") or "") > (f.get("at") or "")
             if not later_finish:  # what we sent is still what it's doing, whatever the event payloads say
                 current[ctrl] = {"directive": "ferry", "configuration": f.get("configuration"), "finished": False}
-        cfg_only = {**cfg, "roles": {k: v for k, v in cfg["roles"].items() if not only or k in only}}
+        cfg_only = {**cfg, "fleets": [f for f in cfg["fleets"] if not only or f.get("id") in only or f.get("home") in only
+                                      or not f.get("materials") or f.get("materials") == "self"]}
         from .ami_schedule import managed_by
         routes, unmet = material_routes(cfg_only, devices, inv, stars, busy, current, await managed_by(self.db))
         p["routes"], p["unmet"] = routes, p["unmet"] + unmet
@@ -872,19 +896,20 @@ class AutomationEngine(OpsRules):
                                         pr["factory"], lo.print_steps(pr), {"devices": [], "star": pr["star"]}, force=manual)
             if job:
                 started += 1
-                orders += [{"star": pr["star"], "device_type": pr["device_type"], "factory": pr["factory"],
-                            "at": now_iso(), "job": job["id"]} for _ in range(pr["n"])]
+                orders += [{"star": pr["star"], "fleet": pr.get("fleet"), "device_type": pr["device_type"],
+                            "factory": pr["factory"], "at": now_iso(), "job": job["id"]} for _ in range(pr["n"])]
         await self.db.kv_set("loadout_orders", orders)
         for code, dest in p["self_moves"]:
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {dest}", code,
                                                   lo.self_move_steps(code, dest, stars, p["by_code"][code], p.get("managed"),
-                                                                    gathering=code in set(p.get("gathering") or [])),
+                                                                    gathering=code in set(p.get("gathering") or []),
+                                                                    join=(p.get("assign") or {}).get(code)),
                                                   {"devices": [code], "star": dest}, force=manual))
         for dl in p["deliveries"]:
             started += bool(await self.create_job(
                 "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']}", dl["carrier"],
                 lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
-                                                  gathering=set(p.get("gathering") or [])),
+                                                  gathering=set(p.get("gathering") or []), assign=p.get("assign")),
                 {"devices": dl["devices"], "star": dl["to"]}, force=manual))
         ferries = await self.db.kv_get("loadout_ferries", {}) or {}
         for r in p.get("routes") or []:
@@ -904,7 +929,7 @@ class AutomationEngine(OpsRules):
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {loc} (placement)", code,
                                                   [lo.pin_step(code, loc, "where its type works")], {"devices": [code]}, force=manual))
         for code in p["arrived"]:
-            steps = lo.arrived_steps(code, p["by_code"][code], stowed_in)
+            steps = lo.arrived_steps(code, p["by_code"][code], stowed_in, join=(p.get("assign") or {}).get(code))
             if steps:
                 started += bool(await self.create_job("loadouts", f"loadouts: {code} arrived", code, steps,
                                                       {"devices": [code]}, force=manual))
@@ -980,7 +1005,8 @@ class AutomationEngine(OpsRules):
             if code in ready:
                 if await self.create_job("loadouts", f"loadouts: {code} → {dest} (just printed)", code,
                                          lo.self_move_steps(code, dest, stars, p["by_code"][code], p.get("managed"),
-                                                                    gathering=code in set(p.get("gathering") or [])),
+                                                                    gathering=code in set(p.get("gathering") or []),
+                                                                    join=(p.get("assign") or {}).get(code)),
                                          {"devices": [code], "star": dest}):
                     started.append(f"{code} flies to {dest}")
                 ready.discard(code), pend.pop(code, None)
@@ -989,7 +1015,7 @@ class AutomationEngine(OpsRules):
                 if await self.create_job("loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']} "
                                          "(just printed)", dl["carrier"],
                                          lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
-                                                  gathering=set(p.get("gathering") or [])),
+                                                  gathering=set(p.get("gathering") or []), assign=p.get("assign")),
                                          {"devices": dl["devices"], "star": dl["to"]}):
                     started.append(f"{dl['carrier']} carries {', '.join(dl['devices'])} to {dl['to']}")
                 for c in dl["devices"]:
@@ -1393,14 +1419,16 @@ class AutomationEngine(OpsRules):
             await self.db.kv_set("exhausted_places", live)
         return list(live)
 
-    # --- mobile fleets ---------------------------------------------------------------------------------
+    # --- fleets ---------------------------------------------------------------------------------------
     async def fleets(self) -> list[dict]:
-        from .fleets import resolve_template
-        cfg = await self.loadout_cfg()
-        return [resolve_template(f, cfg) for f in await self.db.kv_get("fleets", []) or []]
+        return (await self.loadout_cfg())["fleets"]
 
     async def save_fleets(self, items: list[dict]) -> None:
-        await self.db.kv_set("fleets", items)
+        from .ami_schedule import set_stationed
+        from .fleets import fleet_tag, stationed
+        keep = [{k: v for k, v in f.items() if k not in ("roster", "points", "job", "zero")} for f in items]
+        await self.db.kv_set("fleets", keep)
+        set_stationed({fleet_tag(f["id"]): f["home"] for f in items if stationed(f)})
 
     def _mlog(self, m: dict, text: str) -> None:
         m.setdefault("log", []).append({"at": now_iso(), "text": text})
@@ -1441,15 +1469,17 @@ class AutomationEngine(OpsRules):
             m["belt"] = belt
             deliver_to = None
             if opts.get("deliver"):
-                cfg = await self.loadout_cfg()
+                fleets = await self.fleets()
                 pos = {k: (v or {}).get("position") or {} for k, v in stars.items()}
-                dests = [s for s, r in cfg["roles"].items() if r == "destination" and s != target]
+                to = fl.materials_target(fleet, fleets)   # the fleet its materials go to, else the nearest that takes them in
+                dests = [to["home"]] if to and to.get("home") and to["home"] != target else \
+                    [f["home"] for f in fl.destinations(fleets) if f["home"] != target]
                 if dests:
                     near = min(dests, key=lambda d: (lo._dist(target, d, pos), d))
                     deliver_to = lo.drop_point(near, devices, inv, stars)
                     m["deliver_to"] = deliver_to
                 else:
-                    self._mlog(m, "deliver mode, but no destination system is set on the Loadouts page — hauling instead")
+                    self._mlog(m, "deliver mode, but no fleet takes materials in (Materials on the Fleets page) — hauling instead")
             return fl.mining_work_steps(fleet, devices, belt, deliver_to)
         if phase == "recall":
             haul = m.get("belt") if fleet["role"] == "mining" and not m.get("deliver_to") and not m.get("end_here") else None
@@ -1498,6 +1528,8 @@ class AutomationEngine(OpsRules):
         for f in await self.fleets():
             if (only and f["id"] != only) or (f.get("mission") or {}).get("status") == "running" or f["id"] in working:
                 continue
+            if fl.stationed(f):
+                continue   # the loadout pass keeps a stationed fleet filled, at its home
             if not fl.short_list(f, devices):
                 continue
             steps, recruits, notes = fl.fill_plan(f, devices, stars, busy)

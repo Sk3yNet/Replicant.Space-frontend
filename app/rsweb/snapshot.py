@@ -142,11 +142,13 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "belt_reads": await db.kv_get("belt_reads", {}) or {},
         "viability": await eng.viability_report(),
         "loadouts_last": await db.kv_get("loadouts_last", {}) or {},
-        "loadouts": await db.kv_get("loadouts", {}) or {},              # phases, systems, roles, settings — to replay a pass
+        "loadouts": await db.kv_get("loadouts", {}) or {},              # templates, settings, ignore tags — to replay a pass
         "loadout_orders": await db.kv_get("loadout_orders", []) or [],
         "stowed_map": await db.kv_get("stowed_map", {}) or {},
         "engine": {**eng.engine_status(), **(await db.kv_get("engine_tick", {}) or {})},   # is the tick loop alive?
-        "fleets": [{"id": f.get("id"), "role": f.get("role"), "mission": (f.get("mission") or {}).get("status")}
+        "fleets": [{"id": f.get("id"), "name": f.get("name"), "role": f.get("role"), "home": f.get("home"),
+                    "station": bool(f.get("station")), "template": f.get("template"), "wants": f.get("wants") or {},
+                    "materials": f.get("materials") or "", "mission": (f.get("mission") or {}).get("status")}
                    for f in await eng.fleets()],
     }
     from . import version as ver
@@ -273,8 +275,9 @@ def diagnose(snap: dict) -> dict:
         notes = []
         st = str(dv["state"] or "")
         fleet = next((t[6:] for t in c.get("tags") or [] if t.startswith("fleet:")), None)
-        if not dv["name"] and fleet:
-            notes.append(f"fleet {fleet}: idle until you launch a mission (the app's rules leave fleet devices alone)")
+        if not dv["name"] and fleet and reserved(c):
+            notes.append(f"fleet {fleet}: away from its station (or not stationed) — the in-system rules leave its devices "
+                         "alone until a mission puts it to work")
         elif not dv["name"]:
             notes.append("no directive: it won't do anything until one is set" +
                          (" (an AMI schedule targets it)" if sched_for(c) else " and no AMI schedule targets it"))
@@ -339,7 +342,8 @@ def diagnose(snap: dict) -> dict:
             why.append(f"{st} at {loc}, which isn't a belt")
             fix.append("send it to a belt in its system (the arrival hand-off does this when a mining controller is there)")
         if reserved(d):
-            why.append("reserved: fleet member or tagged to: another system — the in-system rules leave it alone")
+            why.append("reserved: a fleet's device away from its station, spare, or tagged to: another system — the "
+                       "in-system rules leave it alone")
         if b and bi.get("open_sites") == 0:
             why.append(f"{b} has no open resource sites" + (" (marked exhausted by the app)" if bi.get("marked_exhausted") else ""))
             sn = search_note(b)

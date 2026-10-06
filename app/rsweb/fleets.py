@@ -1,9 +1,12 @@
-"""Mobile fleets: a named group of devices that travels, works a system, and comes back together.
+"""Fleets: a named group of devices with a home system. Stationed at home, it's that system's own devices, kept at its
+loadout; on a mission, it travels, works a system, and comes back together.
 
-Membership is a tag, `fleet:<id>`, so a fleet's devices are never confused with a system's own in a
-busy system: loadouts ignore them, and the other rules (idle miners, salvage, re-open sites, AMI
-schedules, auto-survey) don't recruit them. A fleet has
-  • a loadout (`wants`: device type → count) and a home system
+Membership is a tag, `fleet:<id>`. A *stationed* fleet (`station`) that isn't on a mission is kept at its loadout in its
+home system by the loadout pass (loadouts.plan), and its devices there work that system: the in-system rules (idle
+miners, salvage, re-open sites, AMI schedules …) use them like any of the system's devices. A fleet's devices anywhere
+else, or while it's on a mission, are left to the fleet: the rules don't recruit them. A fleet has
+  • a loadout (`wants`: device type → count, or a `template` it follows) and a home system
+  • `materials`: "" | "self" (takes materials in) | another fleet's id (its home's stockpile is ferried there)
   • a role: mining | explore | trade
   • carriers: any surge-capable members that carry others (mobile fleet 36, surge carrier 9, platform 4,
     plate 1 — devices attach to them); surge-capable cargo (freighters) flies itself
@@ -671,13 +674,118 @@ def template_wants(phase: dict | None) -> dict[str, int]:
 
 def resolve_template(fleet: dict, cfg: dict) -> dict:
     """A fleet that follows a template takes its loadout from it, so editing the template updates every fleet using it.
-    If the template is gone, the fleet keeps the loadout it had."""
+    If the template is gone, the fleet keeps the loadout it had. `zero`: the types the template sets to 0 — a stationed
+    fleet makes any it has of those spare (blank stays "don't care")."""
     tid = fleet.get("template")
+    fleet.setdefault("station", False)
+    fleet.setdefault("materials", "")
     if tid:
         ph = next((p for p in cfg.get("phases") or [] if p.get("id") == tid), None)
         if ph:
             fleet["wants"] = template_wants(ph)
+            fleet["zero"] = sorted(t for t, n in (ph.get("wants") or {}).items() if t and str(n).strip() == "0")
     return fleet
+
+
+# --- stationed fleets: a fleet kept at its loadout in its home system ------------------------------------------
+AWAY = ("running", "stalled", "ended", "stopped")   # mission states in which the fleet isn't at its station
+
+
+def away(fleet: dict) -> bool:
+    """On a mission (or one that was ended or stopped where it is): its devices are the mission's, not the home
+    system's, until the mission is done or cleared ("Back to station")."""
+    return (fleet.get("mission") or {}).get("status") in AWAY
+
+
+def stationed(fleet: dict) -> bool:
+    """Kept at its loadout in its home system by the loadout pass, and its devices there work that system."""
+    return bool(fleet.get("station")) and bool(fleet.get("home")) and not away(fleet)
+
+
+def station_wants(fleet: dict) -> dict[str, int]:
+    """The loadout a stationed fleet is kept at: its wants, plus 0 for the types its template sets to 0."""
+    out = {t: 0 for t in fleet.get("zero") or []}
+    out.update({t: int(n) for t, n in (fleet.get("wants") or {}).items()})
+    return out
+
+
+def worked_systems(fleets: list[dict]) -> set[str]:
+    """Systems that are home to a stationed fleet: only that fleet works them, so mining and explore missions
+    can't target them (fleets may still pass through or wait there)."""
+    return {f["home"] for f in fleets if f.get("station") and f.get("home")}
+
+
+def materials_target(fleet: dict, fleets: list[dict]) -> dict | None:
+    """The fleet this fleet's materials go to (its `materials` names another fleet), else None."""
+    m = fleet.get("materials") or ""
+    if not m or m == "self":
+        return None
+    return next((f for f in fleets if f.get("id") == m and f.get("id") != fleet.get("id")), None)
+
+
+def destinations(fleets: list[dict]) -> list[dict]:
+    """Fleets that take materials in (`materials: self`)."""
+    return [f for f in fleets if f.get("materials") == "self" and f.get("home")]
+
+
+def _slug(text: str, taken: set[str]) -> str:
+    fid = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:20] or "fleet"
+    while fid in taken:
+        fid += "-2"
+    return fid
+
+
+def migrate(cfg: dict, fleets: list[dict], pos: dict[str, dict] | None = None) -> tuple[dict, list[dict], bool]:
+    """One-time move from home fleets to stationed fleets (1.18.0). Each system with a loadout phase becomes a
+    stationed fleet homed there, following that phase as its template; the materials roles become fleet settings
+    (a destination system's fleet takes materials in, a source system's fleet sends to the nearest destination's).
+    Existing mobile fleets keep working as before: not stationed. The devices' `home:` tags are converted by the
+    next loadout pass. Returns (cfg, fleets, changed)."""
+    import math
+    cfg, fleets = dict(cfg or {}), [dict(f) for f in fleets or []]
+    if cfg.get("fleets_migrated"):
+        return cfg, fleets, False
+    for f in fleets:
+        f.setdefault("station", False)
+        f.setdefault("materials", "")
+    taken = {f["id"] for f in fleets}
+    phases = {p.get("id") for p in cfg.get("phases") or []}
+
+    def fleet_at(star: str, create: bool) -> dict | None:
+        f = next((x for x in fleets if x.get("home") == star and x.get("station")), None)
+        if f or not create:
+            return f
+        f = {"id": _slug(f"{star}-home", taken), "name": f"{star.title()} home", "role": "mining", "home": star,
+             "wants": {}, "station": True, "materials": ""}
+        taken.add(f["id"])
+        fleets.append(f)
+        return f
+
+    for star, pid in sorted((cfg.get("systems") or {}).items()):
+        if pid in phases:
+            f = fleet_at(star, True)
+            f["template"] = pid
+    roles = cfg.get("roles") or {}
+    dests = [fleet_at(s, True) for s, r in sorted(roles.items()) if r == "destination"]
+    for f in dests:
+        f["materials"] = "self"
+    pos = pos or {}
+
+    def dist(a: str, b: str) -> float:
+        pa, pb = (pos.get(a) or {}), (pos.get(b) or {})
+        if not pa or not pb:
+            return 1e9
+        return math.dist([pa.get(k, 0) for k in "xyz"], [pb.get(k, 0) for k in "xyz"])
+    for s, r in sorted(roles.items()):
+        if r == "source":
+            f = fleet_at(s, True)
+            cands = [d for d in dests if d["home"] != s]
+            if cands:
+                f["materials"] = min(cands, key=lambda d: (dist(s, d["home"]), d["home"]))["id"]
+    cfg.pop("systems", None)
+    cfg.pop("roles", None)
+    cfg["fleets_migrated"] = True
+    return cfg, fleets, True
 
 
 def short_list(fleet: dict, devices: list[dict]) -> dict[str, int]:

@@ -899,6 +899,11 @@ def test_idle_miners_handed_to_mining_controller(client):
     assert not any('"start_mining"' in (a["body"] or "") for a in acts)
 
 
+def _rep(p, star):
+    """The loadout report of the fleet stationed in `star` (reports are per fleet)."""
+    return next(r for r in p["report"].values() if r["star"] == star)
+
+
 def _lo_world():
     def dev(code, t, loc, status="idle", **kw):
         return {"device_code": code, "device_type": t, "location": loc, "status": status,
@@ -932,7 +937,7 @@ def test_loadout_plan_spares_prints_and_carriers():
     from rsweb import loadouts as lo
     cfg, devices, bps, inv, stars = _lo_world()
     p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
-    a, b = p["report"]["AAA"], p["report"]["BBB"]
+    a, b = _rep(p, "AAA"), _rep(p, "BBB")
     assert {r["type"]: (r["have"], r["short"], r["surplus"]) for r in a["rows"]} == {
         "mining_drone": (4, 0, 2), "ami_mining_controller": (1, 0, 0), "survey_drone": (0, 2, 0)}
     # the two idle drones are the extras, and they go to BBB (which has none)
@@ -945,18 +950,20 @@ def test_loadout_plan_spares_prints_and_carriers():
     # survey drones: 2 short in AAA and in BBB, stock covers 2 prints at AF in total
     assert sum(pr["n"] for pr in p["prints"]) == 2 and all(pr["factory"] == "AF" for pr in p["prints"])
     assert any(u["type"] == "survey_drone" for u in p["unmet"])
-    steps = lo.delivery_steps(dl[0], p["by_code"], stars, True)
+    steps = lo.delivery_steps(dl[0], p["by_code"], stars, True, assign=p["assign"])
     bodies = [(s["path"], s["body"]) for s in steps]
-    assert ("/devices/A1", {"configuration": {"add_tags": ["to:bbb"]}}) in bodies
+    # they join BBB's stationed fleet as they leave (so they count as its incoming), and keep the tag on arrival
+    assert ("/devices/A1", {"configuration": {"add_tags": ["to:bbb", "fleet:bbb-home"]}}) in bodies
     assert ("/devices/CAR", {"command": "attach", "device": "A1"}) in bodies   # the carrier attaches the cargo
     assert ("/devices/CAR", {"command": "travel", "destination": "BBB-5-L4"}) in bodies
     assert ("/devices/CAR", {"command": "detach", "device": "A3"}) in bodies
     board = next(st for st in steps if st["body"] == {"command": "attach", "device": "A1"})
     assert board["critical"]          # no boarding → the carrier doesn't fly off without it
-    assert ("/devices/A3", {"configuration": {"add_tags": ["home:bbb"], "remove_tags": ["to:bbb"]}}) in bodies
+    assert ("/devices/A3", {"configuration": {"add_tags": ["fleet:bbb-home"], "remove_tags": ["to:bbb"]}}) in bodies
+    assert p["assign"]["A2"] == "fleet:aaa-home" and "fleet:aaa-home" in p["tag_add"]["A2"]   # fleetless at home: joins
     assert bodies[-1] == ("/devices/CAR", {"command": "travel", "destination": "AAA-OORT"})
     pr = lo.print_steps(p["prints"][0])[0]["body"]
-    assert pr["command"] == "enqueue_print" and pr["tags"][0].startswith("to:")
+    assert pr["command"] == "enqueue_print" and pr["tags"][0].startswith("to:") and pr["tags"][1].startswith("fleet:")
     assert "HV" not in p["by_code"]            # the replicant's vessel is never counted or used
 
 
@@ -971,14 +978,15 @@ def test_loadout_incoming_and_arrivals_and_unspare():
             d["tags"] = ["to:bbb", "spare"]
     orders = [{"star": "BBB", "device_type": "survey_drone", "factory": "AF", "at": "2026-01-01T00:00:00+00:00"}]
     p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), orders, {})
-    b = {r["type"]: r for r in p["report"]["BBB"]["rows"]}
+    b = {r["type"]: r for r in _rep(p, "BBB")["rows"]}
     assert b["mining_drone"]["incoming"] == 2 and b["mining_drone"]["short"] == 0
     assert b["survey_drone"]["incoming"] == 1 and b["survey_drone"]["short"] == 0
     assert "BS" in p["arrived"]
-    steps = lo.arrived_steps("BS", p["by_code"]["BS"], {})
-    assert steps[-1]["body"] == {"configuration": {"add_tags": ["home:bbb"], "remove_tags": ["spare", "to:bbb"]}}
+    steps = lo.arrived_steps("BS", p["by_code"]["BS"], {}, join=p["assign"]["BS"])
+    assert steps[-1]["body"] == {"configuration": {"add_tags": ["fleet:bbb-home"], "remove_tags": ["spare", "to:bbb"]}}
+    assert "BS" not in {st["path"][9:] for st in lo.tag_steps(p)}   # the arrival step sets its tags
     # AAA now has exactly 2 drones locally (A2, A4) — nothing more is marked spare there
-    a = {r["type"]: r for r in p["report"]["AAA"]["rows"]}
+    a = {r["type"]: r for r in _rep(p, "AAA")["rows"]}
     assert a["mining_drone"]["have"] == 2 and a["mining_drone"]["surplus"] == 0
     # a spare in a system that becomes short loses the tag
     for d in devices:
@@ -991,26 +999,33 @@ def test_loadout_incoming_and_arrivals_and_unspare():
 def test_loadouts_page_and_apply_against_mock(client):
     world = client.app.state.api.http._transport.app.state.world
     client.portal.call(client.app.state.worker.sync_devices)
-    assert 'href="/loadouts"' in client.get("/", headers=H).text   # nav: Fleets › Home fleets
+    home = client.get("/", headers=H).text
+    assert 'href="/fleets"' in home and 'href="/loadouts"' not in home   # nav: one Fleets tab
+    assert client.get("/loadouts", headers=H, follow_redirects=False).headers["location"] == "/fleets"
     r = client.post("/loadouts/phases", data={"new_phase": "Mining hub"}, headers=HX)
     assert r.headers.get("HX-Refresh")
     cfg = client.portal.call(client.app.state.db.kv_get, "loadouts")
     pid = cfg["phases"][0]["id"]
     client.post("/loadouts/phases", data={f"name:{pid}": "Mining hub", f"order:{pid}": "1",
                                           f"want:{pid}:mining_drone": "2", f"want:{pid}:survey_drone": ""}, headers=HX)
-    client.post("/loadouts/system", data={"star": "SOL", "phase": pid}, headers=HX)
+    client.post("/fleets", data={"name": "Sol home", "role": "mining", "home": "sol", "template": pid, "station": "on"}, headers=HX)
     client.post("/loadouts/settings", data={"ignore_tags": "keep, Reserve", "print_missing": "on", "need_stock": "on"}, headers=HX)
     cfg = client.portal.call(client.app.state.db.kv_get, "loadouts")
     assert cfg["phases"][0]["wants"] == {"mining_drone": 2} and cfg["ignore_tags"] == ["keep", "reserve"]
-    page = client.get("/loadouts", headers=H).text
-    assert "Mining hub" in page and "2 spare" in page and "as spare" in page
-    r = client.post("/loadouts/apply", data={"star": "SOL"}, headers=HX)
-    assert "Applied to SOL" in r.text
+    assert "fleets" not in cfg   # the fleets live in their own store
+    fleets = client.portal.call(client.app.state.db.kv_get, "fleets")
+    assert fleets[0]["home"] == "SOL" and fleets[0]["station"] and fleets[0]["template"] == pid
+    page = client.get("/fleets", headers=H).text
+    assert "Mining hub" in page and "2 spare" in page and "as spare" in page and "Tags &amp; controllers check" in page
+    r = client.post("/loadouts/apply", data={"fleet": "sol-home"}, headers=HX)
+    assert "Applied to sol-home" in r.text
     spares = [d["device_code"] for d in world.devices if "spare" in (d.get("tags") or [])]
     assert len(spares) == 2 and all(c.startswith("2AC6121") for c in spares)
-    # survey drones aren't in the phase: untouched
-    assert not any("spare" in (d.get("tags") or []) for d in world.devices if d["device_type"] == "survey_drone")
-    assert "◆ Mining hub" in client.get("/tree", headers=H).text
+    kept = [d for d in world.devices if d["device_type"] == "mining_drone" and "spare" not in (d.get("tags") or [])]
+    assert len(kept) == 2 and all("fleet:sol-home" in d["tags"] for d in kept)   # the rest join the stationed fleet
+    # survey drones aren't in the template: untouched (no fleet, not spare)
+    assert not any(set(d.get("tags") or []) & {"spare", "fleet:sol-home"} for d in world.devices if d["device_type"] == "survey_drone")
+    assert "◆ Sol home" in client.get("/tree", headers=H).text
 
 
 def test_site_quantity_shapes():
@@ -1176,13 +1191,19 @@ def test_ferry_controller_kept_out_of_in_system_work():
     assert adoptable(devs, devs[0], {}) == [] and adoptable(devs, devs[1], {}) == ["TD"]
 
 
-def test_loadout_roles_page(client):
+def test_fleet_materials_setting(client):
     client.portal.call(client.app.state.worker.sync_devices)
     client.portal.call(client.app.state.worker.sync_inventory)
-    r = client.post("/loadouts/role", data={"star": "SOL", "role": "source"}, headers=HX)
+    client.post("/fleets", data={"name": "Sol home", "home": "SOL", "station": "on"}, headers=HX)
+    client.post("/fleets", data={"name": "Depot", "home": "ABOTEIN", "station": "on"}, headers=HX)
+    r = client.post("/fleets/sol-home/station", data={"station": "on", "materials": "depot"}, headers=HX)
     assert r.headers.get("HX-Refresh")
-    page = client.get("/loadouts", headers=H).text
-    assert 'value="source" selected' in page and "materials from SOL: no destination system set" in page
+    client.post("/fleets/depot/station", data={"station": "on", "materials": "self"}, headers=HX)
+    client.post("/fleets/depot/station", data={"station": "on", "materials": "no-such-fleet"}, headers=HX)
+    fleets = {f["id"]: f for f in client.portal.call(client.app.state.db.kv_get, "fleets")}
+    assert fleets["sol-home"]["materials"] == "depot" and fleets["depot"]["materials"] == ""   # unknown fleet: cleared
+    page = client.get("/fleets", headers=H).text
+    assert 'value="depot" selected' in page and "materials from Sol home" in page   # its route (or why not) is listed
 
 
 def test_arrival_rules_ignore_in_system_hops_and_surveyed_systems(client):
@@ -1228,20 +1249,20 @@ def test_loadout_home_tags_keep_devices_counted_while_away():
     cfg, devices, bps, inv, stars = _lo_world()
     cfg["phases"][0]["wants"]["surge_carrier"] = 1
     p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
-    # first pass: everything counted for a phased system gets its home tag
-    assert "home:aaa" in p["tag_add"]["CAR"] and "home:aaa" in p["tag_add"]["AC"]
-    assert "home:bbb" in p["tag_add"]["BS"]
-    assert any("home:aaa" in line for line in lo.describe(p))
+    # first pass: everything counted for a stationed fleet joins it (fleet tag)
+    assert "fleet:aaa-home" in p["tag_add"]["CAR"] and "fleet:aaa-home" in p["tag_add"]["AC"]
+    assert "fleet:bbb-home" in p["tag_add"]["BS"]
+    assert any("fleet:aaa-home" in line for line in lo.describe(p))
     # tag them, then send the carrier off to BBB on a delivery
     for d in devices:
         if d["device_code"] in p["tag_add"] and d["device_code"] not in p["moves"]:
-            d["tags"] = sorted(set(d.get("tags") or []) | {t for t in p["tag_add"][d["device_code"]] if t.startswith("home:")})
+            d["tags"] = sorted(set(d.get("tags") or []) | {t for t in p["tag_add"][d["device_code"]] if t.startswith("fleet:")})
         if d["device_code"] == "CAR":
             d["location"], d["status"] = "BBB-5-L4", "idle"
     p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
-    a = {r["type"]: r for r in p["report"]["AAA"]["rows"]}
+    a = {r["type"]: r for r in _rep(p, "AAA")["rows"]}
     assert a["surge_carrier"]["have"] == 1 and a["surge_carrier"]["short"] == 0 and a["surge_carrier"]["away"] == ["CAR"]
-    b = {r["type"]: r for r in p["report"]["BBB"]["rows"]}
+    b = {r["type"]: r for r in _rep(p, "BBB")["rows"]}
     assert "surge_carrier" not in b or b["surge_carrier"]["have"] == 0   # not counted (or made spare) where it's visiting
     assert "spare" not in p["tag_add"].get("CAR", [])
 
@@ -1299,7 +1320,7 @@ def test_spare_devices_drop_their_home():
         if d["device_code"] in extras:
             d["tags"] = ["spare"]
     p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
-    row = next(r for r in p["report"]["AAA"]["rows"] if r["type"] == "mining_drone")
+    row = next(r for r in _rep(p, "AAA")["rows"] if r["type"] == "mining_drone")
     assert row["have"] == 2 and row["surplus"] == 0 and sorted(row["spares_here"]) == ["A1", "A3"]
     assert not any(c in p["tag_add"] for c in extras)
 
@@ -1355,13 +1376,15 @@ def test_real_device_list_quirks():
            "roles": {"FALQUORYX": "source", "AEMEROTH": "destination"}}
     stars = {k: {"position": {"x": i, "y": 0, "z": 0}} for i, k in enumerate(["AEMEROTH", "FALQUORYX", "ITHVALAI"])}
     p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
-    # 512FE0F9 works for AEMEROTH's controller, in AEMEROTH: it belongs to AEMEROTH now, not FALQUORYX
-    a = {r["type"]: r for r in p["report"]["AEMEROTH"]["rows"]}
+    # 512FE0F9 works for AEMEROTH's controller, in AEMEROTH: it joins AEMEROTH's stationed fleet, its old
+    # home:falquoryx tag goes
+    a = {r["type"]: r for r in _rep(p, "AEMEROTH")["rows"]}
     assert a["mining_drone"]["have"] == 1
-    assert "home:aemeroth" in p["tag_add"]["512FE0F9"] and "home:falquoryx" in p["tag_remove"]["512FE0F9"]
-    # 926637CA is in ITHVALAI but run by FALQUORYX's controller: released, and its duplicate home tag cleaned up
+    assert "fleet:aemeroth-home" in p["tag_add"]["512FE0F9"] and "home:falquoryx" in p["tag_remove"]["512FE0F9"]
+    # 926637CA is in ITHVALAI but run by FALQUORYX's controller: released, joins ITHVALAI's fleet, both old home tags go
     assert p["releases"] == {"F32E05A7": ["926637CA"]}
-    assert "home:falquoryx" in p["tag_remove"]["926637CA"] and "home:ithvalai" not in p["tag_remove"]["926637CA"]
+    assert p["tag_add"]["926637CA"] == ["fleet:ithvalai-home"]
+    assert p["tag_remove"]["926637CA"] == ["home:falquoryx", "home:ithvalai"]
     # the ferry is not given to DF451241: it's on in-system work (consolidate)
     cur = {"DF451241": {"directive": "consolidate", "configuration": {"deliver": "FALQUORYX-BELT-1"}, "finished": False}}
     managed = {d["device_code"]: d["controller_device_code"] for d in devices if d.get("controller_device_code")}
@@ -1594,10 +1617,10 @@ def test_freighter_at_destination_counts_for_its_ferry_controllers_system():
                 "controller_device_code": "TF", "tags": []}]
     cfg = {"phases": [{"id": "p", "name": "P", "order": 1, "wants": {"cargo_freighter": 1}}], "systems": {"AEM": "p", "FAL": "p"}}
     p = lo.plan(cfg, devices, [], {}, {}, {}, set(), [], {})
-    aem = {r["type"]: r for r in p["report"]["AEM"]["rows"]}["cargo_freighter"]
-    fal = {r["type"]: r for r in p["report"]["FAL"]["rows"]}["cargo_freighter"]
+    aem = {r["type"]: r for r in _rep(p, "AEM")["rows"]}["cargo_freighter"]
+    fal = {r["type"]: r for r in _rep(p, "FAL")["rows"]}["cargo_freighter"]
     assert aem["have"] == 1 and aem["away"] == ["57C506F0"] and fal["have"] == 0
-    assert "home:aem" in p["tag_add"]["57C506F0"]
+    assert "fleet:aem-home" in p["tag_add"]["57C506F0"]
 
 
 
@@ -1634,7 +1657,7 @@ def test_freighter_stranded_under_in_system_controller_is_released():
     stars = {"AEMEROTH": {"position": {"x": 0, "y": 0, "z": 0}}, "FALQUORYX": {"position": {"x": 1, "y": 0, "z": 0}}}
     p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
     assert p["releases"] == {"DF451241": ["57C506F0"]}          # the consolidate controller lets it go
-    aem = {r["type"]: r for r in p["report"]["AEMEROTH"]["rows"]}["cargo_freighter"]
+    aem = {r["type"]: r for r in _rep(p, "AEMEROTH")["rows"]}["cargo_freighter"]
     assert aem["have"] == 1                                    # it counts where it is (and is tagged)
     # next pass, released: AEMEROTH's ferry controller takes it on
     devices[2]["controller_device_code"] = None
@@ -1794,28 +1817,33 @@ def test_printed_devices_go_home_on_a_surge_platform():
     from rsweb import loadouts as lo
     devices = [
         {"device_code": "AF", "device_type": "autofactory", "location": "FAL-BELT-1", "status": "printing (survey_drone)",
-         "available_commands": ["enqueue_print"], "tags": ["home:fal"]},
+         "available_commands": ["enqueue_print"], "tags": ["fleet:fal"]},
         {"device_code": "PL000001", "device_type": "surge_platform", "location": "FAL-1-L4", "status": "idle", "attach_capacity": 4,
          "features": ["surge", "cruise", "attach", "taxi"], "taxi_mode": "taxi", "available_commands": ["attach", "detach", "travel"],
-         "tags": ["home:fal"]},
-        # printed here for AEM (tagged home:aem by an older pass, or to:aem by the print) — both must be delivered
-        {"device_code": "SD1", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["home:aem"],
+         "tags": ["fleet:fal"]},
+        # printed here for AEM's stationed fleet (a member already, or to:aem by the print) — both must be delivered
+        {"device_code": "SD1", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["fleet:aem"],
          "available_commands": ["travel", "scan"]},
         {"device_code": "SD2", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["to:aem"],
          "available_commands": ["travel", "scan"]},
         # away but working for a controller there: left alone
-        {"device_code": "MD1", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["home:aem"],
+        {"device_code": "MD1", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["fleet:aem"],
          "controller_device_code": "XC"},
     ]
     stars = {"FAL": {"position": {"x": 0, "y": 0, "z": 0}}, "AEM": {"position": {"x": 1, "y": 0, "z": 0}, "entry_point": "AEM-5-L4"}}
-    p = lo.plan({"phases": [], "systems": {}}, devices, [], {}, stars, {}, set(), [], {})
+    fleets = [{"id": "aem", "name": "Aem", "home": "AEM", "station": True, "wants": {}},
+              {"id": "fal", "name": "Fal", "home": "FAL", "station": True, "wants": {}}]
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
     assert p["returning"] == ["SD1"]
     assert [(d["carrier"], d["mode"], sorted(d["devices"]), d["to"]) for d in p["deliveries"]] == [("PL000001", "attach", ["SD1", "SD2"], "AEM")]
     bodies = [s["body"] for s in lo.delivery_steps(p["deliveries"][0], p["by_code"], stars, True)]
     assert {"command": "travel", "destination": "FAL-1-L4"} in bodies                    # drones fly to the platform first
     assert {"command": "attach", "device": "SD1"} in bodies and {"command": "travel", "destination": "AEM-5-L4"} in bodies
     assert any("send it back to AEM" in line for line in lo.describe(p))
-
+    # on a mission, a fleet's devices are the mission's: nothing is sent home
+    fleets[0]["mission"] = {"status": "running"}
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
+    assert p["returning"] == [] and "SD1" not in p["by_code"]
 
 
 def test_fleet_gather_collects_strays_and_recruits_spares():
@@ -2325,7 +2353,7 @@ def test_live_diagnosis_runs_clean():
     assert "0 of 12 mining drones are mining" in d["headline"]
     ctrl = {c["code"]: c for c in d["controllers"]}
     assert any("drones are away" in n or "back to" in n for n in ctrl["84EE1EF1"]["notes"])
-    assert any("idle until you launch a mission" in n for n in ctrl["D0011B15"]["notes"])   # fleet controllers wait for a mission
+    assert any("until a mission puts it to work" in n for n in ctrl["D0011B15"]["notes"])   # fleet controllers wait for a mission
     assert not any("D0011B15" in h for h in d["headline"])
 
 
@@ -2506,7 +2534,7 @@ def test_unlisted_freighter_still_counts_in_loadouts_and_fleets():
     ]
     cfg = {"phases": [{"id": "p1", "name": "Outpost", "wants": {"cargo_freighter": 1}}], "systems": {"AEM": "p1"}}
     p = lo.plan(cfg, [devices[0], {**devices[1], "tags": ["home:aem"]}], [], {}, {"AEM": {}}, {}, set(), [], {})
-    row = next(r for r in p["report"]["AEM"]["rows"] if r["type"] == "cargo_freighter")
+    row = next(r for r in _rep(p, "AEM")["rows"] if r["type"] == "cargo_freighter")
     assert row["have"] == 1 and row["short"] == 0 and p["prints"] == []      # counted, not re-printed
     r = fl.roster({"id": "haul", "wants": {"cargo_freighter": 1}}, devices)
     assert [d["device_code"] for d in r["members"]] == ["CF1"] and r["unlisted"] == {"CF1"}
@@ -2651,22 +2679,32 @@ def test_loadout_reduction_releases_spares_from_their_controller():
 def test_audit_flags_mismatches():
     from rsweb import loadouts as lo
     devs = [
-        {"device_code": "MC1", "device_type": "ami_mining_controller", "location": "AEM-BELT-1", "status": "coordinating", "tags": ["home:aem"]},
+        {"device_code": "MC1", "device_type": "ami_mining_controller", "location": "AEM-BELT-1", "status": "coordinating",
+         "tags": ["fleet:aem"]},
         {"device_code": "MD1", "device_type": "mining_drone", "location": "AEM-BELT-1", "status": "mining", "controller_device_code": "MC1",
-         "tags": ["home:fal"]},                                              # home tag ≠ controller's system
-        {"device_code": "MD2", "device_type": "mining_drone", "location": "FAL-1-L4", "status": "idle", "tags": ["home:fal", "home:aem"]},
+         "tags": ["fleet:fal"]},                                             # run by another fleet's controller
+        {"device_code": "MD2", "device_type": "mining_drone", "location": "FAL-1-L4", "status": "idle", "tags": ["fleet:fal", "fleet:aem"]},
         {"device_code": "MD3", "device_type": "mining_drone", "location": "AEM-2-L4", "status": "idle", "tags": ["to:aem"]},   # arrived
-        {"device_code": "FL1", "device_type": "mining_drone", "location": "AEM-2-L4", "status": "idle", "tags": ["fleet:x", "spare", "home:aem"]},
+        {"device_code": "MD4", "device_type": "mining_drone", "location": "AEM-2-L4", "status": "idle", "tags": ["home:aem"]},  # old tag
+        {"device_code": "MD5", "device_type": "mining_drone", "location": "AEM-2-L4", "status": "idle", "tags": ["fleet:aem", "spare"]},
+        {"device_code": "MD6", "device_type": "mining_drone", "location": "AEM-2-L4", "status": "idle", "tags": ["fleet:ghost"]},
+        {"device_code": "FL1", "device_type": "mining_drone", "location": "AEM-2-L4", "status": "idle", "tags": ["fleet:x", "spare"]},
     ]
-    cfg = {"phases": [], "systems": {}}
+    fleets = [{"id": "aem", "name": "Aem", "home": "AEM", "station": True, "wants": {"mining_drone": 3}},
+              {"id": "fal", "name": "Fal", "home": "FAL", "station": True, "wants": {}},
+              {"id": "x", "name": "X", "home": "AEM", "station": False, "wants": {}, "mission": {"status": "running"}}]
+    cfg = {"phases": [], "fleets": fleets, "fleets_migrated": True}
     p = lo.plan(cfg, devs, [], {}, {"AEM": {}, "FAL": {}}, {}, set(), [], {})
     by = {}
     for a in lo.audit(cfg, devs, {"AEM": {}, "FAL": {}}, p, {"MD3"}):
         by.setdefault(a["code"], []).append(a)
-    assert any("controller MC1 is in AEM" in a["issue"] for a in by["MD1"])
-    assert any("2 home tags" in a["issue"] for a in by["MD2"])
+    assert any("a controller of fleet:aem, but not in that fleet" in a["issue"] for a in by["MD1"])
+    assert any("2 fleet tags" in a["issue"] for a in by["MD2"])
     assert any("still tagged to:aem" in a["issue"] and a["fixed"] for a in by["MD3"])
-    assert "FL1" not in by                                                      # fleets are the fleet's business
+    assert any("old home:aem tag" in a["issue"] and a["fixed"] for a in by["MD4"])
+    assert any("tagged spare and fleet:aem" in a["issue"] and a["fixed"] for a in by["MD5"])   # needed: spare removed
+    assert any("fleet:ghost: no such fleet" in a["issue"] for a in by["MD6"])
+    assert "FL1" not in by                                                      # a fleet on a mission: the mission's business
 
 
 def test_loadouts_page_shows_the_check(client):
@@ -2985,7 +3023,7 @@ def test_loadout_surplus_keeps_the_home_tagged_device():
         devices.append({**next(d for d in devices if d["device_code"] == "AF"), "device_code": code})
     next(d for d in devices if d["device_code"] == "AF1")["tags"] = ["home:aaa"]
     p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
-    row = next(r for r in p["report"]["AAA"]["rows"] if r["type"] == "autofactory")
+    row = next(r for r in _rep(p, "AAA")["rows"] if r["type"] == "autofactory")
     assert row["surplus"] == 2 and "AF1" not in row["spare"]
 
 
@@ -3185,15 +3223,21 @@ def test_planner_spreads_over_autofactories_at_the_same_stockpile(client):
 def test_missions_cannot_target_a_system_with_a_home_fleet(client):
     eng = client.app.state.worker.automations
     client.post("/fleets", data={"name": "Scouts", "role": "explore", "home": "SOL"}, headers=HX)
+    # an old config (home fleets by system): KEL's becomes a stationed fleet on the next load
     client.portal.call(client.app.state.db.kv_set, "loadouts",
                        {"phases": [{"id": "p", "name": "Outpost", "order": 1, "wants": {"survey_drone": 1}}],
                         "systems": {"KEL": "p", "ABC": ""}})
     page = client.get("/fleets", headers=H).text
-    assert "Not available as targets" in page and '<option value="KEL">' not in page
+    targets = page[page.index('<datalist id="fl-stars">'):]
+    targets = targets[:targets.index("</datalist>")]
+    assert "Not available as targets" in page and '"KEL"' not in targets
+    kel = next(f for f in client.portal.call(eng.fleets) if f["home"] == "KEL")
+    assert kel["station"] and kel["template"] == "p" and kel["wants"] == {"survey_drone": 1}
+    assert "systems" not in client.portal.call(client.app.state.db.kv_get, "loadouts")
     r = client.post("/fleets/scouts/mission", data={"targets": "ABC, KEL-BELT-1"}, headers=HX)
-    assert "KEL-BELT-1: has a home fleet" in r.text
+    assert "KEL-BELT-1: has a stationed fleet" in r.text
     assert not client.portal.call(eng.fleets)[0].get("mission")
-    r = client.post("/fleets/scouts/mission", data={"targets": "ABC"}, headers=HX)   # no phase: no home fleet
+    r = client.post("/fleets/scouts/mission", data={"targets": "ABC"}, headers=HX)   # no fleet stationed there
     assert r.headers.get("HX-Refresh") and client.portal.call(eng.fleets)[0]["mission"]["targets"] == ["ABC"]
 
 
@@ -3226,9 +3270,9 @@ def test_rules_live_on_their_pages_and_nav_is_grouped(client):
     sub = sub[:sub.index("</nav>")]
     assert all(t in sub for t in ("Galaxy", "Systems", "Traffic", "Defence", "Upkeep")) and "Blueprints" not in sub
     assert 'href="/diagnostics"' in page and 'href="/console"' in page   # account menu
-    lo = client.get("/loadouts", headers=H).text
-    assert "<h1>Home fleets" in lo and ">Home fleets</a>" in lo and ">Mobile fleets</a>" in lo
-    assert "<h1>Mobile fleets" in client.get("/fleets", headers=H).text
+    fp = client.get("/loadouts", headers=H).text   # the old Home fleets URL lands on Fleets
+    assert "<h1>Fleets" in fp and ">Fleets</a>" in fp and ">Reset &amp; reform</a>" in fp
+    assert "Home fleets" not in fp and "Mobile fleets" not in fp
 
 
 def test_fleet_follows_a_template():
@@ -3282,17 +3326,21 @@ def test_reform_rebuilds_assignments_from_where_devices_are():
         D("X1", "survey_drone", "ZZZ-1", ["spare"]), D("X2", "survey_drone", "ZZZ-1", ["home:zzz"]),
     ]
     cfg = {"phases": [{"id": "p", "name": "P", "wants": {"mining_drone": 1, "ami_mining_controller": 1, "autofactory": None}}],
-           "systems": {"AAA": "p", "BBB": "p"}, "ignore_tags": ["keep"]}
-    fleets = [{"id": "f1", "name": "F1", "home": "AAA", "wants": {"mobile_fleet": 1, "mining_drone": 2}}]
+           "ignore_tags": ["keep"]}
+    st_wants = {"mining_drone": 1, "ami_mining_controller": 1}     # template p, resolved (blank = don't care)
+    fleets = [{"id": "f1", "name": "F1", "home": "AAA", "wants": {"mobile_fleet": 1, "mining_drone": 2}},
+              {"id": "aaa", "name": "Aaa", "home": "AAA", "station": True, "template": "p", "wants": st_wants},
+              {"id": "bbb", "name": "Bbb", "home": "BBB", "station": True, "template": "p", "wants": st_wants}]
     p = reform.plan(cfg, devices, fleets, busy=set(), hosts=set())
     to = {r["code"]: (r["to"], sorted(r["remove"])) for r in p["retag"]}
     assert to["M1"] == ("fleet:f1", ["home:aaa"])
     assert to["M2"] == ("fleet:f1", ["spare", "to:bbb"])                    # fills the fleet's gap
-    assert to["M3"] == ("spare", ["home:bbb"])                              # AAA wants 1 miner: M4, already home there
-    assert "M4" not in to                                                   # keeps home:aaa (and its own tag 'keepme')
-    assert to["AF"] == ("home:aaa", [])                                     # blank in the template: stays home
-    assert "CA" not in to and "MF1" not in to                               # already right
-    assert to["X2"] == ("(untagged)", ["home:zzz"])                        # no template in ZZZ: no home fleet to belong to
+    assert to["M3"] == ("spare", ["home:bbb"])                              # AAA's fleet wants 1 miner: M4, home there before
+    assert to["M4"] == ("fleet:aaa", ["home:aaa"])                          # joins AAA's stationed fleet (keeps 'keepme')
+    assert to["CA"] == ("fleet:aaa", ["home:aaa"]) and to["CB"] == ("fleet:bbb", ["home:bbb"])
+    assert "AF" not in to                                                   # blank in the template: stays untagged
+    assert "MF1" not in to                                                  # already right
+    assert to["X2"] == ("(untagged)", ["home:zzz"])                        # no fleet stationed in ZZZ
     assert "X1" not in to                                                   # spare in an unmanaged system stays spare
     assert {s["code"] for s in p["skipped"]} >= {"P1", "K1", "MV"}
     assert p["releases"] == {"CB": ["M3"]}                                 # spare now, and run from another system
@@ -3314,5 +3362,107 @@ def test_reform_and_fill_pages(client):
     client.post("/fleets/scouts/edit", data={"template": "sc"}, headers=HX)
     page = client.get("/fleets", headers=H).text
     assert '<option value="sc" selected>Scout set</option>' in page and "fieldset disabled" in page
-    assert "Fill from spares" in page and 'rules-panel?ids=fleet_fill"' in page
+    assert "Fill from spares" in page and 'rules-panel?ids=loadouts,fleet_fill"' in page
     assert "Scouts" in client.post("/fleets/scouts/fill", headers=HX).text or "Nothing to fill" in client.post("/fleets/scouts/fill", headers=HX).text
+
+
+# --- stationed fleets (1.18.0) ------------------------------------------------------------------------------
+def _st(fid, home, wants, **kw):
+    return {"id": fid, "name": fid.title(), "role": "mining", "home": home, "station": True, "wants": wants, **kw}
+
+
+def test_migrate_home_fleets_and_roles_to_fleets():
+    from rsweb import fleets as fl
+    cfg = {"phases": [{"id": "p", "name": "Outpost", "wants": {"mining_drone": 2, "survey_drone": "0"}}],
+           "systems": {"AAA": "p", "BBB": "p", "CCC": "gone"}, "roles": {"AAA": "source", "DDD": "destination", "EEE": "destination"}}
+    mobile = [{"id": "scouts", "name": "Scouts", "role": "explore", "home": "AAA", "wants": {"survey_drone": 2}}]
+    pos = {"AAA": {"x": 0, "y": 0, "z": 0}, "DDD": {"x": 9, "y": 0, "z": 0}, "EEE": {"x": 2, "y": 0, "z": 0}}
+    new, fleets, changed = fl.migrate(cfg, mobile, pos)
+    assert changed and new["fleets_migrated"] and "systems" not in new and "roles" not in new
+    by = {f["id"]: f for f in fleets}
+    assert by["scouts"]["station"] is False and by["scouts"]["materials"] == ""      # mobile fleets carry on as before
+    assert by["aaa-home"] == {"id": "aaa-home", "name": "Aaa home", "role": "mining", "home": "AAA", "wants": {},
+                              "station": True, "materials": "eee-home", "template": "p"}   # nearest destination
+    assert by["bbb-home"]["template"] == "p" and "ccc-home" not in by                  # unknown phase: nothing
+    assert by["ddd-home"]["materials"] == by["eee-home"]["materials"] == "self"
+    assert fl.migrate(new, fleets) == (new, fleets, False)                             # only once
+    f = fl.resolve_template(dict(by["aaa-home"]), new)
+    assert f["wants"] == {"mining_drone": 2} and fl.station_wants(f) == {"mining_drone": 2, "survey_drone": 0}
+
+
+def test_two_stationed_fleets_share_a_system():
+    from rsweb import loadouts as lo
+    D = lambda code, t, tags=(): {"device_code": code, "device_type": t, "location": "AAA-BELT-1", "status": "idle",  # noqa: E731
+                                  "tags": list(tags)}
+    devices = [D("M1", "mining_drone", ["fleet:miners"]), D("M2", "mining_drone"), D("M3", "mining_drone"), D("M4", "mining_drone"),
+               D("S1", "survey_drone"), D("T1", "transport_drone")]
+    fleets = [_st("miners", "AAA", {"mining_drone": 2}), _st("reserve", "AAA", {"mining_drone": 1, "survey_drone": 0})]
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, {}, {}, set(), [], {})
+    joins = {c: t for c, tags in p["tag_add"].items() for t in tags if t.startswith("fleet:")}
+    assert joins == {"M2": "fleet:miners", "M3": "fleet:reserve"}      # members first, then fleetless ones, in fleet order
+    assert p["tag_add"]["M4"] == ["spare"] and p["tag_add"]["S1"] == ["spare"]   # counted there (S1: a 0 line) but not taken
+    assert "T1" not in p["tag_add"]                                     # nobody counts transport drones: don't care
+    assert {r["fleet"]["id"] for r in p["report"].values()} == {"miners", "reserve"}
+
+
+def test_stationed_fleet_extras_and_template_zero_leave_the_fleet():
+    from rsweb import loadouts as lo
+    devices = [{"device_code": c, "device_type": t, "location": "AAA-BELT-1", "status": "idle", "tags": ["fleet:home"]}
+               for c, t in (("M1", "mining_drone"), ("M2", "mining_drone"), ("S1", "survey_drone"))]
+    cfg = {"phases": [{"id": "p", "name": "P", "wants": {"mining_drone": 1, "survey_drone": "0"}}], "fleets_migrated": True}
+    from rsweb import fleets as fl
+    cfg["fleets"] = [fl.resolve_template(_st("home", "AAA", {}, template="p"), cfg)]
+    p = lo.plan(cfg, devices, [], {}, {}, {}, set(), [], {})
+    assert sorted(p["made_spare"]) == ["M2", "S1"]
+    assert p["tag_add"]["S1"] == ["spare"] and p["tag_remove"]["S1"] == ["fleet:home"]
+    assert "M1" not in p["tag_add"] and "M1" not in p["tag_remove"]
+
+
+def test_rules_work_a_stationed_fleets_devices_at_home_only():
+    from rsweb import ami_schedule as amis
+    at_home = {"device_code": "M1", "device_type": "mining_drone", "location": "AAA-BELT-1", "status": "idle", "tags": ["fleet:home"]}
+    away = {**at_home, "device_code": "M2", "location": "BBB-BELT-1"}
+    loose = {**at_home, "device_code": "M3", "tags": []}
+    ctrl = {"device_code": "C1", "device_type": "ami_mining_controller", "location": "AAA-BELT-1", "status": "idle", "tags": []}
+    try:
+        amis.set_stationed({"fleet:home": "AAA"})
+        assert not amis.reserved(at_home) and amis.reserved(away) and not amis.reserved(loose)
+        # a fleetless controller at home adopts the stationed fleet's drones and fleetless ones alike
+        assert amis.adoptable([at_home, loose, ctrl], ctrl, {}) == ["M1", "M3"]
+        amis.set_stationed({})   # on a mission (or not stationed): the rules leave its devices alone
+        assert amis.reserved(at_home) and amis.adoptable([at_home, loose, ctrl], ctrl, {}) == ["M3"]
+    finally:
+        amis.set_stationed({})
+
+
+def test_materials_go_to_the_fleet_named():
+    from rsweb import loadouts as lo
+    devices = [{"device_code": "TC", "device_type": "ami_transport_controller", "location": "AAA-2-L4", "status": "idle",
+                "available_commands": ["adopt", "set_directive"], "tags": []},
+               {"device_code": "FR", "device_type": "cargo_freighter", "location": "AAA-2-L4", "status": "idle", "tags": []},
+               {"device_code": "AF", "device_type": "autofactory", "location": "FAR-3", "status": "idle",
+                "available_commands": ["enqueue_print"], "tags": []}]
+    stars = {"AAA": {"position": {"x": 0, "y": 0, "z": 0}}, "NEAR": {"position": {"x": 1, "y": 0, "z": 0}},
+             "FAR": {"position": {"x": 50, "y": 0, "z": 0}}}
+    fleets = [_st("src", "AAA", {}, materials="far"), _st("near", "NEAR", {}, materials="self"), _st("far", "FAR", {}, materials="self"),
+              _st("loop", "AAA", {}, materials="src")]
+    routes, unmet = lo.material_routes({"fleets": fleets}, devices, {"AAA-2-L4": {"carbon": 50}}, stars, set(), {}, {})
+    assert [(r["source"], r["dest"], r["deliver"], r["from_fleet"], r["to_fleet"]) for r in routes] == \
+        [("AAA", "FAR", "FAR-3", "Src", "Far")]                       # the fleet it names, not the nearest
+    assert any("same system" in u["why"] and u["fleet"] == "Loop" for u in unmet)
+    assert lo.spare_depot({"fleets": fleets, "settings": {}}, devices) == "FAR"   # a destination fleet's home with an autofactory
+
+
+def test_back_to_station_clears_an_ended_mission(client):
+    eng = client.app.state.worker.automations
+    client.post("/fleets", data={"name": "Sol home", "home": "SOL", "station": "on"}, headers=HX)
+    items = client.portal.call(eng.fleets)
+    items[0]["mission"] = {"status": "ended", "targets": ["KEL"], "log": []}
+    client.portal.call(eng.save_fleets, items)
+    from rsweb import fleets as fl
+    assert fl.away(client.portal.call(eng.fleets)[0])
+    page = client.get("/fleets", headers=H).text
+    assert "Back to station" in page and "mission: ended" in page
+    client.post("/fleets/sol-home/control", data={"action": "station"}, headers=HX)
+    f = client.portal.call(eng.fleets)[0]
+    assert f["mission"]["status"] == "done" and fl.stationed(f)

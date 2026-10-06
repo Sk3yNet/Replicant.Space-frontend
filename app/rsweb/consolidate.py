@@ -27,7 +27,9 @@ def is_factory(d: dict) -> bool:
 
 
 def _fleet(d: dict) -> bool:
-    return any(t.startswith("fleet:") for t in d.get("tags") or [])
+    """A fleet's device away from its station (a stationed fleet's devices at home are the system's own)."""
+    from .ami_schedule import on_mission
+    return on_mission(d)
 
 
 def factory_needs(fac: dict, stock: dict[str, float], bps: dict[str, dict]) -> dict[str, float]:

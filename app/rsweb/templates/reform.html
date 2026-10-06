@@ -8,21 +8,21 @@
   <div class="card small">
     <h2>What it does</h2>
     <ol>
-      <li><b>Mobile fleets</b> (not on a mission) keep their members up to their loadout, then take unassigned devices
-        (spare or untagged) in the system they're in. Extra members leave the fleet.</li>
-      <li>Each system's <b>home fleet</b> takes the devices in that system, up to its template — devices already tagged
-        <code>home:</code> there first. Types the template leaves blank stay home.</li>
-      <li>Everything else in a system with a home fleet becomes <code>spare</code>. Systems without one are left alone
-        (devices that were spare there stay spare).</li>
+      <li><b>Fleets that aren't stationed</b> (and not on a mission) keep their members up to their loadout, then take unassigned
+        devices (spare or untagged) in the system they're in. Extra members leave the fleet.</li>
+      <li>Each <b>stationed fleet</b> takes the devices in its home system up to its loadout: its own members first, then
+        devices with an old <code>home:</code> tag there, then the rest.</li>
+      <li>Everything else in a system with a stationed fleet becomes <code>spare</code> if a fleet there counts its type, and
+        stays untagged if none does. Systems without one are left alone (devices that were spare there stay spare).</li>
       <li><b>Controllers</b>: a drone run by a controller outside its new group is released; the next loadout pass and the
-        fleets' own phases adopt it again.</li>
+        fleets' own phases adopt it again. A stationed fleet's devices and the untagged ones in its home are one group.</li>
     </ol>
   </div>
   <div class="card small">
     <h2>What it doesn't touch</h2>
-    <p>Rewritten: <code>home:</code> <code>to:</code> <code>fleet:</code> <code>spare</code> <code>gather</code>.
+    <p>Rewritten: <code>fleet:</code> <code>to:</code> <code>spare</code> <code>gather</code> and old <code>home:</code> tags.
       Kept: <code>at:</code> pins, <code>civ</code>, <code>ferry</code>, <code>taxi</code>, ignore tags and your own tags.</p>
-    <p>Left alone: ignored devices, the ferry and its freighters/plates, fleets on a mission, devices in a running job,
+    <p>Left alone: ignored devices, the ferry and its freighters/plates, fleets away on a mission, devices in a running job,
       anything moving or in transit (a delivery in flight keeps its <code>to:</code> tag), and the replicants' vessels.</p>
     <p class="lv-alert">Turn the loadout rule off first if you don't want a pass to start moving spares straight after.</p>
   </div>

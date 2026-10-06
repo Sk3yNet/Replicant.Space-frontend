@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.17.1"
+VERSION = "1.18.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.18.0", "2026-10-06", "Home fleets are gone: one Fleets page, and any fleet can be stationed at its home system, where the "
+                             "loadout pass keeps it at its loadout (fleetless devices there join it, extras become spare, spares "
+                             "and prints fill it) and the in-system rules work its devices. Materials are a fleet setting: send "
+                             "to another fleet, or take materials in. Templates stay. On upgrade each system's home fleet becomes "
+                             "a stationed fleet and the next pass turns home: tags into fleet tags."),
     ("1.17.1", "2026-10-06", "docker-compose.yml is now the multi-user stack (the single-user one moved to "
                              "docker-compose.single.yml). OWNER_EMAIL defaults to the first ALLOWED_EMAIL."),
     ("1.17.0", "2026-10-06", "Multi-user mode (docker-compose.multi.yml): one app server per Google account, each with its "

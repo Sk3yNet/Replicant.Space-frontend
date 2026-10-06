@@ -1740,8 +1740,8 @@ RULE_HOME = {
     "salvage_when_depleted": ("Map › Systems", "/systems"), "belt_viability": ("Map › Systems", "/systems"),
     "visitor_alerts": ("Map › Traffic", "/traffic"), "civ_beacons": ("Map › Traffic", "/traffic"),
     "asteroid_defence": ("Map › Defence", "/defence"), "maintenance": ("Map › Upkeep", "/maintenance"),
-    "ami_schedules": ("Devices › AMI", "/ami"), "loadouts": ("Fleets › Home fleets", "/loadouts"),
-    "fleet_fill": ("Fleets › Mobile fleets", "/fleets"),
+    "ami_schedules": ("Devices › AMI", "/ami"), "loadouts": ("Fleets", "/fleets"),
+    "fleet_fill": ("Fleets", "/fleets"),
     "consolidate": ("Economy › Blueprints", "/blueprints"), "contracts": ("Economy › Contracts", "/game-events"),
 }
 
@@ -1944,7 +1944,9 @@ async def tree_view(request: Request, user: str = Depends(current_user)):
     carriers = {d["device_code"] for d in st["devices"] if d.get("device_code") and carrier_mod.is_carrier(d, bps)}
     systems = build_tree(st["devices"], st["replicants"], await db.kv_get("stowed_map", {}) or {}, carriers)
     lcfg = await request.app.state.worker.automations.loadout_cfg()
-    phases = {star: next((p["name"] for p in lcfg["phases"] if p["id"] == pid), None) for star, pid in lcfg["systems"].items()}
+    phases: dict[str, str] = {}   # system -> the fleets stationed there
+    for f in lo.stationed_fleets(lcfg):
+        phases[f["home"]] = ", ".join(x for x in (phases.get(f["home"]), f["name"]) if x)
     return await page(request, user, "tree.html", "tree", systems=systems, phases=phases, order_commands=order_commands,
                       dangerous=DANGEROUS, synced=await db.kv_updated("devices"))
 
@@ -1963,8 +1965,6 @@ async def loadout_ctx(request: Request) -> dict:
                    - {"heaven_vessel"})
     p = await eng.loadout_plan()
     present = Counter(lo.star_of(d.get("location")) for d in st["devices"])
-    stars = sorted(set(present) | set(cfg["systems"]) | set(cfg["roles"]),
-                   key=lambda s: (s not in cfg["systems"] and s not in cfg["roles"], -present.get(s, 0), s))
     jobs = [j for j in await eng.jobs() if j["rule"] == "loadouts"]
     tagged = defaultdict(list)
     for d in st["devices"]:
@@ -1982,7 +1982,7 @@ async def loadout_ctx(request: Request) -> dict:
     from . import consolidate as co
     consolidation = [co.describe(x) for x in await eng.consolidate_plan()]
     consolidate_on = bool(((await eng.settings())["rules"].get("consolidate") or {}).get("enabled"))
-    return {"cfg": cfg, "types": types, "plan": p, "lines": lo.describe(p), "stars": stars, "present": present, "audit": audit,
+    return {"cfg": cfg, "types": types, "plan": p, "lines": lo.describe(p), "present": present, "audit": audit,
             "depot": lo.spare_depot(cfg, st["devices"]),
             "consolidation": consolidation, "consolidate_on": consolidate_on,
             "active_jobs": [j for j in jobs if j["status"] in ("running", "waiting")],
@@ -1993,15 +1993,13 @@ async def loadout_ctx(request: Request) -> dict:
 
 
 async def save_loadouts(request: Request, cfg: dict) -> None:
-    await request.app.state.db.kv_set("loadouts", cfg)
+    await request.app.state.db.kv_set("loadouts", {k: v for k, v in cfg.items() if k != "fleets"})
 
 
-@router.get("/loadouts", response_class=HTMLResponse)
+@router.get("/loadouts")
 async def loadouts_page(request: Request, user: str = Depends(current_user)):
-    based: dict[str, list[dict]] = defaultdict(list)   # mobile fleets by home system
-    for f in await request.app.state.worker.automations.fleets():
-        based[f.get("home") or ""].append(f)
-    return await page(request, user, "loadouts.html", "loadouts", mobile_by_home=based, **await loadout_ctx(request))
+    """Home fleets are stationed fleets now, on the Fleets page."""
+    return RedirectResponse("/fleets", status_code=303)
 
 
 @router.post("/loadouts/phases", response_class=HTMLResponse)
@@ -2037,33 +2035,16 @@ async def loadouts_save_phases(request: Request, user: str = Depends(current_use
 
 @router.post("/loadouts/phases/{pid}/delete", response_class=HTMLResponse)
 async def loadouts_delete_phase(request: Request, pid: str, user: str = Depends(current_user)):
-    cfg = await request.app.state.worker.automations.loadout_cfg()
+    """Delete a template. Fleets that followed it keep the loadout they had, as a custom loadout."""
+    eng = request.app.state.worker.automations
+    cfg = await eng.loadout_cfg()
+    items = cfg["fleets"]
+    for f in items:
+        if f.get("template") == pid:
+            f["template"] = None
     cfg["phases"] = [p for p in cfg["phases"] if p["id"] != pid]
-    cfg["systems"] = {s: v for s, v in cfg["systems"].items() if v != pid}
     await save_loadouts(request, cfg)
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
-
-
-@router.post("/loadouts/system", response_class=HTMLResponse)
-async def loadouts_set_system(request: Request, star: str = Form(...), phase: str = Form(""),
-                              user: str = Depends(current_user)):
-    cfg = await request.app.state.worker.automations.loadout_cfg()
-    if phase:
-        cfg["systems"][star] = phase
-    else:
-        cfg["systems"].pop(star, None)
-    await save_loadouts(request, cfg)
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
-
-
-@router.post("/loadouts/role", response_class=HTMLResponse)
-async def loadouts_set_role(request: Request, star: str = Form(...), role: str = Form(""), user: str = Depends(current_user)):
-    cfg = await request.app.state.worker.automations.loadout_cfg()
-    if role in ("source", "destination"):
-        cfg["roles"][star] = role
-    else:
-        cfg["roles"].pop(star, None)
-    await save_loadouts(request, cfg)
+    await eng.save_fleets(items)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
@@ -2081,12 +2062,15 @@ async def loadouts_settings(request: Request, user: str = Depends(current_user))
 
 
 @router.post("/loadouts/apply", response_class=HTMLResponse)
-async def loadouts_apply(request: Request, star: str = Form(""), user: str = Depends(current_user)):
+async def loadouts_apply(request: Request, star: str = Form(""), fleet: str = Form(""), user: str = Depends(current_user)):
     eng = request.app.state.worker.automations
+    only = {x for x in (star, fleet) if x} or None
     async with eng.lock:
-        lines = await eng.apply_loadouts({star} if star else None, manual=True)
-    body = "".join(f"<li>{line}</li>" for line in lines) or "<li>Nothing to do: every phased system matches its loadout.</li>"
-    return HTMLResponse(f'<div class="result ok"><strong>Applied{" to " + star if star else ""}</strong><ul class="small">{body}</ul>'
+        lines = await eng.apply_loadouts(only, manual=True)
+    body = "".join(f"<li>{html.escape(line)}</li>" for line in lines) or \
+        "<li>Nothing to do: every stationed fleet matches its loadout.</li>"
+    what = f" to {html.escape(fleet or star)}" if only else ""
+    return HTMLResponse(f'<div class="result ok"><strong>Applied{what}</strong><ul class="small">{body}</ul>'
                         f'<div class="small muted">Follow the jobs below or on the Automations page.</div></div>',
                         headers={"HX-Trigger": "loadouts-changed"})
 
@@ -2193,7 +2177,7 @@ async def game_event_settings(request: Request, fulfil: str = Form(""), user: st
     return HTMLResponse('<span class="lv-done small">Saved.</span>')
 
 
-# --- mobile fleets ----------------------------------------------------------------------------
+# --- fleets ----------------------------------------------------------------------------------
 from . import fleets as fl  # noqa: E402
 
 
@@ -2215,11 +2199,17 @@ async def fleets_ctx(request: Request) -> dict:
     stars_seen = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")})
     traders = await request.app.state.db.kv_get("traders_cache", {}) or {}
     profiles = {t: fl.type_profile(t, bp_by, st["devices"]) for t in types}
-    from .loadouts import home_fleet_systems
-    lcfg = await eng.loadout_cfg()
-    homes = sorted(home_fleet_systems(lcfg))
-    return {"profiles": profiles, "home_systems": homes, "templates": lcfg["phases"], "fleets": items, "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
-            "stars": stars_seen, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
+    lctx = await loadout_ctx(request)
+    homes = sorted(fl.worked_systems(items))
+    stars_all = sorted(set(stars_seen) | {f["home"] for f in items if f.get("home")})
+    for f in items:
+        f["report"] = lctx["plan"]["report"].get(f["id"])
+        f["route"] = next((r for r in lctx["plan"].get("routes") or [] if r.get("fleet_id") == f["id"]), None)
+        f["sends_to"] = fl.materials_target(f, items)
+        f["takes_from"] = [x for x in items if x.get("materials") == f["id"]]
+    return {**lctx, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
+            "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
+            "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
 
 
 @router.get("/fleets", response_class=HTMLResponse)
@@ -2234,12 +2224,13 @@ async def _fleets(request: Request) -> tuple[Any, list[dict]]:
 
 @router.post("/fleets", response_class=HTMLResponse)
 async def fleets_create(request: Request, name: str = Form(...), role: str = Form("mining"), home: str = Form(""),
-                        user: str = Depends(current_user)):
+                        station: str = Form(""), template: str = Form(""), user: str = Depends(current_user)):
     eng, items = await _fleets(request)
     fid = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:20] or "fleet"
     while any(f["id"] == fid for f in items):
         fid += "-2"
-    items.append({"id": fid, "name": name.strip(), "role": role if role in fl.ROLES else "mining", "home": home.upper(), "wants": {}})
+    items.append({"id": fid, "name": name.strip(), "role": role if role in fl.ROLES else "mining", "home": home.strip().upper(),
+                  "wants": {}, "station": station == "on", "materials": "", "template": template or None})
     await eng.save_fleets(items)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
@@ -2300,6 +2291,22 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
             await eng.save_fleets(items)
             n = sum((f.get("wants") or {}).values())
             return HTMLResponse(f'<span class="muted">Loadout saved · {len(f.get("wants") or {})} type(s), {n} device(s)</span>')
+    await eng.save_fleets(items)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/station", response_class=HTMLResponse)
+async def fleets_station(request: Request, fid: str, user: str = Depends(current_user)):
+    """Stationed (kept at its loadout in its home system) and materials: '' none, 'self' takes materials in, or the id of
+    the fleet this one's home system ferries its stockpile to."""
+    form = await request.form()
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f:
+        return HTMLResponse("", status_code=404)
+    f["station"] = form.get("station") == "on"
+    m = (form.get("materials") or "").strip()
+    f["materials"] = m if m == "self" or any(x["id"] == m and x["id"] != fid for x in items) else ""
     await eng.save_fleets(items)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
@@ -2384,13 +2391,12 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
     if f["role"] == "mining":
         m["targets"] = m["targets"][:1]
     if f["role"] in ("mining", "explore"):
-        from .loadouts import home_fleet_systems
-        homes = home_fleet_systems(await eng.loadout_cfg())
+        homes = fl.worked_systems(items)
         taken = [t for t in m["targets"] if star_of(t) in homes]
         if taken:
             return HTMLResponse(f'<div class="result err">{html.escape(", ".join(taken))}: '
-                                f'{"has" if len(taken) == 1 else "have"} a home fleet, and only the home fleet works its '
-                                'system. Pick a system without a loadout phase.</div>')
+                                f'{"has" if len(taken) == 1 else "have"} a stationed fleet, and only the stationed fleet works '
+                                'its home system. Pick a system no fleet is stationed in.</div>')
     f["mission"] = m
     await eng.save_fleets(items)
     async with eng.lock:
@@ -2433,6 +2439,10 @@ async def fleets_control(request: Request, fid: str, action: str = Form(...), us
         elif action == "stop":
             m["status"] = "stopped"
             eng._mlog(m, "stopped (devices stay where they are)")
+        elif action == "station":
+            m["status"] = "done"
+            eng._mlog(m, "back to station: the loadout pass brings its devices home" if f.get("station")
+                      else "mission cleared")
         m["job"] = None
         await eng.save_fleets(items)
         await eng.run_fleets()
@@ -2465,7 +2475,7 @@ async def fleets_traders(request: Request, user: str = Depends(current_user)):
 
 @router.post("/fleets/{fid}/fill", response_class=HTMLResponse)
 async def fleets_fill(request: Request, fid: str, user: str = Depends(current_user)):
-    """Fill this fleet's gaps from spares now (the same as the Fill mobile fleets rule, for one fleet)."""
+    """Fill this fleet's gaps from spares now (the same as the Fill unstationed fleets rule, for one fleet)."""
     eng = request.app.state.worker.automations
     async with eng.lock:
         lines = await eng.fill_fleets(force=True, only=fid)

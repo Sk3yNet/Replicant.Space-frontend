@@ -75,7 +75,12 @@ async def main():
     await db.kv_set("automation_log", app["log"])
     inv = GET.get("/inventory") or {}
     await db.kv_set("inventory", inv.get("inventory") or inv.get("items") or [])
-    await db.kv_set("fleets", [{"id": f["id"], "name": f["id"], "role": f["role"], "members": [], "mission": None}
+    # fleets as they were (snapshots before 1.18.0 carry only id/role/mission; their loadouts config is converted on load)
+    await db.kv_set("fleets", [{"id": f["id"], "name": f.get("name") or f["id"], "role": f["role"], "home": f.get("home") or "",
+                                "station": bool(f.get("station")), "template": f.get("template"), "wants": f.get("wants") or {},
+                                "materials": f.get("materials") or "",
+                                "mission": {"status": f["mission"]} if f.get("mission") in ("running", "stalled", "ended", "stopped")
+                                else None}
                                for f in app["fleets"]])
     eng = au.AutomationEngine(db, Api(), Hub(), None)
     with mock.patch.object(au, "_now", lambda: NOW):
