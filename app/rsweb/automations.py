@@ -790,6 +790,24 @@ class AutomationEngine(OpsRules):
             out[star] = pl.geography(star, devices, scan, (stars.get(star) or {}).get("entry_point"), belts_seen)
         return out
 
+    async def cruise_radii(self) -> dict[str, float]:
+        """Distance from its star (AU) of every place the stored system scans name — to tell long cruises from short."""
+        from .fleets import system_radii
+        out: dict[str, float] = {}
+        for r in await self.db.fetchall("SELECT data FROM systems"):
+            try:
+                out.update(system_radii(json.loads(r["data"])))
+            except ValueError:
+                pass
+        return out
+
+    async def max_cruise_au(self) -> float:
+        from .fleets import MAX_CRUISE_AU
+        try:
+            return float((await self.loadout_cfg())["settings"].get("max_cruise_au") or MAX_CRUISE_AU)
+        except (TypeError, ValueError):
+            return MAX_CRUISE_AU
+
     async def loadout_orders(self) -> list[dict]:
         """Prints ordered for a system and not yet seen as a device (they count as incoming)."""
         orders = await self.db.kv_get("loadout_orders", []) or []
@@ -880,6 +898,7 @@ class AutomationEngine(OpsRules):
         stowed_in = {c: k for k, kids in (await self.db.kv_get("stowed_map", {}) or {}).items() for c in kids}
         lines = lo.describe(p)
         started = 0
+        radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         for ctrl, codes in sorted((p.get("releases") or {}).items()):
             why = "no longer in the loadout" if set(codes) <= set(p.get("made_spare") or []) else "in another system / spare"
             started += bool(await self.create_job("loadouts", f"loadouts: {ctrl} releases {len(codes)} device(s) ({why})", ctrl,
@@ -909,7 +928,8 @@ class AutomationEngine(OpsRules):
             started += bool(await self.create_job(
                 "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']}", dl["carrier"],
                 lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
-                                                  gathering=set(p.get("gathering") or []), assign=p.get("assign")),
+                                                  gathering=set(p.get("gathering") or []), assign=p.get("assign"),
+                                                  radii=radii, max_cruise_au=far_au),
                 {"devices": dl["devices"], "star": dl["to"]}, force=manual))
         ferries = await self.db.kv_get("loadout_ferries", {}) or {}
         for r in p.get("routes") or []:
@@ -1000,6 +1020,7 @@ class AutomationEngine(OpsRules):
         cat = await self.db.kv_get("stars", {}) or {}
         stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
         p = await self.loadout_plan()
+        radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         started: list[str] = []
         for code, dest in p["self_moves"]:
             if code in ready:
@@ -1015,7 +1036,8 @@ class AutomationEngine(OpsRules):
                 if await self.create_job("loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']} "
                                          "(just printed)", dl["carrier"],
                                          lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
-                                                  gathering=set(p.get("gathering") or []), assign=p.get("assign")),
+                                                  gathering=set(p.get("gathering") or []), assign=p.get("assign"),
+                                                  radii=radii, max_cruise_au=far_au),
                                          {"devices": dl["devices"], "star": dl["to"]}):
                     started.append(f"{dl['carrier']} carries {', '.join(dl['devices'])} to {dl['to']}")
                 for c in dl["devices"]:
@@ -1443,15 +1465,16 @@ class AutomationEngine(OpsRules):
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         target = (m.get("targets") or [None])[m.get("idx", 0)] if m.get("targets") else None
         opts = m.get("opts") or {}
+        radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         if phase == "assemble":
-            return fl.assemble_steps(fleet, devices)
+            return fl.assemble_steps(fleet, devices, radii, far_au)
         if phase == "gather":
             plan = fl.gather_plan(fleet, devices, stars, self.busy_devices(await self.jobs()))
             if plan["recruit"]:
                 self._mlog(m, "recruiting spares: " + ", ".join(f"{d['device_code']} ({d.get('device_type')})" for d in plan["recruit"]))
             if plan["tour"]:
                 self._mlog(m, f"{plan['carrier']} collects from " + ", ".join(f"{s_} ({len(ds)})" for s_, ds in plan["tour"]))
-            return fl.gather_steps(fleet, plan, stars), plan["problems"]
+            return fl.gather_steps(fleet, plan, stars, radii, far_au), plan["problems"]
         if phase == "travel":
             return fl.travel_steps(fleet, devices, target, stars), []
         if phase == "deploy":
@@ -1486,7 +1509,7 @@ class AutomationEngine(OpsRules):
             for c in fl.outside_controllers(fleet, devices):
                 self._mlog(m, f"{c['device_code']} ({c.get('device_type')}) runs this fleet's drones but isn't in the fleet "
                               "(no fleet tag): it won't be recalled or taken home — add it under Add / remove devices")
-            return fl.recall_steps(fleet, devices, inv, haul), []
+            return fl.recall_steps(fleet, devices, inv, haul, radii, far_au), []
         if phase == "return":
             return fl.travel_steps(fleet, devices, fleet["home"], stars), []
         if phase == "unload":
@@ -1527,6 +1550,7 @@ class AutomationEngine(OpsRules):
         busy = self.busy_devices(jobs)
         working = {(j.get("meta") or {}).get("fleet") for j in jobs if j["status"] in ("running", "waiting")}
         devices = await self.devices()
+        radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         out = []
         for f in await self.fleets():
             if (only and f["id"] != only) or (f.get("mission") or {}).get("status") == "running" or f["id"] in working:
@@ -1535,7 +1559,7 @@ class AutomationEngine(OpsRules):
                 continue   # the loadout pass keeps a stationed fleet filled, at its home
             if not fl.short_list(f, devices):
                 continue
-            steps, recruits, notes = fl.fill_plan(f, devices, stars, busy)
+            steps, recruits, notes = fl.fill_plan(f, devices, stars, busy, radii, far_au)
             for n in notes:
                 out.append(f"{f['name']}: {n}")
             if not recruits:

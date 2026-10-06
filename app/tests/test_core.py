@@ -3490,9 +3490,43 @@ def test_recall_waits_for_passengers_already_flying_back():
     plan = [(s["method"], s["desc"]) for s in steps]
     assert problems == []
     assert ("POST", "D1 → OTH-OORT (board)") not in plan                      # already on its way: no new order
-    assert plan.index(("WAIT", "wait for D2 at OTH-3")) < plan.index(("POST", "D2 → OTH-OORT (board)"))   # lands first
-    assert ("POST", "D3 → OTH-OORT (board)") in plan
     w = next(s for s in steps if s["desc"] == "wait for D1 at OTH-OORT")
     assert w["seq0_from"] == 0 and w["timeout"] > 3600                          # counts from the job start, waits for its ETA
-    assert [s["desc"] for s in steps[-3:]] == ["stow D1 in HV", "stow D2 in HV", "stow D3 in HV"]
+    # D2 lands at a planet and D3 is at one: ~2000 AU of cruising from the vessel at the Oort cloud, so the vessel fetches them
+    assert not any(d.endswith("(board)") for _, d in plan)
+    assert plan.index(("WAIT", "wait for D2 at OTH-3")) < plan.index(("POST", "HV → OTH-3 (pick up D2)"))
+    assert [d for _, d in plan[-5:]] == ["stow D1 in HV", "HV → OTH-2 (pick up D3)", "stow D3 in HV",
+                                         "HV → OTH-3 (pick up D2)", "stow D2 in HV"]
     assert [c["device_code"] for c in fl.outside_controllers(fleet, devices)] == ["SC"]
+
+
+def test_far_passengers_are_fetched_near_ones_fly_over():
+    from rsweb import fleets as fl, loadouts as lo
+    scan = {"planets": [{"designation": "OTH-2", "orbital_distance_au": 0.7}, {"designation": "OTH-3", "orbital_distance_au": 1.0}],
+            "asteroid_belt": {"belts": [{"designation": "OTH-BELT-1", "inner_radius_au": 2, "outer_radius_au": 4}]},
+            "outer_system": {"kuiper": {"designation": "OTH-KUIPER", "distance_au": 48.0},
+                             "oort": {"designation": "OTH-OORT", "distance_au": 1800.0}}}
+    radii = fl.system_radii(scan)
+    assert radii == {"OTH-2": 0.7, "OTH-3": 1.0, "OTH-BELT-1": 3.0, "OTH-KUIPER": 48.0, "OTH-OORT": 1800.0}
+    assert fl.radius_au("OTH-3-L4", radii) == 1.0 and fl.radius_au("OTH-3-2", radii) == 1.0   # L-points, moons: their planet
+    assert fl.cruise_au("OTH-2", "OTH-BELT-1", radii) == pytest.approx(2.3) and fl.far_apart("OTH-3", "OTH-KUIPER", radii)
+    assert fl.far_apart("ZZ-1", "ZZ-OORT") and not fl.far_apart("ZZ-1", "ZZ-BELT-1")   # unscanned: guessed from the codes
+    fleet = {"id": "f", "name": "F", "role": "mining", "home": "OTH", "wants": {}}
+    D = lambda code, loc: {"device_code": code, "device_type": "survey_drone", "location": loc, "status": "idle",  # noqa: E731
+                           "features": ["stow", "cruise"], "tags": ["fleet:f"]}
+    devices = [{"device_code": "HV", "device_type": "cargo_vessel", "location": "OTH-3", "status": "idle", "features": ["surge"],
+                "stow_capacity": 50, "tags": ["fleet:f"]},
+               D("N1", "OTH-2"), D("N2", "OTH-BELT-1"), D("F1", "OTH-KUIPER"), D("F2", "OTH-OORT")]
+    plan = [s["desc"] for s in fl.assemble_steps(fleet, devices, radii)[0]]
+    assert "N1 → OTH-3 (board)" in plan and "N2 → OTH-3 (board)" in plan        # short hops: they fly over
+    assert plan[-4:] == ["HV → OTH-KUIPER (pick up F1)", "stow F1 in HV", "HV → OTH-OORT (pick up F2)", "stow F2 in HV"]
+    assert plan.index("stow N1 in HV") < plan.index("HV → OTH-KUIPER (pick up F1)")   # near ones board before it leaves
+    plan = [s["desc"] for s in fl.assemble_steps(fleet, devices, radii, limit=5000)[0]]
+    assert "F2 → OTH-3 (board)" in plan                                          # the limit is a setting
+    # loadout deliveries: same rule, and everyone at the pick-up point boards before the carrier goes fetching
+    by = {d["device_code"]: d for d in devices}
+    by["BC"] = {"device_code": "BC", "device_type": "ftl_beacon", "location": "OTH-2", "available_commands": ["stow"]}
+    dl = {"carrier": "HV", "carrier_loc": "OTH-3", "from": "OTH", "to": "AEM", "devices": ["N1", "F2", "BC"], "mode": "stow"}
+    steps = [s["desc"] for s in lo.delivery_steps(dl, by, {}, False, radii=radii)]
+    assert "N1 → OTH-3 (to board HV)" in steps and not any(x.startswith("F2 →") for x in steps)
+    assert steps.index("stow N1 in HV") < steps.index("HV → OTH-2 (pick up BC)") < steps.index("HV → OTH-OORT (pick up F2)")

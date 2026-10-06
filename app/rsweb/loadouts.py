@@ -34,7 +34,8 @@ GATHER = "gather"   # on its way to the spare depot (stays spare on arrival)
 WORKING = ("mining", "searching", "tracking", "scanning", "collecting", "depositing", "printing", "repairing")
 DEFAULT_SETTINGS = {"print_missing": True, "need_stock": True, "carriers_return": True,
                     "use_replicant_vessels": False, "every_minutes": 15,
-                    "gather_spares": True, "spare_depot": ""}   # "" = automatic (see spare_depot())
+                    "gather_spares": True, "spare_depot": "",   # "" = automatic (see spare_depot())
+                    "max_cruise_au": 30}   # a device further than this from its carrier (in-system) is fetched, not flown over
 
 
 def spare_depot(cfg: dict, devices: list[dict]) -> str | None:
@@ -851,9 +852,12 @@ def rehome_step(code: str, d: dict, star: str, keep_spare: bool = False, join: s
 
 
 def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, managed: dict | None = None,
-                   gathering: set[str] | frozenset = frozenset(), assign: dict[str, str] | None = None) -> list[dict]:
+                   gathering: set[str] | frozenset = frozenset(), assign: dict[str, str] | None = None,
+                   radii: dict[str, float] | None = None, max_cruise_au: float | None = None) -> list[dict]:
     """`gathering`: spares being taken to the depot — they stay spare and join no fleet there.
-    `assign`: device -> the fleet tag it gets as it leaves (spares sent to a stationed fleet)."""
+    `assign`: device -> the fleet tag it gets as it leaves (spares sent to a stationed fleet).
+    Devices near the pick-up point fly over and board; devices that can't fly (beacons) and devices far from it (more than
+    `max_cruise_au` of cruising) are fetched by the carrier afterwards, nearest first."""
     assign = assign or {}
     carrier, cloc, dest_star = dl["carrier"], dl["carrier_loc"], dl["to"]
     dest = destination(dest_star, stars)
@@ -884,7 +888,9 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
             steps.append(tag_step(code, add, rem))
     first = len(steps)
     grounded = [c for c in dl["devices"] if not can_travel(by_code.get(c, {}) or {}) and by_code.get(c, {}).get("location") != cloc]
-    fly = [c for c in dl["devices"] if by_code.get(c, {}).get("location") != cloc and c not in grounded]
+    far = [c for c in dl["devices"] if c not in grounded and by_code.get(c, {}).get("location") != cloc
+           and fl.far_apart(by_code.get(c, {}).get("location"), cloc, radii, max_cruise_au)]
+    fly = [c for c in dl["devices"] if by_code.get(c, {}).get("location") != cloc and c not in grounded and c not in far]
     for code in fly:
         steps.append(step(f"{code} → {cloc} (to board {carrier})", f"/devices/{code}", {"command": "travel", "destination": cloc}))
     for i, code in enumerate(fly):
@@ -894,30 +900,23 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         w["seq0_from"] = first + i
         steps.append(w)
     attach = dl.get("mode") == "attach"
-    # devices that can't fly (beacons): the carrier goes to each one and takes it into its hold
-    picked: set[str] = set()
-    for loc in sorted({by_code[c].get("location") for c in grounded}):
-        steps.append(move(loc, "pick up " + ", ".join(c for c in grounded if by_code[c].get("location") == loc), loc))
-        for code in [c for c in grounded if by_code[c].get("location") == loc]:
-            st = step(f"stow {code} in {carrier}", f"/devices/{code}", {"command": "stow", "target": carrier},
-                      wait=["device.stowed"], timeout=SHORT_TIMEOUT, critical=True)
-            st["wait_device"] = code
-            steps.append(st)
-            picked.add(code)
     # Boarding and unloading are critical: if a device doesn't get on, the carrier must not fly off without it
     # (and it must not be re-homed to a system it never reached); if it can't get off, it must not ride back.
-    for code in [c for c in dl["devices"] if c not in picked]:
-        if attach:  # the carrier does the attaching: POST /devices/<carrier> {"command": "attach", "device": <cargo>}
-            st = step(f"{carrier}: attach {code}", f"/devices/{carrier}", {"command": "attach", "device": code},
-                      wait=["device.attached"], timeout=SHORT_TIMEOUT, critical=True)
-            st["wait_device"] = carrier
-            steps.append(st)
-            continue
-        else:
-            st = step(f"stow {code} in {carrier}", f"/devices/{code}", {"command": "stow", "target": carrier},
-                      wait=["device.stowed"], timeout=SHORT_TIMEOUT, critical=True)
-        st["wait_device"] = code
-        steps.append(st)
+    # First everyone at (or flown to) the pick-up point, before the carrier goes anywhere …
+    for code in [c for c in dl["devices"] if c not in grounded and c not in far]:
+        steps.append(fl.board_step(carrier, code, "attach" if attach else "stow"))
+    # … then the carrier fetches the rest, nearest first: devices that can't fly (beacons: into its hold) and far ones
+    stops: dict[str, list[str]] = {}
+    for code in grounded + far:
+        stops.setdefault(by_code[code].get("location"), []).append(code)
+    cur = cloc
+    while stops:
+        loc = min(stops, key=lambda x: (fl.cruise_au(cur, x, radii), x))
+        codes = stops.pop(loc)
+        steps.append(move(loc, "pick up " + ", ".join(codes), loc))
+        cur = loc
+        for code in codes:
+            steps.append(fl.board_step(carrier, code, "stow" if code in grounded or not attach else "attach"))
     steps.append(move(dest, f"deliver {len(dl['devices'])} to {dest_star}", dest_star))
     for code in dl["devices"]:
         if attach:

@@ -297,6 +297,11 @@
       <label style="text-transform:none;display:block"><input type="checkbox" name="gather_spares" {{ 'checked' if cfg.settings.gather_spares }}> Gather idle spares at the spare depot</label>
       <label style="text-transform:none;display:block">Spare depot <input name="spare_depot" value="{{ cfg.settings.spare_depot or '' }}" size="14" placeholder="automatic">
         <span class="muted">now: {{ depot or 'none' }} — blank = the home of a fleet that takes materials in, with an autofactory</span></label>
+      <label style="text-transform:none;display:block">Fetch, don't fly: a cruise-only device more than
+        <input type="number" name="max_cruise_au" min="0" step="any" value="{{ cfg.settings.max_cruise_au }}" style="width:70px"> AU
+        from its carrier waits, and the (surge-capable) carrier goes to pick it up
+        <span class="muted">— fleet boarding, recall, gather and loadout deliveries. In-system distances come from the system
+        scans (else Kuiper ≈ 40, Oort ≈ 2000 AU).</span></label>
       <div class="row" style="margin-top:8px"><button>Save settings</button><span id="lo-saved"></span></div>
     </form>
   </div>

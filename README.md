@@ -49,6 +49,14 @@ the nearest destination). Existing mobile fleets stay as they were: not statione
 `home:<star>` tag the fleet tag of the fleet stationed there (or drops the tag), and a device already on its way with an old
 `to:` tag joins the fleet there on arrival. Old diagnostics snapshots are read the same way.
 
+**Fetch, don't fly** (1.18.2): a cruise-only device never makes a long trip across a system just to board. When a device is
+more than *Max cruise* AU (Fleets › Settings, default 30) from its carrier, it waits and the surge-capable carrier fetches it,
+visiting the pick-up spots nearest first after the nearby devices have flown over and boarded. This applies to fleet
+boarding (assemble, recall, end mission, board everyone), the gather/fill tour and loadout deliveries. Distances come from
+the stored system scans (planets' orbits, belt radii, Kuiper and Oort); an unscanned system falls back to Kuiper ≈ 40 AU,
+Oort ≈ 2000 AU and belts ≈ 3 AU. A device already flying to its carrier is just waited for, and one flying elsewhere lands
+first.
+
 **Fleet templates** (1.16.0): a fleet can follow a template instead of its own loadout lines (the *Template* picker on its
 card). Its loadout then comes from the template, so editing the template (Fleets › Templates) updates every fleet on it; blank and 0
 count as none (for a stationed fleet, 0 means "make any spare"). The line editor is locked while a template is set; pick *custom loadout* to edit lines again.

@@ -2057,6 +2057,10 @@ async def loadouts_settings(request: Request, user: str = Depends(current_user))
     for k in ("print_missing", "need_stock", "carriers_return", "use_replicant_vessels", "gather_spares"):
         cfg["settings"][k] = form.get(k) == "on"
     cfg["settings"]["spare_depot"] = (form.get("spare_depot") or "").strip().upper()
+    try:
+        cfg["settings"]["max_cruise_au"] = max(0.0, float(form.get("max_cruise_au") or lo.DEFAULT_SETTINGS["max_cruise_au"]))
+    except ValueError:
+        pass
     await save_loadouts(request, cfg)
     return HTMLResponse('<span class="lv-done small">Saved.</span>', headers={"HX-Refresh": "true"})
 

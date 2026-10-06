@@ -285,8 +285,91 @@ def in_flight(d: dict) -> dict | None:
     return {"destination": tr.get("final_destination") or tr.get("destination"), "seconds_left": max(0, left)}
 
 
-def assemble_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], list[str]]:
-    """Get every passenger aboard a fleet carrier — stowed in a hold when it can be, else attached. Returns (steps, problems)."""
+# --- in-system distances: a cruise-only device never makes a long trip just to board -----------------------------
+# Cruising across a system is slow (seen live 2026-10-06: survey drones took 2 h 20 min to cruise 1395 AU out to the Oort
+# cloud to board their vessel). A surge-capable carrier fetches them instead.
+MAX_CRUISE_AU = 30.0
+GUESS_AU = {"OORT": 2000.0, "KUIPER": 40.0, "BELT": 3.0}   # when the system hasn't been scanned
+INNER_AU = 5.0                                              # a body we know nothing about: somewhere in the inner system
+
+
+def system_radii(scan: dict | None) -> dict[str, float]:
+    """Distance from the star (AU) of each place a system scan names: planets, belts (mid-radius), Kuiper, Oort."""
+    out: dict[str, float] = {}
+    if not isinstance(scan, dict):
+        return out
+    for p in scan.get("planets") or []:
+        if p.get("designation") and p.get("orbital_distance_au") is not None:
+            out[p["designation"]] = float(p["orbital_distance_au"])
+    for b in (scan.get("asteroid_belt") or {}).get("belts") or []:
+        lo_, hi = b.get("inner_radius_au"), b.get("outer_radius_au")
+        if b.get("designation") and lo_ is not None and hi is not None:
+            out[b["designation"]] = (float(lo_) + float(hi)) / 2
+    for k in ("kuiper", "oort"):
+        o = (scan.get("outer_system") or {}).get(k) or {}
+        if o.get("designation") and o.get("distance_au") is not None:
+            out[o["designation"]] = float(o["distance_au"])
+    return out
+
+
+def radius_au(loc: str | None, radii: dict[str, float] | None = None) -> float | None:
+    """How far from its star a location is: from the scan, else its body's (moons, L-points, salvage), else a guess
+    from the code (…-OORT, …-KUIPER, …-BELT-n), else None."""
+    if not loc:
+        return None
+    radii = radii or {}
+    if loc in radii:
+        return radii[loc]
+    parts = loc.split("-")
+    if len(parts) == 1:
+        return 0.0
+    for n in range(len(parts) - 1, 1, -1):
+        if "-".join(parts[:n]) in radii:
+            return radii["-".join(parts[:n])]
+    return GUESS_AU.get(parts[1])
+
+
+def cruise_au(a: str | None, b: str | None, radii: dict[str, float] | None = None) -> float:
+    """Roughly how far a cruise from a to b is (the radial gap; positions on the orbits aren't known)."""
+    if not a or not b or a == b:
+        return 0.0
+    if star_of(a) != star_of(b):
+        return float("inf")
+    ra, rb = radius_au(a, radii), radius_au(b, radii)
+    if ra is None and rb is None:
+        return 0.0
+    return abs((INNER_AU if ra is None else ra) - (INNER_AU if rb is None else rb))
+
+
+def far_apart(a: str | None, b: str | None, radii: dict[str, float] | None = None, limit: float | None = None) -> bool:
+    return cruise_au(a, b, radii) > (MAX_CRUISE_AU if limit is None else limit)
+
+
+def pickup_tour(carrier: str, start: str | None, stops: dict[str, list[tuple[str, str]]],
+                radii: dict[str, float] | None = None) -> tuple[list[dict], str | None]:
+    """The carrier flies to each pick-up spot (nearest first) and takes its devices aboard there.
+    stops: location -> [(device, "stow" | "attach")]. Returns (steps, where the carrier ends up)."""
+    steps, cur, stops = [], start, dict(stops)
+    while stops:
+        loc = min(stops, key=lambda x: (cruise_au(cur, x, radii), x))
+        group = stops.pop(loc)
+        if loc != cur:
+            st = step(f"{carrier} → {loc} (pick up {', '.join(c for c, _ in group)})", f"/devices/{carrier}",
+                      {"command": "travel", "destination": loc}, wait=["travel.arrived"], match={"destination": loc},
+                      critical=True)
+            st["wait_device"] = carrier
+            steps.append(st)
+            cur = loc
+        for code, mode in group:
+            steps.append(board_step(carrier, code, mode))
+    return steps, cur
+
+
+def assemble_steps(fleet: dict, devices: list[dict], radii: dict[str, float] | None = None,
+                   limit: float | None = None) -> tuple[list[dict], list[str]]:
+    """Get every passenger aboard a fleet carrier — stowed in a hold when it can be, else attached. Returns (steps, problems).
+    A passenger close to its carrier flies over and boards; one far from it (more than `limit` AU of cruising, e.g. out
+    at the Oort cloud while the carrier is inside the system) waits, and the carrier fetches it after the others are aboard."""
     r = roster(fleet, devices)
     carriers = sorted(r["carriers"], key=lambda c: (-(hold(c) + capacity(c)), c["device_code"]))
     if not carriers:
@@ -297,6 +380,7 @@ def assemble_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], list[s
     steps, problems, moves, board = [], [], [], []
     arriving: list[tuple[str, dict]] = []   # passengers already flying to their carrier
     landing: list[tuple[str, dict]] = []    # passengers flying somewhere else: they land, then board
+    fetch: dict[str, dict[str, list[tuple[str, str]]]] = {}   # carrier -> pick-up spot -> [(device, mode)]
     # devices that can't stow first, so they get the attach points before stowable ones overflow onto them
     for d in sorted(r["passengers"], key=lambda d: (stowable(d), d["device_code"])):
         code = d["device_code"]
@@ -318,8 +402,14 @@ def assemble_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], list[s
             problems.append(f"{code} ({d.get('device_type')}) is in {here or 'transit'} with no "
                             + ("hold or attach" if stowable(d) else "attach") + " room on a fleet carrier there")
             continue
+        spot = (trip or {}).get("destination") or d.get("location")
         if trip and trip["destination"] == loc[c["device_code"]]:
             arriving.append((code, trip))   # already on its way to the carrier: just wait for it
+        elif spot and far_apart(spot, loc[c["device_code"]], radii, limit):
+            if trip:
+                landing.append((code, trip))
+            fetch.setdefault(c["device_code"], {}).setdefault(spot, []).append((code, mode))
+            continue                        # the carrier comes for it
         elif d.get("location") != loc[c["device_code"]] or trip:
             if "travel" not in (d.get("available_commands") or ["travel"]):
                 problems.append(f"{code} can't travel to {loc[c['device_code']]} to board")
@@ -345,6 +435,9 @@ def assemble_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], list[s
         steps.append(w)
     for carrier, code, mode in board:
         steps.append(board_step(carrier, code, mode))
+    for carrier in sorted(fetch):   # then each carrier fetches the far ones
+        tour, _ = pickup_tour(carrier, loc[carrier], fetch[carrier], radii)
+        steps += tour
     return steps, problems
 
 
@@ -424,7 +517,8 @@ def gather_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str]) -
             "problems": problems}
 
 
-def gather_steps(fleet: dict, plan: dict, stars: dict) -> list[dict]:
+def gather_steps(fleet: dict, plan: dict, stars: dict, radii: dict[str, float] | None = None,
+                 limit: float | None = None) -> list[dict]:
     tag = fleet_tag(fleet["id"])
     steps = []
     for d in plan["recruit"]:  # spares join the fleet: fleet tag in, spare/home/to out
@@ -443,7 +537,9 @@ def gather_steps(fleet: dict, plan: dict, stars: dict) -> list[dict]:
             steps.append(st)
             here_loc = dest
         first = len(steps)
-        movers = [d for d in ds if d.get("location") != dest]
+        far = [d for d in ds if far_apart(d.get("location"), dest, radii, limit)]   # the carrier fetches these
+        near = [d for d in ds if d not in far]
+        movers = [d for d in near if d.get("location") != dest]
         for d in movers:
             steps.append(step(f"{d['device_code']} → {dest} (board {carrier})", f"/devices/{d['device_code']}",
                               {"command": "travel", "destination": dest}, critical=True))
@@ -451,12 +547,19 @@ def gather_steps(fleet: dict, plan: dict, stars: dict) -> list[dict]:
             w = _wait_arrive(d["device_code"], dest)
             w["seq0_from"] = first + i
             steps.append(w)
-        for d in ds:
+        for d in near:
             steps.append(board_step(carrier, d["device_code"], d.get("_board") or "attach"))
+        if far:
+            stops: dict[str, list[tuple[str, str]]] = {}
+            for d in far:
+                stops.setdefault(d["location"], []).append((d["device_code"], d.get("_board") or "attach"))
+            tour, here_loc = pickup_tour(carrier, dest, stops, radii)
+            steps += tour
     return steps
 
 
-def fill_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str]) -> tuple[list[dict], list[dict], list[str]]:
+def fill_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str], radii: dict[str, float] | None = None,
+              limit: float | None = None) -> tuple[list[dict], list[dict], list[str]]:
     """Between missions: fill the fleet's gaps from spares. (steps, recruits, notes)
     With a carrier, it's the mission's gather tour (nearest spares first), then the carrier flies back to where it
     started. Without one, only spares that can fly themselves, or are already where the fleet is, can join."""
@@ -464,7 +567,7 @@ def fill_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str]) -> 
     plan = gather_plan(fleet, devices, stars, busy)
     if plan["carrier"]:
         recruits = plan["recruit"]
-        steps = gather_steps(fleet, plan, stars) if recruits else []
+        steps = gather_steps(fleet, plan, stars, radii, limit) if recruits else []
         if recruits and plan["tour"] and star_of(plan["tour"][-1][0]) != star_of(plan["carrier_loc"]):
             back = plan["carrier_loc"]
             st = step(f"{plan['carrier']} → {back} (back with the recruits)", f"/devices/{plan['carrier']}",
@@ -608,7 +711,8 @@ def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None
     return steps, []
 
 
-def recall_steps(fleet: dict, devices: list[dict], inventory: dict[str, dict], haul_from: str | None) -> list[dict]:
+def recall_steps(fleet: dict, devices: list[dict], inventory: dict[str, dict], haul_from: str | None,
+                 radii: dict[str, float] | None = None, limit: float | None = None) -> list[dict]:
     """Stop the controllers, (haul) fill freighters, and bring every passenger back to a carrier."""
     r = roster(fleet, devices)
     ms = r["members"]
@@ -634,7 +738,7 @@ def recall_steps(fleet: dict, devices: list[dict], inventory: dict[str, dict], h
                         steps[-1]["wait_device"] = d["device_code"]
                     steps.append(step(f"{d['device_code']}: load {sum(take.values())}", f"/devices/{d['device_code']}",
                                       {"command": "collect_resources", "resources": take}))
-    board, _ = assemble_steps(fleet, devices)
+    board, _ = assemble_steps(fleet, devices, radii, limit)
     return steps + board
 
 

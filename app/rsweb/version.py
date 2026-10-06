@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.18.1"
+VERSION = "1.18.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.18.2", "2026-10-06", "Fetch, don't fly: a cruise-only device more than Max cruise AU (default 30, Fleets › Settings) "
+                             "from its carrier is picked up by the carrier, nearest first, instead of cruising across the system "
+                             "to board — fleet boarding, recall, gather/fill and loadout deliveries. Deliveries now board everyone "
+                             "at the pick-up point before the carrier leaves to fetch beacons or far devices."),
     ("1.18.1", "2026-10-06", "Fleet recall / boarding no longer orders a device that's already flying: one already on its way "
                              "to the carrier is just waited for (up to its ETA), one flying elsewhere lands first. Fixes the "
                              "Surveyors recall stalling on \"Device is already in motion\" after survey_system recalled its drones. "
