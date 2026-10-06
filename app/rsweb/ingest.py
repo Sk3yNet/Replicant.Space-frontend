@@ -523,7 +523,8 @@ class Worker:
     async def sync_catalogue(self) -> None:
         try:  # 1/min limit on the catalogue; we only ask every 30 minutes.
             stars = await self.api.get("/stars", background=True)
-            await self.db.kv_set("stars", stars or {})
+            from .census import merge   # the stars our censuses found beyond the catalogue's ~70 ly
+            await self.db.kv_set("stars", merge(stars or {}, await self.db.kv_get("census_stars", {}) or {}))
         except ApiError as e:
             log.info("star catalogue failed: %s", e)
         try:

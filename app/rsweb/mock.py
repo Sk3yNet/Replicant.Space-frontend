@@ -96,7 +96,7 @@ class World:
         self.devices = [
             {"device_code": HOST, "device_type": "heaven_vessel", "location": "SOL-BELT-1", "status": "stationary",
              "features": ["surge", "cruise", "system_scan", "mine", "cradle", "print", "census"], "operational_capacity": 98.0,
-             "available_commands": ["travel", "deactivate"], "stow_capacity": 10},
+             "available_commands": ["travel", "deactivate", "stellar_census"], "stow_capacity": 10},
         ]
         for i, (res, st) in enumerate([("structural", "mining (structural)"), ("conductive", "mining (conductive)"),
                                        ("silicates", "idle"), ("carbon", "mining (carbon)")]):
@@ -389,6 +389,18 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         cmd = body.get("command")
         if cmd not in d["available_commands"]:
             return ok({"error": f"Command '{cmd}' not available for this device"}, 400)
+        if cmd == "stellar_census":   # synchronous: the stars around the vessel (live shape, 2026-10-06)
+            here = (d.get("location") or "SOL").split("-")[0]
+            return ok({"page": 1, "per_page": 20, "total": 2, "total_pages": 1, "total_stars": 2,
+                       "replicant_position": {"x": 0.0, "y": 0.0, "z": 0.0},
+                       "stars": [{"designation": here, "color": "Yellow", "spectral_type": "G2", "distance_from_replicant": 0.0,
+                                  "entry_point": f"{here}-3-L4", "estimated_planets": 8, "estimated_travel_time": 0,
+                                  "explored": True, "has_hub": False, "has_life": True, "has_ward": False,
+                                  "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "region": "solzone"},
+                                 {"designation": "ZALDANAL", "color": "Red", "spectral_type": "M1", "distance_from_replicant": 5.83,
+                                  "entry_point": None, "estimated_planets": 3, "estimated_travel_time": 291,
+                                  "explored": False, "has_hub": False, "has_life": None, "has_ward": True,
+                                  "position": {"x": 5.0, "y": 3.0, "z": 0.0}, "region": "solzone"}]})
         if cmd == "start_mining":
             d["status"] = f"mining ({body.get('resource_type')})"
             world.emit("mining.started", d, location=d["location"], resource_type=body.get("resource_type"), site="SOL-BELT-1-SITE-1")

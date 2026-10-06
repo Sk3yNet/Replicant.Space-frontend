@@ -21,19 +21,24 @@
   <div class="card">
     <h2>Travel</h2>
     <form hx-post="/replicants/{{ code }}/travel" hx-target="#travel-result">
-      <div class="row"><input name="destination" placeholder="STAR, STAR-BELT-1, STAR-3-L4…" list="nearby-stars" required size="24">
-        <input type="hidden" name="dry_run" value="1"><button>Preview route</button></div>
+      {% with key="destination", systems=dest_systems, list_id="nearby-stars" %}{% include "partials/dest_picker.html" %}{% endwith %}
+      <div class="row" style="margin-top:6px"><input type="hidden" name="dry_run" value="1"><button>Preview route</button></div>
       <datalist id="nearby-stars">{% for s in nearby %}<option value="{{ s.designation }}">{{ s.distance_from_replicant }} ly</option>{% endfor %}</datalist>
     </form>
     <div id="travel-result"></div>
-    <h3>Nearest stars</h3>
+    <h3>Nearest stars <span class="muted small">page {{ near_page }}{% if near_pages > 1 %} of {{ near_pages }}{% endif %} ·
+      <a href="/stars">unexplored stars</a></span></h3>
     <table class="small">
       <tr><th>Star</th><th class="num">ly</th><th class="num">ETA</th><th></th></tr>
-      {% for s in nearby[:10] %}<tr><td><a href="/systems/{{ s.designation }}">{{ s.designation }}</a> <span class="muted">{{ s.color }}</span>{% if s.has_hub %} <span class="pill">hub</span>{% endif %}</td>
+      {% for s in nearby %}<tr><td><a href="/systems/{{ s.designation }}">{{ s.designation }}</a> <span class="muted">{{ s.color }}</span>{% if s.has_hub %} <span class="pill">hub</span>{% endif %}
+        {% if s.explored is false or (s.explored is not defined and s.designation not in explored) %} <span class="pill small" title="nobody has explored it yet">unexplored</span>{% endif %}</td>
         <td class="num">{{ s.distance_from_replicant }}</td><td class="num">{{ (s.estimated_travel_time or 0) | int }}s</td>
         <td><button class="small ghost" hx-post="/replicants/{{ code }}/travel" hx-vals='{"destination": "{{ s.designation }}", "dry_run": "1"}' hx-target="#travel-result">route</button></td></tr>
       {% endfor %}
     </table>
+    <div class="row small" style="margin-top:6px">
+      {% if near_page > 1 %}<a href="?near_page={{ near_page - 1 }}">← nearer</a>{% endif %}
+      {% if near_page < near_pages %}<a href="?near_page={{ near_page + 1 }}">further →</a>{% endif %}</div>
   </div>
 
   <div class="card">

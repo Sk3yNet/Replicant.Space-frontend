@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Stars{% endblock %}
+{% block content %}
+<div class="row between">
+  <h1>Stars <span class="muted small">{{ catalogue }} known · {{ cstars }} from censuses · {{ rows | length }} unexplored</span></h1>
+  <form class="inline" method="get" action="/stars">
+    <label class="small muted" style="text-transform:none">distances from</label>
+    <select name="ref" onchange="this.form.submit()">{% for s in refs %}<option {{ 'selected' if s == ref }}>{{ s }}</option>{% endfor %}</select>
+  </form>
+</div>
+<p class="muted small">The game's star catalogue only covers about 70 ly around Sol. Further out, a <b>stellar census</b> from a heaven or
+  cargo vessel lists the stars around it: positions, entry points and whether anyone has explored them. They're added to the
+  catalogue here, so the map, routes and travel know them. The <b>Stellar census on arrival</b> rule runs one in every new system.</p>
+{% with ids="census_on_arrival" %}{% include "partials/rules_slot.html" %}{% endwith %}
+
+<div class="grid g2">
+  <div class="card">
+    <h2>Unexplored stars <span class="muted small">nearest to {{ ref or '—' }} first</span></h2>
+    {% if rows %}
+    <table class="small">
+      <tr><th>Star</th><th class="num">ly</th><th class="num" title="estimated from the census travel times">ETA</th><th class="num">Planets</th><th>Notes</th><th></th></tr>
+      {% for s in rows %}<tr>
+        <td><a href="/systems/{{ s.designation }}"><b>{{ s.designation }}</b></a> <span class="muted">{{ s.color }} {{ s.spectral_type or '' }}</span></td>
+        <td class="num">{{ s.distance if s.distance is not none else '?' }}</td>
+        <td class="num">{% if s.eta is not none %}≈ {{ (s.eta / 60) | round(0) | int }} min{% endif %}</td>
+        <td class="num">{{ s.estimated_planets or '' }}</td>
+        <td class="small">{% if s.from_census %}<span class="pill small" title="beyond the catalogue: found by a census from {{ s.census_from }}">census</span>{% endif %}
+          {% if s.has_hub %}<span class="pill small">hub</span>{% endif %}{% if s.has_ward %}<span class="pill small" title="a system ward is active there">ward</span>{% endif %}
+          {% if s.has_life %}<span class="pill small">life</span>{% endif %}</td>
+        <td>{% for c, at in reps.items() %}<button class="small ghost" hx-post="/replicants/{{ c }}/travel"
+              hx-vals='{"destination": "{{ s.designation }}", "dry_run": "1"}' hx-target="#route-{{ loop.index0 }}-{{ s.designation }}">route</button>{% endfor %}</td>
+      </tr>
+      {% for c in reps %}<tr><td colspan="6" id="route-{{ loop.index0 }}-{{ s.designation }}" style="padding:0"></td></tr>{% endfor %}
+      {% endfor %}
+    </table>
+    {% else %}<p class="muted small">None known. Run a census from a vessel (right) to find the stars around it.</p>{% endif %}
+    <p class="muted small">Unexplored: the census says nobody has explored it, or it's in the catalogue and you haven't scanned it
+      or had a device there. ETAs use the census's own travel estimates{% if sec_per_ly %} (≈ {{ sec_per_ly | round(0) | int }} s per ly){% endif %};
+      press <b>route</b> for the game's preview.</p>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Run a census</h2>
+      {% for d in vessels %}{% set at = d.location | star_of %}
+        <div class="row small" style="margin-bottom:6px">
+          <button class="small" hx-post="/stars/census" hx-vals='{"device": "{{ d.device_code }}"}' hx-target="#census-result"
+                  {{ 'disabled' if d.status and not d.status.startswith(('idle', 'stowed', 'deployed', 'coordinating')) }}>Census from {{ at }}</button>
+          <span><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> {{ d.device_type | human }} · {{ d.status }}</span>
+          {% if done.get(at) %}<span class="muted">done {{ done[at].at | ago }}</span>{% endif %}
+        </div>
+      {% else %}<p class="muted small">No vessel with the census feature is in a system right now.</p>{% endfor %}
+      <div id="census-result"></div>
+    </div>
+    <div class="card">
+      <h2>Censuses <span class="muted small">{{ done | length }} systems</span></h2>
+      {% if done %}<table class="small"><tr><th>From</th><th class="num">Stars</th><th>By</th><th>When</th></tr>
+        {% for star, c in done | dictsort %}<tr><td><a href="/systems/{{ star }}">{{ star }}</a></td><td class="num">{{ c.count }}</td>
+          <td class="mono"><a href="/devices/{{ c.device }}">{{ c.device }}</a></td><td>{{ c.at | ago }}</td></tr>{% endfor %}</table>
+      {% else %}<p class="muted small">No census yet.</p>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

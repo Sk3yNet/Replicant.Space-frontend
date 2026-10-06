@@ -49,6 +49,17 @@ the nearest destination). Existing mobile fleets stay as they were: not statione
 `home:<star>` tag the fleet tag of the fleet stationed there (or drops the tag), and a device already on its way with an old
 `to:` tag joins the fleet there on arrival. Old diagnostics snapshots are read the same way.
 
+**Stars beyond the catalogue** (1.19.0): the game's star catalogue only covers about 70 ly around Sol, so a region far out
+(e.g. ~500 ly away) had none of its stars on the map or in routes. A **stellar census** (`stellar_census`, on heaven and cargo
+vessels) lists the stars around the vessel: positions, entry points, and whether anyone has explored them. The new **Stellar
+census on arrival** rule (on by default) runs one whenever a census-capable vessel arrives in a system that hasn't had one, and
+**Map › Stars** has a *Census from …* button per vessel. Census stars are stored and merged into the catalogue on every refresh,
+so the map, distances, routes and travel know them. Map › Stars lists the **unexplored stars** nearest a system you pick, with
+distance, an ETA estimated from the census's travel times, and a route preview. **Travel destinations** (the Replicant page and
+every device's travel command) are now a picker: choose a system (your systems, explored, unexplored; nearest first, census
+stars included), then a spot in it (planets, moons, belts, L-points, Kuiper/Oort; blank = the entry point), or type a code.
+The Replicant page's nearest-stars list pages through 20 at a time and marks unexplored stars.
+
 **Fetch, don't fly** (1.18.2): a cruise-only device never makes a long trip across a system just to board. When a device is
 more than *Max cruise* AU (Fleets › Settings, default 30) from its carrier, it waits and the surge-capable carrier fetches it,
 visiting the pick-up spots nearest first after the nearby devices have flown over and boarded. This applies to fleet

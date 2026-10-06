@@ -82,6 +82,9 @@
         <input name="{{ key }}__custom" placeholder="or type a code" size="16" title="overrides the list">
       </div>
       <div class="muted small">In {{ sys_targets.star }}{% if sys_targets.scanned %} · scan {{ sys_targets.scanned | ago }}{% else %} · no system scan yet{% endif %}</div>
+    {% elif f.kind == "location" and f.name == "destination" and sugg.systems %}
+      {% set used.loc = true %}
+      {% with key=key, systems=sugg.systems, list_id=uid ~ "-loc" %}{% include "partials/dest_picker.html" %}{% endwith %}
     {% else %}
       {% set list_id = {"location": "loc", "device_type": "dtype", "tags": "tags", "replicant": "rep", "channel": "chan"}.get(f.kind) %}
       {% if list_id == "loc" %}{% set used.loc = true %}{% elif list_id == "dtype" %}{% set used.dtype = true %}{% elif list_id == "tags" %}{% set used.tags = true %}{% elif list_id == "rep" %}{% set used.rep = true %}{% elif list_id == "chan" %}{% set used.chan = true %}{% endif %}

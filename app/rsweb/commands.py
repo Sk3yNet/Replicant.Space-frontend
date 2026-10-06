@@ -216,8 +216,12 @@ def build_suggestions(state: dict, blueprints: list[dict], systems: list[dict], 
     tags = sorted({t for d in devices for t in (d.get("tags") or [])})
     reps = [{"value": c, "label": r.get("name") or c} for c, r in (state.get("replicants") or {}).items()]
     channels = (state.get("account") or {}).get("bobnet_channels") or ["#general", "#trade"]
+    from .census import destination_systems
+    yours = {(d.get("location") or "").split("-")[0] for d in devices if d.get("location")} - {""}
+    scanned = {row.get("star") for row in systems}
+    star_opts = destination_systems(stars or {}, scanned | yours, yours, here)
     return {"locations": locations, "device_types": types, "tags": tags, "replicants": reps,
-            "channels": channels, "devices": devices, "here": here}
+            "channels": channels, "devices": devices, "here": here, "systems": star_opts}
 
 
 def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
@@ -297,7 +301,8 @@ def parse_fields(fields: list[Field], form) -> dict:
             elif f.required:
                 raise FormError(f"{f.title} is required")
             continue
-        raw = (form.get(key + "__custom") or form.get(key) or "").strip()
+        # a location picker sends the typed code (__custom), the exact spot, or just the system (__star)
+        raw = (form.get(key + "__custom") or form.get(key) or form.get(key + "__star") or "").strip()
         if not raw:
             if f.required:
                 raise FormError(f"{f.title} is required")

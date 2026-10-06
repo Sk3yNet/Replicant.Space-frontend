@@ -758,18 +758,21 @@ async def device_tags(request: Request, code: str, add: str = Form(""), remove: 
 
 # --- replicants -------------------------------------------------------------------------
 @router.get("/replicants/{code}", response_class=HTMLResponse)
-async def replicant_detail(request: Request, code: str, user: str = Depends(current_user)):
+async def replicant_detail(request: Request, code: str, near_page: int = 1, user: str = Depends(current_user)):
     st = await load_state(request)
     rep = st["replicants"].get(code, {})
     try:
         rep = {**rep, **(await request.app.state.api.get(f"/replicants/{code}") or {})}
     except ApiError as e:
         rep["_error"] = e.message
-    nearby = []
+    nearby, near = [], {}
+    near_page = max(1, near_page)
     try:
-        nearby = ((await request.app.state.api.get(f"/replicants/{code}/stars", per_page=15)) or {}).get("stars") or []
+        near = (await request.app.state.api.get(f"/replicants/{code}/stars", per_page=20, page=near_page)) or {}
+        nearby = near.get("stars") or []
     except ApiError:
         pass
+    near_pages = int(near.get("total_pages") or 0) or (near_page + 1 if len(nearby) >= 20 else near_page)
     blueprints = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
     devices = [d for d in st["devices"] if d.get("replicant_code") == code]
     slingshots = sorted((d for d in st["devices"] if "slingshot" in (d.get("device_type") or "")), key=lambda d: d.get("location") or "")
@@ -780,16 +783,26 @@ async def replicant_detail(request: Request, code: str, user: str = Depends(curr
                        if "matrix" in (d.get("device_type") or "") and "container" not in (d.get("device_type") or "")),
                       key=lambda d: (d.get("device_type") != "empty_replicant_matrix", d["_at"] or ""))
     matrices = [m for m in matrices if m["_at"] in sl_locs]   # linking needs the matrix at the slingshot
-    return await page(request, user, "replicant.html", "fleet", rep=rep, code=code, nearby=nearby,
+    explored = {r["star"] for r in await request.app.state.db.fetchall("SELECT star FROM systems")}
+    from .census import destination_systems
+    yours = {star_of(d.get("location")) for d in st["devices"] if d.get("location")}
+    dest_systems = destination_systems(await request.app.state.db.kv_get("stars", {}) or {}, explored | yours, yours,
+                                       rep.get("location") or rep.get("current_location"))
+    return await page(request, user, "replicant.html", "fleet", rep=rep, code=code, nearby=nearby, near_page=near_page,
+                      dest_systems=dest_systems,
+                      near_pages=near_pages, explored=explored,
                       blueprints=blueprints, devices=devices, slingshots=slingshots, matrices=matrices,
                       SLINGSHOT_MIN=SLINGSHOT_MIN_CAPACITY, timers=[t for t in await active_timers(request)
                                                                       if code in (t.get("device_code"), t.get("replicant_code"))])
 
 
 @router.post("/replicants/{code}/travel", response_class=HTMLResponse)
-async def replicant_travel(request: Request, code: str, destination: str = Form(...), dry_run: str = Form(""),
+async def replicant_travel(request: Request, code: str, destination: str = Form(""), dry_run: str = Form(""),
                            user: str = Depends(current_user)):
-    destination = destination.strip().upper()
+    form0 = await request.form()   # the destination picker: typed code, else the spot, else the system
+    destination = (form0.get("destination__custom") or destination or form0.get("destination__star") or "").strip().upper()
+    if not destination:
+        return HTMLResponse('<div class="result err">Pick a system (and a spot in it), or type a destination.</div>')
     if dry_run:
         try:
             resp = await request.app.state.api.post(f"/replicants/{code}/travel", {"destination": destination, "dry_run": True})
@@ -916,6 +929,45 @@ async def replicant_message(request: Request, code: str, channel: str = Form("#g
 
 
 # --- systems ----------------------------------------------------------------------------
+# --- stars: census and unexplored stars -------------------------------------------------------
+@router.get("/stars", response_class=HTMLResponse)
+async def stars_page(request: Request, ref: str = "", user: str = Depends(current_user)):
+    from . import census
+    db = request.app.state.db
+    st = await load_state(request)
+    cat = await db.kv_get("stars", {}) or {}
+    cstars = await db.kv_get("census_stars", {}) or {}
+    pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict)}
+    here = {star_of(d.get("location")) for d in st["devices"] if d.get("location")}
+    explored = {r["star"] for r in await db.fetchall("SELECT star FROM systems")} | here
+    reps = {c: star_of(r.get("location") or r.get("current_location")) for c, r in st["replicants"].items()}
+    ref = (ref or next((s for s in reps.values() if s in pos), "") or next(iter(sorted(here & set(pos))), "")).upper()
+    rows = census.unexplored(cat, explored, pos.get(ref), cstars, limit=50)
+    done = await db.kv_get("census", {}) or {}
+    vessels = sorted((d for d in st["devices"] if census.can_census(d) and d.get("location")),
+                     key=lambda d: (star_of(d.get("location")) in done, d["device_code"]))
+    return await page(request, user, "stars.html", "stars", rows=rows, ref=ref, refs=sorted(set(reps.values()) | here),
+                      done=done, vessels=vessels, cstars=len(cstars), catalogue=len(cat.get("stars") or []),
+                      sec_per_ly=census.seconds_per_ly(cstars), reps=reps)
+
+
+@router.post("/stars/census", response_class=HTMLResponse)
+async def stars_census(request: Request, device: str = Form(...), user: str = Depends(current_user)):
+    st = await load_state(request)
+    d = next((x for x in st["devices"] if x.get("device_code") == device), None)
+    if not d or not d.get("location"):
+        return HTMLResponse('<div class="result err">That vessel isn\'t in a system right now.</div>')
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        found, err = await eng.run_census(device, star_of(d["location"]), manual=True)
+    if err:
+        return HTMLResponse(f'<div class="result err">Census failed: {html.escape(err)}</div>')
+    new = [s["designation"] for s in found if s.get("explored") is False]
+    return HTMLResponse(f'<div class="result ok">{len(found)} stars around {html.escape(star_of(d["location"]))}'
+                        + (f'; unexplored: {html.escape(", ".join(new))}' if new else "; all explored") + "</div>",
+                        headers={"HX-Refresh": "true"})
+
+
 @router.get("/systems", response_class=HTMLResponse)
 async def systems(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
@@ -1186,8 +1238,13 @@ async def route_estimate(request: Request, replicant: str, star: str, user: str 
 async def map_refresh(request: Request, user: str = Depends(current_user)):
     try:
         stars = await request.app.state.api.get("/stars")
-        await request.app.state.db.kv_set("stars", stars or {})
-        return HTMLResponse(f"Catalogue refreshed ({len((stars or {}).get('stars') or [])} stars). Reload the map.")
+        from .census import merge
+        n = len((stars or {}).get("stars") or [])
+        stars = merge(stars or {}, await request.app.state.db.kv_get("census_stars", {}) or {})
+        await request.app.state.db.kv_set("stars", stars)
+        extra = len(stars["stars"]) - n
+        return HTMLResponse(f"Catalogue refreshed ({n} stars" + (f", plus {extra} from censuses" if extra else "")
+                            + "). Reload the map.")
     except ApiError as e:
         return HTMLResponse(f"Refresh failed: {e.message} (the catalogue allows 1 request/minute)")
 
@@ -1734,7 +1791,7 @@ async def live(request: Request, user: str = Depends(current_user)):
 
 # Where each rule's settings live: the page it works on (it loads them from /automations/rules-panel).
 RULE_HOME = {
-    "scan_on_arrival": ("Map › Systems", "/systems"), "auto_survey": ("Map › Systems", "/systems"),
+    "census_on_arrival": ("Map › Stars", "/stars"), "scan_on_arrival": ("Map › Systems", "/systems"), "auto_survey": ("Map › Systems", "/systems"),
     "deploy_beacon": ("Map › Systems", "/systems"),
     "restart_idle_miners": ("Map › Systems", "/systems"), "reopen_sites": ("Map › Systems", "/systems"),
     "salvage_when_depleted": ("Map › Systems", "/systems"), "belt_viability": ("Map › Systems", "/systems"),

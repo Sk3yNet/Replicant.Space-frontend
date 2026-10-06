@@ -3530,3 +3530,87 @@ def test_far_passengers_are_fetched_near_ones_fly_over():
     steps = [s["desc"] for s in lo.delivery_steps(dl, by, {}, False, radii=radii)]
     assert "N1 → OTH-3 (to board HV)" in steps and not any(x.startswith("F2 →") for x in steps)
     assert steps.index("stow N1 in HV") < steps.index("HV → OTH-2 (pick up BC)") < steps.index("HV → OTH-OORT (pick up F2)")
+
+
+# --- stellar census (1.19.0) -------------------------------------------------------------------------------------
+CENSUS = {"page": 1, "per_page": 20, "total_pages": 1, "replicant_position": {"x": -458.9, "y": -223.75, "z": 3.3},
+          "stars": [{"designation": "OTHILETH", "distance_from_replicant": 0.0, "entry_point": "OTHILETH-1-L4", "explored": True,
+                     "estimated_travel_time": 0, "position": {"x": -458.9, "y": -223.75, "z": 3.3}, "has_ward": True},
+                    {"designation": "ZALDANAL", "distance_from_replicant": 5.83, "entry_point": None, "explored": False,
+                     "estimated_travel_time": 291, "estimated_planets": 3, "position": {"x": -463.461, "y": -220.8789, "z": 1.1055}},
+                    {"designation": "LORQELYR", "distance_from_replicant": 14.55, "entry_point": None, "explored": False,
+                     "estimated_travel_time": 727, "position": {"x": -466.2084, "y": -212.8483, "z": 9.5955}}]}
+
+
+def test_census_merges_into_the_catalogue_and_lists_unexplored():
+    from rsweb import census
+    cat = {"stars": [{"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}},
+                     {"designation": "OTHILETH", "position": {"x": -458.9, "y": -223.75, "z": 3.3}}]}
+    known = {s["designation"]: s for s in CENSUS["stars"]}
+    merged = census.merge(cat, known)
+    by = {s["designation"]: s for s in merged["stars"]}
+    assert by["ZALDANAL"]["from_census"] and "distance_from_replicant" not in by["ZALDANAL"]   # beyond the catalogue: added
+    assert by["OTHILETH"]["explored"] is True and by["OTHILETH"]["entry_point"] == "OTHILETH-1-L4"
+    assert not by["OTHILETH"].get("from_census") and len(merged["stars"]) == 4
+    assert census.seconds_per_ly(known) == pytest.approx(727 / 14.55)
+    rows = census.unexplored(merged, {"OTHILETH"}, by["OTHILETH"]["position"], known)
+    assert [r["designation"] for r in rows] == ["ZALDANAL", "LORQELYR", "SOL"]     # nearest first; SOL never visited
+    assert rows[0]["distance"] == pytest.approx(5.83, abs=0.01) and 280 < rows[0]["eta"] < 300
+    opts = census.destination_systems(merged, {"OTHILETH"}, {"OTHILETH"}, "OTHILETH-1-L4")
+    assert [(o["value"], o["group"]) for o in opts] == [("OTHILETH", "Your systems"), ("ZALDANAL", "Unexplored"),
+                                                        ("LORQELYR", "Unexplored"), ("SOL", "Unexplored")]
+    assert "census" in opts[1]["label"]
+
+
+def test_census_on_arrival_runs_once_per_system(client):
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.worker.sync_devices)
+    arrival = {"id": "7777777777777-0", "event": "travel.arrived", "category": "travel", "device_code": "11ADA230",
+               "device_type": "heaven_vessel", "location": "SOL-BELT-1", "star": "SOL",
+               "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"},
+               "created_at": iso(datetime.now(timezone.utc))}
+    count = lambda: client.portal.call(client.app.state.db.fetchone,  # noqa: E731
+                                       "SELECT COUNT(*) n FROM actions WHERE body LIKE '%stellar_census%'")["n"]
+    client.portal.call(client.app.state.worker.handle_event, arrival)
+    assert count() == 1
+    assert client.portal.call(client.app.state.db.kv_get, "census")["SOL"]["device"] == "11ADA230"
+    cat = client.portal.call(client.app.state.db.kv_get, "stars")
+    assert any(s["designation"] == "ZALDANAL" and s.get("from_census") for s in cat["stars"])
+    arrival["id"] = "7777777777777-1"
+    client.portal.call(client.app.state.worker.handle_event, arrival)
+    assert count() == 1                                           # SOL has had its census
+    # the catalogue refresh keeps census stars
+    client.portal.call(client.app.state.worker.sync_catalogue)
+    assert any(s["designation"] == "ZALDANAL" for s in client.portal.call(client.app.state.db.kv_get, "stars")["stars"])
+    page = client.get("/stars", headers=H).text
+    assert "ZALDANAL" in page and "Census from SOL" in page and 'rules-panel?ids=census_on_arrival"' in page
+    assert ">Stars</a>" in page                                   # Map › Stars sub-tab
+    r = client.post("/stars/census", data={"device": "11ADA230"}, headers=HX)
+    assert "unexplored: ZALDANAL" in r.text and count() == 2
+
+
+def test_travel_destination_picker(client):
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.portal.call(client.app.state.db.kv_set, "census_stars",
+                       {"ZALDANAL": {"designation": "ZALDANAL", "explored": False, "position": {"x": 5, "y": 3, "z": 0}}})
+    client.portal.call(client.app.state.worker.sync_catalogue)
+    page = client.get("/replicants/77F75255", headers=H).text
+    assert 'name="destination__star"' in page and '<optgroup label="Unexplored">' in page and 'value="ZALDANAL"' in page
+    assert "page 1" in page
+    r = client.get("/print-queue/locations?dest_star=SOL", headers=H)   # the second list: spots in the system
+    assert "anywhere in SOL" in r.text
+    # the system alone, the spot, or the typed code
+    for form, dest in (({"destination__star": "ZALDANAL"}, "ZALDANAL"),
+                       ({"destination__star": "SOL", "destination": "SOL-BELT-1"}, "SOL-BELT-1"),
+                       ({"destination__star": "SOL", "destination__custom": "sol-3-l4"}, "SOL-3-L4")):
+        r = client.post("/replicants/77F75255/travel", data={**form, "dry_run": "1"}, headers=HX)
+        assert dest in r.text, r.text[:300]
+    assert "Pick a system" in client.post("/replicants/77F75255/travel", data={"dry_run": "1"}, headers=HX).text
+    from rsweb import commands
+    from starlette.datastructures import FormData
+    travel = commands.COMMANDS["travel"]
+    assert commands.parse_fields(travel, FormData({"f.destination__star": "ZALDANAL"})) == {"destination": "ZALDANAL"}
+    assert commands.parse_fields(travel, FormData({"f.destination__star": "SOL", "f.destination": "SOL-3"})) == {"destination": "SOL-3"}
+    # the device page's command box offers the same picker
+    form = client.get("/devices/11ADA230/command-form?command=travel", headers=H).text
+    assert 'name="f.destination__star"' in form and 'value="ZALDANAL"' in form

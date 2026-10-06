@@ -57,6 +57,11 @@ RULES: list[Rule] = [
     Rule("scan_on_arrival", "System scan on arrival",
          "When a replicant's vessel arrives in a system we have no scan for, run a system scan so the "
          "planets and belts are known (other rules and the Systems page use it)."),
+    Rule("census_on_arrival", "Stellar census on arrival",
+         "When a vessel that can run a stellar census (heaven and cargo vessels) arrives in a system that hasn't had one, "
+         "it runs `stellar_census`: the stars around it, explored or not, with positions and entry points. They're added "
+         "to the star catalogue, which only covers ~70 ly around Sol, so the map, routes and the Unexplored stars list know "
+         "them. One action per new system.", default_on=True),
     Rule("ami_schedules", "Run AMI schedules",
          "Master switch for the AMI schedules below: every N minutes each schedule checks its controller(s); "
          "if one is idle (or its directive finished) it adopts idle drones of the right kind at its location, "
@@ -1221,6 +1226,8 @@ class AutomationEngine(OpsRules):
             return
         if "scan_on_arrival" in enabled:
             await self.rule_scan_on_arrival(vessel, star)
+        if "census_on_arrival" in enabled:
+            await self.rule_census_on_arrival(vessel, star)
         stowed = None
         if "deploy_beacon" in enabled:
             stowed = await self.stowed_in(vessel)
@@ -1245,6 +1252,42 @@ class AutomationEngine(OpsRules):
             await self.log("scan_on_arrival", f"scanned {star}: {len(resp.get('planets') or [])} planets")
         else:
             await self.log("scan_on_arrival", f"scan of {star} failed: {err}", "alert")
+
+    async def rule_census_on_arrival(self, vessel: str, star: str) -> None:
+        from .census import can_census
+        if star in (await self.db.kv_get("census", {}) or {}):
+            return
+        d = next((x for x in await self.devices() if x.get("device_code") == vessel), None)
+        if not d or not can_census(d):
+            return
+        await self.run_census(vessel, star)
+
+    async def run_census(self, device: str, star: str, manual: bool = False) -> tuple[list[dict], str | None]:
+        """`stellar_census` from `device` (in `star`): the stars around it are stored and merged into the catalogue.
+        Follows extra pages (at most 5). Returns (stars, error)."""
+        from . import census
+        if (await self.settings())["dry_run"] and not manual:
+            await self.log("census_on_arrival", f"[dry run] would run a stellar census in {star} with {device}")
+            return [], None
+        pages, err = [], None
+        for n in range(1, 6):
+            body = {"command": "stellar_census", **({"page": n} if n > 1 else {})}
+            ok, resp, err = await self.send("POST", f"/devices/{device}", body,
+                                            f"{'' if manual else 'auto: '}stellar census in {star}" + (f" (page {n})" if n > 1 else ""))
+            if not ok or not isinstance(resp, dict):
+                break
+            pages.append(resp)
+            err = None
+            if n >= int(resp.get("total_pages") or 1):
+                break
+        if not pages:
+            await self.log("census_on_arrival", f"stellar census in {star} with {device} failed: {err}", "alert")
+            return [], err
+        found = await census.record(self.db, star, device, pages)
+        new = [s["designation"] for s in found if s.get("explored") is False]
+        await self.log("census_on_arrival", f"stellar census in {star}: {len(found)} stars"
+                       + (f", unexplored: {', '.join(new)}" if new else ", all explored"), notify=bool(new))
+        return found, err
 
     async def beacon_in_system(self, star: str, count_others: bool) -> str | None:
         """Why we should NOT deploy a beacon in `star` (None = go ahead)."""

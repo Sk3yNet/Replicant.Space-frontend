@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.18.2"
+VERSION = "1.19.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.19.0", "2026-10-06", "Stellar census: new rule Stellar census on arrival (on) and Map › Stars with a census button per vessel; "
+                             "census stars (beyond the catalogue's ~70 ly) are merged into the catalogue so the map, routes and "
+                             "travel know them. Map › Stars lists unexplored stars nearest a chosen system. Travel destinations "
+                             "are a system-then-location picker (census stars included). Nearest stars on the Replicant page page "
+                             "through 20 at a time."),
     ("1.18.2", "2026-10-06", "Fetch, don't fly: a cruise-only device more than Max cruise AU (default 30, Fleets › Settings) "
                              "from its carrier is picked up by the carrier, nearest first, instead of cruising across the system "
                              "to board — fleet boarding, recall, gather/fill and loadout deliveries. Deliveries now board everyone "
