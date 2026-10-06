@@ -3886,6 +3886,8 @@ def test_new_home_brings_the_whole_working_group():
         D("SD1", "survey_drone", "ITH-BELT-1", "searching", controller_device_code="SC"),
         D("BUSY", "mining_drone", "ITH-BELT-1", "mining (carbon)"),           # can't cruise while mining: next pass
         D("CV", "cargo_vessel", "ITH-2-L4", features=["surge", "cruise", "stow"], stow_capacity=50, tags=[]),
+        # a bigger carrier right there, but its fleet is on a mission: not the planner's to use
+        D("PV", "cargo_vessel", "ITH-2-L4", features=["surge", "cruise", "stow"], stow_capacity=99, tags=["fleet:p"]),
         # the new home's own ferry: its freighter out delivering is not "left behind"
         D("FC2", "ami_transport_controller", "KEL-4-L4", "coordinating", tags=["ferry", "fleet:m1"],
           ami_directive={"name": "ferry", "config": {"collect": "KEL-BELT-1", "deliver": "FAL-BELT-1"}}),
@@ -3893,7 +3895,8 @@ def test_new_home_brings_the_whole_working_group():
     ]
     stars = {"ITH": {"position": {"x": 0, "y": 0, "z": 0}}, "KEL": {"position": {"x": 1, "y": 0, "z": 0}, "entry_point": "KEL-4-L4"},
              "FAL": {"position": {"x": 2, "y": 0, "z": 0}}}
-    fleets = [{"id": "m1", "name": "Miner 1", "home": "KEL", "station": True, "wants": {}}]
+    fleets = [{"id": "m1", "name": "Miner 1", "home": "KEL", "station": True, "wants": {}},
+              {"id": "p", "name": "Prospectors", "home": "FAL", "station": False, "wants": {}, "mission": {"status": "running"}}]
     p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
     assert sorted(p["returning"]) == ["FC", "MC", "MD1", "MD2", "SC", "SD1"]
     dl = p["deliveries"][0]

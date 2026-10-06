@@ -661,7 +661,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     carriers = [d for d in devices if d["device_code"] not in busy and can_surge(d) and _carrier_cap(d, bps) > 0
                 and not (ignore & set(d.get("tags") or [])) and (s["use_replicant_vessels"] or d["device_code"] not in replicant_hosts)
                 and not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed"))
-                and not d.get("controller_device_code")]   # run by a controller (e.g. a ferry's taxi plates) = busy
+                and not d.get("controller_device_code")    # run by a controller (e.g. a ferry's taxi plates) = busy
+                and (not fleet_tag_of(d) or fleet_tag_of(d) in by_tag)]   # a fleet on a mission keeps its carriers
     moving = set(moves) | {c for c, _ in self_moves}
     carriers = [c for c in carriers if c["device_code"] not in moving and not bound_for(c, known_stars)]
     used: set[str] = set()
