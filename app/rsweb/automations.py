@@ -744,7 +744,7 @@ class AutomationEngine(OpsRules):
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
-            for stage in ("run_fleets", "fill_fleets", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("run_fleets", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass"):
                 self.stage = stage
@@ -1491,7 +1491,9 @@ class AutomationEngine(OpsRules):
     async def save_fleets(self, items: list[dict]) -> None:
         from .ami_schedule import set_stationed
         from .fleets import fleet_tag, stationed
-        keep = [{k: v for k, v in f.items() if k not in ("roster", "points", "job", "zero")} for f in items]
+        derived = ("roster", "points", "job", "zero", "report", "route", "sends_to", "takes_from", "target_options",
+                   "owner_move", "owner_hosts", "owners")   # page-only fields, never stored
+        keep = [{k: v for k, v in f.items() if k not in derived} for f in items]
         await self.db.kv_set("fleets", keep)
         set_stationed({fleet_tag(f["id"]): f["home"] for f in items if stationed(f)})
 
@@ -1645,6 +1647,38 @@ class AutomationEngine(OpsRules):
             who = ", ".join(f"{d['device_code']} ({d.get('device_type')})" for d in recruits)
             out.append(f"{f['name']}: takes {who}"
                        + ("" if job else " (dry run)"))
+        return out
+
+    async def fleet_owners(self, force: bool = False, only: str | None = None) -> list[str]:
+        """Fleets with an owner (and 'keep' on, or `force`): members another replicant owns are handed to the owner
+        (change_owner), one job per fleet. A transfer just sent isn't repeated for 15 minutes."""
+        from . import fleets as fl
+        if not force:
+            last = _ts(await self.db.kv_get("fleet_owners_at", None))
+            if last and (_now() - last).total_seconds() < 300:
+                return []
+            await self.db.kv_set("fleet_owners_at", now_iso())
+        sent = await self.db.kv_get("owner_sent", {}) or {}
+        now = _now()
+        sent = {c: v for c, v in sent.items() if _ts(v.get("at")) and (now - _ts(v["at"])).total_seconds() < 900}
+        devices = await self.devices()
+        busy = self.busy_devices(await self.jobs())
+        out = []
+        for f in await self.fleets():
+            if (only and f["id"] != only) or not f.get("owner") or not (f.get("keep_owner") or force):
+                continue
+            skip = busy | ({c for c, v in sent.items() if v.get("owner") == f["owner"]} if not force else set())
+            steps = fl.owner_steps(f, devices, skip)
+            if not steps:
+                continue
+            codes = [st["path"].split("/")[-1] for st in steps]
+            job = await self.create_job("fleets", f"{f['name']}: {len(codes)} device(s) to owner {f['owner']}", None, steps,
+                                        {"devices": codes, "fleet": f["id"]}, force=force)
+            if job:
+                for c in codes:
+                    sent[c] = {"owner": f["owner"], "at": now_iso()}
+            out.append(f"{f['name']}: {', '.join(codes)} → owner {f['owner']}" + ("" if job else " (dry run)"))
+        await self.db.kv_set("owner_sent", sent)
         return out
 
     async def run_fleets(self) -> None:

@@ -49,6 +49,11 @@ the nearest destination). Existing mobile fleets stay as they were: not statione
 `home:<star>` tag the fleet tag of the fleet stationed there (or drops the tag), and a device already on its way with an old
 `to:` tag joins the fleet there on arrival. Old diagnostics snapshots are read the same way.
 
+**Fleet owner** (1.23.0): a replicant can only command devices it owns, so each fleet card has an **Owner** picker. *Set owner
+now* hands every member another replicant owns to the chosen one (`change_owner`, one action per device, as one job); with
+**keep** on, the app re-checks every 5 minutes and hands over new members too (recruited spares, prints). A device that hosts
+a replicant (a vessel or matrix container) is never handed over; the card lists it. The card shows who owns the members now.
+
 **Drones on the maps** (1.22.0): on a system map, each location with drones gets a badge per kind — **M** mining, **S**
 survey, **T** transport (drones and haulers), **R** maintenance — with the count, coloured by what most of them are doing (green
 working, grey idle, purple moving, amber anything else). Hover a badge for every drone and its status; the *drones* checkbox

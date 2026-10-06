@@ -3776,3 +3776,36 @@ def test_snapshot_2026_10_06_fixes(client):
     d = {"device_code": "CV", "tags": ["at:fleet:prospectors", "fleet:prospectors", "to:fleet:prospectors"]}
     assert lo.bound_for(d, {"FAL"}) is None and lo.pinned_at(d) is None
     assert lo.is_place("FALQUORYX-BELT-1") and not lo.is_place("fleet:prospectors")
+
+
+def test_fleet_owner_hands_members_to_one_replicant(client):
+    from rsweb import fleets as fl
+    eng = client.app.state.worker.automations
+    fleet = {"id": "miners", "name": "Miners", "home": "SOL", "wants": {}, "owner": "AAAA0001"}
+    D = lambda code, owner, **kw: {"device_code": code, "device_type": "mining_drone", "location": "SOL-BELT-1",  # noqa: E731
+                                   "status": "idle", "replicant_code": owner, "tags": ["fleet:miners"], **kw}
+    devices = [D("M1", "AAAA0001"), D("M2", "BBBB0002"), D("M3", "BBBB0002"),
+               D("HV", "BBBB0002", device_type="cargo_vessel", hosting_replicant={"name": "Sk3y-6", "replicant_code": "BBBB0002"}),
+               {**D("X1", "BBBB0002"), "tags": []}]
+    own = fl.ownership(fleet, devices)
+    assert [d["device_code"] for d in own["move"]] == ["M2", "M3"] and [d["device_code"] for d in own["hosts"]] == ["HV"]
+    st = fl.owner_steps(fleet, devices)
+    assert [(s["path"], s["body"]) for s in st] == [("/devices/M2", {"command": "change_owner", "target": "AAAA0001"}),
+                                                    ("/devices/M3", {"command": "change_owner", "target": "AAAA0001"})]
+    assert fl.owner_steps({**fleet, "owner": ""}, devices) == []
+    # through the page: pick the owner, keep it, and the engine hands members over once (not again within 15 min)
+    client.post("/fleets", data={"name": "Miners", "home": "SOL"}, headers=HX)
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(client.app.state.db.kv_set, "replicants", {"AAAA0001": {"name": "Sk3y-1"}, "BBBB0002": {"name": "Sk3y-6"}})
+    page = client.get("/fleets", headers=H).text
+    assert "Owner" in page and "owned by" in page
+    client.post("/fleets/miners/owner", data={"owner": "AAAA0001", "keep_owner": "on"}, headers=HX)
+    f = client.portal.call(eng.fleets)[0]
+    assert f["owner"] == "AAAA0001" and f["keep_owner"] and "owner_move" not in client.portal.call(client.app.state.db.kv_get, "fleets")[0]
+    assert "Left alone (they host a replicant): HV (Sk3y-6)" in client.get("/fleets", headers=H).text
+    lines = client.portal.call(eng.fleet_owners)
+    assert lines and "M2, M3 → owner AAAA0001" in lines[0]
+    client.portal.call(client.app.state.db.kv_set, "fleet_owners_at", None)
+    assert client.portal.call(eng.fleet_owners) == []          # just sent: not repeated
+    r = client.post("/fleets/miners/owner", data={"owner": "NOPE"}, headers=HX)   # unknown replicant: cleared
+    assert not client.portal.call(eng.fleets)[0]["owner"]

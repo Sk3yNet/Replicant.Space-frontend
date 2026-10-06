@@ -744,6 +744,29 @@ def recall_steps(fleet: dict, devices: list[dict], inventory: dict[str, dict], h
     return steps + board
 
 
+def ownership(fleet: dict, devices: list[dict]) -> dict:
+    """Members not owned by the fleet's `owner` replicant: {"move": [devices], "hosts": [devices hosting a replicant,
+    left alone]}. A replicant can only command its own devices, so a fleet works best with one owner."""
+    owner = fleet.get("owner")
+    out: dict[str, list[dict]] = {"move": [], "hosts": []}
+    if not owner:
+        return out
+    for d in members(fleet, devices):
+        if not d.get("replicant_code") or d.get("replicant_code") == owner:
+            continue
+        out["hosts" if d.get("hosting_replicant") else "move"].append(d)
+    return out
+
+
+def owner_steps(fleet: dict, devices: list[dict], skip: set[str] | None = None) -> list[dict]:
+    """change_owner for every member that the fleet's owner doesn't own yet (not devices hosting a replicant)."""
+    owner = fleet.get("owner")
+    return [step(f"{d['device_code']} ({d.get('device_type')}): owner {d.get('replicant_code')} → {owner}",
+                 f"/devices/{d['device_code']}", {"command": "change_owner", "target": owner})
+            for d in ownership(fleet, devices)["move"] if d["device_code"] not in (skip or set())
+            and "change_owner" in (d.get("available_commands") or ["change_owner"])]
+
+
 def outside_controllers(fleet: dict, devices: list[dict]) -> list[dict]:
     """Controllers that run members of this fleet but aren't in it themselves (seen live 2026-10-06: the Surveyors'
     survey controller had lost its fleet tag, so the recall left it out and it would have been left behind)."""

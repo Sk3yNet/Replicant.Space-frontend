@@ -2431,12 +2431,17 @@ async def fleets_ctx(request: Request) -> dict:
         f["target_options"] = [o for o in destination_systems(cat, scanned | yours, yours, f.get("home"), limit=300)
                                if o["value"] not in homes]
     stars_all = sorted(set(stars_seen) | {f["home"] for f in items if f.get("home")})
+    reps = {c: (r.get("name") or c) for c, r in st["replicants"].items()}
+    for f in items:
+        own = fl.ownership(f, st["devices"])
+        f["owner_move"], f["owner_hosts"] = own["move"], own["hosts"]
+        f["owners"] = Counter(reps.get(d.get("replicant_code"), d.get("replicant_code") or "?") for d in fl.members(f, st["devices"]))
     for f in items:
         f["report"] = lctx["plan"]["report"].get(f["id"])
         f["route"] = next((r for r in lctx["plan"].get("routes") or [] if r.get("fleet_id") == f["id"]), None)
         f["sends_to"] = fl.materials_target(f, items)
         f["takes_from"] = [x for x in items if x.get("materials") == f["id"]]
-    return {**lctx, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
+    return {**lctx, "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
             "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
             "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
 
@@ -2537,6 +2542,27 @@ async def fleets_station(request: Request, fid: str, user: str = Depends(current
     m = (form.get("materials") or "").strip()
     f["materials"] = m if m == "self" or any(x["id"] == m and x["id"] != fid for x in items) else ""
     await eng.save_fleets(items)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/owner", response_class=HTMLResponse)
+async def fleets_owner(request: Request, fid: str, owner: str = Form(""), keep_owner: str = Form(""), now: str = Form(""),
+                       user: str = Depends(current_user)):
+    """The replicant that should own every device in the fleet; `keep_owner` re-checks it every few minutes; `now`
+    transfers the members it doesn't own yet straight away."""
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f:
+        return HTMLResponse("", status_code=404)
+    reps = (await load_state(request))["replicants"]
+    f["owner"] = owner if owner in reps else ""
+    f["keep_owner"] = keep_owner == "on" and bool(f["owner"])
+    await eng.save_fleets(items)
+    if now and f["owner"]:
+        async with eng.lock:
+            lines = await eng.fleet_owners(force=True, only=fid)
+        msg = "<br>".join(html.escape(x) for x in lines) or "Every member already belongs to that replicant."
+        return HTMLResponse(f'<div class="result ok">{msg}</div>', headers={"HX-Trigger": "fleet-owner"})
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
