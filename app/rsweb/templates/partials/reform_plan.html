@@ -1,0 +1,21 @@
+<div class="small">
+  <p><b>After:</b> {% for g, n in p.groups.items() %}<span class="pill small">{{ g }} · {{ n }}</span> {% endfor %}</p>
+  {% if p.missions %}<p class="muted">Fleets on a mission, left alone: {{ p.missions | join(', ') }}.</p>{% endif %}
+  {% if p.short %}<p class="lv-alert">Still short afterwards (the loadout pass / Fill from spares / printing take it from there):
+    {% for who, gap in p.short.items() %}<br>{{ who }}: {% for t, n in gap.items() %}{{ n }}× {{ t | human }}{{ ', ' if not loop.last }}{% endfor %}{% endfor %}</p>{% endif %}
+  <h3>Tag changes ({{ p.retag | length }})</h3>
+  {% if p.retag %}<table>
+    <tr><th>Device</th><th>System</th><th>Becomes</th><th>Removed</th></tr>
+    {% for r in p.retag %}<tr><td><a class="mono" href="/devices/{{ r.code }}">{{ r.code }}</a> {{ r.type | human }}</td><td>{{ r.star }}</td>
+      <td><b>{{ r.to }}</b></td><td class="muted">{{ r.remove | join(' ') }}</td></tr>{% endfor %}
+  </table>{% else %}<p class="muted">None — every tag already matches.</p>{% endif %}
+  <h3>Controller releases ({{ p.releases.values() | map('length') | sum }})</h3>
+  {% if p.releases %}<ul>{% for c, ds in p.releases.items() %}<li><span class="mono">{{ c }}</span> releases {{ ds | join(', ') }}</li>{% endfor %}</ul>
+  {% else %}<p class="muted">None — every drone is run by a controller in its own group.</p>{% endif %}
+  <details><summary class="muted">Left alone ({{ p.skipped | length }})</summary>
+    <ul>{% for s in p.skipped %}<li><span class="mono">{{ s.code }}</span> {{ s.type | human }} — {{ s.why }}</li>{% endfor %}</ul></details>
+  {% if p.retag or p.releases %}
+  <button type="button" style="margin-top:10px" hx-post="/fleets/reform/apply" hx-include="closest form" hx-target="#reform-plan"
+          hx-confirm="Apply: {{ p.retag | length }} tag change(s) and {{ p.releases.values() | map('length') | sum }} release(s)?">Apply</button>
+  {% endif %}
+</div>

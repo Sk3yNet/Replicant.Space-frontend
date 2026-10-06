@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.15.0"
+VERSION = "1.16.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.16.0", "2026-10-05", "Mobile fleets can follow a template (the loadout comes from it, so editing the template "
+                             "updates every fleet on it). New rule Fill mobile fleets from spares (and a Fill from spares "
+                             "button): an idle fleet takes the nearest idle spares of its missing types, its carrier picks them "
+                             "up and flies back. Fleets › Reset & reform: wipe the assignment tags (home/to/fleet/spare/gather) "
+                             "and rebuild fleet, home-fleet and spare assignments from where devices are, releasing drones run "
+                             "from outside their group; previewed before anything is sent."),
     ("1.15.0", "2026-10-05", "Navigation: 19 tabs regrouped into 6 (Dashboard, Devices, Map, Fleets, Economy, Activity) with "
                              "sub-tabs; URLs unchanged; Account, Diagnostics and Console under the user menu. Rule settings moved "
                              "onto the pages they work on (Rules panel); Automations keeps an on/off overview, jobs and the log; "

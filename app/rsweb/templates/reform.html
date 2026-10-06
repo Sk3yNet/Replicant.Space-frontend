@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Reset & reform{% endblock %}
+{% block content %}
+<h1>Reset &amp; reform</h1>
+<p class="muted">When the tags have got messy: wipe the assignment tags and rebuild every fleet and controller assignment from
+  where the devices actually are. Nothing is sent until you press <b>Apply</b>, and the preview lists every change first.</p>
+<div class="grid g2">
+  <div class="card small">
+    <h2>What it does</h2>
+    <ol>
+      <li><b>Mobile fleets</b> (not on a mission) keep their members up to their loadout, then take unassigned devices
+        (spare or untagged) in the system they're in. Extra members leave the fleet.</li>
+      <li>Each system's <b>home fleet</b> takes the devices in that system, up to its template — devices already tagged
+        <code>home:</code> there first. Types the template leaves blank stay home.</li>
+      <li>Everything else in a system with a home fleet becomes <code>spare</code>. Systems without one are left alone
+        (devices that were spare there stay spare).</li>
+      <li><b>Controllers</b>: a drone run by a controller outside its new group is released; the next loadout pass and the
+        fleets' own phases adopt it again.</li>
+    </ol>
+  </div>
+  <div class="card small">
+    <h2>What it doesn't touch</h2>
+    <p>Rewritten: <code>home:</code> <code>to:</code> <code>fleet:</code> <code>spare</code> <code>gather</code>.
+      Kept: <code>at:</code> pins, <code>civ</code>, <code>ferry</code>, <code>taxi</code>, ignore tags and your own tags.</p>
+    <p>Left alone: ignored devices, the ferry and its freighters/plates, fleets on a mission, devices in a running job,
+      anything moving or in transit (a delivery in flight keeps its <code>to:</code> tag), and the replicants' vessels.</p>
+    <p class="lv-alert">Turn the loadout rule off first if you don't want a pass to start moving spares straight after.</p>
+  </div>
+</div>
+<form class="card" hx-post="/fleets/reform/preview" hx-target="#reform-plan" style="margin-top:14px">
+  <label style="text-transform:none"><input type="checkbox" name="full"> <b>Full rebuild</b>: release <i>every</i> drone from its
+    controller, not just the misassigned ones (working drones stop until they're adopted again)</label>
+  <div class="row" style="margin-top:8px"><button>Preview</button></div>
+  <div id="reform-plan" style="margin-top:12px"></div>
+</form>
+{% endblock %}

@@ -3229,3 +3229,90 @@ def test_rules_live_on_their_pages_and_nav_is_grouped(client):
     lo = client.get("/loadouts", headers=H).text
     assert "<h1>Home fleets" in lo and ">Home fleets</a>" in lo and ">Mobile fleets</a>" in lo
     assert "<h1>Mobile fleets" in client.get("/fleets", headers=H).text
+
+
+def test_fleet_follows_a_template():
+    from rsweb import fleets as fl
+    cfg = {"phases": [{"id": "pros", "name": "Prospector", "wants": {"mining_drone": 6, "survey_drone": "", "mobile_fleet": 1,
+                                                                      "cargo_freighter": 0}}]}
+    f = fl.resolve_template({"id": "x", "wants": {"mining_drone": 2}, "template": "pros"}, cfg)
+    assert f["wants"] == {"mining_drone": 6, "mobile_fleet": 1}          # blank and 0 mean none for a fleet
+    cfg["phases"][0]["wants"]["mining_drone"] = 8                         # editing the template updates the fleet
+    assert fl.resolve_template(f, cfg)["wants"]["mining_drone"] == 8
+    gone = fl.resolve_template({"id": "y", "wants": {"mining_drone": 3}, "template": "deleted"}, cfg)
+    assert gone["wants"] == {"mining_drone": 3}                           # a deleted template leaves the last loadout
+
+
+def test_fleet_fill_takes_nearest_spares_and_comes_back():
+    from rsweb import fleets as fl
+    fleet, devices = _fleet_world()
+    devices += [{"device_code": "SPARE001", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "idle",
+                 "tags": ["spare"], "available_commands": ["travel"]},
+                {"device_code": "SPARE002", "device_type": "mining_drone", "location": "FAR-BELT-1", "status": "idle",
+                 "tags": ["spare"], "available_commands": ["travel"]},
+                {"device_code": "BUSY0001", "device_type": "mining_drone", "location": "AEM-5-L4", "status": "mining (carbon)",
+                 "tags": ["spare"], "available_commands": ["travel"]}]
+    stars = {"AEM": {"position": {"x": 0, "y": 0, "z": 0}, "entry_point": "AEM-5-L4"},
+             "FAL": {"position": {"x": 1, "y": 0, "z": 0}, "entry_point": "FAL-4-L4"},
+             "FAR": {"position": {"x": 9, "y": 0, "z": 0}, "entry_point": "FAR-4-L4"}}
+    steps, recruits, notes = fl.fill_plan(fleet, devices, stars, set())
+    assert [d["device_code"] for d in recruits] == ["SPARE001"]           # 1 short: the nearest idle spare
+    bodies = [(s["path"], s["body"]) for s in steps]
+    assert ("/devices/SPARE001", {"configuration": {"add_tags": ["fleet:prospector-1"], "remove_tags": ["spare"]}}) in bodies
+    travels = [b["destination"] for p, b in bodies if p == "/devices/MF000001" and b and b.get("command") == "travel"]
+    assert travels == ["FAL-4-L4", "AEM-5-L4"]                             # picks up (and the stranded LOST0001), comes back
+
+
+def test_reform_rebuilds_assignments_from_where_devices_are():
+    from rsweb import reform
+    D = lambda code, t, loc, tags=(), **kw: {"device_code": code, "device_type": t, "location": loc, "status": "idle",  # noqa: E731
+                                             "tags": list(tags), **kw}
+    devices = [
+        D("MF1", "mobile_fleet", "AAA-5-L4", ["fleet:f1"]),
+        D("M1", "mining_drone", "AAA-5-L4", ["fleet:f1", "home:aaa"]),       # member with a stray home tag
+        D("M2", "mining_drone", "AAA-5-L4", ["spare", "to:bbb"]),            # stale to: — in AAA, idle
+        D("M3", "mining_drone", "AAA-5-L4", ["home:bbb"], controller_device_code="CB"),  # wrong home, run from BBB
+        D("M4", "mining_drone", "AAA-5-L4", ["home:aaa", "keepme"], controller_device_code="CA"),
+        D("CA", "ami_mining_controller", "AAA-BELT-1", ["home:aaa"], features=["ami"]),
+        D("CB", "ami_mining_controller", "BBB-BELT-1", ["home:bbb"], features=["ami"]),
+        D("AF", "autofactory", "AAA-3-L4", []),
+        D("P1", "surge_plate", "AAA-5-L4", ["taxi", "home:aaa"]),            # ferry gear: untouched
+        D("K1", "mining_drone", "AAA-5-L4", ["keep", "spare"]),              # ignored
+        D("MV", "mining_drone", "AAA-5-L4", ["to:ccc"], status="moving"),     # in flight: untouched
+        D("X1", "survey_drone", "ZZZ-1", ["spare"]), D("X2", "survey_drone", "ZZZ-1", ["home:zzz"]),
+    ]
+    cfg = {"phases": [{"id": "p", "name": "P", "wants": {"mining_drone": 1, "ami_mining_controller": 1, "autofactory": None}}],
+           "systems": {"AAA": "p", "BBB": "p"}, "ignore_tags": ["keep"]}
+    fleets = [{"id": "f1", "name": "F1", "home": "AAA", "wants": {"mobile_fleet": 1, "mining_drone": 2}}]
+    p = reform.plan(cfg, devices, fleets, busy=set(), hosts=set())
+    to = {r["code"]: (r["to"], sorted(r["remove"])) for r in p["retag"]}
+    assert to["M1"] == ("fleet:f1", ["home:aaa"])
+    assert to["M2"] == ("fleet:f1", ["spare", "to:bbb"])                    # fills the fleet's gap
+    assert to["M3"] == ("spare", ["home:bbb"])                              # AAA wants 1 miner: M4, already home there
+    assert "M4" not in to                                                   # keeps home:aaa (and its own tag 'keepme')
+    assert to["AF"] == ("home:aaa", [])                                     # blank in the template: stays home
+    assert "CA" not in to and "MF1" not in to                               # already right
+    assert to["X2"] == ("(untagged)", ["home:zzz"])                        # no template in ZZZ: no home fleet to belong to
+    assert "X1" not in to                                                   # spare in an unmanaged system stays spare
+    assert {s["code"] for s in p["skipped"]} >= {"P1", "K1", "MV"}
+    assert p["releases"] == {"CB": ["M3"]}                                 # spare now, and run from another system
+    st = reform.steps(p)
+    assert st[0]["body"] == {"command": "release", "devices": ["M3"]} and st[0]["path"] == "/devices/CB"
+    assert reform.plan(cfg, devices, fleets, set(), set(), full=True)["releases"] == {"CA": ["M4"], "CB": ["M3"]}
+
+
+def test_reform_and_fill_pages(client):
+    page = client.get("/fleets/reform", headers=H).text
+    assert "<h1>Reset &amp; reform" in page and ">Reset &amp; reform</a>" in page
+    r = client.post("/fleets/reform/preview", data={}, headers=HX)
+    assert "Tag changes" in r.text and "Controller releases" in r.text
+    r = client.post("/fleets/reform/apply", data={}, headers=HX)
+    assert "Started job" in r.text or "Nothing to change" in r.text
+    client.post("/fleets", data={"name": "Scouts", "role": "explore", "home": "SOL"}, headers=HX)
+    client.portal.call(client.app.state.db.kv_set, "loadouts",
+                       {"phases": [{"id": "sc", "name": "Scout set", "order": 1, "wants": {"survey_drone": 2}}], "systems": {}})
+    client.post("/fleets/scouts/edit", data={"template": "sc"}, headers=HX)
+    page = client.get("/fleets", headers=H).text
+    assert '<option value="sc" selected>Scout set</option>' in page and "fieldset disabled" in page
+    assert "Fill from spares" in page and 'rules-panel?ids=fleet_fill"' in page
+    assert "Scouts" in client.post("/fleets/scouts/fill", headers=HX).text or "Nothing to fill" in client.post("/fleets/scouts/fill", headers=HX).text

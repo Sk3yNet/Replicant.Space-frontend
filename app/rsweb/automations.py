@@ -70,6 +70,12 @@ RULES: list[Rule] = [
          [Option("every_minutes", "int", "Run every (minutes)", 15),
           Option("adopt_arrivals", "bool", "Hand unmanaged drones to their system's controller", True),
           Option("activate_arrivals", "bool", "Set maintenance drones to patrol / activate inactive AMI controllers when they arrive home", True)]),
+    Rule("fleet_fill", "Fill mobile fleets from spares",
+         "Every N minutes, a mobile fleet that isn't on a mission and is short of its loadout (or its template's) takes "
+         "idle spare devices of the missing types, nearest first: they get the fleet's tag, the fleet's carrier tours the "
+         "systems they're in to pick them up and flies back, and spares that surge themselves fly to the fleet. Missions "
+         "still recruit spares in their gather phase whether this is on or not.",
+         [Option("every_minutes", "int", "Run every (minutes)", 30)]),
     Rule("consolidate", "Consolidate stockpiles at the autofactory",
          "Every N minutes, in each system with an autofactory: any other stockpile above the minimum is hauled to the "
          "autofactory's location by a free in-system transport controller (not the ferry, not a fleet's, with transport "
@@ -731,7 +737,7 @@ class AutomationEngine(OpsRules):
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
-            for stage in ("run_fleets", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("run_fleets", "fill_fleets", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass"):
                 self.stage = stage
@@ -1389,7 +1395,9 @@ class AutomationEngine(OpsRules):
 
     # --- mobile fleets ---------------------------------------------------------------------------------
     async def fleets(self) -> list[dict]:
-        return await self.db.kv_get("fleets", []) or []
+        from .fleets import resolve_template
+        cfg = await self.loadout_cfg()
+        return [resolve_template(f, cfg) for f in await self.db.kv_get("fleets", []) or []]
 
     async def save_fleets(self, items: list[dict]) -> None:
         await self.db.kv_set("fleets", items)
@@ -1468,6 +1476,45 @@ class AutomationEngine(OpsRules):
             return [step(f"trade {t.get('trade_code')} at {t.get('controller')}", f"/devices/{t.get('controller')}/trades/{t.get('trade_code')}",
                          None, critical=True)], []
         return [], []
+
+    async def fill_fleets(self, force: bool = False, only: str | None = None) -> list[str]:
+        """Rule fleet_fill: idle fleets take spares for the gaps in their loadout (see fleets.fill_plan)."""
+        cfg = await self.rule_cfg("fleet_fill")
+        if not cfg and not force:
+            return []
+        if not force:
+            last = _ts(await self.db.kv_get("fleet_fill_at", None))
+            if last and (_now() - last).total_seconds() < 60 * max(1, int((cfg or {}).get("every_minutes") or 30)):
+                return []
+            await self.db.kv_set("fleet_fill_at", now_iso())
+        from . import fleets as fl
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {x.get("designation"): x for x in (cat.get("stars") or []) if isinstance(x, dict)}
+        jobs = await self.jobs()
+        busy = self.busy_devices(jobs)
+        working = {(j.get("meta") or {}).get("fleet") for j in jobs if j["status"] in ("running", "waiting")}
+        devices = await self.devices()
+        out = []
+        for f in await self.fleets():
+            if (only and f["id"] != only) or (f.get("mission") or {}).get("status") == "running" or f["id"] in working:
+                continue
+            if not fl.short_list(f, devices):
+                continue
+            steps, recruits, notes = fl.fill_plan(f, devices, stars, busy)
+            for n in notes:
+                out.append(f"{f['name']}: {n}")
+            if not recruits:
+                out.append(f"{f['name']}: short {fl.summarize(fl.short_list(f, devices))}, no idle spares to take")
+                continue
+            codes = [d["device_code"] for d in recruits]
+            job = await self.create_job("fleet_fill", f"{f['name']}: takes {len(codes)} spare(s) ({', '.join(codes)})", None, steps,
+                                        {"devices": codes + [d["device_code"] for d in fl.roster(f, devices)["carriers"]],
+                                         "fleet": f["id"]}, force=force)
+            busy |= set(codes)
+            who = ", ".join(f"{d['device_code']} ({d.get('device_type')})" for d in recruits)
+            out.append(f"{f['name']}: takes {who}"
+                       + ("" if job else " (dry run)"))
+        return out
 
     async def run_fleets(self) -> None:
         from . import fleets as fl

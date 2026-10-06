@@ -1741,6 +1741,7 @@ RULE_HOME = {
     "visitor_alerts": ("Map › Traffic", "/traffic"), "civ_beacons": ("Map › Traffic", "/traffic"),
     "asteroid_defence": ("Map › Defence", "/defence"), "maintenance": ("Map › Upkeep", "/maintenance"),
     "ami_schedules": ("Devices › AMI", "/ami"), "loadouts": ("Fleets › Home fleets", "/loadouts"),
+    "fleet_fill": ("Fleets › Mobile fleets", "/fleets"),
     "consolidate": ("Economy › Blueprints", "/blueprints"), "contracts": ("Economy › Contracts", "/game-events"),
 }
 
@@ -2215,8 +2216,9 @@ async def fleets_ctx(request: Request) -> dict:
     traders = await request.app.state.db.kv_get("traders_cache", {}) or {}
     profiles = {t: fl.type_profile(t, bp_by, st["devices"]) for t in types}
     from .loadouts import home_fleet_systems
-    homes = sorted(home_fleet_systems(await eng.loadout_cfg()))
-    return {"profiles": profiles, "home_systems": homes, "fleets": items, "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
+    lcfg = await eng.loadout_cfg()
+    homes = sorted(home_fleet_systems(lcfg))
+    return {"profiles": profiles, "home_systems": homes, "templates": lcfg["phases"], "fleets": items, "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
             "stars": stars_seen, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
 
 
@@ -2256,7 +2258,13 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
         f["home"] = (form.get("home") or f["home"]).upper()
         f["role"] = form.get("role") if form.get("role") in fl.ROLES else f["role"]
         wants = None
-        if form.get("lines"):   # the loadout editor: parallel type / qty lists, blank or 0 lines ignored
+        if "template" in form:
+            f["template"] = form.get("template") or None
+            if f["template"]:
+                fl.resolve_template(f, await eng.loadout_cfg())
+        if f.get("template"):
+            pass   # the loadout comes from the template
+        elif form.get("lines"):   # the loadout editor: parallel type / qty lists, blank or 0 lines ignored
             wants = {}
             for t, q in zip(form.getlist("type"), form.getlist("qty")):
                 t = (t or "").strip()
@@ -2453,6 +2461,60 @@ async def fleets_traders(request: Request, user: str = Depends(current_user)):
         out[code] = {**t, "trades": trades}
     await request.app.state.db.kv_set("traders_cache", out)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/fill", response_class=HTMLResponse)
+async def fleets_fill(request: Request, fid: str, user: str = Depends(current_user)):
+    """Fill this fleet's gaps from spares now (the same as the Fill mobile fleets rule, for one fleet)."""
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        lines = await eng.fill_fleets(force=True, only=fid)
+    if not lines:
+        return HTMLResponse('<div class="result ok">Nothing to fill (full loadout, on a mission, or already busy).</div>')
+    return HTMLResponse('<div class="result ok">' + "<br>".join(html.escape(x) for x in lines) + "</div>")
+
+
+# --- reset & reform -----------------------------------------------------------------------------------
+async def reform_plan(request: Request, full: bool) -> dict:
+    from . import reform
+    eng = request.app.state.worker.automations
+    st = await load_state(request)
+    hosts = {r.get("hosted_device_code") for r in st["replicants"].values() if r.get("hosted_device_code")}
+    return reform.plan(await eng.loadout_cfg(), st["devices"], await eng.fleets(), eng.busy_devices(await eng.jobs()),
+                       hosts, full=full)
+
+
+@router.get("/fleets/reform", response_class=HTMLResponse)
+async def fleets_reform_page(request: Request, user: str = Depends(current_user)):
+    return await page(request, user, "reform.html", "reform")
+
+
+@router.post("/fleets/reform/preview", response_class=HTMLResponse)
+async def fleets_reform_preview(request: Request, user: str = Depends(current_user)):
+    form = await request.form()
+    return partial(request, "partials/reform_plan.html", p=await reform_plan(request, form.get("full") == "on"))
+
+
+@router.post("/fleets/reform/apply", response_class=HTMLResponse)
+async def fleets_reform_apply(request: Request, user: str = Depends(current_user)):
+    """Re-plan from the current state (it may have moved since the preview) and send it as one job."""
+    from . import reform
+    form = await request.form()
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        p = await reform_plan(request, form.get("full") == "on")
+        steps = reform.steps(p)
+        if not steps:
+            return HTMLResponse('<div class="result ok">Nothing to change: every tag and controller already matches.</div>')
+        codes = sorted({r["code"] for r in p["retag"]} | {c for ds in p["releases"].values() for c in ds})
+        job = await eng.create_job("reform", f"reset & reform: {len(p['retag'])} retag(s), "
+                                             f"{sum(len(v) for v in p['releases'].values())} release(s)", None, steps,
+                                   {"devices": codes}, force=True)
+        await eng.log("reform", f"reset & reform started by {user}: {len(p['retag'])} device(s) retagged, "
+                                f"{sum(len(v) for v in p['releases'].values())} drone(s) released"
+                                + (" (full)" if p["full"] else ""))
+    return HTMLResponse(f'<div class="result ok">Started job <a href="/automations">{html.escape(job["title"]) if job else "?"}</a>. '
+                        "The next loadout pass and the fleets' own phases adopt released drones again.</div>")
 
 
 @router.post("/fleets/{fid}/print", response_class=HTMLResponse)

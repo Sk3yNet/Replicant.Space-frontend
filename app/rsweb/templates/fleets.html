@@ -9,7 +9,9 @@
     <button>New fleet</button></form></div>
 <p class="muted small">A fleet's devices carry a <code>fleet:&lt;id&gt;</code> tag, so loadouts and the other rules leave them alone even in a
   busy system. Surge plates / platforms / carriers / mobile fleets in the fleet carry the rest; freighters surge themselves.
-  A system's own devices are its <a href="/loadouts">home fleet</a>; mining and explore missions can't target a system that has one.</p>
+  A system's own devices are its <a href="/loadouts">home fleet</a>; mining and explore missions can't target a system that has one.
+  Tags in a mess? <a href="/fleets/reform">Reset &amp; reform</a>.</p>
+{% with ids="fleet_fill" %}{% include "partials/rules_slot.html" %}{% endwith %}
 
 {% for f in fleets %}{% set r = f.roster %}{% set m = f.mission or {} %}
 <div class="card" id="fleet-{{ f.id }}" style="margin-bottom:14px">
@@ -20,8 +22,15 @@
   <div class="grid g2">
     <div>
       <h3>Loadout <span class="muted small">in {{ r.stars | join(', ') or '—' }}</span></h3>
+      <form hx-post="/fleets/{{ f.id }}/edit" hx-trigger="change" class="row small" style="margin-bottom:6px">
+        <label style="text-transform:none">Template
+          <select name="template"><option value="">— custom loadout —</option>
+            {% for ph in templates %}<option value="{{ ph.id }}" {{ 'selected' if f.template == ph.id }}>{{ ph.name }}</option>{% endfor %}</select></label>
+        {% if f.template %}<span class="muted">the loadout follows this template (edit it under <a href="/loadouts">Home fleets › Templates</a>)</span>{% endif %}
+      </form>
       <form hx-post="/fleets/{{ f.id }}/edit" hx-swap="none" class="loadout-form" data-fid="{{ f.id }}" data-name="{{ f.name }}">
         <input type="hidden" name="lines" value="1">
+        <fieldset {{ 'disabled' if f.template }} style="border:0;padding:0;margin:0">
         <table class="small"><tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th class="num" title="▣N hold slots and +N attach points a carrier offers; −1 ▣ a rider that can go in a hold, −1 one that needs an attach point; ✈ surges itself">Seats</th><th>Devices</th><th></th></tr>
           {% for row in r.rows %}<tr data-have="{{ row.have }}" data-type="{{ row.type }}"{% if not row.want %} class="muted" title="Not in the loadout — set a quantity to keep it"{% endif %}>
             <td>{{ row.type | human }}<input type="hidden" name="type" value="{{ row.type }}"></td>
@@ -34,6 +43,7 @@
             <td class="num"><input type="number" min="0" name="qty" style="width:52px"></td><td></td><td class="num muted lp"></td><td></td>
             <td><button type="button" class="small ghost lx" title="Clear this line">✕</button></td></tr>
         </table>
+        </fieldset>
         {% set pt = f.points %}
         {% macro budget(b) -%}
           {%- if b.hold.available %}hold {{ b.hold.needed }} / {{ b.hold.available }}{% if b.hold.needed > b.hold.available %} ({{ b.hold.needed - b.hold.available }} overflow to attach){% endif %} · {% endif -%}
@@ -54,7 +64,8 @@
           <input name="name" value="{{ f.name }}" size="14"><select name="role">{% for ro in roles %}<option {{ 'selected' if ro == f.role }}>{{ ro }}</option>{% endfor %}</select>
           <select name="home">{% for s in stars %}<option {{ 'selected' if s == f.home }}>{{ s }}</option>{% endfor %}</select>
           <button class="small">Save</button>
-          {% if r.rows | selectattr('short') | list %}<button type="button" class="small" hx-post="/fleets/{{ f.id }}/print" hx-target="#fp-{{ f.id }}">Print what's missing</button>{% endif %}
+          {% if r.rows | selectattr('short') | list %}<button type="button" class="small" hx-post="/fleets/{{ f.id }}/fill" hx-target="#fp-{{ f.id }}" title="Take idle spares of the missing types, nearest first">Fill from spares</button>
+            <button type="button" class="small" hx-post="/fleets/{{ f.id }}/print" hx-target="#fp-{{ f.id }}">Print what's missing</button>{% endif %}
           <button class="small ghost" name="delete" value="1" hx-confirm="Delete fleet {{ f.name }}? Its devices keep their fleet tag until you remove them.">Delete</button>
         </div>
       </form>

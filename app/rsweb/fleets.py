@@ -416,6 +416,47 @@ def gather_steps(fleet: dict, plan: dict, stars: dict) -> list[dict]:
     return steps
 
 
+def fill_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str]) -> tuple[list[dict], list[dict], list[str]]:
+    """Between missions: fill the fleet's gaps from spares. (steps, recruits, notes)
+    With a carrier, it's the mission's gather tour (nearest spares first), then the carrier flies back to where it
+    started. Without one, only spares that can fly themselves, or are already where the fleet is, can join."""
+    r = roster(fleet, devices)
+    plan = gather_plan(fleet, devices, stars, busy)
+    if plan["carrier"]:
+        recruits = plan["recruit"]
+        steps = gather_steps(fleet, plan, stars) if recruits else []
+        if recruits and plan["tour"] and star_of(plan["tour"][-1][0]) != star_of(plan["carrier_loc"]):
+            back = plan["carrier_loc"]
+            st = step(f"{plan['carrier']} → {back} (back with the recruits)", f"/devices/{plan['carrier']}",
+                      {"command": "travel", "destination": back}, wait=["travel.arrived"], match={"destination": star_of(back)})
+            st["wait_device"] = plan["carrier"]
+            steps.append(st)
+        base = plan["carrier_loc"]
+        notes = plan["problems"]
+    else:
+        here = r["stars"][0] if r["stars"] else fleet.get("home") or ""
+        base = destination(here, stars)
+        short = {row["type"]: row["short"] for row in r["rows"] if row["short"]}
+        recruits = []
+        for d in sorted(devices, key=lambda d: d["device_code"]):
+            t = d.get("device_type")
+            if (short.get(t, 0) > 0 and "spare" in (d.get("tags") or []) and not fleet_of(d) and d["device_code"] not in busy
+                    and not d.get("controller_device_code") and str(d.get("status") or "").startswith(("idle", "stowed"))
+                    and (star_of(d.get("location")) == here or flies_itself(d))):
+                short[t] -= 1
+                recruits.append(d)
+        steps = gather_steps(fleet, {"recruit": recruits, "carrier": None, "tour": []}, stars) if recruits else []
+        notes = ["no carrier in the fleet: only spares that surge themselves or are already here can join"] if short and any(short.values()) else []
+    # recruits that fly themselves come to where the fleet is
+    for d in recruits:
+        if flies_itself(d) and star_of(d.get("location")) != star_of(base):
+            st = step(f"{d['device_code']} → {base} (joins {fleet['name']})", f"/devices/{d['device_code']}",
+                      {"command": "travel", "destination": base}, wait=["travel.arrived"], match={"destination": star_of(base)})
+            st["wait_device"] = d["device_code"]
+            steps.append(st)
+    return steps, recruits, notes
+
+
 def travel_steps(fleet: dict, devices: list[dict], star: str, stars: dict) -> list[dict]:
     """Carriers (with whatever is attached) and self-surging members fly to `star`."""
     r = roster(fleet, devices)
@@ -614,6 +655,29 @@ def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str) ->
         mins = 0
     limit = int((mission.get("opts") or {}).get("exhausted_minutes") or 30)
     return mins >= limit, f"exhausted for {int(mins)}/{limit} min", {"exhausted_since": since}
+
+
+def template_wants(phase: dict | None) -> dict[str, int]:
+    """A template's (loadout phase's) counts as a fleet loadout: blank ("don't care") and 0 mean none."""
+    out = {}
+    for t, n in ((phase or {}).get("wants") or {}).items():
+        try:
+            if t and int(str(n).strip() or 0) > 0:
+                out[t] = int(str(n).strip())
+        except ValueError:
+            pass
+    return out
+
+
+def resolve_template(fleet: dict, cfg: dict) -> dict:
+    """A fleet that follows a template takes its loadout from it, so editing the template updates every fleet using it.
+    If the template is gone, the fleet keeps the loadout it had."""
+    tid = fleet.get("template")
+    if tid:
+        ph = next((p for p in cfg.get("phases") or [] if p.get("id") == tid), None)
+        if ph:
+            fleet["wants"] = template_wants(ph)
+    return fleet
 
 
 def short_list(fleet: dict, devices: list[dict]) -> dict[str, int]:

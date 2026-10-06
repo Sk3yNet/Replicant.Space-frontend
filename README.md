@@ -33,6 +33,26 @@ civilisation-beacon rules, Defence, Upkeep, Contracts, Blueprints (consolidation
 The Automations page lists every rule with an on/off switch and a link to its settings, plus jobs and the log.
 **Home fleets** is the Loadouts page under its new name: a system's own devices, kept at its template's (phase's) loadout.
 
+**Fleet templates** (1.16.0): a mobile fleet can follow a template instead of its own loadout lines (the *Template* picker on its
+card). Its loadout then comes from the template, so editing the template on Home fleets updates every fleet on it; blank and 0
+count as none. The line editor is locked while a template is set; pick *custom loadout* to edit lines again.
+
+**Fill from spares** (1.16.0): the *Fill mobile fleets from spares* rule (Rules panel on Mobile fleets) and the **Fill from spares**
+button on a fleet. A fleet that isn't on a mission and is short takes idle spares of the missing types, nearest first: they get
+the fleet tag, the fleet's carrier tours the systems they're in, picks them up and flies back to where it started; spares that
+surge themselves fly to the fleet. Without a carrier only self-surging spares and spares already where the fleet is can join.
+Home fleets and mobile fleets draw on the same spare pool; whichever runs first takes a spare.
+
+**Reset & reform** (Fleets › Reset & reform, 1.16.0): for when the tags have got messy. It rewrites the assignment tags only
+(`home:`, `to:`, `fleet:`, `spare`, `gather`) and rebuilds them from where each device is: mobile fleets (not on a mission)
+keep their members up to their loadout and take unassigned devices in their system for the gaps; each system's home fleet
+takes devices in that system up to its template (current `home:` devices first; blank types stay home); the rest of a
+managed system becomes spare; unmanaged systems are left alone. Drones run by a controller outside their new group are
+released (*Full rebuild* releases every drone) and are adopted again by the next loadout pass or the fleet's phases.
+Kept: `at:` pins, `civ`, `ferry`, `taxi`, ignore tags and your own tags. Left alone: ignored devices, the ferry and its
+devices, fleets on a mission, devices in a running job, anything moving, the replicants' vessels. **Preview** lists every
+tag change and release; **Apply** re-plans from the current state and sends it as one job.
+
 | Page | What it does |
 |---|---|
 | **Dashboard** | *While you were away* digest, open alerts, replicants, live countdowns (travel, prints, scans), fleet summary, stockpiles with 48 h trend, live event feed |
