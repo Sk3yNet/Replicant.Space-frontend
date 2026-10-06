@@ -3946,3 +3946,21 @@ def test_mission_carrier_unloads_inside_the_system_not_at_the_kuiper_belt():
     descs = [s["desc"] for s in fl.unload_steps(fleet, devices, fl.deploy_spot(geo))]
     assert descs == ["HV → LOR-1-L4 (to unload inside the system)", "wait for HV at LOR-1-L4", "deploy SC from HV"]
     assert fl.deploy_spot(pl.geography("LOR", [], None, "LOR-KUIPER")) is None     # nothing known: unload where it is
+
+
+def test_prints_spread_over_factories_across_passes():
+    """Live 2026-10-06: three prints of one item all landed on one of three idle autofactories — one print a pass, and
+    each pass every factory still looked idle."""
+    from rsweb import loadouts as lo
+    devices = [{"device_code": c, "device_type": "autofactory", "location": "FAL-BELT-1", "status": "idle", "print_queue": [],
+                "available_commands": ["enqueue_print"], "tags": []} for c in ("AF1", "AF2", "AF3")]
+    fleets = [{"id": "fal", "name": "Fal", "home": "FAL", "station": True, "wants": {"autofactory": 3, "maintenance_drone": 1}}]
+    bps = [{"device_type": "maintenance_drone", "resources": {"structural": 50}, "print_time": 600}]
+    inv = {"FAL-BELT-1": {"structural": 1000}}
+    orders = []
+    for _ in range(3):
+        p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, bps, inv, {}, {}, set(), orders, {})
+        (pr,) = p["prints"]
+        orders.append({"star": "FAL", "fleet": "fal", "device_type": "maintenance_drone", "factory": pr["factory"]})
+        fleets[0]["wants"]["maintenance_drone"] += 1          # one more wanted each pass, as when stock allows one at a time
+    assert sorted(o["factory"] for o in orders) == ["AF1", "AF2", "AF3"]

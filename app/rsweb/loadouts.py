@@ -414,6 +414,14 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         used_q = len(f.get("print_queue") or []) + (1 if f.get("printing") or str(f.get("status") or "").startswith("printing") else 0)
         queue_free[f["device_code"]] = max(0, cap - used_q)
     load = {f["device_code"]: pq.load_seconds(f, bps) for f in factories}   # seconds of printing queued, per factory
+    # Prints this app ordered that the device list doesn't show yet count too: with stock for one print a pass, each pass
+    # saw every factory idle and the same one (lowest code) got every print (seen live 2026-10-06: 3 on one of 3 factories).
+    ordered: dict[str, float] = defaultdict(float)
+    for o in orders:
+        if o.get("factory"):
+            ordered[o["factory"]] += float((bps.get(o.get("device_type")) or {}).get("print_time") or 0) or 1.0
+    for code in load:
+        load[code] = max(load[code], ordered.get(code, 0.0))
 
     def factory_for(t: str, star: str) -> tuple[dict | None, str]:
         bp = bps.get(t)
