@@ -3614,3 +3614,60 @@ def test_travel_destination_picker(client):
     # the device page's command box offers the same picker
     form = client.get("/devices/11ADA230/command-form?command=travel", headers=H).text
     assert 'name="f.destination__star"' in form and 'value="ZALDANAL"' in form
+
+
+# --- devices in transit on the maps (1.20.0) ---------------------------------------------------------------------
+def _moving(code, origin, dest, legs, start, end, dtype="survey_drone"):
+    return {"device_code": code, "device_type": dtype, "status": "recalling", "location": None,
+            "travel": {"origin": origin, "destination": dest, "final_destination": dest,
+                       "departed_at": start.isoformat(), "arrives_at": end.isoformat(), "final_arrives_at": end.isoformat(),
+                       "route": [{"from": f, "to": t, "type": ty, "time_seconds": s} for f, t, ty, s in legs]}}
+
+
+def test_transit_trips_on_the_system_and_galaxy_maps():
+    from rsweb import transit
+    from rsweb.web import build_system_view
+    now = datetime.now(timezone.utc)
+    start, end = now - timedelta(seconds=7060), now + timedelta(seconds=1423)   # 83 % of the live recall trip
+    drones = [_moving(c, f"OTHDANAX-{o}", "OTHDANAX-OORT", [(f"OTHDANAX-{o}", "OTHDANAX-OORT", "cruise", 8483.6)], start, end)
+              for c, o in (("A42C5AB6", "1-2"), ("C3BE3BEF", "1-2"))]
+    ship = _moving("HV", "OTHDANAX-2", "FALQUORYX-1-L4",
+                   [("OTHDANAX-2", "OTHDANAX-OORT", "cruise", 100), ("OTHDANAX-OORT", "FALQUORYX-1-L4", "surge", 800),
+                    ("FALQUORYX-1-L4", "FALQUORYX-1-L4", "cruise", 100)], now - timedelta(seconds=500), now + timedelta(seconds=500),
+                   "heaven_vessel")
+    stale = _moving("OLD", "OTHDANAX-2", "OTHDANAX-3", [("OTHDANAX-2", "OTHDANAX-3", "cruise", 10)],
+                    now - timedelta(hours=2), now - timedelta(hours=1))
+    groups = transit.trips(drones + [ship, stale])
+    assert [g["label"] for g in groups] == ["HV heaven vessel", "2× survey drone"]      # together; the old trip is over
+    d = groups[1]
+    assert d["progress"] == pytest.approx(0.832, abs=0.01) and 1400 < d["eta"] <= 1423
+    leg = groups[0]["legs"][1]
+    assert leg["type"] == "surge" and leg["t1"] - leg["t0"] == pytest.approx(800)
+    pos = {"OTHDANAX": {"x": -456.1, "y": -220.2, "z": 1.6}, "FALQUORYX": {"x": -460.3, "y": -214.8, "z": 4.9}}
+    gal = transit.galaxy_movers(groups, pos)
+    assert len(gal) == 1 and gal[0]["origin"] == "OTHDANAX" and gal[0]["destination"] == "FALQUORYX-1-L4"
+    assert [sg["a"] == sg["b"] for sg in gal[0]["segs"]] == [True, False, True]       # cruise legs stay at the star
+    scan = {"planets": [{"designation": "OTHDANAX-1", "orbital_distance_au": .1}, {"designation": "OTHDANAX-2", "orbital_distance_au": .3}],
+            "outer_system": {"oort": {"designation": "OTHDANAX-OORT", "distance_au": 1800}}}
+    view = build_system_view("OTHDANAX", scan, [], [], [], None, groups, pos)
+    ways = {m["label"]: m for m in view["movers"]}
+    assert ways["2× survey drone"]["way"] == "local" and ways["2× survey drone"]["segs"][0][2:4] == [730, 30]   # to the Oort corner
+    out = ways["HV heaven vessel"]
+    assert out["way"] == "out" and out["other"] == "FALQUORYX" and len(out["segs"]) == 2   # cruise out, then surge to the rim
+    rx, ry = out["segs"][1][2:4]
+    assert rx < 380 and ry < 380            # FALQUORYX is to the -x, +y (map up) of OTHDANAX: up and to the left
+    arriving = build_system_view("FALQUORYX", {}, [], [], [], None, groups, pos)["movers"][0]
+    assert arriving["way"] == "in" and arriving["other"] == "OTHDANAX"
+
+
+def test_moving_devices_show_on_both_maps(client):
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.post("/devices/11ADA230/command", data={"command": "travel", "f.destination": "ABOTEIN-3-L4"}, headers=HX)
+    client.portal.call(client.app.state.worker.sync_devices)
+    assert any(d.get("travel") for d in world.devices)
+    m = client.get("/api/map.json", headers=H).json()
+    assert m["moving"] and m["moving"][0]["destination"] == "ABOTEIN-3-L4" and m["moving"][0]["origin"] == "SOL"
+    page = client.get("/systems/SOL", headers=H).text
+    assert 'class="mover mover-out"' in page and "→ ABOTEIN-3-L4" in page
+    assert 'id="opt-moving"' in client.get("/map", headers=H).text

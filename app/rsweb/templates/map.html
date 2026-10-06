@@ -13,6 +13,7 @@
     <label><input type="checkbox" id="opt-labels" checked> labels</label>
     <label><input type="checkbox" id="opt-mine"> only my systems</label>
     <label><input type="checkbox" id="opt-cover" checked> relay/hub range</label>
+    <label><input type="checkbox" id="opt-moving" checked> in transit</label>
     <button class="small" id="btn-top">top-down</button>
     <button class="small" id="btn-home">my replicant</button>
     <button class="small ghost" hx-post="/map/refresh" hx-target="#map-status">refresh catalogue</button>
@@ -22,7 +23,7 @@
   <div id="map-tip"></div>
   <div class="legend">
     <i style="background:#6cb6ff"></i>your devices <i style="background:#ff5fa2"></i>replicant <i style="background:#4fd18b"></i>scanned
-    <i style="background:#f0b64f"></i>hub · shift-click two stars to measure
+    <i style="background:#f0b64f"></i>hub <i style="background:#b48cff"></i>in transit (arrow points where it's going) · shift-click two stars to measure
   </div>
 </div>
 {% endblock %}

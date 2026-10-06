@@ -45,7 +45,9 @@ scene.add(grid);
 
 let data = { stars: [], replicants: [] };
 let starPoints, mineGroup = new THREE.Group(), coverGroup = new THREE.Group(), lineGroup = new THREE.Group();
-scene.add(mineGroup, coverGroup, lineGroup);
+const moveGroup = new THREE.Group();
+scene.add(mineGroup, coverGroup, lineGroup, moveGroup);
+const movers = [];   // {m: trip, cone, label el}
 const labels = [];
 let visible = [];
 let measure = [];
@@ -105,6 +107,46 @@ function build() {
     }
   }
   coverGroup.visible = document.getElementById("opt-cover").checked;
+}
+
+// devices in transit between stars: a dashed route and an arrow that moves along it as time passes
+const MOVE = 0xb48cff;
+function buildMovers() {
+  moveGroup.clear();
+  movers.forEach(x => x.el.remove()); movers.length = 0;
+  for (const m of data.moving || []) {
+    const pts = [];
+    m.segs.forEach((sg, i) => { if (i === 0) pts.push(pos({ position: sg.a })); pts.push(pos({ position: sg.b })); });
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineDashedMaterial({ color: MOVE, dashSize: .6, gapSize: .5, transparent: true, opacity: .75 }));
+    line.computeLineDistances();
+    moveGroup.add(line);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(.45, 1.4, 12), new THREE.MeshBasicMaterial({ color: MOVE }));
+    moveGroup.add(cone);
+    const d = document.createElement("div");
+    Object.assign(d.style, { position: "absolute", color: "#d9c8ff", pointerEvents: "none", fontFamily: "monospace", fontSize: "11px",
+                             whiteSpace: "nowrap" });
+    el.appendChild(d);
+    movers.push({ m, cone, el: d, v: new THREE.Vector3() });
+  }
+}
+const UP = new THREE.Vector3(0, 1, 0);
+function fmt(s) { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), mi = Math.floor(s % 3600 / 60);
+  return h ? `${h}h ${mi}m` : mi ? `${mi}m` : `${s}s`; }
+function placeMovers(now) {
+  for (const x of movers) {
+    const segs = x.m.segs;
+    let s = segs.find(sg => now < sg.t1) || segs[segs.length - 1];
+    if (now < segs[0].t0) s = segs[0];
+    const f = Math.max(0, Math.min(1, (now - s.t0) / Math.max(1, s.t1 - s.t0)));
+    const a = pos({ position: s.a }), b = pos({ position: s.b });
+    x.v.copy(a).lerp(b, f);
+    x.cone.position.copy(x.v);
+    const dir = b.clone().sub(a);
+    if (dir.lengthSq() > 0) x.cone.quaternion.setFromUnitVectors(UP, dir.normalize());   // the cone points where it's going
+    const pct = Math.max(0, Math.min(100, Math.round(100 * (now - x.m.t0) / Math.max(1, x.m.t1 - x.m.t0))));
+    x.el.textContent = `▶ ${x.m.label} → ${x.m.destination} · ${pct}% · ${now < x.m.t1 ? fmt((x.m.t1 - now) / 1000) : "arriving"}`;
+  }
 }
 
 function drawLine(a, b, color = 0xff5fa2) {
@@ -197,6 +239,14 @@ function animate() {
     l.el.style.display = vis ? "block" : "none";
     if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6) + "px"; }
   }
+  placeMovers(Date.now());
+  moveGroup.visible = document.getElementById("opt-moving").checked;
+  for (const x of movers) {
+    tmp.copy(x.v).project(camera);
+    const vis = moveGroup.visible && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
+    x.el.style.display = vis ? "block" : "none";
+    if (vis) { x.el.style.left = ((tmp.x + 1) / 2 * w + 10) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + 6) + "px"; }
+  }
 }
 
 fetch("/api/map.json", { credentials: "same-origin" }).then(r => r.json()).then(d => {
@@ -204,10 +254,14 @@ fetch("/api/map.json", { credentials: "same-origin" }).then(r => r.json()).then(
   d.stars.forEach(s => byName[s.designation] = s);
   document.getElementById("star-list").innerHTML = d.stars.map(s => `<option value="${esc(s.designation)}">`).join("");
   build();
+  buildMovers();
   if (!d.stars.length) {
     info.innerHTML = `<p class="muted">No star catalogue cached yet. It syncs every 30 minutes, or use “refresh catalogue”.</p>`;
   } else {
-    info.innerHTML = `<p>${d.stars.length} stars · catalogue generated ${esc(d.generated_at || "?")}.</p><p class="muted small">Drag to orbit, scroll to zoom, click a star for details.</p>`;
+    const mv = (d.moving || []).map(m => `<li>${esc(m.label)}: ${esc(m.origin)} → ${esc(m.destination)}</li>`).join("");
+    info.innerHTML = `<p>${d.stars.length} stars · catalogue generated ${esc(d.generated_at || "?")}.</p>` +
+      (mv ? `<p class="small"><b>In transit between stars</b></p><ul class="small">${mv}</ul>` : "") +
+      `<p class="muted small">Drag to orbit, scroll to zoom, click a star for details.</p>`;
     const s = repStar(); if (s) focus(s);
   }
   animate();

@@ -154,3 +154,8 @@ svg.system .place-object circle, svg.system .place-outer circle { fill: #ff8a65;
 svg.system .place.depleted * { opacity: .35; }
 svg.system .plabel { font-size: 9px; fill: var(--muted, #9aa7bd); }
 svg.system.nolabels .plabel { display: none; }
+
+svg.system .mover-path { stroke: var(--move); stroke-width: 1.2; stroke-dasharray: 3 4; opacity: .6; fill: none; }
+svg.system .mover-arrow { fill: var(--move); stroke: #fff; stroke-width: .6; }
+svg.system text.mover-label { fill: #d9c8ff; font-size: 10.5px; }
+svg.system.nolabels text.mover-label { display: none; }

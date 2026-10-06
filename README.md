@@ -49,6 +49,13 @@ the nearest destination). Existing mobile fleets stay as they were: not statione
 `home:<star>` tag the fleet tag of the fleet stationed there (or drops the tag), and a device already on its way with an old
 `to:` tag joins the fleet there on arrival. Old diagnostics snapshots are read the same way.
 
+**In transit on the maps** (1.20.0): devices that are travelling appear on both maps as a purple arrow on a dashed route,
+pointing where they're going, with progress and time left (updated live). Devices travelling together (same route, arriving
+within a minute) show as one, e.g. *2× survey drone*. On a **system map**, cruises inside the system move along their path;
+a device surging out sits on the rim in the direction of the star it's heading for, one surging in on the rim toward the star
+it's coming from. On the **galaxy map**, trips between stars are drawn between the two stars (the *in transit* checkbox turns
+them off), and the info panel lists them. Positions come from the game's `travel` record (its route legs and times).
+
 **Stars beyond the catalogue** (1.19.0): the game's star catalogue only covers about 70 ly around Sol, so a region far out
 (e.g. ~500 ly away) had none of its stars on the map or in routes. A **stellar census** (`stellar_census`, on heaven and cargo
 vessels) lists the stars around the vessel: positions, entry points, and whether anyone has explored them. The new **Stellar

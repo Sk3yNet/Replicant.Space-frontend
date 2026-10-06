@@ -999,7 +999,8 @@ def _angle(code: str) -> float:
 
 
 def build_system_view(star: str, scan: dict, devices: list[dict], inventory: list[dict],
-                      places: list[dict] | None = None, res: dict | None = None) -> dict:
+                      places: list[dict] | None = None, res: dict | None = None,
+                      groups: list[dict] | None = None, star_pos: dict[str, dict] | None = None) -> dict:
     """Lay out a top-down, log-scaled diagram of a star system as SVG primitives."""
     size, c = 760, 380
     planets = scan.get("planets") or []
@@ -1087,6 +1088,44 @@ def build_system_view(star: str, scan: dict, devices: list[dict], inventory: lis
         shapes["places"].append({"code": code, "category": t["category"], "x": xy[0], "y": xy[1], "label": short,
                                  "note": t.get("note") or "", "total": q.get("total"), "amounts": q.get("amounts") or {},
                                  "depleted": q.get("depleted", False)})
+
+    # devices in transit: cruising inside the system along their leg, surging in or out at the rim (in the direction
+    # of the other star). segs: [x1, y1, x2, y2, t0 ms, t1 ms] — the page moves the arrow along them as time passes.
+    me = (star_pos or {}).get(star)
+
+    def rim(other: str) -> tuple[float, float]:
+        o = (star_pos or {}).get(other)
+        if me and o:
+            dx, dy = (o.get("x") or 0) - (me.get("x") or 0), -((o.get("y") or 0) - (me.get("y") or 0))
+        else:
+            a = _angle(other)
+            dx, dy = math.cos(a), math.sin(a)
+        n = math.hypot(dx, dy) or 1.0
+        return (c + (c - 16) * dx / n, c + (c - 16) * dy / n)
+
+    shapes["movers"] = []
+    for g in groups or []:
+        segs, way = [], set()
+        for x in g["legs"]:
+            fs, ts = star_of(x["from"]), star_of(x["to"])
+            if fs == ts == star:
+                a, b = loc_xy(x["from"]), loc_xy(x["to"])
+                way.add("local")
+            elif fs == star:
+                a, b = loc_xy(x["from"]), rim(ts)
+                way.add("out")
+            elif ts == star:
+                a, b = rim(fs), loc_xy(x["to"])
+                way.add("in")
+            else:
+                continue
+            if a and b:
+                segs.append([round(a[0], 1), round(a[1], 1), round(b[0], 1), round(b[1], 1), int(x["t0"] * 1000), int(x["t1"] * 1000)])
+        if segs:
+            other = star_of(g["destination"]) if "out" in way else star_of(g["origin"]) if "in" in way else None
+            shapes["movers"].append({"label": g["label"], "codes": g["codes"], "destination": g["destination"],
+                                     "origin": g["origin"], "segs": segs, "t0": int(g["t0"] * 1000), "t1": int(g["t1"] * 1000),
+                                     "way": "out" if "out" in way else "in" if "in" in way else "local", "other": other})
     return shapes
 
 
@@ -1106,7 +1145,11 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     st = await load_state(request)
     sys_t = await system_targets(db, star)
     res = await system_resources(db, star)
-    view = build_system_view(star, scan, st["devices"], st["inventory"], sys_t["targets"], res)
+    from . import transit
+    cat = await db.kv_get("stars", {}) or {}
+    star_pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("position")}
+    view = build_system_view(star, scan, st["devices"], st["inventory"], sys_t["targets"], res,
+                             transit.trips(st["devices"]), star_pos)
     reps = [r for r in st["replicants"].values() if star_of(r.get("location") or r.get("current_location")) == star]
     game_locs = {k: v for k, v in (st["locations"] or {}).items() if star_of(k) == star}
     qty = {x["code"]: x for x in res["sites_shown"] + res["salvage_shown"]}
@@ -1219,8 +1262,11 @@ async def map_data(request: Request, user: str = Depends(current_user)):
     for s in cat.get("stars") or []:
         d = s.get("designation")
         stars.append({**s, "devices": presence.get(d, 0), "infra": infra.get(d, []), "scanned": d in scanned})
+    from . import transit
+    positions = {x["designation"]: x.get("position") for x in stars if x.get("position")}
+    moving = transit.galaxy_movers(transit.trips(st["devices"]), positions)
     return JSONResponse({"stars": stars, "replicants": reps, "generated_at": cat.get("generated_at"),
-                         "catalogue_updated": await db.kv_updated("stars")})
+                         "catalogue_updated": await db.kv_updated("stars"), "moving": moving})
 
 
 @router.get("/api/route", response_class=HTMLResponse)

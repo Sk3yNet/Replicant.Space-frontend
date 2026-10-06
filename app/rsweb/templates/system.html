@@ -39,9 +39,17 @@
         </g>
       {% endfor %}
       {% if view.oort %}<text x="{{ view.size - 170 }}" y="20">Oort {{ view.oort.au | round | int }} AU ↗</text>{% endif %}
+      <g class="movers">{% for m in view.movers %}{% set s0 = m.segs[0] %}
+        <g class="mover mover-{{ m.way }}" data-segs='{{ m.segs | tojson }}' data-t0="{{ m.t0 }}" data-t1="{{ m.t1 }}"
+           data-label="{{ m.label }} → {{ m.destination }}">
+          {% for sg in m.segs %}<line class="mover-path" x1="{{ sg[0] }}" y1="{{ sg[1] }}" x2="{{ sg[2] }}" y2="{{ sg[3] }}"/>{% endfor %}
+          <path class="mover-arrow" d="M 9 0 L -6 5.5 L -6 -5.5 Z" transform="translate({{ s0[0] }} {{ s0[1] }})"/>
+          <text class="mover-label" x="{{ s0[0] + 10 }}" y="{{ s0[1] - 8 }}">{{ m.label }} → {{ m.destination }}</text>
+          <title>{{ m.codes | join(', ') }}: {{ m.origin }} → {{ m.destination }}{% if m.way == 'in' %} (arriving from {{ m.other }}){% elif m.way == 'out' %} (leaving for {{ m.other }}){% endif %}</title>
+        </g>{% endfor %}</g>
     </svg>
     <div class="row between"><p class="muted small" style="margin:4px 0">Log-scaled orbits. Green band = habitable zone, dashed rings = belts / Kuiper.
-      Blue circles = your devices or stockpiles · ◆ resource site · ▲ salvage · ■ Lagrange point · ● object / outer system (numbers = quantity available). Click anything for detail.</p>
+      Blue circles = your devices or stockpiles · purple ▶ = in transit (dashed: its route; at the rim: surging in or out) · ◆ resource site · ▲ salvage · ■ Lagrange point · ● object / outer system (numbers = quantity available). Click anything for detail.</p>
       <label class="small" style="text-transform:none;white-space:nowrap"><input type="checkbox" checked onchange="document.querySelector('svg.system').classList.toggle('nolabels', !this.checked)"> labels</label></div>
   </div>
   <div>
@@ -121,4 +129,34 @@
     <dl class="kv small">{% for k in ['mass_solar','luminosity_solar','temperature_k','age_my'] %}{% if s[k] is defined %}<dt>{{ k | human }}</dt><dd>{{ s[k] }}</dd>{% endif %}{% endfor %}</dl>{% endif %}
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Devices in transit: place each arrow on its route for the current time (legs are timed), refresh every 2 s.
+(function () {
+  function fmt(s) { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+    return h ? h + "h " + m + "m" : m ? m + "m" : s + "s"; }
+  function tick() {
+    const now = Date.now();
+    const svg = document.querySelector("svg.system"); if (!svg) return;
+    const W = svg.viewBox.baseVal.width || 760;
+    document.querySelectorAll("svg.system .mover").forEach(function (g) {
+      const segs = JSON.parse(g.dataset.segs), t0 = +g.dataset.t0, t1 = +g.dataset.t1;
+      let s = segs.find(x => now < x[5]) || segs[segs.length - 1];
+      if (now < segs[0][4]) s = segs[0];
+      const f = Math.max(0, Math.min(1, (now - s[4]) / Math.max(1, s[5] - s[4])));
+      const x = s[0] + (s[2] - s[0]) * f, y = s[1] + (s[3] - s[1]) * f;
+      const ang = Math.atan2(s[3] - s[1], s[2] - s[0]) * 180 / Math.PI;
+      g.querySelector(".mover-arrow").setAttribute("transform", "translate(" + x + " " + y + ") rotate(" + ang + ")");
+      const lab = g.querySelector(".mover-label"), right = x > 0.55 * W;   // near the right edge: label on the left
+      lab.setAttribute("x", right ? x - 10 : x + 10); lab.setAttribute("y", y < 20 ? y + 18 : y - 8);
+      lab.setAttribute("text-anchor", right ? "end" : "start");
+      const pct = Math.max(0, Math.min(100, Math.round(100 * (now - t0) / Math.max(1, t1 - t0))));
+      lab.textContent = g.dataset.label + " · " + pct + "% · " + (now < t1 ? fmt((t1 - now) / 1000) : "arriving");
+    });
+  }
+  tick(); setInterval(tick, 2000);
+})();
+</script>
 {% endblock %}

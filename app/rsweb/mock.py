@@ -439,11 +439,23 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             arrive = datetime.now(timezone.utc) + timedelta(seconds=secs)
             origin, dest = d["location"], body.get("destination")
             d["status"] = "cruising"
+            # the live device list shows a `travel` record while moving
+            o_star, d_star = (origin or "").split("-")[0], (dest or "").split("-")[0]
+            if o_star != d_star:
+                legs = [(origin, f"{o_star}-OORT", "cruise", secs * .1), (f"{o_star}-OORT", f"{d_star}-3-L4", "surge", secs * .8),
+                        (f"{d_star}-3-L4", dest, "cruise", secs * .1)]
+            else:
+                legs = [(origin, dest, "cruise", secs)]
+            d["travel"] = {"origin": origin, "destination": dest, "final_destination": dest, "type": legs[0][2],
+                           "departed_at": iso(datetime.now(timezone.utc)), "arrives_at": iso(arrive), "final_arrives_at": iso(arrive),
+                           "route": [{"leg": i + 1, "from": f, "to": t, "type": ty, "time_seconds": ts}
+                                     for i, (f, t, ty, ts) in enumerate(legs)]}
             world.emit("travel.departed", d, travel_type="cruise", origin=origin, destination=dest,
                        arrives_at=iso(arrive), travel_time_seconds=secs)
 
             def arrived():
                 d["location"], d["status"] = dest, "idle"
+                d.pop("travel", None)
                 if code == HOST:
                     world.location = dest
                     for x in world.devices:

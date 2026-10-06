@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.19.0"
+VERSION = "1.20.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.20.0", "2026-10-06", "Devices in transit on the system and galaxy maps: an arrow on a dashed route pointing where they're "
+                             "going, with progress and time left, updated live. Devices travelling together show as one. On a "
+                             "system map, surges in or out sit on the rim toward the other star."),
     ("1.19.0", "2026-10-06", "Stellar census: new rule Stellar census on arrival (on) and Map › Stars with a census button per vessel; "
                              "census stars (beyond the catalogue's ~70 ly) are merged into the catalogue so the map, routes and "
                              "travel know them. Map › Stars lists unexplored stars nearest a chosen system. Travel destinations "
