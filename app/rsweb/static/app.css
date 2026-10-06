@@ -159,3 +159,10 @@ svg.system .mover-path { stroke: var(--move); stroke-width: 1.2; stroke-dasharra
 svg.system .mover-arrow { fill: var(--move); stroke: #fff; stroke-width: .6; }
 svg.system text.mover-label { fill: #d9c8ff; font-size: 10.5px; }
 svg.system.nolabels text.mover-label { display: none; }
+svg.system .drone rect { stroke: rgba(0,0,0,.35); stroke-width: .6; }
+svg.system .drone text { font-size: 9px; fill: #0b0f17; font-weight: 700; }
+svg.system .drone-working rect { fill: var(--good); }
+svg.system .drone-idle rect { fill: #8a98b3; }
+svg.system .drone-moving rect { fill: var(--move); }
+svg.system .drone-other rect { fill: var(--warn); }
+svg.system.nodrones .drone { display: none; }

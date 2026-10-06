@@ -49,6 +49,12 @@ the nearest destination). Existing mobile fleets stay as they were: not statione
 `home:<star>` tag the fleet tag of the fleet stationed there (or drops the tag), and a device already on its way with an old
 `to:` tag joins the fleet there on arrival. Old diagnostics snapshots are read the same way.
 
+**Drones on the maps** (1.22.0): on a system map, each location with drones gets a badge per kind — **M** mining, **S**
+survey, **T** transport (drones and haulers), **R** maintenance — with the count, coloured by what most of them are doing (green
+working, grey idle, purple moving, amber anything else). Hover a badge for every drone and its status; the *drones* checkbox
+hides them. Drones in flight show as in-transit arrows. On the galaxy map, a system's info panel lists its drones by kind
+and how many are working.
+
 **BobNet channels** (1.21.0): Activity › Messages has a **BobNet channels** card. *Refresh list* reads every channel from one of
 your FTL relays (`GET /devices/<relay>/channels`, with when each was last active); tick the ones to listen to, or type a name to
 join, and *Save subscriptions* sets your account's `bobnet_channels`. The event stream then brings their messages. *recent* (per

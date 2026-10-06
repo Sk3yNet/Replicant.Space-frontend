@@ -3726,3 +3726,22 @@ def test_change_owner_sends_target():
     from starlette.datastructures import FormData
     from rsweb import commands
     assert commands.parse_fields(commands.COMMANDS["change_owner"], FormData({"f.target": "D9351B81"})) == {"target": "D9351B81"}
+
+
+def test_drone_indicators_on_the_maps(client):
+    from rsweb.web import drone_summary
+    devs = [{"device_code": "M1", "device_type": "mining_drone", "status": "mining (carbon)"},
+            {"device_code": "M2", "device_type": "mining_drone", "status": "mining (carbon)"},
+            {"device_code": "M3", "device_type": "mining_drone", "status": "idle"},
+            {"device_code": "S1", "device_type": "survey_drone", "status": "searching"},
+            {"device_code": "T1", "device_type": "transport_hauler", "status": "idle"},
+            {"device_code": "AF", "device_type": "autofactory", "status": "idle"}]
+    g = {x["kind"]: x for x in drone_summary(devs)}
+    assert list(g) == ["mining", "survey", "transport"]
+    assert (g["mining"]["n"], g["mining"]["working"], g["mining"]["idle"], g["mining"]["state"]) == (3, 2, 1, "working")
+    assert g["survey"]["state"] == "working" and g["transport"]["state"] == "idle"
+    client.portal.call(client.app.state.worker.sync_devices)
+    page = client.get("/systems/SOL", headers=H).text
+    assert 'class="drone drone-' in page and "mining drone(s) at SOL-BELT-1" in page and "nodrones" in page
+    sol = next(s for s in client.get("/api/map.json", headers=H).json()["stars"] if s["designation"] == "SOL")
+    assert any(d["kind"] == "mining" and d["n"] >= 1 for d in sol["drones"])

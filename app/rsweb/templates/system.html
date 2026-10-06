@@ -36,6 +36,14 @@
         <g class="marker" hx-get="/locations/{{ m.loc }}" hx-target="#loc-panel">
           <circle cx="{{ m.x }}" cy="{{ m.y }}" r="{{ 5 + [m.devices|length, 12]|min }}" fill="rgba(108,182,255,.25)" stroke="#6cb6ff"><title>{{ m.loc }} · {{ m.devices | length }} device(s){% for k, v in m.stock.items() %} · {{ k }} {{ v }}{% endfor %}</title></circle>
           {% if m.devices %}<text x="{{ m.x - 3 }}" y="{{ m.y + 4 }}" style="fill:#fff">{{ m.devices | length }}</text>{% endif %}
+          {% for g in m.drones %}{% set bx = m.x + 9 + loop.index0 * 25 %}{% set by = m.y + 9 %}
+          <g class="drone drone-{{ g.state }}">
+            <rect x="{{ bx }}" y="{{ by }}" width="23" height="12" rx="3"/>
+            <text x="{{ bx + 3 }}" y="{{ by + 9.5 }}">{{ g.letter }}{{ g.n }}</text>
+            <title>{{ g.n }} {{ g.kind }} drone(s) at {{ m.loc }}: {{ g.working }} working · {{ g.idle }} idle{% if g.moving %} · {{ g.moving }} moving{% endif %}{% if g.other %} · {{ g.other }} other{% endif %}
+{% for code, st in g.devices %}{{ code }} — {{ st }}
+{% endfor %}</title>
+          </g>{% endfor %}
         </g>
       {% endfor %}
       {% if view.oort %}<text x="{{ view.size - 170 }}" y="20">Oort {{ view.oort.au | round | int }} AU ↗</text>{% endif %}
@@ -49,8 +57,10 @@
         </g>{% endfor %}</g>
     </svg>
     <div class="row between"><p class="muted small" style="margin:4px 0">Log-scaled orbits. Green band = habitable zone, dashed rings = belts / Kuiper.
-      Blue circles = your devices or stockpiles · purple ▶ = in transit (dashed: its route; at the rim: surging in or out) · ◆ resource site · ▲ salvage · ■ Lagrange point · ● object / outer system (numbers = quantity available). Click anything for detail.</p>
-      <label class="small" style="text-transform:none;white-space:nowrap"><input type="checkbox" checked onchange="document.querySelector('svg.system').classList.toggle('nolabels', !this.checked)"> labels</label></div>
+      Blue circles = your devices or stockpiles · purple ▶ = in transit (dashed: its route; at the rim: surging in or out) · drone badges M mining, S survey, T transport, R maintenance
+      (green working, grey idle, purple moving, amber other; hover for each drone) · ◆ resource site · ▲ salvage · ■ Lagrange point · ● object / outer system (numbers = quantity available). Click anything for detail.</p>
+      <label class="small" style="text-transform:none;white-space:nowrap"><input type="checkbox" checked onchange="document.querySelector('svg.system').classList.toggle('nolabels', !this.checked)"> labels</label>
+      <label class="small" style="text-transform:none;white-space:nowrap"><input type="checkbox" checked onchange="document.querySelector('svg.system').classList.toggle('nodrones', !this.checked)"> drones</label></div>
   </div>
   <div>
     <div class="card" id="loc-panel"><p class="muted">Click a planet or marker to load location detail.</p></div>

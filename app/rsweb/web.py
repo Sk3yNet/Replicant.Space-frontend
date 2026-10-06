@@ -134,12 +134,37 @@ def f_num(v: Any) -> str:
     return f"{int(n):,}" if n == int(n) else f"{n:,.2f}"
 
 
+DRONE_KINDS = (("mining_drone", "mining", "M"), ("survey_drone", "survey", "S"), ("transport_drone", "transport", "T"),
+               ("transport_hauler", "transport", "T"), ("maintenance_drone", "maintenance", "R"))
+
+
+def drone_summary(devices: list[dict]) -> list[dict]:
+    """Drones by kind: [{kind, letter, n, working, idle, moving, other, state, devices: [(code, status)]}].
+    `state` is what most of them are doing (working / idle / moving / other), for the colour."""
+    out: dict[str, dict] = {}
+    for d in devices:
+        t = d.get("device_type") or ""
+        k = next(((kind, letter) for key, kind, letter in DRONE_KINDS if key == t), None)
+        if not k:
+            continue
+        g = out.setdefault(k[0], {"kind": k[0], "letter": k[1], "n": 0, "working": 0, "idle": 0, "moving": 0, "other": 0,
+                                  "devices": []})
+        g["n"] += 1
+        cls = status_class(d.get("status"))
+        g[{"st-work": "working", "st-idle": "idle", "st-move": "moving"}.get(cls, "other")] += 1
+        g["devices"].append((d.get("device_code"), d.get("status") or "?"))
+    for g in out.values():
+        g["state"] = max(("working", "idle", "moving", "other"), key=lambda x: (g[x], x == "working"))
+    order = [kind for _, kind, _ in DRONE_KINDS]
+    return sorted(out.values(), key=lambda g: order.index(g["kind"]))
+
+
 def status_class(status: Any) -> str:
     s = str(status or "").lower()
     if s.startswith(("idle", "inactive", "waiting")):
         return "st-idle"
     if s.startswith(("mining", "printing", "collecting", "depositing", "prospecting", "scanning", "coordinating",
-                     "patrolling", "relaying", "monitoring", "tracking", "repairing")):
+                     "patrolling", "relaying", "monitoring", "tracking", "repairing", "searching", "salvaging")):
         return "st-work"
     if s.startswith(("travel", "cruis", "surg", "recall", "divert")):
         return "st-move"
@@ -1069,7 +1094,7 @@ def build_system_view(star: str, scan: dict, devices: list[dict], inventory: lis
         xy = loc_xy(loc)
         if xy:
             shapes["markers"].append({"loc": loc, "x": xy[0], "y": xy[1], "devices": by_loc.get(loc, []),
-                                      "stock": inv.get(loc, {})})
+                                      "stock": inv.get(loc, {}), "drones": drone_summary(by_loc.get(loc, []))})
     # every other known location: resource sites, salvage, Lagrange points, objects, outer system
     qty = {x["code"]: x for x in ((res or {}).get("sites", []) + (res or {}).get("salvage", []))}
     hidden = (res or {}).get("hidden") or set()
@@ -1250,6 +1275,10 @@ async def map_data(request: Request, user: str = Depends(current_user)):
     cat = await db.kv_get("stars", {}) or {}
     st = await load_state(request)
     presence = Counter(star_of(d.get("location")) for d in st["devices"])
+    by_star: dict[str, list[dict]] = defaultdict(list)
+    for d in st["devices"]:
+        if d.get("location"):
+            by_star[star_of(d["location"])].append(d)
     infra: dict[str, list[str]] = defaultdict(list)
     for d in st["devices"]:
         t = d.get("device_type") or ""
@@ -1261,7 +1290,8 @@ async def map_data(request: Request, user: str = Depends(current_user)):
     stars = []
     for s in cat.get("stars") or []:
         d = s.get("designation")
-        stars.append({**s, "devices": presence.get(d, 0), "infra": infra.get(d, []), "scanned": d in scanned})
+        drones = [{k: g[k] for k in ("kind", "n", "working", "idle", "moving", "state")} for g in drone_summary(by_star.get(d, []))]
+        stars.append({**s, "devices": presence.get(d, 0), "infra": infra.get(d, []), "scanned": d in scanned, "drones": drones})
     from . import transit
     positions = {x["designation"]: x.get("position") for x in stars if x.get("position")}
     moving = transit.galaxy_movers(transit.trips(st["devices"]), positions)
