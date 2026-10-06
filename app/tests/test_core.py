@@ -3719,3 +3719,10 @@ def test_unstationed_fleets_stay_aboard_at_home(client):
     steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, {"status": "running", "log": []}, "unload", devices)
     descs = [s["desc"] for s in steps]
     assert "deploy MD from CV" in descs and "CV: detach TH" in descs and "CV: attach TH" not in descs
+
+
+def test_change_owner_sends_target():
+    """Live 2026-10-06: 'target: Missing data for required field.; replicant_code: Unknown field.'"""
+    from starlette.datastructures import FormData
+    from rsweb import commands
+    assert commands.parse_fields(commands.COMMANDS["change_owner"], FormData({"f.target": "D9351B81"})) == {"target": "D9351B81"}

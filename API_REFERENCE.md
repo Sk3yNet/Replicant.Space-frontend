@@ -478,6 +478,7 @@ Command bodies seen:
 {"command": "prospect", "direction": [0.0, -1.0, 0.0]}  // observatory; → {"status": "prospecting", "completes_at": "..."}
 {"command": "set_welcome_message", "message": "..."} // system hub
 {"command": "message", "channel": "#general", "text": "..."} // relay
+{"command": "change_owner", "target": "<replicant_code>"}    // confirmed live 2026-10-06 (`replicant_code` is rejected)
 {"command": "enqueue_print", "device_type": "mining_drone", "quantity": 1, "tags": ["fleet-713"],
  "controller": "MC91FF22", "oncomplete": {"command": "travel", "destination": "LERNA-BELT-1"}, "flatpack": false}
    // → {"queue": [], "queue_length": 0, "status": "enqueued"}; oncomplete supports travel, start_mining

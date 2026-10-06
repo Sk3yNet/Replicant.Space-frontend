@@ -89,8 +89,9 @@ COMMANDS: dict[str, list[Field]] = {
     "compact": [],
     "unfurl": [],
     "decommission": [],
-    "change_owner": [F("replicant_code", "replicant", required=True, label="new owner",
-                       help="Field name not confirmed by the docs; check the response")],
+    # live 2026-10-06: the game wants the new owner as `target` ("replicant_code: Unknown field")
+    "change_owner": [F("target", "replicant", required=True, label="new owner",
+                       help="The replicant that takes over this device")],
     "set_welcome_message": [F("message", "text", required=True)],
     "message": [F("channel", "channel", required=True, default="#general"), F("text", "text", required=True)],
 }
