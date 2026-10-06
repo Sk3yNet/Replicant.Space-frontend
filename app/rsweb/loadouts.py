@@ -423,7 +423,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     for code in load:
         load[code] = max(load[code], ordered.get(code, 0.0))
 
-    def factory_for(t: str, star: str) -> tuple[dict | None, str]:
+    def factory_for(t: str, star: str, tag: str | None = None) -> tuple[dict | None, str]:
         bp = bps.get(t)
         if not bp:
             return None, f"no blueprint for {t}"
@@ -431,7 +431,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if not factories:
             return None, "no autofactory"
         best = None
+        # another fleet's autofactory prints for its own fleet: use it only when nothing else can
         open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0]
+        mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) == tag]
+        open_f = mine or open_f
         if not open_f:
             return None, "every autofactory's print queue is full"
         for f in sorted(open_f, key=lambda f: (star_of(f.get("location")) != star, _dist(star_of(f.get("location")), star, pos))):
@@ -482,8 +485,28 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 unmet.append({"star": star, "type": row["type"], "n": len(wait),
                               "why": f"spare(s) {', '.join(d['device_code'] for d in wait)} still working — sent once idle"})
                 need -= len(wait)
-            if need > 0 and s["print_missing"]:
-                f, why = factory_for(row["type"], star)
+            own = [g for g in factories if fleet_tag_of(g) == tag and queue_free.get(g["device_code"], 1) > 0]
+            if need > 0 and s["print_missing"] and own and row["type"] in bps:
+                # Seen live (2026-10-06): three fleets each with an autofactory, all three prints on one of them. A fleet
+                # with its own autofactory prints there; short of stock, the print waits for materials in its queue.
+                cost = as_amounts((bps.get(row["type"]) or {}).get("resources"))
+                parts = pq.split(own, row["type"], need, bps, load, queue_free)
+                n = sum(k for _, k in parts)
+                for g, k in parts:
+                    stock = as_amounts(inventory.get(g.get("location")) or {})
+                    short = any(stock.get(r, 0) - reserved[g["location"]][r] < v * k for r, v in cost.items())
+                    for r, v in cost.items():
+                        reserved[g["location"]][r] += v * k
+                    prints.append({"factory": g["device_code"], "factory_star": star_of(g.get("location")),
+                                   "device_type": row["type"], "n": k, "star": star, "fleet": fid,
+                                   "note": "the fleet's own autofactory; waits for materials" if short else ""})
+                row["printing"] = n
+                need -= n
+                if need > 0:
+                    unmet.append({"star": star, "type": row["type"], "n": need,
+                                  "why": f"the fleet's autofactory queue is full ({', '.join(g['device_code'] for g in own)})"})
+            elif need > 0 and s["print_missing"]:
+                f, why = factory_for(row["type"], star, tag)
                 if f:
                     cost = as_amounts((bps.get(row["type"]) or {}).get("resources"))
                     n = need
@@ -494,7 +517,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     # every autofactory in that system shares the work, evenly by print time (with need_stock, only
                     # those at the same stockpile, since the stock check above was for that one)
                     peers = [g for g in factories if star_of(g.get("location")) == star_of(f.get("location"))
-                             and (not s["need_stock"] or g.get("location") == f.get("location"))]
+                             and (not s["need_stock"] or g.get("location") == f.get("location"))
+                             and (not fleet_tag_of(g) or fleet_tag_of(g) == tag or g is f)]   # not other fleets' own
                     parts = pq.split(peers, row["type"], n, bps, load, queue_free)
                     n = sum(k for _, k in parts)
                     for g, k in parts:

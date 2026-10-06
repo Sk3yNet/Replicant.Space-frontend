@@ -3964,3 +3964,26 @@ def test_prints_spread_over_factories_across_passes():
         orders.append({"star": "FAL", "fleet": "fal", "device_type": "maintenance_drone", "factory": pr["factory"]})
         fleets[0]["wants"]["maintenance_drone"] += 1          # one more wanted each pass, as when stock allows one at a time
     assert sorted(o["factory"] for o in orders) == ["AF1", "AF2", "AF3"]
+
+
+def test_each_fleet_prints_on_its_own_autofactory():
+    """Live 2026-10-06: three fleets with an autofactory each (all at FALQUORYX-BELT-1); an item added to all three
+    loadouts was printed three times on one factory."""
+    from rsweb import loadouts as lo
+    devices = [{"device_code": c, "device_type": "autofactory", "location": "FAL-BELT-1", "status": "idle", "print_queue": [],
+                "available_commands": ["enqueue_print"], "tags": [f"fleet:{fid}"]}
+               for c, fid in (("AF1", "hub"), ("AF2", "m1"), ("AF3", "m2"))]
+    devices.append({"device_code": "AF0", "device_type": "autofactory", "location": "FAL-BELT-1", "status": "idle",
+                    "print_queue": [], "available_commands": ["enqueue_print"], "tags": []})
+    fleets = [{"id": fid, "name": fid, "home": home, "station": True, "wants": {"maintenance_drone": 1}}
+              for fid, home in (("hub", "FAL"), ("m1", "KEL"), ("m2", "LOR"))]
+    fleets.append({"id": "m3", "name": "m3", "home": "LOR", "station": True, "wants": {"maintenance_drone": 1}})
+    bps = [{"device_type": "maintenance_drone", "resources": {"structural": 50}, "print_time": 600}]
+    stars = {s: {"position": {"x": i, "y": 0, "z": 0}} for i, s in enumerate(("FAL", "KEL", "LOR"))}
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, bps, {"FAL-BELT-1": {"structural": 1000}},
+                stars, {}, set(), [], {})
+    got = {pr["fleet"]: pr["factory"] for pr in p["prints"]}
+    assert got == {"hub": "AF1", "m1": "AF2", "m2": "AF3", "m3": "AF0"}     # m3 has none: the fleetless one, not another's
+    # no stock: a fleet's own factory still gets it, and it waits for materials there
+    p = lo.plan({"phases": [], "fleets": fleets[:1], "fleets_migrated": True}, devices, bps, {}, stars, {}, set(), [], {})
+    assert [(pr["factory"], pr["note"]) for pr in p["prints"]] == [("AF1", "the fleet's own autofactory; waits for materials")]
