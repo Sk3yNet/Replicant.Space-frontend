@@ -1483,6 +1483,9 @@ class AutomationEngine(OpsRules):
             return fl.mining_work_steps(fleet, devices, belt, deliver_to)
         if phase == "recall":
             haul = m.get("belt") if fleet["role"] == "mining" and not m.get("deliver_to") and not m.get("end_here") else None
+            for c in fl.outside_controllers(fleet, devices):
+                self._mlog(m, f"{c['device_code']} ({c.get('device_type')}) runs this fleet's drones but isn't in the fleet "
+                              "(no fleet tag): it won't be recalled or taken home — add it under Add / remove devices")
             return fl.recall_steps(fleet, devices, inv, haul), []
         if phase == "return":
             return fl.travel_steps(fleet, devices, fleet["home"], stars), []

@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.18.0"
+VERSION = "1.18.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.18.1", "2026-10-06", "Fleet recall / boarding no longer orders a device that's already flying: one already on its way "
+                             "to the carrier is just waited for (up to its ETA), one flying elsewhere lands first. Fixes the "
+                             "Surveyors recall stalling on \"Device is already in motion\" after survey_system recalled its drones. "
+                             "The mission log flags a controller that runs the fleet's drones but isn't in the fleet."),
     ("1.18.0", "2026-10-06", "Home fleets are gone: one Fleets page, and any fleet can be stationed at its home system, where the "
                              "loadout pass keeps it at its loadout (fleetless devices there join it, extras become spare, spares "
                              "and prints fill it) and the in-system rules work its devices. Materials are a fleet setting: send "

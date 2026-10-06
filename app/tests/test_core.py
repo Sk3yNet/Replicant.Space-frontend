@@ -3466,3 +3466,33 @@ def test_back_to_station_clears_an_ended_mission(client):
     client.post("/fleets/sol-home/control", data={"action": "station"}, headers=HX)
     f = client.portal.call(eng.fleets)[0]
     assert f["mission"]["status"] == "done" and fl.stationed(f)
+
+
+def test_recall_waits_for_passengers_already_flying_back():
+    """Seen live 2026-10-06: survey_system (recall on) had already sent the drones back to the vessel; the fleet's recall
+    ordered them there again, the game said "Device is already in motion" and the mission stalled."""
+    from rsweb import fleets as fl
+    fleet = {"id": "surveyors", "name": "Surveyors", "role": "explore", "home": "FAL", "wants": {}}
+    trip = lambda dest: {"destination": dest, "final_destination": dest, "eta_seconds": 1424,  # noqa: E731
+                         "arrives_at": "2099-01-01T00:00:00+00:00"}
+    devices = [
+        {"device_code": "HV", "device_type": "heaven_vessel", "location": "OTH-OORT", "status": "idle", "features": ["surge"],
+         "stow_capacity": 10, "tags": ["fleet:surveyors"]},
+        {"device_code": "D1", "device_type": "survey_drone", "location": None, "status": "recalling", "features": ["stow"],
+         "travel": trip("OTH-OORT"), "controller_device_code": "SC", "tags": ["fleet:surveyors"]},
+        {"device_code": "D2", "device_type": "survey_drone", "location": None, "status": "recalling", "features": ["stow"],
+         "travel": trip("OTH-3"), "tags": ["fleet:surveyors"]},
+        {"device_code": "D3", "device_type": "survey_drone", "location": "OTH-2", "status": "idle", "features": ["stow"],
+         "tags": ["fleet:surveyors"]},
+        {"device_code": "SC", "device_type": "ami_survey_controller", "location": "OTH-1", "status": "coordinating", "tags": []},
+    ]
+    steps, problems = fl.assemble_steps(fleet, devices)
+    plan = [(s["method"], s["desc"]) for s in steps]
+    assert problems == []
+    assert ("POST", "D1 → OTH-OORT (board)") not in plan                      # already on its way: no new order
+    assert plan.index(("WAIT", "wait for D2 at OTH-3")) < plan.index(("POST", "D2 → OTH-OORT (board)"))   # lands first
+    assert ("POST", "D3 → OTH-OORT (board)") in plan
+    w = next(s for s in steps if s["desc"] == "wait for D1 at OTH-OORT")
+    assert w["seq0_from"] == 0 and w["timeout"] > 3600                          # counts from the job start, waits for its ETA
+    assert [s["desc"] for s in steps[-3:]] == ["stow D1 in HV", "stow D2 in HV", "stow D3 in HV"]
+    assert [c["device_code"] for c in fl.outside_controllers(fleet, devices)] == ["SC"]

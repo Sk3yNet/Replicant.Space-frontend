@@ -256,11 +256,33 @@ def destination(star: str, stars: dict) -> str:
     return (stars.get(star) or {}).get("entry_point") or star
 
 
-def _wait_arrive(code: str, dest: str, match: str | None = None) -> dict:
+def _wait_arrive(code: str, dest: str, match: str | None = None, timeout: int | None = None) -> dict:
     st = step(f"wait for {code} at {dest}", "", None, method="WAIT", wait=["travel.arrived"],
-              match={"destination": match or dest}, timeout=STEP_TIMEOUT)
+              match={"destination": match or dest}, timeout=max(STEP_TIMEOUT, timeout or 0))
     st["wait_device"] = code
     return st
+
+
+MOVING = ("moving", "travel", "cruis", "surg", "recalling", "returning")
+
+
+def in_flight(d: dict) -> dict | None:
+    """The trip a device is on right now ({"destination", "seconds_left"}), or None. The game refuses any new order
+    while a device is in motion ("Device is already in motion") — seen live 2026-10-06: a survey controller's
+    `survey_system` with recall on had already sent its drones back to the vessel when the fleet's recall ordered
+    them there too, and the mission stalled."""
+    st = str(d.get("status") or "").lower()
+    tr = d.get("travel") or {}
+    if not st.startswith(MOVING) or not (tr.get("final_destination") or tr.get("destination")):
+        return None
+    from datetime import datetime, timezone
+    left = int(tr.get("eta_seconds") or 0)
+    try:
+        at = datetime.fromisoformat(str(tr.get("final_arrives_at") or tr.get("arrives_at")))
+        left = max(left, int((at - datetime.now(timezone.utc)).total_seconds()))
+    except (TypeError, ValueError):
+        pass
+    return {"destination": tr.get("final_destination") or tr.get("destination"), "seconds_left": max(0, left)}
 
 
 def assemble_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], list[str]]:
@@ -273,12 +295,15 @@ def assemble_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], list[s
     free = {c["device_code"]: seats(c, devices) for c in carriers}
     loc = {c["device_code"]: c.get("location") for c in carriers}
     steps, problems, moves, board = [], [], [], []
+    arriving: list[tuple[str, dict]] = []   # passengers already flying to their carrier
+    landing: list[tuple[str, dict]] = []    # passengers flying somewhere else: they land, then board
     # devices that can't stow first, so they get the attach points before stowable ones overflow onto them
     for d in sorted(r["passengers"], key=lambda d: (stowable(d), d["device_code"])):
         code = d["device_code"]
         if aboard(d, codes):
             continue
-        here = star_of(d.get("location"))
+        trip = in_flight(d)
+        here = star_of(d.get("location") or (trip or {}).get("destination"))
         mode, c = None, None
         for cand in carriers:
             if star_of(loc[cand["device_code"]]) != here:
@@ -293,18 +318,30 @@ def assemble_steps(fleet: dict, devices: list[dict]) -> tuple[list[dict], list[s
             problems.append(f"{code} ({d.get('device_type')}) is in {here or 'transit'} with no "
                             + ("hold or attach" if stowable(d) else "attach") + " room on a fleet carrier there")
             continue
-        if d.get("location") != loc[c["device_code"]]:
+        if trip and trip["destination"] == loc[c["device_code"]]:
+            arriving.append((code, trip))   # already on its way to the carrier: just wait for it
+        elif d.get("location") != loc[c["device_code"]] or trip:
             if "travel" not in (d.get("available_commands") or ["travel"]):
                 problems.append(f"{code} can't travel to {loc[c['device_code']]} to board")
                 continue
+            if trip:   # in flight somewhere else: it can't be redirected, so it lands first
+                landing.append((code, trip))
             moves.append((code, loc[c["device_code"]]))
         board.append((c["device_code"], code, mode))
+    for code, trip in landing:
+        w = _wait_arrive(code, trip["destination"], timeout=trip["seconds_left"] + 1800)
+        w["seq0_from"] = 0   # it may land while earlier steps run: count from the start of the job
+        steps.append(w)
     first = len(steps)
     for code, dest in moves:
         steps.append(step(f"{code} → {dest} (board)", f"/devices/{code}", {"command": "travel", "destination": dest}, critical=True))
     for i, (code, dest) in enumerate(moves):
         w = _wait_arrive(code, dest)
         w["seq0_from"] = first + i
+        steps.append(w)
+    for code, trip in arriving:
+        w = _wait_arrive(code, trip["destination"], timeout=trip["seconds_left"] + 1800)
+        w["seq0_from"] = 0
         steps.append(w)
     for carrier, code, mode in board:
         steps.append(board_step(carrier, code, mode))
@@ -599,6 +636,15 @@ def recall_steps(fleet: dict, devices: list[dict], inventory: dict[str, dict], h
                                       {"command": "collect_resources", "resources": take}))
     board, _ = assemble_steps(fleet, devices)
     return steps + board
+
+
+def outside_controllers(fleet: dict, devices: list[dict]) -> list[dict]:
+    """Controllers that run members of this fleet but aren't in it themselves (seen live 2026-10-06: the Surveyors'
+    survey controller had lost its fleet tag, so the recall left it out and it would have been left behind)."""
+    ms = members(fleet, devices)
+    mine = {d["device_code"] for d in ms}
+    runs = {d.get("controller_device_code") for d in ms if d.get("controller_device_code")}
+    return [d for d in devices if d.get("device_code") in runs - mine]
 
 
 def trade_load_steps(fleet: dict, devices: list[dict], price: dict, home_pile: str | None) -> tuple[list[dict], list[str]]:
