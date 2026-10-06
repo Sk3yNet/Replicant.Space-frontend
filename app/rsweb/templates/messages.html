@@ -22,8 +22,42 @@
     <ul class="feed">{% for e in bobnet %}<li><span class="t">{{ e.created_at | local('%m-%d %H:%M') }}</span><span>[{{ e.payload.channel }}] <b>{{ e.payload.replicant_name }}</b>: {{ e.payload.message }}</span></li>{% else %}<li class="muted">No chat yet.</li>{% endfor %}</ul>
     {% if replicants %}
     <form class="inline" hx-post="/replicants/{{ (replicants.keys() | list)[0] }}/message" hx-target="#msg-result" style="margin-top:8px">
-      <input name="channel" value="#general" size="9"><input name="text" placeholder="say something" required size="30"><button>Send</button>
+      <select name="channel">{% for c in subscribed or ['#general'] %}<option>{{ c }}</option>{% endfor %}</select>
+      <input name="text" placeholder="say something" required size="30"><button>Send</button>
     </form>{% endif %}
+    <p class="muted small">The stream only brings messages on the channels you're subscribed to.</p>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <div class="row between"><h2>BobNet channels <span class="muted small">{{ subscribed | length }} subscribed</span></h2>
+      <button class="small" hx-post="/bobnet/channels/refresh" hx-target="#bobnet-result"
+              {{ 'disabled title="needs an FTL relay"' if not relay }}>Refresh list</button></div>
+    <div id="bobnet-result"></div>
+    {% if channel_cache.at %}<p class="muted small">Listed by relay {{ channel_cache.relay }} {{ channel_cache.at | ago }}.</p>
+    {% elif relay %}<p class="muted small">Press <b>Refresh list</b> to read every channel from relay {{ relay.device_code }}.</p>
+    {% else %}<p class="muted small">The channel list comes from an FTL relay, and you have none yet. You can still join a channel by name.</p>{% endif %}
+    <form hx-post="/bobnet/subscribe" hx-target="#bobnet-result">
+      <table class="small"><tr><th>Listen</th><th>Channel</th><th>Last active</th><th></th></tr>
+        {% for c in channels %}<tr>
+          <td><input type="checkbox" name="channel" value="{{ c.name }}" {{ 'checked' if c.subscribed }}></td>
+          <td class="mono">{{ c.name }}{% if not c.listed and channel_cache.at %} <span class="muted" title="not in the relay's list">(unlisted)</span>{% endif %}</td>
+          <td>{{ (c.last_active | ago) if c.last_active else '—' }}</td>
+          <td>{% if relay %}<button type="button" class="small ghost" hx-post="/bobnet/history" hx-vals='{"channel": "{{ c.name }}"}'
+                  hx-target="#bobnet-history">recent</button>{% endif %}</td></tr>
+        {% else %}<tr><td colspan="4" class="muted">No channels known yet.</td></tr>{% endfor %}
+      </table>
+      <div class="row" style="margin-top:8px">
+        <input name="new" placeholder="join by name, e.g. #explorers" size="22">
+        <button>Save subscriptions</button></div>
+      <p class="muted small">Saved to your game account (<code>bobnet_channels</code>): untick to stop listening, tick or type a name to join.</p>
+    </form>
+  </div>
+  <div class="card">
+    <div class="row between"><h2>Recent on BobNet <span class="muted small">from the relay, all channels</span></h2>
+      {% if relay %}<button class="small" hx-post="/bobnet/history" hx-target="#bobnet-history">Load</button>{% endif %}</div>
+    <div id="bobnet-history"><p class="muted small">{{ 'Load the latest 50 messages the relay has heard, or press recent on a channel.' if relay else 'Needs an FTL relay.' }}</p></div>
   </div>
 </div>
 {% endblock %}

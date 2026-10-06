@@ -131,6 +131,7 @@ class World:
         ]
         self.teleports: list[tuple[str, str]] = []
         self.move_seconds = 2.0
+        self.channels = ["#general", "#trade"]
         for d in self.devices:
             d["replicant_code"] = REP
         self.location = "SOL-BELT-1"
@@ -242,10 +243,35 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     async def me():
         return ok({"name": "bob", "email": "bob@example.com", "email_verified": True, "created_at": iso(),
                    "experience_points_total": world.xp, "status": "active", "timezone": "America/New_York",
-                   "unread_message_count": 1, "bobnet_channels": ["#general", "#trade"],
+                   "unread_message_count": 1, "bobnet_channels": list(world.channels),
                    "replicants": [{"replicant_code": REP, "name": "bob-1", "current_location": world.location, "current_star": "SOL",
                                    "hosted_device_code": HOST, "device_count": len(world.devices), "experience_points": 1245,
                                    "created_at": iso()}]})
+
+    @app.patch("/v1/accounts/me")
+    async def me_patch(request: Request):
+        body = await request.json()
+        if "bobnet_channels" in body:
+            chans = body["bobnet_channels"]
+            if not isinstance(chans, list) or any(not str(c).startswith("#") for c in chans):
+                return ok({"error": "bobnet_channels must be a list of #channel names"}, 400)
+            world.channels = list(chans)
+        return ok({"bobnet_channels": world.channels})
+
+    @app.get("/v1/devices/{code}/channels")
+    async def relay_channels(code: str):
+        d = next((d for d in world.devices if d["device_code"] == code), None)
+        if not d or "relay" not in d["device_type"]:
+            return ok({"error": "Not a relay"}, 400)
+        return ok({"channels": [{"name": "#general", "last_active": iso()}, {"name": "#trade", "last_active": iso()},
+                                {"name": "#explorers", "last_active": iso()}, {"name": "#sol-local", "last_active": None}]})
+
+    @app.get("/v1/devices/{code}/messages")
+    async def relay_messages(code: str, limit: int = 20):
+        return ok({"messages": [{"id": 1, "channel": "#explorers", "current_star": "ABOTEIN", "message": "anyone near ZALDANAL?",
+                                 "replicant_code": "FF000001", "replicant_name": "riker-2", "time": iso()},
+                                {"id": 2, "channel": "#general", "current_star": "SOL", "message": "hello", "replicant_code": REP,
+                                 "replicant_name": "bob-1", "time": iso()}][:limit], "next_cursor": None, "total": 2})
 
     @app.get("/v1/replicants/{code}")
     async def replicant(code: str):

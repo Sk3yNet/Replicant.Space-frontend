@@ -3671,3 +3671,51 @@ def test_moving_devices_show_on_both_maps(client):
     page = client.get("/systems/SOL", headers=H).text
     assert 'class="mover mover-out"' in page and "→ ABOTEIN-3-L4" in page
     assert 'id="opt-moving"' in client.get("/map", headers=H).text
+
+
+def test_bobnet_channels_list_and_subscribe(client):
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.portal.call(client.app.state.worker.sync_account)
+    page = client.get("/messages", headers=H).text
+    assert "BobNet channels" in page and 'value="#trade" checked' in page
+    r = client.post("/bobnet/channels/refresh", headers=HX)
+    assert r.headers.get("HX-Refresh")
+    page = client.get("/messages", headers=H).text
+    assert 'value="#explorers"' in page and "Listed by relay BCN00001" in page
+    # keep #general, drop #trade, add #explorers (ticked) and #ops (typed without the #)
+    client.post("/bobnet/subscribe", data={"channel": ["#general", "#explorers"], "new": "ops"}, headers=HX)
+    assert world.channels == ["#general", "#explorers", "#ops"]
+    acct = client.portal.call(client.app.state.db.kv_get, "account")
+    assert acct["bobnet_channels"] == ["#general", "#explorers", "#ops"]
+    page = client.get("/messages", headers=H).text
+    assert 'value="#trade" >' in page or 'value="#trade" ' in page and 'value="#trade" checked' not in page
+    assert "<option>#explorers</option>" in page                       # the Send box offers subscribed channels
+    r = client.post("/bobnet/history", data={"channel": "#explorers"}, headers=HX)
+    assert "anyone near ZALDANAL?" in r.text and "hello" not in r.text
+
+
+def test_unstationed_fleets_stay_aboard_at_home(client):
+    eng = client.app.state.worker.automations
+    devices = [
+        {"device_code": "CV", "device_type": "cargo_vessel", "location": "SOL-3-L4", "status": "idle", "features": ["surge"],
+         "stow_capacity": 50, "attach_capacity": 3, "tags": ["fleet:miners"]},
+        {"device_code": "MD", "device_type": "mining_drone", "location": None, "stowed_in_device_code": "CV", "status": "stowed",
+         "tags": ["fleet:miners"]},
+        {"device_code": "TH", "device_type": "transport_hauler", "location": "SOL-3-L4", "attached_to_device_code": "CV",
+         "status": "attached", "cargo_used": 40, "tags": ["fleet:miners"]},
+        {"device_code": "FR", "device_type": "cargo_freighter", "location": "SOL-3-L4", "status": "idle", "features": ["surge"],
+         "cargo_used": 200, "tags": ["fleet:miners"]},
+    ]
+    fleet = {"id": "miners", "name": "Miners", "role": "mining", "home": "SOL", "wants": {}, "station": False}
+    m = {"status": "running", "phase": "return", "log": []}
+    steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, m, "unload", devices)
+    descs = [s["desc"] for s in steps]
+    assert not any(d.startswith("deploy MD") for d in descs)                    # passengers stay aboard
+    th = [d for d in descs if "TH" in d]
+    assert th[0] == "CV: detach TH (to deposit)" and "TH: unload" in th and th[-1] == "CV: attach TH"   # back on board
+    assert "FR: unload" in descs and "everyone stays aboard" in m["log"][-1]["text"]
+    fleet["station"] = True                                                       # a stationed fleet works its home
+    steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, {"status": "running", "log": []}, "unload", devices)
+    descs = [s["desc"] for s in steps]
+    assert "deploy MD from CV" in descs and "CV: detach TH" in descs and "CV: attach TH" not in descs

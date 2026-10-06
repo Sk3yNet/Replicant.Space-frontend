@@ -1659,8 +1659,86 @@ async def messages(request: Request, user: str = Depends(current_user)):
     bobnet = [row_event(r) for r in await request.app.state.db.fetchall(
         "SELECT * FROM events WHERE event='bobnet.new' ORDER BY seq DESC LIMIT 50")]
     st = await load_state(request)
+    db = request.app.state.db
+    subscribed = list(((await db.kv_get("account", {})) or {}).get("bobnet_channels") or [])
+    cache = await db.kv_get("bobnet_channels", {}) or {}
+    names = {c.get("name"): c for c in cache.get("channels") or [] if c.get("name")}
+    channels = sorted(({"name": n, "last_active": (names.get(n) or {}).get("last_active"), "subscribed": n in subscribed,
+                        "listed": n in names} for n in set(names) | set(subscribed)),
+                      key=lambda c: (not c["subscribed"], -(_ts_num(c["last_active"])), c["name"]))
     return await page(request, user, "messages.html", "messages", msgs=msgs, err=err, bobnet=bobnet,
-                      replicants=st["replicants"])
+                      replicants=st["replicants"], channels=channels, subscribed=subscribed, channel_cache=cache,
+                      relay=bobnet_relay(st["devices"]))
+
+
+def _ts_num(v: Any) -> float:
+    try:
+        return datetime.fromisoformat(str(v)).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def bobnet_relay(devices: list[dict]) -> dict | None:
+    """The relay to ask about BobNet: a relaying one in comms range first, else any FTL relay."""
+    relays = [d for d in devices if "relay" in (d.get("device_type") or "") and d.get("device_code")]
+    relays.sort(key=lambda d: (not str(d.get("status") or "").startswith(("relaying", "active")),
+                               d.get("in_control_range") is False, d["device_code"]))
+    return relays[0] if relays else None
+
+
+@router.post("/bobnet/channels/refresh", response_class=HTMLResponse)
+async def bobnet_channels_refresh(request: Request, user: str = Depends(current_user)):
+    """Read the channel list from a relay (GET /devices/<relay>/channels)."""
+    relay = bobnet_relay((await load_state(request))["devices"])
+    if not relay:
+        return HTMLResponse('<div class="result err">The channel list comes from an FTL relay, and you have none.</div>')
+    try:
+        body = await request.app.state.api.get(f"/devices/{relay['device_code']}/channels")
+    except ApiError as e:
+        return HTMLResponse(f'<div class="result err">{html.escape(relay["device_code"])}: {html.escape(e.message)}</div>')
+    chans = [c for c in (body or {}).get("channels") or [] if isinstance(c, dict) and c.get("name")]
+    await request.app.state.db.kv_set("bobnet_channels", {"at": now_iso(), "relay": relay["device_code"], "channels": chans})
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/bobnet/subscribe", response_class=HTMLResponse)
+async def bobnet_subscribe(request: Request, user: str = Depends(current_user)):
+    """Set the account's BobNet channels (PATCH /accounts/me bobnet_channels): the ticked ones plus any typed in."""
+    form = await request.form()
+    chans = [c for c in form.getlist("channel") if c]
+    for raw in re.split(r"[,\s]+", form.get("new") or ""):
+        raw = raw.strip()
+        if raw:
+            chans.append(raw if raw.startswith("#") else "#" + raw)
+    chans = list(dict.fromkeys(c.strip() for c in chans if c.strip() not in ("", "#")))
+    out = await call_action(request, user, "PATCH", "/accounts/me", {"bobnet_channels": chans}, "BobNet channels")
+    if not out["ok"]:
+        return render_action(request, out)
+    try:
+        await request.app.state.worker.sync_account()
+    except ApiError:
+        pass
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/bobnet/history", response_class=HTMLResponse)
+async def bobnet_history(request: Request, channel: str = Form(""), user: str = Depends(current_user)):
+    """The latest BobNet messages a relay has heard (GET /devices/<relay>/messages), optionally one channel."""
+    relay = bobnet_relay((await load_state(request))["devices"])
+    if not relay:
+        return HTMLResponse('<p class="muted small">Reading BobNet history needs an FTL relay.</p>')
+    try:
+        body = await request.app.state.api.get(f"/devices/{relay['device_code']}/messages", latest="true", limit=50)
+    except ApiError as e:
+        return HTMLResponse(f'<div class="result err">{html.escape(e.message)}</div>')
+    msgs = [m for m in (body or {}).get("messages") or [] if not channel or m.get("channel") == channel]
+    if not msgs:
+        return HTMLResponse(f'<p class="muted small">Nothing recent{" on " + html.escape(channel) if channel else ""}.</p>')
+    rows = "".join(f'<li><span class="t">{html.escape(str(m.get("time") or "")[5:16].replace("T", " "))}</span><span>'
+                   f'[{html.escape(m.get("channel") or "")}] <b>{html.escape(m.get("replicant_name") or "?")}</b>'
+                   f'<span class="muted"> @ {html.escape(m.get("current_star") or "?")}</span>: {html.escape(m.get("message") or "")}'
+                   f'</span></li>' for m in msgs)
+    return HTMLResponse(f'<ul class="feed">{rows}</ul>')
 
 
 @router.post("/messages/read", response_class=HTMLResponse)

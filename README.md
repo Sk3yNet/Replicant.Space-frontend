@@ -49,6 +49,15 @@ the nearest destination). Existing mobile fleets stay as they were: not statione
 `home:<star>` tag the fleet tag of the fleet stationed there (or drops the tag), and a device already on its way with an old
 `to:` tag joins the fleet there on arrival. Old diagnostics snapshots are read the same way.
 
+**BobNet channels** (1.21.0): Activity › Messages has a **BobNet channels** card. *Refresh list* reads every channel from one of
+your FTL relays (`GET /devices/<relay>/channels`, with when each was last active); tick the ones to listen to, or type a name to
+join, and *Save subscriptions* sets your account's `bobnet_channels`. The event stream then brings their messages. *recent* (per
+channel) and *Load* show the latest messages the relay has heard; the Send box offers your subscribed channels.
+
+**Fleets stay aboard at home** (1.21.0): when a mission ends, a fleet that isn't stationed stays aboard its carriers at home,
+ready for its next mission; only cargo is deposited (a hauler riding a carrier hops off to deposit and boards again). A
+stationed fleet still comes off its carriers, since its devices work the home system.
+
 **In transit on the maps** (1.20.0): devices that are travelling appear on both maps as a purple arrow on a dashed route,
 pointing where they're going, with progress and time left (updated live). Devices travelling together (same route, arriving
 within a minute) show as one, e.g. *2× survey drone*. On a **system map**, cruises inside the system move along their path;

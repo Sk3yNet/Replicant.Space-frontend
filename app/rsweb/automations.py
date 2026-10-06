@@ -1556,14 +1556,43 @@ class AutomationEngine(OpsRules):
         if phase == "return":
             return fl.travel_steps(fleet, devices, fleet["home"], stars), []
         if phase == "unload":
-            steps = fl.unload_steps(fleet, devices)
+            # A stationed fleet's devices work its home system, so they come off the carriers. Any other fleet stays aboard,
+            # ready for its next mission: only cargo is deposited (a cargo carrier riding a carrier hops off for it and
+            # boards again).
             pile = lo.drop_point(fleet["home"], devices, inv, stars)
+            if fleet.get("station"):
+                steps = fl.unload_steps(fleet, devices)
+                self._mlog(m, "home: devices come off the carriers to work the home system (stationed fleet)")
+            else:
+                steps = []
+                self._mlog(m, "home: everyone stays aboard; only cargo is deposited")
+            r = fl.roster(fleet, devices)
+            carriers = {c["device_code"]: c for c in r["carriers"]}
             for d in fl.members(fleet, devices):
-                if int(d.get("cargo_used") or 0) > 0 and d.get("device_type") in ("cargo_freighter", "transport_hauler", "transport_drone"):
-                    st = step(f"{d['device_code']} → {pile}", f"/devices/{d['device_code']}", {"command": "travel", "destination": pile},
-                              wait=["travel.arrived"], match={"destination": pile})
-                    st["wait_device"] = d["device_code"]
-                    steps += [st, step(f"{d['device_code']}: unload", f"/devices/{d['device_code']}", {"command": "deposit_resources"})]
+                if int(d.get("cargo_used") or 0) <= 0 or d.get("device_type") not in ("cargo_freighter", "transport_hauler", "transport_drone"):
+                    continue
+                code = d["device_code"]
+                ride = fl.aboard(d, set(carriers)) if not fleet.get("station") else None
+                if ride:   # get off, deposit, get back on
+                    if d.get("attached_to_device_code") == ride:
+                        steps.append(step(f"{ride}: detach {code} (to deposit)", f"/devices/{ride}", {"command": "detach", "device": code}))
+                    else:
+                        st = step(f"deploy {code} from {ride} (to deposit)", f"/devices/{code}", {"command": "deploy"},
+                                  wait=["device.deployed"], timeout=SHORT_TIMEOUT)
+                        st["wait_device"] = code
+                        steps.append(st)
+                st = step(f"{code} → {pile}", f"/devices/{code}", {"command": "travel", "destination": pile},
+                          wait=["travel.arrived"], match={"destination": pile})
+                st["wait_device"] = code
+                steps += [st, step(f"{code}: unload", f"/devices/{code}", {"command": "deposit_resources"})]
+                if ride:
+                    back = carriers[ride].get("location")
+                    if back and back != pile:
+                        st = step(f"{code} → {back} (board {ride})", f"/devices/{code}", {"command": "travel", "destination": back},
+                                  wait=["travel.arrived"], match={"destination": back})
+                        st["wait_device"] = code
+                        steps.append(st)
+                    steps.append(fl.board_step(ride, code, "attach" if d.get("attached_to_device_code") == ride else "stow"))
             return steps, []
         if phase == "load":
             t = m.get("trade") or {}

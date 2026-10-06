@@ -20,6 +20,8 @@ A mission is a list of phases; each phase becomes one job, and the next phase st
   explore  for each target: assemble → travel → deploy → survey_system → watch (no_targets) → recall; then home
   trade    load (freighters collect the trade's price at home) → assemble → travel → deliver (freighter to the
            trader's location) → trade (POST /devices/<trader>/trades/<code>) → recall → return → unload
+Unload, back home: cargo is deposited at the home stockpile. A stationed fleet's devices also come off the carriers
+(they work the home system); any other fleet stays aboard, ready for its next mission.
 """
 from __future__ import annotations
 
