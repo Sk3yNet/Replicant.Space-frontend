@@ -228,6 +228,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     stale = [d for d in pool if d.get("location_stale") or not (d.get("location") or d.get("stowed_in_device_code")
                                                                    or d.get("attached_to_device_code"))]
     loc_of = {d.get("device_code"): d.get("location") for d in devices}
+    busy = set(busy)
+    job_busy = set(busy)   # used by a running job (as opposed to busy because of what it's doing right now)
     for d in devices:
         if d.get("in_control_range") is False:  # out of comms range: can't be commanded right now
             busy = set(busy) | {d.get("device_code")}
@@ -505,16 +507,41 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
 
     # devices away from their home system with nothing to do there (e.g. printed on another system's autofactory,
     # or left behind) go home — by surging themselves or on a carrier, like any other delivery
+    # Seen live (2026-10-06): Miner 1's home moved from ITHVALAI to KELMORNEA. Its controllers kept coordinating there and
+    # their drones stayed adopted (or searching), so none of them counted as free to go and 30 devices were left behind.
+    # A whole working group left in another system goes home together: the controllers drop their directives and let
+    # their drones go as they leave (leave_steps), and sites the survey drones hold there are given up.
+    def left_behind(d: dict, home: str, tag: str) -> bool:
+        code, st = d["device_code"], str(d.get("status") or "")
+        if star_of(d.get("location")) in ("", home):
+            return False
+        if (code in job_busy or d.get("location_stale") or d.get("in_control_range") is False
+                or st.startswith(("travel", "cruis", "surg", "mining", "collecting", "depositing", "printing", "repairing"))):
+            return False
+        tags = set(d.get("tags") or [])
+        if d.get("taxi_mode") == "taxi" or "taxi" in tags or (FERRY_TAG in tags and not is_ami_controller(d)):
+            return False   # a taxi plate or a ferry's freighter: away from home is its job
+        c = by_code_all.get(d.get("controller_device_code") or "")
+        if d.get("controller_device_code") and not c:
+            return False   # run by a controller we can't see: leave it to it
+        if c and is_ferry_ctrl(c["device_code"]) and not left_behind(c, home, tag):
+            return False   # run by a working ferry (its freighters travel between systems)
+        if c and star_of(c.get("location")) == star_of(d.get("location")):
+            # run by a controller where it is: only if that controller is this fleet's and is going home too
+            return fleet_tag_of(c) == tag and not c.get("controller_device_code") and left_behind(c, home, tag)
+        return True
+
     returning = []
     for f in groups:
+        tag = fl.fleet_tag(f["id"])
         for d in members(f):
             code, home = d["device_code"], f["home"]
             here = star_of(d.get("location"))
-            if (here and here != home and code not in moves and code not in busy and not d.get("controller_device_code")
-                    and SPARE not in (d.get("tags") or []) and not bound_for(d, known_stars) and fleet_now(code)
-                    and str(d.get("status") or "").startswith(("idle", "stowed"))):
+            if (here and here != home and code not in moves and SPARE not in (d.get("tags") or [])
+                    and not bound_for(d, known_stars) and fleet_now(code) and left_behind(d, home, tag)):
                 moves[code] = home
                 returning.append(code)
+                busy.discard(code)
 
     # spares nobody needs this pass are gathered at the depot (a delivery / autofactory system) for later use
     gathering: list[str] = []
@@ -811,10 +838,11 @@ def is_ami_controller(d: dict) -> bool:
         "controller" in (d.get("device_type") or "") and "ami" in (d.get("device_type") or ""))
 
 
-def leave_steps(d: dict, managed: dict[str, list[str]] | None = None) -> list[dict]:
+def leave_steps(d: dict, managed: dict[str, list[str]] | None = None, leaving: set[str] | frozenset = frozenset()) -> list[dict]:
     """Before a device leaves its system: free it from its own controller, and if it *is* an AMI controller
-    (e.g. a new survey controller put to work where it was printed), stop its directive and let its drones go."""
-    steps = release_step(d)
+    (e.g. a new survey controller put to work where it was printed), stop its directive and let its drones go.
+    `leaving`: devices going with it; one whose controller is among them is let go by that controller instead."""
+    steps = [] if d.get("controller_device_code") in leaving else release_step(d)
     if is_ami_controller(d):
         code = d["device_code"]
         kids = sorted((managed or {}).get(code) or [])
@@ -883,7 +911,7 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         if cloc and cloc != destination(dl["from"], stars):
             steps.append(move(cloc, "pick-up point", cloc))
     for code in dl["devices"]:
-        steps += leave_steps(by_code.get(code, {}) or {"device_code": code}, managed)
+        steps += leave_steps(by_code.get(code, {}) or {"device_code": code}, managed, set(dl["devices"]))
     for code in dl["devices"]:  # mark them as on their way (and not spare any more, unless just being gathered)
         tags = set(by_code.get(code, {}).get("tags") or [])
         add = ([to_tag(dest_star)] if to_tag(dest_star) not in tags else []) + ([GATHER] if code in gathering else []) \

@@ -3865,3 +3865,41 @@ def test_change_owner_already_owned_counts_as_done(client):
             break
         time.sleep(0.05)
     assert j["status"] == "done" and "already belongs" in j["steps"][0]["note"]
+
+
+def test_new_home_brings_the_whole_working_group():
+    """Live 2026-10-06: Miner 1's home moved ITHVALAI → KELMORNEA; its coordinating controllers, their adopted drones
+    and the searching survey drones were all left behind."""
+    from rsweb import loadouts as lo
+    D = lambda code, t, loc, status="idle", **kw: {"device_code": code, "device_type": t, "location": loc, "status": status,  # noqa: E731
+                                                  "tags": kw.pop("tags", ["fleet:m1"]), **kw}
+    devices = [
+        D("MC", "ami_mining_controller", "ITH-BELT-1", "coordinating", ami_directive={"name": "gather_evenly"},
+          available_commands=["set_directive", "release", "travel", "stow"]),
+        D("SC", "ami_survey_controller", "ITH-BELT-1", "coordinating", ami_directive={"name": "belt_search"},
+          available_commands=["set_directive", "release", "travel", "stow"]),
+        D("FC", "ami_transport_controller", "ITH-2-L4", "coordinating", tags=["ferry", "fleet:m1"],
+          ami_directive={"name": "ferry", "config": {"collect": "ITH-BELT-1", "deliver": "FAL-BELT-1"}},
+          available_commands=["set_directive", "release", "travel", "stow"]),
+        D("MD1", "mining_drone", "ITH-BELT-1", controller_device_code="MC"),
+        D("MD2", "mining_drone", "ITH-BELT-1", controller_device_code="MC"),
+        D("SD1", "survey_drone", "ITH-BELT-1", "searching", controller_device_code="SC"),
+        D("BUSY", "mining_drone", "ITH-BELT-1", "mining (carbon)"),           # can't cruise while mining: next pass
+        D("CV", "cargo_vessel", "ITH-2-L4", features=["surge", "cruise", "stow"], stow_capacity=50, tags=[]),
+        # the new home's own ferry: its freighter out delivering is not "left behind"
+        D("FC2", "ami_transport_controller", "KEL-4-L4", "coordinating", tags=["ferry", "fleet:m1"],
+          ami_directive={"name": "ferry", "config": {"collect": "KEL-BELT-1", "deliver": "FAL-BELT-1"}}),
+        D("FR", "cargo_freighter", "FAL-BELT-1", controller_device_code="FC2", features=["surge"]),
+    ]
+    stars = {"ITH": {"position": {"x": 0, "y": 0, "z": 0}}, "KEL": {"position": {"x": 1, "y": 0, "z": 0}, "entry_point": "KEL-4-L4"},
+             "FAL": {"position": {"x": 2, "y": 0, "z": 0}}}
+    fleets = [{"id": "m1", "name": "Miner 1", "home": "KEL", "station": True, "wants": {}}]
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
+    assert sorted(p["returning"]) == ["FC", "MC", "MD1", "MD2", "SC", "SD1"]
+    dl = p["deliveries"][0]
+    assert dl["carrier"] == "CV" and dl["to"] == "KEL"
+    steps = lo.delivery_steps(dl, p["by_code"], stars, True, {"MC": ["MD1", "MD2"], "SC": ["SD1"]})
+    descs = [s["desc"] for s in steps]
+    assert "MC: release 2 device(s) before leaving" in descs and "MC: clear directive before leaving" in descs
+    assert "SC: clear directive before leaving" in descs and "FC: clear directive before leaving" in descs
+    assert not any(d.startswith("MC: release MD") for d in descs)          # let go once, by the controller leaving with them

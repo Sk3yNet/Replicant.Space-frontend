@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.23.1"
+VERSION = "1.23.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.23.2", "2026-10-06", "Moving a stationed fleet's home brings its whole working group: controllers that are coordinating, "
+     "the drones they run and survey drones holding sites in the old system now go home too (the controllers drop their "
+     "directives and let their drones go as they leave). Ferry freighters and taxi plates stay at their jobs."),
     ("1.23.1", "2026-10-06", "Mining missions to a system with no asteroid belt salvage instead: the drones fly to the body of "
      "the biggest known salvage and the mining controller gets gather_salvage there (no made-up belt code). With no belt "
      "and no known salvage the mission stalls with that reason. change_owner on a device the replicant already owns counts as done."),
