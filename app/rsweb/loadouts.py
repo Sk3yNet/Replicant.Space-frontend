@@ -80,9 +80,15 @@ def at_tag(location: str) -> str:
     return "at:" + re.sub(r"[^a-z0-9\-_:.]", "", location.lower())[:29]
 
 
+def is_place(code: str) -> bool:
+    """Looks like a star or location code (STAR, STAR-3, STAR-BELT-1 …), not e.g. `fleet:prospectors` (seen live
+    2026-10-06 as `to:fleet:prospectors` / `at:fleet:prospectors`, typed into a print's deliver-to box)."""
+    return bool(re.fullmatch(r"[a-z0-9][a-z0-9\-_.]*", code.lower())) and ":" not in code
+
+
 def pinned_at(d: dict) -> str | None:
     """The location a device is pinned to (`at:` tag), upper-case like the game's codes."""
-    return next((t[3:].upper() for t in d.get("tags") or [] if t.startswith("at:") and len(t) > 3), None)
+    return next((t[3:].upper() for t in d.get("tags") or [] if t.startswith("at:") and len(t) > 3 and is_place(t[3:])), None)
 
 
 def home_tag(star: str) -> str:
@@ -106,7 +112,7 @@ def home_of(d: dict, stars: set[str]) -> str | None:
 def bound_for(d: dict, stars: set[str]) -> str | None:
     """The star a device is tagged to go to (`to:<star>`), matched back to a known star code."""
     for t in d.get("tags") or []:
-        if t.startswith("to:"):
+        if t.startswith("to:") and is_place(t[3:]):
             want = t[3:]
             return next((s for s in stars if to_tag(s)[3:] == want), want.upper())
     return None
@@ -1259,6 +1265,9 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
         unknown = [t for t in ftags if t not in every]
         if unknown:
             add(d, f"{', '.join(unknown)}: no such fleet", False, "remove the tag, or create the fleet")
+        bad = sorted(t for t in tags if t.startswith(("to:", "at:")) and not is_place(t[3:]))
+        if bad:
+            add(d, f"{', '.join(bad)}: not a location (ignored)", False, "remove the tag on its device page")
         if homes:
             add(d, f"old {', '.join(homes)} tag (from before stationed fleets)", bool(set(homes) & removed) or code in moves,
                 "converted: it joins the fleet stationed there, or the tag is dropped")

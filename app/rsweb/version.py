@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.22.0"
+VERSION = "1.22.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.22.1", "2026-10-06", "Mission targets are checked against known systems (did-you-mean on a typo) and offer every catalogue "
+                             "and census star. The production planner no longer gives gather orders to a fleet's controller that "
+                             "isn't at its station. to:/at: tags that aren't locations are ignored and flagged; the print queue "
+                             "refuses a typed destination that isn't a location."),
     ("1.22.0", "2026-10-06", "Drone badges on the system map (M mining, S survey, T transport, R maintenance; count, coloured by "
                              "activity, hover for each drone; toggle). The galaxy map's system panel lists drones by kind."),
     ("1.21.1", "2026-10-06", "change_owner sends the new owner as `target` (the game rejected `replicant_code`)."),

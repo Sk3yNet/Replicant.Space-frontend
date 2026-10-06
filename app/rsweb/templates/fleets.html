@@ -183,8 +183,8 @@
                 {{ t.shop_name or t.owner_name }} @ {{ t.location }} — {{ tr.name }}: pay {% for r2, q in ((tr.criteria or {}).resources or {}).items() %}{{ q }} {{ r2 }} {% endfor %}→ get {% for r2, q in ((tr.rewards or {}).resources or {}).items() %}{{ q }} {{ r2 }} {% endfor %}{% for r2, q in ((tr.rewards or {}).devices or {}).items() %}{{ q }}× {{ r2 }} {% endfor %}</option>{% endfor %}{% endfor %}</select>
             <button type="button" class="small ghost" hx-post="/fleets/traders" hx-swap="none">Refresh traders</button>
           {% else %}
-            <input name="targets" placeholder="{{ 'systems to explore, in order: KELMONENT, LORSELAN' if f.role == 'explore' else 'target system, e.g. KELMONENT' }}" style="width:100%" list="fl-stars">
-            <datalist id="fl-stars">{% for s in stars if s not in home_systems %}<option value="{{ s }}">{% endfor %}</datalist>
+            <input name="targets" placeholder="{{ 'systems to explore, in order: KELMONENT, LORSELAN' if f.role == 'explore' else 'target system, e.g. KELMONENT' }}" style="width:100%" list="fl-stars-{{ f.id }}">
+            <datalist id="fl-stars-{{ f.id }}">{% for o in f.target_options %}<option value="{{ o.value }}">{{ o.group }}{% if o.label %} · {{ o.label }}{% endif %}</option>{% endfor %}</datalist>
             {% if home_systems %}<div class="muted small">Not available as targets (a stationed fleet works them):
               {{ home_systems | join(', ') }}</div>{% endif %}
           {% endif %}

@@ -527,6 +527,13 @@ async def print_queue_action(request: Request, code: str, action: str = Form(...
         body, label = {"command": "enqueue_print", "device_type": device_type, "quantity": q}, f"enqueue {q}× {device_type} on {code}"
         loc = (dest_text or dest_loc or "").strip().upper()
         star = (dest_star or "").strip().upper() or star_of(loc)
+        if (loc and not lo.is_place(loc)) or (star and not lo.is_place(star)):
+            dev2 = await fetch_device(request, code)
+            return partial(request, "partials/print_queue.html", **await print_queue_ctx(
+                request, code, dev2, {"label": label, "ok": False, "method": "POST", "path": f"/devices/{code}", "status": 400,
+                                      "error": f"{loc or star} isn't a location code (e.g. FALQUORYX-BELT-1 or ITHVALAI-3-L4). "
+                                               "To put a print in a fleet, use Print what's missing on the fleet.",
+                                      "response": None}))
         if loc and star_of(loc) != star:
             dev2 = await fetch_device(request, code)
             return partial(request, "partials/print_queue.html", **await print_queue_ctx(
@@ -2416,6 +2423,13 @@ async def fleets_ctx(request: Request) -> dict:
     profiles = {t: fl.type_profile(t, bp_by, st["devices"]) for t in types}
     lctx = await loadout_ctx(request)
     homes = sorted(fl.worked_systems(items))
+    from .census import destination_systems
+    cat = await request.app.state.db.kv_get("stars", {}) or {}
+    scanned = {r["star"] for r in await request.app.state.db.fetchall("SELECT star FROM systems")}
+    yours = {star_of(d.get("location")) for d in st["devices"] if d.get("location")}
+    for f in items:
+        f["target_options"] = [o for o in destination_systems(cat, scanned | yours, yours, f.get("home"), limit=300)
+                               if o["value"] not in homes]
     stars_all = sorted(set(stars_seen) | {f["home"] for f in items if f.get("home")})
     for f in items:
         f["report"] = lctx["plan"]["report"].get(f["id"])
@@ -2583,6 +2597,17 @@ async def fleets_members(request: Request, fid: str, user: str = Depends(current
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
+async def known_stars(request: Request) -> set[str]:
+    """Every system the app knows: the catalogue (census stars included), scanned systems, where devices are."""
+    db = request.app.state.db
+    cat = await db.kv_get("stars", {}) or {}
+    out = {s.get("designation") for s in cat.get("stars") or [] if isinstance(s, dict) and s.get("designation")}
+    out |= {r["star"] for r in await db.fetchall("SELECT star FROM systems")}
+    out |= {star_of(d.get("location")) for d in (await load_state(request))["devices"] if d.get("location")}
+    out |= {f.get("home") for f in await request.app.state.worker.automations.fleets() if f.get("home")}
+    return out - {"", None}
+
+
 @router.post("/fleets/{fid}/mission", response_class=HTMLResponse)
 async def fleets_mission(request: Request, fid: str, user: str = Depends(current_user)):
     form = await request.form()
@@ -2605,6 +2630,17 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         return HTMLResponse('<div class="result err">Give the mission a target system.</div>')
     if f["role"] == "mining":
         m["targets"] = m["targets"][:1]
+    # seen live 2026-10-06: a typo (LORALEL for LORALAEL) stalled a mission with "Unknown star designation"
+    known = await known_stars(request)
+    bad = [t for t in m["targets"] if f["role"] != "trade" and star_of(t) not in known]
+    if bad and known:
+        import difflib
+        hints = []
+        for t in bad:
+            close = difflib.get_close_matches(star_of(t), sorted(known), n=3, cutoff=0.6)
+            hints.append(f"{t}" + (f" (did you mean {' / '.join(close)}?)" if close else ""))
+        return HTMLResponse(f'<div class="result err">Unknown system: {html.escape(", ".join(hints))}. Pick one from the list — '
+                            'stars beyond the catalogue need a census first (Map › Stars).</div>')
     if f["role"] in ("mining", "explore"):
         homes = fl.worked_systems(items)
         taken = [t for t in m["targets"] if star_of(t) in homes]

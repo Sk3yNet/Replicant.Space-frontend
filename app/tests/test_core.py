@@ -1783,7 +1783,7 @@ def test_fleet_pages_and_mission_launch(client):
     assert "Prospector 1" in page and "fleet:prospector-1" in page and "attach 7 / 36" in page
     client.post("/fleets/prospector-1/edit", data={"name": "Prospector 1", "role": "mining", "home": "SOL",
                                                    "want:mining_drone": "4", "want:mobile_fleet": "1"}, headers=HX)
-    r = client.post("/fleets/prospector-1/mission", data={"targets": "KEL", "exhausted_minutes": "30"}, headers=HX)
+    r = client.post("/fleets/prospector-1/mission", data={"targets": "ABOTEIN", "exhausted_minutes": "30"}, headers=HX)
     f = client.portal.call(eng.fleets)[0]
     assert f["mission"]["status"] == "running" and f["mission"]["phase"] == "assemble"
     job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "fleets" and j.get("meta", {}).get("fleet") == "prospector-1"][-1]
@@ -3228,17 +3228,17 @@ def test_missions_cannot_target_a_system_with_a_home_fleet(client):
                        {"phases": [{"id": "p", "name": "Outpost", "order": 1, "wants": {"survey_drone": 1}}],
                         "systems": {"KEL": "p", "ABC": ""}})
     page = client.get("/fleets", headers=H).text
-    targets = page[page.index('<datalist id="fl-stars">'):]
+    targets = page[page.index('<datalist id="fl-stars-scouts">'):]
     targets = targets[:targets.index("</datalist>")]
     assert "Not available as targets" in page and '"KEL"' not in targets
     kel = next(f for f in client.portal.call(eng.fleets) if f["home"] == "KEL")
     assert kel["station"] and kel["template"] == "p" and kel["wants"] == {"survey_drone": 1}
     assert "systems" not in client.portal.call(client.app.state.db.kv_get, "loadouts")
-    r = client.post("/fleets/scouts/mission", data={"targets": "ABC, KEL-BELT-1"}, headers=HX)
+    r = client.post("/fleets/scouts/mission", data={"targets": "ABOTEIN, KEL-BELT-1"}, headers=HX)
     assert "KEL-BELT-1: has a stationed fleet" in r.text
     assert not client.portal.call(eng.fleets)[0].get("mission")
-    r = client.post("/fleets/scouts/mission", data={"targets": "ABC"}, headers=HX)   # no fleet stationed there
-    assert r.headers.get("HX-Refresh") and client.portal.call(eng.fleets)[0]["mission"]["targets"] == ["ABC"]
+    r = client.post("/fleets/scouts/mission", data={"targets": "ABOTEIN"}, headers=HX)   # no fleet stationed there
+    assert r.headers.get("HX-Refresh") and client.portal.call(eng.fleets)[0]["mission"]["targets"] == ["ABOTEIN"]
 
 
 def test_rules_live_on_their_pages_and_nav_is_grouped(client):
@@ -3745,3 +3745,34 @@ def test_drone_indicators_on_the_maps(client):
     assert 'class="drone drone-' in page and "mining drone(s) at SOL-BELT-1" in page and "nodrones" in page
     sol = next(s for s in client.get("/api/map.json", headers=H).json()["stars"] if s["designation"] == "SOL")
     assert any(d["kind"] == "mining" and d["n"] >= 1 for d in sol["drones"])
+
+
+def test_snapshot_2026_10_06_fixes(client):
+    """Live 2026-10-06 (19:54): a mission to LORALEL (typo), a fleet controller given a production gather order, and
+    to:/at: tags naming a fleet."""
+    from rsweb import loadouts as lo, production
+    from rsweb.ami_schedule import set_stationed
+    # 1. unknown mission targets are refused, with a suggestion
+    client.portal.call(client.app.state.db.kv_set, "census_stars",
+                       {"LORALAEL": {"designation": "LORALAEL", "explored": False, "position": {"x": 9, "y": 9, "z": 0}}})
+    client.portal.call(client.app.state.worker.sync_catalogue)
+    client.post("/fleets", data={"name": "Scouts", "role": "explore", "home": "SOL"}, headers=HX)
+    r = client.post("/fleets/scouts/mission", data={"targets": "LORALEL"}, headers=HX)
+    assert "Unknown system" in r.text and "did you mean LORALAEL" in r.text
+    assert 'value="LORALAEL"' in client.get("/fleets", headers=H).text            # census stars are offered
+    r = client.post("/fleets/scouts/mission", data={"targets": "LORALAEL"}, headers=HX)
+    assert r.headers.get("HX-Refresh")
+    # 2. the production planner skips controllers of fleets that aren't at their station
+    ctrls = [{"device_code": "FC", "device_type": "ami_mining_controller", "location": "FAL-BELT-1", "status": "idle",
+              "features": ["ami"], "tags": ["fleet:prospectors"]},
+             {"device_code": "HC", "device_type": "ami_mining_controller", "location": "FAL-BELT-1", "status": "coordinating",
+              "features": ["ami"], "tags": ["fleet:fal-home"]}]
+    try:
+        set_stationed({"fleet:fal-home": "FAL"})
+        assert [c["device_code"] for c in production.controllers_in(ctrls, "FAL", "mining")] == ["HC"]
+    finally:
+        set_stationed({})
+    # 3. to:/at: tags that aren't locations are ignored
+    d = {"device_code": "CV", "tags": ["at:fleet:prospectors", "fleet:prospectors", "to:fleet:prospectors"]}
+    assert lo.bound_for(d, {"FAL"}) is None and lo.pinned_at(d) is None
+    assert lo.is_place("FALQUORYX-BELT-1") and not lo.is_place("fleet:prospectors")
