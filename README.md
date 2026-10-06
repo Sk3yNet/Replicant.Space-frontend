@@ -138,7 +138,7 @@ Watch-and-alert rules start **on**: **Visitor alerts**, **Asteroid defence** (ac
 
 ### 3. Deploy in Portainer
 1. Push this folder to a Git repo (a private GitHub repo is fine). No secrets live in it.
-2. In Portainer: **Stacks ▸ Add stack ▸ Repository**. Enter the repo URL (plus credentials if it's private), and use compose path `docker-compose.yml`.
+2. In Portainer: **Stacks ▸ Add stack ▸ Repository**. Enter the repo URL (plus credentials if it's private), and use compose path `docker-compose.yml`. That's the multi-user stack; with only your own address in `ALLOWED_EMAIL` it serves just you. For the original single-user stack, use `docker-compose.single.yml`.
 3. Under **Environment variables**, add every variable from `.env.example`:
 
    | Variable | Value |
@@ -147,7 +147,7 @@ Watch-and-alert rules start **on**: **Visitor alerts**, **Asteroid defence** (ac
    | `CF_TUNNEL_TOKEN` | tunnel token |
    | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from step 1 |
    | `OAUTH2_COOKIE_SECRET` | output of `python3 -c "import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"` |
-   | `ALLOWED_EMAIL` | your Google address |
+   | `ALLOWED_EMAIL` | your Google address first, then anyone you're hosting (comma-separated, no spaces) |
    | `RS_API_TOKEN` | your Replicant Space API token |
    | `TZ` | `America/New_York` |
 
@@ -191,15 +191,16 @@ It never reaches a browser.
    While the app is in *Testing*, only the listed **test users** can sign in, so add each person's Google address
    there (up to 100). Or choose **Publish app**: with only the basic email/profile scopes this needs no Google review.
    The OAuth client and redirect URI stay as they are.
-2. **Point the stack at the multi-user compose file.** In Portainer, open the stack ▸ **Editor**/**Git settings** and
-   change the compose path to `docker-compose.multi.yml`. Keep the stack's name, so it keeps the `rsweb-data` volume.
+2. **Use `docker-compose.yml`.** Since 1.17.1 it *is* the multi-user stack, so a stack on that path switches over on
+   its next **Pull and redeploy**, keeping its name and its `rsweb-data` volume. With `OWNER_EMAIL` unset, the first
+   address in `ALLOWED_EMAIL` is the owner and keeps `RS_API_TOKEN` and the existing database.
 3. **Set who may sign up** (environment variables):
 
    | Variable | Value |
    |---|---|
-   | `OWNER_EMAIL` | your Google address. You keep `RS_API_TOKEN` and your existing database and history. |
+   | `OWNER_EMAIL` | your Google address (default: the first in `ALLOWED_EMAIL`). You keep `RS_API_TOKEN` and your existing database and history. |
    | `RS_API_TOKEN` | your game key, as before. Optional: leave it empty to add yours through the walkthrough. |
-   | `ALLOWED_EMAIL` | comma-separated Google addresses of the people you're hosting |
+   | `ALLOWED_EMAIL` | comma-separated Google addresses of the people you're hosting, no spaces |
    | `ALLOWED_DOMAINS` | optional: everyone at these domains, e.g. `example.com` |
    | `OPEN_SIGNUP` | `1` lets **any** Google account sign up. Leave it empty unless you mean it. |
    | `MAX_TENANTS` | most servers this host will run (default 10; each takes roughly 100 MB of RAM) |
@@ -214,7 +215,7 @@ their server and delete their key, open **All servers** (`/_tenant/admin`, in th
 Their history is kept.
 **All servers** also shows each server's state, its restarts and its last log lines, with Restart and Stop.
 
-To go back to single-user mode, set the compose path back to `docker-compose.yml`. Your own data was never moved.
+To go back to single-user mode, set the compose path to `docker-compose.single.yml`. Your own data was never moved.
 
 ### Walkthrough for players: register and apply your API key
 
@@ -292,8 +293,8 @@ open them directly with `DEV_USER` unset and an `X-Auth-Request-Email` header, o
 ## Layout
 
 ```
-docker-compose.yml     the Portainer stack
-docker-compose.multi.yml  the same stack in multi-user mode (one server per Google account)
+docker-compose.yml     the Portainer stack (multi-user: one server per Google account)
+docker-compose.single.yml  the original single-user stack
 nginx/                 nginx image with the auth_request config (default.conf; multi.conf for multi-user mode)
 app/rsweb/tenants.py   multi-user manager: registry, per-user servers, routing, sign-up walkthrough
 app/rsweb/api.py       rate-limited API client + SSE parser

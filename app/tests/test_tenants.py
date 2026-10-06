@@ -185,3 +185,10 @@ def test_real_server_per_user(tmp_path, monkeypatch):
     # the manager stopped it on the way out
     with pytest.raises(httpx.HTTPError):
         httpx.get(f"{base}/healthz", timeout=2)
+
+
+def test_owner_defaults_to_first_allowed_email(monkeypatch):
+    monkeypatch.setenv("OWNER_EMAIL", "")
+    monkeypatch.setenv("ALLOWED_EMAILS", "Me@Example.com, friend@example.com")
+    ts = TenantSettings()
+    assert ts.owner_email == "me@example.com" and ts.allowed("friend@example.com")
