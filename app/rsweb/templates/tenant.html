@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your server · Replicant Space</title>
+  <link rel="stylesheet" href="/_tenant/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%236cb6ff'/></svg>">
+  <style>
+    main { max-width: 760px; }
+    ol.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+    ol.steps > li { counter-increment: step; }
+    ol.steps h3::before { content: counter(step) ". "; color: var(--accent); }
+    .card.focus { border-color: var(--accent); }
+    label { display: block; margin: 8px 0 2px; color: var(--muted); font-size: 12px; }
+    input[type=text], input[type=email], textarea { width: 100%; }
+    textarea { min-height: 70px; font-family: var(--mono); }
+    pre { white-space: pre-wrap; word-break: break-all; background: var(--panel2); padding: 8px; border-radius: 6px; font-size: 12px; max-height: 260px; overflow: auto; }
+    .ok { color: var(--good); } .err { color: var(--bad); }
+    .msg { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; border: 1px solid var(--line); }
+    .msg.good { border-color: var(--good); } .msg.bad { border-color: var(--bad); }
+    details summary { cursor: pointer; color: var(--accent); }
+  </style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">◉ REPLICANT</a>
+  <span class="spacer"></span>
+  {% if is_admin %}<a href="/_tenant/admin" class="small">All servers</a>{% endif %}
+  <span class="small muted">{{ user }}</span>
+  <a href="/oauth2/sign_out?rd=/" class="small">Sign out</a>
+</header>
+<main>
+  {% if notice %}<div class="msg good">{{ notice }}</div>{% endif %}
+  {% if error %}<div class="msg bad">{{ error }}</div>{% endif %}
+
+  {% if not allowed %}
+    <h1>Not on the list</h1>
+    <div class="card">
+      <p>You're signed in as <b>{{ user }}</b>, but this server only hosts the people its owner has added.</p>
+      <p class="muted">Ask the owner to add your Google address to <code>ALLOWED_EMAIL</code> (or your domain to
+        <code>ALLOWED_DOMAINS</code>) and update the stack, then reload this page. Signed in with the wrong Google
+        account? <a href="/oauth2/sign_out?rd=/">Sign out</a> and pick another.</p>
+    </div>
+
+  {% elif has_key %}
+    <h1>Your server</h1>
+    <div class="card {{ 'hl' if status.state == 'running' }}">
+      <div class="row between">
+        <div>
+          <b>{{ tenant.replicant or tenant.account_name or 'Your replicant' }}</b>
+          {% if tenant.account_name %}<span class="muted small">· game account {{ tenant.account_name }}{% if tenant.account_email %} ({{ tenant.account_email }}){% endif %}</span>{% endif %}
+        </div>
+        <span id="state" class="{{ 'ok' if status.state == 'running' else ('err' if status.state == 'crashed' else 'muted') }}">
+          {% if status.state == 'running' %}● running{% elif status.state == 'crashed' %}● stopped working{% else %}● starting…{% endif %}
+        </span>
+      </div>
+      {% if status.state == 'running' %}
+        <p><a class="btn" href="/">Open the dashboard →</a></p>
+        <p class="small muted">It runs here around the clock, so automations keep going with the browser closed.
+          The first minute after a start the dashboard is still filling in.</p>
+      {% elif status.state == 'crashed' %}
+        <p>Your server stopped: <span class="mono small">{{ status.last_exit }}</span>. It retries by itself
+          (attempt {{ status.restarts }}), or restart it now.</p>
+        <details><summary>Last log lines</summary><pre>{{ status.log | join('\n') }}</pre></details>
+      {% else %}
+        <p>Starting your server. This page opens the dashboard as soon as it's up (usually a few seconds).</p>
+      {% endif %}
+      <form method="post" action="/_tenant/restart" class="inline"><button class="small">Restart</button></form>
+    </div>
+
+    {% if stack_key %}
+      <div class="card" style="margin-top:14px">
+        <h3>Your API key</h3>
+        <p class="small muted">You're the owner: your key is the stack's <code>RS_API_TOKEN</code>. To change it, paste the new
+          key into the stack's environment variables in Portainer and choose <b>Update the stack</b>.</p>
+      </div>
+    {% else %}
+      <div class="card" style="margin-top:14px">
+        <h3>Replace your API key</h3>
+        <p class="small muted">Needed after account recovery, which issues a new key and invalidates the old one
+          (<a href="?step=recover#recover">how</a>). Your history and rule settings are kept.</p>
+        <form method="post" action="/_tenant/key">
+          <label for="token">New API key</label>
+          <input type="text" id="token" name="token" autocomplete="off" spellcheck="false" required>
+          <p><button>Check and apply</button></p>
+        </form>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>Disconnect</h3>
+        <p class="small muted">Stops your server and deletes your key from it. Your history stays, so pasting a key again later
+          picks up where you left off. Your game account isn't touched.</p>
+        <form method="post" action="/_tenant/disconnect" onsubmit="return confirm('Stop your server and forget your key?')">
+          <button class="danger small">Disconnect</button>
+        </form>
+      </div>
+    {% endif %}
+    {% if step == 'recover' %}{% set show_recover = true %}{% endif %}
+
+  {% else %}
+    <h1>Set up your Replicant Space server</h1>
+    <p class="muted">Welcome, <b>{{ user }}</b>. You get your own copy of this client: it holds your game API key on the server
+      (never in your browser), keeps your full event history and runs your automations around the clock.
+      It takes three steps and about five minutes.</p>
+    {% if full %}<div class="msg bad">This server already hosts as many users as its owner allows. Ask them to raise <code>MAX_TENANTS</code>.</div>{% endif %}
+
+    <ol class="steps">
+      <li id="register" class="card {{ 'focus' if step in (None, 'register') }}">
+        <h3>Create a game account</h3>
+        <p>Replicant Space is played through its API, so an account is just an email, a name and a time zone. Fill this in
+          and the game emails you a link. <span class="muted">(Rate-limited by the game to a few sign-ups an hour.)</span></p>
+        <form method="post" action="/_tenant/register">
+          <label for="r-email">Email for the game account (it doesn't have to be your Google address)</label>
+          <input type="email" id="r-email" name="email" value="{{ form.email or user }}" required>
+          <label for="r-name">Your name in the game (shown to other players)</label>
+          <input type="text" id="r-name" name="name" value="{{ form.name or '' }}" maxlength="40" required>
+          <label for="r-tz">Time zone</label>
+          <input type="text" id="r-tz" name="timezone" value="{{ form.timezone or default_tz }}">
+          <p><button>Register</button></p>
+        </form>
+        <details>
+          <summary>Rather do it yourself?</summary>
+          <p class="small">Any HTTP tool works, for example:</p>
+          <pre>curl -X POST {{ api_base }}/accounts \
+  -H 'Content-Type: application/json' \
+  -d '{"email": "you@example.com", "name": "Bob", "timezone": "Europe/London"}'</pre>
+        </details>
+        <p class="small muted">Already have an account? Skip to step 3 if you have your key, or
+          <a href="?step=recover#recover">get a new key</a> if you've lost it.</p>
+      </li>
+
+      <li id="verify" class="card {{ 'focus' if step == 'verify' }}">
+        <h3>Open the email and copy your API key</h3>
+        <p>Look for the email from Replicant Space{% if form.email %} at <b>{{ form.email }}</b>{% endif %} (check spam too)
+          and click its link. The page that opens shows a short message like this:</p>
+        <pre>{
+  "api_token": "<b class="ok">OsiJIqbw_8tj4SLgeo_…</b>",
+  "message": "Email verified successfully",
+  "replicant": { "name": "bob-1", "replicant_code": "C2AF4A82" }
+}</pre>
+        <p>Copy the value of <code>api_token</code>: the text between the quotes, without the quotes. That's your API key.
+          Keep it somewhere safe, like a password manager. It's the only key to your account.</p>
+        <p class="small muted">The link works once. If it says the link has expired or was used, request a new key below.</p>
+      </li>
+
+      <li id="key" class="card {{ 'focus' if step == 'key' }}">
+        <h3>Paste the key here</h3>
+        <form method="post" action="/_tenant/key">
+          <label for="k-token">API key</label>
+          <input type="text" id="k-token" name="token" autocomplete="off" spellcheck="false" required {{ 'disabled' if full }}>
+          <p><button {{ 'disabled' if full }}>Check and start my server</button></p>
+        </form>
+        <p class="small muted">The key is checked with the game first (<code>GET /accounts/me</code>), then stored on this
+          server only. It's never sent to your browser or shown again. Then your server starts and the dashboard opens; it fills in over the first minute.</p>
+      </li>
+    </ol>
+    {% set show_recover = true %}
+  {% endif %}
+
+  {% if allowed and show_recover %}
+    <div id="recover" class="card {{ 'focus' if step == 'recover' }}" style="margin-top:14px">
+      <h3>Lost your key, or need a new one?</h3>
+      <p class="small">Account recovery emails you a link that issues a <b>new</b> key; the old key stops working when you
+        open it. Then paste the new key {{ 'above' if has_key else 'in step 3' }}.</p>
+      <form method="post" action="/_tenant/recover" class="inline">
+        <input type="email" name="email" value="{{ form.email or tenant.account_email or user }}" required>
+        <button>Email me a new key</button>
+      </form>
+    </div>
+  {% endif %}
+</main>
+{% if has_key and status.state != 'running' %}
+<script>
+  // Poll until the server is up, then go to the dashboard.
+  (function poll() {
+    fetch("/_tenant/status", {credentials: "same-origin"}).then(r => r.json()).then(s => {
+      if (s.state === "running") { location.href = "/"; return; }
+      if (s.state === "crashed" && document.getElementById("state").textContent.indexOf("stopped") < 0) { location.reload(); return; }
+      setTimeout(poll, 2000);
+    }).catch(() => setTimeout(poll, 4000));
+  })();
+</script>
+{% endif %}
+{% if not has_key %}
+<script>
+  // Default the time zone to the browser's.
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone, el = document.getElementById("r-tz");
+    if (tz && el && !{{ 'true' if form.timezone else 'false' }}) el.value = tz;
+  } catch (e) {}
+</script>
+{% endif %}
+</body>
+</html>

@@ -2,6 +2,7 @@
 
 A personal web client for [Replicant Space](https://replicant.space/), the API-first Bobiverse-inspired game.
 It runs as one Portainer stack. You reach it through a Cloudflare Tunnel and sign in with Google through oauth2-proxy.
+The same stack can also host other players, each with their own server and game key: see [Multi-user mode](#multi-user-mode-a-server-for-each-player).
 
 ```
 Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─► oauth2-proxy ─► Google sign-in
@@ -165,6 +166,86 @@ Watch-and-alert rules start **on**: **Visitor alerts**, **Asteroid defence** (ac
 - `ALLOWED_EMAIL` is enforced twice: by oauth2-proxy's allow-list and by the app itself.
 </details>
 
+## Multi-user mode: a server for each player
+
+The same stack can host friends too. Each person signs in with their own Google account and gets their **own copy of
+the app**: their own game API key, database, event history, rules and automations, and their own share of the game's
+rate limit (the limit is per key). Nobody can see anyone else's server.
+
+```
+Internet ─► cloudflared ─► nginx ─(auth_request)─► oauth2-proxy      Google: who are you?
+                             ├──(auth_request)───► manager (app:8000)  which server is yours?
+                             ├─► /_tenant/* ─────► manager             sign-up walkthrough, API key, status
+                             └─► app:<your port>                       your own server (8100, 8101 …)
+```
+
+The `app` container runs a small **manager** (`rsweb/tenants.py`). It starts one app server per registered person,
+restarts it if it dies, and stops them all cleanly when the stack stops. Someone who signs in without a server is sent
+to the **walkthrough** at `/_tenant/`, which gets them a game API key and starts their server. Each key is checked with the
+game before it's stored, and is kept on the volume, readable only by the app (`/data/tenants/<name>/token`, mode 600).
+It never reaches a browser.
+
+### Switching the stack to multi-user mode (owner)
+
+1. **Google sign-in for other people.** In the Google Cloud console, open **APIs & Services ▸ OAuth consent screen**.
+   While the app is in *Testing*, only the listed **test users** can sign in, so add each person's Google address
+   there (up to 100). Or choose **Publish app**: with only the basic email/profile scopes this needs no Google review.
+   The OAuth client and redirect URI stay as they are.
+2. **Point the stack at the multi-user compose file.** In Portainer, open the stack ▸ **Editor**/**Git settings** and
+   change the compose path to `docker-compose.multi.yml`. Keep the stack's name, so it keeps the `rsweb-data` volume.
+3. **Set who may sign up** (environment variables):
+
+   | Variable | Value |
+   |---|---|
+   | `OWNER_EMAIL` | your Google address. You keep `RS_API_TOKEN` and your existing database and history. |
+   | `RS_API_TOKEN` | your game key, as before. Optional: leave it empty to add yours through the walkthrough. |
+   | `ALLOWED_EMAIL` | comma-separated Google addresses of the people you're hosting |
+   | `ALLOWED_DOMAINS` | optional: everyone at these domains, e.g. `example.com` |
+   | `OPEN_SIGNUP` | `1` lets **any** Google account sign up. Leave it empty unless you mean it. |
+   | `MAX_TENANTS` | most servers this host will run (default 10; each takes roughly 100 MB of RAM) |
+   | `ADMIN_EMAILS` | optional: others who may see **All servers** (the owner always can) |
+
+   Everything else (`PUBLIC_HOST`, `CF_TUNNEL_TOKEN`, `GOOGLE_CLIENT_*`, `OAUTH2_COOKIE_SECRET`, `TZ`) stays the same.
+4. **Pull and redeploy.** Then send your players the address and the walkthrough below.
+
+In multi-user mode, oauth2-proxy accepts any Google account and the manager does the gatekeeping. Someone who isn't on
+the list sees a *Not on the list* page and gets nothing else. To remove someone, take them off the list. To also stop
+their server and delete their key, open **All servers** (`/_tenant/admin`, in the menu under your name) ▸ **Disconnect**.
+Their history is kept.
+**All servers** also shows each server's state, its restarts and its last log lines, with Restart and Stop.
+
+To go back to single-user mode, set the compose path back to `docker-compose.yml`. Your own data was never moved.
+
+### Walkthrough for players: register and apply your API key
+
+1. **Sign in.** Open the address the owner gave you and sign in with the Google account they added. The first time,
+   you land on **Set up your Replicant Space server**.
+2. **Create a game account** (step 1 on the page). Enter the email for your game account (it doesn't have to be your
+   Google address), your in-game name and your time zone (filled in from your browser), then choose **Register**.
+   The game emails you a verification link. Registration is rate-limited by the game to a few per hour; if it refuses,
+   wait and try again.
+   *Already play Replicant Space?* Skip to step 4 if you have your key, or use **Email me a new key** at the bottom if
+   you've lost it.
+3. **Open the email and copy your API key.** Click the link in the email from Replicant Space (check spam). The page
+   that opens shows something like:
+   ```json
+   { "api_token": "OsiJIqbw_8tj4SLgeo_…", "message": "Email verified successfully",
+     "replicant": { "name": "bob-1", "replicant_code": "C2AF4A82" } }
+   ```
+   The text between the quotes after `api_token` is your **API key**. Copy it without the quotes and keep a copy in a
+   password manager: it's the only key to your game account. The link only works once.
+4. **Paste the key** into step 3 on the page and choose **Check and start my server**. The key is checked with the game
+   (it shows your replicant's name), stored on the server, and your server starts. The dashboard opens by itself a few
+   seconds later and fills in over the first minute.
+
+**Later:** *Your server & API key*, in the menu under your name, shows your server's state and lets you restart it.
+- **Replacing the key.** Account recovery (**Email me a new key**) issues a new key and stops the old one working.
+  When that happens, paste the new key under **Replace your API key**. Your history and settings stay.
+- **Disconnecting.** **Disconnect** stops your server and deletes your key from it. Your game account isn't touched,
+  and pasting a key again picks up where you left off.
+
+Each game account can be connected only once per host. Two servers on one key would split its rate limit.
+
 ## Versions and server runs
 
 The app version (`rsweb/version.py`: `VERSION` plus a `CHANGES` list) is shown in the header. A short **code fingerprint**, a hash of the app's code, is shown with it, so a code change is visible even if the version wasn't bumped. You can set `APP_BUILD` (e.g. a git commit) in the stack to show that too.
@@ -189,6 +270,10 @@ pytest -q
 
 Never set `DEV_USER` in the stack: it makes the app trust requests with no identity header.
 
+Multi-user mode runs locally too: `OWNER_EMAIL=you@example.com DATA_DIR=./data DB_PATH=./data/rsweb.sqlite RS_API_BASE=http://127.0.0.1:9000/v1 DEV_USER=you@example.com python -m rsweb.tenants`
+serves the walkthrough at <http://127.0.0.1:8000/_tenant/> (the mock accepts any key). The per-user servers listen on 8100 and up;
+open them directly with `DEV_USER` unset and an `X-Auth-Request-Email` header, or put `nginx/multi.conf` in front.
+
 **Replaying a snapshot:** `python tools/replay_snapshot.py <snapshot.json>` runs one automation tick against a Diagnostics snapshot with a stub API (GETs answered from the snapshot, commands recorded, nothing sent) and prints the new log lines, the loadout pass and the commands it would have sent. It is approximate: snapshots don't carry the star catalogue, blueprints or replicants.
 
 ## Configuration (app)
@@ -208,7 +293,9 @@ Never set `DEV_USER` in the stack: it makes the app trust requests with no ident
 
 ```
 docker-compose.yml     the Portainer stack
-nginx/                 nginx image with the auth_request config
+docker-compose.multi.yml  the same stack in multi-user mode (one server per Google account)
+nginx/                 nginx image with the auth_request config (default.conf; multi.conf for multi-user mode)
+app/rsweb/tenants.py   multi-user manager: registry, per-user servers, routing, sign-up walkthrough
 app/rsweb/api.py       rate-limited API client + SSE parser
 app/rsweb/ingest.py    event stream ingester, timers, pollers
 app/rsweb/notify.py    event text, notifications, visit tracking, digest

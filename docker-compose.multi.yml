@@ -1,13 +1,15 @@
-# Replicant Space web client
+# Replicant Space web client, multi-user mode: one app server per Google account.
 #
-#   Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─► oauth2-proxy (Google)
+#   Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─► oauth2-proxy (Google: who are you?)
 #                                              │
-#                                              └─► app (FastAPI + htmx, SQLite, holds the game token)
+#                                              ├─(auth_request)─► manager (which server is yours?)
+#                                              └─► app:<your port>  (your own copy: your token, your SQLite, your automations)
 #
-# No host ports are published: the tunnel is the only way in.
-# Portainer: Stacks ▸ Add stack ▸ Repository (point at this repo), then fill in the
-# environment variables listed in .env.example. Nothing secret lives in the repo.
-# To host other players too, use docker-compose.multi.yml instead (README › Multi-user mode).
+# The `app` container runs the manager on :8000, and it starts one app server per user on :8100, :8101 …
+# Users sign in with Google, follow the walkthrough at /_tenant/ to get a game API key, and paste it there.
+# The owner (OWNER_EMAIL) keeps the stack's RS_API_TOKEN and the existing database, so an existing single-user stack
+# can switch to this file (Portainer: same stack, compose path docker-compose.multi.yml) without losing anything.
+# README › Multi-user mode has the walkthrough.
 
 name: replicant-web
 
@@ -22,36 +24,22 @@ services:
     networks: [edge]
 
   nginx:
-    build: ./nginx
-    # Built from this repo, never pulled; rebuilt on every (re)deploy so code changes land.
+    build:
+      context: ./nginx
+      args:
+        NGINX_CONF: multi.conf
     pull_policy: build
     depends_on: [oauth2-proxy, app]
     restart: unless-stopped
     networks: [edge]
-    # Uncomment for LAN debugging (login still redirects to PUBLIC_HOST):
-    # ports: ["8080:80"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
 
-  # Writes the oauth2-proxy allow-list from ALLOWED_EMAIL, then exits.
-  # (Portainer's bundled Compose is too old for inline `configs: content:`.)
-  auth-config:
-    image: busybox:1.36
-    environment:
-      ALLOWED_EMAIL: ${ALLOWED_EMAIL:?set ALLOWED_EMAIL}
-    command: ["sh", "-c", "printf '%s\\n' \"$$ALLOWED_EMAIL\" | tr ',' '\\n' > /cfg/emails.txt && cat /cfg/emails.txt"]
-    volumes:
-      - oauth2-config:/cfg
-    restart: "no"
-
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
-    depends_on:
-      auth-config:
-        condition: service_completed_successfully
     environment:
       OAUTH2_PROXY_PROVIDER: google
       OAUTH2_PROXY_CLIENT_ID: ${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID}
@@ -63,35 +51,42 @@ services:
       OAUTH2_PROXY_REVERSE_PROXY: "true"
       OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
       OAUTH2_PROXY_UPSTREAMS: static://202
-      # Only the Google account(s) in this file may sign in.
-      OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE: /etc/oauth2-proxy/emails.txt
+      # Google identifies everyone; the manager decides who may sign up (OWNER_EMAIL, ALLOWED_EMAIL,
+      # ALLOWED_DOMAINS, OPEN_SIGNUP) and shows everyone else a "not on the list" page.
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
       OAUTH2_PROXY_COOKIE_SECURE: "true"
       OAUTH2_PROXY_COOKIE_SAMESITE: lax
       OAUTH2_PROXY_COOKIE_EXPIRE: 168h
       OAUTH2_PROXY_COOKIE_REFRESH: 1h
       OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
-    volumes:
-      - oauth2-config:/etc/oauth2-proxy:ro
     restart: unless-stopped
     networks: [edge]
 
   app:
     build: ./app
     pull_policy: build
+    command: ["python", "-m", "rsweb.tenants"]
     environment:
-      RS_API_TOKEN: ${RS_API_TOKEN:?set RS_API_TOKEN}
+      OWNER_EMAIL: ${OWNER_EMAIL:?set OWNER_EMAIL}
+      # Optional: the owner's own game key. Leave empty to add it through the walkthrough like everyone else.
+      RS_API_TOKEN: ${RS_API_TOKEN:-}
+      ALLOWED_EMAILS: ${ALLOWED_EMAIL:-}
+      ALLOWED_DOMAINS: ${ALLOWED_DOMAINS:-}
+      OPEN_SIGNUP: ${OPEN_SIGNUP:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      MAX_TENANTS: ${MAX_TENANTS:-10}
       RS_API_BASE: ${RS_API_BASE:-https://api.replicant.space/v1}
       DB_PATH: /data/rsweb.sqlite
-      ALLOWED_EMAILS: ${ALLOWED_EMAIL:?set ALLOWED_EMAIL}
       TZ: ${TZ:-America/New_York}
     volumes:
       - rsweb-data:/data
+    # Each user's server gets SIGTERM and a few seconds to record a clean stop.
+    stop_grace_period: 30s
     restart: unless-stopped
     networks: [edge]
 
 volumes:
   rsweb-data:
-  oauth2-config:
 
 networks:
   edge:

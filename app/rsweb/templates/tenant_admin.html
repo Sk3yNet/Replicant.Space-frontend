@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>All servers · Replicant Space</title>
+  <link rel="stylesheet" href="/_tenant/static/app.css">
+  <style>.ok { color: var(--good); } .err { color: var(--bad); } pre { white-space: pre-wrap; font-size: 12px; max-height: 240px; overflow: auto; }</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">◉ REPLICANT</a>
+  <a href="/_tenant/" class="small">Your server</a>
+  <span class="spacer"></span>
+  <span class="small muted">{{ user }}</span>
+</header>
+<main>
+  <h1>All servers <span class="muted small">{{ active }} / {{ ts.max_tenants }} in use</span></h1>
+  <p class="small muted">Who may sign up:
+    {% if ts.open_signup %}<b>any Google account</b> (OPEN_SIGNUP=1){% else %}
+      the owner{% if ts.allowed_emails %}, {{ ts.allowed_emails | join(', ') }}{% endif %}{% if ts.allowed_domains %}, anyone at {{ ts.allowed_domains | map('string') | join(', ') }}{% endif %}{% endif %}.
+    Change it with <code>ALLOWED_EMAIL</code> / <code>ALLOWED_DOMAINS</code> in the stack.</p>
+  <div class="card">
+    <table>
+      <tr><th>Google account</th><th>Game account</th><th>Port</th><th>State</th><th>Since</th><th></th></tr>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.email }}{% if r.owner %} <span class="muted small">(owner)</span>{% endif %}</td>
+        <td>{{ r.replicant or '–' }}{% if r.account_name %} <span class="muted small">{{ r.account_name }}</span>{% endif %}</td>
+        <td class="mono">{{ r.port }}</td>
+        <td>
+          {% if not r.has_key %}<span class="muted">no key</span>
+          {% else %}<span class="{{ 'ok' if r.status.state == 'running' else ('err' if r.status.state == 'crashed' else 'muted') }}">{{ r.status.state }}</span>
+            {% if r.status.restarts %}<span class="small muted">· {{ r.status.restarts }} restart(s)</span>{% endif %}
+            {% if r.status.last_exit %}<details><summary class="small">last exit</summary><div class="small mono">{{ r.status.last_exit }}</div><pre>{{ r.status.log | join('\n') }}</pre></details>{% endif %}
+          {% endif %}
+        </td>
+        <td class="small muted">{{ (r.key_set_at or r.created_at or '')[:16] | replace('T', ' ') }}</td>
+        <td>
+          {% if r.has_key %}
+          <form method="post" action="/_tenant/admin/restart" class="inline"><input type="hidden" name="email" value="{{ r.email }}"><button class="small">Restart</button></form>
+          <form method="post" action="/_tenant/admin/stop" class="inline"><input type="hidden" name="email" value="{{ r.email }}"><button class="small ghost" title="Until the next restart of the stack">Stop</button></form>
+          {% if not r.stack_key %}
+          <form method="post" action="/_tenant/admin/disconnect" class="inline" onsubmit='return confirm("Stop the server of " + {{ r.email | tojson }} + " and delete their key? Their history is kept.")'><input type="hidden" name="email" value="{{ r.email }}"><button class="small danger">Disconnect</button></form>
+          {% endif %}{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">Nobody has signed up yet.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</main>
+</body>
+</html>

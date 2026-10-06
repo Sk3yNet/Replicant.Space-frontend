@@ -43,6 +43,7 @@
       <a href="/account" class="{{ 'on' if active == 'account' }}">Account</a>
       <a href="/diagnostics" class="{{ 'on' if active == 'diagnostics' }}">Diagnostics</a>
       <a href="/console" class="{{ 'on' if active == 'console' }}">Console</a>
+      {% if TENANT_MODE %}<a href="/_tenant/">Your server &amp; API key</a>{% endif %}
       <a href="/oauth2/sign_out?rd=/">Sign out</a>
     </div>
   </details>
@@ -52,7 +53,7 @@
 {% endif %}
 <main>
   {% if not configured %}
-    <div class="banner">No Replicant Space API token configured. Set <code>RS_API_TOKEN</code> in the Portainer stack and redeploy.</div>
+    <div class="banner">No Replicant Space API token configured. {% if TENANT_MODE %}Add yours on <a href="/_tenant/">Your server</a>.{% else %}Set <code>RS_API_TOKEN</code> in the Portainer stack and redeploy.{% endif %}</div>
   {% endif %}
   {% block content %}{% endblock %}
 </main>

@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.16.0"
+VERSION = "1.17.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.17.0", "2026-10-06", "Multi-user mode (docker-compose.multi.yml): one app server per Google account, each with its "
+                             "own game key, database and automations. A manager starts and supervises them and routes each "
+                             "signed-in user to theirs; newcomers get a walkthrough at /_tenant/ to register a game account, "
+                             "find the API key in the verification email and paste it (checked with the game before it's "
+                             "stored). Owners keep their key and history; All servers lists and restarts everyone's."),
     ("1.16.0", "2026-10-05", "Mobile fleets can follow a template (the loadout comes from it, so editing the template "
                              "updates every fleet on it). New rule Fill mobile fleets from spares (and a Fill from spares "
                              "button): an idle fleet takes the nearest idle spares of its missing types, its carrier picks them "

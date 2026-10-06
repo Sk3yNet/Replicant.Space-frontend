@@ -37,7 +37,7 @@ from .ingest import duplicate_timers
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
 from . import version as appver  # noqa: E402
-templates.env.globals.update(app_version=appver.label(), APP_VERSION=appver.VERSION, RUN_ID=appver.RUN_ID, entry_age=appver.age_of)
+templates.env.globals.update(TENANT_MODE=os.getenv("TENANT_MODE") == "1", app_version=appver.label(), APP_VERSION=appver.VERSION, RUN_ID=appver.RUN_ID, entry_age=appver.age_of)
 log = logging.getLogger("rsweb.web")
 router = APIRouter()
 
