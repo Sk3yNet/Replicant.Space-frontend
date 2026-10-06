@@ -1,0 +1,43 @@
+{# Settings for a set of automation rules; loaded into the page that owns them (GET /automations/rules-panel). #}
+<details class="card rules-panel" {{ 'open' if open }} style="margin-bottom:14px">
+  <summary><b>Rules</b>
+    {% for r in rules %}{% set cfg = s.rules[r.id] %}<span class="pill small {{ 'st-work' if cfg.enabled else 'st-idle' }}">{{ r.title }} · {{ 'on' if cfg.enabled else 'off' }}</span> {% endfor %}
+    {% if s.dry_run %}<span class="small lv-alert">dry run is on</span>{% endif %}</summary>
+<div class="grid g2" style="margin-top:10px">
+{% for r in rules %}{% set cfg = s.rules[r.id] %}
+  <div class="card {{ 'hl' if cfg.enabled }}">
+    <form hx-post="/automations/rules/{{ r.id }}" hx-trigger="change" hx-target="#saved-{{ r.id }}">
+      <div class="row between">
+        <label style="font-size:15px;color:var(--text)"><input type="checkbox" name="enabled" {{ 'checked' if cfg.enabled }}> <b>{{ r.title }}</b></label>
+        <span id="saved-{{ r.id }}"><span class="{{ 'lv-done' if cfg.enabled else 'muted' }} small">{{ 'on' if cfg.enabled else 'off' }}</span></span>
+      </div>
+      <p class="muted small">{{ r.description }}</p>
+      {% if r.options %}<div class="fields">
+        {% for o in r.options %}
+          <div class="field">
+            {% if o.kind == "bool" %}
+              <label style="text-transform:none"><input type="checkbox" name="{{ o.name }}" {{ 'checked' if cfg[o.name] }}> {{ o.label }}</label>
+            {% elif o.kind == "int" %}
+              <label style="text-transform:none">{{ o.label }}</label><input type="number" min="0" name="{{ o.name }}" value="{{ cfg[o.name] }}" style="width:90px">
+            {% else %}
+              <label style="text-transform:none">{{ o.label }}</label>
+              <select name="{{ o.name }}">{% for v in o.options %}<option {{ 'selected' if cfg[o.name] == v }}>{{ v }}</option>{% endfor %}</select>
+            {% endif %}
+            {% if o.help %}<div class="muted small">{{ o.help }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      </div>{% endif %}
+    </form>
+    {% if r.id == "auto_survey" %}
+      <form class="inline" hx-post="/automations/survey-now" hx-target="#survey-now" style="margin-top:10px">
+        <select name="vessel">{% for v in vessels %}<option value="{{ v.device_code }}">{{ v.device_type | human }} {{ v.device_code }} @ {{ v.location }}</option>{% endfor %}</select>
+        <button class="small">Survey this system now</button>
+      </form>
+      <div id="survey-now" class="small"></div>
+      <p class="muted small">{{ surveyed }} bodies recorded as surveyed so far.</p>
+    {% endif %}
+  </div>
+{% endfor %}
+</div>
+
+</details>

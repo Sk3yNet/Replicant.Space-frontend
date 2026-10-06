@@ -19,6 +19,16 @@ header.top .brand { font-weight: 700; letter-spacing: .04em; color: var(--text);
 nav.main { display: flex; gap: 2px; flex-wrap: wrap; }
 nav.main a { padding: 6px 10px; border-radius: 6px; color: var(--muted); position: relative; }
 nav.main a.on, nav.main a:hover { background: var(--panel2); color: var(--text); text-decoration: none; }
+nav.sub { display: flex; gap: 2px; flex-wrap: wrap; padding: 4px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+nav.sub a { padding: 4px 10px; border-radius: 6px; color: var(--muted); font-size: 13px; }
+nav.sub a.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent, var(--good)); }
+nav.sub a:hover { color: var(--text); text-decoration: none; }
+.acct-menu { position: relative; }
+.acct-menu summary { cursor: pointer; list-style: none; }
+.acct-menu summary::-webkit-details-marker { display: none; }
+.acct-list { position: absolute; right: 0; top: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; min-width: 140px; z-index: 20; display: flex; flex-direction: column; }
+.acct-list a { padding: 6px 10px; border-radius: 6px; color: var(--muted); }
+.acct-list a:hover, .acct-list a.on { background: var(--panel2); color: var(--text); text-decoration: none; }
 .badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 11px; text-align: center; margin-left: 4px; }
 .badge:empty, .badge[data-n="0"] { display: none; }
 .spacer { flex: 1; }

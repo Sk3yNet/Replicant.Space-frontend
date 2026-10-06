@@ -5,6 +5,7 @@
   <span class="row"><span id="bp-refresh">{% if refresh_msg %}<span class="lv-done">{{ refresh_msg }}</span>{% endif %}</span>
     <button class="small" hx-post="/blueprints/refresh" hx-target="#bp-refresh">Refresh from game</button>
     <form class="inline" method="get"><input name="q" value="{{ q }}" placeholder="filter…"><button class="small">Filter</button></form></span></div>
+{% with ids="consolidate" %}{% include "partials/rules_slot.html" %}{% endwith %}
 {% if not blueprints %}<p class="muted">Blueprints sync every 5 minutes and when something may have unlocked one; none cached yet.</p>{% endif %}
 
 <form hx-post="/blueprints/plan" hx-target="#plan" hx-trigger="input delay:300ms from:input[type=number], change from:select">

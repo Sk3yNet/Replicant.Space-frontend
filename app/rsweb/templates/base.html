@@ -14,21 +14,41 @@
 <body hx-ext="sse" sse-connect="/live/stream">
 <header class="top">
   <a class="brand" href="/">◉ REPLICANT</a>
+  {# 6 groups; each page keeps its URL and shows up as a sub-tab of its group #}
+  {% set groups = [
+    ("Dashboard", "/", [("dashboard", "/", "Dashboard")]),
+    ("Devices", "/tree", [("tree", "/tree", "Tree"), ("fleet", "/fleet", "List"), ("ami", "/ami", "AMI")]),
+    ("Map", "/map", [("map", "/map", "Galaxy"), ("systems", "/systems", "Systems"), ("traffic", "/traffic", "Traffic"),
+                     ("defence", "/defence", "Defence"), ("maintenance", "/maintenance", "Upkeep")]),
+    ("Fleets", "/loadouts", [("loadouts", "/loadouts", "Home fleets"), ("fleets", "/fleets", "Mobile fleets")]),
+    ("Economy", "/blueprints", [("blueprints", "/blueprints", "Blueprints"), ("gameevents", "/game-events", "Contracts"), ("shop", "/shop", "Shop")]),
+    ("Activity", "/automations", [("automations", "/automations", "Automations"), ("events", "/events", "Events"),
+                                  ("messages", "/messages", "Messages"), ("notifications", "/notifications", "Notifications")]),
+  ] %}
+  {% set ns = namespace(cur=None) %}
+  {% for g in groups %}{% if active in g[2] | map(attribute=0) | list %}{% set ns.cur = g %}{% endif %}{% endfor %}
   <nav class="main">
-    {% for key, href, label in [
-      ("dashboard", "/", "Dashboard"), ("tree", "/tree", "Tree"), ("fleet", "/fleet", "Fleet"), ("systems", "/systems", "Systems"),
-      ("map", "/map", "Galaxy"), ("blueprints", "/blueprints", "Blueprints"), ("loadouts", "/loadouts", "Loadouts"), ("gameevents", "/game-events", "Contracts"), ("fleets", "/fleets", "Fleets"), ("ami", "/ami", "AMI"), ("traffic", "/traffic", "Traffic"), ("defence", "/defence", "Defence"), ("maintenance", "/maintenance", "Upkeep"), ("shop", "/shop", "Shop"),
-      ("automations", "/automations", "Automations"), ("events", "/events", "Events"), ("messages", "/messages", "Messages"), ("console", "/console", "Console"), ("diagnostics", "/diagnostics", "Diagnostics")] %}
-      <a href="{{ href }}" class="{{ 'on' if active == key }}">{{ label }}{% if key == 'messages' and rate.unread %}<span class="badge">{{ rate.unread }}</span>{% endif %}</a>
+    {% for label, href, subs in groups %}
+      <a href="{{ href }}" class="{{ 'on' if ns.cur and ns.cur[0] == label }}">{{ label }}{% if label == 'Activity' and rate.unread %}<span class="badge">{{ rate.unread }}</span>{% endif %}</a>
     {% endfor %}
-    <a href="/notifications" class="{{ 'on' if active == 'notifications' }}">🔔<span id="notif-badge" sse-swap="badge">{% include "partials/badge.html" with context %}</span></a>
+    <a href="/notifications" class="{{ 'on' if active == 'notifications' }}" title="Notifications">🔔<span id="notif-badge" sse-swap="badge">{% include "partials/badge.html" with context %}</span></a>
   </nav>
   <span class="spacer"></span>
   <div id="rate" sse-swap="rate">{% include "partials/rate.html" %}</div>
   <a href="/account#server" class="small muted mono" title="App version · code fingerprint — history on the Account page">v{{ APP_VERSION }}</a>
-  <a href="/account" class="small muted" title="Signed in via Google">{{ user }}</a>
-  <a href="/oauth2/sign_out?rd=/" class="small muted">sign out</a>
+  <details class="acct-menu">
+    <summary class="small muted" title="Signed in via Google">{{ user }} ▾</summary>
+    <div class="acct-list">
+      <a href="/account" class="{{ 'on' if active == 'account' }}">Account</a>
+      <a href="/diagnostics" class="{{ 'on' if active == 'diagnostics' }}">Diagnostics</a>
+      <a href="/console" class="{{ 'on' if active == 'console' }}">Console</a>
+      <a href="/oauth2/sign_out?rd=/">Sign out</a>
+    </div>
+  </details>
 </header>
+{% if ns.cur and ns.cur[2] | length > 1 %}
+<nav class="sub">{% for key, href, label in ns.cur[2] %}<a href="{{ href }}" class="{{ 'on' if active == key }}">{{ label }}{% if key == 'messages' and rate.unread %}<span class="badge">{{ rate.unread }}</span>{% endif %}</a>{% endfor %}</nav>
+{% endif %}
 <main>
   {% if not configured %}
     <div class="banner">No Replicant Space API token configured. Set <code>RS_API_TOKEN</code> in the Portainer stack and redeploy.</div>

@@ -1,17 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Fleets{% endblock %}
+{% block title %}Mobile fleets{% endblock %}
 {% block content %}
-<div class="row between"><h1>Fleets <span class="muted small">{{ fleets | length }}</span></h1>
+<div class="row between"><h1>Mobile fleets <span class="muted small">{{ fleets | length }}</span></h1>
   <form class="inline" hx-post="/fleets" hx-swap="none">
     <input name="name" placeholder="fleet name, e.g. Prospector-1" required size="18">
     <select name="role">{% for r in roles %}<option>{{ r }}</option>{% endfor %}</select>
     <select name="home">{% for s in stars %}<option>{{ s }}</option>{% endfor %}</select>
     <button>New fleet</button></form></div>
 <p class="muted small">A fleet's devices carry a <code>fleet:&lt;id&gt;</code> tag, so loadouts and the other rules leave them alone even in a
-  busy system. Surge plates / platforms / carriers / mobile fleets in the fleet carry the rest; freighters surge themselves.</p>
+  busy system. Surge plates / platforms / carriers / mobile fleets in the fleet carry the rest; freighters surge themselves.
+  A system's own devices are its <a href="/loadouts">home fleet</a>; mining and explore missions can't target a system that has one.</p>
 
 {% for f in fleets %}{% set r = f.roster %}{% set m = f.mission or {} %}
-<div class="card" style="margin-bottom:14px">
+<div class="card" id="fleet-{{ f.id }}" style="margin-bottom:14px">
   <div class="row between">
     <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }} · <code>fleet:{{ f.id }}</code></span></h2>
     <span>{% if m.status %}<span class="pill {{ {'running': 'st-work', 'done': 'lv-done', 'stalled': 'lv-alert', 'ended': 'lv-done'}.get(m.status, '') }}">{{ m.status }}{% if m.status == 'running' %}: {{ m.phase }}{% endif %}</span>{% endif %}</span>

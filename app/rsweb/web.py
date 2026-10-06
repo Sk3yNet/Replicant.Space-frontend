@@ -1404,7 +1404,7 @@ async def ami(request: Request, user: str = Depends(current_user)):
                       "directives": names, "first_fields": cmdspec.directive_fields(names[0]) if names else [],
                       "candidates": candidates})
     sugg = await suggestions(request, None)
-    return await page(request, user, "ami.html", "ami", ctrls=ctrls, sugg=sugg)
+    return await page(request, user, "ami.html", "ami", ctrls=ctrls, sugg=sugg, **await ami_schedules_ctx(request, st))
 
 
 async def refresh_targets(request: Request, star: str) -> tuple[int, str | None]:
@@ -1732,6 +1732,55 @@ async def live(request: Request, user: str = Depends(current_user)):
 # =====================================================================================
 
 
+# Where each rule's settings live: the page it works on (it loads them from /automations/rules-panel).
+RULE_HOME = {
+    "scan_on_arrival": ("Map › Systems", "/systems"), "auto_survey": ("Map › Systems", "/systems"),
+    "deploy_beacon": ("Map › Systems", "/systems"),
+    "restart_idle_miners": ("Map › Systems", "/systems"), "reopen_sites": ("Map › Systems", "/systems"),
+    "salvage_when_depleted": ("Map › Systems", "/systems"), "belt_viability": ("Map › Systems", "/systems"),
+    "visitor_alerts": ("Map › Traffic", "/traffic"), "civ_beacons": ("Map › Traffic", "/traffic"),
+    "asteroid_defence": ("Map › Defence", "/defence"), "maintenance": ("Map › Upkeep", "/maintenance"),
+    "ami_schedules": ("Devices › AMI", "/ami"), "loadouts": ("Fleets › Home fleets", "/loadouts"),
+    "consolidate": ("Economy › Blueprints", "/blueprints"), "contracts": ("Economy › Contracts", "/game-events"),
+}
+
+
+@router.get("/automations/rules-panel", response_class=HTMLResponse)
+async def automations_rules_panel(request: Request, ids: str = "", open: str = "", user: str = Depends(current_user)):
+    """The settings cards for some rules, for the page they work on."""
+    want = [i for i in ids.split(",") if i in auto.RULES_BY_ID]
+    rules = [r for r in auto.RULES if r.id in want]
+    kw: dict = {}
+    if "auto_survey" in want:
+        st = await load_state(request)
+        kw = {"vessels": [d for d in st["devices"] if "vessel" in (d.get("device_type") or "") or d.get("stow_capacity")],
+              "surveyed": len(await request.app.state.db.kv_get("surveyed", {}) or {})}
+    return partial(request, "partials/rule_cards.html", rules=rules, s=await request.app.state.worker.automations.settings(),
+                   open=bool(open), **kw)
+
+
+@router.post("/automations/rules/{rule_id}/toggle", response_class=HTMLResponse)
+async def automations_rule_toggle(request: Request, rule_id: str, user: str = Depends(current_user)):
+    """Switch a rule on or off from the overview, leaving its options alone."""
+    if rule_id not in auto.RULES_BY_ID:
+        return HTMLResponse("unknown rule", status_code=404)
+    eng = request.app.state.worker.automations
+    s = await eng.settings()
+    cfg = s["rules"][rule_id]
+    cfg["enabled"] = not cfg.get("enabled")
+    await eng.save_settings(s)
+    await eng.log(rule_id, f"{'enabled' if cfg['enabled'] else 'disabled'} by {user}")
+    return HTMLResponse(f'<span class="{"lv-done" if cfg["enabled"] else "muted"} small">{"on" if cfg["enabled"] else "off"} · saved</span>')
+
+
+async def ami_schedules_ctx(request: Request, st: dict) -> dict:
+    eng = request.app.state.worker.automations
+    controllers = [d for d in st["devices"] if amis.is_controller(d)]
+    return {"s": await eng.settings(), "schedules": await eng.schedules(), "controllers": controllers,
+            "kinds": sorted({amis.kind_of(d.get("device_type")) for d in controllers}),
+            "stars": sorted({star_of(d.get("location")) for d in controllers})}
+
+
 @router.get("/automations", response_class=HTMLResponse)
 async def automations_page(request: Request, user: str = Depends(current_user)):
     eng = request.app.state.worker.automations
@@ -1739,15 +1788,8 @@ async def automations_page(request: Request, user: str = Depends(current_user)):
     active = [j for j in jobs if j["status"] in ("running", "waiting")]
     finished = [j for j in reversed(jobs) if j["status"] not in ("running", "waiting")][:15]
     entries = list(reversed(await request.app.state.db.kv_get("automation_log", []) or []))[:60]
-    st = await load_state(request)
-    vessels = [d for d in st["devices"] if "vessel" in (d.get("device_type") or "") or d.get("stow_capacity")]
-    controllers = [d for d in st["devices"] if amis.is_controller(d)]
-    kinds = sorted({amis.kind_of(d.get("device_type")) for d in controllers})
     return await page(request, user, "automations.html", "automations", rules=auto.RULES, s=await eng.settings(),
-                      active_jobs=active, finished=finished, entries=entries, vessels=vessels,
-                      surveyed=len(await request.app.state.db.kv_get("surveyed", {}) or {}),
-                      schedules=await eng.schedules(), controllers=controllers, kinds=kinds,
-                      stars=sorted({star_of(d.get("location")) for d in controllers}))
+                      rule_home=RULE_HOME, active_jobs=active, finished=finished, entries=entries)
 
 
 def _schedule_rep(devices: list[dict], target: str) -> dict | None:
@@ -1955,7 +1997,10 @@ async def save_loadouts(request: Request, cfg: dict) -> None:
 
 @router.get("/loadouts", response_class=HTMLResponse)
 async def loadouts_page(request: Request, user: str = Depends(current_user)):
-    return await page(request, user, "loadouts.html", "loadouts", **await loadout_ctx(request))
+    based: dict[str, list[dict]] = defaultdict(list)   # mobile fleets by home system
+    for f in await request.app.state.worker.automations.fleets():
+        based[f.get("home") or ""].append(f)
+    return await page(request, user, "loadouts.html", "loadouts", mobile_by_home=based, **await loadout_ctx(request))
 
 
 @router.post("/loadouts/phases", response_class=HTMLResponse)

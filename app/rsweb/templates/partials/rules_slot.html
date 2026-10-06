@@ -1,0 +1,2 @@
+{# Loads the settings of the rules this page owns: {% with ids="a,b" %}{% include "partials/rules_slot.html" %}{% endwith %} #}
+<div hx-get="/automations/rules-panel?ids={{ ids }}" hx-trigger="load" hx-swap="outerHTML"></div>

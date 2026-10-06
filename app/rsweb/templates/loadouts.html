@@ -1,26 +1,31 @@
 {% extends "base.html" %}
-{% block title %}Loadouts{% endblock %}
+{% block title %}Home fleets{% endblock %}
 {% block content %}
 <div class="row between">
-  <h1>Loadouts <span class="muted small">{{ cfg.systems | length }} phased systems · {{ cfg.phases | length }} phases</span></h1>
+  <h1>Home fleets <span class="muted small">{{ cfg.systems.values() | select | list | length }} systems with a home fleet · {{ cfg.phases | length }} templates</span></h1>
   <div class="row">
     <span class="small {{ 'lv-done' if rule.enabled else 'muted' }}">Auto-apply {{ ('on, every ' ~ rule.every_minutes ~ ' min') if rule.enabled else 'off' }}
-      · <a href="/automations">Automations →</a></span>
+</span>
     <button hx-post="/loadouts/apply" hx-target="#lo-result" hx-confirm="Apply loadouts to every phased system now?">Apply all now</button>
   </div>
 </div>
+{% with ids="loadouts" %}{% include "partials/rules_slot.html" %}{% endwith %}
+<p class="muted small">A system's <b>home fleet</b> is its own devices (tagged <code>home:&lt;system&gt;</code>), kept at the loadout of the
+  template it's given. Only the home fleet works its system: <a href="/fleets">mobile fleets</a> can pass through or wait there, but missions
+  can't target it. A system with no template has no home fleet and is left alone.</p>
 <div id="lo-result">{% if last.at %}<p class="muted small">Last pass {{ last.at | ago }}{% if last.dry_run %} (dry run, nothing sent){% endif %}: {{ last.jobs }} job(s) started.</p>{% endif %}</div>
 
 <div class="grid g2">
 <div>
   <div class="card">
-    <h2>Systems</h2>
-    {% if not cfg.phases %}<p class="lv-alert small">Create a phase below first, then give systems a phase.</p>{% endif %}
+    <h2>Home fleet by system</h2>
+    {% if not cfg.phases %}<p class="lv-alert small">Create a template below first, then give systems one.</p>{% endif %}
     <table class="small">
-      <tr><th>System</th><th>Phase</th><th title="Sources ferry their stockpile to the nearest destination">Materials</th><th class="num">Devices</th><th>Status</th><th></th></tr>
+      <tr><th>System</th><th>Template</th><th title="Sources ferry their stockpile to the nearest destination">Materials</th><th class="num">Devices</th><th>Status</th><th></th></tr>
       {% for star in stars %}{% set rep = plan.report.get(star) %}
       <tr>
-        <td><a href="/systems/{{ star }}"><b>{{ star }}</b></a></td>
+        <td><a href="/systems/{{ star }}"><b>{{ star }}</b></a>
+          {% for f in mobile_by_home.get(star, []) %}<div class="small"><a href="/fleets#fleet-{{ f.id }}" title="mobile fleet based here">⇢ {{ f.name }}</a></div>{% endfor %}</td>
         <td><form hx-post="/loadouts/system" hx-trigger="change">
           <input type="hidden" name="star" value="{{ star }}">
           <select name="phase"><option value="">— none —</option>
@@ -113,8 +118,8 @@
 
 <div>
   <div class="card">
-    <h2>Phases</h2>
-    <p class="muted small">A phase is a stage of a system's development, and how many of each device a system at that stage should have.
+    <h2>Templates <span class="muted small">(phases)</span></h2>
+    <p class="muted small">A template (phase) is a stage of a system's development, and how many of each device a system at that stage should have.
       Every device counted for a system gets a <code>home:&lt;system&gt;</code> tag, so a carrier or transport out on a delivery still counts at home
       (listed under "Away from home") and isn't made spare where it's visiting. A device marked <code>spare</code> loses its home tag — it belongs to no system until it's sent somewhere (or its own system needs it again). Delivered devices are re-homed on arrival; to move one for good, change its tag on its device page.
       Leave a box empty for "don't care" (never counted, marked spare or filled); 0 means none wanted, so any there become spare.</p>

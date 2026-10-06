@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.14.0"
+VERSION = "1.15.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.15.0", "2026-10-05", "Navigation: 19 tabs regrouped into 6 (Dashboard, Devices, Map, Fleets, Economy, Activity) with "
+                             "sub-tabs; URLs unchanged; Account, Diagnostics and Console under the user menu. Rule settings moved "
+                             "onto the pages they work on (Rules panel); Automations keeps an on/off overview, jobs and the log; "
+                             "AMI schedules moved to the AMI page. Loadouts is now Fleets › Home fleets (phases are templates; "
+                             "mobile fleets based in a system are listed with it); Fleets is Mobile fleets."),
     ("1.14.0", "2026-10-05", "Several autofactories in a system share the printing, evenly by print time (each print goes to the "
                              "factory that would finish it first, counting its current print and queue): loadout passes, the "
                              "Blueprints planner (Spread over N autofactories), fleet Print missing and defence propulsors; "

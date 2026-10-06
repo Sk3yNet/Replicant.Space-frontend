@@ -4,6 +4,7 @@
 <h1>Contracts <span class="muted small">in-game events · {{ open | length }} open</span></h1>
 <p class="muted small">Discovered events and what they ask for. A replicant must be at the event's location to fulfil one; the
   criteria are consumed from what's there. Progress counts stock at the location and across its system.</p>
+{% with ids="contracts" %}{% include "partials/rules_slot.html" %}{% endwith %}
 
 {% for e in open %}{% set p = e.prog %}{% set b = p.best %}
 <div class="card" style="margin-bottom:12px">

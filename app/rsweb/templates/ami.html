@@ -3,6 +3,8 @@
 {% block content %}
 <h1>AMI controllers</h1>
 <p class="muted">Controllers run the tactical work; set a directive, adopt devices, then launch. Digest events show what each one did.</p>
+{% with ids="ami_schedules" %}{% include "partials/rules_slot.html" %}{% endwith %}
+{% include "partials/ami_schedules.html" %}
 {% if not ctrls %}<div class="card"><p class="muted">No devices with the <code>ami</code> feature yet. Print an AMI controller (see Blueprints).</p></div>{% endif %}
 <div class="grid g2">
 {% for c in ctrls %}{% set d = c.d %}

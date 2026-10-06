@@ -7,6 +7,7 @@
     <button class="small" hx-post="/traffic/refresh" hx-target="#tr-msg">Read beacons now</button></span>
 </div>
 <div id="tr-msg"></div>
+{% with ids="visitor_alerts,civ_beacons" %}{% include "partials/rules_slot.html" %}{% endwith %}
 
 <div class="card">
   <h2>Civilisation contact</h2>

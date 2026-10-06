@@ -820,7 +820,7 @@ def test_beacon_skipped_for_another_players_beacon(client):
 
 
 def test_ami_schedule_add_run_and_idle_check(client):
-    page = client.get("/automations", headers=H).text
+    page = client.get("/ami", headers=H).text   # schedules live on the AMI page since 1.15.0
     assert "AMI schedules" in page and 'value="kind:mining"' in page
     r = client.get("/automations/schedule-form?target=TC000001", headers=HX)
     assert '<option value="delivery">' in r.text or 'value="shuttle"' in r.text
@@ -991,7 +991,7 @@ def test_loadout_incoming_and_arrivals_and_unspare():
 def test_loadouts_page_and_apply_against_mock(client):
     world = client.app.state.api.http._transport.app.state.world
     client.portal.call(client.app.state.worker.sync_devices)
-    assert "Loadouts" in client.get("/", headers=H).text
+    assert 'href="/loadouts"' in client.get("/", headers=H).text   # nav: Fleets › Home fleets
     r = client.post("/loadouts/phases", data={"new_phase": "Mining hub"}, headers=HX)
     assert r.headers.get("HX-Refresh")
     cfg = client.portal.call(client.app.state.db.kv_get, "loadouts")
@@ -3195,3 +3195,37 @@ def test_missions_cannot_target_a_system_with_a_home_fleet(client):
     assert not client.portal.call(eng.fleets)[0].get("mission")
     r = client.post("/fleets/scouts/mission", data={"targets": "ABC"}, headers=HX)   # no phase: no home fleet
     assert r.headers.get("HX-Refresh") and client.portal.call(eng.fleets)[0]["mission"]["targets"] == ["ABC"]
+
+
+def test_rules_live_on_their_pages_and_nav_is_grouped(client):
+    eng = client.app.state.worker.automations
+    # the Automations page lists every rule with a link to where its settings are
+    page = client.get("/automations", headers=H).text
+    assert "Asteroid defence" in page and 'href="/defence">Map › Defence →' in page
+    assert 'name="max_prints"' not in page                       # the settings cards moved out
+    # each page loads its own rules' cards
+    assert 'rules-panel?ids=asteroid_defence"' in client.get("/defence", headers=H).text
+    r = client.get("/automations/rules-panel?ids=asteroid_defence,nope", headers=HX)
+    assert 'hx-post="/automations/rules/asteroid_defence"' in r.text and 'name="max_prints"' in r.text and "nope" not in r.text
+    assert "Survey this system now" in client.get("/automations/rules-panel?ids=auto_survey", headers=HX).text
+    # the overview toggle flips the switch and keeps the options
+    s = client.portal.call(eng.settings)
+    before = dict(s["rules"]["asteroid_defence"])
+    client.post("/automations/rules/asteroid_defence/toggle", headers=HX)
+    after = client.portal.call(eng.settings)["rules"]["asteroid_defence"]
+    assert after["enabled"] != before["enabled"] and {k: v for k, v in after.items() if k != "enabled"} == \
+           {k: v for k, v in before.items() if k != "enabled"}
+    # AMI schedules moved to the AMI page
+    assert "AMI schedules" in client.get("/ami", headers=H).text
+    # nav: 6 groups, the current one's pages as sub-tabs; old URLs still work
+    page = client.get("/defence", headers=H).text
+    nav = page[page.index('<nav class="main">'):page.index("</nav>")]
+    for g in ("Dashboard", "Devices", "Map", "Fleets", "Economy", "Activity"):
+        assert f">{g}<" in nav or f">{g}<span" in nav
+    sub = page[page.index('<nav class="sub">'):]
+    sub = sub[:sub.index("</nav>")]
+    assert all(t in sub for t in ("Galaxy", "Systems", "Traffic", "Defence", "Upkeep")) and "Blueprints" not in sub
+    assert 'href="/diagnostics"' in page and 'href="/console"' in page   # account menu
+    lo = client.get("/loadouts", headers=H).text
+    assert "<h1>Home fleets" in lo and ">Home fleets</a>" in lo and ">Mobile fleets</a>" in lo
+    assert "<h1>Mobile fleets" in client.get("/fleets", headers=H).text

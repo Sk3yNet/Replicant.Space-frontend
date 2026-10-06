@@ -4,6 +4,7 @@
 <div class="row between"><h1>Systems</h1>
   <form class="inline" onsubmit="location.href='/systems/'+this.star.value.toUpperCase(); return false;">
     <input name="star" placeholder="open system e.g. SOL"><button class="small">Open</button></form></div>
+{% with ids="scan_on_arrival,auto_survey,deploy_beacon,restart_idle_miners,reopen_sites,salvage_when_depleted,belt_viability" %}{% include "partials/rules_slot.html" %}{% endwith %}
 <div class="card">
   <table>
     <tr><th>System</th><th class="num">Devices</th><th>Replicants</th><th class="num">Locations with presence</th><th class="num">Stockpiled</th><th class="num">Mineable</th><th class="num">Salvage</th><th>Most available</th><th>Scan cached</th></tr>

@@ -7,9 +7,10 @@
           hx-confirm="Set every idle maintenance drone to patrol, and print one for systems with badly worn devices and none?">Run now</button>
 </div>
 <div id="mt-msg"></div>
+{% with ids="maintenance" %}{% include "partials/rules_slot.html" %}{% endwith %}
 <p class="small muted">Devices wear down with use. A maintenance drone repairs only while on the <b>patrol</b> directive: it takes the most
   worn device in its system back to 100 %, then the next. Vessels that can print self-repair below 30 % (1 %/h).
-  Rule <a href="/automations">Keep maintenance drones patrolling</a> is <b>{{ 'on' if cfg.enabled else 'off' }}</b>
+  Rule <a href="#" onclick="document.querySelector('.rules-panel').open=true;return false">Keep maintenance drones patrolling</a> is <b>{{ 'on' if cfg.enabled else 'off' }}</b>
   · worn below {{ cfg.threshold }} % · critical below {{ cfg.critical }} % · print missing drones {{ 'on' if cfg.print_missing else 'off' }}.</p>
 
 {% for r in report %}

@@ -16,6 +16,23 @@ Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─�
 
 ## Features
 
+**Navigation** (1.15.0): six tabs, each with sub-tabs for its pages; every page keeps its URL.
+
+| Tab | Sub-tabs |
+|---|---|
+| Dashboard | — |
+| Devices | Tree · List (`/fleet`) · AMI (controllers and **AMI schedules**) |
+| Map | Galaxy · Systems · Traffic · Defence · Upkeep |
+| Fleets | Home fleets (`/loadouts`) · Mobile fleets (`/fleets`) |
+| Economy | Blueprints · Contracts · Shop |
+| Activity | Automations · Events · Messages · Notifications |
+
+Account, Diagnostics and Console are in the menu under your name. **Rule settings live on the page each rule works on**, in a
+*Rules* panel at the top (collapsed, showing each rule's on/off): Systems has the arrival and mining rules, Traffic the visitor and
+civilisation-beacon rules, Defence, Upkeep, Contracts, Blueprints (consolidation), Home fleets (loadouts) and AMI (schedules) their own.
+The Automations page lists every rule with an on/off switch and a link to its settings, plus jobs and the log.
+**Home fleets** is the Loadouts page under its new name: a system's own devices, kept at its template's (phase's) loadout.
+
 | Page | What it does |
 |---|---|
 | **Dashboard** | *While you were away* digest, open alerts, replicants, live countdowns (travel, prints, scans), fleet summary, stockpiles with 48 h trend, live event feed |

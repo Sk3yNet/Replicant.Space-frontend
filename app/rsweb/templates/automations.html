@@ -11,84 +11,17 @@
 <p class="muted">Rules run on the server, so they keep working with this page closed. Every command they send appears in
   <a href="/account">the audit log</a> as <code>automation</code>. New rules start switched off — try them with dry run first.</p>
 
-<div class="grid g2">
-{% for r in rules %}{% set cfg = s.rules[r.id] %}
-  <div class="card {{ 'hl' if cfg.enabled }}">
-    <form hx-post="/automations/rules/{{ r.id }}" hx-trigger="change" hx-target="#saved-{{ r.id }}">
-      <div class="row between">
-        <label style="font-size:15px;color:var(--text)"><input type="checkbox" name="enabled" {{ 'checked' if cfg.enabled }}> <b>{{ r.title }}</b></label>
-        <span id="saved-{{ r.id }}"><span class="{{ 'lv-done' if cfg.enabled else 'muted' }} small">{{ 'on' if cfg.enabled else 'off' }}</span></span>
-      </div>
-      <p class="muted small">{{ r.description }}</p>
-      {% if r.options %}<div class="fields">
-        {% for o in r.options %}
-          <div class="field">
-            {% if o.kind == "bool" %}
-              <label style="text-transform:none"><input type="checkbox" name="{{ o.name }}" {{ 'checked' if cfg[o.name] }}> {{ o.label }}</label>
-            {% elif o.kind == "int" %}
-              <label style="text-transform:none">{{ o.label }}</label><input type="number" min="0" name="{{ o.name }}" value="{{ cfg[o.name] }}" style="width:90px">
-            {% else %}
-              <label style="text-transform:none">{{ o.label }}</label>
-              <select name="{{ o.name }}">{% for v in o.options %}<option {{ 'selected' if cfg[o.name] == v }}>{{ v }}</option>{% endfor %}</select>
-            {% endif %}
-            {% if o.help %}<div class="muted small">{{ o.help }}</div>{% endif %}
-          </div>
-        {% endfor %}
-      </div>{% endif %}
-    </form>
-    {% if r.id == "auto_survey" %}
-      <form class="inline" hx-post="/automations/survey-now" hx-target="#survey-now" style="margin-top:10px">
-        <select name="vessel">{% for v in vessels %}<option value="{{ v.device_code }}">{{ v.device_type | human }} {{ v.device_code }} @ {{ v.location }}</option>{% endfor %}</select>
-        <button class="small">Survey this system now</button>
-      </form>
-      <div id="survey-now" class="small"></div>
-      <p class="muted small">{{ surveyed }} bodies recorded as surveyed so far.</p>
-    {% endif %}
-  </div>
-{% endfor %}
-</div>
-
-<div class="card" style="margin-top:14px">
-  <div class="row between"><h2>AMI schedules</h2>
-    <span class="small {{ 'lv-done' if s.rules.ami_schedules.enabled else 'lv-alert' }}">{{ 'running — master switch on' if s.rules.ami_schedules.enabled else 'paused — turn on "Run AMI schedules" above' }}</span></div>
-  <p class="muted small">Let the controllers do the work: every N minutes, each schedule checks its controller(s). If one is idle or its
-    directive has finished, it adopts idle drones of the right kind at its location, sets the directive and launches it.</p>
+<div class="card">
+  <h2>Rules <span class="muted small">each one's settings live on the page it works on</span></h2>
   <table class="small">
-    <tr><th>On</th><th>Schedule</th><th>Controller(s)</th><th>Every</th><th>Last run</th><th></th></tr>
-    {% for x in schedules %}
-    <tr class="{{ 'muted' if not x.enabled }}">
-      <td><input type="checkbox" {{ 'checked' if x.enabled }} hx-post="/automations/schedules/{{ x.id }}/toggle" hx-swap="none"></td>
-      <td><b>{{ x.name or x.directive | human }}</b> <span class="muted">{{ x.directive }}{% if x.configuration %} · {{ x.configuration | tojson | truncate(60) }}{% endif %}</span>
-        <div class="muted">{{ 'only when idle' if x.only_idle else 'always' }}{{ ' · adopts idle drones' if x.adopt }}{{ ' · launches' if x.launch }}</div></td>
-      <td>{% if x.target.startswith('kind:') %}all {{ x.target[5:] }} controllers{% if x.star %} in {{ x.star }}{% endif %}{% else %}<a class="mono" href="/devices/{{ x.target }}">{{ x.target }}</a>{% endif %}</td>
-      <td>{{ x.every_minutes }} min</td>
-      <td>{% if x.last_run %}{{ x.last_run | ago }}<div class="muted">{{ x.last_result }}</div>{% else %}<span class="muted">never</span>{% endif %}
-        <div id="sr-{{ x.id }}"></div></td>
-      <td class="row"><button class="small" hx-post="/automations/schedules/{{ x.id }}/run" hx-target="#sr-{{ x.id }}">Run now</button>
-        <button class="small ghost" hx-post="/automations/schedules/{{ x.id }}/delete" hx-confirm="Delete this schedule?" hx-swap="none">Delete</button></td>
-    </tr>
-    {% else %}<tr><td colspan="6" class="muted">No schedules yet.</td></tr>{% endfor %}
+    <tr><th>On</th><th>Rule</th><th>Settings</th></tr>
+    {% for r in rules %}{% set cfg = s.rules[r.id] %}{% set home = rule_home[r.id] %}
+    <tr class="{{ 'muted' if not cfg.enabled }}">
+      <td><input type="checkbox" {{ 'checked' if cfg.enabled }} hx-post="/automations/rules/{{ r.id }}/toggle" hx-target="#rt-{{ r.id }}"></td>
+      <td><b>{{ r.title }}</b> <span id="rt-{{ r.id }}"></span></td>
+      <td><a href="{{ home[1] }}">{{ home[0] }} →</a></td>
+    </tr>{% endfor %}
   </table>
-  <details style="margin-top:10px" {{ 'open' if not schedules }}><summary>Add a schedule</summary>
-    <form hx-post="/automations/schedules" hx-target="#sched-msg" style="margin-top:8px">
-      <div class="row">
-        <select name="target" hx-get="/automations/schedule-form" hx-target="#sched-fields" hx-trigger="change, load">
-          {% for k in kinds %}<option value="kind:{{ k }}">All {{ k }} controllers</option>{% endfor %}
-          {% for c in controllers %}<option value="{{ c.device_code }}">{{ c.device_type | human }} {{ c.device_code }} @ {{ c.location }}</option>{% endfor %}
-        </select>
-        <select name="star" title="limit 'all … controllers' to one system"><option value="">in every system</option>{% for st in stars %}<option>{{ st }}</option>{% endfor %}</select>
-        <input name="name" placeholder="name (optional)" size="18">
-      </div>
-      <div id="sched-fields"></div>
-      <div class="row" style="margin-top:6px">
-        <label style="text-transform:none">every <input type="number" name="every_minutes" value="30" min="1" style="width:70px"> min</label>
-        <label style="text-transform:none"><input type="checkbox" name="only_idle" checked> only when idle / finished</label>
-        <label style="text-transform:none"><input type="checkbox" name="adopt" checked> adopt idle drones first</label>
-        <label style="text-transform:none"><input type="checkbox" name="launch" checked> launch</label>
-        <button>Add schedule</button> <span id="sched-msg"></span>
-      </div>
-    </form>
-  </details>
 </div>
 
 <div class="card" style="margin-top:14px">
