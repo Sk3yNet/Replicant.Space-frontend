@@ -3809,3 +3809,59 @@ def test_fleet_owner_hands_members_to_one_replicant(client):
     assert client.portal.call(eng.fleet_owners) == []          # just sent: not repeated
     r = client.post("/fleets/miners/owner", data={"owner": "NOPE"}, headers=HX)   # unknown replicant: cleared
     assert not client.portal.call(eng.fleets)[0]["owner"]
+
+
+def test_mining_mission_salvages_where_there_is_no_belt(client):
+    """Live 2026-10-06: KELMONENT has no belt; the made-up KELMONENT-1-BELT-1 was refused ('Invalid destination format')."""
+    import json as _json
+    from rsweb import fleets as fl
+    assert fl.richest_belt("KELMONENT", {"planets": [], "asteroid_belt": None}) is None
+    assert fl.richest_belt("X", {"asteroid_belt": {"belts": [{"designation": "X-BELT-1", "resources": {"iron": "low"}},
+                                                             {"designation": "X-BELT-2", "resources": {"iron": "rich"}}]}}) == "X-BELT-2"
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+    world = client.app.state.api.http._transport.app.state.world
+    for ev in [e for e in world.events if e["event"] == "salvage.discovered"]:      # SOL-3-1-SAL-1, a derelict hauler
+        client.portal.call(client.app.state.worker.handle_event, dict(ev))
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("SOL", _json.dumps({"planets": [{"designation": "SOL-3"}], "asteroid_belt": None}), "2026-10-06T00:00:00"))
+    devices = [
+        {"device_code": "MC", "device_type": "ami_mining_controller", "location": "SOL-3-L4", "status": "idle", "tags": ["fleet:p"]},
+        {"device_code": "SC", "device_type": "ami_survey_controller", "location": "SOL-3-L4", "status": "idle", "tags": ["fleet:p"]},
+        {"device_code": "MD", "device_type": "mining_drone", "location": "SOL-3-L4", "status": "idle", "tags": ["fleet:p"]},
+        {"device_code": "SD", "device_type": "survey_drone", "location": "SOL-3-L4", "status": "idle", "tags": ["fleet:p"]},
+    ]
+    fleet = {"id": "p", "name": "Prospectors", "role": "mining", "home": "AEM", "wants": {}, "station": False}
+    m = {"status": "running", "phase": "deploy", "target": "SOL", "targets": ["SOL"], "idx": 0, "opts": {}, "log": []}
+    steps, problems = client.portal.call(eng.fleet_phase_steps, fleet, m, "work", devices)
+    bodies = [s["body"] for s in steps if s["body"]]
+    assert {"command": "travel", "destination": "SOL-3-1"} in bodies and not any("BELT" in str(b) for b in bodies)
+    assert {"command": "set_directive", "directive": "gather_salvage", "configuration": {"location": "SOL-3-1", "recall": False}} in bodies
+    assert not any(b.get("directive") in ("belt_search", "gather_evenly") for b in bodies)
+    assert {"command": "adopt", "devices": ["MD"]} in bodies and not problems
+    assert m["belt"] == "SOL-3-1" and m["salvage"] == "SOL-3-1-SAL-1" and "salvaging SOL-3-1-SAL-1" in m["log"][-1]["text"]
+    # no belt and no salvage known: the mission stalls with a reason instead of watching forever
+    client.portal.call(db.execute, "DELETE FROM events WHERE event='salvage.discovered'")
+    m = {"status": "running", "phase": "deploy", "target": "SOL", "targets": ["SOL"], "idx": 0, "opts": {}, "log": []}
+    steps, problems = client.portal.call(eng.fleet_phase_steps, fleet, m, "work", devices)
+    assert not steps and "no asteroid belt and no salvage" in problems[0] and m["stall"]
+
+
+def test_change_owner_already_owned_counts_as_done(client):
+    """Live 2026-10-06: a second owner pass got 'Device already belongs to that replicant' and failed the job."""
+    import time
+    from rsweb.automations import step
+    eng = client.app.state.worker.automations
+    world = client.app.state.api.http._transport.app.state.world
+    d = next(x for x in world.devices if "change_owner" in x["available_commands"])
+    d["replicant_code"] = "AAAA0001"
+    job = client.portal.call(eng.create_job, "fleets", "owners", None,
+                             [step("owner", f"/devices/{d['device_code']}", {"command": "change_owner", "target": "AAAA0001"})],
+                             {}, True)
+    for _ in range(20):
+        client.portal.call(eng.tick)
+        j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
+        if j["status"] not in ("running", "waiting"):
+            break
+        time.sleep(0.05)
+    assert j["status"] == "done" and "already belongs" in j["steps"][0]["note"]

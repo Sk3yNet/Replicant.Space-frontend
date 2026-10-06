@@ -427,6 +427,11 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                   "entry_point": None, "estimated_planets": 3, "estimated_travel_time": 291,
                                   "explored": False, "has_hub": False, "has_life": None, "has_ward": True,
                                   "position": {"x": 5.0, "y": 3.0, "z": 0.0}, "region": "solzone"}]})
+        if cmd == "change_owner":
+            if d.get("replicant_code") == body.get("target"):
+                return ok({"error": "Device already belongs to that replicant"}, 400)
+            d["replicant_code"] = body.get("target")
+            return ok({"ok": True, "device_code": code, "replicant_code": d["replicant_code"]})
         if cmd == "start_mining":
             d["status"] = f"mining ({body.get('resource_type')})"
             world.emit("mining.started", d, location=d["location"], resource_type=body.get("resource_type"), site="SOL-BELT-1-SITE-1")

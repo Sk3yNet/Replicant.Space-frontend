@@ -594,6 +594,11 @@ class AutomationEngine(OpsRules):
                 # seen live: carriers let go of their cargo on arrival, so the device is already off — that's the goal
                 ok, st["note"] = True, err
                 st["wait"] = []
+            if (not ok and (st.get("body") or {}).get("command") == "change_owner"
+                    and "already belongs to that replicant" in (err or "").lower()):
+                # seen live (2026-10-06): a second owner pass for a device the first had already moved
+                ok, st["note"] = True, err
+                st["wait"] = []
             if not ok:
                 st["error"] = err
                 if st["tries"] < 2 and "rate" in (err or "").lower():
@@ -1534,7 +1539,19 @@ class AutomationEngine(OpsRules):
                                                                                      ctrl.get("location"), geo) else None
                 return fl.explore_work_steps(fleet, devices, spot)
             belt = fl.richest_belt(target, await self.system_scan(target))
-            m["belt"] = belt
+            sal = None
+            if not belt:   # no belt here: salvage is the only work
+                from .salvage import available_salvage
+                from .targets import system_resources
+                found = available_salvage(await system_resources(self.db, target))
+                if not found:
+                    m["stall"] = True
+                    return [], [f"{target} has no asteroid belt and no salvage we know of — nothing to mine "
+                                "(a survey drone finds salvage on the bodies; then retry)"]
+                sal = found[0]
+                m["salvage"] = sal["code"]
+                self._mlog(m, f"no belt in {target}: salvaging {sal['code']} at {fl.salvage_body(sal['code'])}")
+            m["belt"] = belt or fl.salvage_body(sal["code"])
             deliver_to = None
             if opts.get("deliver"):
                 fleets = await self.fleets()
@@ -1548,7 +1565,7 @@ class AutomationEngine(OpsRules):
                     m["deliver_to"] = deliver_to
                 else:
                     self._mlog(m, "deliver mode, but no fleet takes materials in (Materials on the Fleets page) — hauling instead")
-            return fl.mining_work_steps(fleet, devices, belt, deliver_to)
+            return fl.mining_work_steps(fleet, devices, belt, deliver_to, sal)
         if phase == "recall":
             haul = m.get("belt") if fleet["role"] == "mining" and not m.get("deliver_to") and not m.get("end_here") else None
             for c in fl.outside_controllers(fleet, devices):
@@ -1753,6 +1770,10 @@ class AutomationEngine(OpsRules):
                 steps, problems = await self.fleet_phase_steps(fleet, m, nxt, devices)
                 for pr in problems:
                     self._mlog(m, f"{nxt}: {pr}")
+                if m.pop("stall", False):
+                    m["status"], m["job"] = "stalled", None
+                    await self.log("fleets", f"{fleet['name']}: stalled in {nxt}: {'; '.join(problems)}", "alert", notify=True)
+                    break
                 if not steps:
                     continue
                 codes = [d["device_code"] for d in fl.members(fleet, devices)]

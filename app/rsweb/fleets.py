@@ -634,28 +634,44 @@ def unload_steps(fleet: dict, devices: list[dict]) -> list[dict]:
     return out
 
 
-def richest_belt(star: str, scan: dict | None) -> str:
-    belts = ((scan or {}).get("asteroid_belt") or {}).get("belts") or []
+def belts_in(scan: dict | None) -> list[dict]:
+    return [b for b in ((scan or {}).get("asteroid_belt") or {}).get("belts") or [] if isinstance(b, dict) and b.get("designation")]
+
+
+def richest_belt(star: str, scan: dict | None) -> str | None:
+    """The system's richest belt, or None when it has none (KELMONENT, seen live 2026-10-06: the code we used to make up,
+    KELMONENT-1-BELT-1, was refused with "Invalid destination format")."""
+    belts = belts_in(scan)
     score = {"rich": 4, "high": 3, "moderate": 2, "low": 1, "scarce": 0}
     if not belts:
-        return f"{star}-BELT-1"
+        return None
     best = max(belts, key=lambda b: sum(score.get(v, 0) for v in (b.get("resources") or {}).values()))
-    return best.get("designation") or f"{star}-BELT-1"
+    return best["designation"]
 
 
-def mining_work_steps(fleet: dict, devices: list[dict], belt: str, deliver_to: str | None) -> tuple[list[dict], list[str]]:
+def salvage_body(code: str) -> str:
+    """KELMONENT-2-SAL-1 → KELMONENT-2: the game wants the body a salvage belongs to."""
+    import re
+    return re.sub(r"-SAL-\d+$", "", code or "")
+
+
+def mining_work_steps(fleet: dict, devices: list[dict], belt: str | None, deliver_to: str | None,
+                      salvage: dict | None = None) -> tuple[list[dict], list[str]]:
+    """Put the fleet to work on `belt` — or, with `salvage` (a system with no belt), on that salvage: the drones fly to
+    its body and the mining controller gets `gather_salvage` there (no belt search: there's no belt to search)."""
     r = roster(fleet, devices)
     ms = [d for d in r["members"] if not is_carrier(d)]
     ctrl = {k: next((d for d in ms if kind(d) == k), None) for k in ("mining_controller", "survey_controller", "transport_controller")}
     problems = [] if ctrl["mining_controller"] else ["no AMI mining controller in the fleet"]
+    place = salvage_body(salvage["code"]) if salvage else belt
     workers = [d for d in ms if not flies_itself(d)]
     steps = []
     for d in workers:
-        if d.get("location") != belt:
-            steps.append(step(f"{d['device_code']} → {belt}", f"/devices/{d['device_code']}", {"command": "travel", "destination": belt},
+        if d.get("location") != place:
+            steps.append(step(f"{d['device_code']} → {place}", f"/devices/{d['device_code']}", {"command": "travel", "destination": place},
                               critical=True))
-    for i, d in enumerate([d for d in workers if d.get("location") != belt]):
-        w = _wait_arrive(d["device_code"], belt)
+    for i, d in enumerate([d for d in workers if d.get("location") != place]):
+        w = _wait_arrive(d["device_code"], place)
         w["seq0_from"] = i
         steps.append(w)
 
@@ -665,19 +681,24 @@ def mining_work_steps(fleet: dict, devices: list[dict], belt: str, deliver_to: s
         code = c["device_code"]
         if drones:
             steps.append(step(f"{code}: adopt {len(drones)}", f"/devices/{code}", {"command": "adopt", "devices": drones}))
-        steps.append(step(f"{code}: {directive}", f"/devices/{code}",
-                          {"command": "set_directive", "directive": directive, "configuration": config}, critical=True))
+        steps.append(step(f"{code}: {directive}" + (f" at {place} ({salvage['code']})" if directive == "gather_salvage" else ""),
+                          f"/devices/{code}", {"command": "set_directive", "directive": directive, "configuration": config},
+                          critical=True))
         steps.append(step(f"{code}: launch", f"/devices/{code}", {"command": "launch"}))
 
     def free(t: str, c: dict | None) -> list[str]:
         return [d["device_code"] for d in ms if t in (d.get("device_type") or "") and "controller" not in (d.get("device_type") or "")
                 and d.get("controller_device_code") != (c or {}).get("device_code")]
-    put_to_work(ctrl["survey_controller"], free("survey_drone", ctrl["survey_controller"]), "belt_search", {})
-    put_to_work(ctrl["mining_controller"], free("mining_drone", ctrl["mining_controller"]), "gather_evenly", {})
+    if salvage:
+        put_to_work(ctrl["mining_controller"], free("mining_drone", ctrl["mining_controller"]), "gather_salvage",
+                    {"location": place, "recall": False})
+    else:
+        put_to_work(ctrl["survey_controller"], free("survey_drone", ctrl["survey_controller"]), "belt_search", {})
+        put_to_work(ctrl["mining_controller"], free("mining_drone", ctrl["mining_controller"]), "gather_evenly", {})
     if deliver_to and ctrl["transport_controller"]:
         haulers = [d["device_code"] for d in ms if d.get("device_type") in ("cargo_freighter", "transport_drone", "transport_hauler")
                    and d.get("controller_device_code") != ctrl["transport_controller"]["device_code"]]
-        put_to_work(ctrl["transport_controller"], haulers, "ferry", {"collect": belt, "deliver": deliver_to})
+        put_to_work(ctrl["transport_controller"], haulers, "ferry", {"collect": place, "deliver": deliver_to})
     return steps, problems
 
 
