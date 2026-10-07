@@ -11,7 +11,7 @@
     <b>proven</b> (known site quantities, open sites, salvage, ≤25) + <b>staying power</b> (belt viability, ≤15) +
     <b>access</b> (distance; −5 without a relay of yours, ≤20). Resources you're short of or a waiting print needs tip
     the richness slightly{% if p.wanted %} — now: {% for r, v in p.wanted.items() %}{{ r }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}.
-    Systems with another player's ward, or a stationed fleet's home, aren't scored: mining missions can't go there.</p>
+    Systems with another player's ward or hub, or a stationed fleet's home, aren't scored: mining missions can't go there.</p>
   <table class="small">
     <tr><th>System</th><th class="num">Score</th><th>Richness · proven · staying · access</th><th>Why</th><th class="num">Distance</th></tr>
     {% for r in p.rows %}<tr{% if r.status != 'ok' %} class="muted"{% endif %}>

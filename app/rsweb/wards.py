@@ -1,8 +1,9 @@
-"""Other players' system wards.
+"""Other players' system wards (and hubs).
 
-A system ward stops other players mining in its system. The star catalogue (`GET /stars`) and a stellar census both flag
-a warded system with `has_ward`, which is also true for a ward of ours; so a system is warded by someone else when it's
-flagged and none of our wards is deployed there. Used to:
+A system ward stops other players mining in its system, and so does a system hub (the player confirmed, 2026-10-07).
+The star catalogue (`GET /stars`) and a stellar census flag them with `has_ward` / `has_hub` (present only when true),
+which is also true for one of ours; so a system is warded by someone else when it's flagged and none of our wards or
+hubs is deployed there. Used to:
   • refuse a mining mission to such a system (and stall one that finds the target warded on the way),
   • leave a stationed fleet's mining controllers and drones out of its loadout while its home is warded,
   • keep the in-system mining rules out of it,
@@ -13,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 MINING_TYPES = ("ami_mining_controller", "mining_drone")   # what a ward makes useless
+WARDING_TYPES = ("system_ward", "system_hub")               # devices that ward a system
 
 
 def star_of(loc: str | None) -> str:
@@ -20,13 +22,15 @@ def star_of(loc: str | None) -> str:
 
 
 def ours(devices: Iterable[dict]) -> set[str]:
-    """Systems with one of our wards deployed (not stowed)."""
+    """Systems with one of our wards or hubs deployed (not stowed or folded up)."""
     return {star_of(d.get("location")) for d in devices
-            if d.get("device_type") == "system_ward" and d.get("location") and not str(d.get("status") or "").startswith("stowed")}
+            if d.get("device_type") in WARDING_TYPES and d.get("location")
+            and not str(d.get("status") or "").startswith(("stowed", "compact"))}
 
 
 def foreign(stars: Any, devices: Iterable[dict]) -> set[str]:
-    """Systems another player has warded: flagged has_ward in the catalogue / census, and no ward of ours there.
+    """Systems another player has warded: flagged has_ward or has_hub in the catalogue / census, and no ward or hub
+    of ours there.
     `stars`: the catalogue ({"stars": [...]}), a list of star records, or {designation: record}."""
     if isinstance(stars, dict) and "stars" in stars:
         recs = stars.get("stars") or []
@@ -34,5 +38,6 @@ def foreign(stars: Any, devices: Iterable[dict]) -> set[str]:
         recs = [dict(v or {}, designation=v.get("designation") or k) for k, v in stars.items() if isinstance(v, dict)]
     else:
         recs = list(stars or [])
-    flagged = {s.get("designation") for s in recs if isinstance(s, dict) and s.get("has_ward") and s.get("designation")}
+    flagged = {s.get("designation") for s in recs
+               if isinstance(s, dict) and (s.get("has_ward") or s.get("has_hub")) and s.get("designation")}
     return flagged - ours(devices)

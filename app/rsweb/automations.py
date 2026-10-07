@@ -1198,7 +1198,7 @@ class AutomationEngine(OpsRules):
                 results.append(f"{code}: already running a job")
                 continue
             if "mining" in (ctrl.get("device_type") or "") and star_of(ctrl.get("location")) in warded:
-                results.append(f"{code}: another player's ward in {star_of(ctrl.get('location'))} — no mining there")
+                results.append(f"{code}: another player's ward or hub in {star_of(ctrl.get('location'))} — no mining there")
                 continue
             idle, why = await controller_idle(self.db, ctrl)
             if sched.get("only_idle", True) and not idle:
@@ -1633,7 +1633,7 @@ class AutomationEngine(OpsRules):
         if fleet["role"] == "mining" and phase in ("travel", "deploy", "work") and target \
                 and star_of(target) in await self.warded(devices):
             m["stall"] = True   # warded since the mission started: nothing of ours can mine there, so don't go / unload
-            return [], [f"another player's system ward is in {star_of(target)} — nothing of ours can mine there; "
+            return [], [f"another player's system ward or hub is in {star_of(target)} — nothing of ours can mine there; "
                         "recall the fleet or pick another system"]
         radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         if phase == "assemble":
@@ -2443,7 +2443,7 @@ class AutomationEngine(OpsRules):
             if _reserved(d):
                 continue  # a fleet's drones are run by the fleet
             if star_of(d.get("location")) in warded:
-                continue  # another player's ward: nothing of ours can mine here
+                continue  # another player's ward or hub: nothing of ours can mine here
             if (d.get("device_type") != "mining_drone" or str(d.get("status")) != "idle"
                     or "BELT" not in (d.get("location") or "") or code in busy or code in managed
                     or "start_mining" not in (d.get("available_commands") or ["start_mining"])):

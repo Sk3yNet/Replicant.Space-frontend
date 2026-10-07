@@ -25,7 +25,7 @@ HOST = "11ADA230"
 
 STARS = [
     {"designation": "SOL", "name": "Sol", "spectral_type": "G2", "color": "Yellow", "position": {"x": 0, "y": 0, "z": 0},
-     "estimated_planets": 8, "entry_point": "SOL-5-L4", "region": "solzone", "has_hub": True},
+     "estimated_planets": 8, "entry_point": "SOL-5-L4", "region": "solzone"},   # no has_hub: a hub there with no device of ours would count as warding SOL
 ] + [
     {"designation": n, "spectral_type": st, "color": c, "position": {"x": x, "y": y, "z": z}, "estimated_planets": p,
      "entry_point": f"{n}-3-L4", "region": "solzone"}

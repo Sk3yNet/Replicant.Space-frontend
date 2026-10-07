@@ -43,7 +43,7 @@ def merge(cat: dict | None, census_stars: dict[str, dict]) -> dict:
             stars.append(s)
             by[code] = s
             continue
-        for k in ("explored", "has_life", "has_ward", "census_at"):
+        for k in ("explored", "has_life", "has_ward", "has_hub", "census_at"):
             if c.get(k) is not None:
                 s[k] = c[k]
         if not s.get("entry_point") and c.get("entry_point"):

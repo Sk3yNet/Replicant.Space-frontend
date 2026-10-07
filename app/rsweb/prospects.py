@@ -6,7 +6,7 @@ score (0–100) = richness (≤40)  belt resource levels × density; a resource 
               + staying (≤15)   belt viability: can survey drones re-open sites as fast as they close
               + access (≤20)    distance from where the fleet starts; −5 without a relay of yours there (a replicant
                                  has to ride with the fleet)
-Not scored (with a reason instead): another player's ward there (nothing of ours can mine it), a stationed fleet's home
+Not scored (with a reason instead): another player's ward or hub there (nothing of ours can mine it), a stationed fleet's home
 (only that fleet works it), and systems with no scan yet ("survey first").
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ def score(star: str, scan: dict | None, res: dict | None, viability: list[dict],
     out: dict[str, Any] = {"star": star, "score": None, "parts": {}, "reasons": [], "status": "ok", "best": [],
                            "distance": None if distance is None else round(distance, 1)}
     if warded:
-        out.update(status="warded", reasons=["another player's ward — nothing of ours can mine here"])
+        out.update(status="warded", reasons=["another player's ward or hub — nothing of ours can mine here"])
         return out
     if stationed:
         out.update(status="stationed", reasons=[f"home of {stationed} — only that fleet works it"])

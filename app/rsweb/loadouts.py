@@ -338,7 +338,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     # 1-2: per stationed fleet: count, mark extras as spare, take fleetless devices at home, un-spare what's needed
     donors: dict[str, list[dict]] = defaultdict(list)  # type -> spare devices anywhere
     from . import wards
-    warded = wards.foreign(stars, devices)   # another player's ward: nothing of ours can mine there
+    warded = wards.foreign(stars, devices)   # another player's ward or hub: nothing of ours can mine there
     for f in groups:
         star, fid, tag = f["home"], f["id"], fl.fleet_tag(f["id"])
         mine = members(f)
@@ -393,7 +393,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         ph = next((p for p in cfg["phases"] if p.get("id") == f.get("template")), None)
         if star in warded and any(t in wants for t in wards.MINING_TYPES):
             unmet.append({"star": star, "fleet": f.get("name"), "type": "mining", "n": 0,
-                          "why": f"another player's system ward is in {star}: no mining controllers or drones are sent there"})
+                          "why": f"another player's system ward or hub is in {star}: no mining controllers or drones are sent there"})
         report[fid] = {"fleet": f, "star": star, "phase": ph or {"id": "", "name": "custom loadout"}, "rows": rows,
                        "warded": star in warded,
                        "short": sum(r["short"] for r in rows), "surplus": sum(r["surplus"] for r in rows)}

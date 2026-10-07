@@ -4920,3 +4920,13 @@ def test_prospects_page_and_mining_targets(client):
     client.portal.call(eng.save_fleets, [{"id": "m", "name": "M", "role": "mining", "home": "ABOTEIN", "wants": {}}])
     f = client.get("/fleets", headers=H).text
     assert "prospect " in f
+
+
+def test_another_players_hub_counts_as_a_ward():
+    from rsweb import wards
+    stars = {"stars": [{"designation": "CYGNUS", "has_hub": True}, {"designation": "TARAZEDAR", "has_ward": True},
+                       {"designation": "SOL"}]}
+    assert wards.foreign(stars, []) == {"CYGNUS", "TARAZEDAR"}
+    our_hub = {"device_code": "H", "device_type": "system_hub", "location": "CYGNUS-5-L4", "status": "relaying"}
+    assert wards.foreign(stars, [our_hub]) == {"TARAZEDAR"}                         # our own hub doesn't keep us out
+    assert wards.foreign(stars, [{**our_hub, "status": "compacted"}]) == {"CYGNUS", "TARAZEDAR"}   # folded up: not ours there

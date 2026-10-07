@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.35.0"
+VERSION = "1.35.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.35.1", "2026-10-07", "Another player's system hub keeps us out like a ward: a system flagged has_hub with no hub of "
+     "ours counts as warded (missions, stationed fleets' miners, mining rules, prospects). Trades may still go there."),
     ("1.35.0", "2026-10-07", "Mining prospects (Systems › Mining prospects): every scanned system scored for a mining fleet "
      "— belt richness and density, known sites and salvage, belt viability, distance and relay cover — with what you're "
      "short of or a waiting print needs tipping it slightly; mining-mission targets are offered best prospect first. "
