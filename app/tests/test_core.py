@@ -4546,7 +4546,8 @@ def test_wallpaper_dashboard_panel_and_fleet_markers(client):
     assert f["state"] == "running" and f["phase"] == "travel" and f["target"] == "KELMONENT" and f["members"] == 1
     assert f["working"] + f["moving"] + f["idle"] <= 1
     # the galaxy data carries the same fleets (the Galaxy page and the wallpaper draw them)
-    assert [x["id"] for x in client.get("/wallpaper/me/api/map.json", headers=good).json()["fleets"]] == ["p1"]
+    galaxy = client.get("/wallpaper/me/api/map.json", headers=good).json()
+    assert [x["id"] for x in galaxy["fleets"]] == ["p1"] and galaxy["supply"] == [] and hud["supply"] == []
     assert "fleets" in client.get("/api/map.json", headers=H).json()
     # no mission: stationed or idle, and no target
     a = fl.activity({"id": "s", "home": "SOL", "station": True}, [], status_class)
@@ -4559,3 +4560,38 @@ def test_wallpaper_dashboard_panel_and_fleet_markers(client):
     assert sorted(a["stars"]) == ["ABC", "ZED"] and a["target"] == "ZED" and a["working"] == 1 and a["state"] == "stalled"
     # the page's own files are what the panel needs
     assert client.get("/wallpaper/me/static/wallpaper.js").status_code == 200
+
+
+def test_supply_links_between_fleets():
+    from datetime import datetime, timedelta, timezone
+    from rsweb import fleets as fl
+    now = datetime.now(timezone.utc)
+    fleets = [{"id": "m", "name": "Miners", "role": "mining", "home": "ABC", "materials": "f"},
+              {"id": "f", "name": "Factory", "role": "mining", "home": "XYZ", "materials": "self"},
+              {"id": "d", "name": "Deliverers", "role": "mining", "home": "ABC",
+               "mission": {"status": "running", "phase": "work", "targets": ["KEL-BELT-1"], "idx": 0, "deliver_to": "XYZ-3-L4"}},
+              {"id": "t", "name": "Traders", "role": "trade", "home": "XYZ",
+               "mission": {"status": "running", "phase": "collect", "contract": {"location": "QRS-2", "designation": "C1"},
+                           "drop_star": "ABC"}},
+              {"id": "o", "name": "Old", "role": "trade", "home": "XYZ",
+               "mission": {"status": "done", "contract": {"location": "NOPE-1"}}}]
+    links = {(x["from"], x["to"], x["kind"]): x for x in fl.supply_links(fleets, [])}
+    # configured only: planned; missions in progress: active; finished missions draw nothing
+    assert links[("ABC", "XYZ", "materials")]["state"] == "planned"
+    assert links[("ABC", "XYZ", "materials")]["from_fleet"] == "Miners" and links[("ABC", "XYZ", "materials")]["to_fleet"] == "Factory"
+    assert links[("KEL", "XYZ", "materials")]["state"] == "active" and links[("KEL", "XYZ", "materials")]["to_fleet"] == "Factory"
+    assert links[("XYZ", "QRS", "trade")]["state"] == "active" and links[("QRS", "ABC", "trade")]["state"] == "active"
+    assert not any("NOPE" in k for k in links)
+    # a ferry controller running the route: ferrying, with its freighters; something travelling along it: moving
+    devices = [{"device_code": "TC", "device_type": "ami_transport_controller", "location": "ABC-2",
+                "ami_directive": {"name": "ferry", "config": {"collect": "ABC-2", "deliver": "XYZ-3-L4"}}},
+               {"device_code": "F1", "device_type": "cargo_freighter", "controller_device_code": "TC", "location": "ABC-2"},
+               {"device_code": "F2", "device_type": "cargo_freighter", "controller_device_code": "TC", "location": "ABC-2"}]
+    x = {(l["from"], l["to"]): l for l in fl.supply_links(fleets, devices)}[("ABC", "XYZ")]
+    assert x["state"] == "ferrying" and x["freighters"] == 2 and x["in_transit"] == 0
+    devices[1]["travel"] = {"origin": "ABC-2", "destination": "XYZ-3-L4", "departed_at": (now - timedelta(minutes=5)).isoformat(),
+                            "arrives_at": (now + timedelta(minutes=5)).isoformat()}
+    x = {(l["from"], l["to"]): l for l in fl.supply_links(fleets, devices)}[("ABC", "XYZ")]
+    assert x["state"] == "moving" and x["in_transit"] == 1
+    # a fleet sending to itself or to a fleet in the same system draws no line
+    assert fl.supply_links([{"id": "a", "home": "ABC", "materials": "b"}, {"id": "b", "home": "ABC", "materials": "self"}], []) == []

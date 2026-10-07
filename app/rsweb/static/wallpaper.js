@@ -1,6 +1,6 @@
 // The desktop wallpaper (Octos add-on): the galaxy map, one system, or a cycle through your systems.
 // Link: /wallpaper/<slug>/?view=galaxy|system|cycle&star=X&labels=1&rotate=0.4&refresh=5&cycle=60
-//        &cover=1&fleets=1&hud=right|left|off#key=rsw_…
+//        &cover=1&fleets=1&supply=1&hud=right|left|off#key=rsw_…
 // The key stays in the #fragment (never sent to the server, so never in access logs) and goes out as a header.
 const base = new URL("..", import.meta.url);            // …/wallpaper/<slug>/
 const q = new URLSearchParams(location.search);
@@ -13,6 +13,7 @@ const refreshMin = Math.max(1, parseInt(q.get("refresh") || "5", 10));
 const cycleSec = Math.max(10, parseInt(q.get("cycle") || "60", 10));
 const cover = q.get("cover") !== "0";          // relay/hub range spheres
 const fleets = q.get("fleets") !== "0";        // fleet markers (galaxy) and fleets in the caption (systems)
+const supply = q.get("supply") !== "0";        // supply lines between fleets' systems
 const hud = ["left", "right", "off"].includes(q.get("hud")) ? q.get("hud") : "right";   // the dashboard panel
 const headers = { "X-Wallpaper-Key": key };
 let hudData = null;
@@ -48,6 +49,13 @@ function fleetLine(f) {
     `<br><span class="dim">${esc(at)}${f.target && f.target !== at ? ` → ${esc(f.target)}` : ""} · ` +
     `${[f.working && `${f.working} working`, f.moving && `${f.moving} moving`, f.idle && `${f.idle} idle`].filter(Boolean).join(", ") || `${f.members} devices`}</span></li>`;
 }
+const SUPPLY_STATE = { moving: "in transit", ferrying: "ferrying", active: "running", planned: "planned" };
+function supplyLine(l) {
+  const n = l.state === "moving" ? ` (${l.in_transit})` : l.state === "ferrying" && l.freighters ? ` (${l.freighters})` : "";
+  return `<li class="sup ${esc(l.kind)} ${esc(l.state)}"><span class="ic">${l.kind === "trade" ? "⇄" : "➜"}</span>` +
+    `${esc(l.from)} → ${esc(l.to)} <span class="dim">${SUPPLY_STATE[l.state] || esc(l.state)}${n}</span>` +
+    `<br><span class="dim">${esc(l.from_fleet)}${l.to_fleet ? ` → ${esc(l.to_fleet)}` : ""}</span></li>`;
+}
 function drawHud() {
   const d = hudData;
   if (!d || hud === "off") return;
@@ -61,19 +69,21 @@ function drawHud() {
     `<div class="counts"><b class="c-working">${dv.working} working</b> · <b class="c-moving">${dv.moving} moving</b> · ` +
     `<b class="c-idle">${dv.idle} idle</b></div>` +
     (res ? `<h3>Stockpiles <span class="dim">48 h</span></h3><table>${res}</table>` : "") +
-    (d.fleets.length ? `<h3>Fleets</h3><ul>${d.fleets.map(fleetLine).join("")}</ul>` : "");
+    (d.fleets.length ? `<h3>Fleets</h3><ul>${d.fleets.map(fleetLine).join("")}</ul>` : "") +
+    (supply && (d.supply || []).length ? `<h3>Supply</h3><ul>${d.supply.map(supplyLine).join("")}</ul>` : "");
   $("hud").className = hud;
   $("hud").hidden = false;
 }
 async function loadHud() {
-  if (hud === "off" && !fleets) return;
+  if (hud === "off" && !fleets && !supply) return;
   hudData = await (await get("api/hud.json")).json();
   drawHud();
 }
 function fleetsAt(code) {
-  if (!fleets || !hudData) return "";
-  const here = hudData.fleets.filter(f => (f.stars || []).includes(code) || f.target === code);
-  return here.length ? `<ul class="fl">${here.map(fleetLine).join("")}</ul>` : "";
+  if (!hudData) return "";
+  const here = fleets ? hudData.fleets.filter(f => (f.stars || []).includes(code) || f.target === code) : [];
+  const lines = supply ? (hudData.supply || []).filter(l => l.from === code || l.to === code) : [];
+  return here.length || lines.length ? `<ul class="fl">${here.map(fleetLine).join("")}${lines.map(supplyLine).join("")}</ul>` : "";
 }
 
 async function showSystem(code, note = "") {
@@ -89,7 +99,7 @@ async function showSystem(code, note = "") {
 async function galaxy() {
   $("map").hidden = false;
   window.MAP_OPTS = { dataUrl: new URL("api/map.json", base).href, headers, labels, rotate, refreshMinutes: refreshMin,
-                      focus: star || null, onError: problem, cover, fleets, moving: true };
+                      focus: star || null, onError: problem, cover, fleets, supply, moving: true };
   await import(new URL("static/map.js", base).href);
 }
 

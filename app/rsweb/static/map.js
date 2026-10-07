@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/OrbitControls.js";
 
 // The Galaxy page, and the desktop wallpaper (window.MAP_OPTS: {dataUrl, headers, labels, rotate, refreshMinutes,
-// focus, cover, moving, fleets, onlyMine}); in the wallpaper the page's controls are absent, so every control lookup is optional.
+// focus, cover, moving, fleets, supply, onlyMine}); in the wallpaper the page's controls are absent, so every control lookup is optional.
 const OPTS = window.MAP_OPTS || {};
 const $ = id => document.getElementById(id);
 const checked = (id, dflt) => $(id) ? $(id).checked : dflt;
@@ -51,8 +51,9 @@ scene.add(grid);
 
 let data = { stars: [], replicants: [] };
 let starPoints, mineGroup = new THREE.Group(), coverGroup = new THREE.Group(), lineGroup = new THREE.Group();
-const moveGroup = new THREE.Group(), fleetGroup = new THREE.Group();
-scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup);
+const moveGroup = new THREE.Group(), fleetGroup = new THREE.Group(), supplyGroup = new THREE.Group();
+scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup);
+const supplyLines = [];   // {curve, dots: [sprite], el, v}
 const fleetLabels = [];   // {el, v, dy}
 const movers = [];   // {m: trip, cone, label el}
 const labels = [];
@@ -151,6 +152,47 @@ function buildFleets() {
                              fontFamily: "monospace", fontSize: "11px", whiteSpace: "nowrap", textShadow: "0 1px 2px #000" });
     el.appendChild(d);
     fleetLabels.push({ el: d, v: pos(at), dy: 8 + n * 14 });
+  }
+}
+
+// supply lines between systems: an arc bowed above the galactic plane, amber for materials, blue for trade.
+// Planned (configured, nothing moving yet) is faint and dotted, a running ferry or mission is solid, and while
+// something is travelling along it, dots flow from source to destination.
+const SUPPLY = { materials: 0xffb74d, trade: 0x6cb6ff };
+const SUPPLY_TEXT = { materials: "#ffd59a", trade: "#a9d3ff" };
+function buildSupply() {
+  supplyGroup.clear();
+  supplyLines.forEach(x => x.el.remove()); supplyLines.length = 0;
+  const fromSame = {};   // labels of lines leaving the same system are stacked, not drawn over each other
+  for (const l of data.supply || []) {
+    const a = byName[l.from], b = byName[l.to];
+    if (!a || !b) continue;
+    const pa = pos(a), pb = pos(b);
+    const mid = pa.clone().lerp(pb, .5); mid.z += Math.max(1.5, pa.distanceTo(pb) * .22);
+    const curve = new THREE.QuadraticBezierCurve3(pa, mid, pb);
+    const color = SUPPLY[l.kind] ?? SUPPLY.materials;
+    const planned = l.state === "planned";
+    const mat = planned
+      ? new THREE.LineDashedMaterial({ color, dashSize: .25, gapSize: .35, transparent: true, opacity: .45 })
+      : new THREE.LineBasicMaterial({ color, transparent: true, opacity: l.state === "moving" ? .9 : .6 });
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(48)), mat);
+    if (planned) line.computeLineDistances();
+    supplyGroup.add(line);
+    const dots = [];
+    if (l.state === "moving") for (let i = 0; i < 4; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color, transparent: true, depthWrite: false }));
+      sp.scale.set(1.1, 1.1, 1); supplyGroup.add(sp); dots.push(sp);
+    }
+    const what = { moving: `${l.in_transit} in transit`, ferrying: `ferrying${l.freighters ? ` (${l.freighters})` : ""}`,
+                   active: l.kind === "trade" ? "trade run" : "delivering", planned: "planned" }[l.state] || l.state;
+    const d = document.createElement("div");
+    d.textContent = `${l.from_fleet}${l.to_fleet ? ` → ${l.to_fleet}` : ""} · ${what}`;
+    Object.assign(d.style, { position: "absolute", color: SUPPLY_TEXT[l.kind] || "#ffd59a", opacity: planned ? .55 : .9,
+                             pointerEvents: "none", fontFamily: "monospace", fontSize: "10px", whiteSpace: "nowrap",
+                             textShadow: "0 1px 2px #000" });
+    el.appendChild(d);
+    const k = fromSame[l.from] = (fromSame[l.from] ?? -1) + 1;
+    supplyLines.push({ curve, dots, el: d, v: curve.getPoint(.5), dy: -14 - 12 * k });
   }
 }
 
@@ -297,6 +339,15 @@ function animate(t = 0) {
     l.el.style.display = vis ? "block" : "none";
     if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6 + l.dy) + "px"; }
   }
+  supplyGroup.visible = checked("opt-supply", OPTS.supply !== false);
+  const flow = (Date.now() % 4000) / 4000;
+  for (const x of supplyLines) {
+    x.dots.forEach((sp, i) => sp.position.copy(x.curve.getPoint((flow + i / x.dots.length) % 1)));
+    tmp.copy(x.v).project(camera);
+    const vis = supplyGroup.visible && showLabels && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
+    x.el.style.display = vis ? "block" : "none";
+    if (vis) { x.el.style.left = ((tmp.x + 1) / 2 * w) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px"; }
+  }
   placeMovers(Date.now());
   moveGroup.visible = checked("opt-moving", OPTS.moving !== false);
   for (const x of movers) {
@@ -317,6 +368,7 @@ function load(first) {
   build();
   buildMovers();
   buildFleets();
+  buildSupply();
   if (!first) return;
   if (!d.stars.length) {
     info.innerHTML = `<p class="muted">No star catalogue cached yet. It syncs every 30 minutes, or use “refresh catalogue”.</p>`;

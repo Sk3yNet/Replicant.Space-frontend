@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.29.0"
+VERSION = "1.30.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.30.0", "2026-10-07", "Supply lines on the galaxy and the desktop wallpaper: an arc from each fleet's system to the "
+     "fleet its materials go to, from a mining mission to its drop point, and along a trade fleet's run. Amber for "
+     "materials, blue for trade; faint and dotted while only planned, solid while a ferry or mission runs it, with dots "
+     "flowing while something travels along it. The wallpaper panel lists them, system views show the ones touching that "
+     "system, and supply=0 (or the Galaxy page's 'supply lines' checkbox) hides them."),
     ("1.29.0", "2026-10-07", "Desktop wallpaper: a dashboard panel (device activity, stockpiles with their 48-hour trend, "
      "your fleets' missions), fleet markers on the galaxy (where each fleet is, what it's doing, a dashed line to where "
      "it's headed), fleets listed under each system, and settings to hide relay/hub range, fleets or the panel. The "

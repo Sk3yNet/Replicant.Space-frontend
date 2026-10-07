@@ -1180,3 +1180,64 @@ def activity(fleet: dict, devices: list[dict], status_class) -> dict:
             "home": fleet.get("home") or None, "state": state, "phase": m.get("phase") if running else None,
             "target": target, "note": (m.get("watch_note") or "")[:120] if running else "",
             "stars": [s for s, _ in sorted(where.items(), key=lambda kv: (-kv[1], kv[0]))], "members": len(ms), **counts}
+
+
+def supply_links(fleets: list[dict], devices: list[dict]) -> list[dict]:
+    """Supply lines between systems, for the galaxy map and the desktop wallpaper. One per (from, to, kind):
+      • materials — a fleet's Materials sends to another fleet (its home → theirs), or a mining mission in deliver
+                    mode hauls from the system it works to its drop point
+      • trade     — a trade fleet's run: home → the deal's site, and the site → where the rewards are dropped
+    state: "moving" (something is travelling from → to right now), "ferrying" (an AMI transport controller in `from`
+    runs a ferry to `to`), "active" (a running mission is using it), else "planned" (configured, nothing moving yet)."""
+    from .transit import trip
+    homes: dict[str, dict] = {}   # the fleet a system's deliveries go to: one that takes materials in, else any
+    for f in sorted(fleets, key=lambda f: (f.get("materials") == "self", f.get("id") or ""), reverse=True):
+        if f.get("home"):
+            homes.setdefault(f["home"], f)
+    links: dict[tuple, dict] = {}
+
+    def add(src: str, dst: str, kind: str, frm: dict, to: dict | None, active: bool = False) -> None:
+        if not src or not dst or src == dst:
+            return
+        x = links.setdefault((src, dst, kind), {"from": src, "to": dst, "kind": kind, "from_fleet": frm.get("name") or frm.get("id"),
+                                                 "to_fleet": None, "active": False})
+        x["to_fleet"] = x["to_fleet"] or ((to or {}).get("name") if to else None)
+        x["active"] = x["active"] or active
+    for f in sorted(fleets, key=lambda f: f.get("id") or ""):
+        to = materials_target(f, fleets)
+        if to:
+            add(f.get("home") or "", to.get("home") or "", "materials", f, to)
+        m = f.get("mission") or {}
+        if m.get("status") not in ("running", "stalled"):
+            continue
+        if f.get("role") == "mining" and m.get("deliver_to"):
+            targets = m.get("targets") or []
+            here = star_of(targets[min(m.get("idx", 0), len(targets) - 1)]) if targets else ""
+            dst = star_of(m["deliver_to"])
+            add(here, dst, "materials", f, homes.get(dst), True)
+        if f.get("role") == "trade":
+            site = deal(m)["star"]
+            add(f.get("home") or "", site, "trade", f, None, True)
+            if m.get("drop_star"):
+                add(site, m["drop_star"], "trade", f, homes.get(m["drop_star"]), True)
+    moving: dict[tuple, int] = {}
+    for d in devices:
+        t = trip(d)
+        if t:
+            k = (star_of(t["origin"]), star_of(t["destination"]))
+            moving[k] = moving.get(k, 0) + 1
+    ferries: dict[tuple, str] = {}
+    for d in devices:
+        dirv = d.get("ami_directive") or {}
+        if "transport" in (d.get("device_type") or "") and dirv.get("name") == "ferry" \
+                and str(d.get("ami_directive_status") or "active") == "active":
+            ferries[(star_of(d.get("location")), star_of((dirv.get("config") or {}).get("deliver")))] = d["device_code"]
+    out = []
+    for (src, dst, kind), x in sorted(links.items()):
+        ctrl = ferries.get((src, dst))
+        x["freighters"] = sum(1 for d in devices if ctrl and d.get("controller_device_code") == ctrl and "freighter" in (d.get("device_type") or ""))
+        x["in_transit"] = moving.get((src, dst), 0)
+        x["state"] = "moving" if x["in_transit"] else "ferrying" if ctrl else "active" if x.pop("active") else "planned"
+        x.pop("active", None)
+        out.append(x)
+    return out
