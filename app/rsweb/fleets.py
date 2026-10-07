@@ -648,7 +648,7 @@ def unload_steps(fleet: dict, devices: list[dict], spot: str | None = None) -> l
             w["seq0_from"] = i
             out.append(w)
     for d in r["members"]:
-        if d.get("device_type") in ("ftl_relay", "ftl_beacon"):
+        if d.get("device_type") in ("ftl_relay", "ftl_beacon", "system_ward"):
             continue   # dropped one per system by a survey crew (outposts.py), not all at once
         c = d.get("attached_to_device_code")
         if c in carriers:

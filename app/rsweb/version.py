@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.26.0"
+VERSION = "1.26.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.26.1", "2026-10-07", "Systems list: a Wards, beacons & relays checkbox adds a column for each (and 'only systems "
+     "missing one'). Survey crews drop and activate a system ward too, in each system without one of yours, and warn "
+     "when there aren't enough aboard (or the 25-per-account limit would be passed)."),
     ("1.26.0", "2026-10-07", "Owner hand-off: a device boarding a carrier another replicant owns is handed to that replicant first "
      "(change_owner), and its fleet's keep-owner setting takes it back at the destination; so loadout deliveries use any "
      "free carrier again (their own replicant's first). A device hosting a replicant is never handed over. Starting a "

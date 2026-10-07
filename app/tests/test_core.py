@@ -4098,9 +4098,12 @@ def test_survey_crew_drops_relays_and_beacons():
     from rsweb import outposts as op
     fleet, devices = _survey_world()
     sf = op.shortfall({"HV"}, devices, ["LOR", "OTH", "FAL", "LOR"])
-    assert sf["need"] == {"relay": ["LOR", "OTH"], "beacon": ["LOR", "OTH"]} and sf["have"] == {"relay": 1, "beacon": 1}
-    assert len(sf["warnings"]) == 2 and "only 1 aboard — 1 will be left without one" in sf["warnings"][0]
-    assert op.shortfall({"HV"}, devices, ["LOR"])["warnings"] == []
+    assert sf["need"] == {"relay": ["LOR", "OTH"], "beacon": ["LOR", "OTH"], "ward": ["LOR", "OTH", "FAL"]}
+    assert sf["have"] == {"relay": 1, "beacon": 1, "ward": 0}
+    assert len(sf["warnings"]) == 3 and "only 1 aboard — 1 will be left without one" in sf["warnings"][0]
+    assert "system ward" in sf["warnings"][2]
+    assert op.shortfall({"HV"}, devices, ["LOR"])["warnings"] == ["1 system(s) without your system ward (LOR) but only 0 "
+                                                                  "aboard — 1 will be left without one"]
     steps, notes = op.drop_steps({"HV"}, devices, "LOR", "LOR-1-L4")
     assert [s["desc"] for s in steps] == ["deploy relay R1 at LOR-1-L4", "R1: activate relay", "deploy beacon B1 at LOR-1-L4"]
     # a relay only works at an L4/L5 point: on a planet it stays aboard (the beacon doesn't care)
@@ -4364,3 +4367,23 @@ def test_mission_to_a_system_without_a_relay_warns_without_a_replicant_aboard(cl
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "p")
     texts = [x["text"] for x in (f.get("mission") or {}).get("log") or []]
     assert any("no relay of yours in ABOTEIN and no replicant rides with the fleet" in t for t in texts), texts
+
+
+def test_wards_are_dropped_and_listed_on_systems(client):
+    from rsweb import outposts as op
+    fleet, devices = _survey_world()
+    devices.append({"device_code": "W1", "device_type": "system_ward", "location": None, "stowed_in_device_code": "HV",
+                    "status": "stowed", "tags": []})
+    steps, notes = op.drop_steps({"HV"}, devices, "LOR", "LOR-1-L4")
+    assert [s["desc"] for s in steps][-2:] == ["deploy ward W1 at LOR-1-L4", "W1: activate ward (no mining by other players in LOR)"]
+    assert op.shortfall({"HV"}, devices, ["LOR"])["warnings"] == []
+    pres = op.presence(devices)
+    assert [d["device_code"] for d in pres["FAL"]["relay"]] == ["R0"] and pres["FAL"]["ward"] == []
+    # the Systems list: columns on request, and a filter for systems missing one
+    client.portal.call(client.app.state.worker.sync_devices)
+    page = client.get("/systems", headers=H).text
+    assert "Wards, beacons &amp; relays" in page and ">Ward</th>" not in page
+    page = client.get("/systems?outposts=1", headers=H).text
+    assert ">Relay</th>" in page and ">Beacon</th>" in page and ">Ward</th>" in page and "✓ BCN00001" in page
+    page = client.get("/systems?missing=1", headers=H).text
+    assert "— none" in page and "SOL" in page

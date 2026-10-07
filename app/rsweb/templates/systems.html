@@ -6,16 +6,27 @@
     <input name="star" placeholder="open system e.g. SOL"><button class="small">Open</button></form></div>
 {% with ids="scan_on_arrival,auto_survey,deploy_beacon,restart_idle_miners,reopen_sites,salvage_when_depleted,belt_viability" %}{% include "partials/rules_slot.html" %}{% endwith %}
 <div class="card">
+  <form class="row small" method="get" action="/systems" style="margin-bottom:6px;gap:12px">
+    <label style="text-transform:none"><input type="checkbox" name="outposts" value="1" {{ 'checked' if show_outposts }} onchange="this.form.submit()">
+      Wards, beacons &amp; relays</label>
+    <label style="text-transform:none" title="Systems lacking your relay, beacon or ward"><input type="checkbox" name="missing" value="1" {{ 'checked' if missing }} onchange="this.form.submit()">
+      only systems missing one</label>
+    <span class="muted">Survey crews drop one of each in systems that lack them; wards keep other players from mining there.</span>
+  </form>
   <table>
-    <tr><th>System</th><th class="num">Devices</th><th>Replicants</th><th class="num">Locations with presence</th><th class="num">Stockpiled</th><th class="num">Mineable</th><th class="num">Salvage</th><th>Most available</th><th>Scan cached</th></tr>
+    <tr><th>System</th><th class="num">Devices</th><th>Replicants</th>
+      {% if show_outposts %}{% for k, label in outpost_kinds.items() %}<th title="your {{ label }}s in the system">{{ {'relay': 'Relay', 'beacon': 'Beacon', 'ward': 'Ward'}[k] }}</th>{% endfor %}{% endif %}
+      <th class="num">Locations with presence</th><th class="num">Stockpiled</th><th class="num">Mineable</th><th class="num">Salvage</th><th>Most available</th><th>Scan cached</th></tr>
     {% for s, p in rows %}
     <tr><td><a href="/systems/{{ s }}">{{ s }}</a></td><td class="num">{{ p.devices }}</td><td>{{ p.replicants | join(', ') }}</td>
+      {% if show_outposts %}{% for k in outpost_kinds %}{% set ds = p.outposts[k] %}<td class="small {{ '' if ds else 'lv-alert' }}">
+        {% for d in ds %}<a class="mono" href="/devices/{{ d.device_code }}" title="{{ d.location }} · {{ d.status }}">✓ {{ d.device_code }}</a>{{ ' ' if not loop.last }}{% else %}— none{% endfor %}</td>{% endfor %}{% endif %}
       <td class="num">{{ p.locations or '' }}</td><td class="num">{{ p.resources | num if p.resources else '' }}</td>
       <td class="num">{{ p.mineable | num if p.mineable else ('?' if p.unknown_sites else '') }}</td>
       <td class="num">{{ p.salvage | num if p.salvage else '' }}</td>
       <td class="small">{% for r, q in p.top %}{{ r }} {{ q | num }}{{ ', ' if not loop.last }}{% endfor %}</td>
       <td class="small muted">{{ known[s].updated_at | ago if s in known else '—' }}</td></tr>
-    {% else %}<tr><td colspan="9" class="muted">No presence yet — waiting for sync.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="12" class="muted">{{ 'Every system has all three.' if missing else 'No presence yet — waiting for sync.' }}</td></tr>{% endfor %}
   </table>
 </div>
 {% endblock %}

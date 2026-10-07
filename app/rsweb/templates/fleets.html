@@ -173,7 +173,7 @@
         <div class="small">{% set ph = phases[f.role] %}{% for p in ph %}<span class="pill small {{ 'st-work' if p == m.phase else ('lv-done' if m.phase in ph and loop.index0 < ph.index(m.phase) else '') }}">{{ p }}</span> {% endfor %}
           {% if f.role == 'explore' %}<span class="muted">· target {{ (m.idx or 0) + 1 }}/{{ (m.targets or []) | length }}</span>{% endif %}</div>
         {% if m.watch_note and m.phase in ('watch', 'wait') %}<div class="small">watching: {{ m.watch_note }}</div>{% endif %}
-        {% if f.outposts %}<div class="small muted">aboard: {{ f.outposts.have.relay }} FTL relay(s), {{ f.outposts.have.beacon }} FTL beacon(s)
+        {% if f.outposts %}<div class="small muted">aboard: {{ f.outposts.have.relay }} FTL relay(s), {{ f.outposts.have.beacon }} FTL beacon(s), {{ f.outposts.have.ward }} ward(s)
           for the systems still ahead</div>{% for w in f.outposts.warnings %}<div class="small lv-alert">⚠ {{ w }}</div>{% endfor %}{% endif %}
         {% if f.job %}<div class="small muted">job: {{ f.job.title }} · step {{ f.job.idx + 1 }}/{{ f.job.steps | length }}{% if f.job.steps[f.job.idx] is defined %} — {{ f.job.steps[f.job.idx].desc }}{% endif %}</div>{% endif %}
         <div class="row" style="margin-top:6px">
@@ -218,8 +218,9 @@
             <input name="targets" placeholder="{{ 'systems to explore, in order: KELMONENT, LORSELAN' if f.role == 'explore' else 'target system, e.g. KELMONENT' }}" style="width:100%" list="fl-stars-{{ f.id }}">
             <datalist id="fl-stars-{{ f.id }}">{% for o in f.target_options %}<option value="{{ o.value }}">{{ o.group }}{% if o.label %} · {{ o.label }}{% endif %}</option>{% endfor %}</datalist>
             {% if f.role == 'explore' and f.outposts %}<div class="muted small">Aboard: {{ f.outposts.have.relay }} FTL relay(s),
-              {{ f.outposts.have.beacon }} FTL beacon(s). Each system without one of yours gets one of each (the relay at an L4/L5
-              point); a civilisation found by the survey gets the beacon at its body. Starting warns if there aren't enough.</div>{% endif %}
+              {{ f.outposts.have.beacon }} FTL beacon(s), {{ f.outposts.have.ward }} system ward(s). Each system without one of yours
+              gets one of each (the relay at an L4/L5 point; the ward is activated, so other players can't mine there); a
+              civilisation found by the survey gets the beacon at its body. Starting warns if there aren't enough.</div>{% endif %}
             {% if home_systems %}<div class="muted small">Not available as targets (a stationed fleet works them):
               {{ home_systems | join(', ') }}</div>{% endif %}
           {% endif %}

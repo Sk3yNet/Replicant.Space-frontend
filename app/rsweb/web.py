@@ -1039,7 +1039,15 @@ async def systems(request: Request, user: str = Depends(current_user)):
             p["mineable"], p["salvage"], p["unknown_sites"] = r["mineable"], r["salvageable"], r["unknown_sites"]
             p["top"] = sorted(((k, t["sites"] + t["salvage"]) for k, t in r["totals"].items() if t["sites"] + t["salvage"]),
                               key=lambda kv: -kv[1])[:3]
-    return await page(request, user, "systems.html", "systems", rows=[(s, p) for s, p in rows if s], known=known)
+    from . import outposts
+    show = request.query_params.get("outposts") == "1"
+    missing = request.query_params.get("missing") == "1"
+    pres = outposts.presence(st["devices"])
+    for s, p in rows:
+        p["outposts"] = pres.get(s) or {k: [] for k in outposts.KINDS}
+    out_rows = [(s, p) for s, p in rows if s and not (missing and all(p["outposts"][k] for k in outposts.KINDS))]
+    return await page(request, user, "systems.html", "systems", rows=out_rows, known=known, show_outposts=show or missing,
+                      missing=missing, outpost_kinds=outposts.LABELS)
 
 
 def _angle(code: str) -> float:
@@ -2737,8 +2745,8 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         st = await load_state(request)
         carriers = {c["device_code"] for c in fl.roster(f, st["devices"])["carriers"]}
         sf = outposts.shortfall(carriers, st["devices"], m["targets"], await request.app.state.db.kv_get("stowed_map", {}) or {})
-        eng._mlog(m, f"aboard: {sf['have']['relay']} FTL relay(s), {sf['have']['beacon']} FTL beacon(s) for "
-                     f"{len(sf['need']['relay'])} / {len(sf['need']['beacon'])} system(s) without one")
+        eng._mlog(m, "aboard: " + ", ".join(f"{sf['have'][k]} {label}(s) for {len(sf['need'][k])} system(s) without one"
+                                            for k, label in outposts.LABELS.items()))
         for w in sf["warnings"]:
             eng._mlog(m, "warning: " + w)
             await eng.log("fleets", f"{f['name']}: {w}", "alert", notify=True)
