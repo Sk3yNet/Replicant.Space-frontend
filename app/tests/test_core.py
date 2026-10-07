@@ -4225,3 +4225,36 @@ def test_contract_fleet_delivers_waits_fulfils_and_brings_the_rewards(client):
                 headers=HX)
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "t")
     assert f["mission"]["targets"] == ["SOL"] and f["mission"]["contract"]["designation"] == "SOL-3-L4-EVT-009"
+
+
+def test_modular_devices_compact_before_moving_and_unfurl_after():
+    """Autofactories and galactic observatories (feature `modular`) must be compacted before they move."""
+    from rsweb import loadouts as lo
+    from rsweb.modular import with_compaction
+    af = {"device_code": "AF1", "device_type": "autofactory", "location": "FAL-BELT-1", "status": "idle",
+          "features": ["cruise", "modular", "print"], "available_commands": ["compact", "unfurl", "travel"], "tags": []}
+    plate = {"device_code": "MF", "device_type": "mobile_fleet", "location": "FAL-1-L4", "status": "idle",
+             "features": ["surge", "attach"], "attach_capacity": 36}
+    md = {"device_code": "MD1", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "idle", "features": ["cruise", "stow"]}
+    by = {d["device_code"]: d for d in (af, plate, md)}
+    dl = {"carrier": "MF", "carrier_loc": "FAL-1-L4", "from": "FAL", "to": "KEL", "devices": ["AF1", "MD1"], "mode": "attach"}
+    steps = lo.delivery_steps(dl, by, {"KEL": {"entry_point": "KEL-4-L4"}}, False)
+    out = with_compaction(steps, [af, plate, md], {"autofactory": {"print_time": 36000}})
+    descs = [s["desc"] for s in out]
+    ci, ti = descs.index("AF1: compact before moving"), descs.index("AF1 → FAL-1-L4 (to board MF)")
+    assert ci < ti and out[ci]["wait"] == ["device.compacted"] and out[ci]["timeout"] >= 36000 * 0.3
+    assert descs.index("MF: detach AF1 in KEL") + 1 == descs.index("AF1: unfurl")
+    assert not any(d.startswith("MD1: compact") for d in descs)              # not modular: unchanged
+    # WAIT steps still point at the right travel step after the insertions
+    for s in out:
+        if "seq0_from" in s:
+            assert out[s["seq0_from"]]["body"]["command"] == "travel"
+            assert out[s["seq0_from"]]["path"].split("/")[2] == s["wait_device"]
+    # already compacted (e.g. printed compacted): no compact, still unfurls on landing
+    af["status"] = "compacted"
+    out = with_compaction(steps, [af, plate, md], {})
+    assert not any("compact before" in s["desc"] for s in out) and any(s["desc"] == "AF1: unfurl" for s in out)
+    # flying itself inside the system: compact, travel, unfurl on arrival
+    af["status"] = "idle"
+    st = lo.step("AF1 → FAL-2", "/devices/AF1", {"command": "travel", "destination": "FAL-2"}, wait=["travel.arrived"])
+    assert [s["desc"] for s in with_compaction([st], [af], {})] == ["AF1: compact before moving", "AF1 → FAL-2", "AF1: unfurl"]

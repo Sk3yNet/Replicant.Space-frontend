@@ -503,6 +503,10 @@ class AutomationEngine(OpsRules):
             plan = "; ".join(st["desc"] for st in steps)
             await self.log(rule, f"[dry run] {title}: {plan}")
             return None
+        from .modular import with_compaction
+        from .shapes import normalize_blueprints
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        steps = with_compaction(steps, await self.devices(), bps)   # large (modular) devices compact before moving
         jobs = await self.jobs()
         job = {"id": f"{rule}-{int(_now().timestamp() * 1000)}-{len(jobs)}", "rule": rule, "title": title,
                "device": device, "steps": steps, "idx": 0, "status": "running", "created_at": now_iso(),
