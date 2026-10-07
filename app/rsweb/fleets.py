@@ -1150,3 +1150,33 @@ def nearest_drop_star(fleets: list[dict], star: str, home: str, dist) -> str:
     """Where received goods go: the nearest system whose fleet takes materials in, else home."""
     dests = sorted({f["home"] for f in destinations(fleets)}, key=lambda s: (dist(s, star), s))
     return dests[0] if dests else home
+
+
+def activity(fleet: dict, devices: list[dict], status_class) -> dict:
+    """Where a fleet is and what it's doing, for the galaxy map and the desktop wallpaper: the systems its members are
+    in (most members first), its mission state and phase, the system it's headed for, and member counts by activity
+    (status_class: web.status_class, passed in to keep this module free of web imports)."""
+    ms = members(fleet, devices)
+    by_code = {d["device_code"]: d for d in devices}
+    where: dict[str, int] = {}
+    counts = {"working": 0, "moving": 0, "idle": 0}
+    for d in ms:
+        loc = d.get("location")
+        if not loc:   # riding in a carrier: count it where the carrier is
+            c = by_code.get(d.get("attached_to_device_code") or d.get("stowed_in_device_code") or "")
+            loc = (c or {}).get("location")
+        s = star_of(loc)
+        if s:
+            where[s] = where.get(s, 0) + 1
+        k = {"st-work": "working", "st-move": "moving", "st-idle": "idle"}.get(status_class(d.get("status")))
+        if k:
+            counts[k] += 1
+    m = fleet.get("mission") or {}
+    targets = m.get("targets") or []
+    running = m.get("status") in ("running", "stalled")
+    target = star_of(targets[min(m.get("idx", 0), len(targets) - 1)]) if running and targets else None
+    state = m.get("status") if running else ("stationed" if stationed(fleet) else "idle")
+    return {"id": fleet.get("id"), "name": fleet.get("name") or fleet.get("id"), "role": fleet.get("role"),
+            "home": fleet.get("home") or None, "state": state, "phase": m.get("phase") if running else None,
+            "target": target, "note": (m.get("watch_note") or "")[:120] if running else "",
+            "stars": [s for s, _ in sorted(where.items(), key=lambda kv: (-kv[1], kv[0]))], "members": len(ms), **counts}

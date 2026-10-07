@@ -7,7 +7,8 @@ once, stored only as a SHA-256 hash, revocable. The key opens nothing but the ma
   /wallpaper/<slug>/                     the page (no data in it; off unless the wallpaper is enabled)
   /wallpaper/<slug>/static/<file>        the few scripts and styles it needs (the rest of /static stays behind sign-in)
   /wallpaper/<slug>/api/map.json         galaxy data         ┐
-  /wallpaper/<slug>/api/systems.json     systems to cycle    ├ header X-Wallpaper-Key: <key>
+  /wallpaper/<slug>/api/systems.json     systems to cycle    │
+  /wallpaper/<slug>/api/hud.json         dashboard panel     ├ header X-Wallpaper-Key: <key>
   /wallpaper/<slug>/api/system/<STAR>    a system's SVG map  ┘
 
 The key travels in the link's #fragment (`…/wallpaper/<slug>/#key=rsw_…`), which browsers never send to a server, so it

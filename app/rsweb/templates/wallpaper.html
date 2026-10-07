@@ -21,6 +21,28 @@
   #msg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #9fb3d1;
          font: 15px/1.5 system-ui, sans-serif; text-align: center; padding: 24px; }
   #msg b { color: #e3e9f5; }
+  #caption ul.fl { list-style: none; margin: 8px 0 0; padding: 0; font: 400 12px/1.35 var(--mono, monospace); letter-spacing: 0; }
+  #caption ul.fl li { margin-top: 4px; color: #8ee8e3; }
+  /* dashboard panel */
+  #hud { position: fixed; top: 24px; width: 290px; max-height: calc(100vh - 120px); overflow: hidden; padding: 12px 14px;
+         background: rgba(8, 12, 20, .62); border: 1px solid rgba(120, 150, 200, .18); border-radius: 8px;
+         font: 12px/1.4 var(--mono, monospace); color: #b9c7dd; pointer-events: none; backdrop-filter: blur(3px); }
+  #hud.right { right: 24px; } #hud.left { left: 24px; }
+  #hud h3 { margin: 10px 0 5px; font: 600 11px/1 var(--mono, monospace); letter-spacing: .1em; text-transform: uppercase; color: #9fb3d1; }
+  #hud h3:first-child { margin-top: 0; }
+  #hud .dim, #caption .dim { color: #6c7b95; font-weight: 400; }
+  #hud .wpbar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: #1a2232; }
+  #hud .wpbar i { display: block; height: 100%; }
+  #hud .b-working { background: #4fd18b; } #hud .b-moving { background: #b48cff; } #hud .b-idle { background: #56627a; }
+  #hud .counts { margin-top: 4px; font-size: 11px; color: #6c7b95; } #hud .counts b { font-weight: 400; }
+  #hud .c-working { color: #4fd18b; } #hud .c-moving { color: #b48cff; } #hud .c-idle { color: #8a96ad; }
+  #hud table { width: 100%; border-collapse: collapse; }
+  #hud td { padding: 1px 0; white-space: nowrap; } #hud td.n { text-align: right; padding-left: 6px; }
+  #hud td.up { color: #4fd18b; } #hud td.down { color: #ff8a65; }
+  #hud svg { display: block; margin-left: 8px; } #hud polyline { fill: none; stroke: #6cb6ff; stroke-width: 1.4; }
+  #hud ul { list-style: none; margin: 0; padding: 0; }
+  #hud li { margin: 0 0 6px; color: #8ee8e3; } #hud li .ic, #caption .ic { display: inline-block; width: 1.3em; }
+  #hud li.stalled, #caption li.stalled { color: #ffb74d; }
   .wp-note { color: #6c7b95; font: 13px system-ui, sans-serif; }
 </style>
 <script type="importmap">{"imports": {"three": "{{ base }}/static/vendor/three.module.min.js",
@@ -30,6 +52,7 @@
 <div id="map" hidden></div>
 <div id="sys" hidden></div>
 <div id="caption"></div>
+<div id="hud" hidden></div>
 <div id="msg" hidden></div>
 <script src="{{ base }}/static/movers.js"></script>
 <script type="module" src="{{ base }}/static/wallpaper.js"></script>

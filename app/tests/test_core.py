@@ -4518,3 +4518,44 @@ def test_desktop_wallpaper_routes_need_a_key_and_stay_read_only(client, monkeypa
     assert client.get("/wallpaper/me/api/map.json", headers=good).status_code == 401
     # the settings endpoint itself needs the signed-in user (an htmx request from the app)
     assert client.post("/wallpaper-settings", data={"action": "enable"}, headers=H).status_code == 403
+
+
+def test_wallpaper_dashboard_panel_and_fleet_markers(client):
+    from rsweb import wallpaper as wp
+    from rsweb import fleets as fl
+    from rsweb.web import status_class
+    eng = client.app.state.worker.automations
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices[1]["tags"] = ["fleet:p1"]
+    client.portal.call(eng.save_fleets, [{"id": "p1", "name": "Prospectors", "role": "mining", "home": "SOL", "wants": {},
+                                          "mission": {"status": "running", "phase": "travel", "targets": ["KELMONENT"], "idx": 0}},
+                                         {"id": "e1", "name": "Empty", "role": "explore", "home": "SOL", "wants": {}}])
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.portal.call(client.app.state.worker.sync_inventory)
+    r = client.post("/wallpaper-settings", data={"action": "create"}, headers=HX)
+    import re as _re
+    good = {wp.HEADER: _re.search(r"#key=(rsw_[^\"]+)", r.text).group(1)}
+    # the panel's data needs the key like the rest
+    assert client.get("/wallpaper/me/api/hud.json").status_code == 401
+    hud = client.get("/wallpaper/me/api/hud.json", headers=good).json()
+    assert set(hud["devices"]) == {"total", "working", "moving", "idle"} and hud["devices"]["total"] == len(world.devices)
+    assert all(x["name"] in ("structural", "conductive", "silicates", "carbon", "volatiles", "rares") for x in hud["resources"])
+    # fleets with members only, with their mission: phase, where they're headed, where they are
+    f = next(x for x in hud["fleets"] if x["id"] == "p1")
+    assert [x["id"] for x in hud["fleets"]] == ["p1"]
+    assert f["state"] == "running" and f["phase"] == "travel" and f["target"] == "KELMONENT" and f["members"] == 1
+    assert f["working"] + f["moving"] + f["idle"] <= 1
+    # the galaxy data carries the same fleets (the Galaxy page and the wallpaper draw them)
+    assert [x["id"] for x in client.get("/wallpaper/me/api/map.json", headers=good).json()["fleets"]] == ["p1"]
+    assert "fleets" in client.get("/api/map.json", headers=H).json()
+    # no mission: stationed or idle, and no target
+    a = fl.activity({"id": "s", "home": "SOL", "station": True}, [], status_class)
+    assert a["state"] == "stationed" and a["target"] is None and a["stars"] == []
+    # members riding in a carrier count where the carrier is
+    devs = [{"device_code": "C", "location": "ZED-1", "status": "travelling"},
+            {"device_code": "D", "tags": ["fleet:x"], "stowed_in_device_code": "C", "status": "stowed"},
+            {"device_code": "E", "tags": ["fleet:x"], "location": "ABC-2", "status": "mining"}]
+    a = fl.activity({"id": "x", "mission": {"status": "stalled", "phase": "work", "targets": ["ABC", "ZED"], "idx": 5}}, devs, status_class)
+    assert sorted(a["stars"]) == ["ABC", "ZED"] and a["target"] == "ZED" and a["working"] == 1 and a["state"] == "stalled"
+    # the page's own files are what the panel needs
+    assert client.get("/wallpaper/me/static/wallpaper.js").status_code == 200

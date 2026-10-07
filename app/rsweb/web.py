@@ -1357,8 +1357,10 @@ async def map_payload(request: Request) -> dict:
     from . import transit
     positions = {x["designation"]: x.get("position") for x in stars if x.get("position")}
     moving = transit.galaxy_movers(transit.trips(st["devices"]), positions)
+    fleets = [fl.activity(f, st["devices"], status_class) for f in await request.app.state.worker.automations.fleets()]
     return {"stars": stars, "replicants": reps, "generated_at": cat.get("generated_at"),
-            "catalogue_updated": await db.kv_updated("stars"), "moving": moving}
+            "catalogue_updated": await db.kv_updated("stars"), "moving": moving,
+            "fleets": [f for f in fleets if f["members"]]}
 
 
 @router.get("/api/route", response_class=HTMLResponse)
@@ -3071,6 +3073,29 @@ async def wallpaper_static(request: Request, slug: str, path: str):
 async def wallpaper_map(request: Request, slug: str):
     _, bad = await _wp_auth(request, slug)
     return bad or JSONResponse(await map_payload(request))
+
+
+@router.get("/wallpaper/{slug}/api/hud.json")
+async def wallpaper_hud(request: Request, slug: str):
+    """The wallpaper's dashboard panel: stockpiles with their 48-hour trend, what your devices are doing, and your
+    fleets' missions."""
+    _, bad = await _wp_auth(request, slug)
+    if bad:
+        return bad
+    st = await load_state(request)
+    series = await resource_series(request)
+    resources = []
+    for r in RESOURCES:
+        if r not in st["totals"]:
+            continue
+        v = series.get(r) or []
+        resources.append({"name": r, "qty": st["totals"][r], "spark": sparkline(v, 90, 20),
+                          "change": round(v[-1] - v[0], 1) if len(v) > 1 else None})
+    fs = fleet_summary(st["devices"])
+    devices = {"total": fs["total"], "working": fs["by_class"].get("st-work", 0), "moving": fs["by_class"].get("st-move", 0),
+               "idle": fs["by_class"].get("st-idle", 0)}
+    fleets = [fl.activity(f, st["devices"], status_class) for f in await request.app.state.worker.automations.fleets()]
+    return JSONResponse({"resources": resources, "devices": devices, "fleets": [f for f in fleets if f["members"]]})
 
 
 @router.get("/wallpaper/{slug}/api/systems.json")

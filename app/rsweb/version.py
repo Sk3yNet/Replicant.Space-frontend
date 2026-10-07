@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.28.0"
+VERSION = "1.29.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.29.0", "2026-10-07", "Desktop wallpaper: a dashboard panel (device activity, stockpiles with their 48-hour trend, "
+     "your fleets' missions), fleet markers on the galaxy (where each fleet is, what it's doing, a dashed line to where "
+     "it's headed), fleets listed under each system, and settings to hide relay/hub range, fleets or the panel. The "
+     "Galaxy page shows fleets too (the new 'fleets' checkbox)."),
     ("1.28.0", "2026-10-07", "Desktop wallpaper: the galaxy and system maps as a live Windows wallpaper with the Octos add-on "
      "(github.com/sk3ynet/replicant-space-octos). Account › Desktop wallpaper makes revocable, read-only wallpaper links; "
      "/wallpaper/ pages show the galaxy, one system or a cycle through your systems. Off until you make a link."),

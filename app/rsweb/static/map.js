@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/OrbitControls.js";
 
 // The Galaxy page, and the desktop wallpaper (window.MAP_OPTS: {dataUrl, headers, labels, rotate, refreshMinutes,
-// focus}); in the wallpaper the page's controls are absent, so every control lookup is optional.
+// focus, cover, moving, fleets, onlyMine}); in the wallpaper the page's controls are absent, so every control lookup is optional.
 const OPTS = window.MAP_OPTS || {};
 const $ = id => document.getElementById(id);
 const checked = (id, dflt) => $(id) ? $(id).checked : dflt;
@@ -51,8 +51,9 @@ scene.add(grid);
 
 let data = { stars: [], replicants: [] };
 let starPoints, mineGroup = new THREE.Group(), coverGroup = new THREE.Group(), lineGroup = new THREE.Group();
-const moveGroup = new THREE.Group();
-scene.add(mineGroup, coverGroup, lineGroup, moveGroup);
+const moveGroup = new THREE.Group(), fleetGroup = new THREE.Group();
+scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup);
+const fleetLabels = [];   // {el, v, dy}
 const movers = [];   // {m: trip, cone, label el}
 const labels = [];
 let visible = [];
@@ -113,6 +114,44 @@ function build() {
     }
   }
   coverGroup.visible = checked("opt-cover", OPTS.cover !== false);
+}
+
+// fleets: a ring at each system with fleet members, a label with what the fleet is doing, and a dashed line to the
+// system its mission is headed for
+const FLEET = 0x3fd0c9;
+const ROLE_ICON = { mining: "⛏", explore: "◎", trade: "⇄" };
+function buildFleets() {
+  fleetGroup.clear();
+  fleetLabels.forEach(l => l.el.remove()); fleetLabels.length = 0;
+  const perStar = {};
+  for (const f of data.fleets || []) {
+    const here = (f.stars || []).map(n => byName[n]).filter(Boolean);
+    here.forEach((s, i) => {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: FLEET, transparent: true, opacity: i ? .3 : .5, depthWrite: false }));
+      const sz = i ? 2.4 : 4.2; sp.scale.set(sz, sz, 1); sp.position.copy(pos(s)); fleetGroup.add(sp);
+    });
+    const at = here[0] || byName[f.home];
+    if (!at) continue;
+    const to = f.target && f.target !== at.designation ? byName[f.target] : null;
+    if (to) {
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos(at), pos(to)]),
+        new THREE.LineDashedMaterial({ color: FLEET, dashSize: .35, gapSize: .7, transparent: true, opacity: .55 }));
+      line.computeLineDistances(); fleetGroup.add(line);
+      const tg = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: FLEET, transparent: true, opacity: .3, depthWrite: false }));
+      tg.scale.set(3.4, 3.4, 1); tg.position.copy(pos(to)); fleetGroup.add(tg);
+    }
+    const n = perStar[at.designation] = (perStar[at.designation] || 0) + 1;
+    const doing = f.phase ? `${f.phase}${f.state === "stalled" ? " (stalled)" : ""}` : f.state;
+    const counts = [f.working && `${f.working} working`, f.moving && `${f.moving} moving`, f.idle && `${f.idle} idle`].filter(Boolean).join(", ");
+    const d = document.createElement("div");
+    d.innerHTML = `${ROLE_ICON[f.role] || "⚑"} <b>${esc(f.name)}</b> · ${esc(doing)}${to ? ` → ${esc(to.designation)}` : ""}` +
+      (counts ? `<span style="opacity:.65"> · ${counts}</span>` : "");
+    if (f.note) d.title = f.note;
+    Object.assign(d.style, { position: "absolute", color: f.state === "stalled" ? "#ffb74d" : "#8ee8e3", pointerEvents: "none",
+                             fontFamily: "monospace", fontSize: "11px", whiteSpace: "nowrap", textShadow: "0 1px 2px #000" });
+    el.appendChild(d);
+    fleetLabels.push({ el: d, v: pos(at), dy: 8 + n * 14 });
+  }
 }
 
 // devices in transit between stars: a dashed route and an arrow that moves along it as time passes
@@ -251,6 +290,13 @@ function animate(t = 0) {
     l.el.style.display = vis ? "block" : "none";
     if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6) + "px"; }
   }
+  fleetGroup.visible = checked("opt-fleets", OPTS.fleets !== false);
+  for (const l of fleetLabels) {
+    tmp.copy(l.v).project(camera);
+    const vis = fleetGroup.visible && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
+    l.el.style.display = vis ? "block" : "none";
+    if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6 + l.dy) + "px"; }
+  }
   placeMovers(Date.now());
   moveGroup.visible = checked("opt-moving", OPTS.moving !== false);
   for (const x of movers) {
@@ -270,6 +316,7 @@ function load(first) {
   if ($("star-list")) $("star-list").innerHTML = d.stars.map(s => `<option value="${esc(s.designation)}">`).join("");
   build();
   buildMovers();
+  buildFleets();
   if (!first) return;
   if (!d.stars.length) {
     info.innerHTML = `<p class="muted">No star catalogue cached yet. It syncs every 30 minutes, or use “refresh catalogue”.</p>`;
