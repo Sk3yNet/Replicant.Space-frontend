@@ -2910,6 +2910,10 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
     if warded and f["role"] != "trade":
         return HTMLResponse(f'<div class="result err">{html.escape(", ".join(warded))}: another player\'s system ward or hub is '
                             'there, so nothing of yours can mine it. Pick another system (Systems › Mining prospects).</div>')
+    if warded and m.get("contract"):   # species interaction lock: other players can't complete location events there
+        return HTMLResponse(f'<div class="result err">{html.escape(", ".join(warded))}: another player\'s system ward or hub is there, and '
+                            "its species interaction lock stops anyone else completing the civilisation's events. "
+                            'Trades with traders are still fine.</div>')
     if warded:
         eng._mlog(m, f"warning: another player's ward or hub in {', '.join(warded)} — fine for a trade, but nothing can mine there")
     # out of relay range only a replicant riding with the fleet keeps it under command

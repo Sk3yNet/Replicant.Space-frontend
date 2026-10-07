@@ -4992,3 +4992,30 @@ def test_a_system_we_mine_in_isnt_warded_against_us():
     stars = {"stars": [{"designation": "AEMEROTH", "has_ward": True}, {"designation": "ITHVALAI", "has_ward": True}]}
     drone = {"device_code": "D", "device_type": "mining_drone", "location": "AEMEROTH-BELT-1", "status": "mining (carbon)"}
     assert wards.foreign(stars, [drone]) == {"ITHVALAI"}
+
+
+def test_tree_files_carried_devices_under_their_carriers_system():
+    """Live 2026-10-07: 13 stowed devices (no location of their own) showed as an empty '?' system."""
+    from rsweb.tree import build_tree
+    devs = [{"device_code": "HV", "device_type": "heaven_vessel", "location": "FAL-BELT-1", "status": "idle"},
+            {"device_code": "S1", "device_type": "survey_drone", "location": None, "status": "stowed", "stowed_in_device_code": "HV"},
+            {"device_code": "L1", "device_type": "ftl_slingshot", "location": None, "status": "idle"}]
+    systems = {s["star"]: s for s in build_tree(devs, {}, {}, {"HV"})}
+    assert systems["FAL"]["counts"]["devices"] == 2 and systems["FAL"]["nodes"][0]["children"][0]["d"]["device_code"] == "S1"
+    lost = systems["?"]
+    assert lost["counts"]["devices"] == 1 and "no location" in (lost["nodes"] + lost["unknown"])[0]["nowhere"]
+
+
+def test_ward_or_hub_lock_blocks_contracts_not_trades(client):
+    """Species interaction lock: other players can't complete location events where a ward or hub is."""
+    import json as _json
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [{"designation": "SOL"},
+                                                                        {"designation": "ABOTEIN", "has_hub": True}]})
+    client.portal.call(eng.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
+    r = client.post("/fleets/t/mission", data={"kind": "contract", "contract": _json.dumps(
+        {"designation": "E1", "location": "ABOTEIN-3", "price": {"carbon": 5}})}, headers=HX)
+    assert "species interaction lock" in r.text
+    r = client.post("/fleets/t/mission", data={"kind": "trade", "trade": _json.dumps(
+        {"name": "T1", "trade_code": "X", "location": "ABOTEIN-3", "price": {"carbon": 5}})}, headers=HX)
+    assert "species interaction lock" not in r.text and "another player" not in r.text   # trades still go

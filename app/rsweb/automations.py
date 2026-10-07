@@ -2013,9 +2013,13 @@ class AutomationEngine(OpsRules):
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
         done = []
+        from . import wards
+        locked = wards.foreign(await self.db.kv_get("stars", {}) or {}, devices)   # wards and hubs lock contracts
         for des, e in (await gev.load(self.db)).items():
             if e["status"] != "open" or not e.get("location"):
                 continue
+            if star_of(e["location"]) in locked:
+                continue   # another player's ward or hub: its species interaction lock stops us completing this event
             prog = gev.progress(e, inv, devices, reps)
             tried = state.get(des) or {}
             if prog["state"] == "ready" and cfg.get("auto_fulfil", True):

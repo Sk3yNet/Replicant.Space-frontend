@@ -6,7 +6,7 @@
     <span class="mono">{{ code }}</span> <b>{{ d.device_type | human }}</b>
     {% if n.replicant %}<span class="pill st-move" title="hosts this replicant">⬢ {{ n.replicant.name }}</span>{% endif %}
     <span class="pill {{ d.status | status_class }}">{{ d.status }}</span>
-    <span class="muted small">{{ d.location }}</span>
+    <span class="muted small">{{ d.location }}</span>{% if n.nowhere and not d.location %}<span class="small" style="color:var(--warn)">{{ n.nowhere }}</span>{% endif %}
     {% set cap = d.get('operational_capacity') | capacity %}{% if cap is not none and cap < 50 %}<span class="small lv-alert">{{ cap | round | int }}%</span>{% endif %}
     {% if n.children %}<span class="small muted">· carrying {{ n.children | length }}</span>{% endif %}
     {% if n.guessed %}<span class="small muted" title="Placed here because it's the only carrier at this location">· probably in carrier</span>{% endif %}

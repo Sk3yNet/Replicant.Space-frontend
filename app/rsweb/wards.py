@@ -31,7 +31,9 @@ def ours(devices: Iterable[dict]) -> set[str]:
 def foreign(stars: Any, devices: Iterable[dict]) -> set[str]:
     """Systems another player has warded: flagged has_ward or has_hub in the catalogue / census, and no ward or hub
     of ours there.
-    `stars`: the catalogue ({"stars": [...]}), a list of star records, or {designation: record}."""
+    `stars`: the catalogue ({"stars": [...]}), a list of star records, or {designation: record}.
+    Wards and hubs also carry a species interaction lock: other players can't complete location events (contracts)
+    there (game docs / the player, 2026-10-07)."""
     if isinstance(stars, dict) and "stars" in stars:
         recs = stars.get("stars") or []
     elif isinstance(stars, dict):

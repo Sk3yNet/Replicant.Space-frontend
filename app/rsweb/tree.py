@@ -52,6 +52,10 @@ def build_tree(devices: list[dict], replicants: dict, stowed_map: dict[str, list
     """
     by_code = {d.get("device_code"): d for d in devices if d.get("device_code")}
     parent: dict[str, str] = {}
+    for d in devices:   # the device's own word first: stowed in / attached to
+        ride = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
+        if ride and d.get("device_code"):
+            parent[d["device_code"]] = ride
     for carrier, kids in (stowed_map or {}).items():
         for k in kids:
             parent.setdefault(k, carrier)
@@ -89,22 +93,51 @@ def build_tree(devices: list[dict], replicants: dict, stowed_map: dict[str, list
         if child != carrier and carrier in by_code:
             children[carrier].append(child)
 
+    def nowhere(d: dict) -> str | None:
+        """Why a device has no location (the tree files it under "?")."""
+        if d.get("location"):
+            return None
+        tr = d.get("travel") or {}
+        if tr.get("destination") or tr.get("final_destination"):
+            return f"in transit to {tr.get('final_destination') or tr.get('destination')}"
+        ride = d.get("stowed_in_device_code") or d.get("attached_to_device_code") or parent.get(d.get("device_code"))
+        if ride and ride not in by_code:
+            return f"aboard {ride}, which isn't in your device list (another player's, or gone)"
+        if d.get("unlisted"):
+            return f"left out of the game's device list since {str(d.get('unlisted_since') or '?')[:16]}"
+        if str(d.get("status") or "").startswith(("stowed", "attached")):
+            return "stowed, but no carrier says it holds it"
+        return "the game reports no location (seen when a device is deployed mid-surge — it can be lost)"
+
     def node(code: str, seen: frozenset) -> dict:
         kids = [node(k, seen | {code}) for k in sorted(children.get(code, []), key=lambda k: (by_code[k].get("device_type") or "", k))
                 if k not in seen]
         rep = host_of.get(code)
-        return {"d": by_code[code], "children": kids,
+        return {"d": by_code[code], "children": kids, "nowhere": nowhere(by_code[code]),
                 # a carrier holding several kinds of thing gets the same type sub-groups as a system
                 "groups": group_by_type(kids) if len(kids) >= 4 and len({k["d"].get("device_type") for k in kids}) > 1 else None, "guessed": code in guessed,
                 "replicant": {"code": rep[0], "name": rep[1].get("name") or rep[0]} if rep else None,
                 "total": 1 + sum(k["total"] for k in kids)}
 
+    def where(code: str) -> str:
+        """The system a device is in: its own location, else its carrier's (up the chain), else "?"."""
+        seen = set()
+        while code in by_code and code not in seen:
+            seen.add(code)
+            loc = by_code[code].get("location")
+            if loc:
+                return star_of(loc)
+            code = parent.get(code)
+        return "?"
+
     systems: dict[str, dict] = {}
     for code, d in by_code.items():
-        star = star_of(d.get("location")) or "?"
+        top = code not in parent or parent[code] not in by_code
+        if not top:
+            continue   # it's drawn under its carrier, in the carrier's system
+        star = where(code)
         sys_ = systems.setdefault(star, {"star": star, "nodes": [], "unknown": [], "replicants": [],
                                          "counts": defaultdict(int)})
-        top = code not in parent or parent[code] not in by_code
         if top:
             if _stowed(d):
                 sys_["unknown"].append(node(code, frozenset()))
@@ -112,7 +145,7 @@ def build_tree(devices: list[dict], replicants: dict, stowed_map: dict[str, list
                 sys_["nodes"].append(node(code, frozenset()))
     for star, s in systems.items():
         for code, d in by_code.items():
-            if (star_of(d.get("location")) or "?") == star:
+            if where(code) == star:
                 s["counts"]["devices"] += 1
                 st = str(d.get("status") or "")
                 s["counts"]["stowed" if _stowed(d) else "idle" if st.startswith(("idle", "inactive", "waiting")) else "active"] += 1

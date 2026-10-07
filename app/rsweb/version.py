@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.36.1"
+VERSION = "1.36.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.36.2", "2026-10-07", "Devices tree: devices aboard a carrier count in the carrier's system (13 stowed devices showed "
+     "as an empty '?' system), the device's own stowed-in / attached-to is used, and a device with no location says why. "
+     "Contracts: another player's ward or hub has a species interaction lock, so contract missions there are refused and "
+     "the contracts rule skips them (trades with traders still go)."),
     ("1.36.1", "2026-10-07", "Galaxy: stars from every stored observatory prospect are added to the map (finds from before "
      "1.36 too), the catalogue is followed across pages if the game ever pages it, and the map and 'refresh catalogue' "
      "say where the stars came from (the game's catalogue lists only the starter region's 12). Wards: a system where one "
