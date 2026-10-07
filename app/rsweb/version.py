@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.30.3"
+VERSION = "1.31.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.31.0", "2026-10-07", "Galaxy and wallpaper: what each system is mining right now, as coloured four-point sparkles "
+     "orbiting its star (one per drone mining, one orbit per resource; the legend and the wallpaper's stockpile rows give "
+     "the colours). The markers around stars (your devices, scanned, hub, replicant, fleet) are thin rings now instead of "
+     "stacked glows. A 'mining' checkbox / production=0 hides the sparkles."),
     ("1.30.3", "2026-10-07", "Large devices: the app remembers a device is folded when the game says so (device.compacted, a "
      "compacted print, a compact refused as already compacted) even when its status doesn't, so the loadout pass sends "
      "the carrier instead of ordering compactions again and again; unfurling clears it. Fleet membership: adding a "

@@ -1,6 +1,6 @@
 // The desktop wallpaper (Octos add-on): the galaxy map, one system, or a cycle through your systems.
 // Link: /wallpaper/<slug>/?view=galaxy|system|cycle&star=X&labels=1&rotate=0.4&refresh=5&cycle=60
-//        &cover=1&fleets=1&supply=1&hud=right|left|off#key=rsw_…
+//        &cover=1&fleets=1&supply=1&production=1&hud=right|left|off#key=rsw_…
 // The key stays in the #fragment (never sent to the server, so never in access logs) and goes out as a header.
 const base = new URL("..", import.meta.url);            // …/wallpaper/<slug>/
 // the client's version: scripts are loaded with ?v=<version>, so a redeploy is never hidden by a cached copy
@@ -16,6 +16,10 @@ const cycleSec = Math.max(10, parseInt(q.get("cycle") || "60", 10));
 const cover = q.get("cover") !== "0";          // relay/hub range spheres
 const fleets = q.get("fleets") !== "0";        // fleet markers (galaxy) and fleets in the caption (systems)
 const supply = q.get("supply") !== "0";        // supply lines between fleets' systems
+const production = q.get("production") !== "0"; // sparkles: drones mining each resource, per system
+// resource colours: the galaxy's sparkles and the panel's stockpile rows (keep in step with map.js RES_COLOR)
+const RES_CSS = { structural: "#b0bec5", conductive: "#ffa726", silicates: "#e6c88f", carbon: "#a1887f", volatiles: "#4dd0e1",
+                  rares: "#e040fb" };
 const hud = ["left", "right", "off"].includes(q.get("hud")) ? q.get("hud") : "right";   // the dashboard panel
 const headers = { "X-Wallpaper-Key": key };
 let hudData = null;
@@ -63,7 +67,7 @@ function drawHud() {
   if (!d || hud === "off") return;
   const dv = d.devices, tot = Math.max(1, dv.total);
   const bar = ["working", "moving", "idle"].map(k => `<i class="b-${k}" style="width:${100 * dv[k] / tot}%"></i>`).join("");
-  const res = d.resources.map(r => `<tr><td>${esc(r.name)}</td><td class="n">${num(r.qty)}</td>` +
+  const res = d.resources.map(r => `<tr><td><i class="rdot" style="background:${RES_CSS[r.name] || "#888"}"></i>${esc(r.name)}</td><td class="n">${num(r.qty)}</td>` +
     `<td>${r.spark ? `<svg width="90" height="20"><polyline points="${r.spark}"/></svg>` : ""}</td>` +
     `<td class="n ${r.change > 0 ? "up" : r.change < 0 ? "down" : ""}">${r.change ? (r.change > 0 ? "▲" : "▼") + num(Math.abs(r.change)) : ""}</td></tr>`).join("");
   $("hud").innerHTML =
@@ -101,7 +105,7 @@ async function showSystem(code, note = "") {
 async function galaxy() {
   $("map").hidden = false;
   window.MAP_OPTS = { dataUrl: new URL("api/map.json", base).href, headers, labels, rotate, refreshMinutes: refreshMin,
-                      focus: star || null, onError: problem, cover, fleets, supply, moving: true };
+                      focus: star || null, onError: problem, cover, fleets, supply, production, moving: true };
   await import(new URL(`static/map.js?v=${encodeURIComponent(version)}`, base).href);
 }
 

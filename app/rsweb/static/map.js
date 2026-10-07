@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/OrbitControls.js";
 
 // The Galaxy page, and the desktop wallpaper (window.MAP_OPTS: {dataUrl, headers, labels, rotate, refreshMinutes,
-// focus, cover, moving, fleets, supply, onlyMine}); in the wallpaper the page's controls are absent, so every control lookup is optional.
+// focus, cover, moving, fleets, supply, production, onlyMine}); in the wallpaper the page's controls are absent, so every control lookup is optional.
 const OPTS = window.MAP_OPTS || {};
 const $ = id => document.getElementById(id);
 const checked = (id, dflt) => $(id) ? $(id).checked : dflt;
@@ -44,6 +44,38 @@ const dot = (() => {
   return new THREE.CanvasTexture(c);
 })();
 
+// thin ring for markers around a star (your devices, scanned, hub, replicant, fleet): rings nest without the stacked
+// glow that filled sprites made
+const ringTex = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d");
+  g.strokeStyle = "rgba(255,255,255,1)"; g.lineWidth = 3;
+  g.beginPath(); g.arc(64, 64, 56, 0, Math.PI * 2); g.stroke();
+  return new THREE.CanvasTexture(c);
+})();
+
+// four-point sparkle, so production reads differently from the (round) stars
+const sparkTex = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d");
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, "rgba(255,255,255,1)"); grd.addColorStop(.25, "rgba(255,255,255,.9)"); grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd;
+  g.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4, r = i % 2 ? 6 : 32;
+    g.lineTo(32 + Math.cos(a) * r, 32 + Math.sin(a) * r);
+  }
+  g.closePath(); g.fill();
+  return new THREE.CanvasTexture(c);
+})();
+
+// what each system is producing right now: one sparkle per drone mining a resource, each resource on its own orbit
+const RES_COLOR = { structural: 0xb0bec5, conductive: 0xffa726, silicates: 0xe6c88f, carbon: 0xa1887f, volatiles: 0x4dd0e1,
+                    rares: 0xe040fb };
+const RES_ORDER = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"];
+window.RES_COLOR = RES_COLOR;
+
 // faint reference grid on the galactic plane
 const grid = new THREE.PolarGridHelper(80, 8, 8, 64, 0x1c2638, 0x141b28);
 grid.rotation.x = Math.PI / 2;
@@ -54,6 +86,8 @@ let starPoints, mineGroup = new THREE.Group(), coverGroup = new THREE.Group(), l
 const moveGroup = new THREE.Group(), fleetGroup = new THREE.Group(), supplyGroup = new THREE.Group();
 scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup);
 const supplyLines = [];   // {curve, dots: [sprite], el, v}
+const sparkGroup = new THREE.Group(); scene.add(sparkGroup);
+const sparkles = [];      // {sp, c: centre, r, a0, w, tilt}
 const fleetLabels = [];   // {el, v, dy}
 const movers = [];   // {m: trip, cone, label el}
 const labels = [];
@@ -89,7 +123,8 @@ function build() {
   starPoints = new THREE.Points(g, new THREE.PointsMaterial({ size: 1.6, map: dot, vertexColors: true, transparent: true, depthWrite: false }));
   scene.add(starPoints);
 
-  const ring = (color, size) => new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color, transparent: true, opacity: .55, depthWrite: false }));
+  const ring = color => new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color, transparent: true, opacity: .55, depthWrite: false }));
+  sparkGroup.clear(); sparkles.length = 0;
   for (const s of visible) {
     const v = pos(s);
     const hasRep = data.replicants.some(r => r.star === s.designation);
@@ -99,6 +134,14 @@ function build() {
     if (s.has_hub || (s.infra || []).some(t => t.includes("hub"))) marks.push([0xf0b64f, 2.8]);
     if (hasRep) marks.push([0xff5fa2, 4.2]);
     for (const [c, sz] of marks) { const sp = ring(c); sp.scale.set(sz, sz, 1); sp.position.copy(v); mineGroup.add(sp); }
+    RES_ORDER.forEach((res, k) => {
+      const n = Math.min(10, (s.mining || {})[res] || 0);
+      for (let i = 0; i < n; i++) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: sparkTex, color: RES_COLOR[res], transparent: true, depthWrite: false }));
+        sp.scale.set(.7, .7, 1); sparkGroup.add(sp);
+        sparkles.push({ sp, c: v, r: 2.4 + k * .3, a0: i / n * Math.PI * 2 + k, w: .25 - k * .025, tilt: (k % 2 ? 1 : -1) * .35 });
+      }
+    });
     for (const t of s.infra || []) {
       const r = Object.entries(RANGE).find(([k]) => t.includes(k));
       if (r) {
@@ -128,8 +171,8 @@ function buildFleets() {
   for (const f of data.fleets || []) {
     const here = (f.stars || []).map(n => byName[n]).filter(Boolean);
     here.forEach((s, i) => {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: FLEET, transparent: true, opacity: i ? .3 : .5, depthWrite: false }));
-      const sz = i ? 2.4 : 4.2; sp.scale.set(sz, sz, 1); sp.position.copy(pos(s)); fleetGroup.add(sp);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: FLEET, transparent: true, opacity: i ? .45 : .8, depthWrite: false }));
+      const sz = i ? 2.0 : 3.8; sp.scale.set(sz, sz, 1); sp.position.copy(pos(s)); fleetGroup.add(sp);
     });
     const at = here[0] || byName[f.home];
     if (!at) continue;
@@ -138,7 +181,7 @@ function buildFleets() {
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos(at), pos(to)]),
         new THREE.LineDashedMaterial({ color: FLEET, dashSize: .35, gapSize: .7, transparent: true, opacity: .55 }));
       line.computeLineDistances(); fleetGroup.add(line);
-      const tg = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: FLEET, transparent: true, opacity: .3, depthWrite: false }));
+      const tg = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: FLEET, transparent: true, opacity: .45, depthWrite: false }));
       tg.scale.set(3.4, 3.4, 1); tg.position.copy(pos(to)); fleetGroup.add(tg);
     }
     const n = perStar[at.designation] = (perStar[at.designation] || 0) + 1;
@@ -265,6 +308,7 @@ function show(s) {
       ${dist ? `<dt>From ${esc(from.designation)}</dt><dd>${dist} ly (straight line)</dd>` : ""}
       <dt>Your devices</dt><dd>${s.devices || 0}</dd>
       ${(s.drones || []).length ? `<dt>Drones</dt><dd>${s.drones.map(g => `${g.n} ${esc(g.kind)} <span class="muted">(${g.working} working${g.idle ? `, ${g.idle} idle` : ""}${g.moving ? `, ${g.moving} moving` : ""})</span>`).join("<br>")}</dd>` : ""}
+      ${Object.keys(s.mining || {}).length ? `<dt>Mining now</dt><dd>${Object.entries(s.mining).map(([r, n]) => `${n} on ${esc(r)}`).join(", ")}</dd>` : ""}
       ${(s.infra || []).length ? `<dt>Infrastructure</dt><dd>${esc(s.infra.join(", "))}</dd>` : ""}
       ${s.has_hub ? "<dt>Hub</dt><dd>yes</dd>" : ""}
     </dl>
@@ -338,6 +382,16 @@ function animate(t = 0) {
     const vis = fleetGroup.visible && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
     l.el.style.display = vis ? "block" : "none";
     if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6 + l.dy) + "px"; }
+  }
+  sparkGroup.visible = checked("opt-production", OPTS.production !== false);
+  if (sparkGroup.visible) {
+    const ts = t / 1000;
+    for (const x of sparkles) {
+      const a = x.a0 + ts * x.w;
+      x.sp.position.set(x.c.x + Math.cos(a) * x.r, x.c.y + Math.sin(a) * x.r, x.c.z + Math.sin(a) * x.r * x.tilt);
+      x.sp.material.opacity = .55 + .45 * Math.sin(ts * 2.3 + x.a0 * 3);   // twinkle
+      x.sp.material.rotation = ts * .6 + x.a0;
+    }
   }
   supplyGroup.visible = checked("opt-supply", OPTS.supply !== false);
   const flow = (Date.now() % 4000) / 4000;

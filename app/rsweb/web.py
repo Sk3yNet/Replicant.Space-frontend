@@ -1331,6 +1331,16 @@ async def map_data(request: Request, user: str = Depends(current_user)):
     return JSONResponse(await map_payload(request))
 
 
+def mining_now(devices: list[dict]) -> dict[str, int]:
+    """What a system is producing right now: drones mining each resource ("mining (carbon)" → carbon)."""
+    out: Counter = Counter()
+    for d in devices:
+        m = re.match(r"mining \((\w+)\)", str(d.get("status") or ""))
+        if m:
+            out[m.group(1)] += 1
+    return dict(out)
+
+
 async def map_payload(request: Request) -> dict:
     """The galaxy map's data (the Galaxy page and the desktop wallpaper)."""
     db = request.app.state.db
@@ -1353,7 +1363,8 @@ async def map_payload(request: Request) -> dict:
     for s in cat.get("stars") or []:
         d = s.get("designation")
         drones = [{k: g[k] for k in ("kind", "n", "working", "idle", "moving", "state")} for g in drone_summary(by_star.get(d, []))]
-        stars.append({**s, "devices": presence.get(d, 0), "infra": infra.get(d, []), "scanned": d in scanned, "drones": drones})
+        stars.append({**s, "devices": presence.get(d, 0), "infra": infra.get(d, []), "scanned": d in scanned, "drones": drones,
+                      "mining": mining_now(by_star.get(d, []))})
     from . import transit
     positions = {x["designation"]: x.get("position") for x in stars if x.get("position")}
     moving = transit.galaxy_movers(transit.trips(st["devices"]), positions)

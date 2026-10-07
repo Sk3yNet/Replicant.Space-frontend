@@ -4688,3 +4688,16 @@ def test_adding_a_device_already_in_the_fleet_sends_nothing(client):
         for s in j["steps"]:
             c = (s.get("body") or {}).get("configuration") or {}
             assert not set(c.get("add_tags") or []) & set(c.get("remove_tags") or [])
+
+
+def test_galaxy_shows_what_each_system_is_mining(client):
+    from rsweb.web import mining_now
+    assert mining_now([{"status": "mining (carbon)"}, {"status": "mining (carbon)"}, {"status": "mining (rares)"},
+                       {"status": "mining"}, {"status": "idle"}]) == {"carbon": 2, "rares": 1}
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices[1]["status"] = "mining (volatiles)"
+    client.portal.call(client.app.state.worker.sync_devices)
+    star = world.devices[1]["location"].split("-")[0]
+    stars = client.get("/api/map.json", headers=H).json()["stars"]
+    s = next((x for x in stars if x["designation"] == star), None)
+    assert s is None or s["mining"].get("volatiles", 0) >= 1
