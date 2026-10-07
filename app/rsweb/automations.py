@@ -438,10 +438,11 @@ class AutomationEngine(OpsRules):
         log.info("[%s] %s", rule, text)
         if notify:
             title = f"Automation: {text}"
+            nlevel = severity({"level": level, "text": text})   # error / warning / info, like the log
             cur = await self.db.execute(
                 "INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
-                (None, "alert" if level == "alert" else "done", title, None, "/automations", now_iso()))
-            self.hub.publish("notify", {"id": cur.lastrowid, "level": "alert" if level == "alert" else "done",
+                (None, nlevel, title, None, "/automations", now_iso()))
+            self.hub.publish("notify", {"id": cur.lastrowid, "level": nlevel,
                                         "title": title, "link": "/automations"})
 
     # --- lifecycle ------------------------------------------------------------------------

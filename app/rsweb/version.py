@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.36.2"
+VERSION = "1.37.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.37.0", "2026-10-07", "Notifications are errors, warnings or info, like the Automations log, with toggles and counts "
+     "on the Notifications page; the bell's badge counts unread errors only. Site and salvage depletions no longer raise "
+     "notifications (they're expected; the event feed and digest still have them)."),
     ("1.36.2", "2026-10-07", "Devices tree: devices aboard a carrier count in the carrier's system (13 stowed devices showed "
      "as an empty '?' system), the device's own stowed-in / attached-to is used, and a device with no location says why. "
      "Contracts: another player's ward or hub has a species interaction lock, so contract missions there are refused and "

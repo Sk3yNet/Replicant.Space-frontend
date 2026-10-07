@@ -8,12 +8,16 @@ from typing import Any
 from .db import DB, now_iso, row_event
 from .shapes import as_amounts
 
-# level: alert = needs attention, done = something was accomplished, info = everything else.
+# Event feed level: alert = needs attention, done = something was accomplished, info = everything else.
 ALERT_EVENTS = {
     "hub.warning", "hub.destroyed", "system.object_detected", "system.devices_halted",
-    "diversion.impacted", "teleport.failed", "triangulation.failed", "site.depleted",
-    "salvage.depleted", "directive.paused", "simulation.expired",
+    "diversion.impacted", "teleport.failed", "triangulation.failed", "directive.paused", "simulation.expired",
 }
+# Notification level: error (needs you — the only kind the bell's badge counts), warning, info (incl. accomplishments).
+ERROR_EVENTS = ALERT_EVENTS - {"hub.warning"}
+WARNING_EVENTS = {"hub.warning"}
+# Expected and frequent (a belt's sites close, salvage runs out): the feed and the digest have them, no notification.
+QUIET = {"site.depleted", "salvage.depleted"}
 DONE_EVENTS = {
     "print.completed", "travel.arrived", "scan.completed", "search.completed", "directive.completed",
     "event.completed", "trade.completed", "prospect.completed", "teleport.completed",
@@ -145,8 +149,12 @@ def describe(ev: dict) -> str:
 
 def notification_for(ev: dict) -> dict | None:
     e = ev.get("event", "")
-    if e in ALERT_EVENTS:
-        level = "alert"
+    if e in QUIET:
+        return None
+    if e in ERROR_EVENTS:
+        level = "error"
+    elif e in WARNING_EVENTS:
+        level = "warning"
     elif e in NOTIFY_DONE:
         level = "done"
     elif e == "message.new" or e in NOTIFY_INFO:
@@ -163,6 +171,17 @@ def notification_for(ev: dict) -> dict | None:
     elif e.startswith("trade."):
         link = "/shop"
     return {"level": level, "title": describe(ev), "link": link}
+
+
+def kind(level: str | None) -> str:
+    """error / warning / info for the notification toggles ('done' is info; 'alert' is from before 1.37: a warning)."""
+    return {"error": "error", "warning": "warning", "alert": "warning"}.get(str(level or ""), "info")
+
+
+async def unread_errors(db: DB) -> int:
+    """What the bell's badge shows: unread errors only."""
+    row = await db.fetchone("SELECT COUNT(*) AS n FROM notifications WHERE read=0 AND level='error'")
+    return row["n"] if row else 0
 
 
 async def add_notification(db: DB, ev: dict) -> dict | None:

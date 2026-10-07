@@ -206,11 +206,10 @@ templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, leve
 
 async def base_ctx(request: Request, user: str, active: str, **kw) -> dict:
     st = request.app.state
-    unread = await st.db.fetchone("SELECT COUNT(*) AS n FROM notifications WHERE read=0")
     return {
         "request": request, "user": user, "active": active,
         "rate": st.api.rate_status(), "stream_state": st.worker.stream_state,
-        "notif_unread": unread["n"] if unread else 0,
+        "notif_unread": await notify.unread_errors(st.db),   # the badge counts errors only
         "configured": st.api.configured,
         **kw,
     }
@@ -344,7 +343,7 @@ async def dashboard(request: Request, user: str = Depends(current_user)):
     if visit and not visit.get("digest_dismissed"):
         digest = await notify.build_digest(request.app.state.db, visit["baseline_at"])
     alerts = await request.app.state.db.fetchall(
-        "SELECT * FROM notifications WHERE read=0 AND level='alert' ORDER BY id DESC LIMIT 10")
+        "SELECT * FROM notifications WHERE read=0 AND level IN ('error','warning','alert') ORDER BY id DESC LIMIT 10")
     recent = [row_event(r) for r in await request.app.state.db.fetchall(
         "SELECT * FROM events WHERE event NOT LIKE 'ami.%.digest' AND event != 'bobnet.new' ORDER BY seq DESC LIMIT 25")]
     series = await resource_series(request)
@@ -1799,8 +1798,10 @@ async def events_backfill(request: Request, user: str = Depends(current_user)):
 @router.get("/notifications", response_class=HTMLResponse)
 async def notifications(request: Request, show: str = "unread", user: str = Depends(current_user)):
     where = "WHERE read=0" if show == "unread" else ""
-    rows = await request.app.state.db.fetchall(f"SELECT * FROM notifications {where} ORDER BY id DESC LIMIT 300")
-    return await page(request, user, "notifications.html", "notifications", rows=rows, show=show)
+    rows = [{**r, "kind": notify.kind(r["level"])}
+            for r in await request.app.state.db.fetchall(f"SELECT * FROM notifications {where} ORDER BY id DESC LIMIT 300")]
+    return await page(request, user, "notifications.html", "notifications", rows=rows, show=show,
+                      kind_counts=Counter(r["kind"] for r in rows))
 
 
 @router.post("/notifications/read", response_class=HTMLResponse)
@@ -2103,8 +2104,7 @@ async def live(request: Request, user: str = Depends(current_user)):
                     yield _sse("event", env.get_template("partials/event_row.html").render(e=data, live=True))
                 elif kind == "notify":
                     yield _sse("notify", env.get_template("partials/toast.html").render(n=data))
-                    unread = await st.db.fetchone("SELECT COUNT(*) AS n FROM notifications WHERE read=0")
-                    yield _sse("badge", env.get_template("partials/badge.html").render(n=unread["n"]))
+                    yield _sse("badge", env.get_template("partials/badge.html").render(n=await notify.unread_errors(st.db)))
                 elif kind == "state":
                     yield _sse("state", str(data))
                 now = asyncio.get_running_loop().time()

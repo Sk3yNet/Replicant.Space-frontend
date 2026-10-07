@@ -6,10 +6,16 @@
   <button class="small" hx-post="/notifications/read" hx-swap="none">Mark all read</button>
   <a class="btn small" href="/digest?hours=24">24h digest</a></span></div>
 <div class="card">
-  <table>
+  <div class="row small" id="notif-toggles" style="margin-bottom:8px;gap:14px">
+    <label class="lv-error"><input type="checkbox" data-kind="error" checked> errors ({{ kind_counts.error or 0 }})</label>
+    <label class="lv-warning"><input type="checkbox" data-kind="warning" checked> warnings ({{ kind_counts.warning or 0 }})</label>
+    <label class="muted"><input type="checkbox" data-kind="info" checked> info ({{ kind_counts.info or 0 }})</label>
+    <span class="muted">The bell's badge counts unread errors only.</span>
+  </div>
+  <table id="notif-table">
     {% for n in rows %}
-    <tr id="n{{ n.id }}" class="{{ 'muted' if n.read }}">
-      <td style="width:22px" class="lv-{{ n.level }}">●</td>
+    <tr id="n{{ n.id }}" data-kind="{{ n.kind }}" class="{{ 'muted' if n.read }}">
+      <td style="width:22px" class="lv-{{ n.kind if n.kind != 'info' else n.level }}">●</td>
       <td><a href="{{ n.link or '#' }}">{{ n.title }}</a></td>
       <td class="small muted" style="white-space:nowrap">{{ n.created_at | local }} · {{ n.created_at | ago }}</td>
       <td>{% if not n.read %}<button class="small ghost" hx-post="/notifications/read" hx-vals='{"id": {{ n.id }}}' hx-target="#n{{ n.id }}" hx-swap="delete">✓</button>{% endif %}</td>
@@ -17,4 +23,19 @@
     {% else %}<tr><td class="muted">Nothing here. Alerts (hub warnings, incoming objects, failed teleports…) and accomplishments (prints, completed directives, trades…) show up as they happen.</td></tr>{% endfor %}
   </table>
 </div>
+<script>
+(() => {   // show / hide by kind, remembered in this browser (like the Automations log)
+  const boxes = [...document.querySelectorAll("#notif-toggles input")];
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem("notif-kind") || "{}"); } catch (e) {}
+  boxes.forEach(b => { if (b.dataset.kind in saved) b.checked = !!saved[b.dataset.kind]; });
+  const apply = () => {
+    const on = Object.fromEntries(boxes.map(b => [b.dataset.kind, b.checked]));
+    document.querySelectorAll("#notif-table tr[data-kind]").forEach(tr => tr.style.display = on[tr.dataset.kind] === false ? "none" : "");
+    try { localStorage.setItem("notif-kind", JSON.stringify(on)); } catch (e) {}
+  };
+  boxes.forEach(b => b.addEventListener("change", apply));
+  apply();
+})();
+</script>
 {% endblock %}

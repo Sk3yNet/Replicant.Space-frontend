@@ -123,7 +123,7 @@ def test_worker_timers_notifications_and_digest(tmp_path):
         await w.handle_event(_ev(5, "hub.warning", warning_type="maintenance_due", capacity=70))
         await w.handle_event(_ev(6, "experience.gained", amount=25, source="mining"))
         levels = sorted(r["level"] for r in await db.fetchall("SELECT level FROM notifications"))
-        assert levels == ["alert", "done"]
+        assert levels == ["done", "warning"]   # print done (info); hub warning
         # inventory snapshots for the delta
         await db.execute("INSERT INTO inventory_history VALUES(?,?,?)", ("2000-01-01T00:00:00+00:00", "structural", 100))
         await db.execute("INSERT INTO inventory_history VALUES(?,?,?)", (iso(datetime.now(timezone.utc)), "structural", 180))
@@ -3153,11 +3153,11 @@ def test_late_events_are_kept_quiet_and_summarised(tmp_path):
         assert fired == []
         await w.handle_event(_ev(20, "site.depleted", site="SOL-BELT-1-SITE-20"))     # live again
         titles = [r["title"] for r in await db.fetchall("SELECT title FROM notifications ORDER BY id")]
-        assert len(titles) == 2 and "caught up 6 late event(s) from the last 44 h" in titles[0]
-        assert titles[1] == "Site depleted: SOL-BELT-1-SITE-20"
+        # site depletions are expected: feed and digest only, no notification (1.37)
+        assert len(titles) == 1 and "caught up 6 late event(s) from the last 44 h" in titles[0]
         assert fired == ["salvage"]
         await w.handle_event(_ev(21, "site.depleted", site="SOL-BELT-1-SITE-21"))     # no second note
-        assert (await db.fetchone("SELECT COUNT(*) n FROM notifications"))["n"] == 3
+        assert (await db.fetchone("SELECT COUNT(*) n FROM notifications"))["n"] == 1
         await db.close()
 
     run(go())
@@ -5019,3 +5019,23 @@ def test_ward_or_hub_lock_blocks_contracts_not_trades(client):
     r = client.post("/fleets/t/mission", data={"kind": "trade", "trade": _json.dumps(
         {"name": "T1", "trade_code": "X", "location": "ABOTEIN-3", "price": {"carbon": 5}})}, headers=HX)
     assert "species interaction lock" not in r.text and "another player" not in r.text   # trades still go
+
+
+def test_notification_kinds_and_error_only_badge(client):
+    from rsweb import notify
+    assert notify.notification_for({"event": "site.depleted", "payload": {}}) is None          # expected: no notification
+    assert notify.notification_for({"event": "teleport.failed", "payload": {}})["level"] == "error"
+    assert notify.notification_for({"event": "hub.warning", "payload": {}})["level"] == "warning"
+    assert notify.kind("done") == "info" and notify.kind("alert") == "warning"
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    client.portal.call(db.execute, "UPDATE notifications SET read=1")
+    client.portal.call(eng.log, "loadouts", "stopped: x — y failed: z", "alert", True)
+    client.portal.call(eng.log, "fleets", "M: warning: no relay", "alert", True)
+    client.portal.call(eng.log, "fleets", "M: mission complete", "info", True)
+    levels = [r["level"] for r in client.portal.call(db.fetchall, "SELECT level FROM notifications WHERE read=0 ORDER BY id")]
+    assert levels == ["error", "warning", "info"]
+    assert client.portal.call(notify.unread_errors, db) == 1
+    page = client.get("/notifications", headers=H).text
+    assert 'id="notif-toggles"' in page and "errors (1)" in page and "warnings (1)" in page
+    assert 'data-n="1"' in client.get("/", headers=H).text                                    # badge: errors only
