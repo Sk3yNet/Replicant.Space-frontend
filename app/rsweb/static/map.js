@@ -2,10 +2,15 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/OrbitControls.js";
 
-const el = document.getElementById("map");
-const info = document.getElementById("map-info");
-const tip = document.getElementById("map-tip");
-const fromSel = document.getElementById("map-from");
+// The Galaxy page, and the desktop wallpaper (window.MAP_OPTS: {dataUrl, headers, labels, rotate, refreshMinutes,
+// focus}); in the wallpaper the page's controls are absent, so every control lookup is optional.
+const OPTS = window.MAP_OPTS || {};
+const $ = id => document.getElementById(id);
+const checked = (id, dflt) => $(id) ? $(id).checked : dflt;
+const el = $("map");
+const info = $("map-info") || document.createElement("div");
+const tip = $("map-tip") || document.createElement("div");
+const fromSel = $("map-from");
 
 const COLORS = { red: 0xff8a65, orange: 0xffb74d, yellow: 0xffe082, white: 0xf5f5f5, blue: 0x90caf9, "blue-white": 0xbbdefb, brown: 0xa1887f };
 const RANGE = { ftl_relay: 7.5, relay: 7.5, system_hub: 15, hub: 15 };
@@ -19,6 +24,7 @@ camera.position.set(0, -90, 70);
 camera.up.set(0, 0, 1);  // galactic north up
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
+if (OPTS.rotate) { controls.autoRotate = true; controls.autoRotateSpeed = OPTS.rotate; }
 
 function resize() {
   const w = el.clientWidth, h = el.clientHeight;
@@ -66,7 +72,7 @@ function build() {
   [starPoints].forEach(o => o && scene.remove(o));
   mineGroup.clear(); coverGroup.clear();
   labels.forEach(l => l.el.remove()); labels.length = 0;
-  const onlyMine = document.getElementById("opt-mine").checked;
+  const onlyMine = checked("opt-mine", !!OPTS.onlyMine);
   visible = data.stars.filter(s => !onlyMine || s.devices > 0 || data.replicants.some(r => r.star === s.designation));
 
   const g = new THREE.BufferGeometry();
@@ -106,7 +112,7 @@ function build() {
       el.appendChild(d); labels.push({ el: d, v });
     }
   }
-  coverGroup.visible = document.getElementById("opt-cover").checked;
+  coverGroup.visible = checked("opt-cover", OPTS.cover !== false);
 }
 
 // devices in transit between stars: a dashed route and an arrow that moves along it as time passes
@@ -185,7 +191,7 @@ function show(s) {
       <button class="small" hx-get="/api/route?replicant=${rep}&star=${esc(s.designation)}" hx-target="#route-out">travel estimate</button>
       <button class="small" hx-post="/replicants/${rep}/travel" hx-vals='{"destination":"${esc(s.designation)}","dry_run":"1"}' hx-target="#route-out">preview route</button>
     </div><div id="route-out"></div>` : ""}`;
-  htmx.process(info);
+  if (window.htmx) htmx.process(info);
 }
 
 // picking
@@ -219,20 +225,25 @@ renderer.domElement.addEventListener("pointerup", ev => {
   show(s);
 });
 
-document.getElementById("map-search").addEventListener("change", e => {
+$("map-search")?.addEventListener("change", e => {
   const s = byName[e.target.value.trim().toUpperCase()]; if (s) { focus(s); show(s); }
 });
-["opt-mine"].forEach(id => document.getElementById(id).addEventListener("change", build));
-document.getElementById("opt-cover").addEventListener("change", e => coverGroup.visible = e.target.checked);
-document.getElementById("btn-top").addEventListener("click", () => { camera.position.set(controls.target.x, controls.target.y - 0.01, controls.target.z + 160); });
-document.getElementById("btn-home").addEventListener("click", () => { const s = repStar(); if (s) { focus(s); show(s); } });
+["opt-mine"].forEach(id => $(id)?.addEventListener("change", build));
+$("opt-cover")?.addEventListener("change", e => coverGroup.visible = e.target.checked);
+$("btn-top")?.addEventListener("click", () => { camera.position.set(controls.target.x, controls.target.y - 0.01, controls.target.z + 160); });
+$("btn-home")?.addEventListener("click", () => { const s = repStar(); if (s) { focus(s); show(s); } });
 
 const tmp = new THREE.Vector3();
-function animate() {
+// the wallpaper runs all day: cap it at 30 fps (the Galaxy page renders at full rate)
+const minFrame = OPTS.dataUrl ? 1000 / 30 : 0;
+let lastFrame = 0;
+function animate(t = 0) {
   requestAnimationFrame(animate);
+  if (minFrame && t - lastFrame < minFrame) return;
+  lastFrame = t;
   controls.update();
   renderer.render(scene, camera);
-  const showLabels = document.getElementById("opt-labels").checked;
+  const showLabels = checked("opt-labels", OPTS.labels !== false);
   const w = el.clientWidth, h = el.clientHeight;
   for (const l of labels) {
     tmp.copy(l.v).project(camera);
@@ -241,7 +252,7 @@ function animate() {
     if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6) + "px"; }
   }
   placeMovers(Date.now());
-  moveGroup.visible = document.getElementById("opt-moving").checked;
+  moveGroup.visible = checked("opt-moving", OPTS.moving !== false);
   for (const x of movers) {
     tmp.copy(x.v).project(camera);
     const vis = moveGroup.visible && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
@@ -250,12 +261,16 @@ function animate() {
   }
 }
 
-fetch("/api/map.json", { credentials: "same-origin" }).then(r => r.json()).then(d => {
+function load(first) {
+  return fetch(OPTS.dataUrl || "/api/map.json", { credentials: "same-origin", headers: OPTS.headers || {} })
+    .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
+    .then(d => {
   data = d;
   d.stars.forEach(s => byName[s.designation] = s);
-  document.getElementById("star-list").innerHTML = d.stars.map(s => `<option value="${esc(s.designation)}">`).join("");
+  if ($("star-list")) $("star-list").innerHTML = d.stars.map(s => `<option value="${esc(s.designation)}">`).join("");
   build();
   buildMovers();
+  if (!first) return;
   if (!d.stars.length) {
     info.innerHTML = `<p class="muted">No star catalogue cached yet. It syncs every 30 minutes, or use “refresh catalogue”.</p>`;
   } else {
@@ -263,7 +278,10 @@ fetch("/api/map.json", { credentials: "same-origin" }).then(r => r.json()).then(
     info.innerHTML = `<p>${d.stars.length} stars · catalogue generated ${esc(d.generated_at || "?")}.</p>` +
       (mv ? `<p class="small"><b>In transit between stars</b></p><ul class="small">${mv}</ul>` : "") +
       `<p class="muted small">Drag to orbit, scroll to zoom, click a star for details.</p>`;
-    const s = repStar(); if (s) focus(s);
+    const s = (OPTS.focus && byName[OPTS.focus]) || repStar(); if (s) focus(s);
   }
   animate();
-});
+    });
+}
+load(true).catch(e => { info.innerHTML = `<p class="muted">Could not load the map: ${esc(e.message)}</p>`; OPTS.onError?.(e); });
+if (OPTS.refreshMinutes) setInterval(() => load(false).catch(e => OPTS.onError?.(e)), OPTS.refreshMinutes * 60000);

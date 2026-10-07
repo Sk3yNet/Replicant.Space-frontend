@@ -4466,3 +4466,55 @@ def test_cancel_travel_from_the_device_page(client):
     host = next(d for d in world.devices if d["device_code"] == client.portal.call(client.app.state.db.kv_get, "replicants")[rep_code]["hosted_device_code"])
     r = client.post(f"/devices/{host['device_code']}/cancel-travel", headers=HX)
     assert f"/replicants/{rep_code}/travel" in r.text
+
+
+def test_desktop_wallpaper_routes_need_a_key_and_stay_read_only(client, monkeypatch):
+    import re as _re
+    from rsweb import wallpaper as wp
+    client.portal.call(client.app.state.worker.sync_devices)
+    # off until a link is made: the page and the data are 404, the API without a key too
+    assert client.get("/wallpaper/me/").status_code == 404
+    assert client.get("/wallpaper/me/api/map.json").status_code == 404
+    page = client.get("/account", headers=H).text
+    assert "Desktop wallpaper" in page and "Create wallpaper link" in page
+    r = client.post("/wallpaper-settings", data={"action": "create", "label": "office PC"}, headers=HX)
+    link = _re.search(r'value="(https?://[^"]+/wallpaper/me/#key=(rsw_[^"]+))"', r.text)
+    assert link, r.text
+    key = link.group(2)
+    st = client.portal.call(client.app.state.db.kv_get, wp.KV)
+    assert st["enabled"] and key not in str(st) and st["keys"][0]["label"] == "office PC"   # only the hash is stored
+    # the page is served (no data in it); the data needs the key, sent as a header
+    page = client.get("/wallpaper/me/").text
+    assert "wallpaper.js" in page and "importmap" in page and key not in page
+    assert client.get("/wallpaper/me/api/map.json").status_code == 401
+    assert client.get("/wallpaper/me/api/map.json", headers={wp.HEADER: "rsw_wrong"}).status_code == 401
+    good = {wp.HEADER: key}
+    data = client.get("/wallpaper/me/api/map.json", headers=good).json()
+    assert "stars" in data and "replicants" in data
+    systems = client.get("/wallpaper/me/api/systems.json", headers=good).json()["systems"]
+    if systems:
+        svg = client.get(f"/wallpaper/me/api/system/{systems[0]['star']}", headers=good).text
+        assert '<svg class="system"' in svg
+    assert client.get("/wallpaper/me/api/system/NOWHERE", headers=good).status_code == 404
+    # only the wallpaper's own files are served without signing in
+    assert client.get("/wallpaper/me/static/map.js").status_code == 200
+    assert client.get("/wallpaper/me/static/vendor/three.module.min.js").status_code == 200
+    assert client.get("/wallpaper/me/static/app.js").status_code == 404
+    assert client.get("/wallpaper/me/static/../web.py").status_code == 404
+    # it can't change anything: no write routes under /wallpaper/
+    assert client.post("/wallpaper/me/api/map.json", headers=good).status_code in (404, 405)
+    # multi-user: a server answers only for its own slug
+    monkeypatch.setenv("WALLPAPER_SLUG", "joe-abc123")
+    assert client.get("/wallpaper/me/api/map.json", headers=good).status_code == 404
+    assert client.get("/wallpaper/joe-abc123/api/map.json", headers=good).status_code == 200
+    monkeypatch.delenv("WALLPAPER_SLUG")
+    # turning it off stops every link; revoking stops one
+    client.post("/wallpaper-settings", data={"action": "disable"}, headers=HX)
+    assert client.get("/wallpaper/me/api/map.json", headers=good).status_code == 404
+    client.post("/wallpaper-settings", data={"action": "enable"}, headers=HX)
+    assert client.get("/wallpaper/me/api/map.json", headers=good).status_code == 200
+    kid = client.portal.call(client.app.state.db.kv_get, wp.KV)["keys"][0]["id"]
+    client.post("/wallpaper-settings", data={"action": "revoke", "key_id": kid}, headers=HX)
+    assert client.get("/wallpaper/me/api/map.json", headers=good).status_code == 401
+    # the settings endpoint itself needs the signed-in user (an htmx request from the app)
+    assert client.post("/wallpaper-settings", data={"action": "enable"}, headers=H).status_code == 403

@@ -1,0 +1,47 @@
+{# The system map (build_system_view → view). Used by the System page and the desktop wallpaper. #}
+{% set s = scan.star or {} %}
+    <svg class="system" viewBox="0 0 {{ view.size }} {{ view.size }}">
+      {% if view.hz %}<circle cx="{{ view.c }}" cy="{{ view.c }}" r="{{ view.hz.r }}" fill="none" stroke="rgba(79,209,139,.14)" stroke-width="{{ view.hz.w }}"><title>Habitable zone</title></circle>{% endif %}
+      {% for b in view.belts %}<circle cx="{{ view.c }}" cy="{{ view.c }}" r="{{ b.r }}" fill="none" stroke="rgba(200,170,120,.28)" stroke-width="{{ b.w }}" stroke-dasharray="2 3"><title>{{ b.designation }} ({{ b.density }})</title></circle>{% endfor %}
+      {% if view.kuiper %}<circle cx="{{ view.c }}" cy="{{ view.c }}" r="{{ view.kuiper.r }}" fill="none" stroke="rgba(140,170,220,.25)" stroke-dasharray="6 6"/><text x="{{ view.c + 4 }}" y="{{ view.c - view.kuiper.r - 4 }}">Kuiper {{ view.kuiper.au }} AU</text>{% endif %}
+      {% for p in view.planets %}<circle cx="{{ view.c }}" cy="{{ view.c }}" r="{{ p.r }}" fill="none" stroke="rgba(255,255,255,.07)"/>{% endfor %}
+      <circle cx="{{ view.c }}" cy="{{ view.c }}" r="12" fill="{{ {'Red':'#ff8a65','Orange':'#ffb74d','Yellow':'#ffe082','White':'#f5f5f5','Blue':'#90caf9'}.get((s.color or 'Yellow')|capitalize, '#ffe082') }}"><title>{{ star }}</title></circle>
+      {% for p in view.planets %}
+        <g class="marker" hx-get="/locations/{{ p.designation }}" hx-target="#loc-panel">
+          <circle cx="{{ p.x }}" cy="{{ p.y }}" r="{{ p.size }}" fill="{{ '#4fd18b' if p.in_habitable_zone else '#7f95b8' }}"><title>{{ p.designation }} · {{ p.type }} · {{ p.orbital_distance_au }} AU · {{ p.moon_count }} moons</title></circle>
+          <text x="{{ p.x + 10 }}" y="{{ p.y + 4 }}">{{ p.designation.split('-')[-1] }}</text>
+        </g>
+      {% endfor %}
+      <g class="places">{% for pl in view.places %}
+        <g class="marker place place-{{ pl.category }}{{ ' depleted' if pl.depleted }}" hx-get="/locations/{{ pl.code }}" hx-target="#loc-panel">
+          {% if pl.category == 'salvage' %}<path d="M {{ pl.x }} {{ pl.y - 5 }} L {{ pl.x + 5 }} {{ pl.y + 4 }} L {{ pl.x - 5 }} {{ pl.y + 4 }} Z" />
+          {% elif pl.category == 'site' %}<rect x="{{ pl.x - 3.5 }}" y="{{ pl.y - 3.5 }}" width="7" height="7" transform="rotate(45 {{ pl.x }} {{ pl.y }})" />
+          {% elif pl.category == 'lagrange' %}<rect x="{{ pl.x - 3 }}" y="{{ pl.y - 3 }}" width="6" height="6" />
+          {% else %}<circle cx="{{ pl.x }}" cy="{{ pl.y }}" r="3.5" />{% endif %}
+          <title>{{ pl.code }}{% if pl.note %} · {{ pl.note }}{% endif %}{% if pl.total is not none %} · {{ pl.total | num }} available{% endif %}{% for r, q in pl.amounts.items() %} · {{ r }} {{ q | num }}{% endfor %}{% if pl.depleted %} · depleted{% endif %}</title>
+          <text class="plabel" x="{{ pl.x + 7 }}" y="{{ pl.y + 3 }}">{{ pl.label }}{% if pl.total is not none and not pl.depleted %} · {{ pl.total | num }}{% endif %}</text>
+        </g>{% endfor %}</g>
+      {% for m in view.markers %}
+        <g class="marker" hx-get="/locations/{{ m.loc }}" hx-target="#loc-panel">
+          <circle cx="{{ m.x }}" cy="{{ m.y }}" r="{{ 5 + [m.devices|length, 12]|min }}" fill="rgba(108,182,255,.25)" stroke="#6cb6ff"><title>{{ m.loc }} · {{ m.devices | length }} device(s){% for k, v in m.stock.items() %} · {{ k }} {{ v }}{% endfor %}</title></circle>
+          {% if m.devices %}<text x="{{ m.x - 3 }}" y="{{ m.y + 4 }}" style="fill:#fff">{{ m.devices | length }}</text>{% endif %}
+          {% for g in m.drones %}{% set bx = m.x + 9 + loop.index0 * 25 %}{% set by = m.y + 9 %}
+          <g class="drone drone-{{ g.state }}">
+            <rect x="{{ bx }}" y="{{ by }}" width="23" height="12" rx="3"/>
+            <text x="{{ bx + 3 }}" y="{{ by + 9.5 }}">{{ g.letter }}{{ g.n }}</text>
+            <title>{{ g.n }} {{ g.kind }} drone(s) at {{ m.loc }}: {{ g.working }} working · {{ g.idle }} idle{% if g.moving %} · {{ g.moving }} moving{% endif %}{% if g.other %} · {{ g.other }} other{% endif %}
+{% for code, st in g.devices %}{{ code }} — {{ st }}
+{% endfor %}</title>
+          </g>{% endfor %}
+        </g>
+      {% endfor %}
+      {% if view.oort %}<text x="{{ view.size - 170 }}" y="20">Oort {{ view.oort.au | round | int }} AU ↗</text>{% endif %}
+      <g class="movers">{% for m in view.movers %}{% set s0 = m.segs[0] %}
+        <g class="mover mover-{{ m.way }}" data-segs='{{ m.segs | tojson }}' data-t0="{{ m.t0 }}" data-t1="{{ m.t1 }}"
+           data-label="{{ m.label }} → {{ m.destination }}">
+          {% for sg in m.segs %}<line class="mover-path" x1="{{ sg[0] }}" y1="{{ sg[1] }}" x2="{{ sg[2] }}" y2="{{ sg[3] }}"/>{% endfor %}
+          <path class="mover-arrow" d="M 9 0 L -6 5.5 L -6 -5.5 Z" transform="translate({{ s0[0] }} {{ s0[1] }})"/>
+          <text class="mover-label" x="{{ s0[0] + 10 }}" y="{{ s0[1] - 8 }}">{{ m.label }} → {{ m.destination }}</text>
+          <title>{{ m.codes | join(', ') }}: {{ m.origin }} → {{ m.destination }}{% if m.way == 'in' %} (arriving from {{ m.other }}){% elif m.way == 'out' %} (leaving for {{ m.other }}){% endif %}</title>
+        </g>{% endfor %}</g>
+    </svg>

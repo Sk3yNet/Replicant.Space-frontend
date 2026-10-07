@@ -1202,6 +1202,19 @@ def build_system_view(star: str, scan: dict, devices: list[dict], inventory: lis
     return shapes
 
 
+async def system_view_model(request: Request, star: str, scan: dict, st: dict, sys_t: dict | None = None,
+                            res: dict | None = None) -> dict:
+    """build_system_view from what's stored (no game calls): the System page and the desktop wallpaper."""
+    db = request.app.state.db
+    sys_t = sys_t if sys_t is not None else await system_targets(db, star)
+    res = res if res is not None else await system_resources(db, star)
+    from . import transit
+    cat = await db.kv_get("stars", {}) or {}
+    star_pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("position")}
+    return build_system_view(star, scan, st["devices"], st["inventory"], sys_t["targets"], res,
+                             transit.trips(st["devices"]), star_pos)
+
+
 @router.get("/systems/{star}", response_class=HTMLResponse)
 async def system_view(request: Request, star: str, refresh: int = 0, user: str = Depends(current_user)):
     star = star.upper()
@@ -1218,11 +1231,7 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     st = await load_state(request)
     sys_t = await system_targets(db, star)
     res = await system_resources(db, star)
-    from . import transit
-    cat = await db.kv_get("stars", {}) or {}
-    star_pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("position")}
-    view = build_system_view(star, scan, st["devices"], st["inventory"], sys_t["targets"], res,
-                             transit.trips(st["devices"]), star_pos)
+    view = await system_view_model(request, star, scan, st, sys_t, res)
     reps = [r for r in st["replicants"].values() if star_of(r.get("location") or r.get("current_location")) == star]
     game_locs = {k: v for k, v in (st["locations"] or {}).items() if star_of(k) == star}
     qty = {x["code"]: x for x in res["sites_shown"] + res["salvage_shown"]}
@@ -1319,6 +1328,11 @@ async def galaxy_map(request: Request, user: str = Depends(current_user)):
 
 @router.get("/api/map.json")
 async def map_data(request: Request, user: str = Depends(current_user)):
+    return JSONResponse(await map_payload(request))
+
+
+async def map_payload(request: Request) -> dict:
+    """The galaxy map's data (the Galaxy page and the desktop wallpaper)."""
     db = request.app.state.db
     cat = await db.kv_get("stars", {}) or {}
     st = await load_state(request)
@@ -1343,8 +1357,8 @@ async def map_data(request: Request, user: str = Depends(current_user)):
     from . import transit
     positions = {x["designation"]: x.get("position") for x in stars if x.get("position")}
     moving = transit.galaxy_movers(transit.trips(st["devices"]), positions)
-    return JSONResponse({"stars": stars, "replicants": reps, "generated_at": cat.get("generated_at"),
-                         "catalogue_updated": await db.kv_updated("stars"), "moving": moving})
+    return {"stars": stars, "replicants": reps, "generated_at": cat.get("generated_at"),
+            "catalogue_updated": await db.kv_updated("stars"), "moving": moving}
 
 
 @router.get("/api/route", response_class=HTMLResponse)
@@ -1832,7 +1846,7 @@ async def account(request: Request, user: str = Depends(current_user)):
     actions = await db.fetchall("SELECT * FROM actions ORDER BY id DESC LIMIT 50")
     sync = {k: await db.kv_get(f"sync:{k}") for k in ("account", "devices", "inventory", "messages", "catalogue")}
     runs = list(reversed(await db.kv_get("server_runs", []) or []))
-    return await page(request, user, "account.html", "account", runs=runs, changes=appver.CHANGES,
+    return await page(request, user, "account.html", "account", runs=runs, changes=appver.CHANGES, **await wallpaper_ctx(request),
                       account=await db.kv_get("account", {}),
                       achievements=await db.kv_get("achievements", {}), actions=actions, sync=sync,
                       hub_listeners=request.app.state.hub.listeners)
@@ -2971,3 +2985,118 @@ async def fleets_print(request: Request, fid: str, user: str = Depends(current_u
                                    {"command": "enqueue_print", "device_type": t, "quantity": k, "tags": [fl.fleet_tag(fid)]}))
     return await start_chain(request, user, f"fleet {f['name']}: print {fl.summarize(short)}", steps[0], steps[1:],
                              facs[0]["device_code"])
+
+
+# =====================================================================================
+# desktop wallpaper (Octos add-on) — see wallpaper.py
+# =====================================================================================
+from . import wallpaper as wp  # noqa: E402
+
+
+def _origin(request: Request) -> str:
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    return f"{proto}://{host}"
+
+
+async def wallpaper_ctx(request: Request) -> dict:
+    return {"wp": wp.normalize(await request.app.state.db.kv_get(wp.KV, {})), "wp_slug": wp.slug(),
+            "wp_base": f"{_origin(request)}/wallpaper/{wp.slug()}/"}
+
+
+@router.post("/wallpaper-settings", response_class=HTMLResponse)
+async def wallpaper_settings(request: Request, action: str = Form(...), label: str = Form(""), key_id: str = Form(""),
+                             user: str = Depends(current_user)):
+    db = request.app.state.db
+    st = wp.normalize(await db.kv_get(wp.KV, {}))
+    new = None
+    if action == "enable":
+        st["enabled"] = True
+    elif action == "disable":
+        st["enabled"] = False
+    elif action == "create":
+        key, rec = wp.new_key(label)
+        st["keys"].append(rec)
+        st["enabled"] = True
+        new = wp.link(_origin(request), key)
+    elif action == "revoke":
+        st["keys"] = [k for k in st["keys"] if k["id"] != key_id]
+    else:
+        return HTMLResponse('<div class="result err">Unknown action.</div>', status_code=400)
+    await db.kv_set(wp.KV, st)
+    await request.app.state.worker.automations.log("wallpaper", f"wallpaper {action} by {user}"
+                                                   + (f" ({label or 'wallpaper'})" if action == "create" else ""))
+    return partial(request, "partials/wallpaper_card.html", **await wallpaper_ctx(request), new_link=new)
+
+
+def _wp_off() -> Response:
+    return PlainTextResponse("Not found", status_code=404)
+
+
+async def _wp_auth(request: Request, slug: str) -> tuple[dict | None, Response | None]:
+    """The wallpaper key record for this request, or the response to send instead (404 while off, 401 bad key)."""
+    if not wp.slug_ok(slug):
+        return None, _wp_off()
+    db = request.app.state.db
+    st = wp.normalize(await db.kv_get(wp.KV, {}))
+    if not st["enabled"]:
+        return None, _wp_off()
+    rec = wp.check(st, request.headers.get(wp.HEADER))
+    if not rec:
+        return None, JSONResponse({"error": "wallpaper key missing or revoked"}, status_code=401)
+    last = parse_ts(rec.get("last_used"))
+    if not last or (datetime.now(timezone.utc) - last).total_seconds() > 600:   # note use, at most every 10 min
+        rec["last_used"] = wp._now()
+        await db.kv_set(wp.KV, st)
+    return rec, None
+
+
+@router.get("/wallpaper/{slug}/", response_class=HTMLResponse)
+async def wallpaper_page(request: Request, slug: str):
+    """The wallpaper page itself: no data in it (that needs the key), so it's served to anyone while enabled."""
+    if not wp.slug_ok(slug) or not wp.normalize(await request.app.state.db.kv_get(wp.KV, {}))["enabled"]:
+        return _wp_off()
+    return templates.TemplateResponse(request, "wallpaper.html", {"request": request, "base": f"/wallpaper/{slug}"})
+
+
+@router.get("/wallpaper/{slug}/static/{path:path}")
+async def wallpaper_static(request: Request, slug: str, path: str):
+    if not wp.slug_ok(slug) or path not in wp.STATIC:
+        return _wp_off()
+    from fastapi.responses import FileResponse
+    return FileResponse(HERE / "static" / path, headers={"Cache-Control": "public, max-age=3600"})
+
+
+@router.get("/wallpaper/{slug}/api/map.json")
+async def wallpaper_map(request: Request, slug: str):
+    _, bad = await _wp_auth(request, slug)
+    return bad or JSONResponse(await map_payload(request))
+
+
+@router.get("/wallpaper/{slug}/api/systems.json")
+async def wallpaper_systems(request: Request, slug: str):
+    """Systems to cycle through: where your devices or replicants are, busiest first, scanned ones only."""
+    _, bad = await _wp_auth(request, slug)
+    if bad:
+        return bad
+    st = await load_state(request)
+    count = Counter(star_of(d.get("location")) for d in st["devices"] if d.get("location"))
+    for r in st["replicants"].values():
+        count[star_of(r.get("location") or r.get("current_location"))] += 0
+    scanned = {r["star"] for r in await request.app.state.db.fetchall("SELECT star FROM systems")}
+    systems = [{"star": s, "devices": n} for s, n in sorted(count.items(), key=lambda kv: (-kv[1], kv[0])) if s and s in scanned]
+    return JSONResponse({"systems": systems})
+
+
+@router.get("/wallpaper/{slug}/api/system/{star}", response_class=HTMLResponse)
+async def wallpaper_system(request: Request, slug: str, star: str):
+    _, bad = await _wp_auth(request, slug)
+    if bad:
+        return bad
+    star = star.upper()
+    row = await request.app.state.db.fetchone("SELECT data FROM systems WHERE star=?", (star,))
+    if not row:
+        return HTMLResponse(f'<p class="wp-note">No scan of {html.escape(star)} stored yet.</p>', status_code=404)
+    scan = json.loads(row["data"])
+    view = await system_view_model(request, star, scan, await load_state(request))
+    return partial(request, "partials/system_svg.html", star=star, scan=scan, view=view)

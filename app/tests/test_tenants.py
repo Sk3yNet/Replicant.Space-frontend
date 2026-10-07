@@ -192,3 +192,17 @@ def test_owner_defaults_to_first_allowed_email(monkeypatch):
     monkeypatch.setenv("ALLOWED_EMAILS", "Me@Example.com, friend@example.com")
     ts = TenantSettings()
     assert ts.owner_email == "me@example.com" and ts.allowed("friend@example.com")
+
+
+def test_wallpaper_route_finds_the_users_server_by_slug(mgr):
+    """/wallpaper/<slug>/ has no Google sign-in: nginx asks the manager which port serves that slug."""
+    reg, sup = mgr.app.state.reg, mgr.app.state.sup
+    WS = lambda s: {"X-Wallpaper-Slug": s}  # noqa: E731
+    assert mgr.get("/_tenant/wallpaper-route").status_code == 403
+    assert mgr.get("/_tenant/wallpaper-route", headers=WS(slug_for(ANN))).status_code == 403     # no server yet
+    mgr.post("/_tenant/key", data={"token": GOOD}, headers=H(ANN), follow_redirects=False)
+    t = reg.tenants[ANN]
+    r = mgr.get("/_tenant/wallpaper-route", headers=WS(t["slug"]))
+    assert r.status_code == 200 and r.headers["x-tenant-port"] == str(t["port"])
+    assert mgr.get("/_tenant/wallpaper-route", headers=WS("someone-else-000000")).status_code == 403
+    assert sup.env_for(ANN)["WALLPAPER_SLUG"] == t["slug"]

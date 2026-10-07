@@ -34,6 +34,7 @@
     {% else %}<tr><td class="muted" colspan="5">No commands yet.</td></tr>{% endfor %}
   </table>
 </div>
+{% include "partials/wallpaper_card.html" %}
 <div class="card" style="margin-top:14px" id="server">
   <h2>Server <span class="muted small">{{ app_version }} · this run {{ RUN_ID }}</span></h2>
   <table class="small">

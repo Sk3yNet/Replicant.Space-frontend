@@ -1,0 +1,30 @@
+<div class="card" id="wallpaper-card">
+  <h2>Desktop wallpaper <span class="muted small">Octos add-on · {{ 'on' if wp.enabled else 'off' }}</span></h2>
+  <p class="small muted">Shows your galaxy or system maps as a live Windows wallpaper with
+    <a href="https://github.com/underpig1/octos" target="_blank" rel="noopener">Octos</a> and the
+    <a href="https://github.com/sk3ynet/replicant-space-octos" target="_blank" rel="noopener">Replicant Space wallpaper</a>.
+    A wallpaper can't sign in with Google, so it uses a <b>wallpaper link</b> with a key in it. The key only opens the map
+    data, read-only: no commands, no settings. It's stored here as a hash and can be revoked at any time.</p>
+  {% if new_link %}
+  <div class="result ok">
+    <p class="small" style="margin:0 0 6px"><b>Your wallpaper link</b>, shown only this once. Paste it into the wallpaper's
+      <i>Wallpaper link</i> setting in Octos.</p>
+    <input id="wp-new-link" class="mono" style="width:100%" readonly value="{{ new_link }}" onclick="this.select()">
+  </div>{% endif %}
+  <form class="row small" hx-post="/wallpaper-settings" hx-target="#wallpaper-card" hx-swap="outerHTML" style="gap:8px;margin-top:6px">
+    <input id="wp-label" name="label" placeholder="label, e.g. office PC" size="18">
+    <button name="action" value="create">Create wallpaper link</button>
+    {% if wp.enabled %}<button class="ghost" name="action" value="disable" title="Every wallpaper link stops working until you turn it back on">Turn off</button>
+    {% elif wp['keys'] %}<button class="ghost" name="action" value="enable">Turn on</button>{% endif %}
+  </form>
+  {% if wp['keys'] %}
+  <table class="small" style="margin-top:8px">
+    <tr><th>Link</th><th>Created</th><th>Last used</th><th></th></tr>
+    {% for k in wp['keys'] %}<tr><td>{{ k.label }}</td><td>{{ k.created_at | ago }}</td><td>{{ (k.last_used | ago) if k.last_used else 'never' }}</td>
+      <td><button class="small ghost" hx-post="/wallpaper-settings" hx-vals='{"action": "revoke", "key_id": "{{ k.id }}"}'
+          hx-target="#wallpaper-card" hx-swap="outerHTML" hx-confirm="Revoke the wallpaper link “{{ k.label }}”? That wallpaper stops updating.">Revoke</button></td></tr>{% endfor %}
+  </table>{% endif %}
+  <p class="small muted" style="margin-top:6px">Wallpaper address: <span class="mono">{{ wp_base }}</span>
+    (views: <span class="mono">?view=galaxy</span>, <span class="mono">?view=system&amp;star=FALQUORYX</span>,
+    <span class="mono">?view=cycle</span>; the Octos add-on sets these for you).</p>
+</div>

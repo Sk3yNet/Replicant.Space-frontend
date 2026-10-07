@@ -230,7 +230,8 @@ class Supervisor:
         t = self.reg.tenants[email]
         env = {k: v for k, v in os.environ.items() if k not in _PRIVATE_ENV}
         env.update(DB_PATH=self.reg.db_path(email), ALLOWED_EMAILS=email, TENANT_MODE="1",
-                   TZ=t.get("tz") or self.ts.default_tz, RS_API_BASE=self.ts.api_base)
+                   TZ=t.get("tz") or self.ts.default_tz, RS_API_BASE=self.ts.api_base,
+                   WALLPAPER_SLUG=t["slug"])   # its desktop-wallpaper address: /wallpaper/<slug>/ (wallpaper.py)
         if email == self.ts.owner_email:
             env["TZ"] = self.ts.default_tz
         if self.reg.stack_key(email):
@@ -424,6 +425,20 @@ def create_manager(ts: TenantSettings | None = None, supervisor_factory: Callabl
         st = request.app.state.sup.status(email)
         if st["state"] != "running":
             return Response(status_code=403, headers={"X-Tenant-State": st["state"]})
+        return Response(status_code=200, headers={"X-Tenant-Port": str(st["port"])})
+
+    @app.get("/_tenant/wallpaper-route")
+    async def wallpaper_route(request: Request):
+        """nginx auth_request for /wallpaper/<slug>/: the port of that user's running server, else 403 (→ 404). No
+        sign-in here: the user's own server checks the wallpaper key (wallpaper.py)."""
+        slug = (request.headers.get("x-wallpaper-slug") or "").strip().lower()
+        reg: Registry = request.app.state.reg
+        email = next((e for e, t in reg.tenants.items() if t.get("slug") == slug), None) if slug else None
+        if not email or not reg.has_token(email):
+            return Response(status_code=403)
+        st = request.app.state.sup.status(email)
+        if st["state"] != "running":
+            return Response(status_code=403)
         return Response(status_code=200, headers={"X-Tenant-Port": str(st["port"])})
 
     @app.get("/_tenant/", response_class=HTMLResponse)
