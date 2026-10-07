@@ -41,15 +41,39 @@
     {% else %}<p class="muted">None yet.</p>{% endfor %}
   </div>
   <div class="card">
-    <h2>Log</h2>
-    <ul class="feed">{% for e in entries %}
+    <div class="row between"><h2>Log</h2>
+      <div class="row small" id="log-toggles">
+        <label class="lv-alert"><input type="checkbox" data-sev="error" checked> errors ({{ sev_counts.error or 0 }})</label>
+        <label style="color:var(--warn)"><input type="checkbox" data-sev="warning" checked> warnings ({{ sev_counts.warning or 0 }})</label>
+        <label class="muted"><input type="checkbox" data-sev="info" checked> info ({{ sev_counts.info or 0 }})</label>
+      </div></div>
+    <ul class="feed" id="log-feed">{% for e in entries %}
       {% set age = entry_age(e, []) %}
-      <li class="{{ 'log-old' if age != 'current' }}{{ ' log-start' if e.rule == 'engine' and e.text.startswith('server started') }}"
+      <li data-sev="{{ e.sev }}" class="{{ 'log-old' if age != 'current' }}{{ ' log-start' if e.rule == 'engine' and e.text.startswith('server started') }}"
           {% if age != 'current' %}style="opacity:.6"{% endif %}>
-        <span class="t">{{ e.at | local('%m-%d %H:%M') }}</span><span class="{{ 'lv-alert' if e.level == 'alert' else '' }}"><span class="muted small">{{ e.rule }}</span>
+        <span class="t">{{ e.at | local('%m-%d %H:%M') }}</span><span class="{{ 'lv-alert' if e.sev == 'error' else '' }}"{% if e.sev == 'warning' %} style="color:var(--warn)"{% endif %}><span class="muted small">{{ e.rule }}</span>
         {% if e.rule == 'engine' and e.text.startswith('server started') %}<b>{{ e.text }}</b>{% else %}{{ e.text }}{% endif %}
         {% if age != 'current' %}<span class="pill small" title="run {{ e.run or '—' }}">{{ 'v' ~ e.v if e.v else '' }} {{ age }}</span>{% endif %}</span></li>
     {% else %}<li class="muted">Nothing logged yet.</li>{% endfor %}</ul>
+    <p class="small muted" id="log-none" hidden>Nothing of the kinds ticked above.</p>
   </div>
+  <script>
+  (() => {   // show / hide log entries by kind; the choice is remembered in this browser
+    const boxes = [...document.querySelectorAll("#log-toggles input")];
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem("log-sev") || "{}"); } catch (e) {}
+    boxes.forEach(b => { if (b.dataset.sev in saved) b.checked = !!saved[b.dataset.sev]; });
+    const apply = () => {
+      const on = Object.fromEntries(boxes.map(b => [b.dataset.sev, b.checked]));
+      let shown = 0;
+      document.querySelectorAll("#log-feed li[data-sev]").forEach(li => {
+        const vis = on[li.dataset.sev] !== false; li.style.display = vis ? "" : "none"; shown += vis; });
+      document.getElementById("log-none").hidden = shown > 0 || !document.querySelector("#log-feed li[data-sev]");
+      try { localStorage.setItem("log-sev", JSON.stringify(on)); } catch (e) {}
+    };
+    boxes.forEach(b => b.addEventListener("change", apply));
+    apply();
+  })();
+  </script>
 </div>
 {% endblock %}

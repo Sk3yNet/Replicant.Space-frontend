@@ -4744,3 +4744,19 @@ def test_miners_in_a_system_without_a_belt_go_to_salvage(client):
     client.portal.call(eng.rule_salvage)
     jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "salvage_when_depleted"]
     assert any(j["device"] == "MC91FF22" and "salvage" in j["title"] for j in jobs)
+
+
+def test_automation_log_kinds_and_toggles(client):
+    from rsweb.automations import severity
+    assert severity({"level": "alert", "text": "stopped: loadouts: x — y failed: out of range"}) == "error"
+    assert severity({"level": "alert", "text": "scan of SOL failed: busy"}) == "error"
+    assert severity({"level": "alert", "text": "fleet: 1 change(s): skipped 'A joins b' (Tag appears in both)"}) == "warning"
+    assert severity({"level": "alert", "text": "Miner 1: warning: no relay of yours in X"}) == "warning"
+    assert severity({"level": "info", "text": "finished: loadouts: X"}) == "info"
+    eng = client.app.state.worker.automations
+    client.portal.call(eng.log, "loadouts", "stopped: a — b failed: c", "alert")
+    client.portal.call(eng.log, "fleets", "skipped 'x' (y)", "alert")
+    client.portal.call(eng.log, "fleets", "finished: z")
+    page = client.get("/automations", headers=H).text
+    assert 'id="log-toggles"' in page and 'data-sev="error"' in page and 'data-sev="warning"' in page and 'data-sev="info"' in page
+    assert "errors (1)" in page and "warnings (1)" in page

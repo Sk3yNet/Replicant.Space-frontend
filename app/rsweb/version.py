@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.32.0"
+VERSION = "1.33.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.33.0", "2026-10-07", "Automations log: errors / warnings / info toggles with counts (remembered in this browser), "
+     "and the whole log (last 300 entries) instead of the last 60. Errors are entries where something stopped or failed; "
+     "other alerts (skipped steps, warnings) are warnings."),
     ("1.32.0", "2026-10-07", "Mining controllers parked away from a belt (e.g. left at a Lagrange point after a delivery, "
      "'gated:cold_repair', logging ami_overheat) go to their system's belt, taking their drones and the system's idle "
      "unassigned mining drones, which they adopt, then re-set the directive and launch. In a scanned system with no belt, "

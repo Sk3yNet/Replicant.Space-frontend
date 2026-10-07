@@ -207,6 +207,20 @@ SHORT_TIMEOUT = 120          # waiting for deploy/stow confirmation
 MAX_LOG = 300
 
 
+def severity(entry: dict) -> str:
+    """error / warning / info for the Automations log toggles. Entries are logged as info or alert; an alert is an
+    error when something stopped or failed, otherwise a warning (skipped steps, warnings, nothing to do)."""
+    level = str(entry.get("level") or "info")
+    if level in ("error", "warning"):
+        return level
+    if level != "alert":
+        return "info"
+    t = str(entry.get("text") or "").lower()
+    if t.startswith("stopped:") or " failed" in t or t.startswith("failed"):
+        return "error"
+    return "warning"
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 

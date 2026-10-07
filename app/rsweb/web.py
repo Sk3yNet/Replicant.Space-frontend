@@ -2123,9 +2123,10 @@ async def automations_page(request: Request, user: str = Depends(current_user)):
     jobs = await eng.jobs()
     active = [j for j in jobs if j["status"] in ("running", "waiting")]
     finished = [j for j in reversed(jobs) if j["status"] not in ("running", "waiting")][:15]
-    entries = list(reversed(await request.app.state.db.kv_get("automation_log", []) or []))[:60]
+    entries = [{**e, "sev": auto.severity(e)} for e in reversed(await request.app.state.db.kv_get("automation_log", []) or [])]
+    sev_counts = Counter(e["sev"] for e in entries)
     return await page(request, user, "automations.html", "automations", rules=auto.RULES, s=await eng.settings(),
-                      rule_home=RULE_HOME, active_jobs=active, finished=finished, entries=entries)
+                      rule_home=RULE_HOME, active_jobs=active, finished=finished, entries=entries, sev_counts=sev_counts)
 
 
 def _schedule_rep(devices: list[dict], target: str) -> dict | None:
