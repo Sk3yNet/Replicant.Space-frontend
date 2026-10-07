@@ -822,7 +822,8 @@ class AutomationEngine(OpsRules):
                     await self._advance(job["id"])
             for stage in ("run_fleets", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rule_restart_idle_miners",
-                          "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass"):
+                          "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
+                          "decommission_queue_pass"):
                 self.stage = stage
                 out = await getattr(self, stage)()
                 if stage == "civ_beacon_pass":
@@ -830,6 +831,35 @@ class AutomationEngine(OpsRules):
                         await self.log("civ_beacons", line)
             self.stage = None
             await self.note_tick()
+
+    async def decommission_queue_pass(self) -> list[str]:
+        """Devices asked to be decommissioned at an autofactory (decommission.py): once one is idle at its
+        autofactory, decommission it there (the autofactory learns its blueprint)."""
+        from . import decommission as dc
+        q = await self.db.kv_get(dc.KV, {}) or {}
+        if not q:
+            return []
+        devices = await self.devices()
+        by = {d.get("device_code"): d for d in devices}
+        busy = self.busy_devices(await self.jobs())
+        out = []
+        for code, e in list(q.items()):
+            d = by.get(code)
+            if not d:
+                q.pop(code)   # gone from the list: decommissioned (or given away)
+                continue
+            if code in busy or not dc.ready(d, e):
+                continue
+            st = step(f"{code}: decommission at autofactory {e['factory']}", f"/devices/{code}", {"command": "decommission"},
+                      wait=["device.decommissioned"], timeout=3600, critical=True)
+            st["wait_device"] = code
+            job = await self.create_job("decommission", f"{code} ({d.get('device_type')}): decommission at autofactory "
+                                        f"{e['factory']} ({e['at']})", code, [st], {"devices": [code]})
+            if job:
+                e["sent_at"] = now_iso()
+                out.append(f"{code} → decommission at {e['at']}")
+        await self.db.kv_set(dc.KV, q)
+        return out
 
     # --- loadouts --------------------------------------------------------------------------------------
     async def loadout_cfg(self) -> dict:

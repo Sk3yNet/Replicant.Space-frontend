@@ -457,8 +457,15 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
     from . import fleets as _fl
     trip = _fl.in_flight(dev) if dev else None
     host_rep = next((c for c, r in st["replicants"].items() if r.get("hosted_device_code") == code), None)
+    from . import decommission as _dc
+    dq = (await request.app.state.db.kv_get(_dc.KV, {}) or {}).get(code)
+    cat = await request.app.state.db.kv_get("stars", {}) or {}
+    dfac = [] if dq or "decommission" not in (dev.get("available_commands") or []) or "autofactory" in (dev.get("device_type") or "") \
+        else _dc.factories(st["devices"], {s.get("designation"): s for s in cat.get("stars") or [] if isinstance(s, dict)},
+                           dev.get("location") or (next((x for x in st["devices"] if x.get("device_code") in
+                                                         (dev.get("stowed_in_device_code"), dev.get("attached_to_device_code"))), {})).get("location"))
     return await page(request, user, "device.html", "fleet", carrier=carrier, pq=pq, dev=dev, code=code, err=err, logs=logs, events=events,
-                      trip=trip, host_rep=host_rep,
+                      trip=trip, host_rep=host_rep, decom_queued=dq, decom_factories=dfac,
                       same_loc=same_loc, commands=order_commands(dev.get("available_commands") or []),
                       dangerous=DANGEROUS)
 
@@ -1970,6 +1977,41 @@ async def diagnostics_snapshot(request: Request, user: str = Depends(current_use
     await db.kv_set("snapshot_status", {"state": "running", "done": 0, "total": 60, "at": now_iso()})
     request.app.state.snapshot_task = asyncio.create_task(_snapshot_run(request.app, stars))
     return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/devices/{code}/decommission-at", response_class=HTMLResponse)
+async def device_decommission_at(request: Request, code: str, factory: str = Form(""), cancel: str = Form(""),
+                                 user: str = Depends(current_user)):
+    """Take the device to an autofactory and decommission it there (decommission.py), or cancel that."""
+    from . import decommission as dc
+    db = request.app.state.db
+    q = await db.kv_get(dc.KV, {}) or {}
+    st = await load_state(request)
+    dev = next((d for d in st["devices"] if d.get("device_code") == code), None)
+    if not dev:
+        return HTMLResponse('<div class="result err">Unknown device.</div>')
+    if cancel:
+        e = q.pop(code, None)
+        await db.kv_set(dc.KV, q)
+        if e:   # take the pins off again; it stays fleetless (spare) where it is
+            body = {"configuration": {"remove_tags": [t for t in dev.get("tags") or [] if t.startswith(("to:", "at:"))],
+                                      "add_tags": ["spare"]}}
+            await call_action(request, user, "PATCH", f"/devices/{code}", body, f"{code}: decommission cancelled")
+        return HTMLResponse('<div class="result ok">Cancelled — the device stays where it is, as a spare.</div>',
+                            headers={"HX-Refresh": "true"})
+    fac = next((f for f in dc.factories(st["devices"], {}, None) if f["code"] == factory), None)
+    if not fac:
+        return HTMLResponse('<div class="result err">Pick one of your autofactories.</div>')
+    body = {"configuration": dc.retag(dev, fac, lo.to_tag, lo.at_tag)}
+    out = await call_action(request, user, "PATCH", f"/devices/{code}", body, f"{code}: to autofactory {factory} to be decommissioned")
+    if not out.get("ok"):
+        return HTMLResponse(f'<div class="result err">Could not tag it: {html.escape(str(out.get("error")))}</div>')
+    q[code] = {"factory": factory, "at": fac["location"], "asked_at": now_iso()}
+    await db.kv_set(dc.KV, q)
+    await request.app.state.worker.automations.log("decommission", f"{code} ({dev.get('device_type')}) queued to be "
+                                                   f"decommissioned at autofactory {factory} ({fac['location']})")
+    return HTMLResponse(f'<div class="result ok">Queued: it goes to {html.escape(fac["location"])} (the loadout pass carries it) '
+                        'and is decommissioned there.</div>', headers={"HX-Refresh": "true"})
 
 
 @router.post("/devices/{code}/cancel-travel", response_class=HTMLResponse)

@@ -5039,3 +5039,42 @@ def test_notification_kinds_and_error_only_badge(client):
     page = client.get("/notifications", headers=H).text
     assert 'id="notif-toggles"' in page and "errors (1)" in page and "warnings (1)" in page
     assert 'data-n="1"' in client.get("/", headers=H).text                                    # badge: errors only
+
+
+def test_decommission_at_an_autofactory(client):
+    from rsweb import decommission as dc
+    from rsweb import loadouts as lo
+    devs = [{"device_code": "AF1", "device_type": "autofactory", "location": "FAL-1-L4", "status": "idle"},
+            {"device_code": "AF2", "device_type": "autofactory", "location": "KEL-2-L4", "status": "idle"},
+            {"device_code": "W", "device_type": "system_ward", "location": "KEL-OORT", "status": "idle",
+             "tags": ["fleet:k", "home:kel"]}]
+    stars = {"FAL": {"position": {"x": 0, "y": 0, "z": 0}}, "KEL": {"position": {"x": 5, "y": 0, "z": 0}}}
+    f = dc.factories(devs, stars, "KEL-OORT")
+    assert [x["code"] for x in f] == ["AF2", "AF1"]                                 # same system first
+    t = dc.retag(devs[2], f[1], lo.to_tag, lo.at_tag)
+    assert t == {"add_tags": ["at:fal-1-l4", "to:fal"], "remove_tags": ["fleet:k", "home:kel"]}
+    assert dc.retag(devs[2], f[0], lo.to_tag, lo.at_tag)["add_tags"] == ["at:kel-2-l4"]   # already in the system
+    e = {"factory": "AF1", "at": "FAL-1-L4"}
+    assert dc.ready({"location": "FAL-1-L4", "status": "idle"}, e)
+    assert not dc.ready({"location": "FAL-1-L4", "status": "unfurling"}, e) and not dc.ready({"location": "KEL-OORT"}, e)
+    # end to end: queue it on the device page, then the pass decommissions it once it's there
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_devices)
+    victim = next(d for d in world.devices if "decommission" in d["available_commands"] and "autofactory" not in d["device_type"])
+    factory = next(d for d in world.devices if d["device_type"] == "autofactory")
+    page = client.get(f"/devices/{victim['device_code']}", headers=H).text
+    assert "Decommission at an autofactory" in page
+    r = client.post(f"/devices/{victim['device_code']}/decommission-at", data={"factory": factory["device_code"]}, headers=HX)
+    assert "Queued" in r.text
+    q = client.portal.call(client.app.state.db.kv_get, dc.KV)
+    assert q[victim["device_code"]]["at"] == factory["location"]
+    devices = client.portal.call(client.app.state.db.kv_get, "devices")
+    for d in devices:
+        if d["device_code"] == victim["device_code"]:
+            d.update({"location": factory["location"], "status": "idle", "stowed_in_device_code": None})
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    eng = client.app.state.worker.automations
+    assert client.portal.call(eng.decommission_queue_pass) == [f"{victim['device_code']} → decommission at {factory['location']}"]
+    job = next(j for j in client.portal.call(eng.jobs) if j["rule"] == "decommission")
+    assert job["steps"][0]["body"] == {"command": "decommission"}
+    assert client.portal.call(eng.decommission_queue_pass) == []                    # not twice

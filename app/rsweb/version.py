@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.37.0"
+VERSION = "1.38.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.38.0", "2026-10-07", "Decommission at an autofactory (device page): pick an autofactory (nearest first) and the "
+     "device leaves its fleet, is carried there by the loadout pass (compacted first if large, a ward stops warding before "
+     "it moves) and is decommissioned on arrival, so the autofactory learns its blueprint. Cancel keeps it where it is."),
     ("1.37.0", "2026-10-07", "Notifications are errors, warnings or info, like the Automations log, with toggles and counts "
      "on the Notifications page; the bell's badge counts unread errors only. Site and salvage depletions no longer raise "
      "notifications (they're expected; the event feed and digest still have them)."),
