@@ -931,6 +931,7 @@ class AutomationEngine(OpsRules):
         if tags:
             started += bool(await self.create_job("loadouts", f"loadouts: spare tags ({len(tags)})", None, tags,
                                                   {"devices": []}, force=manual))
+        started += await self.start_compactions(p, force=manual)
         orders = await self.db.kv_get("loadout_orders", []) or []
         for pr in p["prints"]:
             job = await self.create_job("loadouts", f"loadouts: print {pr['n']}× {pr['device_type']} for {pr['star']}",
@@ -1011,6 +1012,23 @@ class AutomationEngine(OpsRules):
             await self.db.kv_set("loadout_woken", done)
         return started
 
+    async def start_compactions(self, p: dict, force: bool = False) -> int:
+        """Large devices the loadout plan moves to another system are compacted first, on their own (hours), so no
+        carrier waits for it; the plan assigns the carrier once they report compacted."""
+        from .modular import compact_seconds, compact_step
+        from .shapes import normalize_blueprints
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        n = 0
+        for code, dest in p.get("compact") or []:
+            d = p["by_code"].get(code) or {}
+            hours = compact_seconds(d, bps) / 3600
+            job = await self.create_job("loadouts", f"loadouts: compact {code} ({d.get('device_type')}) for the trip to {dest} "
+                                                    f"(≈{hours:.1f} h)", code,
+                                        [compact_step(code, bps, d, f"for the trip to {dest}")], {"devices": [code]},
+                                        force=force)
+            n += bool(job)
+        return n
+
     async def dispatch_new_prints(self, max_wait_minutes: int = 15) -> list[str]:
         """Prints that just came out bound for another system: refresh the device list until they show up, then start
         only the deliveries (carrier or own surge) that involve them — the rest waits for the regular pass."""
@@ -1044,6 +1062,8 @@ class AutomationEngine(OpsRules):
         p = await self.loadout_plan()
         radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         started: list[str] = []
+        if await self.start_compactions({**p, "compact": [x for x in p.get("compact") or [] if x[0] in ready]}):
+            started.append("compacting " + ", ".join(c for c, _ in p.get("compact") or [] if c in ready))
         for code, dest in p["self_moves"]:
             if code in ready:
                 if await self.create_job("loadouts", f"loadouts: {code} → {dest} (just printed)", code,

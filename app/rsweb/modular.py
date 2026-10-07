@@ -20,6 +20,9 @@ from __future__ import annotations
 from .automations import STEP_TIMEOUT, step
 
 
+MODULAR_TYPES = ("autofactory", "galactic_observatory", "system_hub")   # live 2026-10-07 + the docs (system hub)
+
+
 def is_modular(d: dict) -> bool:
     return "modular" in (d.get("features") or []) or "compact" in (d.get("available_commands") or [])
 
@@ -46,10 +49,16 @@ def _subject(st: dict) -> tuple[str | None, str | None]:
     return None, None
 
 
-def compact_step(code: str, bps: dict[str, dict], d: dict) -> dict:
+def compact_seconds(d: dict, bps: dict[str, dict]) -> float:
+    """Expected compaction time: 30 % of the print time (the step waits that + 30 min, at least 4 h when unknown; the
+    game's own completes_at, when the reply carries one, extends it)."""
     t = float((bps.get(d.get("device_type") or "") or {}).get("print_time") or 0)
-    st = step(f"{code}: compact before moving", f"/devices/{code}", {"command": "compact"}, wait=["device.compacted"],
-              timeout=int(max(STEP_TIMEOUT, t * 0.3 + 1800)), critical=True)
+    return t * 0.3 if t else 4 * 3600
+
+
+def compact_step(code: str, bps: dict[str, dict], d: dict, why: str = "before moving") -> dict:
+    st = step(f"{code}: compact {why}", f"/devices/{code}", {"command": "compact"}, wait=["device.compacted"],
+              timeout=int(max(STEP_TIMEOUT, compact_seconds(d, bps) + 1800)), critical=True)
     st["wait_device"] = code
     return st
 

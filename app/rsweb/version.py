@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.25.3"
+VERSION = "1.25.4"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.25.4", "2026-10-07", "Large devices start compacting as soon as a move is planned, in a job of their own; the carrier is "
+     "only assigned once they report compacted (no carrier idling for 2+ h). The compact step waits 30 % of the print time "
+     "+ 30 min (4 h when unknown). Loadout prints of large devices bound for another system are queued flat-packed."),
     ("1.25.3", "2026-10-07", "Fleet moves: a stationed fleet's carrier away from home is only sent home when no delivery needs "
      "it (Miner 1's carrier kept being sent home instead of fetching its 31 devices); the biggest batches get carriers "
      "first; a carrier delivering to its own fleet's home stays there; devices tagged for a fleet's old home are "

@@ -705,9 +705,21 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             return f"it is {st} (moving it would close the site)"
         return "a running job is using it (see Automations)"
 
+    from .modular import compacted as _compacted, is_modular
+    compact: list[tuple[str, str]] = []   # large devices to compact now, before any carrier is assigned
     for code, dest in moves.items():
         d = by_code.get(code)
         if not d:
+            continue
+        if (code not in busy and star_of(d.get("location")) not in ("", dest) and is_modular(d)
+                and not str(d.get("status") or "").startswith("compacted")):
+            # Compacting takes hours (≈30 % of the print time; an observatory well over 2 h). It starts as soon as the
+            # move is planned, on its own; a carrier is only assigned once the device reports compacted.
+            if not _compacted(d):
+                compact.append((code, dest))
+            unmet.append({"star": dest, "type": d.get("device_type") or "device", "n": 1,
+                          "why": f"{code} is {'compacting' if _compacted(d) else 'being compacted'} for the trip — "
+                                 "a carrier is sent once it's done"})
             continue
         if code in busy:
             if star_of(d.get("location")) != dest:
@@ -832,7 +844,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         return {"returning": [], "releases": {}, "report": report, "tag_add": {}, "tag_remove": {}, "moves": {}, "prints": [],
                 "self_moves": [], "deliveries": [], "arrived": [], "unmet": unmet, "by_code": by_code, "stale": len(stale),
                 "assign": {}}
-    return {"pins": pins, "places": places, "misplaced": misplaced, "returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
+    return {"compact": compact, "pins": pins, "places": places, "misplaced": misplaced, "returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
             "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
             "by_code": by_code, "managed": managed_map, "made_spare": sorted(made_spare), "gathering": sorted(gathering),
@@ -904,9 +916,13 @@ def tag_steps(p: dict) -> list[dict]:
 
 
 def print_steps(pr: dict) -> list[dict]:
-    return [step(f"print {pr['n']}× {pr['device_type']} on {pr['factory']} for {pr['star']}", f"/devices/{pr['factory']}",
-                 {"command": "enqueue_print", "device_type": pr["device_type"], "quantity": pr["n"],
-                  "tags": [to_tag(pr["star"])] + ([fl.fleet_tag(pr["fleet"])] if pr.get("fleet") else [])})]
+    from .modular import MODULAR_TYPES
+    body = {"command": "enqueue_print", "device_type": pr["device_type"], "quantity": pr["n"],
+            "tags": [to_tag(pr["star"])] + ([fl.fleet_tag(pr["fleet"])] if pr.get("fleet") else [])}
+    if pr["device_type"] in MODULAR_TYPES and pr.get("factory_star") and pr["factory_star"] != pr["star"]:
+        body["flatpack"] = True   # bound for another system: printed compacted, so it needn't fold up (hours) to travel
+    return [step(f"print {pr['n']}× {pr['device_type']} on {pr['factory']} for {pr['star']}"
+                 + (" (flat-packed)" if body.get("flatpack") else ""), f"/devices/{pr['factory']}", body)]
 
 
 def release_step(d: dict) -> list[dict]:

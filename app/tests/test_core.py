@@ -4307,3 +4307,38 @@ def test_fleet_carrier_fetches_before_going_home_and_old_home_tags_follow_the_fl
     # nothing to carry: the carrier goes home on its own
     p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices[:1], [], {}, stars, {}, set(), [], {})
     assert p["self_moves"] == [("MF", "LAR")] and p["returning"] == ["MF"]
+
+
+def test_large_devices_compact_on_their_own_before_a_carrier_comes(client):
+    """Observatories take over 2 h to compact: that starts as soon as the move is planned, without a carrier waiting."""
+    from rsweb import loadouts as lo
+    obs = {"device_code": "OBS", "device_type": "galactic_observatory", "location": "FAL-1-L4", "status": "idle",
+           "features": ["cruise", "modular"], "available_commands": ["compact", "unfurl", "travel"], "tags": ["fleet:m1"]}
+    mf = {"device_code": "MF", "device_type": "mobile_fleet", "location": "FAL-1-L4", "status": "idle",
+          "features": ["surge", "attach"], "attach_capacity": 36, "tags": ["fleet:m1"]}
+    stars = {s: {"position": {"x": i, "y": 0, "z": 0}, "entry_point": f"{s}-1-L4"} for i, s in enumerate(("FAL", "LAR"))}
+    fleets = [{"id": "m1", "name": "Miner 1", "home": "LAR", "station": True, "wants": {}}]
+    cfg = {"phases": [], "fleets": fleets, "fleets_migrated": True}
+    p = lo.plan(cfg, [obs, mf], [], {}, stars, {}, set(), [], {})
+    assert p["compact"] == [("OBS", "LAR")] and not p["deliveries"]
+    assert any("OBS is being compacted" in u["why"] for u in p["unmet"])
+    obs["status"] = "compacting"                                                   # under way: no second job, no carrier
+    p = lo.plan(cfg, [obs, mf], [], {}, stars, {}, set(), [], {})
+    assert p["compact"] == [] and not p["deliveries"]
+    obs["status"] = "compacted"                                                    # done: now the carrier comes
+    p = lo.plan(cfg, [obs, mf], [], {}, stars, {}, set(), [], {})
+    assert [(dl["carrier"], dl["devices"]) for dl in p["deliveries"]] == [("MF", ["OBS"])]
+    # the engine's compaction job: one compact step, waiting long enough for an observatory (≈30 % of 8 h + 30 min)
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.db.kv_set, "blueprints", [{"device_type": "galactic_observatory", "print_time": 28800}])
+    obs["status"] = "idle"
+    assert client.portal.call(eng.start_compactions, {"compact": [("OBS", "LAR")], "by_code": {"OBS": obs}}) == 1
+    job = next(j for j in client.portal.call(eng.jobs) if "compact OBS" in j["title"])
+    assert [s["body"] for s in job["steps"]] == [{"command": "compact"}] and job["steps"][0]["timeout"] >= 28800 * 0.3 + 1800
+    assert "≈2.4 h" in job["title"]
+    # prints bound for another system come out flat-packed
+    st = lo.print_steps({"factory": "AF", "factory_star": "FAL", "device_type": "galactic_observatory", "n": 1, "star": "LAR",
+                         "fleet": "m1"})[0]
+    assert st["body"]["flatpack"] is True and "flat-packed" in st["desc"]
+    assert "flatpack" not in lo.print_steps({"factory": "AF", "factory_star": "FAL", "device_type": "galactic_observatory",
+                                             "n": 1, "star": "FAL"})[0]["body"]
