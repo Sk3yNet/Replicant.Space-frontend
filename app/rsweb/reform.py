@@ -168,6 +168,8 @@ def steps(p: dict) -> list[dict]:
         if r["add"]:
             cfg["add_tags"] = r["add"]
         if r["remove"]:
-            cfg["remove_tags"] = r["remove"]
+            cfg["remove_tags"] = [t for t in r["remove"] if t not in (r["add"] or [])]   # a tag in both is refused
+        if not cfg.get("remove_tags"):
+            cfg.pop("remove_tags", None)
         out.append(step(f"{r['code']} → {r['to']}", f"/devices/{r['code']}", {"configuration": cfg}, method="PATCH"))
     return out

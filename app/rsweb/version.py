@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.30.2"
+VERSION = "1.30.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.30.3", "2026-10-07", "Large devices: the app remembers a device is folded when the game says so (device.compacted, a "
+     "compacted print, a compact refused as already compacted) even when its status doesn't, so the loadout pass sends "
+     "the carrier instead of ordering compactions again and again; unfurling clears it. Fleet membership: adding a "
+     "device that's already in the fleet no longer sends its tag in both add and remove (refused by the game)."),
     ("1.30.2", "2026-10-07", "Moves of large devices: a compact refused because the device is already compacted counts as "
      "done and the move goes on (already compacting: it waits for device.compacted); an unfurl refused because the device "
      "isn't folded counts as done too."),

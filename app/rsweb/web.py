@@ -2742,11 +2742,15 @@ async def fleets_members(request: Request, fid: str, user: str = Depends(current
     steps = []
     for code in form.getlist("add"):
         d = by.get(code) or {}
-        rem = [t for t in d.get("tags") or [] if t.startswith(("home:", "to:", "fleet:")) or t == "spare"]
+        if tag in (d.get("tags") or []):
+            continue   # already in this fleet (sending its tag in both add and remove is refused)
+        rem = [t for t in d.get("tags") or [] if (t.startswith(("home:", "to:", "fleet:")) or t == "spare") and t != tag]
         steps.append(auto.step(f"{code} joins {fid}", f"/devices/{code}",
                                {"configuration": {"add_tags": [tag], **({"remove_tags": rem} if rem else {})}}, method="PATCH"))
     for code in form.getlist("remove"):
         steps.append(auto.step(f"{code} leaves {fid}", f"/devices/{code}", {"configuration": {"remove_tags": [tag]}}, method="PATCH"))
+    if not steps and form.getlist("add"):
+        return HTMLResponse('<div class="result">Those devices are already in this fleet.</div>')
     if not steps:
         return HTMLResponse('<div class="result err">Pick at least one device.</div>')
     async with eng.lock:

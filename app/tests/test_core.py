@@ -4630,6 +4630,61 @@ def test_compact_on_an_already_compacted_device_counts_as_done(client, monkeypat
         return j
     j = run("Device is already compacted")
     assert j["status"] == "done" and "already compacted" in j["steps"][0]["note"]
+    from rsweb.modular import FOLDED_KV
+    assert "X" in client.portal.call(client.app.state.db.kv_get, FOLDED_KV)   # remembered: the next pass sends the carrier
     j = run("Device is already compacting")
     assert j["status"] in ("running", "waiting") and j["steps"][0]["wait"] == ["device.compacted"]
     assert run("Cannot compact while travelling")["status"] == "failed"
+
+
+def test_folded_devices_are_remembered_so_the_carrier_comes(client):
+    """Live 2026-10-07: observatory B3AEBF60 was compacted but its status didn't say so; every loadout pass made another
+    compact job ('Device is already compacted') and no carrier was ever sent."""
+    from rsweb import loadouts as lo
+    from rsweb.modular import FOLDED_KV, remember
+    obs = {"device_code": "OBS", "device_type": "galactic_observatory", "location": "FAL-1-L4", "status": "idle",
+           "features": ["cruise", "modular"], "available_commands": ["compact", "unfurl", "travel"], "tags": ["fleet:m1"]}
+    mf = {"device_code": "MF", "device_type": "mobile_fleet", "location": "FAL-1-L4", "status": "idle",
+          "features": ["surge", "attach"], "attach_capacity": 36, "tags": ["fleet:m1"]}
+    stars = {s: {"position": {"x": i, "y": 0, "z": 0}, "entry_point": f"{s}-1-L4"} for i, s in enumerate(("FAL", "LAR"))}
+    cfg = {"phases": [], "fleets": [{"id": "m1", "name": "Miner 1", "home": "LAR", "station": True, "wants": {}}],
+           "fleets_migrated": True}
+    obs["folded"] = True                                    # what the device sync adds for a device we know is folded
+    p = lo.plan(cfg, [obs, mf], [], {}, stars, {}, set(), [], {})
+    assert p["compact"] == [] and [(dl["carrier"], dl["devices"]) for dl in p["deliveries"]] == [("MF", ["OBS"])]
+    # the mark: set by a refused compact / device.compacted / a compacted print, carried by the device sync, cleared on unfurl
+    db, worker = client.app.state.db, client.app.state.worker
+    world = client.app.state.api.http._transport.app.state.world
+    code = world.devices[0]["device_code"]
+    client.portal.call(remember, db, code, True, "2026-10-07T00:00:00+00:00")
+    client.portal.call(worker.sync_devices)
+    assert next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == code).get("folded") is True
+    client.portal.call(worker.apply_timers, {"event": "device.unfurling", "device_code": code, "payload": {}})
+    assert code not in client.portal.call(db.kv_get, FOLDED_KV)
+    client.portal.call(worker.sync_devices)
+    assert "folded" not in next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == code)
+    client.portal.call(worker.apply_timers, {"event": "print.completed", "device_code": "AF",
+                                             "payload": {"new_device_code": "NEW1", "compacted": True}})
+    assert "NEW1" in client.portal.call(db.kv_get, FOLDED_KV)
+
+
+def test_tag_changes_never_add_and_remove_the_same_tag():
+    """Live 2026-10-07: 'A53A86C0 joins trader-1' was refused: 'Tag appears in both add_tags and remove_tags'."""
+    from rsweb import loadouts as lo
+    st = lo.tag_step("X", add=["fleet:a"], remove=["fleet:a", "spare"])
+    assert st["body"]["configuration"] == {"add_tags": ["fleet:a"], "remove_tags": ["spare"]}
+
+
+def test_adding_a_device_already_in_the_fleet_sends_nothing(client):
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices[1]["tags"] = ["fleet:t1"]
+    client.portal.call(client.app.state.worker.sync_devices)
+    eng = client.app.state.worker.automations
+    client.portal.call(eng.save_fleets, [{"id": "t1", "name": "T1", "role": "trade", "home": "SOL", "wants": {}}])
+    before = len(client.portal.call(eng.jobs))
+    r = client.post("/fleets/t1/members", data={"add": world.devices[1]["device_code"]}, headers=HX)
+    assert "already in this fleet" in r.text
+    for j in client.portal.call(eng.jobs)[: max(0, len(client.portal.call(eng.jobs)) - before)]:
+        for s in j["steps"]:
+            c = (s.get("body") or {}).get("configuration") or {}
+            assert not set(c.get("add_tags") or []) & set(c.get("remove_tags") or [])

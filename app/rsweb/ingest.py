@@ -365,6 +365,9 @@ class Worker:
                 await self.set_timer(f"print:{dc}", "print", f"print {p.get('device_type', '?')} @ {ev.get('location') or dc}", end, **kw)
         elif e == "print.completed":
             await self.clear_timer(f"print:{dc}")
+            if p.get("compacted") or p.get("print_mode") == "flatpack":   # printed folded up
+                from .modular import remember
+                await remember(self.db, p.get("new_device_code"), True, _iso(created))
         elif e in ("scan.started", "search.started"):
             eta = p.get("eta_seconds")
             if eta is not None:
@@ -374,11 +377,16 @@ class Worker:
         elif e in ("scan.completed", "search.completed"):
             await self.clear_timer(f"scan:{dc}")
         elif e in ("device.compacting", "device.unfurling", "triangulation.started"):
+            if e == "device.unfurling":
+                from .modular import remember
+                await remember(self.db, ev.get("device_code"), False, _iso(created))
             end = _parse_ts(p.get("completes_at"))
             if end:
                 await self.set_timer(f"{e}:{dc}", e.split(".")[1], f"{who} {e.split('.')[1]}", end, **kw)
         elif e in ("device.compacted", "device.unfurled"):
             await self.clear_timer(f"device.{'compacting' if e.endswith('compacted') else 'unfurling'}:{dc}")
+            from .modular import remember
+            await remember(self.db, ev.get("device_code"), e == "device.compacted", _iso(created))
         elif e.startswith("triangulation.") and e != "triangulation.started":
             await self.clear_timer(f"triangulation.started:{dc}")
         elif e.startswith("teleport.") and e != "teleport.started":
@@ -463,6 +471,17 @@ class Worker:
         if devices is None:
             log.warning("device sync returned an incomplete list (%s → fewer); keeping the previous one", len(prev))
             return
+        from .modular import FOLDED_KV
+        marks = await self.db.kv_get(FOLDED_KV, {}) or {}
+        for d in devices:   # large devices the game told us are folded (modular.folded)
+            st = str(d.get("status") or "")
+            if st.startswith("unfurling") and d.get("device_code") in marks:
+                marks.pop(d["device_code"])
+                await self.db.kv_set(FOLDED_KV, marks)
+            if d.get("device_code") in marks:
+                d["folded"] = True
+            else:
+                d.pop("folded", None)
         await self.db.kv_set("devices", devices)
         self.hub.publish("state", "devices")
         try:

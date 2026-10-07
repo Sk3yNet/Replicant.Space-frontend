@@ -527,7 +527,7 @@ def gather_steps(fleet: dict, plan: dict, stars: dict, radii: dict[str, float] |
     tag = fleet_tag(fleet["id"])
     steps = []
     for d in plan["recruit"]:  # spares join the fleet: fleet tag in, spare/home/to out
-        rem = [t for t in d.get("tags") or [] if t == "spare" or t.startswith(("home:", "to:"))]
+        rem = [t for t in d.get("tags") or [] if (t == "spare" or t.startswith(("home:", "to:"))) and t != tag]
         steps.append(step(f"{d['device_code']} ({d.get('device_type')}) joins {fleet['name']}", f"/devices/{d['device_code']}",
                           {"configuration": {"add_tags": [tag], **({"remove_tags": rem} if rem else {})}}, method="PATCH"))
     carrier, here_loc = plan["carrier"], plan.get("carrier_loc")

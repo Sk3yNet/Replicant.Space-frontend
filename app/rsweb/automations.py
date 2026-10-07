@@ -624,9 +624,13 @@ class AutomationEngine(OpsRules):
                 ok, st["note"] = True, err
                 if "compacting" not in (err or "").lower():
                     st["wait"] = []
+                    from .modular import remember   # so the next pass sends the carrier instead of compacting again
+                    await remember(self.db, st["path"].split("/")[2], True, now_iso())
             if not ok and (st.get("body") or {}).get("command") == "unfurl" and _already_unfurled(err):
                 ok, st["note"] = True, err   # already unfolded: nothing to do
                 st["wait"] = []
+                from .modular import remember
+                await remember(self.db, st["path"].split("/")[2], False, now_iso())
             if (not ok and (st.get("body") or {}).get("command") == "change_owner"
                     and "already belongs to that replicant" in (err or "").lower()):
                 # seen live (2026-10-06): a second owner pass for a device the first had already moved

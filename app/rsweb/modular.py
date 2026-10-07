@@ -27,8 +27,43 @@ def is_modular(d: dict) -> bool:
     return "modular" in (d.get("features") or []) or "compact" in (d.get("available_commands") or [])
 
 
+FOLDED_KV = "folded_devices"   # {device_code: when we learned it's compacted} — see folded()
+
+
+def folded(d: dict) -> bool:
+    """Compacted and ready to move. The status says so only sometimes (a device printed with flatpack, or one whose
+    status shows its activity, can be folded without saying "compacted"), so the device sync also marks devices the
+    game told us are folded (device.compacted, a compacted print, a compact refused as "already compacted") with
+    `folded`, until they unfurl."""
+    return bool(d.get("folded")) or str(d.get("status") or "").startswith("compacted")
+
+
 def compacted(d: dict) -> bool:
-    return str(d.get("status") or "").startswith(("compacted", "compacting"))
+    """Folded, or folding up."""
+    return folded(d) or str(d.get("status") or "").startswith("compacting")
+
+
+async def remember(db, code: str | None, is_folded: bool, when: str) -> None:
+    """Note that a device is folded (or no longer is); the next device sync carries it as d["folded"]."""
+    if not code:
+        return
+    marks = await db.kv_get(FOLDED_KV, {}) or {}
+    if is_folded == (code in marks):
+        return
+    if is_folded:
+        marks[code] = when
+    else:
+        marks.pop(code, None)
+    await db.kv_set(FOLDED_KV, marks)
+    devices = await db.kv_get("devices", []) or []   # and on the stored list straight away, for the next pass
+    for d in devices:
+        if d.get("device_code") == code:
+            if is_folded:
+                d["folded"] = True
+            else:
+                d.pop("folded", None)
+            await db.kv_set("devices", devices)
+            break
 
 
 def _subject(st: dict) -> tuple[str | None, str | None]:

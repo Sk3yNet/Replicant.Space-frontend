@@ -705,14 +705,14 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             return f"it is {st} (moving it would close the site)"
         return "a running job is using it (see Automations)"
 
-    from .modular import compacted as _compacted, is_modular
+    from .modular import compacted as _compacted, folded as _folded, is_modular
     compact: list[tuple[str, str]] = []   # large devices to compact now, before any carrier is assigned
     for code, dest in moves.items():
         d = by_code.get(code)
         if not d:
             continue
         if (code not in busy and star_of(d.get("location")) not in ("", dest) and is_modular(d)
-                and not str(d.get("status") or "").startswith("compacted")):
+                and not _folded(d)):
             # Compacting takes hours (≈30 % of the print time; an observatory well over 2 h). It starts as soon as the
             # move is planned, on its own; a carrier is only assigned once the device reports compacted.
             if not _compacted(d):
@@ -902,6 +902,7 @@ def tag_step(code: str, add: list[str] | None = None, remove: list[str] | None =
     cfg: dict = {}
     if add:
         cfg["add_tags"] = add
+    remove = [t for t in remove or [] if t not in (add or [])]   # a tag in both add and remove is refused
     if remove:
         cfg["remove_tags"] = remove
     what = " ".join([f"+{t}" for t in add or []] + [f"−{t}" for t in remove or []])
