@@ -3059,7 +3059,8 @@ async def wallpaper_page(request: Request, slug: str):
     """The wallpaper page itself: no data in it (that needs the key), so it's served to anyone while enabled."""
     if not wp.slug_ok(slug) or not wp.normalize(await request.app.state.db.kv_get(wp.KV, {}))["enabled"]:
         return _wp_off()
-    return templates.TemplateResponse(request, "wallpaper.html", {"request": request, "base": f"/wallpaper/{slug}"})
+    return templates.TemplateResponse(request, "wallpaper.html", {"request": request, "base": f"/wallpaper/{slug}"},
+                                      headers={"Cache-Control": "no-cache"})   # always the current version's script URLs
 
 
 @router.get("/wallpaper/{slug}/static/{path:path}")

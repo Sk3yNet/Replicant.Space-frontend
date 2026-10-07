@@ -3,6 +3,8 @@
 //        &cover=1&fleets=1&supply=1&hud=right|left|off#key=rsw_…
 // The key stays in the #fragment (never sent to the server, so never in access logs) and goes out as a header.
 const base = new URL("..", import.meta.url);            // …/wallpaper/<slug>/
+// the client's version: scripts are loaded with ?v=<version>, so a redeploy is never hidden by a cached copy
+const version = new URL(import.meta.url).searchParams.get("v") || "";
 const q = new URLSearchParams(location.search);
 const key = new URLSearchParams(location.hash.slice(1)).get("key") || "";
 const view = (q.get("view") || "galaxy").toLowerCase();
@@ -100,7 +102,7 @@ async function galaxy() {
   $("map").hidden = false;
   window.MAP_OPTS = { dataUrl: new URL("api/map.json", base).href, headers, labels, rotate, refreshMinutes: refreshMin,
                       focus: star || null, onError: problem, cover, fleets, supply, moving: true };
-  await import(new URL("static/map.js", base).href);
+  await import(new URL(`static/map.js?v=${encodeURIComponent(version)}`, base).href);
 }
 
 async function system() {
@@ -120,6 +122,9 @@ async function cycle() {
   setInterval(next, cycleSec * 1000);
   setInterval(() => reload().catch(problem), refreshMin * 60000);
 }
+
+// bottom-right corner: which client (and add-on, when the Octos launcher says) is running
+$("ver").textContent = [version && `client ${version}`, q.get("addon") && `add-on ${q.get("addon")}`].filter(Boolean).join(" · ");
 
 if (!key) {
   message("<div><b>No wallpaper key in this link.</b><br>Copy the whole wallpaper link from Account › Desktop wallpaper.</div>");

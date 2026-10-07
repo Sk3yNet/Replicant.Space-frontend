@@ -4486,6 +4486,9 @@ def test_desktop_wallpaper_routes_need_a_key_and_stay_read_only(client, monkeypa
     # the page is served (no data in it); the data needs the key, sent as a header
     page = client.get("/wallpaper/me/").text
     assert "wallpaper.js" in page and "importmap" in page and key not in page
+    from rsweb.version import VERSION
+    assert f"wallpaper.js?v={VERSION}" in page   # versioned: a redeploy is never hidden by a cached script
+    assert client.get("/wallpaper/me/").headers["cache-control"] == "no-cache"
     assert client.get("/wallpaper/me/api/map.json").status_code == 401
     assert client.get("/wallpaper/me/api/map.json", headers={wp.HEADER: "rsw_wrong"}).status_code == 401
     good = {wp.HEADER: key}

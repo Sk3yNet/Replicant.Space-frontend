@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.30.0"
+VERSION = "1.30.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.30.1", "2026-10-07", "Desktop wallpaper: its scripts are loaded with the client version in the URL and the page "
+     "itself isn't cached, so a redeploy takes effect at once (a cached older script could ignore newer settings such as "
+     "relay/hub range). The client and add-on versions show in the wallpaper's bottom-right corner."),
     ("1.30.0", "2026-10-07", "Supply lines on the galaxy and the desktop wallpaper: an arc from each fleet's system to the "
      "fleet its materials go to, from a mining mission to its drop point, and along a trade fleet's run. Amber for "
      "materials, blue for trade; faint and dotted while only planned, solid while a ferry or mission runs it, with dots "

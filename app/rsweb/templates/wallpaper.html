@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>Replicant Space wallpaper</title>
-<link rel="stylesheet" href="{{ base }}/static/app.css">
+<link rel="stylesheet" href="{{ base }}/static/app.css?v={{ APP_VERSION }}">
 <style>
   /* full-screen, no chrome: this page is a desktop background (Octos) */
   html, body { margin: 0; height: 100%; overflow: hidden; background: #05070c; user-select: none; }
@@ -45,6 +45,7 @@
   #hud li.stalled, #caption li.stalled { color: #ffb74d; }
   #hud li.sup, #caption li.sup { color: #ffd59a; } #hud li.sup.trade, #caption li.sup.trade { color: #a9d3ff; }
   #hud li.sup.planned, #caption li.sup.planned { opacity: .6; }
+  #ver { position: fixed; right: 10px; bottom: 6px; font: 10px var(--mono, monospace); color: #56627a; pointer-events: none; }
   .wp-note { color: #6c7b95; font: 13px system-ui, sans-serif; }
 </style>
 <script type="importmap">{"imports": {"three": "{{ base }}/static/vendor/three.module.min.js",
@@ -55,8 +56,9 @@
 <div id="sys" hidden></div>
 <div id="caption"></div>
 <div id="hud" hidden></div>
+<div id="ver"></div>
 <div id="msg" hidden></div>
-<script src="{{ base }}/static/movers.js"></script>
-<script type="module" src="{{ base }}/static/wallpaper.js"></script>
+<script src="{{ base }}/static/movers.js?v={{ APP_VERSION }}"></script>
+<script type="module" src="{{ base }}/static/wallpaper.js?v={{ APP_VERSION }}" data-version="{{ APP_VERSION }}"></script>
 </body>
 </html>
