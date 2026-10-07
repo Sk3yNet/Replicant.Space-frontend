@@ -4066,3 +4066,85 @@ def test_fleets_without_a_factory_spread_over_the_hubs_factories():
     p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, bps, {"FAL-BELT-1": {"structural": 1000}},
                 stars, {}, set(), orders, {})
     assert sorted((pr["fleet"], pr["factory"]) for pr in p["prints"]) == [("m1", "AF1"), ("m2", "AF2")]
+
+
+def _survey_world():
+    devices = [
+        {"device_code": "HV", "device_type": "heaven_vessel", "location": "LOR-1-L4", "status": "idle", "features": ["surge"],
+         "stow_capacity": 10, "tags": ["fleet:s"]},
+        {"device_code": "SC", "device_type": "ami_survey_controller", "location": None, "stowed_in_device_code": "HV",
+         "status": "stowed", "tags": ["fleet:s"]},
+        {"device_code": "R1", "device_type": "ftl_relay", "location": None, "stowed_in_device_code": "HV", "status": "stowed", "tags": []},
+        {"device_code": "B1", "device_type": "ftl_beacon", "location": None, "stowed_in_device_code": "HV", "status": "stowed", "tags": []},
+        {"device_code": "R0", "device_type": "ftl_relay", "location": "FAL-1-L4", "status": "relaying", "tags": []},
+        {"device_code": "B0", "device_type": "ftl_beacon", "location": "FAL-5", "status": "monitoring", "tags": []},
+    ]
+    fleet = {"id": "s", "name": "Surveyors", "role": "explore", "home": "FAL", "wants": {}}
+    return fleet, devices
+
+
+def test_survey_crew_drops_relays_and_beacons():
+    from rsweb import outposts as op
+    fleet, devices = _survey_world()
+    sf = op.shortfall({"HV"}, devices, ["LOR", "OTH", "FAL", "LOR"])
+    assert sf["need"] == {"relay": ["LOR", "OTH"], "beacon": ["LOR", "OTH"]} and sf["have"] == {"relay": 1, "beacon": 1}
+    assert len(sf["warnings"]) == 2 and "only 1 aboard — 1 will be left without one" in sf["warnings"][0]
+    assert op.shortfall({"HV"}, devices, ["LOR"])["warnings"] == []
+    steps, notes = op.drop_steps({"HV"}, devices, "LOR", "LOR-1-L4")
+    assert [s["desc"] for s in steps] == ["deploy relay R1 at LOR-1-L4", "R1: activate relay", "deploy beacon B1 at LOR-1-L4"]
+    # a relay only works at an L4/L5 point: on a planet it stays aboard (the beacon doesn't care)
+    steps, notes = op.drop_steps({"HV"}, devices, "LOR", "LOR-2")
+    assert [s["desc"] for s in steps] == ["deploy beacon B1 at LOR-2"] and "stays aboard" in notes[0]
+    # a system that already has yours gets nothing
+    assert op.drop_steps({"HV"}, devices, "FAL", "FAL-1-L4") == ([], [])
+    # one that's a fleet member (fetched by the gather phase) leaves the fleet as it's dropped, and unloading skips it
+    from rsweb import fleets as fl
+    devices[2]["tags"] = ["fleet:s"]
+    steps, _ = op.drop_steps({"HV"}, devices, "LOR", "LOR-1-L4", fleet_tag="fleet:s")
+    assert "R1: stays in LOR (leaves the fleet)" in [s["desc"] for s in steps]
+    assert [s["desc"] for s in fl.unload_steps(fleet, devices)] == ["deploy SC from HV"]
+
+
+def test_survey_crew_moves_the_beacon_to_a_civilisation():
+    from rsweb import outposts as op
+    fleet, devices = _survey_world()
+    devices[3].update({"location": "LOR-1-L4", "stowed_in_device_code": None, "status": "monitoring"})   # dropped on arrival
+    rows = [{"location": "LOR-3", "star": "LOR", "open": [{"designation": "E1"}], "completed": [], "life": None},
+            {"location": "LOR-4-1", "star": "LOR", "open": [], "completed": [], "life": {"life_stage": "intelligent"}},
+            {"location": "OTH-2", "star": "OTH", "open": [{"designation": "E2"}], "completed": [], "life": None}]
+    assert op.civ_places(rows, "LOR") == ["LOR-3", "LOR-4-1"]
+    steps, notes = op.civ_move_steps(devices[0], devices, "LOR", ["LOR-3"])
+    assert [s["desc"] for s in steps] == ["stow beacon B1 into HV", "HV → LOR-3 (civilisation)", "deploy beacon B1 at LOR-3"]
+    assert "moving beacon B1" in notes[0]
+    devices[3]["location"] = "LOR-3"                                   # already there: nothing to do
+    assert op.civ_move_steps(devices[0], devices, "LOR", ["LOR-3"]) == ([], [])
+
+
+def test_explore_mission_drops_outposts_and_warns(client):
+    from rsweb import fleets as fl
+    eng = client.app.state.worker.automations
+    fleet, devices = _survey_world()
+    m = {"status": "running", "phase": "travel", "idx": 0, "targets": ["LOR"], "opts": {}, "log": []}
+    steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, m, "deploy", devices)
+    descs = [s["desc"] for s in steps]
+    assert "deploy SC from HV" in descs and descs[-3:] == ["deploy relay R1 at LOR-1-L4", "R1: activate relay",
+                                                           "deploy beacon B1 at LOR-1-L4"]
+    assert any("dropping relay R1" in x["text"] for x in m["log"])
+    # starting a mission over more systems than the carriers can serve warns
+    client.portal.call(eng.save_fleets, [{**fleet, "materials": "", "mission": None, "station": False}])
+    world = client.app.state.api.http._transport.app.state.world
+    client.post("/fleets/s/mission", data={"targets": "SOL"}, headers=HX)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "s")
+    texts = [x["text"] for x in (f.get("mission") or {}).get("log") or []]
+    assert any("FTL relay(s)" in t for t in texts)
+    # recall: once everyone is aboard, the beacon goes to the civilisation the survey found
+    devices[3].update({"location": "LOR-1-L4", "stowed_in_device_code": None, "status": "monitoring"})
+    devices[1].update({"location": None, "stowed_in_device_code": "HV"})
+
+    async def cov():
+        return [{"location": "LOR-3", "star": "LOR", "open": [{"designation": "E1"}], "completed": [], "life": None}]
+    eng.civ_coverage = cov
+    m = {"status": "running", "phase": "watch", "idx": 0, "targets": ["LOR"], "opts": {}, "log": []}
+    steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, m, "recall", devices)
+    assert [s["desc"] for s in steps][-3:] == ["stow beacon B1 into HV", "HV → LOR-3 (civilisation)", "deploy beacon B1 at LOR-3"]
+    assert any("civilisation at LOR-3" in x["text"] for x in m["log"])

@@ -2457,6 +2457,13 @@ async def fleets_ctx(request: Request) -> dict:
     for f in items:
         f["report"] = lctx["plan"]["report"].get(f["id"])
         f["orders"] = [o for o in lctx.get("orders") or [] if o.get("fleet") == f["id"] and not o.get("device_code")]
+        if f.get("role") == "explore":
+            from . import outposts
+            stowed_map = await request.app.state.db.kv_get("stowed_map", {}) or {}
+            m = f.get("mission") or {}
+            left = (m.get("targets") or [])[m.get("idx", 0):] if m.get("status") in ("running", "stalled") else []
+            carriers = {c["device_code"] for c in fl.roster(f, st["devices"])["carriers"]}
+            f["outposts"] = outposts.shortfall(carriers, st["devices"], left, stowed_map)
         f["route"] = next((r for r in lctx["plan"].get("routes") or [] if r.get("fleet_id") == f["id"]), None)
         f["sends_to"] = fl.materials_target(f, items)
         f["takes_from"] = [x for x in items if x.get("materials") == f["id"]]
@@ -2693,6 +2700,16 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
             return HTMLResponse(f'<div class="result err">{html.escape(", ".join(taken))}: '
                                 f'{"has" if len(taken) == 1 else "have"} a stationed fleet, and only the stationed fleet works '
                                 'its home system. Pick a system no fleet is stationed in.</div>')
+    if f["role"] == "explore":
+        from . import outposts
+        st = await load_state(request)
+        carriers = {c["device_code"] for c in fl.roster(f, st["devices"])["carriers"]}
+        sf = outposts.shortfall(carriers, st["devices"], m["targets"], await request.app.state.db.kv_get("stowed_map", {}) or {})
+        eng._mlog(m, f"aboard: {sf['have']['relay']} FTL relay(s), {sf['have']['beacon']} FTL beacon(s) for "
+                     f"{len(sf['need']['relay'])} / {len(sf['need']['beacon'])} system(s) without one")
+        for w in sf["warnings"]:
+            eng._mlog(m, "warning: " + w)
+            await eng.log("fleets", f"{f['name']}: {w}", "alert", notify=True)
     f["mission"] = m
     await eng.save_fleets(items)
     async with eng.lock:

@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.23.7"
+VERSION = "1.24.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.24.0", "2026-10-07", "Survey crews drop FTL relays and beacons: in each system without one of yours the carrier deploys a "
+     "relay at the L4/L5 point (and activates it) and a beacon; if the survey finds a civilisation, the beacon is moved to "
+     "that body before the fleet leaves. Starting a survey warns when there aren't enough aboard for the systems in the "
+     "list, and the fleet card shows what's aboard."),
     ("1.23.7", "2026-10-07", "A fleet with no autofactory of its own that prints on another fleet's (e.g. the printing hub's) "
      "spreads its prints over all of them again, not just the first (1.23.5 put Miner 1's and Miner 2's on one)."),
     ("1.23.6", "2026-10-07", "Prints taken off an autofactory queue stop counting as incoming for their fleet (Remove / Clear / "

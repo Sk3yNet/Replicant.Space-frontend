@@ -1340,6 +1340,9 @@ class AutomationEngine(OpsRules):
 
     async def rule_deploy_beacon(self, vessel: str, star: str, stowed: list[dict], cfg: dict | None = None) -> None:
         cfg = cfg or {}
+        from .ami_schedule import on_mission
+        if on_mission(next((d for d in await self.devices() if d.get("device_code") == vessel), {})):
+            return   # a fleet on a mission: a survey crew drops its beacon itself, inside the system (outposts.py)
         beacon = next((i for i in stowed if "beacon" in (i.get("device_type") or "")), None)
         if not beacon:
             return
@@ -1504,7 +1507,7 @@ class AutomationEngine(OpsRules):
         from .ami_schedule import set_stationed
         from .fleets import fleet_tag, stationed
         derived = ("roster", "points", "job", "zero", "report", "route", "sends_to", "takes_from", "target_options",
-                   "owner_move", "owner_hosts", "owners", "orders")   # page-only fields, never stored
+                   "owner_move", "owner_hosts", "owners", "orders", "outposts")   # page-only fields, never stored
         keep = [{k: v for k, v in f.items() if k not in derived} for f in items]
         await self.db.kv_set("fleets", keep)
         set_stationed({fleet_tag(f["id"]): f["home"] for f in items if stationed(f)})
@@ -1541,7 +1544,17 @@ class AutomationEngine(OpsRules):
             spot = fl.deploy_spot(geo)
             if not spot:
                 self._mlog(m, f"nothing known inside {target} yet (no scan): unloading where the carrier is")
-            return fl.unload_steps(fleet, devices, spot), []
+            steps = fl.unload_steps(fleet, devices, spot)
+            if fleet["role"] == "explore":
+                # a survey crew leaves a relay (at an L4/L5 point) and a beacon in each system that has none of yours
+                from . import outposts
+                carriers = {c["device_code"] for c in fl.roster(fleet, devices)["carriers"]}
+                drop, notes = outposts.drop_steps(carriers, devices, target or "", spot,
+                                                  await self.db.kv_get("stowed_map", {}) or {}, fl.fleet_tag(fleet["id"]))
+                steps += drop
+                for n in notes:
+                    self._mlog(m, n)
+            return steps, []
         if phase == "work":
             if fleet["role"] == "explore":
                 from . import placement as pl
@@ -1584,7 +1597,20 @@ class AutomationEngine(OpsRules):
             for c in fl.outside_controllers(fleet, devices):
                 self._mlog(m, f"{c['device_code']} ({c.get('device_type')}) runs this fleet's drones but isn't in the fleet "
                               "(no fleet tag): it won't be recalled or taken home — add it under Add / remove devices")
-            return fl.recall_steps(fleet, devices, inv, haul, radii, far_au), []
+            steps = fl.recall_steps(fleet, devices, inv, haul, radii, far_au)
+            if fleet["role"] == "explore" and target:
+                # the survey found a civilisation: once everyone is aboard, the beacon goes to that body (civilisations
+                # only send follow-up requests to a beacon AT their planet or moon)
+                from . import outposts
+                carrier = next(iter(fl.roster(fleet, devices)["carriers"]), None)
+                civ = outposts.civ_places(await self.civ_coverage(), target)
+                if carrier and civ:
+                    more, notes = outposts.civ_move_steps(carrier, devices, target, civ,
+                                                          await self.db.kv_get("stowed_map", {}) or {})
+                    steps += more
+                    for n in notes:
+                        self._mlog(m, n)
+            return steps, []
         if phase == "return":
             return fl.travel_steps(fleet, devices, fleet["home"], stars), []
         if phase == "unload":
