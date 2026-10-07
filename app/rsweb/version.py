@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.25.4"
+VERSION = "1.26.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.26.0", "2026-10-07", "Owner hand-off: a device boarding a carrier another replicant owns is handed to that replicant first "
+     "(change_owner), and its fleet's keep-owner setting takes it back at the destination; so loadout deliveries use any "
+     "free carrier again (their own replicant's first). A device hosting a replicant is never handed over. Starting a "
+     "mission to a system without a relay of yours warns when no replicant rides with the fleet."),
     ("1.25.4", "2026-10-07", "Large devices start compacting as soon as a move is planned, in a job of their own; the carrier is "
      "only assigned once they report compacted (no carrier idling for 2+ h). The compact step waits 30 % of the print time "
      "+ 30 min (4 h when unknown). Loadout prints of large devices bound for another system are queued flat-packed."),

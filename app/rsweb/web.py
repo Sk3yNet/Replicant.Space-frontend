@@ -2719,6 +2719,19 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
             return HTMLResponse(f'<div class="result err">{html.escape(", ".join(taken))}: '
                                 f'{"has" if len(taken) == 1 else "have"} a stationed fleet, and only the stationed fleet works '
                                 'its home system. Pick a system no fleet is stationed in.</div>')
+    # out of relay range only a replicant riding with the fleet keeps it under command
+    from . import outposts as _op
+    st0 = await load_state(request)
+    member_codes = {d["device_code"] for d in fl.members(f, st0["devices"])}
+    aboard = [r.get("name") or c for c, r in st0["replicants"].items() if r.get("hosted_device_code") in member_codes]
+    dark = [t for t in dict.fromkeys(star_of(x) for x in m["targets"] if x) if not _op.deployed_in(st0["devices"], t, "relay")]
+    if dark and not aboard:
+        w = (f"no relay of yours in {', '.join(dark)} and no replicant rides with the fleet — devices there may be out of "
+             "control range; add a vessel hosting a replicant to the fleet")
+        eng._mlog(m, "warning: " + w)
+        await eng.log("fleets", f"{f['name']}: {w}", "alert", notify=True)
+    elif aboard:
+        eng._mlog(m, f"replicant aboard: {', '.join(aboard)}")
     if f["role"] == "explore":
         from . import outposts
         st = await load_state(request)

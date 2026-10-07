@@ -3910,10 +3910,12 @@ def test_new_home_brings_the_whole_working_group():
     assert not any(d.startswith("MC: release MD") for d in descs)          # let go once, by the controller leaving with them
 
 
-def test_deliveries_use_a_carrier_of_the_devices_owner():
-    """Live 2026-10-06: other replicants' surge plates kept flying in for Miner 1's drones and failing to attach them
-    ('Target device belongs to a different account')."""
+def test_deliveries_hand_devices_to_the_carriers_owner():
+    """Live 2026-10-06: other replicants' carriers failed to attach Miner 1's drones ('Target device belongs to a
+    different account'). Since 1.26.0 any carrier will do: the device is handed to the carrier's owner as it boards
+    (its fleet's keep-owner setting takes it back). A device hosting a replicant only rides its own replicant's carrier."""
     from rsweb import loadouts as lo
+    from rsweb.modular import prepare_moves
     D = lambda code, t, loc, owner, **kw: {"device_code": code, "device_type": t, "location": loc, "status": "idle",  # noqa: E731
                                           "replicant_code": owner, **kw}
     devices = [
@@ -3924,11 +3926,20 @@ def test_deliveries_use_a_carrier_of_the_devices_owner():
     stars = {"ITH": {"position": {"x": 0, "y": 0, "z": 0}}, "KEL": {"position": {"x": 1, "y": 0, "z": 0}, "entry_point": "KEL-4-L4"}}
     fleets = [{"id": "m1", "name": "Miner 1", "home": "KEL", "station": True, "wants": {}}]
     p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
-    assert [(dl["carrier"], dl["devices"], dl.get("fetch_from")) for dl in p["deliveries"]] == [("MINE", ["MD1"], "KEL-4-L4")]
-    devices.pop()                                       # no carrier of R1's anywhere: wait, and say why
+    assert [(dl["carrier"], dl["devices"]) for dl in p["deliveries"]] == [("PLATE", ["MD1"])]   # the one already there
+    steps = prepare_moves(lo.delivery_steps(p["deliveries"][0], p["by_code"], stars, True), devices)
+    descs = [s["desc"] for s in steps]
+    assert descs.index("MD1: hand to R2 (owner of carrier PLATE)") + 1 == descs.index("PLATE: attach MD1")
+    # same owner available in the system too: that one is preferred
+    devices.append(D("OWN", "surge_plate", "ITH-BELT-1", "R1", features=["surge", "attach"], attach_capacity=1, tags=[]))
     p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
-    assert not p["deliveries"] and any("owned by R1" in u["why"] for u in p["unmet"])
-
+    assert [dl["carrier"] for dl in p["deliveries"]] == ["OWN"]
+    assert not any("hand to" in s["desc"] for s in prepare_moves(lo.delivery_steps(p["deliveries"][0], p["by_code"], stars, True), devices))
+    # a vessel hosting a replicant is never handed over: it waits for its own replicant's carrier
+    devices = [D("HV", "heaven_vessel", "ITH-1-L4", "R1", tags=["fleet:m1"], hosting_replicant={"code": "R1"}, features=["stow"]),
+               D("PLATE", "surge_plate", "ITH-1-L4", "R2", features=["surge", "attach"], attach_capacity=4, tags=[])]
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
+    assert not p["deliveries"]
 
 def test_mission_carrier_unloads_inside_the_system_not_at_the_kuiper_belt():
     """Live 2026-10-06: the Surveyors' carrier arrived at LORQELYR-KUIPER (the entry point) and unloaded there."""
@@ -4342,3 +4353,14 @@ def test_large_devices_compact_on_their_own_before_a_carrier_comes(client):
     assert st["body"]["flatpack"] is True and "flat-packed" in st["desc"]
     assert "flatpack" not in lo.print_steps({"factory": "AF", "factory_star": "FAL", "device_type": "galactic_observatory",
                                              "n": 1, "star": "FAL"})[0]["body"]
+
+
+def test_mission_to_a_system_without_a_relay_warns_without_a_replicant_aboard(client):
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.portal.call(eng.save_fleets, [{"id": "p", "name": "Prospectors", "role": "mining", "home": "SOL", "wants": {},
+                                          "station": False, "materials": "", "mission": None}])
+    client.post("/fleets/p/mission", data={"targets": "ABOTEIN"}, headers=HX)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "p")
+    texts = [x["text"] for x in (f.get("mission") or {}).get("log") or []]
+    assert any("no relay of yours in ABOTEIN and no replicant rides with the fleet" in t for t in texts), texts

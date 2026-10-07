@@ -748,10 +748,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     used: set[str] = set()
     deliveries = []
     def same_owner(c: dict, owner: str | None) -> bool:
-        """A carrier can only take on devices of its own replicant (seen live 2026-10-06: Printing Hub's surge plates
-        and Miner 2's mobile fleet flew to ITHVALAI for Miner 1's drones, again and again: 'Target device belongs to a
-        different account')."""
-        return not owner or not c.get("replicant_code") or c["replicant_code"] == owner
+        """A carrier can only take on devices of its own replicant (seen live 2026-10-06: 'Target device belongs to a
+        different account'). Since 1.26.0 the job hands each device to the carrier's owner as it boards
+        (modular.with_owner_handoff), so any carrier will do — except for a batch whose owner is unknown-mixed or that
+        holds a device hosting a replicant (never handed over)."""
+        if not owner or not c.get("replicant_code") or c["replicant_code"] == owner:
+            return True
+        return not any((by_code.get(x) or {}).get("hosting_replicant") for x in codes)
 
     for (here, dest, owner), codes in sorted(batches.items(), key=lambda kv: (-len(kv[1]), kv[0][0], kv[0][1], kv[0][2] or "")):
         codes = sorted(codes)
@@ -767,17 +770,20 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 remote = [c for c in carriers if star_of(c.get("location")) not in (here, "") and c["device_code"] not in used
                           and same_owner(c, owner) and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")
                           and not (grounded and carry_mode(c, bps) == "attach") and _free(c, bps, stowed_map) > 0]
-                remote.sort(key=lambda c: (_dist(star_of(c.get("location")), here, pos), -_free(c, bps, stowed_map), c["device_code"]))
+                remote.sort(key=lambda c: (bool(owner) and c.get("replicant_code") != owner,
+                                           _dist(star_of(c.get("location")), here, pos), -_free(c, bps, stowed_map), c["device_code"]))
                 if remote:
                     options, fetched_from = remote[:1], remote[0].get("location")
             if not options:
                 what = "gather at the depot" if set(codes) <= set(gathering) else f"go to {dest}"
-                whose = f" owned by {owner}" if owner else ""
+                hosts = any((by_code.get(x) or {}).get("hosting_replicant") for x in codes)
+                whose = f" owned by {owner}" if owner and hosts else ""
                 unmet.append({"star": dest, "type": ", ".join(sorted({by_code[c].get('device_type') for c in codes})),
                               "n": len(codes), "why": f"waiting for a surge-capable carrier{whose} in {here} (or a free one "
-                                                      f"elsewhere) to {what} — a carrier can only take its own replicant's devices"})
+                                                      f"elsewhere) to {what}" + (" — a device hosting a replicant only rides its own replicant's carrier" if whose else "")})
                 break
-            c = max(options, key=lambda c: (_free(c, bps, stowed_map), c["device_code"]))
+            c = max(options, key=lambda c: (not owner or c.get("replicant_code") == owner, _free(c, bps, stowed_map),
+                                            c["device_code"]))   # a carrier of the devices' own replicant first
             room = int(_free(c, bps, stowed_map))
             if room <= 0:
                 used.add(c["device_code"])

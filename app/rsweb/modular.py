@@ -100,9 +100,51 @@ def with_compaction(steps: list[dict], devices: list[dict], bps: dict[str, dict]
     return _wrap(steps, mods, lambda code: None if compacted(by[code]) else compact_step(code, bps, by[code]), unfurl_step)
 
 
+def _boarding(st: dict) -> tuple[str | None, str | None]:
+    """(cargo, carrier) of a stow / attach step."""
+    body, path = st.get("body") or {}, st.get("path") or ""
+    if st.get("method", "POST") != "POST" or not path.startswith("/devices/"):
+        return None, None
+    if body.get("command") == "attach":
+        return body.get("device"), path.split("/")[2]
+    if body.get("command") == "stow" and body.get("target"):
+        return path.split("/")[2], body.get("target")
+    return None, None
+
+
+def with_owner_handoff(steps: list[dict], devices: list[dict]) -> list[dict]:
+    """A carrier only takes devices its own replicant owns (live 2026-10-06/07: 'Target device belongs to a different
+    account', 'Target host device must belong to this replicant'). Right before a device boards a carrier another
+    replicant owns, it's handed to that replicant (change_owner); at the destination its fleet's owner setting (keep)
+    takes it back. A device hosting a replicant is never handed over."""
+    by = {d.get("device_code"): d for d in devices}
+    out, done = [], set()
+    for st in steps:
+        cargo, carrier = _boarding(st)
+        c, k = by.get(cargo) or {}, by.get(carrier) or {}
+        if (cargo and cargo not in done and c.get("replicant_code") and k.get("replicant_code")
+                and c["replicant_code"] != k["replicant_code"] and not c.get("hosting_replicant")):
+            out.append(step(f"{cargo}: hand to {k['replicant_code']} (owner of carrier {carrier})", f"/devices/{cargo}",
+                            {"command": "change_owner", "target": k["replicant_code"]}, critical=True))
+            done.add(cargo)
+        out.append(st)
+    if not done:
+        return steps
+    where, j = {}, 0
+    for i, st in enumerate(steps):           # remap WAIT steps' seq0_from to the shifted indexes
+        while out[j] is not st:
+            j += 1
+        where[i] = j
+    for st in out:
+        if "seq0_from" in st and st["seq0_from"] in where:
+            st["seq0_from"] = where[st["seq0_from"]]
+    return out
+
+
 def prepare_moves(steps: list[dict], devices: list[dict], bps: dict[str, dict] | None = None) -> list[dict]:
-    """Every job's steps: drones tracking a site deactivate before moving, large devices compact."""
-    return with_compaction(with_untracking(steps, devices), devices, bps)
+    """Every job's steps: drones tracking a site deactivate before moving, large devices compact, and a device boarding
+    another replicant's carrier is handed to that replicant first."""
+    return with_owner_handoff(with_compaction(with_untracking(steps, devices), devices, bps), devices)
 
 
 def _wrap(steps: list[dict], codes: set[str], before_move, after_land) -> list[dict]:
