@@ -40,4 +40,8 @@ def foreign(stars: Any, devices: Iterable[dict]) -> set[str]:
         recs = list(stars or [])
     flagged = {s.get("designation") for s in recs
                if isinstance(s, dict) and (s.get("has_ward") or s.get("has_hub")) and s.get("designation")}
-    return flagged - ours(devices)
+    devices = list(devices)
+    # the flag doesn't say whose ward it is (seen live 2026-10-07: every starter_155 system has_ward). A system where
+    # one of our drones is mining can't be warded against us, so it doesn't count.
+    mining_here = {star_of(d.get("location")) for d in devices if str(d.get("status") or "").startswith("mining")}
+    return flagged - ours(devices) - mining_here

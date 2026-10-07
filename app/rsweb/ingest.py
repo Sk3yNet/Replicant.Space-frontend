@@ -544,22 +544,15 @@ class Worker:
     async def on_prospect(self, ev: dict) -> None:
         """An observatory's prospect finished: put the stars it found on the map (merged like census stars) and re-read
         the catalogue, which the game regenerates with them."""
-        p = ev.get("payload") or {}
-        found = [s for s in p.get("stars") or [] if isinstance(s, dict) and s.get("designation")]
-        try:
-            if found:
-                from .census import record
-                await record(self.db, str(p.get("origin") or ev.get("location") or "observatory").split("-")[0],
-                             ev.get("device_code") or "observatory", {"stars": found})
+        try:   # the event is stored already: full_catalogue picks its stars up from the events table
             await self.sync_catalogue()
         except Exception:   # never let this break event handling
             log.exception("merging prospect stars failed")
 
     async def sync_catalogue(self) -> None:
         try:  # 1/min limit on the catalogue; we only ask every 30 minutes.
-            stars = await self.api.get("/stars", background=True)
-            from .census import merge   # the stars our censuses found beyond the catalogue's ~70 ly
-            await self.db.kv_set("stars", merge(stars or {}, await self.db.kv_get("census_stars", {}) or {}))
+            from .census import fetch_catalogue, full_catalogue   # + the stars our censuses / observatories found
+            await self.db.kv_set("stars", await full_catalogue(self.db, await fetch_catalogue(self.api)))
         except ApiError as e:
             log.info("star catalogue failed: %s", e)
         try:

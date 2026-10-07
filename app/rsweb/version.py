@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.36.0"
+VERSION = "1.36.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.36.1", "2026-10-07", "Galaxy: stars from every stored observatory prospect are added to the map (finds from before "
+     "1.36 too), the catalogue is followed across pages if the game ever pages it, and the map and 'refresh catalogue' "
+     "say where the stars came from (the game's catalogue lists only the starter region's 12). Wards: a system where one "
+     "of your drones is mining doesn't count as warded against you (the catalogue flags every starter system has_ward)."),
     ("1.36.0", "2026-10-07", "Galactic observatory: the prospect command offers an aim — outward (default), toward Sol, "
      "sideways, toward a star (worked out from the star catalogue), or a custom vector — instead of typing numbers. Stars "
      "a prospect finds are added to the map and the catalogue is re-read when it reports back."),

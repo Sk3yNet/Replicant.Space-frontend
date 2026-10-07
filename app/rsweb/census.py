@@ -16,6 +16,7 @@ distances, routes and travel all know them.
 """
 from __future__ import annotations
 
+import json
 import math
 from datetime import datetime, timezone
 from typing import Any
@@ -118,3 +119,70 @@ def destination_systems(cat: dict, explored: set[str], yours: set[str], here: st
     order = {"Your systems": 0, "Explored": 1, "Unexplored": 2}
     out.sort(key=lambda o: (order[o["group"]], o["distance"] is None, o["distance"] or 0, o["value"]))
     return out[:limit]
+
+
+async def fetch_catalogue(api) -> dict:
+    """GET /stars. Documented as unpaginated; if the game ever pages it (next_cursor), the rest is followed too (at
+    most 20 pages — the catalogue allows 1 request/minute, so a second page may be refused; what was read is kept)."""
+    body = await api.get("/stars", background=True) or {}
+    stars = list(body.get("stars") or [])
+    cursor = body.get("next_cursor")
+    for _ in range(20):
+        if not cursor:
+            break
+        try:
+            more = await api.get("/stars", background=True, cursor=cursor) or {}
+        except Exception:
+            break
+        stars += more.get("stars") or []
+        cursor = more.get("next_cursor")
+    return {**body, "stars": stars, "pages_read": True if not cursor else "partial"}
+
+
+def _position(s: dict) -> dict | None:
+    p = s.get("position")
+    if isinstance(p, dict) and all(k in p for k in "xyz"):
+        return p
+    if all(k in s for k in "xyz"):
+        return {k: s[k] for k in "xyz"}
+    return None
+
+
+async def observatory_stars(db) -> tuple[dict[str, dict], list[str]]:
+    """Stars our observatories found (every stored prospect.completed event, so finds from before the client merged
+    them count too): ({designation: record with a position}, [designations reported without a position])."""
+    placed: dict[str, dict] = {}
+    unplaced: list[str] = []
+    rows = await db.fetchall("SELECT payload, device_code, created_at FROM events WHERE event='prospect.completed' ORDER BY seq")
+    for r in rows:
+        try:
+            p = json.loads(r["payload"] or "{}")
+        except ValueError:
+            continue
+        for s in p.get("stars") or []:
+            if isinstance(s, str):
+                unplaced.append(s)
+            elif isinstance(s, dict) and s.get("designation"):
+                pos = _position(s)
+                if pos:
+                    placed[s["designation"]] = {**s, "position": pos, "found_by": r["device_code"], "found_at": r["created_at"],
+                                                "from_observatory": True}
+                else:
+                    unplaced.append(s["designation"])
+    return placed, sorted(set(unplaced) - set(placed))
+
+
+async def full_catalogue(db, raw: dict) -> dict:
+    """The game's catalogue plus the stars our censuses and observatories found beyond it."""
+    extra = dict(await db.kv_get("census_stars", {}) or {})
+    obs, unplaced = await observatory_stars(db)
+    for k, v in obs.items():
+        extra.setdefault(k, v)
+    cat = merge(raw or {}, extra)
+    have = {s.get("designation") for s in cat.get("stars") or []}
+    cat["sources"] = {"catalogue": len((raw or {}).get("stars") or []), "catalogue_total": (raw or {}).get("total"),
+                      "census": sum(1 for s in cat["stars"] if s.get("from_census") and not s.get("from_observatory")),
+                      "observatory": sum(1 for s in cat["stars"] if s.get("from_observatory")),
+                      "observatory_unplaced": [u for u in unplaced if u not in have],
+                      "pages_read": (raw or {}).get("pages_read")}
+    return cat

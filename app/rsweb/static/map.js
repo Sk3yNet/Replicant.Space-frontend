@@ -438,7 +438,13 @@ function load(first) {
     info.innerHTML = `<p class="muted">No star catalogue cached yet. It syncs every 30 minutes, or use “refresh catalogue”.</p>`;
   } else {
     const mv = (d.moving || []).map(m => `<li>${esc(m.label)}: ${esc(m.origin)} → ${esc(m.destination)}</li>`).join("");
+    const src = d.sources || {};
+    const parts = [src.catalogue != null && `${src.catalogue} from the game's catalogue` +
+                     (src.catalogue_total != null && src.catalogue_total !== src.catalogue ? ` (it says ${src.catalogue_total})` : ""),
+                   src.census && `${src.census} from censuses`, src.observatory && `${src.observatory} found by your observatories`,
+                   (src.observatory_unplaced || []).length && `${src.observatory_unplaced.length} found without a position yet`].filter(Boolean);
     info.innerHTML = `<p>${d.stars.length} stars · catalogue generated ${esc(d.generated_at || "?")}.</p>` +
+      (parts.length ? `<p class="small muted">${esc(parts.join(" · "))}</p>` : "") +
       (mv ? `<p class="small"><b>In transit between stars</b></p><ul class="small">${mv}</ul>` : "") +
       `<p class="muted small">Drag to orbit, scroll to zoom, click a star for details.</p>`;
     const s = (OPTS.focus && byName[OPTS.focus]) || repStar(); if (s) focus(s);

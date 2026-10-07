@@ -4871,12 +4871,13 @@ def test_another_players_ward_keeps_our_miners_out(client):
     assert any("ward" in u["why"] for u in p["unmet"]) and p["report"]["z"]["warded"]
     # a mining mission to a warded system can't launch
     eng = client.app.state.worker.automations
-    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [{"designation": "SOL", "has_ward": True}]})
+    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [{"designation": "SOL"},
+                                                                        {"designation": "ABOTEIN", "has_ward": True}]})
     client.portal.call(eng.save_fleets, [{"id": "m", "name": "M", "role": "mining", "home": "FAL", "wants": {}}])
-    r = client.post("/fleets/m/mission", data={"targets": "SOL"}, headers=HX)
+    r = client.post("/fleets/m/mission", data={"targets": "ABOTEIN"}, headers=HX)
     assert "another player" in r.text and not (client.portal.call(eng.fleets)[0].get("mission") or {}).get("status")
     # a running mining mission whose target became warded stalls before it unloads
-    m = {"status": "running", "phase": "travel", "idx": 0, "targets": ["SOL"], "opts": {}, "log": []}
+    m = {"status": "running", "phase": "travel", "idx": 0, "targets": ["ABOTEIN"], "opts": {}, "log": []}
     steps, problems = client.portal.call(eng.fleet_phase_steps, {"id": "m", "name": "M", "role": "mining", "home": "FAL"},
                                          m, "deploy", [])
     assert not steps and m.get("stall") and "ward" in problems[0]
@@ -4964,3 +4965,30 @@ def test_observatory_aims_and_found_stars(client):
                     "stars": [{"designation": "NEWSTAR", "position": {"x": 80, "y": 1, "z": 2}}]}})
     stars = {s["designation"] for s in client.portal.call(client.app.state.db.kv_get, "stars")["stars"]}
     assert "NEWSTAR" in stars
+
+
+def test_catalogue_includes_observatory_finds_even_from_before(client):
+    """Stars from every stored prospect.completed go on the map (finds from before 1.36 were never merged); a find with
+    no position is reported, not plotted at Sol."""
+    db = client.app.state.db
+    client.portal.call(db.insert_event, {"id": "old-1", "event": "prospect.completed", "device_code": "OBS",
+                                          "created_at": "2026-10-01T00:00:00+00:00",
+                                          "payload": {"stars_generated": 2, "stars": [
+                                              {"designation": "FARSTAR", "position": {"x": 90, "y": 0, "z": 1}}, "NOPOS"]}})
+    client.portal.call(client.app.state.worker.sync_catalogue)
+    cat = client.portal.call(db.kv_get, "stars")
+    names = {s["designation"] for s in cat["stars"]}
+    assert "FARSTAR" in names and "NOPOS" not in names
+    assert cat["sources"]["observatory"] >= 1 and cat["sources"]["observatory_unplaced"] == ["NOPOS"]
+    assert cat["sources"]["catalogue"] > 0
+    data = client.get("/api/map.json", headers=H).json()
+    assert data["sources"]["observatory"] >= 1
+    r = client.post("/map/refresh", headers=HX)
+    assert "found by your observatories" in r.text and "without a position" in r.text
+
+
+def test_a_system_we_mine_in_isnt_warded_against_us():
+    from rsweb import wards
+    stars = {"stars": [{"designation": "AEMEROTH", "has_ward": True}, {"designation": "ITHVALAI", "has_ward": True}]}
+    drone = {"device_code": "D", "device_type": "mining_drone", "location": "AEMEROTH-BELT-1", "status": "mining (carbon)"}
+    assert wards.foreign(stars, [drone]) == {"ITHVALAI"}

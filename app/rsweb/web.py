@@ -1423,7 +1423,7 @@ async def map_payload(request: Request) -> dict:
     moving = transit.galaxy_movers(transit.trips(st["devices"]), positions)
     items = await request.app.state.worker.automations.fleets()
     fleets = [fl.activity(f, st["devices"], status_class) for f in items]
-    return {"stars": stars, "replicants": reps, "generated_at": cat.get("generated_at"),
+    return {"stars": stars, "replicants": reps, "generated_at": cat.get("generated_at"), "sources": cat.get("sources"),
             "catalogue_updated": await db.kv_updated("stars"), "moving": moving,
             "fleets": [f for f in fleets if f["members"]], "supply": fl.supply_links(items, st["devices"])}
 
@@ -1442,14 +1442,19 @@ async def route_estimate(request: Request, replicant: str, star: str, user: str 
 @router.post("/map/refresh", response_class=HTMLResponse)
 async def map_refresh(request: Request, user: str = Depends(current_user)):
     try:
-        stars = await request.app.state.api.get("/stars")
-        from .census import merge
-        n = len((stars or {}).get("stars") or [])
-        stars = merge(stars or {}, await request.app.state.db.kv_get("census_stars", {}) or {})
+        from .census import fetch_catalogue, full_catalogue
+        stars = await full_catalogue(request.app.state.db, await fetch_catalogue(request.app.state.api))
         await request.app.state.db.kv_set("stars", stars)
-        extra = len(stars["stars"]) - n
-        return HTMLResponse(f"Catalogue refreshed ({n} stars" + (f", plus {extra} from censuses" if extra else "")
-                            + "). Reload the map.")
+        src = stars["sources"]
+        bits = [f"{src['catalogue']} from the game's catalogue"
+                + (f" (it says {src['catalogue_total']})" if src.get("catalogue_total") not in (None, src["catalogue"]) else "")]
+        if src["census"]:
+            bits.append(f"{src['census']} from censuses")
+        if src["observatory"]:
+            bits.append(f"{src['observatory']} found by your observatories")
+        if src["observatory_unplaced"]:
+            bits.append(f"{len(src['observatory_unplaced'])} found without a position yet")
+        return HTMLResponse(f"Catalogue refreshed: {', '.join(bits)}. Reload the map.")
     except ApiError as e:
         return HTMLResponse(f"Refresh failed: {e.message} (the catalogue allows 1 request/minute)")
 
