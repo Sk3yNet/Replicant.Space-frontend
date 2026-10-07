@@ -685,7 +685,7 @@ class AutomationEngine(OpsRules):
                             and (to_tag(o["star"]) in tags or o.get("factory") == ev.get("device_code"))), None)
                 if hit:
                     new = p.get("new_device_code")
-                    hit["device_code"] = new or "?"
+                    hit["device_code"], hit["printed_at"] = new or "?", now_iso()
                     await self.db.kv_set("loadout_orders", orders)
                     if new and hit.get("location") and at_tag(hit["location"]) not in tags:
                         await self.send("PATCH", f"/devices/{new}", {"configuration": {"add_tags": [at_tag(hit["location"])]}},
@@ -840,6 +840,8 @@ class AutomationEngine(OpsRules):
             if at and (now - at).total_seconds() > 48 * 3600:
                 continue
             keep.append(o)
+        from .loadouts import reconcile_orders
+        keep = reconcile_orders(keep, await self.devices(), now.timestamp())
         if len(keep) != len(orders):
             await self.db.kv_set("loadout_orders", keep)
         return keep
@@ -1502,7 +1504,7 @@ class AutomationEngine(OpsRules):
         from .ami_schedule import set_stationed
         from .fleets import fleet_tag, stationed
         derived = ("roster", "points", "job", "zero", "report", "route", "sends_to", "takes_from", "target_options",
-                   "owner_move", "owner_hosts", "owners")   # page-only fields, never stored
+                   "owner_move", "owner_hosts", "owners", "orders")   # page-only fields, never stored
         keep = [{k: v for k, v in f.items() if k not in derived} for f in items]
         await self.db.kv_set("fleets", keep)
         set_stationed({fleet_tag(f["id"]): f["home"] for f in items if stationed(f)})

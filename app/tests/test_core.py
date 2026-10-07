@@ -3995,3 +3995,55 @@ def test_each_fleet_prints_on_its_own_autofactory():
     away["tags"].append("at:FAL-BELT-1")
     p = lo.plan({"phases": [], "fleets": fleets[1:2], "fleets_migrated": True}, [away], [], {}, stars, {}, set(), [], {})
     assert p["returning"] == []
+
+
+def test_print_orders_removed_from_a_queue_stop_counting_as_incoming(client):
+    """Live 2026-10-07: prints taken off a queue by hand kept counting as incoming for 48 h, so the fleet looked complete
+    and nothing could be queued to fill its loadout."""
+    from rsweb import loadouts as lo
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc).timestamp()
+    O = lambda t, f, at="2026-10-07T11:00:00+00:00", **kw: {"star": "FAL", "fleet": "hub", "device_type": t, "factory": f, "at": at, **kw}  # noqa: E731
+    orders = [O("maintenance_drone", "AF1"), O("maintenance_drone", "AF1"), O("maintenance_drone", "AF1"),
+              O("survey_drone", "AF2"), O("survey_drone", "AF2", at="2026-10-07T11:58:00+00:00"),   # fresh: kept
+              O("mining_drone", "AF3", device_code="?", printed_at="2026-10-07T11:00:00+00:00"),  # printed, code never came
+              O("mining_drone", "GONE")]                                                            # factory not listed: kept
+    devices = [{"device_code": "AF1", "device_type": "autofactory", "status": "printing (maintenance_drone)", "print_queue": []},
+               {"device_code": "AF2", "device_type": "autofactory", "status": "idle", "print_queue": []},
+               {"device_code": "AF3", "device_type": "autofactory", "status": "idle", "print_queue": []}]
+    kept = lo.reconcile_orders(orders, devices, now)
+    assert [(o["device_type"], o["factory"]) for o in kept] == [("maintenance_drone", "AF1"), ("survey_drone", "AF2"),
+                                                                ("mining_drone", "GONE")]
+    devices[0]["print_queue"] = [{"device_type": "maintenance_drone", "quantity": 2}]
+    assert len([o for o in lo.reconcile_orders(orders, devices, now) if o["factory"] == "AF1"]) == 3
+    assert lo.forget_queued(orders, "AF1", "maintenance_drone", 1) == orders[:2] + orders[3:]
+    assert [o["factory"] for o in lo.forget_queued(orders, "AF1")] == ["AF2", "AF2", "AF3", "GONE"]
+    # the fleet card lists them, and Forget these drops only that fleet's
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "loadout_orders", orders + [{**O("survey_drone", "AF2"), "fleet": "other"}])
+    client.post("/loadouts/orders/clear", data={"fleet": "hub"}, headers=HX)
+    assert [o["fleet"] for o in client.portal.call(db.kv_get, "loadout_orders")] == ["other"]
+
+
+def test_removing_from_a_queue_forgets_its_order(client):
+    world = client.app.state.api.http._transport.app.state.world
+    world.queues["AF00BEEF"] = [{"device_type": "survey_drone"}, {"device_type": "ftl_beacon"}]
+    world.devices[7]["status"] = "printing (mining_drone)"
+    db = client.app.state.db
+    O = lambda t: {"star": "FAL", "fleet": "hub", "device_type": t, "factory": "AF00BEEF", "at": "2026-10-07T11:00:00+00:00"}  # noqa: E731
+    client.portal.call(db.kv_set, "loadout_orders", [O("survey_drone"), O("ftl_beacon"), O("ftl_beacon"),
+                                                     {**O("ftl_beacon"), "factory": "OTHER"}])
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "remove", "index": "1"}, headers=HX)   # the ftl beacon
+    assert "result ok" in r.text
+    left = client.portal.call(db.kv_get, "loadout_orders")
+    assert [(o["device_type"], o["factory"]) for o in left] == [("survey_drone", "AF00BEEF"), ("ftl_beacon", "AF00BEEF"),
+                                                                ("ftl_beacon", "OTHER")]
+    client.post("/devices/AF00BEEF/print-queue", data={"action": "clear"}, headers=HX)
+    assert [o["factory"] for o in client.portal.call(db.kv_get, "loadout_orders")] == ["OTHER"]
+    # the fleet card lists a stationed fleet's queued prints with a Forget button
+    eng = client.app.state.worker.automations
+    client.portal.call(eng.save_fleets, [{"id": "hub", "name": "Hub", "role": "mining", "home": "SOL", "station": True,
+                                          "wants": {"ftl_beacon": 3}, "materials": "", "mission": None}])
+    client.portal.call(db.kv_set, "loadout_orders", [{**O("ftl_beacon"), "at": "2099-01-01T00:00:00+00:00"}])
+    page = client.get("/fleets", headers=H).text
+    assert "Queued prints counted as incoming" in page and "1 queued print(s)" in page and "Forget these" in page

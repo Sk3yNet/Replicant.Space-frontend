@@ -131,7 +131,7 @@
       {% if f.owner_hosts %}<div class="small lv-alert">Left alone (they host a replicant): {% for d in f.owner_hosts %}{{ d.device_code }} ({{ d.hosting_replicant.name }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
       <div id="fo-{{ f.id }}"></div>
       {% if f.report %}{% set rep = f.report %}
-      <details style="margin-top:8px"><summary class="small">At its station: {{ rep.short or 0 }} short · {{ rep.surplus or 0 }} spare · incoming and away</summary>
+      <details style="margin-top:8px"><summary class="small">At its station: {{ rep.short or 0 }} short · {{ rep.rows | sum(attribute='incoming') }} incoming{% if f.orders %} ({{ f.orders | length }} queued print(s)){% endif %} · {{ rep.surplus or 0 }} spare · away</summary>
         <table class="small">
           <tr><th>Type</th><th class="num">Want</th><th class="num">Have</th><th class="num">Incoming</th><th class="num">Short</th><th>Away from home</th><th>Spare / filling from</th></tr>
           {% for row in rep.rows %}<tr>
@@ -146,7 +146,15 @@
           </tr>{% endfor %}
         </table>
         <p class="muted small">Have counts members and fleetless devices in {{ f.home }} that the fleet takes this pass. A template's
-          blank lines are "don't care"; a 0 means none wanted, so any there become spare.</p></details>
+          blank lines are "don't care"; a 0 means none wanted, so any there become spare. Incoming counts prints queued
+          for it, so they aren't queued twice.</p>
+        {% if f.orders %}<div class="small">Queued prints counted as incoming:
+          {% for t, n in f.orders | groupby('device_type') %}{{ n | length }}× {{ t | human }}
+            ({% for o in n %}<a class="mono" href="/devices/{{ o.factory }}">{{ o.factory }}</a>{{ ', ' if not loop.last }}{% endfor %}){{ ' · ' if not loop.last }}{% endfor %}
+          <button class="small ghost" hx-post="/loadouts/orders/clear" hx-vals='{"fleet": "{{ f.id }}"}'
+                  hx-confirm="Forget {{ f.orders | length }} queued print(s) for {{ f.name }}? They stop counting as incoming, and the next pass (or Apply loadout now) queues what's still missing.">Forget these</button>
+          <div class="muted">Taking a print off a factory's queue here in the app forgets it automatically, and one the factory no longer holds is dropped within 10 minutes.</div></div>{% endif %}
+        </details>
       {% endif %}
       <details style="margin-top:8px"><summary class="small">Add / remove devices</summary>
         <form hx-post="/fleets/{{ f.id }}/members" hx-swap="none">

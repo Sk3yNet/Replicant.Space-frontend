@@ -1366,3 +1366,65 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
             add(d, "idle in its system with no controller", True, "adopted by the system's controller")
     star_order = {s: i for i, s in enumerate(sorted(known))}
     return sorted(out, key=lambda x: (x["fixed"], star_order.get(star_of(x["location"]), 0), x["code"]))
+
+
+# --- prints ordered by this app (kv "loadout_orders") ------------------------------------------------------
+# They count as incoming for their fleet until the device shows up. Seen live (2026-10-07): prints removed from a queue by
+# hand kept counting for 48 h, so the fleet looked complete and nothing could be queued to fill it.
+ORDER_GRACE_S = 600   # a fresh enqueue may not be in the device list yet
+
+
+def forget_queued(orders: list[dict], factory: str, device_type: str | None = None, n: int | None = None) -> list[dict]:
+    """Drop not-yet-printed orders on `factory` (of `device_type`, the newest `n` of them; all when n is None)."""
+    drop = [i for i, o in enumerate(orders) if o.get("factory") == factory and not o.get("device_code")
+            and (device_type is None or o.get("device_type") == device_type)]
+    drop = set(drop[::-1][:n] if n is not None else drop)
+    return [o for i, o in enumerate(orders) if i not in drop]
+
+
+def queued_counts(dev: dict) -> tuple[Counter, int]:
+    """What an autofactory still has to print, by type (its queue plus the current print), and how many it holds
+    whose type isn't known (waiting for resources with no type shown)."""
+    from . import printqueue as pq
+    have: Counter = Counter()
+    for it in pq.items(dev):
+        have[it["device_type"]] += max(1, int(it.get("quantity") or 1))
+    st = str(dev.get("status") or "")
+    pr = dev.get("printing")
+    if isinstance(pr, dict) and pr.get("device_type"):
+        have[pr["device_type"]] += 1
+        return have, 0
+    if st.startswith("printing") and "(" in st:
+        have[st[st.find("(") + 1:st.rfind(")")]] += 1
+        return have, 0
+    return have, 1 if st.startswith(("printing", "waiting")) else 0
+
+
+def reconcile_orders(orders: list[dict], devices: list[dict], now_ts: float) -> list[dict]:
+    """Drop orders their autofactory no longer holds (removed or cleared by hand, cancelled, or lost), and printed
+    ones whose new device code never came through after 30 minutes."""
+    from .automations import _ts
+    by = {d.get("device_code"): d for d in devices}
+    out, groups = [], defaultdict(list)
+    for o in orders:
+        at = _ts(o.get("printed_at") or o.get("at"))
+        age = now_ts - at.timestamp() if at else 0
+        if o.get("device_code") == "?" and age > 1800:
+            continue
+        if not o.get("device_code") and o.get("factory") in by and age > ORDER_GRACE_S:
+            groups[o["factory"]].append(o)
+            continue
+        out.append(o)
+    for f, os_ in groups.items():
+        have, unknown = queued_counts(by[f])
+        for o in os_:   # oldest first: those print first
+            t = o.get("device_type")
+            if have[t] > 0:
+                have[t] -= 1
+            elif unknown > 0:
+                unknown -= 1
+            else:
+                continue
+            out.append(o)
+    order = {id(o): i for i, o in enumerate(orders)}
+    return sorted(out, key=lambda o: order[id(o)])

@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.23.5"
+VERSION = "1.23.6"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.23.6", "2026-10-07", "Prints taken off an autofactory queue stop counting as incoming for their fleet (Remove / Clear / "
+     "Cancel in the queue panel forgets them; one the factory no longer holds is dropped within 10 minutes), so the "
+     "loadout pass queues the rest again. A stationed fleet's card lists its queued prints with Forget these."),
     ("1.23.5", "2026-10-06", "A fleet with its own autofactory prints its loadout on it (waiting there for materials if "
      "short); a fleet without one uses a fleetless factory before another fleet's. A device pinned with an at: tag stays "
      "there instead of being sent to its fleet's home."),

@@ -559,6 +559,21 @@ async def print_queue_action(request: Request, code: str, action: str = Form(...
     else:
         return HTMLResponse('<div class="result err">Unknown queue action.</div>', status_code=400)
     outcome = await call_action(request, user, "POST", f"/devices/{code}", body, label)
+    if outcome.get("ok") and action in ("remove", "clear", "cancel"):
+        # prints taken off the queue stop counting as on their way to a fleet (or the fleet never gets them)
+        db = request.app.state.db
+        orders = await db.kv_get("loadout_orders", []) or []
+        if action == "clear":
+            left = lo.forget_queued(orders, code)
+        elif action == "remove":
+            it = next((x for x in printqueue.items(dev) if x["api_index"] == index), None)
+            left = lo.forget_queued(orders, code, it["device_type"], max(1, int(it.get("quantity") or 1))) if it else orders
+        else:
+            have, _ = lo.queued_counts(dev)
+            cur = next(iter(have - Counter(x["device_type"] for x in printqueue.items(dev))), None)
+            left = lo.forget_queued(orders, code, cur, 1) if cur else orders
+        if len(left) != len(orders):
+            await db.kv_set("loadout_orders", left)
     dev = await fetch_device(request, code)  # re-read so the panel shows the game's view
     return partial(request, "partials/print_queue.html", **await print_queue_ctx(request, code, dev, outcome))
 
@@ -2298,8 +2313,11 @@ async def loadouts_apply(request: Request, star: str = Form(""), fleet: str = Fo
 
 
 @router.post("/loadouts/orders/clear", response_class=HTMLResponse)
-async def loadouts_clear_orders(request: Request, user: str = Depends(current_user)):
-    await request.app.state.db.kv_set("loadout_orders", [])
+async def loadouts_clear_orders(request: Request, fleet: str = Form(""), user: str = Depends(current_user)):
+    """Forget pending print orders (all, or one fleet's) so they stop counting as incoming."""
+    db = request.app.state.db
+    orders = await db.kv_get("loadout_orders", []) or []
+    await db.kv_set("loadout_orders", [o for o in orders if fleet and o.get("fleet") != fleet])
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
@@ -2438,6 +2456,7 @@ async def fleets_ctx(request: Request) -> dict:
         f["owners"] = Counter(reps.get(d.get("replicant_code"), d.get("replicant_code") or "?") for d in fl.members(f, st["devices"]))
     for f in items:
         f["report"] = lctx["plan"]["report"].get(f["id"])
+        f["orders"] = [o for o in lctx.get("orders") or [] if o.get("fleet") == f["id"] and not o.get("device_code")]
         f["route"] = next((r for r in lctx["plan"].get("routes") or [] if r.get("fleet_id") == f["id"]), None)
         f["sends_to"] = fl.materials_target(f, items)
         f["takes_from"] = [x for x in items if x.get("materials") == f["id"]]
