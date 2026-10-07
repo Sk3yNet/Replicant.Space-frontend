@@ -2745,8 +2745,8 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         st = await load_state(request)
         carriers = {c["device_code"] for c in fl.roster(f, st["devices"])["carriers"]}
         sf = outposts.shortfall(carriers, st["devices"], m["targets"], await request.app.state.db.kv_get("stowed_map", {}) or {})
-        eng._mlog(m, "aboard: " + ", ".join(f"{sf['have'][k]} {label}(s) for {len(sf['need'][k])} system(s) without one"
-                                            for k, label in outposts.LABELS.items()))
+        eng._mlog(m, "aboard: " + ", ".join(f"{sf['have'][k]} {outposts.LABELS[k]}(s) for {len(sf['need'][k])} system(s) "
+                                            "without one" for k in outposts.DROPS))
         for w in sf["warnings"]:
             eng._mlog(m, "warning: " + w)
             await eng.log("fleets", f"{f['name']}: {w}", "alert", notify=True)

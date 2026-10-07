@@ -1,16 +1,16 @@
-"""FTL relays, beacons and system wards dropped by survey missions.
+"""FTL relays and beacons dropped by survey missions (and where your relays, beacons and wards are, for the Systems list).
 
-A survey (explore) fleet leaves one FTL relay, one FTL beacon and one system ward in each system it visits that has none
-of yours yet:
+A survey (explore) fleet leaves one FTL relay and one FTL beacon in each system it visits that has none of yours yet:
   • relay  — deployed at an L4/L5 Lagrange point (the only place it works) and activated; it extends remote command and
              BobNet (7.5 ly, chains automatically)
   • beacon — deployed wherever the carrier unloads; it logs the system's traffic from anywhere in the system. If the
              survey finds a civilisation (an event at a body, or a body with intelligent / spacefaring life), the carrier
              picks the beacon up again once everyone is aboard and deploys it at that body: civilisations only send their
              follow-up requests to a beacon AT their planet or moon.
-  • ward   — deployed where the carrier unloads and activated: other players can't mine in a warded system (an
-             activation may evict miners already there). The game allows 25 per account, and wards don't go with hubs.
 They ride in the fleet's carriers (stowed or attached); they don't have to be fleet members.
+System wards aren't left behind: a ward travels with its fleet as a member (put system_ward in the loadout). It's
+deployed and activated when the fleet unloads in a system, and deactivated and taken aboard when the fleet leaves
+(fleets.unload_steps, modular.with_untracking).
 """
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ from .automations import step
 from .placement import is_lagrange
 from .traffic import CIV_STAGES
 
-KINDS = {"relay": "ftl_relay", "beacon": "ftl_beacon", "ward": "system_ward"}
+KINDS = {"relay": "ftl_relay", "beacon": "ftl_beacon", "ward": "system_ward"}   # what the Systems list shows
 LABELS = {"relay": "FTL relay", "beacon": "FTL beacon", "ward": "system ward"}
-MAX_WARDS = 25   # per account (game docs)
+DROPS = ("relay", "beacon")                                                   # what survey crews leave behind
 
 
 def star_of(loc: str | None) -> str:
@@ -55,22 +55,20 @@ def deployed_in(devices: list[dict], star: str, kind: str) -> list[dict]:
 def needs(devices: list[dict], stars: list[str]) -> dict[str, list[str]]:
     """{kind: [systems in the list with none of yours yet]} (each system once, in list order)."""
     seen = list(dict.fromkeys(star_of(s) for s in stars if s))
-    return {k: [s for s in seen if not deployed_in(devices, s, k)] for k in KINDS}
+    return {k: [s for s in seen if not deployed_in(devices, s, k)] for k in DROPS}
 
 
 def shortfall(carriers: set[str], devices: list[dict], stars: list[str], holds: dict[str, list[str]] | None = None) -> dict:
     """What a survey mission over `stars` needs against what its carriers hold, plus warning lines."""
     need = needs(devices, stars)
-    have = {k: len(carried(carriers, devices, k, holds)) for k in KINDS}
+    have = {k: len(carried(carriers, devices, k, holds)) for k in DROPS}
     warn = []
-    for k, label in LABELS.items():
+    for k in DROPS:
+        label = LABELS[k]
         n = len(need[k])
         if n > have[k]:
             warn.append(f"{n} system(s) without your {label} ({', '.join(need[k])}) but only {have[k]} aboard — "
                         f"{n - have[k]} will be left without one")
-    wards = sum(1 for d in devices if d.get("device_type") == KINDS["ward"] and d.get("location"))
-    if need["ward"] and have["ward"] and wards + min(have["ward"], len(need["ward"])) > MAX_WARDS:
-        warn.append(f"you have {wards} wards deployed; the game allows {MAX_WARDS} per account")
     return {"need": need, "have": have, "warnings": warn}
 
 
@@ -106,16 +104,6 @@ def drop_steps(carriers: set[str], devices: list[dict], star: str, spot: str | N
             st["wait_device"] = code
             steps += [st] + leave(beacons[0])
             notes.append(f"dropping beacon {code} at {spot or star}")
-    if not deployed_in(devices, star, "ward"):
-        wards = carried(carriers, devices, "ward", holds)
-        if wards:
-            code = wards[0]["device_code"]
-            st = step(f"deploy ward {code} at {spot or star}", f"/devices/{code}", {"command": "deploy"},
-                      wait=["device.deployed"], timeout=120)
-            st["wait_device"] = code
-            steps += [st, step(f"{code}: activate ward (no mining by other players in {star})", f"/devices/{code}",
-                               {"command": "activate"})] + leave(wards[0])
-            notes.append(f"dropping ward {code} at {spot or star}")
     return steps, notes
 
 

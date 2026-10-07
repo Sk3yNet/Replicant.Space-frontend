@@ -68,13 +68,14 @@ def unfurl_step(code: str) -> dict:
 
 
 def tracking(d: dict) -> bool:
-    return str(d.get("status") or "").startswith(("tracking", "searching"))
+    """Busy in place in a way that has to be switched off before it can move: a survey drone tracking / searching a site,
+    or an active system ward (status `warding`)."""
+    return str(d.get("status") or "").startswith(("tracking", "searching", "warding"))
 
 
-def deactivate_step(code: str) -> dict:
+def deactivate_step(code: str, what: str = "stop tracking its site") -> dict:
     # live 2026-10-07: "Cannot cruise while tracking a site - deactivate first" (moving it closes the site anyway)
-    return step(f"{code}: stop tracking its site (deactivate) to move", f"/devices/{code}", {"command": "deactivate"},
-                critical=True)
+    return step(f"{code}: {what} (deactivate) to move", f"/devices/{code}", {"command": "deactivate"}, critical=True)
 
 
 def activate_step(code: str) -> dict:
@@ -88,7 +89,9 @@ def with_untracking(steps: list[dict], devices: list[dict]) -> list[dict]:
     held = {c for c, d in by.items() if c and tracking(d)}
     if not held or any((s.get("body") or {}).get("command") == "deactivate" for s in steps):
         return steps
-    return _wrap(steps, held, lambda code: deactivate_step(code), activate_step)
+    return _wrap(steps, held, lambda code: deactivate_step(
+        code, "stop warding" if str(by[code].get("status") or "").startswith("warding") else "stop tracking its site"),
+        activate_step)
 
 
 def with_compaction(steps: list[dict], devices: list[dict], bps: dict[str, dict] | None = None) -> list[dict]:

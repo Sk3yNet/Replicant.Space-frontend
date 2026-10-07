@@ -648,7 +648,7 @@ def unload_steps(fleet: dict, devices: list[dict], spot: str | None = None) -> l
             w["seq0_from"] = i
             out.append(w)
     for d in r["members"]:
-        if d.get("device_type") in ("ftl_relay", "ftl_beacon", "system_ward"):
+        if d.get("device_type") in ("ftl_relay", "ftl_beacon"):
             continue   # dropped one per system by a survey crew (outposts.py), not all at once
         c = d.get("attached_to_device_code")
         if c in carriers:
@@ -658,6 +658,11 @@ def unload_steps(fleet: dict, devices: list[dict], spot: str | None = None) -> l
                       {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT)
             st["wait_device"] = d["device_code"]
             out.append(st)
+        else:
+            continue
+        if d.get("device_type") == "system_ward":
+            # the fleet's ward guards the system it's working: other players can't mine here while it's active
+            out.append(step(f"{d['device_code']}: activate ward", f"/devices/{d['device_code']}", {"command": "activate"}))
     return out
 
 
