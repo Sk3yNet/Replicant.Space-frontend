@@ -174,26 +174,33 @@ def notification_for(ev: dict) -> dict | None:
 
 
 def kind(level: str | None) -> str:
-    """error / warning / info for the notification toggles ('done' is info; 'alert' is from before 1.37: a warning)."""
-    return {"error": "error", "warning": "warning", "alert": "warning"}.get(str(level or ""), "info")
+    """error / warning / info for the notification toggles ('done' is info; 'alert' is from before 1.37 and 'mention'
+    a BobNet mention: warnings)."""
+    return {"error": "error", "warning": "warning", "alert": "warning", "mention": "warning"}.get(str(level or ""), "info")
+
+
+BADGE_LEVELS = ("error", "mention")   # what the bell's badge counts
 
 
 async def unread_errors(db: DB) -> int:
-    """What the bell's badge shows: unread errors only."""
-    row = await db.fetchone("SELECT COUNT(*) AS n FROM notifications WHERE read=0 AND level='error'")
+    """What the bell's badge shows: unread errors and mentions."""
+    row = await db.fetchone("SELECT COUNT(*) AS n FROM notifications WHERE read=0 AND level IN ('error','mention')")
     return row["n"] if row else 0
 
 
 # --- mentions: messages that name one of your replicants ----------------------------------------
 async def my_names(db: DB) -> list[str]:
-    """Your replicants' names (what other players call you on BobNet)."""
+    """Your replicants' names, and their base name without a "-N" suffix (Sk3y-1, Sk3y-4 → also Sk3y), so a message
+    naming any of them, or just Sk3y, counts as mentioning you."""
+    import re
     reps = await db.kv_get("replicants", {}) or {}
-    return sorted({str(r.get("name")).strip() for r in reps.values() if isinstance(r, dict) and r.get("name")
-                   and len(str(r.get("name")).strip()) >= 2})
+    names = {str(r.get("name")).strip() for r in reps.values() if isinstance(r, dict) and r.get("name")}
+    names |= {re.sub(r"-\d+$", "", n) for n in names}
+    return sorted(n for n in names if len(n) >= 2)
 
 
 def mentions(text: Any, names: list[str]) -> bool:
-    """`text` names one of `names` as a whole word, any case ("@Sk3y", "sk3y?" yes; "Sk3yNet" no)."""
+    """`text` names one of `names` as a whole word, any case ("@Sk3y", "sk3y?", "Sk3y-4" yes; "Sk3yNet" no)."""
     import re
     t = str(text or "")
     return any(re.search(rf"(?<![\w]){re.escape(n)}(?![\w])", t, re.IGNORECASE) for n in names)
@@ -205,7 +212,7 @@ def is_mine(ev: dict, names: list[str], codes: set[str]) -> bool:
 
 
 async def add_mention(db: DB, ev: dict) -> dict | None:
-    """A BobNet message mentioning you (not your own): a warning notification (no badge — that's errors only)."""
+    """A BobNet message mentioning you (not your own): a 'mention' notification, which the bell's badge counts."""
     if ev.get("event") != "bobnet.new":
         return None
     names = await my_names(db)
@@ -213,7 +220,7 @@ async def add_mention(db: DB, ev: dict) -> dict | None:
     p = ev.get("payload") or {}
     if not names or is_mine(ev, names, codes) or not mentions(p.get("message"), names):
         return None
-    n = {"level": "warning", "title": f"Mentioned on BobNet — {describe(ev)}", "link": "/messages"}
+    n = {"level": "mention", "title": f"Mentioned on BobNet — {describe(ev)}", "link": "/messages"}
     cur = await db.execute("INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
                            (str(ev.get("id")), n["level"], n["title"], None, n["link"], now_iso()))
     n["id"] = cur.lastrowid

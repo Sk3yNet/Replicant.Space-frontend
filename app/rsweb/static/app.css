@@ -66,7 +66,7 @@ tr:hover td { background: rgba(255,255,255,.02); }
 .st-move { color: var(--move); border-color: rgba(180,140,255,.4); }
 .st-off { color: var(--muted); }
 .lv-alert { color: var(--bad); } .lv-done { color: var(--good); } .lv-info { color: var(--muted); }
-.lv-error { color: var(--bad); } .lv-warning { color: var(--warn); }
+.lv-error { color: var(--bad); } .lv-warning, .lv-mention { color: var(--warn); }
 
 input, select, textarea, button { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 textarea { font-family: var(--mono); font-size: 12.5px; width: 100%; min-height: 90px; }
@@ -98,7 +98,7 @@ pre { background: #0a0e15; border: 1px solid var(--line); border-radius: 6px; pa
 #toasts { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column-reverse; gap: 8px; z-index: 50; max-width: 380px; }
 .toast { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 8px; padding: 10px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.4); animation: slide .25s ease-out; }
 .toast.alert, .toast.error { border-left-color: var(--bad); } .toast.done { border-left-color: var(--good); }
-.toast.warning { border-left-color: var(--warn); }
+.toast.warning, .toast.mention { border-left-color: var(--warn); }
 @keyframes slide { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 .digest h3 { margin-top: 12px; }

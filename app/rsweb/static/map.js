@@ -422,35 +422,58 @@ function animate(t = 0) {
   }
 }
 
-function load(first) {
-  return fetch(OPTS.dataUrl || "/api/map.json", { credentials: "same-origin", headers: OPTS.headers || {} })
-    .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
-    .then(d => {
-  data = d;
-  d.stars.forEach(s => byName[s.designation] = s);
-  if ($("star-list")) $("star-list").innerHTML = d.stars.map(s => `<option value="${esc(s.designation)}">`).join("");
+// Progressive: the stars first (part=core: a quick, small answer), then what's on them (part=overlay: drones, mining,
+// ships in transit, fleets, supply lines) — the map is usable while the second part is still coming.
+function partUrl(part) {
+  const u = new URL(OPTS.dataUrl || "/api/map.json", location.href);
+  u.searchParams.set("part", part);
+  return u.href;
+}
+function fetchPart(part) {
+  return fetch(partUrl(part), { credentials: "same-origin", headers: OPTS.headers || {} })
+    .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); });
+}
+function infoText(d, loadingOverlay) {
+  const mv = (d.moving || []).map(m => `<li>${esc(m.label)}: ${esc(m.origin)} → ${esc(m.destination)}</li>`).join("");
+  const src = d.sources || {};
+  const parts = [src.catalogue != null && `${src.catalogue} from the game's catalogue` +
+                   (src.catalogue_total != null && src.catalogue_total !== src.catalogue ? ` (it says ${src.catalogue_total})` : ""),
+                 src.census && `${src.census} from censuses`, src.observatory && `${src.observatory} found by your observatories`,
+                 (src.observatory_unplaced || []).length && `${src.observatory_unplaced.length} found without a position yet`].filter(Boolean);
+  info.innerHTML = `<p>${d.stars.length} stars · catalogue generated ${esc(d.generated_at || "?")}.</p>` +
+    (parts.length ? `<p class="small muted">${esc(parts.join(" · "))}</p>` : "") +
+    (loadingOverlay ? `<p class="small muted">Loading fleets, ships in transit and mining…</p>` : "") +
+    (mv ? `<p class="small"><b>In transit between stars</b></p><ul class="small">${mv}</ul>` : "") +
+    `<p class="muted small">Drag to orbit, scroll to zoom, click a star for details.</p>`;
+}
+function applyOverlay(o, first) {
+  const per = o.per_star || {};
+  for (const s of data.stars) Object.assign(s, per[s.designation] || { drones: [], mining: {} });
+  Object.assign(data, { moving: o.moving || [], fleets: o.fleets || [], supply: o.supply || [] });
   build();
   buildMovers();
   buildFleets();
   buildSupply();
-  if (!first) return;
-  if (!d.stars.length) {
-    info.innerHTML = `<p class="muted">No star catalogue cached yet. It syncs every 30 minutes, or use “refresh catalogue”.</p>`;
-  } else {
-    const mv = (d.moving || []).map(m => `<li>${esc(m.label)}: ${esc(m.origin)} → ${esc(m.destination)}</li>`).join("");
-    const src = d.sources || {};
-    const parts = [src.catalogue != null && `${src.catalogue} from the game's catalogue` +
-                     (src.catalogue_total != null && src.catalogue_total !== src.catalogue ? ` (it says ${src.catalogue_total})` : ""),
-                   src.census && `${src.census} from censuses`, src.observatory && `${src.observatory} found by your observatories`,
-                   (src.observatory_unplaced || []).length && `${src.observatory_unplaced.length} found without a position yet`].filter(Boolean);
-    info.innerHTML = `<p>${d.stars.length} stars · catalogue generated ${esc(d.generated_at || "?")}.</p>` +
-      (parts.length ? `<p class="small muted">${esc(parts.join(" · "))}</p>` : "") +
-      (mv ? `<p class="small"><b>In transit between stars</b></p><ul class="small">${mv}</ul>` : "") +
-      `<p class="muted small">Drag to orbit, scroll to zoom, click a star for details.</p>`;
-    const s = (OPTS.focus && byName[OPTS.focus]) || repStar(); if (s) focus(s);
-  }
-  animate();
-    });
+  if (first && data.stars.length) infoText(data, false);
+}
+function load(first) {
+  return fetchPart("core").then(d => {
+    const keep = { moving: data.moving, fleets: data.fleets, supply: data.supply };   // until the new overlay lands
+    data = { ...keep, ...d };
+    d.stars.forEach(s => byName[s.designation] = s);
+    if ($("star-list")) $("star-list").innerHTML = d.stars.map(s => `<option value="${esc(s.designation)}">`).join("");
+    build();
+    if (first) {
+      if (!d.stars.length) {
+        info.innerHTML = `<p class="muted">No star catalogue cached yet. It syncs every 30 minutes, or use “refresh catalogue”.</p>`;
+      } else {
+        infoText(data, true);
+        const s = (OPTS.focus && byName[OPTS.focus]) || repStar(); if (s) focus(s);
+      }
+      animate();
+    }
+    return fetchPart("overlay").then(o => applyOverlay(o, first));
+  });
 }
 load(true).catch(e => { info.innerHTML = `<p class="muted">Could not load the map: ${esc(e.message)}</p>`; OPTS.onError?.(e); });
 if (OPTS.refreshMinutes) setInterval(() => load(false).catch(e => OPTS.onError?.(e)), OPTS.refreshMinutes * 60000);

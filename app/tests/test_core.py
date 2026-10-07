@@ -5099,6 +5099,7 @@ def test_bobnet_no_double_send_and_clear_on_success(client):
 def test_mentions_of_my_replicant_notify_and_come_first(client):
     from rsweb import notify
     assert notify.mentions("hey @Sk3y, trade?", ["Sk3y"]) and notify.mentions("SK3Y!", ["Sk3y"])
+    assert notify.mentions("ping Sk3y-4", ["Sk3y"]) and notify.mentions("Sk3y-1 o7", ["Sk3y"])
     assert not notify.mentions("Sk3yNet is down", ["Sk3y"]) and not notify.mentions("hello", ["Sk3y"])
     db = client.app.state.db
     reps = client.portal.call(db.kv_get, "replicants") or {}
@@ -5121,6 +5122,32 @@ def test_mentions_of_my_replicant_notify_and_come_first(client):
                                          "payload": {"channel": "#general", "replicant_name": "Sk3y", "replicant_code": code,
                                                      "message": "Sk3y here"}})           # my own post: no notification
     rows = client.portal.call(db.fetchall, "SELECT level, title FROM notifications WHERE title LIKE 'Mentioned%'")
-    assert len(rows) == 1 and rows[0]["level"] == "warning" and "anyone seen sk3y" in rows[0]["title"]
+    assert len(rows) == 1 and rows[0]["level"] == "mention" and "anyone seen sk3y" in rows[0]["title"]
+    from rsweb import notify as _n
+    assert client.portal.call(_n.unread_errors, db) >= 1                     # mentions count in the badge
     page = client.get("/messages", headers=H).text
     assert "Mentioning you" in page and 'data-mention="1"' in page and 'id="bn-mentions"' in page
+
+
+def test_my_names_include_the_base_name(client):
+    from rsweb import notify
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "replicants", {"A": {"name": "Sk3y-1"}, "B": {"name": "Sk3y-4"}})
+    names = client.portal.call(notify.my_names, db)
+    assert names == ["Sk3y", "Sk3y-1", "Sk3y-4"]
+    assert all(notify.mentions(t, names) for t in ("hi Sk3y", "Sk3y-4 where are you", "sk3y-1?"))
+    assert not notify.mentions("Sk3yNet", names)
+
+
+def test_galaxy_map_loads_in_two_parts(client):
+    client.portal.call(client.app.state.worker.sync_devices)
+    core = client.get("/api/map.json", params={"part": "core"}, headers=H).json()
+    assert core["stars"] and "per_star" not in core and "fleets" not in core and "drones" not in core["stars"][0]
+    assert set(core["stars"][0]) <= {"designation", "name", "position", "color", "spectral_type", "region", "estimated_planets",
+                                     "entry_point", "has_hub", "has_ward", "has_life", "explored", "from_census",
+                                     "from_observatory", "devices", "infra", "scanned"}
+    over = client.get("/api/map.json", params={"part": "overlay"}, headers=H).json()
+    assert "stars" not in over and {"per_star", "moving", "fleets", "supply"} <= set(over)
+    assert any(v["drones"] for v in over["per_star"].values())
+    full = client.get("/api/map.json", headers=H).json()                      # the old one-shot shape still works
+    assert "drones" in full["stars"][0] and "fleets" in full

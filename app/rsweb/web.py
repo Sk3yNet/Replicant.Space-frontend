@@ -343,7 +343,7 @@ async def dashboard(request: Request, user: str = Depends(current_user)):
     if visit and not visit.get("digest_dismissed"):
         digest = await notify.build_digest(request.app.state.db, visit["baseline_at"])
     alerts = await request.app.state.db.fetchall(
-        "SELECT * FROM notifications WHERE read=0 AND level IN ('error','warning','alert') ORDER BY id DESC LIMIT 10")
+        "SELECT * FROM notifications WHERE read=0 AND level IN ('error','warning','alert','mention') ORDER BY id DESC LIMIT 10")
     recent = [row_event(r) for r in await request.app.state.db.fetchall(
         "SELECT * FROM events WHERE event NOT LIKE 'ami.%.digest' AND event != 'bobnet.new' ORDER BY seq DESC LIMIT 25")]
     series = await resource_series(request)
@@ -1050,9 +1050,9 @@ async def replicant_message(request: Request, code: str, channel: str = Form("#g
     text = text.strip()
     if not text:
         return HTMLResponse('<div class="result err">Nothing to send.</div>')
-    if await bobnet_repeat(db, channel, text):
+    if await bobnet_repeat(db, channel, text):   # per channel: the same text to another channel still goes
         return HTMLResponse(f'<div class="result err">Already sent that to {html.escape(channel)} in the last '
-                            f'{BOBNET_REPEAT_MINUTES} minutes — not sending it again.</div>')
+                            f'{BOBNET_REPEAT_MINUTES} minutes — not sending it there again (other channels are fine).</div>')
     out = await call_action(request, user, "POST", f"/replicants/{code}/message", {"channel": channel, "text": text},
                             f"BobNet {channel}")
     if not out["ok"]:
@@ -1431,7 +1431,7 @@ async def galaxy_map(request: Request, user: str = Depends(current_user)):
 
 @router.get("/api/map.json")
 async def map_data(request: Request, user: str = Depends(current_user)):
-    return JSONResponse(await map_payload(request))
+    return JSONResponse(await map_payload(request, request.query_params.get("part") or "all"))
 
 
 def mining_now(devices: list[dict]) -> dict[str, int]:
@@ -1444,38 +1444,54 @@ def mining_now(devices: list[dict]) -> dict[str, int]:
     return dict(out)
 
 
-async def map_payload(request: Request) -> dict:
-    """The galaxy map's data (the Galaxy page and the desktop wallpaper)."""
+STAR_FIELDS = ("designation", "name", "position", "color", "spectral_type", "region", "estimated_planets", "entry_point",
+               "has_hub", "has_ward", "has_life", "explored", "from_census", "from_observatory")
+
+
+async def map_payload(request: Request, part: str = "all") -> dict:
+    """The galaxy map's data (the Galaxy page and the desktop wallpaper), in two parts so the map can draw the stars
+    first: part="core" — the stars (only the fields the map uses), where your devices are, replicants; part="overlay"
+    — per-star drones and mining, ships in transit, fleets, supply lines; "all" — both."""
     db = request.app.state.db
     cat = await db.kv_get("stars", {}) or {}
     st = await load_state(request)
-    presence = Counter(star_of(d.get("location")) for d in st["devices"])
-    by_star: dict[str, list[dict]] = defaultdict(list)
-    for d in st["devices"]:
-        if d.get("location"):
-            by_star[star_of(d["location"])].append(d)
-    infra: dict[str, list[str]] = defaultdict(list)
-    for d in st["devices"]:
-        t = d.get("device_type") or ""
-        if any(k in t for k in ("relay", "hub", "beacon", "ward", "slingshot", "observatory")):
-            infra[star_of(d.get("location"))].append(t)
-    scanned = {r["star"] for r in await db.fetchall("SELECT star FROM systems")}
-    reps = [{"code": c, "name": r.get("name"), "star": star_of(r.get("location") or r.get("current_location")),
-             "position": r.get("position")} for c, r in st["replicants"].items()]
-    stars = []
-    for s in cat.get("stars") or []:
-        d = s.get("designation")
-        drones = [{k: g[k] for k in ("kind", "n", "working", "idle", "moving", "state")} for g in drone_summary(by_star.get(d, []))]
-        stars.append({**s, "devices": presence.get(d, 0), "infra": infra.get(d, []), "scanned": d in scanned, "drones": drones,
-                      "mining": mining_now(by_star.get(d, []))})
-    from . import transit
-    positions = {x["designation"]: x.get("position") for x in stars if x.get("position")}
-    moving = transit.galaxy_movers(transit.trips(st["devices"]), positions)
-    items = await request.app.state.worker.automations.fleets()
-    fleets = [fl.activity(f, st["devices"], status_class) for f in items]
-    return {"stars": stars, "replicants": reps, "generated_at": cat.get("generated_at"), "sources": cat.get("sources"),
-            "catalogue_updated": await db.kv_updated("stars"), "moving": moving,
-            "fleets": [f for f in fleets if f["members"]], "supply": fl.supply_links(items, st["devices"])}
+    out: dict = {}
+    if part in ("core", "all"):
+        presence = Counter(star_of(d.get("location")) for d in st["devices"])
+        infra: dict[str, list[str]] = defaultdict(list)
+        for d in st["devices"]:
+            t = d.get("device_type") or ""
+            if any(k in t for k in ("relay", "hub", "beacon", "ward", "slingshot", "observatory")):
+                infra[star_of(d.get("location"))].append(t)
+        scanned = {r["star"] for r in await db.fetchall("SELECT star FROM systems")}
+        stars = []
+        for s in cat.get("stars") or []:
+            d = s.get("designation")
+            stars.append({**{k: s[k] for k in STAR_FIELDS if k in s}, "devices": presence.get(d, 0), "infra": infra.get(d, []),
+                          "scanned": d in scanned})
+        out.update({"stars": stars, "generated_at": cat.get("generated_at"), "sources": cat.get("sources"),
+                    "catalogue_updated": await db.kv_updated("stars"),
+                    "replicants": [{"code": c, "name": r.get("name"), "star": star_of(r.get("location") or r.get("current_location")),
+                                    "position": r.get("position")} for c, r in st["replicants"].items()]})
+    if part in ("overlay", "all"):
+        by_star: dict[str, list[dict]] = defaultdict(list)
+        for d in st["devices"]:
+            if d.get("location"):
+                by_star[star_of(d["location"])].append(d)
+        per_star = {}
+        for d, ds in by_star.items():
+            drones = [{k: g[k] for k in ("kind", "n", "working", "idle", "moving", "state")} for g in drone_summary(ds)]
+            per_star[d] = {"drones": drones, "mining": mining_now(ds)}
+        from . import transit
+        positions = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if s.get("position")}
+        items = await request.app.state.worker.automations.fleets()
+        fleets = [fl.activity(f, st["devices"], status_class) for f in items]
+        out.update({"per_star": per_star, "moving": transit.galaxy_movers(transit.trips(st["devices"]), positions),
+                    "fleets": [f for f in fleets if f["members"]], "supply": fl.supply_links(items, st["devices"])})
+        if part == "all":   # the old shape too: drones / mining on each star
+            for s in out.get("stars") or []:
+                s.update(per_star.get(s["designation"]) or {"drones": [], "mining": {}})
+    return out
 
 
 @router.get("/api/route", response_class=HTMLResponse)
@@ -3274,7 +3290,7 @@ async def wallpaper_static(request: Request, slug: str, path: str):
 @router.get("/wallpaper/{slug}/api/map.json")
 async def wallpaper_map(request: Request, slug: str):
     _, bad = await _wp_auth(request, slug)
-    return bad or JSONResponse(await map_payload(request))
+    return bad or JSONResponse(await map_payload(request, request.query_params.get("part") or "all"))
 
 
 @router.get("/wallpaper/{slug}/api/hud.json")
