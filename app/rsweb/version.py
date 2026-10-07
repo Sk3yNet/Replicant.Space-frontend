@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.33.2"
+VERSION = "1.33.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.33.3", "2026-10-07", "Mining missions on salvage: when one salvage is used up, the fleet moves on to the next one "
+     "in the system it hasn't used (back through the work phase) and only ends its work when none is left."),
     ("1.33.2", "2026-10-07", "Mining missions: the watch phase also ends when the salvage is used up (gather_salvage "
      "'depleted:complete' in a system without a belt) and, for a fleet without a controller, when no drone has mined for "
      "the grace period — it used to wait for an 'exhausted' belt that never came."),

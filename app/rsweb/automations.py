@@ -1601,6 +1601,17 @@ class AutomationEngine(OpsRules):
         m.setdefault("log", []).append({"at": now_iso(), "text": text})
         m["log"] = m["log"][-60:]
 
+    async def next_salvage(self, m: dict) -> str | None:
+        """Another salvage in a mining mission's system that it hasn't used up yet (the current one counts as used)."""
+        from .salvage import available_salvage
+        from .targets import system_resources
+        target = (m.get("targets") or [None])[m.get("idx", 0)] if m.get("targets") else None
+        if not target:
+            return None
+        used = set(m.get("salvaged") or []) | {m.get("salvage")}
+        left = [x for x in available_salvage(await system_resources(self.db, star_of(target))) if x["code"] not in used]
+        return left[0]["code"] if left else None
+
     async def fleet_phase_steps(self, fleet: dict, m: dict, phase: str, devices: list[dict]) -> tuple[list[dict], list[str]]:
         from . import fleets as fl
         from . import loadouts as lo
@@ -1654,7 +1665,8 @@ class AutomationEngine(OpsRules):
             if not belt:   # no belt here: salvage is the only work
                 from .salvage import available_salvage
                 from .targets import system_resources
-                found = available_salvage(await system_resources(self.db, target))
+                found = [x for x in available_salvage(await system_resources(self.db, target))
+                         if x["code"] not in (m.get("salvaged") or [])]   # not one this mission already used up
                 if not found:
                     m["stall"] = True
                     return [], [f"{target} has no asteroid belt and no salvage we know of — nothing to mine "
@@ -1923,7 +1935,13 @@ class AutomationEngine(OpsRules):
                     changed = True
                 if not done and not m.pop("recall_now", False):
                     continue
-                self._mlog(m, f"work done ({why})")
+                nxt_sal = await self.next_salvage(m) if done and fleet["role"] == "mining" and m.get("salvage") else None
+                if nxt_sal:   # salvage used up, more in the system: back to work on the next one before ending
+                    m.setdefault("salvaged", []).append(m["salvage"])
+                    self._mlog(m, f"salvage {m['salvage']} used up — moving on to {nxt_sal}")
+                    m["phase"], m["exhausted_since"] = "deploy", None   # the next phase is work, on the next salvage
+                else:
+                    self._mlog(m, f"work done ({why})")
             # next phase (skipping any with nothing to do)
             for _ in range(12):
                 nxt = fl.next_phase(fleet["role"], m)

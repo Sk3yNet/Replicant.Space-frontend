@@ -4800,3 +4800,38 @@ def test_mining_watch_ends_when_the_salvage_is_used_up():
                              "2026-10-07T12:00:00+00:00")[0]
     # no controller: done once no drone has mined for the grace period
     assert fl.watch_done(f, {"exhausted_since": "2026-10-07T11:00:00+00:00"}, [drone], "2026-10-07T12:00:00+00:00")[0]
+
+
+def test_mining_mission_moves_on_to_the_next_salvage_before_ending(client, monkeypatch):
+    from rsweb import targets
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+    salvage = {"KEL": [{"code": "KEL-1-SAL-1", "total": 0, "depleted": True}, {"code": "KEL-2-SAL-1", "total": 500},
+                       {"code": "KEL-3-SAL-1", "total": 200}]}
+
+    async def fake_resources(_db, star):
+        return {"salvage": [dict(x) for x in salvage.get(star.upper(), [])], "sites": []}
+    monkeypatch.setattr(targets, "system_resources", fake_resources)
+    devices = [{"device_code": "C", "device_type": "ami_mining_controller", "tags": ["fleet:p"], "location": "KEL-1",
+                "status": "coordinating", "ami_directive": {"name": "gather_salvage", "_eval_state": "depleted:complete"},
+                "available_commands": ["set_directive", "launch", "adopt"]},
+               {"device_code": "D", "device_type": "mining_drone", "tags": ["fleet:p"], "location": "KEL-1", "status": "idle",
+                "controller_device_code": "C"}]
+    client.portal.call(db.kv_set, "devices", devices)
+    mission = {"status": "running", "phase": "watch", "idx": 0, "targets": ["KEL"], "opts": {}, "log": [],
+               "salvage": "KEL-1-SAL-1", "exhausted_since": "2026-01-01T00:00:00+00:00"}
+    client.portal.call(eng.save_fleets, [{"id": "p", "name": "Prospectors", "role": "mining", "home": "FAL", "wants": {},
+                                          "mission": mission}])
+    client.portal.call(eng.run_fleets)
+    m = next(f for f in client.portal.call(eng.fleets) if f["id"] == "p")["mission"]
+    texts = [x["text"] for x in m["log"]]
+    assert any("KEL-1-SAL-1 used up — moving on to KEL-2-SAL-1" in t for t in texts), texts
+    assert m["salvage"] == "KEL-2-SAL-1" and m["salvaged"] == ["KEL-1-SAL-1"] and m["phase"] == "work" and m["status"] == "running"
+    # the last one used up: the mission ends its work (recall …) instead of looping
+    m.update({"phase": "watch", "job": None, "salvage": "KEL-3-SAL-1", "salvaged": ["KEL-1-SAL-1", "KEL-2-SAL-1"],
+              "exhausted_since": "2026-01-01T00:00:00+00:00"})
+    client.portal.call(eng.save_fleets, [{"id": "p", "name": "Prospectors", "role": "mining", "home": "FAL", "wants": {},
+                                          "mission": m}])
+    client.portal.call(eng.run_fleets)
+    m = next(f for f in client.portal.call(eng.fleets) if f["id"] == "p")["mission"]
+    assert any(x["text"].startswith("work done") for x in m["log"]) and m["phase"] != "work"
