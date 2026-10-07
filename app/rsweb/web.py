@@ -712,6 +712,19 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
         return bad(str(e))
     except ValueError as e:
         return bad(f"Bad JSON: {e}")
+    if command in ("deploy", "detach"):
+        # Seen live 2026-10-06: slingshot E28DBE58 deployed while its carrier was mid-surge came out between systems,
+        # with no location, and can't be reached since. Refuse while the carrier is moving.
+        st = await load_state(request)
+        by = {d.get("device_code"): d for d in st["devices"]}
+        stowed = await request.app.state.db.kv_get("stowed_map", {}) or {}
+        dev = by.get(code) or {}
+        carrier = code if command == "detach" else (dev.get("stowed_in_device_code") or dev.get("attached_to_device_code")
+                                                    or next((c for c, kids in stowed.items() if code in kids), None))
+        trip = fl.in_flight(by.get(carrier) or {}) if carrier else None
+        if trip:
+            return bad(f"{carrier} is travelling to {trip['destination']} — {command} once it has arrived, or the device "
+                       "comes out between systems with no location")
     if command in MOVE_COMMANDS:
         try:
             followups = parse_chain(form, code, None)

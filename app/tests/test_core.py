@@ -4404,3 +4404,15 @@ def test_vessels_hosting_a_replicant_can_join_a_fleet(client):
                                           "station": False, "materials": "", "mission": None}])
     page = client.get("/fleets", headers=H).text
     assert f'name="add" value="{rep["hosted_device_code"]}"' in page and f"hosts {rep.get('name') or code}" in page
+
+
+def test_deploy_is_refused_while_the_carrier_is_travelling(client):
+    """Live 2026-10-06: slingshot E28DBE58 deployed mid-surge came out between systems, with no location."""
+    world = client.app.state.api.http._transport.app.state.world
+    vessel = next(d for d in world.devices if "vessel" in d["device_type"])
+    cargo = next(d for d in world.devices if d["device_type"] == "survey_drone")
+    vessel.update({"status": "travelling", "travel": {"destination": "ABOTEIN-1-L4", "arrives_at": "2099-01-01T00:00:00+00:00"}})
+    cargo.update({"status": "stowed", "location": None, "stowed_in_device_code": vessel["device_code"]})
+    client.portal.call(client.app.state.worker.sync_devices)
+    r = client.post(f"/devices/{cargo['device_code']}/command", data={"command": "deploy"}, headers=HX)
+    assert "is travelling to ABOTEIN-1-L4" in r.text and "between systems" in r.text
