@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.35.1"
+VERSION = "1.36.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.36.0", "2026-10-07", "Galactic observatory: the prospect command offers an aim — outward (default), toward Sol, "
+     "sideways, toward a star (worked out from the star catalogue), or a custom vector — instead of typing numbers. Stars "
+     "a prospect finds are added to the map and the catalogue is re-read when it reports back."),
     ("1.35.1", "2026-10-07", "Another player's system hub keeps us out like a ward: a system flagged has_hub with no hub of "
      "ours counts as warded (missions, stationed fleets' miners, mining rules, prospects). Trades may still go there."),
     ("1.35.0", "2026-10-07", "Mining prospects (Systems › Mining prospects): every scanned system scored for a mining fleet "

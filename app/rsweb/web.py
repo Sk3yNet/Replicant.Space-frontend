@@ -678,6 +678,12 @@ async def device_command_form(request: Request, code: str, command: str = "", ri
         return partial(request, "partials/directive_picker.html", code=code, names=names,
                        fields=cmdspec.directive_fields(names[0]) if names else [],
                        sugg=sugg, sys_targets=sugg.get("system"), uid=f"d-{code}", self_code=code, rid=rid)
+    if command == "prospect":   # observatory: pick an aim instead of typing a vector
+        from .observatory import AIMS
+        cat = await request.app.state.db.kv_get("stars", {}) or {}
+        return partial(request, "partials/prospect_form.html", code=code, aims=AIMS, here=star_of(dev.get("location")),
+                       stars=sorted(s.get("designation") for s in cat.get("stars") or [] if isinstance(s, dict) and s.get("designation")),
+                       description=cmdspec.DESCRIPTIONS.get(command, ""), uid=f"c-{code}")
     fields = cmdspec.COMMANDS.get(command)
     chain = await chain_context(request, code) if command in MOVE_COMMANDS else {}
     if command == "collect_resources":
@@ -716,6 +722,19 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
         return bad(str(e))
     except ValueError as e:
         return bad(f"Bad JSON: {e}")
+    if command == "prospect" and form.get("aim") and form.get("aim") != "custom":
+        from .observatory import aim_vector
+        dev = await _device(request, code)
+        cat = await request.app.state.db.kv_get("stars", {}) or {}
+        pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict)}
+        try:
+            vec = aim_vector(form.get("aim"), pos.get(star_of(dev.get("location"))),
+                             pos.get((form.get("aim_star") or "").strip().upper()))
+        except ValueError as e:
+            return bad(str(e))
+        body.pop("direction", None)
+        if vec is not None:
+            body["direction"] = vec
     if command in ("deploy", "detach"):
         # Seen live 2026-10-06: slingshot E28DBE58 deployed while its carrier was mid-surge came out between systems,
         # with no location, and can't be reached since. Refuse while the carrier is moving.

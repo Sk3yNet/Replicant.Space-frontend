@@ -4930,3 +4930,37 @@ def test_another_players_hub_counts_as_a_ward():
     our_hub = {"device_code": "H", "device_type": "system_hub", "location": "CYGNUS-5-L4", "status": "relaying"}
     assert wards.foreign(stars, [our_hub]) == {"TARAZEDAR"}                         # our own hub doesn't keep us out
     assert wards.foreign(stars, [{**our_hub, "status": "compacted"}]) == {"CYGNUS", "TARAZEDAR"}   # folded up: not ours there
+
+
+def test_observatory_aims_and_found_stars(client):
+    from rsweb.observatory import aim_vector
+    here, there = {"x": 10, "y": -2, "z": 4}, {"x": 13, "y": 0, "z": 4}
+    assert aim_vector("outward", here) is None and aim_vector("", here) is None   # omit: away from Sol
+    assert aim_vector("sol", here) == [-10.0, 2.0, -4.0]
+    assert aim_vector("sideways", here) == [0.0, 1.0, 0.0]
+    assert aim_vector("star", here, there) == [3.0, 2.0, 0.0]
+    import pytest
+    with pytest.raises(ValueError):
+        aim_vector("sol", {"x": 0, "y": 0, "z": 0})
+    with pytest.raises(ValueError):
+        aim_vector("star", here, None)
+    # the command form offers the aims; the command sends the worked-out direction
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [
+        {"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}}, {"designation": "ABOTEIN", "position": {"x": 3, "y": 4, "z": 0}}]})
+    code = world.devices[0]["device_code"]
+    form = client.get(f"/devices/{code}/command-form", params={"command": "prospect"}, headers=HX).text
+    assert 'name="aim"' in form and "Toward Sol" in form and "ABOTEIN" in form
+    client.post(f"/devices/{code}/command", data={"command": "prospect", "aim": "star", "aim_star": "abotein"}, headers=HX)
+    row = client.portal.call(client.app.state.db.fetchone, "SELECT body FROM actions WHERE path=? ORDER BY id DESC LIMIT 1",
+                             (f"/devices/{code}",))
+    import json as _json
+    assert _json.loads(row["body"]) == {"command": "prospect", "direction": [3.0, 4.0, 0.0]}
+    # stars a prospect finds go on the map
+    client.portal.call(client.app.state.worker.handle_event, {
+        "id": "p-1", "event": "prospect.completed", "device_code": code, "location": "SOL-3-L4", "created_at": "2026-10-07T12:00:00+00:00",
+        "payload": {"origin": "SOL", "stars_generated": 1,
+                    "stars": [{"designation": "NEWSTAR", "position": {"x": 80, "y": 1, "z": 2}}]}})
+    stars = {s["designation"] for s in client.portal.call(client.app.state.db.kv_get, "stars")["stars"]}
+    assert "NEWSTAR" in stars

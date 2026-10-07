@@ -810,6 +810,9 @@ Legacy `event_type` names seen (webhook / replicant events / device logs): `devi
 - **System ward** — `activate` (response may include `evicted_miners`) / `deactivate`; max 25 per account; incompatible with hubs.
 - **FTL slingshot** — PATCH `configuration.linked_device`, then teleport with slingshot code as `target`; drops to 5% capacity per use, needs ≥80%.
 - **Galactic observatory** — `prospect` (optional `direction` vector) → `prospect.completed`.
+  Direction (game docs, quoted by the player 2026-10-07): omit = outward, away from Sol (pushes the frontier out);
+  `[−x, −y, −z]` (your position negated) = toward Sol; `[0, 1, 0]` = sideways along y, perpendicular to the Sol line;
+  target position − your position = toward another star. The client's prospect form works these out from the catalogue.
 - **Autofactory** — queued printing (`enqueue_print` etc.), decommission recycling, blueprint discovery; modular.
 
 ---

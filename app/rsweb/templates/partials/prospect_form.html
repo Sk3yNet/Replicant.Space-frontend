@@ -1,0 +1,13 @@
+{% if description %}<p class="small muted" style="margin:4px 0 6px">{{ description }}</p>{% endif %}
+<div class="row small" style="gap:12px;flex-wrap:wrap">
+  <label style="text-transform:none">Look
+    <select name="aim" onchange="const c=this.closest('form'); c.querySelector('.aim-star').hidden=this.value!=='star'; c.querySelector('.aim-vec').hidden=this.value!=='custom';">
+      {% for k, v in aims.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+  <label class="aim-star" style="text-transform:none" hidden>star
+    <input name="aim_star" list="{{ uid }}-stars" placeholder="e.g. TARAZEDAR" style="width:12em">
+    <datalist id="{{ uid }}-stars">{% for s in stars %}<option value="{{ s }}">{% endfor %}</datalist></label>
+  <span class="aim-vec" hidden>x <input name="f.direction.0" size="5"> y <input name="f.direction.1" size="5"> z <input name="f.direction.2" size="5"></span>
+</div>
+<p class="muted small" style="margin:6px 0 0">From {{ here or 'here' }}. Outward pushes the frontier away from Sol; toward Sol looks
+  back inward; sideways looks along the y-axis; toward a star aims at it (worked out from the star catalogue). New stars
+  it finds are added to the map when it reports back.</p>
