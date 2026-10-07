@@ -4835,3 +4835,18 @@ def test_mining_mission_moves_on_to_the_next_salvage_before_ending(client, monke
     client.portal.call(eng.run_fleets)
     m = next(f for f in client.portal.call(eng.fleets) if f["id"] == "p")["mission"]
     assert any(x["text"].startswith("work done") for x in m["log"]) and m["phase"] != "work"
+
+
+def test_system_page_lists_your_devices_there(client):
+    from rsweb.web import devices_in_system
+    devs = [{"device_code": "A", "device_type": "mining_drone", "location": "SOL-BELT-1", "status": "mining (carbon)",
+             "tags": ["fleet:m1"], "controller_device_code": "C"},
+            {"device_code": "V", "device_type": "cargo_vessel", "location": "SOL-3", "status": "idle"},
+            {"device_code": "R", "device_type": "survey_drone", "stowed_in_device_code": "V", "status": "stowed"},
+            {"device_code": "X", "device_type": "mining_drone", "location": "FAL-1", "status": "idle"}]
+    h = devices_in_system(devs, "SOL")
+    assert [d["device_code"] for d in h["rows"]] == ["V", "R", "A"] and h["rows"][1]["_where"] == "aboard V"   # by place
+    assert h["rows"][2]["_fleet"] == "m1" and dict((t, n) for t, n, _ in h["summary"])["mining_drone"] == 1
+    client.portal.call(client.app.state.worker.sync_devices)
+    page = client.get("/systems/SOL", headers=H).text
+    assert 'id="devices-here"' in page and "Your devices here" in page

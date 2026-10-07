@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Galaxy{% endblock %}
 {% block head %}
-<script type="importmap">{"imports": {"three": "/static/vendor/three.module.min.js", "three/addons/OrbitControls.js": "/static/vendor/OrbitControls.js"}}</script>
+<script type="importmap">{"imports": {"three": "/static/vendor/three.module.min.js?v={{ APP_VERSION }}", "three/addons/OrbitControls.js": "/static/vendor/OrbitControls.js?v={{ APP_VERSION }}"}}</script>
 {% endblock %}
 {% block content %}
 <div id="map">
@@ -33,4 +33,4 @@
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script type="module" src="/static/map.js"></script>{% endblock %}
+{% block scripts %}<script type="module" src="/static/map.js?v={{ APP_VERSION }}"></script>{% endblock %}

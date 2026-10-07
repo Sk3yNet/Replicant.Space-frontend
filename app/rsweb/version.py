@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.33.3"
+VERSION = "1.34.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.34.0", "2026-10-07", "System page: 'Your devices here' — every device of yours in the system (and aboard carriers "
+     "there) with where it is, status, capacity, fleet and controller, plus a per-type summary. Galaxy: stars are crisp "
+     "points with a small halo instead of soft glows. Every page's scripts and styles now load with the version in the "
+     "URL, so a redeploy is never hidden by a cached copy (the Galaxy page could keep showing the old map)."),
     ("1.33.3", "2026-10-07", "Mining missions on salvage: when one salvage is used up, the fleet moves on to the next one "
      "in the system it hasn't used (back through the work phase) and only ends its work when none is left."),
     ("1.33.2", "2026-10-07", "Mining missions: the watch phase also ends when the salvage is used up (gather_salvage "

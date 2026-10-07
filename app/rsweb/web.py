@@ -1215,6 +1215,26 @@ async def system_view_model(request: Request, star: str, scan: dict, st: dict, s
                              transit.trips(st["devices"]), star_pos)
 
 
+def devices_in_system(devices: list[dict], star: str) -> dict:
+    """Your devices in a system for the System page: those located there, plus those riding aboard a carrier that is,
+    sorted by place then type; with a per-type summary (working / moving / idle)."""
+    by = {d.get("device_code"): d for d in devices}
+    rows = []
+    for d in devices:
+        ride = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
+        loc = d.get("location") or (by.get(ride) or {}).get("location")
+        if star_of(loc) != star:
+            continue
+        fleet = next((t[6:] for t in d.get("tags") or [] if t.startswith("fleet:")), None)
+        rows.append({**d, "_where": d.get("location") or f"aboard {ride}", "_sort": loc or "", "_fleet": fleet,
+                     "_class": status_class(d.get("status"))})
+    rows.sort(key=lambda d: (d["_sort"], d["_where"], d.get("device_type") or "", d["device_code"]))
+    summary: dict[str, Counter] = defaultdict(Counter)
+    for d in rows:
+        summary[d.get("device_type") or "device"][d["_class"]] += 1
+    return {"rows": rows, "summary": sorted(((t, sum(c.values()), c) for t, c in summary.items()), key=lambda x: (-x[1], x[0]))}
+
+
 @router.get("/systems/{star}", response_class=HTMLResponse)
 async def system_view(request: Request, star: str, refresh: int = 0, user: str = Depends(current_user)):
     star = star.upper()
@@ -1235,8 +1255,9 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     reps = [r for r in st["replicants"].values() if star_of(r.get("location") or r.get("current_location")) == star]
     game_locs = {k: v for k, v in (st["locations"] or {}).items() if star_of(k) == star}
     qty = {x["code"]: x for x in res["sites_shown"] + res["salvage_shown"]}
+    here = devices_in_system(st["devices"], star)
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err,
-                      updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t,
+                      updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t, here=here,
                       CATEGORY_LABEL=CATEGORY_LABEL, game_locs=game_locs, qty=qty,
                       viability=[v for v in await request.app.state.worker.automations.viability_report() if v["star"] == star])
 

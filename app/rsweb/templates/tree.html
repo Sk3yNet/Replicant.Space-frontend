@@ -86,4 +86,4 @@
 {% else %}<p class="muted">No devices yet — waiting for the first sync.</p>{% endfor %}
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/tree.js"></script>{% endblock %}
+{% block scripts %}<script src="/static/tree.js?v={{ APP_VERSION }}"></script>{% endblock %}

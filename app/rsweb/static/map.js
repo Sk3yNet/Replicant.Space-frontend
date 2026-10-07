@@ -76,6 +76,16 @@ const RES_COLOR = { structural: 0xb0bec5, conductive: 0xffa726, silicates: 0xe6c
 const RES_ORDER = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"];
 window.RES_COLOR = RES_COLOR;
 
+// stars: a crisp core with a small halo (the soft sprite read as a glow round every star)
+const starTex = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d"); const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, "rgba(255,255,255,1)"); grd.addColorStop(.18, "rgba(255,255,255,1)");
+  grd.addColorStop(.32, "rgba(255,255,255,.25)"); grd.addColorStop(.6, "rgba(255,255,255,.04)"); grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+
 // faint reference grid on the galactic plane
 const grid = new THREE.PolarGridHelper(80, 8, 8, 64, 0x1c2638, 0x141b28);
 grid.rotation.x = Math.PI / 2;
@@ -120,7 +130,7 @@ function build() {
   });
   g.setAttribute("position", new THREE.BufferAttribute(p, 3));
   g.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  starPoints = new THREE.Points(g, new THREE.PointsMaterial({ size: 1.6, map: dot, vertexColors: true, transparent: true, depthWrite: false }));
+  starPoints = new THREE.Points(g, new THREE.PointsMaterial({ size: 1.3, map: starTex, vertexColors: true, transparent: true, depthWrite: false }));
   scene.add(starPoints);
 
   const ring = color => new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color, transparent: true, opacity: .55, depthWrite: false }));

@@ -25,6 +25,27 @@
   </div>
 </div>
 
+<div class="card" style="margin-top:14px" id="devices-here">
+  <div class="row between"><h2>Your devices here <span class="muted small">{{ here.rows | length }}</span></h2></div>
+  {% if here.rows %}
+  <div class="chips" style="margin-bottom:8px">{% for t, n, c in here.summary %}<span class="chip">{{ n }} {{ t | human }}
+    <span class="muted small">{% if c['st-work'] %}{{ c['st-work'] }} working{% endif %}{% if c['st-move'] %} · {{ c['st-move'] }} moving{% endif %}{% if c['st-idle'] %} · {{ c['st-idle'] }} idle{% endif %}</span></span>{% endfor %}</div>
+  <details{% if here.rows | length <= 25 %} open{% endif %}><summary class="small muted">every device</summary>
+  <table class="small">
+    <tr><th>Where</th><th>Device</th><th>Type</th><th>Status</th><th class="num">Capacity</th><th>Fleet</th><th>Controller</th></tr>
+    {% for d in here.rows %}<tr>
+      <td>{% if d.location %}<a hx-get="/locations/{{ d.location }}" hx-target="#loc-panel" href="/locations/{{ d.location }}">{{ d.location }}</a>{% else %}<span class="muted">{{ d._where }}</span>{% endif %}</td>
+      <td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a></td>
+      <td>{{ d.device_type | human }}</td>
+      <td><span class="pill {{ d._class }}">{{ d.status }}</span></td>
+      <td class="num">{% set cap = d.operational_capacity | capacity %}{% if cap is not none %}<span class="{{ 'lv-alert' if cap < 50 }}">{{ cap | round | int }}%</span>{% endif %}</td>
+      <td>{% if d._fleet %}<a href="/fleets#fleet-{{ d._fleet }}">{{ d._fleet }}</a>{% endif %}</td>
+      <td class="mono small">{% if d.controller_device_code %}<a href="/devices/{{ d.controller_device_code }}">{{ d.controller_device_code }}</a>{% endif %}</td>
+    </tr>{% endfor %}
+  </table></details>
+  {% else %}<p class="muted small">None of your devices are in {{ star }}.</p>{% endif %}
+</div>
+
 {% from "partials/viability.html" import viability_table %}
 {% if viability %}<div class="card" style="margin-top:14px"><h2>Belt viability</h2>{{ viability_table(viability) }}</div>{% endif %}
 <div class="grid g2" style="margin-top:14px">
@@ -98,5 +119,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/movers.js"></script>
+<script src="/static/movers.js?v={{ APP_VERSION }}"></script>
 {% endblock %}
