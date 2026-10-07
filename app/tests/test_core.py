@@ -4047,3 +4047,22 @@ def test_removing_from_a_queue_forgets_its_order(client):
     client.portal.call(db.kv_set, "loadout_orders", [{**O("ftl_beacon"), "at": "2099-01-01T00:00:00+00:00"}])
     page = client.get("/fleets", headers=H).text
     assert "Queued prints counted as incoming" in page and "1 queued print(s)" in page and "Forget these" in page
+
+
+def test_fleets_without_a_factory_spread_over_the_hubs_factories():
+    """Live 2026-10-07: all three autofactories belong to Printing Hub 1; Miner 1's and Miner 2's prints both went on
+    3E95BD59 while 9E13498F sat idle."""
+    from rsweb import loadouts as lo
+    devices = [{"device_code": c, "device_type": "autofactory", "location": "FAL-BELT-1", "print_queue": [],
+                "status": st, "available_commands": ["enqueue_print"], "tags": ["fleet:hub"],
+                **({"printing": {"device_type": "galactic_observatory"}} if st != "idle" else {})}
+               for c, st in (("AF1", "idle"), ("AF2", "idle"), ("AF3", "printing (galactic_observatory)"))]
+    fleets = [{"id": "hub", "name": "Hub", "home": "FAL", "station": True, "wants": {"autofactory": 3, "galactic_observatory": 1}},
+              {"id": "m1", "name": "Miner 1", "home": "KEL", "station": True, "wants": {"galactic_observatory": 1}},
+              {"id": "m2", "name": "Miner 2", "home": "LOR", "station": True, "wants": {"galactic_observatory": 1}}]
+    bps = [{"device_type": "galactic_observatory", "resources": {"structural": 50}, "print_time": 28800}]
+    stars = {s: {"position": {"x": i, "y": 0, "z": 0}} for i, s in enumerate(("FAL", "KEL", "LOR"))}
+    orders = [{"star": "FAL", "fleet": "hub", "device_type": "galactic_observatory", "factory": "AF3"}]
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, bps, {"FAL-BELT-1": {"structural": 1000}},
+                stars, {}, set(), orders, {})
+    assert sorted((pr["fleet"], pr["factory"]) for pr in p["prints"]) == [("m1", "AF1"), ("m2", "AF2")]

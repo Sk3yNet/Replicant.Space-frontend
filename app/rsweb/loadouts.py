@@ -423,6 +423,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     for code in load:
         load[code] = max(load[code], ordered.get(code, 0.0))
 
+    def usable(tag: str | None) -> list[dict]:
+        """Factories with queue room a fleet may print on: fleetless ones and its own; another fleet's only when there's
+        nothing else (e.g. every autofactory belongs to the printing hub)."""
+        open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0]
+        mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) == tag]
+        return mine or open_f
+
     def factory_for(t: str, star: str, tag: str | None = None) -> tuple[dict | None, str]:
         bp = bps.get(t)
         if not bp:
@@ -431,10 +438,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if not factories:
             return None, "no autofactory"
         best = None
-        # another fleet's autofactory prints for its own fleet: use it only when nothing else can
-        open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0]
-        mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) == tag]
-        open_f = mine or open_f
+        open_f = usable(tag)
         if not open_f:
             return None, "every autofactory's print queue is full"
         for f in sorted(open_f, key=lambda f: (star_of(f.get("location")) != star, _dist(star_of(f.get("location")), star, pos))):
@@ -518,7 +522,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     # those at the same stockpile, since the stock check above was for that one)
                     peers = [g for g in factories if star_of(g.get("location")) == star_of(f.get("location"))
                              and (not s["need_stock"] or g.get("location") == f.get("location"))
-                             and (not fleet_tag_of(g) or fleet_tag_of(g) == tag or g is f)]   # not other fleets' own
+                             and g in usable(tag)]
+                    # Seen live (2026-10-07): Miner 1 and Miner 2 have no autofactory, all three are Printing Hub 1's; both
+                    # their prints went on one of them while another sat idle — the split only had the first one to use.
                     parts = pq.split(peers, row["type"], n, bps, load, queue_free)
                     n = sum(k for _, k in parts)
                     for g, k in parts:
