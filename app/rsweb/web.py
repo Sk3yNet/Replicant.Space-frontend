@@ -741,6 +741,14 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
         body.pop("direction", None)
         if vec is not None:
             body["direction"] = vec
+    if command == "message":   # BobNet through a relay: no double sends
+        if await bobnet_repeat(request.app.state.db, body.get("channel") or "", body.get("text") or ""):
+            return bad(f"Already sent that to {body.get('channel')} in the last {BOBNET_REPEAT_MINUTES} minutes")
+        out = await call_action(request, user, "POST", f"/devices/{code}", {"command": command, **body, **extra},
+                                f"{code} {command}")
+        if out["ok"]:
+            await bobnet_note_sent(request.app.state.db, body.get("channel") or "", body.get("text") or "")
+        return render_action(request, out)
     if command in ("deploy", "detach"):
         # Seen live 2026-10-06: slingshot E28DBE58 deployed while its carrier was mid-surge came out between systems,
         # with no location, and can't be reached since. Refuse while the carrier is moving.
@@ -1011,11 +1019,47 @@ async def replicant_print(request: Request, code: str, device_type: str = Form("
     return await queue_print(request, user, "replicant", code, device_type, quantity)
 
 
+BOBNET_KV = "bobnet_sent"     # [{channel, text, at}]: what we posted lately, to refuse a repeat
+BOBNET_REPEAT_MINUTES = 10
+
+
+def _bobnet_key(channel: str, text: str) -> tuple[str, str]:
+    return ((channel or "").strip().lower(), " ".join((text or "").split()).lower())
+
+
+async def bobnet_repeat(db, channel: str, text: str) -> str | None:
+    """When the same text went to the same channel in the last few minutes: when (to refuse a double send)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=BOBNET_REPEAT_MINUTES)
+    for m in await db.kv_get(BOBNET_KV, []) or []:
+        at = parse_ts(m.get("at"))
+        if at and at > cutoff and _bobnet_key(m.get("channel"), m.get("text")) == _bobnet_key(channel, text):
+            return m["at"]
+    return None
+
+
+async def bobnet_note_sent(db, channel: str, text: str) -> None:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=BOBNET_REPEAT_MINUTES)
+    sent = [m for m in await db.kv_get(BOBNET_KV, []) or [] if (parse_ts(m.get("at")) or cutoff) > cutoff]
+    await db.kv_set(BOBNET_KV, sent[-50:] + [{"channel": channel, "text": text, "at": now_iso()}])
+
+
 @router.post("/replicants/{code}/message", response_class=HTMLResponse)
 async def replicant_message(request: Request, code: str, channel: str = Form("#general"), text: str = Form(...),
                             user: str = Depends(current_user)):
-    return await run_action(request, user, "POST", f"/replicants/{code}/message", {"channel": channel, "text": text},
+    db = request.app.state.db
+    text = text.strip()
+    if not text:
+        return HTMLResponse('<div class="result err">Nothing to send.</div>')
+    if await bobnet_repeat(db, channel, text):
+        return HTMLResponse(f'<div class="result err">Already sent that to {html.escape(channel)} in the last '
+                            f'{BOBNET_REPEAT_MINUTES} minutes — not sending it again.</div>')
+    out = await call_action(request, user, "POST", f"/replicants/{code}/message", {"channel": channel, "text": text},
                             f"BobNet {channel}")
+    if not out["ok"]:
+        return render_action(request, out)
+    await bobnet_note_sent(db, channel, text)
+    # X-Sent: the form clears its text box only when the message went out
+    return HTMLResponse(f'<div class="result ok">Sent to {html.escape(channel)}.</div>', headers={"X-Sent": "1"})
 
 
 # --- systems ----------------------------------------------------------------------------
@@ -1829,8 +1873,17 @@ async def messages(request: Request, user: str = Depends(current_user)):
         err = e.message
     msgs = await request.app.state.db.kv_get("messages", []) or []
     bobnet = [row_event(r) for r in await request.app.state.db.fetchall(
-        "SELECT * FROM events WHERE event='bobnet.new' ORDER BY seq DESC LIMIT 50")]
+        "SELECT * FROM events WHERE event='bobnet.new' ORDER BY seq DESC LIMIT 200")]
     st = await load_state(request)
+    # messages naming one of your replicants come first and are highlighted (your own posts aside)
+    my = await notify.my_names(request.app.state.db)
+    codes = set(st["replicants"])
+    for e in bobnet:
+        e["mention"] = bool(my) and not notify.is_mine(e, my, codes) and notify.mentions((e.get("payload") or {}).get("message"), my)
+    for m in msgs:
+        m["mention"] = bool(my) and notify.mentions(" ".join(str(m.get(k) or "") for k in ("title", "body", "text", "message")), my)
+    msgs = sorted(msgs, key=lambda m: not m["mention"])   # stable: newest-first order kept within each group
+    mentioned = [e for e in bobnet if e["mention"]]
     db = request.app.state.db
     subscribed = list(((await db.kv_get("account", {})) or {}).get("bobnet_channels") or [])
     cache = await db.kv_get("bobnet_channels", {}) or {}
@@ -1838,7 +1891,8 @@ async def messages(request: Request, user: str = Depends(current_user)):
     channels = sorted(({"name": n, "last_active": (names.get(n) or {}).get("last_active"), "subscribed": n in subscribed,
                         "listed": n in names} for n in set(names) | set(subscribed)),
                       key=lambda c: (not c["subscribed"], -(_ts_num(c["last_active"])), c["name"]))
-    return await page(request, user, "messages.html", "messages", msgs=msgs, err=err, bobnet=bobnet,
+    return await page(request, user, "messages.html", "messages", msgs=msgs, err=err, bobnet=bobnet[:80], mentioned=mentioned,
+                      my_names=my,
                       replicants=st["replicants"], channels=channels, subscribed=subscribed, channel_cache=cache,
                       relay=bobnet_relay(st["devices"]))
 

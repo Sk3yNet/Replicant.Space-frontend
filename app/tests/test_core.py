@@ -5078,3 +5078,49 @@ def test_decommission_at_an_autofactory(client):
     job = next(j for j in client.portal.call(eng.jobs) if j["rule"] == "decommission")
     assert job["steps"][0]["body"] == {"command": "decommission"}
     assert client.portal.call(eng.decommission_queue_pass) == []                    # not twice
+
+
+def test_bobnet_no_double_send_and_clear_on_success(client):
+    client.portal.call(client.app.state.worker.sync_account)
+    reps = client.portal.call(client.app.state.db.kv_get, "replicants") or {}
+    code = next(iter(reps))
+    r = client.post(f"/replicants/{code}/message", data={"channel": "#general", "text": "hello all"}, headers=HX)
+    assert r.headers.get("X-Sent") == "1" and "Sent to #general" in r.text
+    # the same text again (spacing / case aside) is refused; a different one goes
+    r = client.post(f"/replicants/{code}/message", data={"channel": "#general", "text": "  Hello   all "}, headers=HX)
+    assert "Already sent" in r.text and r.headers.get("X-Sent") is None
+    assert client.post(f"/replicants/{code}/message", data={"channel": "#trade", "text": "hello all"}, headers=HX).headers.get("X-Sent") == "1"
+    sent = client.portal.call(client.app.state.db.fetchall, "SELECT body FROM actions WHERE path=?", (f"/replicants/{code}/message",))
+    assert len(sent) == 2
+    page = client.get("/messages", headers=H).text
+    assert "X-Sent" in page and "hx-disabled-elt" in page
+
+
+def test_mentions_of_my_replicant_notify_and_come_first(client):
+    from rsweb import notify
+    assert notify.mentions("hey @Sk3y, trade?", ["Sk3y"]) and notify.mentions("SK3Y!", ["Sk3y"])
+    assert not notify.mentions("Sk3yNet is down", ["Sk3y"]) and not notify.mentions("hello", ["Sk3y"])
+    db = client.app.state.db
+    reps = client.portal.call(db.kv_get, "replicants") or {}
+    if not reps:
+        client.portal.call(client.app.state.worker.sync_account)
+        reps = client.portal.call(db.kv_get, "replicants")
+    code = next(iter(reps))
+    reps[code]["name"] = "Sk3y"
+    client.portal.call(db.kv_set, "replicants", reps)
+    w = client.app.state.worker
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    client.portal.call(w.handle_event, {"id": "bn-1", "event": "bobnet.new", "created_at": now,
+                                         "payload": {"channel": "#general", "replicant_name": "Sylphrena", "replicant_code": "X1",
+                                                     "message": "anyone seen sk3y near LERNA?"}})
+    client.portal.call(w.handle_event, {"id": "bn-2", "event": "bobnet.new", "created_at": now,
+                                         "payload": {"channel": "#general", "replicant_name": "Sylphrena", "replicant_code": "X1",
+                                                     "message": "o7"}})
+    client.portal.call(w.handle_event, {"id": "bn-3", "event": "bobnet.new", "created_at": now,
+                                         "payload": {"channel": "#general", "replicant_name": "Sk3y", "replicant_code": code,
+                                                     "message": "Sk3y here"}})           # my own post: no notification
+    rows = client.portal.call(db.fetchall, "SELECT level, title FROM notifications WHERE title LIKE 'Mentioned%'")
+    assert len(rows) == 1 and rows[0]["level"] == "warning" and "anyone seen sk3y" in rows[0]["title"]
+    page = client.get("/messages", headers=H).text
+    assert "Mentioning you" in page and 'data-mention="1"' in page and 'id="bn-mentions"' in page

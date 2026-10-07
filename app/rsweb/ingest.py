@@ -238,7 +238,7 @@ class Worker:
             n = None
         else:
             await self.note_caught_up()
-            n = await notify.add_notification(self.db, ev)
+            n = await notify.add_notification(self.db, ev) or await notify.add_mention(self.db, ev)
         self.hub.publish("event", ev)
         if n:
             self.hub.publish("notify", n)

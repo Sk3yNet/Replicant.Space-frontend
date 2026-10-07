@@ -184,6 +184,42 @@ async def unread_errors(db: DB) -> int:
     return row["n"] if row else 0
 
 
+# --- mentions: messages that name one of your replicants ----------------------------------------
+async def my_names(db: DB) -> list[str]:
+    """Your replicants' names (what other players call you on BobNet)."""
+    reps = await db.kv_get("replicants", {}) or {}
+    return sorted({str(r.get("name")).strip() for r in reps.values() if isinstance(r, dict) and r.get("name")
+                   and len(str(r.get("name")).strip()) >= 2})
+
+
+def mentions(text: Any, names: list[str]) -> bool:
+    """`text` names one of `names` as a whole word, any case ("@Sk3y", "sk3y?" yes; "Sk3yNet" no)."""
+    import re
+    t = str(text or "")
+    return any(re.search(rf"(?<![\w]){re.escape(n)}(?![\w])", t, re.IGNORECASE) for n in names)
+
+
+def is_mine(ev: dict, names: list[str], codes: set[str]) -> bool:
+    p = ev.get("payload") or {}
+    return p.get("replicant_code") in codes or str(p.get("replicant_name") or "").lower() in {n.lower() for n in names}
+
+
+async def add_mention(db: DB, ev: dict) -> dict | None:
+    """A BobNet message mentioning you (not your own): a warning notification (no badge — that's errors only)."""
+    if ev.get("event") != "bobnet.new":
+        return None
+    names = await my_names(db)
+    codes = set((await db.kv_get("replicants", {}) or {}).keys())
+    p = ev.get("payload") or {}
+    if not names or is_mine(ev, names, codes) or not mentions(p.get("message"), names):
+        return None
+    n = {"level": "warning", "title": f"Mentioned on BobNet — {describe(ev)}", "link": "/messages"}
+    cur = await db.execute("INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
+                           (str(ev.get("id")), n["level"], n["title"], None, n["link"], now_iso()))
+    n["id"] = cur.lastrowid
+    return n
+
+
 async def add_notification(db: DB, ev: dict) -> dict | None:
     n = notification_for(ev)
     if not n:
