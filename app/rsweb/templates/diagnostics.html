@@ -12,6 +12,23 @@
   It reads every device, stockpiles, the mining controllers, the belts your miners are at, recent mining/AMI events and the logs
   of idle drones, and bundles them with the app's own rule settings, jobs and log. Your API token is never included.
   <b>Download</b> the JSON and attach it in the chat to test against live data.</p>
+<div class="card">
+  <h2>Send feedback to the game's developers</h2>
+  <form hx-post="/diagnostics/feedback" hx-target="#feedback-result" hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseText.includes('result ok')) this.reset()">
+    <div class="row" style="gap:8px;margin-bottom:6px">
+      <select name="kind">{% for t in feedback_types %}<option value="{{ t }}">{{ {'bug': 'Bug', 'idea': 'Idea', 'typo': 'Typo'}[t] }}</option>{% endfor %}</select>
+      <label style="text-transform:none" title="Adds the app version and the latest snapshot's time to the message">
+        <input type="checkbox" name="context" checked> add app version &amp; snapshot time</label>
+    </div>
+    <textarea name="body" rows="4" style="width:100%" maxlength="4000"
+              placeholder="What happened, what you expected, and when (e.g. slingshot E28DBE58 has no location after a deploy mid-surge, 2026-10-06 15:47 EDT)"></textarea>
+    <div class="row" style="margin-top:6px"><button>Send</button>
+      <span class="muted small">Goes to Replicant Space (POST /feedback), not to this app. The game accepts 10 an hour.</span></div>
+  </form>
+  <div id="feedback-result"></div>
+  {% if feedback_sent %}<details class="small" style="margin-top:6px"><summary>Sent ({{ feedback_sent | length }})</summary>
+    <table class="small">{% for f in feedback_sent %}<tr><td>{{ f.at | ago }}</td><td>{{ f.type }}</td><td>{{ f.body }}</td></tr>{% endfor %}</table></details>{% endif %}
+</div>
 <div id="diag">
   {% include "partials/diagnostics_body.html" %}
 </div>

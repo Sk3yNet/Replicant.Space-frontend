@@ -720,6 +720,22 @@ class AutomationEngine(OpsRules):
                     job["status"] = "running"
                     await self._update(job)
                     await self._advance(job["id"])
+                elif (st["status"] == "waiting" and name == "travel.cancelled" and "travel.arrived" in st.get("wait", [])
+                      and wait_dev and ev.get("device_code") == wait_dev):
+                    # a cancelled trip never arrives: the device turns back to where it started (the event's
+                    # return_time_seconds), so stop waiting for it instead of sitting out the timeout
+                    back = int(float(p.get("return_time_seconds") or 0))
+                    st["error"] = (f"travel cancelled — {wait_dev} returns to {p.get('origin') or 'where it started'}"
+                                   + (f" (≈{back // 60} min)" if back else ""))
+                    if st.get("critical"):
+                        st["status"], job["status"] = "failed", "failed"
+                        await self.log(job["rule"], f"stopped: {job['title']} — {st['error']}", "alert")
+                    else:
+                        st["status"], job["status"] = "skipped", "running"
+                        job["idx"] += 1
+                    await self._update(job)
+                    if job["status"] == "running":
+                        await self._advance(job["id"])
             if name in ("site.depleted", "salvage.depleted") and not late:
                 try:
                     await self.rule_salvage()

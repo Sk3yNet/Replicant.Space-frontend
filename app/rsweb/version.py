@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.26.4"
+VERSION = "1.27.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.27.0", "2026-10-07", "Diagnostics: send feedback (bug / idea / typo) to the game's developers. Device pages: Cancel travel "
+     "while a device is moving (a vessel hosting a replicant cancels through its replicant). A job waiting for a trip "
+     "that gets cancelled stops waiting at once (the device turns back to where it started)."),
     ("1.26.4", "2026-10-07", "A manual deploy or detach is refused while the carrier is travelling (slingshot E28DBE58, deployed "
      "mid-surge, came out between systems with no location)."),
     ("1.26.3", "2026-10-07", "Vessels hosting a replicant can be added to a fleet under Add / remove devices (marked 'hosts "

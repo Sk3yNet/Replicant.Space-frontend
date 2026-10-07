@@ -141,6 +141,8 @@ class World:
         self.af_print_seconds = 45.0
         self.audit: dict[str, list[dict]] = {}       # beacon -> audit rows (newest last)
         self.trades: dict[str, list[dict]] = {}      # trade controller -> trades
+        self.feedback: list[dict] = []
+        self.trips: dict[str, Any] = {}              # device -> pending arrival (asyncio handle), for cancelling
         self.objects: dict[str, dict] = {}           # STAR-OBJ-n -> object
         self.profiles: dict[str, dict] = {}          # other replicants' public profiles
         self.xp = 87340
@@ -493,7 +495,7 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                         if x["status"] == "stowed":
                             x["location"] = dest
                 world.emit("travel.arrived", d, destination=dest, origin=origin, travel_type="cruise", attached_devices=[])
-            loop.call_later(secs, arrived)
+            world.trips[code] = loop.call_later(secs, arrived)
             return ok({"device_code": code, "status": "travelling", "arrives_at": iso(arrive)})
         if cmd == "deploy":
             d["status"] = "idle"
@@ -542,6 +544,34 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         if latest:
             rows = list(reversed(rows))
         return ok({"audit": rows[:limit]})
+
+    def cancel_trip(code: str):
+        d = next((x for x in world.devices if x["device_code"] == code), None)
+        h = world.trips.pop(code, None)
+        if not d or not h or not d.get("travel"):
+            return ok({"error": "Device is not travelling"}, 400)
+        h.cancel()
+        tr = d.pop("travel")
+        d["location"], d["status"] = tr["origin"], "idle"    # it turns back (instantly here)
+        world.emit("travel.cancelled", d, travel_type=tr["type"], origin=tr["origin"], destination=tr["destination"],
+                   return_time_seconds=0, attached_devices=[])
+        return ok({"status": "travel_cancelled", "device_code": code, "return_time_seconds": 0})
+
+    @app.delete("/v1/devices/{code}/travel")
+    async def cancel_device_travel(code: str):
+        return cancel_trip(code)
+
+    @app.delete("/v1/replicants/{code}/travel")
+    async def cancel_replicant_travel(code: str):
+        return cancel_trip(HOST)
+
+    @app.post("/v1/feedback")
+    async def feedback(request: Request):
+        body = await request.json()
+        if body.get("type") not in ("typo", "bug", "idea") or not body.get("body"):
+            return ok({"error": "type: Must be one of: typo, bug, idea."}, 400)
+        world.feedback.append(body)
+        return ok({"status": "feedback_received"})
 
     @app.get("/v1/devices/{code}/trades")
     async def trades(code: str):

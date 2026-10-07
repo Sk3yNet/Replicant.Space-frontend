@@ -4416,3 +4416,53 @@ def test_deploy_is_refused_while_the_carrier_is_travelling(client):
     client.portal.call(client.app.state.worker.sync_devices)
     r = client.post(f"/devices/{cargo['device_code']}/command", data={"command": "deploy"}, headers=HX)
     assert "is travelling to ABOTEIN-1-L4" in r.text and "between systems" in r.text
+
+
+def test_feedback_goes_to_the_developers(client):
+    world = client.app.state.api.http._transport.app.state.world
+    page = client.get("/diagnostics", headers=H).text
+    assert "Send feedback to the game" in page
+    r = client.post("/diagnostics/feedback", data={"kind": "bug", "body": "Slingshot has no location after a deploy mid-surge",
+                                                   "context": "on"}, headers=HX)
+    assert "Sent" in r.text and world.feedback[-1]["type"] == "bug"
+    assert world.feedback[-1]["body"].startswith("Slingshot has no location") and "web client" in world.feedback[-1]["body"]
+    assert "Slingshot has no location" in client.get("/diagnostics", headers=H).text      # listed under Sent
+    assert "Write a few words" in client.post("/diagnostics/feedback", data={"kind": "idea", "body": ""}, headers=HX).text
+
+
+def test_a_cancelled_trip_stops_the_wait(client):
+    """travel.cancelled: the device turns back to its origin — a job waiting for its arrival stops waiting."""
+    from rsweb.automations import step
+    eng = client.app.state.worker.automations
+    st = step("SD1 → KEL-3", "/devices/SD1", {"command": "travel", "destination": "KEL-3"}, wait=["travel.arrived"],
+              match={"destination": "KEL-3"}, critical=True)
+    st["wait_device"] = "SD1"
+    job = {"id": "j-cancel", "rule": "fleets", "title": "move SD1", "device": "SD1", "steps": [st], "idx": 0,
+           "status": "waiting", "created_at": "2026-10-07T12:00:00+00:00", "meta": {}}
+    st["status"] = "waiting"
+    client.portal.call(eng.save_jobs, [job])
+    client.portal.call(eng.on_event, {"event": "travel.cancelled", "device_code": "SD1",
+                                      "payload": {"origin": "KEL-1-L4", "destination": "KEL-3", "return_time_seconds": 300}})
+    j = next(x for x in client.portal.call(eng.jobs) if x["id"] == "j-cancel")
+    assert j["status"] == "failed" and "returns to KEL-1-L4 (≈5 min)" in j["steps"][0]["error"]
+
+
+def test_cancel_travel_from_the_device_page(client):
+    world = client.app.state.api.http._transport.app.state.world
+    world.move_seconds = 300
+    drone = next(d for d in world.devices if d["device_type"] == "survey_drone")
+    start = drone["location"]
+    r = client.post(f"/devices/{drone['device_code']}/command", data={"command": "travel", "f.destination": "SOL-4"}, headers=HX)
+    assert "result ok" in r.text, r.text
+    client.portal.call(client.app.state.worker.sync_devices)
+    page = client.get(f"/devices/{drone['device_code']}", headers=H).text
+    assert "Travelling to <b>SOL-4</b>" in page and "Cancel travel" in page
+    r = client.post(f"/devices/{drone['device_code']}/cancel-travel", headers=HX)
+    assert "result ok" in r.text and "DELETE" in r.text
+    assert drone["location"] == start and not drone.get("travel")
+    assert any(e["event"] == "travel.cancelled" for e in world.events)
+    # the vessel hosting the replicant cancels through its replicant
+    rep_code = next(iter(client.portal.call(client.app.state.db.kv_get, "replicants")))
+    host = next(d for d in world.devices if d["device_code"] == client.portal.call(client.app.state.db.kv_get, "replicants")[rep_code]["hosted_device_code"])
+    r = client.post(f"/devices/{host['device_code']}/cancel-travel", headers=HX)
+    assert f"/replicants/{rep_code}/travel" in r.text

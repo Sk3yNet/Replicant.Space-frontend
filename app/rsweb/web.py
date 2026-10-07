@@ -455,7 +455,11 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
     same_loc = [d for d in st["devices"] if d.get("location") == dev.get("location") and d.get("device_code") != code]
     carrier = await carrier_context(request, dev) if dev else None
     pq = await print_queue_ctx(request, code, dev) if dev and printqueue.has_queue(dev) else None
+    from . import fleets as _fl
+    trip = _fl.in_flight(dev) if dev else None
+    host_rep = next((c for c, r in st["replicants"].items() if r.get("hosted_device_code") == code), None)
     return await page(request, user, "device.html", "fleet", carrier=carrier, pq=pq, dev=dev, code=code, err=err, logs=logs, events=events,
+                      trip=trip, host_rep=host_rep,
                       same_loc=same_loc, commands=order_commands(dev.get("available_commands") or []),
                       dangerous=DANGEROUS)
 
@@ -1860,6 +1864,7 @@ async def diagnostics(request: Request, user: str = Depends(current_user)):
     status = await db.kv_get("snapshot_status", {}) or {}
     tmpl = "partials/diagnostics_body.html" if request.headers.get("hx-request") else "diagnostics.html"
     ctx = {"snap": snap, "diag": (snap or {}).get("diagnosis"), "status": status,
+           "feedback_sent": await db.kv_get("feedback_sent", []) or [], "feedback_types": FEEDBACK_TYPES,
            "viability": await request.app.state.worker.automations.viability_report()}
     if tmpl.startswith("partials"):
         return partial(request, tmpl, **ctx)
@@ -1878,6 +1883,53 @@ async def diagnostics_snapshot(request: Request, user: str = Depends(current_use
     await db.kv_set("snapshot_status", {"state": "running", "done": 0, "total": 60, "at": now_iso()})
     request.app.state.snapshot_task = asyncio.create_task(_snapshot_run(request.app, stars))
     return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/devices/{code}/cancel-travel", response_class=HTMLResponse)
+async def device_cancel_travel(request: Request, code: str, user: str = Depends(current_user)):
+    """Cancel a trip. Documented only for replicants (DELETE /replicants/{code}/travel), so a vessel hosting one goes
+    through its replicant; any other device tries the device equivalent and shows what the game says. A cancelled
+    trip turns back: travel.cancelled carries origin and return_time_seconds."""
+    st = await load_state(request)
+    rep = next((c for c, r in st["replicants"].items() if r.get("hosted_device_code") == code), None)
+    path = f"/replicants/{rep}/travel" if rep else f"/devices/{code}/travel"
+    return await run_action(request, user, "DELETE", path, {}, f"cancel travel of {code}" + (f" (replicant {rep})" if rep else ""))
+
+
+FEEDBACK_TYPES = ("bug", "idea", "typo")   # POST /v1/feedback {"type", "body"}; the game allows 10 an hour
+
+
+@router.post("/diagnostics/feedback", response_class=HTMLResponse)
+async def diagnostics_feedback(request: Request, kind: str = Form("bug"), body: str = Form(""), context: str = Form(""),
+                               user: str = Depends(current_user)):
+    """Send feedback to the game's developers (POST /v1/feedback). Optionally adds the app version and the latest
+    snapshot's time so a bug report can be matched to what was going on."""
+    text = body.strip()
+    if kind not in FEEDBACK_TYPES:
+        return HTMLResponse('<div class="result err">Pick bug, idea or typo.</div>')
+    if len(text) < 5:
+        return HTMLResponse('<div class="result err">Write a few words first.</div>')
+    db = request.app.state.db
+    if context == "on":
+        snap = await db.kv_get("snapshot_last", None) or {}
+        text += f"\n\n— sent from the Replicant Space web client {appver.VERSION}" + (
+            f"; latest snapshot {snap.get('captured_at')}" if snap.get("captured_at") else "")
+    text = text[:4000]
+    sent = await db.kv_get("feedback_sent", []) or []
+    hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(timespec="seconds")
+    if len([x for x in sent if x.get("at", "") >= hour_ago]) >= 10:
+        return HTMLResponse('<div class="result err">The game takes 10 feedback messages an hour — try again later.</div>')
+    try:
+        resp = await request.app.state.api.post("/feedback", {"type": kind, "body": text})
+    except ApiError as e:
+        return HTMLResponse(f'<div class="result err">Not sent: {html.escape(e.message)}</div>')
+    sent = ([{"at": now_iso(), "type": kind, "body": text[:300], "by": user,
+              "status": (resp or {}).get("status") if isinstance(resp, dict) else None}] + sent)[:20]
+    await db.kv_set("feedback_sent", sent)
+    await request.app.state.worker.automations.log("feedback", f"{kind} sent to the developers by {user}")
+    return HTMLResponse('<div class="result ok">Sent — thank you. The developers received it'
+                        + (f' ({html.escape(str(resp.get("status")))})' if isinstance(resp, dict) and resp.get("status") else "")
+                        + '.</div>')
 
 
 @router.get("/diagnostics/snapshot.json")
