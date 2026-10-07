@@ -162,7 +162,7 @@
             {% for d in r.members %}<label style="text-transform:none;display:block"><input type="checkbox" name="remove" value="{{ d.device_code }}">
               remove <span class="mono">{{ d.device_code }}</span> {{ d.device_type | human }} <span class="muted">@ {{ d.location or 'in transit' }} · {{ d.status }}</span></label>{% endfor %}
             {% for d in free if d.status != 'stowed' %}<label style="text-transform:none;display:block"><input type="checkbox" name="add" value="{{ d.device_code }}">
-              add <span class="mono">{{ d.device_code }}</span> {{ d.device_type | human }} <span class="muted">@ {{ d.location }} · {{ d.status }}{% if d.controller_device_code %} · run by {{ d.controller_device_code }}{% endif %}</span></label>{% endfor %}
+              add <span class="mono">{{ d.device_code }}</span> {{ d.device_type | human }}{% if d._hosts %} <span class="pill small" title="the replicant travels with this fleet">hosts {{ d._hosts }}</span>{% endif %} <span class="muted">@ {{ d.location }} · {{ d.status }}{% if d.controller_device_code %} · run by {{ d.controller_device_code }}{% endif %}</span></label>{% endfor %}
           </div>
           <button class="small" style="margin-top:6px">Apply</button>
         </form></details>

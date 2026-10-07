@@ -2443,8 +2443,10 @@ async def fleets_ctx(request: Request) -> dict:
         f["points"] = fl.attach_points(f, st["devices"], bp_by, f["roster"]["rows"])
         m = f.get("mission") or {}
         f["job"] = jobs.get(m.get("job"))
-    free = [d for d in st["devices"] if not fl.fleet_of(d) and d.get("device_code") not in
-            {r.get("hosted_device_code") for r in st["replicants"].values()}]
+    # vessels hosting a replicant can join too (a replicant riding with the fleet keeps it commandable where no relay
+    # reaches); they're marked so it's clear the replicant goes wherever the fleet goes
+    hosted = {r.get("hosted_device_code"): (r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")}
+    free = [{**d, "_hosts": hosted.get(d.get("device_code"))} for d in st["devices"] if not fl.fleet_of(d)]
     stars_seen = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")})
     traders = await request.app.state.db.kv_get("traders_cache", {}) or {}
     profiles = {t: fl.type_profile(t, bp_by, st["devices"]) for t in types}

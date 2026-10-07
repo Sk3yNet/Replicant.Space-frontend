@@ -4393,3 +4393,14 @@ def test_a_fleets_ward_goes_with_it_and_systems_list_shows_wards(client):
     assert ">Relay</th>" in page and ">Beacon</th>" in page and ">Ward</th>" in page and "✓ BCN00001" in page
     page = client.get("/systems?missing=1", headers=H).text
     assert "— none" in page and "SOL" in page
+
+
+def test_vessels_hosting_a_replicant_can_join_a_fleet(client):
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.worker.sync_devices)
+    reps = client.portal.call(client.app.state.db.kv_get, "replicants") or {}
+    code, rep = next((c, r) for c, r in reps.items() if r.get("hosted_device_code"))
+    client.portal.call(eng.save_fleets, [{"id": "s", "name": "Surveyors", "role": "explore", "home": "SOL", "wants": {},
+                                          "station": False, "materials": "", "mission": None}])
+    page = client.get("/fleets", headers=H).text
+    assert f'name="add" value="{rep["hosted_device_code"]}"' in page and f"hosts {rep.get('name') or code}" in page
