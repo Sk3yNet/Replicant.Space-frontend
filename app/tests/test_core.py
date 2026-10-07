@@ -4701,3 +4701,46 @@ def test_galaxy_shows_what_each_system_is_mining(client):
     stars = client.get("/api/map.json", headers=H).json()["stars"]
     s = next((x for x in stars if x["designation"] == star), None)
     assert s is None or s["mining"].get("volatiles", 0) >= 1
+
+
+def test_parked_mining_controller_goes_to_the_belt_with_its_drones():
+    """Live 2026-10-07: LORSELAN / LARSELAN controllers sat at Lagrange points ('gated:cold_repair', logging
+    ami_overheat) with every drone idle, though the system has a belt."""
+    from rsweb import salvage as sv
+    ctrl = {"device_code": "C1", "device_type": "ami_mining_controller", "location": "LOR-6-L4", "status": "coordinating",
+            "ami_directive": {"name": "gather_evenly", "_eval_state": "gated:cold_repair"}, "ami_directive_status": "active"}
+    mine = [{"device_code": f"M{i}", "device_type": "mining_drone", "location": "LOR-6-L4", "status": "idle",
+             "controller_device_code": "C1"} for i in range(2)]
+    stray = {"device_code": "S1", "device_type": "mining_drone", "location": "LOR-2", "status": "idle"}
+    busy = {"device_code": "S2", "device_type": "mining_drone", "location": "LOR-2", "status": "idle"}
+    devices = [ctrl, *mine, stray, busy]
+    assert sv.parked(ctrl)
+    assert not sv.parked({**ctrl, "location": "LOR-BELT-1"})                                       # at a belt
+    assert not sv.parked({**ctrl, "ami_directive": {"name": "gather_salvage", "_eval_state": "active"}})   # salvaging
+    assert not sv.parked({**ctrl, "status": "travelling"})
+    plans = sv.back_to_belt_plan([ctrl], devices, {}, {}, {"LOR": ["LOR-BELT-1"]}, set(), None, {"C1", "M0", "M1", "S1"})
+    assert len(plans) == 1
+    p = plans[0]
+    assert p["belt"] == "LOR-BELT-1" and p["move_ctrl"] and p["away"] == ["M0", "M1"] and p["strays"] == ["S1"]
+    assert "parked" in p["why"] and p["directive"] == "gather_evenly"
+    steps = [(s["path"], s["body"]) for s in sv.back_to_belt_steps(p)]
+    assert steps[0] == ("/devices/C1", {"command": "release", "devices": ["M0", "M1"]})   # only its own drones are released
+    assert ("/devices/C1", {"command": "travel", "destination": "LOR-BELT-1"}) in steps
+    assert ("/devices/S1", {"command": "travel", "destination": "LOR-BELT-1"}) in steps
+    assert ("/devices/C1", {"command": "adopt", "devices": ["M0", "M1", "S1"]}) in steps
+    assert steps[-1] == ("/devices/C1", {"command": "launch"})
+    # no belt in the system: nothing to plan here (salvage takes over)
+    assert sv.back_to_belt_plan([ctrl], devices, {}, {}, {"LOR": []}, set(), None, set()) == []
+
+
+def test_miners_in_a_system_without_a_belt_go_to_salvage(client):
+    import json as _json
+    world, eng = _salvage_setup(client)
+    db = client.app.state.db
+    row = client.portal.call(db.fetchone, "SELECT data FROM systems WHERE star='SOL'")
+    scan = _json.loads(row["data"])
+    scan.pop("asteroid_belt", None)                                      # scanned, and no belt
+    client.portal.call(db.execute, "UPDATE systems SET data=? WHERE star='SOL'", (_json.dumps(scan),))
+    client.portal.call(eng.rule_salvage)
+    jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "salvage_when_depleted"]
+    assert any(j["device"] == "MC91FF22" and "salvage" in j["title"] for j in jobs)

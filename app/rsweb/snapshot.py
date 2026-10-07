@@ -97,6 +97,7 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
     ctrls = [d for d in in_scope if is_mining_ctrl(d)]
     for c in ctrls[:12]:
         await get(f"/devices/{c['device_code']}")
+        await get(f"/devices/{c['device_code']}/logs", latest="true", limit=15)   # e.g. ami_overheat
 
     # 4. the belts miners and controllers are at (open resource sites)
     belts = sorted({b for d in in_scope if (is_miner(d) or is_mining_ctrl(d)) for b in [belt_of(d.get("location"))] if b})
@@ -426,6 +427,13 @@ def diagnose(snap: dict) -> dict:
     ex = [c["code"] for c in ctrl_rows if str(c["directive"]["state"] or "").startswith("exhausted") and not c["mining"]]
     if ex:
         headline.append(f"controllers reporting exhausted: {', '.join(ex)}")
+    hot = sorted(code for code, lines in logs.items() if any("overheat" in str(x.get("event") or x.get("type") or x)
+                                                             for x in lines or []))
+    if hot:
+        headline.append(f"controllers logging ami_overheat: {', '.join(hot)}")
+    gated = [f"{c['code']} ({c['directive']['state']})" for c in ctrl_rows if str(c["directive"]["state"] or "").startswith("gated")]
+    if gated:
+        headline.append(f"controllers gated by the game: {', '.join(gated)}")
     off = [r for r in ("restart_idle_miners", "ami_schedules", "reopen_sites") if not on.get(r)]
     if off:
         headline.append("rules off: " + ", ".join(off))

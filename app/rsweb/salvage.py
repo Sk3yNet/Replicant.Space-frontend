@@ -119,11 +119,26 @@ def open_site_count(detail: dict | None) -> int:
     return n
 
 
+MOVING = ("travel", "cruis", "surg", "recall")
+
+
+def parked(c: dict) -> bool:
+    """A mining controller that isn't at a belt and isn't salvaging (e.g. left at a Lagrange point after a delivery,
+    its directive gated): it should be at its system's belt."""
+    dv = c.get("ami_directive") if isinstance(c.get("ami_directive"), dict) else {}
+    salvaging = dv.get("name") == "gather_salvage" and not str(dv.get("_eval_state") or "").startswith(FINISHED_STATES)
+    return (bool(c.get("location")) and not belt_of(c.get("location")) and not salvaging
+            and not str(c.get("status") or "").startswith(MOVING))
+
+
 def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str, str], open_sites: dict[str, int],
-                      system_belts: dict[str, list[str]], skip: set[str], directive_for: dict[str, str] | None = None) -> list[dict]:
-    """Mining controllers that should be mining a belt with open sites but aren't: their directive is exhausted (at a
-    body, or a stale exhausted at the belt itself), paused, or a finished salvage. Returns one plan per controller:
-    {ctrl, belt, move_ctrl, away (drones to bring back), directive, why}."""
+                      system_belts: dict[str, list[str]], skip: set[str], directive_for: dict[str, str] | None = None,
+                      free: set[str] | None = None) -> list[dict]:
+    """Mining controllers that should be mining a belt but aren't: their directive is exhausted (at a body, or a stale
+    exhausted at the belt itself), paused, or a finished salvage, while a belt in the system has open sites; or the
+    controller is parked away from any belt (parked()) while its system has a belt. Returns one plan per controller:
+    {ctrl, belt, move_ctrl, away (its drones to bring back), strays (idle unmanaged drones in the system, from `free`,
+    to bring along and adopt), directive, why}."""
     by = {d.get("device_code"): d for d in devices}
     run_by = dict(managed)
     for d in devices:
@@ -139,36 +154,49 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
         paused = str(c.get("ami_directive_status") or "") == "paused" or str(c.get("status") or "") == "paused"
         place = exhausted_place(state)
         salvage_done = name == "gather_salvage" and state.startswith(FINISHED_STATES)
-        if not (place or paused or salvage_done):
+        is_parked = parked(c)
+        if not (place or paused or salvage_done or is_parked):
             continue
         star = (c.get("location") or "").split("-")[0]
         belt = belt_of(c.get("location"))
         if not belt or open_sites.get(belt, 0) <= 0:   # not at a belt (or its belt is dry): the best belt in its system
             cands = [b for b in system_belts.get(star, []) if open_sites.get(b, 0) > 0]
             belt = max(cands, key=lambda b: (open_sites[b], b)) if cands else None
+            if not belt and is_parked and system_belts.get(star):
+                # no open sites known yet: go anyway — at the belt an exhausted report brings the survey drones
+                # (reopen_sites) or salvage (salvage_when_depleted)
+                belt = sorted(system_belts[star])[0]
         if not belt:
             continue
         kids = [k for k, v in run_by.items() if v == code and (by.get(k) or {}).get("device_type") == "mining_drone"]
         if any(str((by.get(k) or {}).get("status") or "").startswith("mining") for k in kids):
             continue  # partly exhausted (some resources) but its drones are mining the rest: leave it alone
         away = sorted(k for k in kids if (by.get(k) or {}).get("location") and by[k]["location"] != belt
-                      and not str(by[k].get("status") or "").startswith(("travel", "cruis", "surg", "recall")))
-        why = (f"exhausted at {place}, its drones are away from {belt}" if place and place != belt else
+                      and not str(by[k].get("status") or "").startswith(MOVING))
+        strays = sorted(d["device_code"] for d in devices
+                        if d.get("device_code") in (free or set()) and d.get("device_type") == "mining_drone"
+                        and (d.get("location") or "").split("-")[0] == star and d["device_code"] not in run_by
+                        and str(d.get("status") or "").startswith("idle"))
+        why = (f"parked at {c.get('location')}, away from the belt" if is_parked and not place else
+               f"exhausted at {place}, its drones are away from {belt}" if place and place != belt else
                f"stale 'exhausted' at {belt}, which now has {open_sites[belt]} open site(s)" if place == belt else
                "finished salvage" if salvage_done else "directive paused")
         d = (directive_for or {}).get(code) or (name if name and name != "gather_salvage" else "gather_evenly")
-        out.append({"ctrl": code, "belt": belt, "move_ctrl": c.get("location") != belt, "away": away,
+        if free is not None:
+            free -= set(strays)   # each stray goes with one controller
+        out.append({"ctrl": code, "belt": belt, "move_ctrl": c.get("location") != belt, "away": away, "strays": strays,
                     "directive": d, "config": (dv.get("config") or {}) if d == name else {}, "why": why,
-                    "open_sites": open_sites[belt]})
+                    "open_sites": open_sites.get(belt, 0)})
     return out
 
 
 def back_to_belt_steps(p: dict) -> list[dict]:
-    code, belt, away = p["ctrl"], p["belt"], p["away"]
+    code, belt, mine = p["ctrl"], p["belt"], p["away"]
+    away = mine + [k for k in p.get("strays") or [] if k not in mine]   # its own drones, then idle unmanaged ones
     steps: list[dict] = []
-    if away:  # free them so they can be flown back, then adopt them again at the belt
-        steps.append(step(f"{code}: release {len(away)} drone(s) to bring them back", f"/devices/{code}",
-                          {"command": "release", "devices": away}))
+    if mine:  # free them so they can be flown back, then adopt them again at the belt
+        steps.append(step(f"{code}: release {len(mine)} drone(s) to bring them back", f"/devices/{code}",
+                          {"command": "release", "devices": mine}))
     if p["move_ctrl"]:
         st = step(f"{code} → {belt}", f"/devices/{code}", {"command": "travel", "destination": belt},
                   wait=["travel.arrived"], match={"destination": belt}, critical=True)
@@ -187,6 +215,7 @@ def back_to_belt_steps(p: dict) -> list[dict]:
     body = {"command": "set_directive", "directive": p["directive"]}
     if p.get("config"):
         body["configuration"] = p["config"]
-    steps.append(step(f"{code}: {p['directive']} at {belt} ({p['open_sites']} open site(s))", f"/devices/{code}", body, critical=True))
+    steps.append(step(f"{code}: {p['directive']} at {belt} ({p['open_sites']} open site(s) known)", f"/devices/{code}", body,
+                      critical=True))
     steps.append(step(f"{code}: launch", f"/devices/{code}", {"command": "launch"}))
     return steps

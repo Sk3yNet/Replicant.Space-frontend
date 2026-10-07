@@ -122,7 +122,10 @@ RULES: list[Rule] = [
          "mine it. When a salvage runs out, the next one is picked. Back to the belt: a mining controller whose directive "
          "is exhausted at a body (its drones left at used-up salvage), stale-exhausted at a belt that has re-opened, paused, "
          "or done with salvage, while a belt in its system has open sites, gets its drones flown back, re-adopted, and its "
-         "directive re-set and launched.",
+         "directive re-set and launched. A mining controller parked away from any belt (e.g. at a Lagrange point after a "
+         "delivery) in a system with a belt goes to the belt too, taking its drones and the system's idle unassigned "
+         "mining drones, which it adopts. In a scanned system with no belt, miners go straight to salvage; with no salvage "
+         "either, you get an alert (once a day).",
          [Option("use_ami", "bool", "Use the system's AMI mining controller when there is one", True),
           Option("recall", "bool", "AMI: recall its drones when the salvage is used up", True),
           Option("back_to_belt", "bool", "Bring controllers and drones back to a belt once it has open sites again", True),
@@ -2217,7 +2220,7 @@ class AutomationEngine(OpsRules):
             dv = c.get("ami_directive") if isinstance(c.get("ami_directive"), dict) else {}
             st = str(dv.get("_eval_state") or "")
             return (st.startswith("exhausted") or str(c.get("ami_directive_status") or "") == "paused"
-                    or (dv.get("name") == "gather_salvage" and st.startswith(sv.FINISHED_STATES)))
+                    or (dv.get("name") == "gather_salvage" and st.startswith(sv.FINISHED_STATES)) or sv.parked(c))
         cands = [c for c in ctrls if candidate(c)]
         if not cands:
             return []
@@ -2239,11 +2242,14 @@ class AutomationEngine(OpsRules):
                 for c in targets_of(sched, devices):
                     directive_for.setdefault(c["device_code"], sched["directive"])
         done = []
-        for p in sv.back_to_belt_plan(cands, devices, await managed_by(self.db), open_sites, sysb, skip, directive_for):
+        busy = self.busy_devices(await self.jobs())
+        free = {d["device_code"] for d in devices if not _reserved(d) and d["device_code"] not in busy}
+        for p in sv.back_to_belt_plan(cands, devices, await managed_by(self.db), open_sites, sysb, skip, directive_for, free):
+            n = len(p["away"]) + len(p["strays"])
             job = await self.create_job("salvage_when_depleted",
                                         f"{p['ctrl']}: back to {p['belt']} ({p['why']})"
-                                        + (f", bringing {len(p['away'])} drone(s)" if p["away"] else ""),
-                                        p["ctrl"], sv.back_to_belt_steps(p), {"devices": p["away"], "belt": p["belt"]})
+                                        + (f", bringing {n} drone(s)" if n else ""),
+                                        p["ctrl"], sv.back_to_belt_steps(p), {"devices": p["away"] + p["strays"], "belt": p["belt"]})
             back[p["ctrl"]] = now.isoformat(timespec="seconds")
             done.append(f"{p['ctrl']} → {p['belt']}" + (" (planned, dry run)" if not job else ""))
         await self.db.kv_set("salvage_state", {**(await self.db.kv_get("salvage_state", {}) or {}), "back": back})
@@ -2276,8 +2282,11 @@ class AutomationEngine(OpsRules):
                   (is_controller(d) and kind_of(d.get("device_type")) == "mining"))
                   and not _reserved(d)]
         done: list[str] = []
+        nothing = state.setdefault("nothing", {})   # star -> when we last said there's nothing to mine there
         for star in sorted({star_of(d.get("location")) for d in miners}):
             res = await system_resources(self.db, star)
+            scanned = await self.db.fetchone("SELECT 1 FROM systems WHERE star=?", (star,))
+            no_belt = bool(scanned) and not (await self.system_belts({star}))[star]   # scanned: no belt to mine
             dry = sv.worked_out(res) | {p for p in await self.exhausted_places() if star_of(p) == star}
             sal = sv.available_salvage(res)
             dead_sal = {x["code"] for x in res.get("salvage") or [] if x.get("depleted")}
@@ -2287,7 +2296,14 @@ class AutomationEngine(OpsRules):
             # the controller's own report: "_eval_state": "exhausted:[...]:<place>" = nothing left to mine there
             exhausted = {c["device_code"] for c in ctrls
                          if str(((c.get("ami_directive") or {}).get("_eval_state")) or "").startswith("exhausted")}
-            if (not dry and not exhausted) or not sal:
+            if no_belt and not sal:
+                t = _ts(nothing.get(star))
+                if not t or now - t > timedelta(hours=24):
+                    nothing[star] = now.isoformat(timespec="seconds")
+                    await self.log("salvage_when_depleted", f"nothing to mine in {star}: no asteroid belt and no salvage we know "
+                                   "of — move its miners, or survey the bodies for salvage", "alert", notify=True)
+                continue
+            if (not dry and not exhausted and not no_belt) or not sal:
                 continue
             if ctrls and cfg.get("use_ami", True):
                 reopening = await self.rule_cfg("reopen_sites")
@@ -2296,7 +2312,7 @@ class AutomationEngine(OpsRules):
                     code = c["device_code"]
                     if code in busy or cooling(code):
                         continue
-                    if reopening and survey_here:
+                    if reopening and survey_here and not no_belt:
                         continue  # sites are being re-opened by survey drones; keep mining rather than switch to salvage
                     row = await self.db.fetchone("SELECT event, payload FROM events WHERE device_code=? AND event LIKE 'directive.%' "
                                                  "ORDER BY seq DESC LIMIT 1", (code,))
@@ -2306,7 +2322,7 @@ class AutomationEngine(OpsRules):
                     if on_salvage:
                         continue
                     idle, _ = await controller_idle(self.db, c)
-                    if not (code in exhausted or sv.at_worked_out_place(c.get("location"), dry, dead_sal) or idle):
+                    if not (code in exhausted or sv.at_worked_out_place(c.get("location"), dry, dead_sal) or idle or no_belt):
                         continue
                     target = next((x for x in sal if assigned.get(x["code"]) in (None, code)), None)
                     if not target:
@@ -2324,7 +2340,7 @@ class AutomationEngine(OpsRules):
             idle_drones = sorted((d for d in miners if d.get("device_type") == "mining_drone" and star_of(d.get("location")) == star
                                   and str(d.get("status")) == "idle" and d["device_code"] not in busy
                                   and d["device_code"] not in managed and not cooling(d["device_code"])
-                                  and sv.at_worked_out_place(d.get("location"), dry, dead_sal)),
+                                  and (no_belt or sv.at_worked_out_place(d.get("location"), dry, dead_sal))),
                                  key=lambda d: d["device_code"])
             counts: dict[str, int] = defaultdict(int)
             for d in miners:  # drones already at (or heading for) a salvage count toward its share
@@ -2349,6 +2365,7 @@ class AutomationEngine(OpsRules):
                 done.append(f"{code} → {target['code']}")
         prev = await self.db.kv_get("salvage_state", {}) or {}
         state["back"] = prev.get("back", state.get("back", {}))   # written by rule_back_to_belt this pass
+        state["nothing"] = nothing
         await self.db.kv_set("salvage_state", state)
         return back_done + done
 
