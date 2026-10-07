@@ -829,8 +829,12 @@ def outside_controllers(fleet: dict, devices: list[dict]) -> list[dict]:
     return [d for d in devices if d.get("device_code") in runs - mine]
 
 
+WORK_DONE_STATES = ("exhausted", "depleted", "complete", "done", "idle:no_sources")   # a mining controller's _eval_state
+
+
 def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str) -> tuple[bool, str, dict]:
-    """(done?, why, updates to mission). Mining: exhausted and no site being searched for N minutes.
+    """(done?, why, updates to mission). Mining: nothing left (belt exhausted or salvage used up; no controller: no
+    drone mining) and no site being searched, for N minutes.
     Explore: the survey controller reports no_targets."""
     r = roster(fleet, devices)
     ms = r["members"]
@@ -845,8 +849,13 @@ def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str) ->
     ctrl = next((d for d in ms if kind(d) == "mining_controller"), None)
     st = str(((ctrl or {}).get("ami_directive") or {}).get("_eval_state") or "")
     searching = [d for d in ms if str(d.get("status") or "").startswith("searching")]
-    if not st.startswith("exhausted") or searching:
-        return False, (st.split(":")[0] or "mining") + (f", {len(searching)} searching" if searching else ""), {"exhausted_since": None}
+    mining = [d for d in ms if str(d.get("status") or "").startswith("mining")]
+    # nothing left: the belt is exhausted, or (no belt) the salvage is used up — live 2026-10-07: Prospectors at
+    # KELMONENT watched for ever on gather_salvage "depleted:complete"; with no controller, no drone mining
+    finished = (st.startswith(WORK_DONE_STATES) if ctrl else not mining) and not mining
+    if not finished or searching:
+        return False, (st.split(":")[0] or ("mining" if mining or not ctrl else "working")) + (
+            f", {len(searching)} searching" if searching else ""), {"exhausted_since": None}
     since = mission.get("exhausted_since") or now_iso
     from datetime import datetime
     try:
@@ -854,7 +863,8 @@ def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str) ->
     except ValueError:
         mins = 0
     limit = int((mission.get("opts") or {}).get("exhausted_minutes") or 30)
-    return mins >= limit, f"exhausted for {int(mins)}/{limit} min", {"exhausted_since": since}
+    what = "salvage used up" if st.startswith(("depleted", "complete", "done")) else "exhausted" if ctrl else "no drone mining"
+    return mins >= limit, f"{what} for {int(mins)}/{limit} min", {"exhausted_since": since}
 
 
 def template_wants(phase: dict | None) -> dict[str, int]:

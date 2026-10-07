@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.33.1"
+VERSION = "1.33.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.33.2", "2026-10-07", "Mining missions: the watch phase also ends when the salvage is used up (gather_salvage "
+     "'depleted:complete' in a system without a belt) and, for a fleet without a controller, when no drone has mined for "
+     "the grace period — it used to wait for an 'exhausted' belt that never came."),
     ("1.33.1", "2026-10-07", "Overheating mining controllers: the game warns that a controller running drones in many "
      "places multi-tasks and overheats (ami_overheat). A controller at a belt whose drones sit idle elsewhere (not on "
      "salvage) now gets them flown back and re-adopted; the diagnostics snapshot names controllers whose drones are in "

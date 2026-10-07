@@ -4778,3 +4778,25 @@ def test_controller_at_the_belt_brings_its_scattered_drones():
     assert sv.scattered({**ctrl, "ami_directive": {"name": "gather_salvage"}}, [ctrl, *kids]) == []
     assert sv.scattered(ctrl, [ctrl, {**kids[0], "location": "LOR-BELT-1-SITE-2"}]) == []
     assert sv.scattered({**ctrl, "location": "LOR-6-L4"}, [ctrl, *kids]) == []
+
+
+def test_mining_watch_ends_when_the_salvage_is_used_up():
+    """Live 2026-10-07: Prospectors at KELMONENT (no belt) salvaged; the controller reported gather_salvage
+    'depleted:complete' and the watch phase waited for 'exhausted' for ever."""
+    from rsweb import fleets as fl
+    f = {"id": "p", "role": "mining"}
+    ctrl = {"device_code": "C", "device_type": "ami_mining_controller", "tags": ["fleet:p"], "location": "KEL-1",
+            "ami_directive": {"name": "gather_salvage", "_eval_state": "depleted:complete"}}
+    drone = {"device_code": "D", "device_type": "mining_drone", "tags": ["fleet:p"], "location": "KEL-1", "status": "idle"}
+    done, why, upd = fl.watch_done(f, {}, [ctrl, drone], "2026-10-07T12:00:00+00:00")
+    assert not done and "salvage used up" in why and upd["exhausted_since"]          # the grace period starts
+    done, why, _ = fl.watch_done(f, {"exhausted_since": "2026-10-07T11:00:00+00:00"}, [ctrl, drone], "2026-10-07T12:00:00+00:00")
+    assert done
+    # still mining something: not done, whatever the state says
+    assert not fl.watch_done(f, {"exhausted_since": "2026-10-07T11:00:00+00:00"}, [ctrl, {**drone, "status": "mining (carbon)"}],
+                             "2026-10-07T12:00:00+00:00")[0]
+    # gated / working: not done
+    assert not fl.watch_done(f, {}, [{**ctrl, "ami_directive": {"name": "gather_evenly", "_eval_state": "gated:cold_repair"}}, drone],
+                             "2026-10-07T12:00:00+00:00")[0]
+    # no controller: done once no drone has mined for the grace period
+    assert fl.watch_done(f, {"exhausted_since": "2026-10-07T11:00:00+00:00"}, [drone], "2026-10-07T12:00:00+00:00")[0]
