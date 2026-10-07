@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.40.0"
+VERSION = "1.41.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.41.0", "2026-10-07", "Trade runs: a run only waits at the site once the whole price is there; short with nothing on "
+     "its way, it goes back to gathering (cargo still aboard at the site is deposited again), and materials on another "
+     "vessel heading there are waited for. The replicant riding with the trade fleet fulfils (contracts get it in the "
+     "request template). Trade fleets get 'auto-fulfil contracts' and 'auto-fulfil trades': when free, the fleet starts "
+     "the nearest deal your stockpiles can pay for (contracts first, not in another player's warded system, a trade at "
+     "most once a day)."),
     ("1.40.0", "2026-10-07", "Galaxy map loads progressively: the stars first (a small answer with only the fields the map "
      "uses), then drones, mining, ships in transit, fleets and supply lines. Mentions: a message naming Sk3y-1, Sk3y-4 or "
      "just Sk3y counts (base names without the -N), and mentions count in the bell's badge alongside errors. BobNet's "

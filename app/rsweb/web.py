@@ -3102,6 +3102,22 @@ async def fleets_control(request: Request, fid: str, action: str = Form(...), us
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
+@router.post("/fleets/{fid}/auto-deals", response_class=HTMLResponse)
+async def fleets_auto_deals(request: Request, fid: str, user: str = Depends(current_user)):
+    """A trade fleet's 'auto-fulfil contracts' / 'auto-fulfil trades' checkboxes."""
+    form = await request.form()
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f or f.get("role") != "trade":
+        return HTMLResponse("", status_code=404)
+    f["auto_contracts"] = form.get("auto_contracts") == "on"
+    f["auto_trades"] = form.get("auto_trades") == "on"
+    await eng.save_fleets(items)
+    on = [x for x, k in (("contracts", "auto_contracts"), ("trades", "auto_trades")) if f[k]]
+    return HTMLResponse(f'<span class="small {"lv-done" if on else "muted"}">'
+                        + (f"Picks up {' and '.join(on)} on its own when it's free." if on else "Off.") + "</span>")
+
+
 @router.post("/fleets/traders", response_class=HTMLResponse)
 async def fleets_traders(request: Request, user: str = Depends(current_user)):
     """Refresh the trader directory and each trader's trades (one request per trader, at most 10)."""

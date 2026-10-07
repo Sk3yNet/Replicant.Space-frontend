@@ -199,6 +199,13 @@
                   title="Bring every member back aboard a fleet carrier where it is">Board everyone</button>
           <span class="muted">{{ r.loose | length }} member(s) not aboard: {{ r.loose | map(attribute='device_code') | join(', ') }}</span></div>
         {% endif %}
+        {% if f.role == 'trade' %}
+        <form class="row small" hx-post="/fleets/{{ f.id }}/auto-deals" hx-trigger="change" hx-target="#auto-{{ f.id }}" style="gap:14px;margin:6px 0">
+          <label style="text-transform:none"><input type="checkbox" name="auto_contracts" {{ 'checked' if f.auto_contracts }}> auto-fulfil contracts</label>
+          <label style="text-transform:none"><input type="checkbox" name="auto_trades" {{ 'checked' if f.auto_trades }}> auto-fulfil trades</label>
+          <span id="auto-{{ f.id }}" class="muted">When the fleet is free it starts the nearest one your stockpiles can pay for
+            (contracts first; not where another player's ward or hub is; a trade at most once a day). Its own replicant fulfils.</span>
+        </form>{% endif %}
         <h3>New mission</h3>
         <form hx-post="/fleets/{{ f.id }}/mission" hx-swap="none">
           {% if f.role == 'trade' %}
@@ -211,7 +218,7 @@
               <option value='{{ {"controller": code, "trade_code": tr.trade_code, "name": tr.name, "star": t.star, "location": t.location, "price": (tr.criteria or {}).get("resources") or {}, "rewards": (tr.rewards or {}).get("resources") or {}} | tojson }}'>
                 {{ t.shop_name or t.owner_name }} @ {{ t.location }} — {{ tr.name }}: pay {% for r2, q in ((tr.criteria or {}).resources or {}).items() %}{{ q }} {{ r2 }} {% endfor %}→ get {% for r2, q in ((tr.rewards or {}).resources or {}).items() %}{{ q }} {{ r2 }} {% endfor %}{% for r2, q in ((tr.rewards or {}).devices or {}).items() %}{{ q }}× {{ r2 }} {% endfor %}</option>{% endfor %}{% endfor %}</select></label>
             <div class="muted small">The freighters pick up what the site is short of from the nearest stockpiles and deposit it there.
-              Once a replicant is at the site (a fleet vessel hosting one goes along), the contract or trade is fulfilled; the
+              Once everything is at the site (short, and nothing on its way: it gathers again) and the fleet's own replicant is there (a fleet vessel hosting one goes along; without one, any replicant at the site), the contract or trade is fulfilled; the
               rewards are loaded and taken to the nearest system whose fleet takes materials in, then the fleet goes home.</div>
             <button type="button" class="small ghost" hx-post="/fleets/traders" hx-swap="none">Refresh traders</button>
           {% else %}

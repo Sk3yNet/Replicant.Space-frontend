@@ -4210,13 +4210,16 @@ def test_contract_fleet_delivers_waits_fulfils_and_brings_the_rewards(client):
     t = {"status": "running", "log": [], "trade": {"controller": "TC1", "trade_code": "TRD-1", "location": "KEL-2", "price": {}}}
     steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, t, "trade", devices)
     assert steps[0]["path"] == "/devices/TC1/trades/TRD-1"
-    # the wait phase holds until a replicant is at the site, then fulfils
+    # the wait phase holds until the whole price is at the site and the fleet's own replicant (Joe rides on HV) is there
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": [{"resource_type": "carbon", "quantity": 700}]},
+                                                {"location": "SOL-4", "items": [{"resource_type": "carbon", "quantity": 200}]}])
     client.portal.call(db.kv_set, "replicants", {"R1": {"name": "Joe", "hosted_device_code": "HV", "location": "SOL-3-L4"}})
     m.update({"phase": "wait", "job": None, "status": "running"})
     client.portal.call(eng.save_fleets, [{**fleet, "mission": m}])
     client.portal.call(eng.run_fleets)
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "t")
-    assert f["mission"]["phase"] == "wait" and "waiting for a replicant" in f["mission"]["watch_note"]
+    assert f["mission"]["phase"] == "wait" and "waiting for Joe (the fleet's replicant)" in f["mission"]["watch_note"]
     client.portal.call(db.kv_set, "replicants", {"R1": {"name": "Joe", "hosted_device_code": "HV", "location": "SOL-4"}})
     client.portal.call(eng.run_fleets)
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "t")
@@ -5151,3 +5154,49 @@ def test_galaxy_map_loads_in_two_parts(client):
     assert any(v["drones"] for v in over["per_star"].values())
     full = client.get("/api/map.json", headers=H).json()                      # the old one-shot shape still works
     assert "drones" in full["stars"][0] and "fleets" in full
+
+
+def test_trade_run_only_waits_once_everything_is_at_the_site():
+    from rsweb import fleets as fl
+    m = {"contract": {"designation": "E", "location": "SOL-4", "price": {"carbon": 200, "rares": 10}}, "loaded": ["F1"]}
+    inv = {"SOL-4": {"carbon": 200}}
+    # short of rares and nothing on its way: gather again
+    assert fl.deal_check(m, inv, []) == ("regather", {"rares": 10})
+    # a vessel flying there with the rares: wait for it
+    fr = {"device_code": "F2", "travel": {"destination": "SOL-4"}, "cargo": [{"resource_type": "rares", "quantity": 10}]}
+    assert fl.deal_check(m, inv, [fr]) == ("incoming", {"rares": 10})
+    # a fleet freighter at the site still holding cargo: deposit again
+    at = {"device_code": "F1", "location": "SOL-4", "cargo": {"rares": 10}}
+    assert fl.deal_check(m, inv, [at])[0] == "redeliver"
+    assert fl.deal_check(m, {"SOL-4": {"carbon": 200, "rares": 10}}, [])[0] == "ok"
+    # the fleet's own replicant fulfils (contract template gets it)
+    devs = [{"device_code": "HV", "tags": ["fleet:t"]}]
+    assert fl.fleet_replicant({"id": "t"}, devs, {"R9": {"hosted_device_code": "XX"}, "R1": {"hosted_device_code": "HV"}})[0] == "R1"
+    st = fl.fulfil_step(fl.deal(m), "R1", 'POST /locations/{location}/events/{designation} {"replicant_code": "{replicant}"}')
+    assert st["path"] == "/locations/SOL-4/events/E" and st["body"] == {"replicant_code": "R1"}
+
+
+def test_trade_fleet_auto_picks_contracts_and_trades(client):
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": [{"resource_type": "carbon", "quantity": 900}]}])
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}},
+                                                       {"designation": "KEL", "position": {"x": 3, "y": 0, "z": 0}}]})
+    client.portal.call(db.kv_set, "traders_cache", {"TC1": {"location": "KEL-2", "star": "KEL", "trades": [
+        {"trade_code": "T1", "name": "carbon for rares", "criteria": {"resources": {"carbon": 100}}, "rewards": {"resources": {"rares": 5}}},
+        {"trade_code": "T2", "name": "too dear", "criteria": {"resources": {"carbon": 5000}}, "rewards": {"resources": {"rares": 99}}}]}})
+    client.portal.call(eng.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
+    client.post("/fleets/t/auto-deals", data={"auto_trades": "on"}, headers=HX)
+    f = client.portal.call(eng.fleets)[0]
+    assert f["auto_trades"] and not f["auto_contracts"]
+    assert client.portal.call(eng.auto_deals_pass) == ["T: trade carbon for rares"]    # T2 isn't affordable
+    m = client.portal.call(eng.fleets)[0]["mission"]
+    assert m["trade"]["trade_code"] == "T1" and m["targets"] == ["KEL"] and m["auto"]
+    assert client.portal.call(eng.auto_deals_pass) == []                               # busy now
+    # done: not the same trade again within a day
+    fl_ = client.portal.call(eng.fleets)
+    fl_[0]["mission"]["status"] = "done"
+    client.portal.call(eng.save_fleets, fl_)
+    assert client.portal.call(eng.auto_deals_pass) == []
+    page = client.get("/fleets", headers=H).text
+    assert "auto-fulfil contracts" in page and "auto-fulfil trades" in page

@@ -1121,10 +1121,19 @@ def site_deliver_steps(fleet: dict, devices: list[dict], site: str, replicant_ho
     return steps
 
 
-def fulfil_step(dl: dict) -> dict:
+def fulfil_step(dl: dict, replicant: str | None = None, template: str | None = None) -> dict:
+    """Fulfil the deal. A contract goes through the events settings' request template (default
+    POST /locations/{location}/events/{designation}; {replicant} = the fleet's replicant); a trade is executed at its
+    controller with the replicant there."""
     if dl["kind"] == "contract":
-        return step(f"fulfil {dl['label']} at {dl['location']}", f"/locations/{dl['location']}/events/{dl['designation']}",
-                    None, critical=True)
+        import json as _json
+        tmpl = template or "POST /locations/{location}/events/{designation}"
+        filled = (tmpl.replace("{designation}", dl.get("designation") or "").replace("{location}", dl["location"])
+                  .replace("{replicant}", replicant or "").replace("{criteria}", "default"))
+        method, _, rest = filled.partition(" ")
+        path, _, body = rest.partition(" ")
+        return step(f"fulfil {dl['label']} at {dl['location']}" + (f" ({replicant})" if replicant else ""), path,
+                    _json.loads(body) if body.strip() else None, method=method.upper() or "POST", critical=True)
     return step(f"execute {dl['label']} at {dl['controller']}", f"/devices/{dl['controller']}/trades/{dl['trade_code']}",
                 None, critical=True)
 
@@ -1251,3 +1260,50 @@ def supply_links(fleets: list[dict], devices: list[dict]) -> list[dict]:
         x.pop("active", None)
         out.append(x)
     return out
+
+
+# --- trade runs: is the price at the site, and who fulfils ---------------------------------------------------
+def fleet_replicant(fleet: dict, devices: list[dict], replicants: dict) -> tuple[str, dict] | None:
+    """The replicant riding with the fleet (hosted on one of its vessels): the one that fulfils its trades."""
+    codes = {d["device_code"] for d in members(fleet, devices)}
+    return next(((c, r) for c, r in sorted(replicants.items()) if r.get("hosted_device_code") in codes), None)
+
+
+def incoming_to(site: str, devices: list[dict]) -> dict[str, float]:
+    """Cargo on its way to `site`: what vessels travelling there carry."""
+    out: dict[str, float] = {}
+    for d in devices:
+        tr = d.get("travel") or {}
+        if site in (tr.get("final_destination"), tr.get("destination")):
+            for r, q in as_amounts(d.get("cargo")).items():
+                out[r] = out.get(r, 0.0) + q
+    return out
+
+
+def deal_check(m: dict, inventory: dict[str, dict], devices: list[dict]) -> tuple[str, dict[str, int]]:
+    """Before waiting for the replicant (and while waiting): ("ok", {}) when the site holds the whole price;
+    ("incoming", short) when what's short is on its way there; ("redeliver", short) when a fleet freighter at the
+    site still holds cargo (deposit it again); ("regather", left) when it's short and nothing covers it — back to
+    gathering the materials."""
+    dl = deal(m)
+    site = dl["location"]
+    short = site_short(dl["price"], inventory.get(site) or {})
+    if not short:
+        return "ok", {}
+    inc = incoming_to(site, devices)
+    left = {r: q for r, q in ((r, int(q - inc.get(r, 0))) for r, q in short.items()) if q > 0}
+    if not left:
+        return "incoming", short
+    if any(d.get("location") == site and sum(as_amounts(d.get("cargo")).values()) > 0
+           and d.get("device_code") in set(m.get("loaded") or []) for d in devices):
+        return "redeliver", left
+    return "regather", left
+
+
+def deal_affordable(price: dict, inventory: dict[str, dict]) -> bool:
+    """Your stockpiles together hold the price."""
+    have: dict[str, float] = {}
+    for items in inventory.values():
+        for r, q in as_amounts(items).items():
+            have[r] = have.get(r, 0.0) + q
+    return all(have.get(r, 0.0) >= q for r, q in as_amounts(price).items())

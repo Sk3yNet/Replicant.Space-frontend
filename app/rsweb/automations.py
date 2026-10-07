@@ -820,7 +820,7 @@ class AutomationEngine(OpsRules):
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
-            for stage in ("run_fleets", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("run_fleets", "auto_deals_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass"):
@@ -1641,6 +1641,129 @@ class AutomationEngine(OpsRules):
         m.setdefault("log", []).append({"at": now_iso(), "text": text})
         m["log"] = m["log"][-60:]
 
+    async def auto_deals_pass(self) -> list[str]:
+        """Trade fleets with 'auto-fulfil contracts' / 'auto-fulfil trades' ticked: when one has no mission running,
+        start one on the best deal — contracts first, then trades — that your stockpiles can pay for, nearest to the
+        fleet's home, not in a system another player's ward or hub locks, not already taken by another fleet, and not a
+        trade it did in the last 24 h."""
+        from . import fleets as fl
+        from . import gameevents as gev
+        from . import wards
+        from .shapes import normalize_inventory
+        items = await self.fleets()
+        auto = [f for f in items if f.get("role") == "trade" and (f.get("auto_contracts") or f.get("auto_trades"))
+                and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped")]   # stopped: you paused it
+        if not auto:
+            return []
+        devices = await self.devices()
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        reps = await self.db.kv_get("replicants", {}) or {}
+        cat = await self.db.kv_get("stars", {}) or {}
+        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+        locked = wards.foreign(cat, devices)
+        taken = set()
+        for f in items:
+            m = f.get("mission") or {}
+            if m.get("status") in ("running", "stalled"):
+                d = fl.deal(m)
+                taken.add(d.get("designation") or f"{d.get('controller')}:{d.get('trade_code')}")
+        cands: list[dict] = []
+        for des, e in (await gev.load(self.db)).items():
+            if e.get("status") != "open" or not e.get("location") or des in taken or star_of(e["location"]) in locked:
+                continue
+            prog = gev.progress(e, inv, devices, reps)
+            price = {x["resource"]: x["need"] for x in (prog.get("best") or {}).get("resources") or []}
+            rewards = (e.get("rewards") or {}).get("resources") or {} if isinstance(e.get("rewards"), dict) else {}
+            cands.append({"kind": "contract", "key": des, "star": star_of(e["location"]),
+                          "contract": {"designation": des, "location": e["location"], "title": e.get("title"),
+                                       "price": price, "rewards": rewards}, "price": price})
+        for ctrl, t in (await self.db.kv_get("traders_cache", {}) or {}).items():
+            for tr in t.get("trades") or []:
+                key = f"{ctrl}:{tr.get('trade_code')}"
+                star = t.get("star") or star_of(t.get("location"))
+                if key in taken or not t.get("location") or star in locked:
+                    continue
+                price = (tr.get("criteria") or {}).get("resources") or {}
+                cands.append({"kind": "trade", "key": key, "star": star, "price": price,
+                              "trade": {"controller": ctrl, "trade_code": tr.get("trade_code"), "name": tr.get("name"),
+                                        "star": star, "location": t.get("location"), "price": price,
+                                        "rewards": (tr.get("rewards") or {}).get("resources") or {}}})
+        now, out = _now(), []
+
+        def dist(a: str, b: str) -> float:
+            pa, pb = pos.get(a), pos.get(b)
+            if not pa or not pb:
+                return 1e9
+            return sum((float(pa.get(k) or 0) - float(pb.get(k) or 0)) ** 2 for k in "xyz") ** 0.5
+        for f in auto:
+            done = f.setdefault("deals_done", {})
+            ok = [c for c in cands if c["key"] not in taken and fl.deal_affordable(c["price"], inv)
+                  and ((c["kind"] == "contract" and f.get("auto_contracts")) or (c["kind"] == "trade" and f.get("auto_trades")))
+                  and not (c["kind"] == "trade" and _ts(done.get(c["key"])) and (now - _ts(done[c["key"]])).total_seconds() < 86400)]
+            if not ok:
+                continue
+            c = min(ok, key=lambda c: (c["kind"] != "contract", dist(f.get("home") or "", c["star"]), c["key"]))
+            m = {"status": "running", "phase": None, "idx": 0, "targets": [c["star"]], "started_at": now_iso(), "log": [],
+                 "opts": {}, "auto": True, c["kind"]: c[c["kind"]]}
+            self._mlog(m, f"started automatically: {fl.deal(m)['label']} at {fl.deal(m)['location']}")
+            f["mission"] = m
+            done[c["key"]] = now_iso()
+            taken.add(c["key"])
+            out.append(f"{f['name']}: {fl.deal(m)['label']}")
+            await self.log("fleets", f"{f['name']}: started {fl.deal(m)['label']} at {fl.deal(m)['location']} (auto)")
+        if out:
+            await self.save_fleets(items)
+        return out
+
+    async def _deal_gate(self, fleet: dict, m: dict, devices: list[dict], arriving: bool = False) -> tuple[str, str]:
+        """A trade run at its wait phase: ("go", "") when the whole price is at the site and the fleet's replicant is
+        there; ("wait", why) while it isn't (or materials are still on their way); ("rewind", why) when the site is
+        short and nothing covers it — the mission steps back to deliver (cargo still aboard at the site) or to gather
+        (load) the missing materials again."""
+        from . import fleets as fl
+        from .shapes import normalize_inventory
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        dl = fl.deal(m)
+        site = dl["location"]
+        state, short = fl.deal_check(m, inv, devices)
+        what = ", ".join(f"{q} {r}" for r, q in short.items())
+        if state == "incoming":
+            return "wait", f"{site} is short of {what}: it's on its way there"
+        if state in ("redeliver", "regather"):
+            m["phase"] = "travel" if state == "redeliver" else None   # next: deliver / load
+            if state == "regather":
+                m["loaded"] = []
+            why = (f"{site} is short of {what}: " + ("depositing the cargo still aboard" if state == "redeliver"
+                                                       else "back to gathering it"))
+            self._mlog(m, why)
+            return "rewind", why
+        reps = await self.db.kv_get("replicants", {}) or {}
+        own = fl.fleet_replicant(fleet, devices, reps)
+        by = {d.get("device_code"): d for d in devices}
+
+        def at_site(code: str, r: dict) -> bool:
+            host = by.get(r.get("hosted_device_code") or "") or {}
+            return site in (r.get("location"), r.get("current_location"), host.get("location"))
+        if own:   # the fleet's own replicant fulfils its trades
+            code, r = own
+            m["fulfiller"] = code
+            if not at_site(code, r):
+                if arriving:
+                    self._mlog(m, f"everything delivered to {site}: waiting for {r.get('name') or code} (rides with the fleet)")
+                return "wait", f"materials at {site}: waiting for {r.get('name') or code} (the fleet's replicant) to get there"
+            self._mlog(m, f"{r.get('name') or code} at {site}: fulfilling")
+            return "go", ""
+        here = [c for c, r in reps.items() if at_site(c, r)]
+        if not here:
+            if arriving:
+                self._mlog(m, f"everything delivered to {site}: waiting for a replicant there (none rides with the fleet)")
+                await self.log("fleets", f"{fleet['name']}: materials at {site} — no replicant rides with the fleet; send "
+                                         f"one there to fulfil {dl['label']}", notify=True)
+            return "wait", f"materials at {site}: waiting for a replicant there to fulfil"
+        m["fulfiller"] = here[0]
+        self._mlog(m, f"{reps[here[0]].get('name') or here[0]} at {site}: fulfilling")
+        return "go", ""
+
     async def next_salvage(self, m: dict) -> str | None:
         """Another salvage in a mining mission's system that it hasn't used up yet (the current one counts as used)."""
         from .salvage import available_salvage
@@ -1826,8 +1949,9 @@ class AutomationEngine(OpsRules):
             reps = await self.db.kv_get("replicants", {}) or {}
             hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
             return fl.site_deliver_steps(fleet, devices, site, hosts, set(m.get("loaded") or [])), []
-        if phase == "trade":
-            return [fl.fulfil_step(dl)], []
+        if phase == "trade":   # the fleet's replicant (or the one found at the site) fulfils
+            settings = await self.db.kv_get("event_settings", {}) or {}
+            return [fl.fulfil_step(dl, m.get("fulfiller"), (settings.get("fulfil") or "").strip() or None)], []
         if phase == "collect":
             goods = dl["rewards"] or as_amounts(inv.get(site) or {})
             steps, problems = fl.collect_steps(fleet, devices, site, goods)
@@ -1962,16 +2086,13 @@ class AutomationEngine(OpsRules):
                 continue
             phases = fl.PHASES[fleet["role"]]
             if m.get("phase") == "wait":
-                site = fl.deal(m)["location"]
-                reps = await self.db.kv_get("replicants", {}) or {}
-                here = [r.get("name") or c for c, r in reps.items() if (r.get("location") or r.get("current_location")) == site]
-                if not here:
-                    note = f"materials at {site}: waiting for a replicant there to fulfil"
+                gate, note = await self._deal_gate(fleet, m, devices)
+                if gate == "wait":
                     if m.get("watch_note") != note:
                         m["watch_note"] = note
                         changed = True
                     continue
-                self._mlog(m, f"{', '.join(here)} at {site}: fulfilling")
+                changed = True   # "go" (fulfil next) or "rewind" (the next phase is deliver / load again)
             if m.get("phase") == "watch":
                 done, why, upd = fl.watch_done(fleet, m, devices, now_iso())
                 m.update(upd)
@@ -2000,12 +2121,14 @@ class AutomationEngine(OpsRules):
                     self._mlog(m, "on station — watching until the work is done")
                     break
                 if nxt == "wait":
-                    site = fl.deal(m)["location"]
-                    self._mlog(m, f"materials delivered to {site}: waiting for a replicant there")
-                    await self.log("fleets", f"{fleet['name']}: materials at {site} — send a replicant there to fulfil "
-                                             f"{fl.deal(m)['label']}", notify=True)
                     changed = True
-                    break
+                    gate, note = await self._deal_gate(fleet, m, devices, arriving=True)
+                    if gate == "rewind":
+                        continue   # short at the site: deliver / gather again first
+                    if gate == "wait":
+                        m["watch_note"] = note
+                        break
+                    continue   # everything there and the replicant too: fulfil now
                 steps, problems = await self.fleet_phase_steps(fleet, m, nxt, devices)
                 for pr in problems:
                     self._mlog(m, f"{nxt}: {pr}")
