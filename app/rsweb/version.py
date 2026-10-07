@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.33.0"
+VERSION = "1.33.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.33.1", "2026-10-07", "Overheating mining controllers: the game warns that a controller running drones in many "
+     "places multi-tasks and overheats (ami_overheat). A controller at a belt whose drones sit idle elsewhere (not on "
+     "salvage) now gets them flown back and re-adopted; the diagnostics snapshot names controllers whose drones are in "
+     "other places."),
     ("1.33.0", "2026-10-07", "Automations log: errors / warnings / info toggles with counts (remembered in this browser), "
      "and the whole log (last 300 entries) instead of the last 60. Errors are entries where something stopped or failed; "
      "other alerts (skipped steps, warnings) are warnings."),

@@ -638,6 +638,16 @@ Directives:
 - **Fleet controller** — no directives; relays `travel` to adopted surge-capable devices (cascades).
 All return 200.
 
+### Controller location and overheating (game docs, quoted by the player 2026-10-07)
+- A mining controller needn't be at the same location as its drones; drones can be spread across several sites.
+- `gather_salvage` moves all available mining drones to one location. `gather_resources` **fails if the drones aren't all
+  at the same location**.
+- "High levels of multi-tasking can introduce overheating and unreliable behaviour": a controller running drones in
+  many places logs `ami_overheat` (device log, about every 20 s seen live) and may report `_eval_state`
+  `gated:cold_repair` (seen live with its drones idle at a Lagrange point, away from the belt).
+- The client keeps each mining controller's drones with it at its belt (rule *Salvage when mining sites run out*,
+  *back to belt*), and the diagnostics snapshot names controllers whose drones are elsewhere.
+
 ### AMI digests (events `ami.mining.digest`, `ami.survey.digest`, `ami.transport.digest`)
 Emitted each evaluation tick (~10 s) × `events.ami_digest_interval` (1–30), only while a directive is active; never muted. Payload:
 ```json

@@ -2235,7 +2235,8 @@ class AutomationEngine(OpsRules):
             st = str(dv.get("_eval_state") or "")
             return (st.startswith("exhausted") or str(c.get("ami_directive_status") or "") == "paused"
                     or (dv.get("name") == "gather_salvage" and st.startswith(sv.FINISHED_STATES)) or sv.parked(c))
-        cands = [c for c in ctrls if candidate(c)]
+        mgd = await managed_by(self.db)
+        cands = [c for c in ctrls if candidate(c) or sv.scattered(c, devices, mgd)]
         if not cands:
             return []
         stars = {star_of(c.get("location")) for c in cands}
@@ -2258,7 +2259,7 @@ class AutomationEngine(OpsRules):
         done = []
         busy = self.busy_devices(await self.jobs())
         free = {d["device_code"] for d in devices if not _reserved(d) and d["device_code"] not in busy}
-        for p in sv.back_to_belt_plan(cands, devices, await managed_by(self.db), open_sites, sysb, skip, directive_for, free):
+        for p in sv.back_to_belt_plan(cands, devices, mgd, open_sites, sysb, skip, directive_for, free):
             n = len(p["away"]) + len(p["strays"])
             job = await self.create_job("salvage_when_depleted",
                                         f"{p['ctrl']}: back to {p['belt']} ({p['why']})"

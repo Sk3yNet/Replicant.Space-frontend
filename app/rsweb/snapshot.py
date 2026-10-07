@@ -431,6 +431,18 @@ def diagnose(snap: dict) -> dict:
                                                              for x in lines or []))
     if hot:
         headline.append(f"controllers logging ami_overheat: {', '.join(hot)}")
+    spread = []
+    for c in devices:
+        if not is_mining_ctrl(c):
+            continue
+        where = lambda loc: belt_of(loc) or loc   # sites in a belt count as the belt
+        locs = sorted({where(d.get("location")) for d in devices if managed.get(d.get("device_code")) == c.get("device_code")
+                       and d.get("location")})
+        if len(locs) > 1 or (locs and c.get("location") and locs[0] != where(c.get("location"))):
+            spread.append(f"{c['device_code']} at {c.get('location')}, drones at {', '.join(locs[:4])}")
+    if spread:
+        headline.append("controllers multi-tasking (drones in other places — the game warns this overheats): "
+                        + "; ".join(spread))
     gated = [f"{c['code']} ({c['directive']['state']})" for c in ctrl_rows if str(c["directive"]["state"] or "").startswith("gated")]
     if gated:
         headline.append(f"controllers gated by the game: {', '.join(gated)}")

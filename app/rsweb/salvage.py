@@ -131,6 +131,26 @@ def parked(c: dict) -> bool:
             and not str(c.get("status") or "").startswith(MOVING))
 
 
+def scattered(c: dict, devices: list[dict], managed: dict[str, str] | None = None) -> list[str]:
+    """A mining controller at a belt whose idle drones are somewhere else: the game warns that a controller running
+    drones at many places "multi-tasks", which brings ami_overheat and unreliable behaviour. Returns those drones
+    (empty while any of its drones is mining, or when it isn't at a belt)."""
+    belt = belt_of(c.get("location"))
+    dv = c.get("ami_directive") if isinstance(c.get("ami_directive"), dict) else {}
+    if not belt or dv.get("name") == "gather_salvage":   # salvage keeps its drones at the salvage on purpose
+        return []
+    code = c.get("device_code")
+    run_by = dict(managed or {})
+    for d in devices:
+        if d.get("controller_device_code"):
+            run_by[d["device_code"]] = d["controller_device_code"]
+    kids = [d for d in devices if run_by.get(d.get("device_code")) == code and d.get("device_type") == "mining_drone"]
+    if any(str(d.get("status") or "").startswith("mining") for d in kids):
+        return []
+    return sorted(d["device_code"] for d in kids if d.get("location") and not (d["location"] or "").startswith(belt)
+                  and not str(d.get("status") or "").startswith(MOVING))
+
+
 def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str, str], open_sites: dict[str, int],
                       system_belts: dict[str, list[str]], skip: set[str], directive_for: dict[str, str] | None = None,
                       free: set[str] | None = None) -> list[dict]:
@@ -155,13 +175,16 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
         place = exhausted_place(state)
         salvage_done = name == "gather_salvage" and state.startswith(FINISHED_STATES)
         is_parked = parked(c)
-        if not (place or paused or salvage_done or is_parked):
+        strewn = scattered(c, devices, managed)
+        if not (place or paused or salvage_done or is_parked or strewn):
             continue
         star = (c.get("location") or "").split("-")[0]
         belt = belt_of(c.get("location"))
         if not belt or open_sites.get(belt, 0) <= 0:   # not at a belt (or its belt is dry): the best belt in its system
             cands = [b for b in system_belts.get(star, []) if open_sites.get(b, 0) > 0]
             belt = max(cands, key=lambda b: (open_sites[b], b)) if cands else None
+            if not belt and strewn and not is_parked:
+                belt = belt_of(c.get("location"))   # its drones come to it, whatever the belt's open sites
             if not belt and is_parked and system_belts.get(star):
                 # no open sites known yet: go anyway — at the belt an exhausted report brings the survey drones
                 # (reopen_sites) or salvage (salvage_when_depleted)
@@ -178,6 +201,8 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
                         and (d.get("location") or "").split("-")[0] == star and d["device_code"] not in run_by
                         and str(d.get("status") or "").startswith("idle"))
         why = (f"parked at {c.get('location')}, away from the belt" if is_parked and not place else
+               f"its drones are away at {', '.join(sorted({by[k]['location'] for k in strewn}))} (multi-tasking overheats)"
+               if strewn and not place else
                f"exhausted at {place}, its drones are away from {belt}" if place and place != belt else
                f"stale 'exhausted' at {belt}, which now has {open_sites[belt]} open site(s)" if place == belt else
                "finished salvage" if salvage_done else "directive paused")

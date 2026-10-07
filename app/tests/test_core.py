@@ -4760,3 +4760,21 @@ def test_automation_log_kinds_and_toggles(client):
     page = client.get("/automations", headers=H).text
     assert 'id="log-toggles"' in page and 'data-sev="error"' in page and 'data-sev="warning"' in page and 'data-sev="info"' in page
     assert "errors (1)" in page and "warnings (1)" in page
+
+
+def test_controller_at_the_belt_brings_its_scattered_drones():
+    """The game's docs: a controller running drones at many places multi-tasks, which brings ami_overheat. Live
+    2026-10-07: LORSELAN's controller at the belt, its 8 drones idle at LORSELAN-6-L4."""
+    from rsweb import salvage as sv
+    ctrl = {"device_code": "C1", "device_type": "ami_mining_controller", "location": "LOR-BELT-1", "status": "coordinating",
+            "ami_directive": {"name": "gather_evenly", "_eval_state": "gated:cold_repair"}}
+    kids = [{"device_code": f"M{i}", "device_type": "mining_drone", "location": "LOR-6-L4", "status": "idle",
+             "controller_device_code": "C1"} for i in range(3)]
+    assert sv.scattered(ctrl, [ctrl, *kids]) == ["M0", "M1", "M2"]
+    p = sv.back_to_belt_plan([ctrl], [ctrl, *kids], {}, {}, {"LOR": ["LOR-BELT-1"]}, set())[0]
+    assert p["belt"] == "LOR-BELT-1" and not p["move_ctrl"] and p["away"] == ["M0", "M1", "M2"] and "overheats" in p["why"]
+    # left alone: one of them mining, salvage on purpose, drones at a site in the belt, or a controller away from belts
+    assert sv.scattered(ctrl, [ctrl, {**kids[0], "status": "mining (carbon)"}, *kids[1:]]) == []
+    assert sv.scattered({**ctrl, "ami_directive": {"name": "gather_salvage"}}, [ctrl, *kids]) == []
+    assert sv.scattered(ctrl, [ctrl, {**kids[0], "location": "LOR-BELT-1-SITE-2"}]) == []
+    assert sv.scattered({**ctrl, "location": "LOR-6-L4"}, [ctrl, *kids]) == []
