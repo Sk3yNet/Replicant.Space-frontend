@@ -34,7 +34,7 @@
       <div class="row">
         <select name="command" hx-get="/devices/{{ code }}/command-form" hx-target="#cmd-fields" hx-trigger="change">
           <option value="">— choose a command —</option>
-          {% for c in commands %}<option value="{{ c }}">{{ c | human }}{{ ' ⚠' if c in dangerous }}</option>{% endfor %}
+          {% for c in commands %}<option value="{{ c }}" title="{{ command_help.get(c, '') }}">{{ c | human }}{{ ' ⚠' if c in dangerous }}</option>{% endfor %}
         </select>
         <button>Run</button>
       </div>

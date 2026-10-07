@@ -37,7 +37,7 @@ from .ingest import duplicate_timers
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
 from . import version as appver  # noqa: E402
-templates.env.globals.update(TENANT_MODE=os.getenv("TENANT_MODE") == "1", app_version=appver.label(), APP_VERSION=appver.VERSION, RUN_ID=appver.RUN_ID, entry_age=appver.age_of)
+templates.env.globals.update(TENANT_MODE=os.getenv("TENANT_MODE") == "1", app_version=appver.label(), APP_VERSION=appver.VERSION, RUN_ID=appver.RUN_ID, entry_age=appver.age_of, command_help=cmdspec.DESCRIPTIONS)
 log = logging.getLogger("rsweb.web")
 router = APIRouter()
 
@@ -681,6 +681,7 @@ async def device_command_form(request: Request, code: str, command: str = "", ri
                                              normalize_blueprints(await request.app.state.db.kv_get("blueprints", [])))
     sugg = await suggestions(request, dev.get("location"))
     return partial(request, "partials/command_form.html", code=code, command=command, fields=fields or [],
+                   description=cmdspec.DESCRIPTIONS.get(command, ""),
                    known=fields is not None, sugg=sugg, sys_targets=sugg.get("system"),
                    uid=f"c-{code}", self_code=code, directives=None, rid=rid, **chain)
 

@@ -17,7 +17,7 @@
         <div class="row">
           <select name="command" hx-get="/devices/{{ code }}/command-form" hx-vals='{"rid": "tres-{{ code }}"}' hx-target="#tf-{{ code }}" hx-trigger="change">
             <option value="">— choose a command —</option>
-            {% for c in order_commands(d.available_commands or []) %}<option value="{{ c }}">{{ c | human }}{{ ' ⚠' if c in dangerous }}</option>{% endfor %}
+            {% for c in order_commands(d.available_commands or []) %}<option value="{{ c }}" title="{{ command_help.get(c, '') }}">{{ c | human }}{{ ' ⚠' if c in dangerous }}</option>{% endfor %}
           </select>
           <button class="small">Run</button>
           <a class="small" href="/devices/{{ code }}">full page →</a>

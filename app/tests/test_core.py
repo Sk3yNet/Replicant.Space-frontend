@@ -4258,3 +4258,29 @@ def test_modular_devices_compact_before_moving_and_unfurl_after():
     af["status"] = "idle"
     st = lo.step("AF1 → FAL-2", "/devices/AF1", {"command": "travel", "destination": "FAL-2"}, wait=["travel.arrived"])
     assert [s["desc"] for s in with_compaction([st], [af], {})] == ["AF1: compact before moving", "AF1 → FAL-2", "AF1: unfurl"]
+
+
+def test_tracking_drones_deactivate_right_before_they_move(client):
+    """Live 2026-10-07: 'Cannot cruise while tracking a site - deactivate first' on every pass moving Miner 1 and 2."""
+    from rsweb import loadouts as lo
+    from rsweb.modular import prepare_moves
+    sd = {"device_code": "SD1", "device_type": "survey_drone", "location": "KEL-BELT-1", "status": "tracking",
+          "features": ["cruise", "survey", "stow"], "available_commands": ["deactivate", "stow", "travel"]}
+    md = {"device_code": "MD1", "device_type": "mining_drone", "location": "KEL-BELT-1", "status": "idle", "features": ["stow"]}
+    mf = {"device_code": "MF", "device_type": "mobile_fleet", "location": "KEL-4-L4", "status": "idle", "features": ["surge"],
+          "attach_capacity": 36}
+    by = {d["device_code"]: d for d in (sd, md, mf)}
+    dl = {"carrier": "MF", "carrier_loc": "KEL-4-L4", "from": "KEL", "to": "LAR", "devices": ["MD1", "SD1"], "mode": "attach"}
+    out = prepare_moves(lo.delivery_steps(dl, by, {"LAR": {"entry_point": "LAR-1-L4"}}, False), [sd, md, mf], {})
+    descs = [s["desc"] for s in out]
+    d_i = descs.index("SD1: stop tracking its site (deactivate) to move")
+    assert d_i + 1 == descs.index("SD1 → KEL-4-L4 (to board MF)")
+    assert descs.index("MF: detach SD1 in LAR") + 1 == descs.index("SD1: activate")
+    assert not any(d.startswith("MD1: stop tracking") for d in descs)
+    # command descriptions: on the form and as the picker's tooltips
+    from rsweb.commands import COMMANDS, DESCRIPTIONS
+    assert set(COMMANDS) <= set(DESCRIPTIONS)
+    client.portal.call(client.app.state.worker.sync_devices)
+    r = client.get("/devices/AF00BEEF/command-form?command=compact", headers=HX)
+    assert "Fold a large (modular) device" in r.text
+    assert 'title="Fold a large (modular) device' in client.get("/devices/AF00BEEF", headers=H).text

@@ -96,6 +96,56 @@ COMMANDS: dict[str, list[Field]] = {
     "message": [F("channel", "channel", required=True, default="#general"), F("text", "text", required=True)],
 }
 
+# What each command does (shown above its fields and as the picker's tooltip). From the game docs and live use.
+DESCRIPTIONS: dict[str, str] = {
+    "travel": "Fly to a location. Inside a system this is a cruise; to another system the game plans surge legs (needs the "
+              "surge feature, else ride a carrier). A drone tracking a site must be deactivated first.",
+    "stow": "Board a carrier's hold (vessels, mobile fleets). The device must be at the carrier's location; it then rides "
+            "along and doesn't show a location of its own.",
+    "deploy": "Leave the carrier it's stowed in, at the carrier's location. Beacons, relays and slingshots start working "
+              "once deployed (a relay also needs activate).",
+    "recall": "Return to the AMI controller (or carrier) that runs it.",
+    "start_mining": "Mine one resource at the belt site or salvage it's at. Mined resources pile up at that location.",
+    "retarget": "Switch a mining drone to another resource without moving it.",
+    "collect_resources": "Load resources from your stockpile at this location into the hold (up to its cargo capacity).",
+    "deposit_resources": "Unload the hold into your stockpile at this location (leave blank to empty it).",
+    "attach": "A carrier (surge plate, platform, carrier, mobile fleet, cargo vessel) takes a device on its attach "
+              "points. Sent to the carrier, naming the cargo; both must be at the same location. Large (modular) devices "
+              "must be compacted first.",
+    "detach": "A carrier lets go of an attached device at its current location.",
+    "system_scan": "Scan the whole system: planets, moons, belts and the entry point.",
+    "scan": "A survey drone scans the body it's at (life, resources, salvage, events).",
+    "search": "A survey drone searches the belt it's at and opens a mining site, then stays tracking it (moving or "
+              "deactivating it closes the site).",
+    "stellar_census": "List the stars around this vessel: positions, entry points and whether they're explored. Adds "
+                      "them to the star catalogue (Map › Stars).",
+    "prospect": "A galactic observatory looks for resources and events in a direction (optional).",
+    "enqueue_print": "Add a print to this autofactory's queue. It waits for materials at the factory's location; tags "
+                     "and an on-complete command apply to the new device.",
+    "dequeue_print": "Remove one waiting print from the queue (1 = first waiting item).",
+    "clear_queue": "Remove every waiting print (the one already printing carries on).",
+    "repair": "A maintenance drone repairs a device at its location.",
+    "replicate": "Copy this replicant matrix into an empty matrix at the same location (a new replicant).",
+    "adopt": "An AMI controller takes these drones under its control; its directive then drives them.",
+    "release": "An AMI controller lets these drones go; they stop where they are, idle.",
+    "set_directive": "Give an AMI controller its standing orders (gather, survey, ferry …). Launch to start it.",
+    "clear_directive": "Stop an AMI controller's directive; its drones stay adopted.",
+    "launch": "Start the controller's directive: it deploys and sends out its drones.",
+    "withdraw": "The AMI controller calls its drones back in.",
+    "assemble": "A fleet controller gathers its adopted devices (at a destination, if given).",
+    "activate": "Switch a device on: relays (at an L4/L5 point), hubs, wards, AMI controllers, propulsors, or a drone "
+                "that was deactivated.",
+    "deactivate": "Switch a device off. A survey drone tracking a site must be deactivated before it can move "
+                  "(this closes the site).",
+    "compact": "Fold a large (modular) device for transport: autofactories, observatories, hubs. Takes ~30% of its "
+               "print time; carriers refuse it unfolded.",
+    "unfurl": "Unfold a compacted modular device so it works again (~30% of its print time).",
+    "decommission": "Scrap the device for part of its materials. Can't be undone.",
+    "change_owner": "Hand the device to another of your replicants. A replicant can only command devices it owns.",
+    "set_welcome_message": "The message a system hub shows to visitors.",
+    "message": "Post to a BobNet channel through this FTL relay.",
+}
+
 # --- AMI directives (configuration fields) ------------------------------------------------------
 DIRECTIVES: dict[str, dict[str, list[Field]]] = {
     "mining": {
