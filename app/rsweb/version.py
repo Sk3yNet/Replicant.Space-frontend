@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.34.0"
+VERSION = "1.35.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.35.0", "2026-10-07", "Mining prospects (Systems › Mining prospects): every scanned system scored for a mining fleet "
+     "— belt richness and density, known sites and salvage, belt viability, distance and relay cover — with what you're "
+     "short of or a waiting print needs tipping it slightly; mining-mission targets are offered best prospect first. "
+     "Another player's system ward: no mission can target that system (trades excepted) and one that finds its target "
+     "warded stalls before unloading; a stationed fleet whose home is warded gets no mining controllers or drones sent, "
+     "and the mining rules leave warded systems alone."),
     ("1.34.0", "2026-10-07", "System page: 'Your devices here' — every device of yours in the system (and aboard carriers "
      "there) with where it is, status, capacity, fleet and controller, plus a per-type summary. Galaxy: stars are crisp "
      "points with a small halo instead of soft glows. Every page's scripts and styles now load with the version in the "

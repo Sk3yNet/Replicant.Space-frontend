@@ -1033,6 +1033,19 @@ async def stars_census(request: Request, device: str = Form(...), user: str = De
                         headers={"HX-Refresh": "true"})
 
 
+@router.get("/systems/prospects", response_class=HTMLResponse)
+async def systems_prospects(request: Request, origin: str = "", user: str = Depends(current_user)):
+    """Mining prospects: every scanned system scored for a mining fleet (prospects.py), distances from `origin`
+    (default: the system with most of your devices)."""
+    from . import prospects
+    st = await load_state(request)
+    count = Counter(star_of(d.get("location")) for d in st["devices"] if d.get("location"))
+    origin = (origin or (count.most_common(1)[0][0] if count else "")).upper()
+    p = await prospects.rank(request.app.state.db, request.app.state.worker.automations, st["devices"], origin)
+    homes = sorted({f["home"] for f in await request.app.state.worker.automations.fleets() if f.get("home")} | set(count))
+    return await page(request, user, "prospects.html", "systems", p=p, origin=origin, origins=homes)
+
+
 @router.get("/systems", response_class=HTMLResponse)
 async def systems(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
@@ -2571,9 +2584,26 @@ async def fleets_ctx(request: Request) -> dict:
     cat = await request.app.state.db.kv_get("stars", {}) or {}
     scanned = {r["star"] for r in await request.app.state.db.fetchall("SELECT star FROM systems")}
     yours = {star_of(d.get("location")) for d in st["devices"] if d.get("location")}
+    from . import prospects as _pr
+    ranks: dict[str, dict] = {}   # origin -> {star: prospect}
     for f in items:
         f["target_options"] = [o for o in destination_systems(cat, scanned | yours, yours, f.get("home"), limit=300)
                                if o["value"] not in homes]
+        if f.get("role") == "mining":   # mining targets: best prospects first, with their score and why
+            o_star = f.get("home") or ""
+            if o_star not in ranks:
+                ranks[o_star] = {r["star"]: r for r in (await _pr.rank(request.app.state.db, eng, st["devices"], o_star))["rows"]}
+            pr = ranks[o_star]
+            for o in f["target_options"]:
+                r = pr.get(o["value"])
+                if r and r["score"] is not None:
+                    o["group"], o["label"] = f"prospect {r['score']}", " · ".join(r["reasons"][:3])
+                elif r and r["status"] == "warded":
+                    o["group"] = "warded — can't mine"
+            def by_prospect(o: dict, pr: dict = pr) -> tuple:
+                s = (pr.get(o["value"]) or {}).get("score")
+                return (s is None, -(s or 0), o.get("distance") is None, o.get("distance") or 0)
+            f["target_options"].sort(key=by_prospect)
     stars_all = sorted(set(stars_seen) | {f["home"] for f in items if f.get("home")})
     reps = {c: (r.get("name") or c) for c, r in st["replicants"].items()}
     for f in items:
@@ -2848,9 +2878,18 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
             return HTMLResponse(f'<div class="result err">{html.escape(", ".join(taken))}: '
                                 f'{"has" if len(taken) == 1 else "have"} a stationed fleet, and only the stationed fleet works '
                                 'its home system. Pick a system no fleet is stationed in.</div>')
+    # another player's system ward: no mission there (a trade only visits the deal's site, so it may go)
+    from . import wards
+    st0 = await load_state(request)
+    warded = sorted({star_of(t) for t in m["targets"] if t}
+                    & wards.foreign(await request.app.state.db.kv_get("stars", {}) or {}, st0["devices"]))
+    if warded and f["role"] != "trade":
+        return HTMLResponse(f'<div class="result err">{html.escape(", ".join(warded))}: another player\'s system ward is '
+                            'there, so nothing of yours can mine it. Pick another system (Systems › Mining prospects).</div>')
+    if warded:
+        eng._mlog(m, f"warning: another player's ward in {', '.join(warded)} — fine for a trade, but nothing can mine there")
     # out of relay range only a replicant riding with the fleet keeps it under command
     from . import outposts as _op
-    st0 = await load_state(request)
     member_codes = {d["device_code"] for d in fl.members(f, st0["devices"])}
     aboard = [r.get("name") or c for c, r in st0["replicants"].items() if r.get("hosted_device_code") in member_codes]
     dark = [t for t in dict.fromkeys(star_of(x) for x in m["targets"] if x) if not _op.deployed_in(st0["devices"], t, "relay")]

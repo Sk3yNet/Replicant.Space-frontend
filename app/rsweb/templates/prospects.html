@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Mining prospects{% endblock %}
+{% block content %}
+<div class="row between"><h1>Mining prospects</h1>
+  <form class="inline small" method="get" action="/systems/prospects">
+    <label style="text-transform:none">distances from
+      <select name="origin" onchange="this.form.submit()">{% for o in origins %}<option {{ 'selected' if o == origin }}>{{ o }}</option>{% endfor %}</select></label>
+  </form></div>
+<div class="card">
+  <p class="muted small" style="margin-top:0">Score out of 100: <b>richness</b> (belt resource levels × density, ≤40) +
+    <b>proven</b> (known site quantities, open sites, salvage, ≤25) + <b>staying power</b> (belt viability, ≤15) +
+    <b>access</b> (distance; −5 without a relay of yours, ≤20). Resources you're short of or a waiting print needs tip
+    the richness slightly{% if p.wanted %} — now: {% for r, v in p.wanted.items() %}{{ r }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}.
+    Systems with another player's ward, or a stationed fleet's home, aren't scored: mining missions can't go there.</p>
+  <table class="small">
+    <tr><th>System</th><th class="num">Score</th><th>Richness · proven · staying · access</th><th>Why</th><th class="num">Distance</th></tr>
+    {% for r in p.rows %}<tr{% if r.status != 'ok' %} class="muted"{% endif %}>
+      <td><a href="/systems/{{ r.star }}">{{ r.star }}</a></td>
+      <td class="num">{% if r.score is not none %}<b>{{ r.score }}</b>{% elif r.status == 'warded' %}<span class="lv-alert">warded</span>{% elif r.status == 'stationed' %}stationed{% else %}—{% endif %}</td>
+      <td>{% if r.parts %}<span class="muted">{{ r.parts.richness }} · {{ r.parts.proven }} · {{ r.parts.staying }} · {{ r.parts.access }}</span>{% endif %}</td>
+      <td>{{ r.reasons | join(' · ') }}</td>
+      <td class="num">{{ (r.distance ~ ' ly') if r.distance is not none else '' }}</td></tr>
+    {% else %}<tr><td colspan="5" class="muted">No systems known yet.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

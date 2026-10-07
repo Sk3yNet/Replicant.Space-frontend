@@ -337,6 +337,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
 
     # 1-2: per stationed fleet: count, mark extras as spare, take fleetless devices at home, un-spare what's needed
     donors: dict[str, list[dict]] = defaultdict(list)  # type -> spare devices anywhere
+    from . import wards
+    warded = wards.foreign(stars, devices)   # another player's ward: nothing of ours can mine there
     for f in groups:
         star, fid, tag = f["home"], f["id"], fl.fleet_tag(f["id"])
         mine = members(f)
@@ -347,6 +349,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             want = int(wants.get(t) or 0)
             have = [d for d in mine if (d.get("device_type") or "device") == t] + \
                    [d for d in free if (d.get("device_type") or "device") == t]
+            ward_hold = star in warded and t in wards.MINING_TYPES and want > len(have)
+            if ward_hold:   # home warded by another player: send no more miners (the ones there stay)
+                want = len(have)
             inc = incoming[fid][t]
             surplus = max(0, len(have) - want)
             # who stays: members first, then non-spare, controller-run, already tagged home here (from before stationed
@@ -382,10 +387,15 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             spares_here = [d["device_code"] for d in pool if d.get("device_type") == t and star_of(d.get("location")) == star
                            and SPARE in (d.get("tags") or []) and not fleet_tag_of(d) and not home_of(d, known_stars)]
             rows.append({"type": t, "want": want, "have": len(have), "incoming": inc, "away": away, "spares_here": spares_here,
+                         "warded": ward_hold,
                          "short": max(0, want - len(have) - inc), "surplus": surplus,
                          "spare": [d["device_code"] for d in extra if fleet_tag_of(d) == tag]})
         ph = next((p for p in cfg["phases"] if p.get("id") == f.get("template")), None)
+        if star in warded and any(t in wants for t in wards.MINING_TYPES):
+            unmet.append({"star": star, "fleet": f.get("name"), "type": "mining", "n": 0,
+                          "why": f"another player's system ward is in {star}: no mining controllers or drones are sent there"})
         report[fid] = {"fleet": f, "star": star, "phase": ph or {"id": "", "name": "custom loadout"}, "rows": rows,
+                       "warded": star in warded,
                        "short": sum(r["short"] for r in rows), "surplus": sum(r["surplus"] for r in rows)}
     # fleetless devices at a stationed fleet's home that no fleet there took: spare, if a fleet there counts their type
     for star, ds in unassigned.items():

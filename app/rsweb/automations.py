@@ -1191,10 +1191,14 @@ class AutomationEngine(OpsRules):
         managed = await managed_by(self.db)
         busy = self.busy_devices(await self.jobs())
         results = []
+        warded = await self.warded(devices)
         for ctrl in targets_of(sched, devices):
             code = ctrl["device_code"]
             if code in busy:
                 results.append(f"{code}: already running a job")
+                continue
+            if "mining" in (ctrl.get("device_type") or "") and star_of(ctrl.get("location")) in warded:
+                results.append(f"{code}: another player's ward in {star_of(ctrl.get('location'))} — no mining there")
                 continue
             idle, why = await controller_idle(self.db, ctrl)
             if sched.get("only_idle", True) and not idle:
@@ -1241,6 +1245,11 @@ class AutomationEngine(OpsRules):
 
     async def devices(self) -> list[dict]:
         return await self.db.kv_get("devices", []) or []
+
+    async def warded(self, devices: list[dict] | None = None) -> set[str]:
+        """Systems another player has warded (wards.foreign): the mining rules leave them alone."""
+        from . import wards
+        return wards.foreign(await self.db.kv_get("stars", {}) or {}, devices if devices is not None else await self.devices())
 
     async def replicant_for_host(self, device_code: str) -> tuple[str, dict] | None:
         reps = await self.db.kv_get("replicants", {}) or {}
@@ -1621,6 +1630,11 @@ class AutomationEngine(OpsRules):
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         target = (m.get("targets") or [None])[m.get("idx", 0)] if m.get("targets") else None
         opts = m.get("opts") or {}
+        if fleet["role"] == "mining" and phase in ("travel", "deploy", "work") and target \
+                and star_of(target) in await self.warded(devices):
+            m["stall"] = True   # warded since the mission started: nothing of ours can mine there, so don't go / unload
+            return [], [f"another player's system ward is in {star_of(target)} — nothing of ours can mine there; "
+                        "recall the fleet or pick another system"]
         radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         if phase == "assemble":
             return fl.assemble_steps(fleet, devices, radii, far_au)
@@ -2254,7 +2268,8 @@ class AutomationEngine(OpsRules):
             return (st.startswith("exhausted") or str(c.get("ami_directive_status") or "") == "paused"
                     or (dv.get("name") == "gather_salvage" and st.startswith(sv.FINISHED_STATES)) or sv.parked(c))
         mgd = await managed_by(self.db)
-        cands = [c for c in ctrls if candidate(c) or sv.scattered(c, devices, mgd)]
+        warded = await self.warded(devices)
+        cands = [c for c in ctrls if (candidate(c) or sv.scattered(c, devices, mgd)) and star_of(c.get("location")) not in warded]
         if not cands:
             return []
         stars = {star_of(c.get("location")) for c in cands}
@@ -2316,7 +2331,8 @@ class AutomationEngine(OpsRules):
                   and not _reserved(d)]
         done: list[str] = []
         nothing = state.setdefault("nothing", {})   # star -> when we last said there's nothing to mine there
-        for star in sorted({star_of(d.get("location")) for d in miners}):
+        warded = await self.warded(devices)
+        for star in sorted({star_of(d.get("location")) for d in miners} - warded):
             res = await system_resources(self.db, star)
             scanned = await self.db.fetchone("SELECT 1 FROM systems WHERE star=?", (star,))
             no_belt = bool(scanned) and not (await self.system_belts({star}))[star]   # scanned: no belt to mine
@@ -2421,10 +2437,13 @@ class AutomationEngine(OpsRules):
             from .targets import system_resources
             for star in {star_of(d.get("location")) for d in devices if d.get("device_type") == "mining_drone"}:
                 dry_belts |= worked_out(await system_resources(self.db, star))
+        warded = await self.warded(devices)
         for d in devices:
             code = d.get("device_code")
             if _reserved(d):
                 continue  # a fleet's drones are run by the fleet
+            if star_of(d.get("location")) in warded:
+                continue  # another player's ward: nothing of ours can mine here
             if (d.get("device_type") != "mining_drone" or str(d.get("status")) != "idle"
                     or "BELT" not in (d.get("location") or "") or code in busy or code in managed
                     or "start_mining" not in (d.get("available_commands") or ["start_mining"])):

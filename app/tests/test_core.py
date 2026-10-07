@@ -4850,3 +4850,73 @@ def test_system_page_lists_your_devices_there(client):
     client.portal.call(client.app.state.worker.sync_devices)
     page = client.get("/systems/SOL", headers=H).text
     assert 'id="devices-here"' in page and "Your devices here" in page
+
+
+def test_another_players_ward_keeps_our_miners_out(client):
+    from rsweb import loadouts as lo
+    from rsweb import wards
+    stars = {"SOL": {"position": {"x": 0, "y": 0, "z": 0}}, "ZAL": {"position": {"x": 5, "y": 0, "z": 0}, "has_ward": True},
+             "OUR": {"position": {"x": 9, "y": 0, "z": 0}, "has_ward": True}}
+    ours = {"device_code": "W", "device_type": "system_ward", "location": "OUR-1-L4", "status": "warding"}
+    assert wards.foreign(stars, [ours]) == {"ZAL"}                                   # our own ward isn't "another player's"
+    assert wards.foreign({"stars": [{"designation": "ZAL", "has_ward": True}]}, []) == {"ZAL"}
+    # a stationed fleet at a warded home: no mining controllers / drones are sent; the rest still is
+    fleets = [{"id": "z", "name": "Z", "home": "ZAL", "station": True,
+               "wants": {"mining_drone": 4, "ami_mining_controller": 1, "survey_drone": 2}}]
+    cfg = {"phases": [], "fleets": fleets, "fleets_migrated": True}
+    p = lo.plan(cfg, [], [], {}, stars, {}, set(), [], {})
+    rows = {r["type"]: r for r in p["report"]["z"]["rows"]}
+    assert rows["mining_drone"]["short"] == 0 and rows["mining_drone"]["warded"]
+    assert rows["ami_mining_controller"]["short"] == 0 and rows["survey_drone"]["short"] == 2
+    assert any("ward" in u["why"] for u in p["unmet"]) and p["report"]["z"]["warded"]
+    # a mining mission to a warded system can't launch
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [{"designation": "SOL", "has_ward": True}]})
+    client.portal.call(eng.save_fleets, [{"id": "m", "name": "M", "role": "mining", "home": "FAL", "wants": {}}])
+    r = client.post("/fleets/m/mission", data={"targets": "SOL"}, headers=HX)
+    assert "another player" in r.text and not (client.portal.call(eng.fleets)[0].get("mission") or {}).get("status")
+    # a running mining mission whose target became warded stalls before it unloads
+    m = {"status": "running", "phase": "travel", "idx": 0, "targets": ["SOL"], "opts": {}, "log": []}
+    steps, problems = client.portal.call(eng.fleet_phase_steps, {"id": "m", "name": "M", "role": "mining", "home": "FAL"},
+                                         m, "deploy", [])
+    assert not steps and m.get("stall") and "ward" in problems[0]
+
+
+def test_mining_prospects_score():
+    from rsweb import prospects as pr
+    rich = {"asteroid_belt": {"belts": [{"designation": "A-BELT-1", "density": "dense",
+                                         "resources": {"carbon": "rich", "volatiles": "high", "rares": "low"}}]}}
+    poor = {"asteroid_belt": {"belts": [{"designation": "B-BELT-1", "density": "sparse",
+                                         "resources": {"carbon": "scarce", "volatiles": "low", "rares": "low"}}]}}
+    a = pr.score("A", rich, {"mineable": 6000, "sites": [{"code": "s"}] * 5}, [{"belt": "A-BELT-1", "verdict": "ok"}], 3.0, True)
+    b = pr.score("B", poor, {}, [], 3.0, True)
+    assert a["score"] > b["score"] and a["parts"]["proven"] == 20 and a["parts"]["staying"] == 15   # no salvage: 20 of 25
+    assert "rich carbon" in a["reasons"][0] and a["best"] == ["carbon", "volatiles"]
+    # far away and no relay costs access
+    far = pr.score("A", rich, {}, [], 40.0, False)
+    assert far["parts"]["access"] == 0 and any("replicant must ride" in x for x in far["reasons"])
+    # what you're short of tips it, lightly: never more than ~15 % of the richness
+    tilted = pr.score("A", rich, {}, [], 3.0, True, wanted={"carbon": 1.0})
+    plain = pr.score("A", rich, {}, [], 3.0, True)
+    assert plain["parts"]["richness"] < tilted["parts"]["richness"] <= plain["parts"]["richness"] * 1.15
+    assert any("short of (carbon)" in x for x in tilted["reasons"])
+    # not scored: warded, a stationed fleet's home, unscanned
+    assert pr.score("A", rich, {}, [], 3.0, True, warded=True)["status"] == "warded"
+    assert pr.score("A", rich, {}, [], 3.0, True, stationed="Home")["score"] is None
+    assert pr.score("C", None, None, [], 3.0, False)["status"] == "unscanned"
+    # wanted: a waiting print's shortfall counts most; a falling or low stockpile a little
+    w = pr.wanted_from({"carbon": 10, "structural": 500, "silicates": 400, "volatiles": 300, "conductive": 450, "rares": 5},
+                       {"volatiles": [600, 300]}, [{"carbon": 100}])
+    assert w["carbon"] >= 0.9 and 0 < w["volatiles"] <= 0.6 and w["rares"] == 0.4 and w["structural"] == 0
+
+
+def test_prospects_page_and_mining_targets(client):
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.get("/systems/SOL", headers=H)   # a stored scan
+    page = client.get("/systems/prospects", headers=H).text
+    assert "Mining prospects" in page and "/systems/SOL" in page
+    assert "Mining prospects" in client.get("/systems", headers=H).text
+    eng = client.app.state.worker.automations
+    client.portal.call(eng.save_fleets, [{"id": "m", "name": "M", "role": "mining", "home": "ABOTEIN", "wants": {}}])
+    f = client.get("/fleets", headers=H).text
+    assert "prospect " in f
