@@ -4598,3 +4598,38 @@ def test_supply_links_between_fleets():
     assert x["state"] == "moving" and x["in_transit"] == 1
     # a fleet sending to itself or to a fleet in the same system draws no line
     assert fl.supply_links([{"id": "a", "home": "ABC", "materials": "b"}, {"id": "b", "home": "ABC", "materials": "self"}], []) == []
+
+
+def test_compact_on_an_already_compacted_device_counts_as_done(client, monkeypatch):
+    """A move's compact step refused because the device is already compacted is what the step wanted: the job goes
+    on. Still compacting: it keeps waiting for device.compacted. Anything else still fails the job."""
+    import time
+    from rsweb.automations import _already_compact, _already_unfurled, step
+    assert _already_compact("Device is already compacted") and _already_compact("Cannot compact: device is compacted")
+    assert _already_compact("Device is already compacting") and not _already_compact("Device is not compacted")
+    assert not _already_compact("Cannot compact while travelling")
+    assert _already_unfurled("Device is not compacted") and _already_unfurled("Device is already unfurled")
+    eng = client.app.state.worker.automations
+    reply = {}
+
+    async def fake_send(method, path, body, label):
+        return False, None, reply["err"]
+    monkeypatch.setattr(eng, "send", fake_send)
+
+    def run(err):
+        reply["err"] = err
+        job = client.portal.call(eng.create_job, "loadouts", "move", None,
+                                 [step("X: compact before moving", "/devices/X", {"command": "compact"}, wait=["device.compacted"],
+                                       critical=True)], {}, True)
+        for _ in range(10):
+            client.portal.call(eng.tick)
+            j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
+            if j["status"] not in ("running", "waiting"):
+                break
+            time.sleep(0.05)
+        return j
+    j = run("Device is already compacted")
+    assert j["status"] == "done" and "already compacted" in j["steps"][0]["note"]
+    j = run("Device is already compacting")
+    assert j["status"] in ("running", "waiting") and j["steps"][0]["wait"] == ["device.compacted"]
+    assert run("Cannot compact while travelling")["status"] == "failed"

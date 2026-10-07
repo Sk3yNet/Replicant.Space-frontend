@@ -13,6 +13,7 @@ import asyncio
 import json
 from collections import defaultdict
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import time
@@ -254,6 +255,19 @@ class EngineLock:
 
 
 LOCK_ALERT_SECONDS = 600     # the watchdog alerts once the engine lock has been held this long
+
+
+def _already_compact(err: str | None) -> bool:
+    """A compact refused because the device is already compacted, or already compacting."""
+    e = (err or "").lower()
+    return ("compact" in e and ("already" in e or "is compacted" in e or "is compacting" in e)
+            and not re.search(r"\bnot compact", e))
+
+
+def _already_unfurled(err: str | None) -> bool:
+    """An unfurl refused because the device isn't folded up (already unfurled)."""
+    e = (err or "").lower()
+    return ("unfurl" in e and "already" in e) or bool(re.search(r"\bnot compact", e))
 
 
 def _ts(v: str | None) -> datetime | None:
@@ -603,6 +617,15 @@ class AutomationEngine(OpsRules):
                     and "already stowed" in (err or "").lower()):
                 # seen live (2026-10-06, Surveyors recall): the drone was already aboard — that's what the step wanted
                 ok, st["note"] = True, err
+                st["wait"] = []
+            if not ok and (st.get("body") or {}).get("command") == "compact" and _already_compact(err):
+                # the device is already compacted (or folding): that's what the step wanted. Still folding: keep
+                # waiting for device.compacted; done: move on
+                ok, st["note"] = True, err
+                if "compacting" not in (err or "").lower():
+                    st["wait"] = []
+            if not ok and (st.get("body") or {}).get("command") == "unfurl" and _already_unfurled(err):
+                ok, st["note"] = True, err   # already unfolded: nothing to do
                 st["wait"] = []
             if (not ok and (st.get("body") or {}).get("command") == "change_owner"
                     and "already belongs to that replicant" in (err or "").lower()):

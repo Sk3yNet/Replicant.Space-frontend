@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.30.1"
+VERSION = "1.30.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.30.2", "2026-10-07", "Moves of large devices: a compact refused because the device is already compacted counts as "
+     "done and the move goes on (already compacting: it waits for device.compacted); an unfurl refused because the device "
+     "isn't folded counts as done too."),
     ("1.30.1", "2026-10-07", "Desktop wallpaper: its scripts are loaded with the client version in the URL and the page "
      "itself isn't cached, so a redeploy takes effect at once (a cached older script could ignore newer settings such as "
      "relay/hub range). The client and add-on versions show in the wallpaper's bottom-right corner."),
