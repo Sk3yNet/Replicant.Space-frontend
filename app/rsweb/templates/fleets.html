@@ -172,7 +172,7 @@
         <h3>Mission → {{ (m.targets or []) | join(' → ') }}</h3>
         <div class="small">{% set ph = phases[f.role] %}{% for p in ph %}<span class="pill small {{ 'st-work' if p == m.phase else ('lv-done' if m.phase in ph and loop.index0 < ph.index(m.phase) else '') }}">{{ p }}</span> {% endfor %}
           {% if f.role == 'explore' %}<span class="muted">· target {{ (m.idx or 0) + 1 }}/{{ (m.targets or []) | length }}</span>{% endif %}</div>
-        {% if m.watch_note and m.phase == 'watch' %}<div class="small">watching: {{ m.watch_note }}</div>{% endif %}
+        {% if m.watch_note and m.phase in ('watch', 'wait') %}<div class="small">watching: {{ m.watch_note }}</div>{% endif %}
         {% if f.outposts %}<div class="small muted">aboard: {{ f.outposts.have.relay }} FTL relay(s), {{ f.outposts.have.beacon }} FTL beacon(s)
           for the systems still ahead</div>{% for w in f.outposts.warnings %}<div class="small lv-alert">⚠ {{ w }}</div>{% endfor %}{% endif %}
         {% if f.job %}<div class="small muted">job: {{ f.job.title }} · step {{ f.job.idx + 1 }}/{{ f.job.steps | length }}{% if f.job.steps[f.job.idx] is defined %} — {{ f.job.steps[f.job.idx].desc }}{% endif %}</div>{% endif %}
@@ -202,9 +202,17 @@
         <h3>New mission</h3>
         <form hx-post="/fleets/{{ f.id }}/mission" hx-swap="none">
           {% if f.role == 'trade' %}
-            <select name="trade" style="width:100%">{% for code, t in traders.items() %}{% for tr in t.trades %}
-              <option value='{{ {"controller": code, "trade_code": tr.trade_code, "star": t.star, "location": t.location, "price": (tr.criteria or {}).get("resources") or {}} | tojson }}'>
-                {{ t.shop_name or t.owner_name }} @ {{ t.location }} — {{ tr.name }}: pay {% for r2, q in ((tr.criteria or {}).resources or {}).items() %}{{ q }} {{ r2 }} {% endfor %}→ get {% for r2, q in ((tr.rewards or {}).resources or {}).items() %}{{ q }} {{ r2 }} {% endfor %}{% for r2, q in ((tr.rewards or {}).devices or {}).items() %}{{ q }}× {{ r2 }} {% endfor %}</option>{% endfor %}{% endfor %}</select>
+            {% if contracts %}<label style="text-transform:none;display:block">Contract
+            <select name="contract" style="width:100%"><option value="">— none: a trade below —</option>{% for c in contracts %}
+              <option value='{{ {"designation": c.designation, "location": c.location, "title": c.title, "price": c.price, "rewards": c.rewards} | tojson }}'>
+                {{ c.title }} @ {{ c.location }} — needs {% for r2, q in c.price.items() %}{{ q | int }} {{ r2 }} {% endfor %}{% if c.short %}(short there: {% for r2, q in c.short.items() %}{{ q }} {{ r2 }} {% endfor %}){% else %}(all there){% endif %}</option>{% endfor %}</select></label>{% endif %}
+            <label style="text-transform:none;display:block">Trade
+            <select name="trade" style="width:100%"><option value="">—</option>{% for code, t in traders.items() %}{% for tr in t.trades %}
+              <option value='{{ {"controller": code, "trade_code": tr.trade_code, "name": tr.name, "star": t.star, "location": t.location, "price": (tr.criteria or {}).get("resources") or {}, "rewards": (tr.rewards or {}).get("resources") or {}} | tojson }}'>
+                {{ t.shop_name or t.owner_name }} @ {{ t.location }} — {{ tr.name }}: pay {% for r2, q in ((tr.criteria or {}).resources or {}).items() %}{{ q }} {{ r2 }} {% endfor %}→ get {% for r2, q in ((tr.rewards or {}).resources or {}).items() %}{{ q }} {{ r2 }} {% endfor %}{% for r2, q in ((tr.rewards or {}).devices or {}).items() %}{{ q }}× {{ r2 }} {% endfor %}</option>{% endfor %}{% endfor %}</select></label>
+            <div class="muted small">The freighters pick up what the site is short of from the nearest stockpiles and deposit it there.
+              Once a replicant is at the site (a fleet vessel hosting one goes along), the contract or trade is fulfilled; the
+              rewards are loaded and taken to the nearest system whose fleet takes materials in, then the fleet goes home.</div>
             <button type="button" class="small ghost" hx-post="/fleets/traders" hx-swap="none">Refresh traders</button>
           {% else %}
             <input name="targets" placeholder="{{ 'systems to explore, in order: KELMONENT, LORSELAN' if f.role == 'explore' else 'target system, e.g. KELMONENT' }}" style="width:100%" list="fl-stars-{{ f.id }}">

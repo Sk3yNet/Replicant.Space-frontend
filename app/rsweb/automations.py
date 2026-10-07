@@ -1612,12 +1612,12 @@ class AutomationEngine(OpsRules):
                         self._mlog(m, n)
             return steps, []
         if phase == "return":
-            return fl.travel_steps(fleet, devices, fleet["home"], stars), []
+            return fl.travel_steps(fleet, devices, m.get("drop_star") or fleet["home"], stars), []
         if phase == "unload":
             # A stationed fleet's devices work its home system, so they come off the carriers. Any other fleet stays aboard,
             # ready for its next mission: only cargo is deposited (a cargo carrier riding a carrier hops off for it and
             # boards again).
-            pile = lo.drop_point(fleet["home"], devices, inv, stars)
+            pile = lo.drop_point(m.get("drop_star") or fleet["home"], devices, inv, stars)
             if fleet.get("station"):
                 steps = fl.unload_steps(fleet, devices)
                 self._mlog(m, "home: devices come off the carriers to work the home system (stationed fleet)")
@@ -1652,15 +1652,49 @@ class AutomationEngine(OpsRules):
                         steps.append(st)
                     steps.append(fl.board_step(ride, code, "attach" if d.get("attached_to_device_code") == ride else "stow"))
             return steps, []
+        if fleet["role"] == "trade" and phase in ("load", "deliver", "trade", "collect", "home"):
+            return await self.deal_phase_steps(fleet, m, phase, devices, inv, stars)
+        return [], []
+
+    async def deal_phase_steps(self, fleet: dict, m: dict, phase: str, devices: list[dict], inv: dict[str, dict],
+                               stars: dict[str, dict]) -> tuple[list[dict], list[str]]:
+        """A contract / trade mission (fleets.deal): gather the price, deliver it, fulfil, collect the rewards, go home."""
+        from . import fleets as fl
+        from . import loadouts as lo
+        dl = fl.deal(m)
+        site = dl["location"]
+        pos = {k: (v or {}).get("position") or {} for k, v in stars.items()}
+
+        def dist(a: str, b: str) -> float:
+            return lo._dist(a, b, pos)
         if phase == "load":
-            t = m.get("trade") or {}
-            return fl.trade_load_steps(fleet, devices, t.get("price") or {}, lo.pickup_point(fleet["home"], inv))
+            need = fl.site_short(dl["price"], inv.get(site) or {})
+            m["need"] = need
+            if not need:
+                self._mlog(m, f"{site} already holds the price: nothing to pick up")
+                return [], []
+            legs, left, problems = fl.pickup_plan(fleet, devices, need, inv, site, dist)
+            m["loaded"] = sorted({x["freighter"] for x in legs})
+            for x in legs:
+                self._mlog(m, f"{x['freighter']} picks up {', '.join(f'{q} {r}' for r, q in x['take'].items())} at {x['pile']}")
+            if left and not legs:
+                m["stall"] = True
+            return fl.pickup_steps(legs, devices), problems
         if phase == "deliver":
-            return fl.trade_deliver_steps(fleet, devices, (m.get("trade") or {}).get("location") or ""), []
+            reps = await self.db.kv_get("replicants", {}) or {}
+            hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
+            return fl.site_deliver_steps(fleet, devices, site, hosts, set(m.get("loaded") or [])), []
         if phase == "trade":
-            t = m.get("trade") or {}
-            return [step(f"trade {t.get('trade_code')} at {t.get('controller')}", f"/devices/{t.get('controller')}/trades/{t.get('trade_code')}",
-                         None, critical=True)], []
+            return [fl.fulfil_step(dl)], []
+        if phase == "collect":
+            goods = dl["rewards"] or as_amounts(inv.get(site) or {})
+            steps, problems = fl.collect_steps(fleet, devices, site, goods)
+            m["drop_star"] = fl.nearest_drop_star(await self.fleets(), dl["star"], fleet["home"], dist)
+            return steps, problems
+        if phase == "home":
+            if m.get("drop_star") and m["drop_star"] != fleet["home"]:
+                return fl.travel_steps(fleet, devices, fleet["home"], stars), []
+            return [], []
         return [], []
 
     async def fill_fleets(self, force: bool = False, only: str | None = None) -> list[str]:
@@ -1785,6 +1819,17 @@ class AutomationEngine(OpsRules):
                 changed = True
                 continue
             phases = fl.PHASES[fleet["role"]]
+            if m.get("phase") == "wait":
+                site = fl.deal(m)["location"]
+                reps = await self.db.kv_get("replicants", {}) or {}
+                here = [r.get("name") or c for c, r in reps.items() if (r.get("location") or r.get("current_location")) == site]
+                if not here:
+                    note = f"materials at {site}: waiting for a replicant there to fulfil"
+                    if m.get("watch_note") != note:
+                        m["watch_note"] = note
+                        changed = True
+                    continue
+                self._mlog(m, f"{', '.join(here)} at {site}: fulfilling")
             if m.get("phase") == "watch":
                 done, why, upd = fl.watch_done(fleet, m, devices, now_iso())
                 m.update(upd)
@@ -1805,6 +1850,13 @@ class AutomationEngine(OpsRules):
                 m["phase"], m["phase_at"] = nxt, now_iso()
                 if nxt == "watch":
                     self._mlog(m, "on station — watching until the work is done")
+                    break
+                if nxt == "wait":
+                    site = fl.deal(m)["location"]
+                    self._mlog(m, f"materials delivered to {site}: waiting for a replicant there")
+                    await self.log("fleets", f"{fleet['name']}: materials at {site} — send a replicant there to fulfil "
+                                             f"{fl.deal(m)['label']}", notify=True)
+                    changed = True
                     break
                 steps, problems = await self.fleet_phase_steps(fleet, m, nxt, devices)
                 for pr in problems:

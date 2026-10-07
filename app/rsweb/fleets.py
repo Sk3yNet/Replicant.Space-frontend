@@ -18,8 +18,10 @@ A mission is a list of phases; each phase becomes one job, and the next phase st
            gather_evenly, and (deliver mode) the transport controller ferries to the nearest destination system.
            Haul mode: freighters fill up at the belt on recall and bring it home.
   explore  for each target: assemble → travel → deploy → survey_system → watch (no_targets) → recall; then home
-  trade    load (freighters collect the trade's price at home) → assemble → travel → deliver (freighter to the
-           trader's location) → trade (POST /devices/<trader>/trades/<code>) → recall → return → unload
+  trade    contracts (civilisation events) and trades: load (freighters collect what the site is still short of, from
+           the nearest stockpiles) → assemble → travel → deliver (deposit at the site; a vessel hosting a replicant goes
+           too) → wait (for a replicant at the site) → trade (fulfil the event / execute the trade) → collect (the
+           rewards) → recall → return (to the nearest system whose fleet takes materials in) → unload → home
 Unload, back home: cargo is deposited at the home stockpile. A stationed fleet's devices also come off the carriers
 (they work the home system); any other fleet stays aboard, ready for its next mission.
 """
@@ -35,7 +37,8 @@ ROLES = ("mining", "explore", "trade")
 PHASES = {
     "mining": ["assemble", "gather", "travel", "deploy", "work", "watch", "recall", "return", "unload"],
     "explore": ["assemble", "gather", "travel", "deploy", "work", "watch", "recall"],   # travel…recall per target, then return/unload
-    "trade": ["load", "assemble", "gather", "travel", "deliver", "trade", "recall", "return", "unload"],
+    "trade": ["load", "assemble", "gather", "travel", "deliver", "wait", "trade", "collect", "recall", "return", "unload",
+              "home"],
 }
 ATTACH_TYPES = ("surge_plate", "surge_platform", "surge_carrier", "mobile_fleet")
 CAPACITY = {"surge_plate": 1, "surge_platform": 4, "surge_carrier": 9, "mobile_fleet": 36, "cargo_vessel": 3}
@@ -821,37 +824,6 @@ def outside_controllers(fleet: dict, devices: list[dict]) -> list[dict]:
     return [d for d in devices if d.get("device_code") in runs - mine]
 
 
-def trade_load_steps(fleet: dict, devices: list[dict], price: dict, home_pile: str | None) -> tuple[list[dict], list[str]]:
-    r = roster(fleet, devices)
-    fr = [d for d in r["members"] if d.get("device_type") == "cargo_freighter"]
-    if not fr:
-        return [], ["the trade fleet has no cargo freighter to carry the price"]
-    if not home_pile:
-        return [], ["no stockpile at home to load from"]
-    d = fr[0]
-    steps = []
-    if d.get("location") != home_pile:
-        st = step(f"{d['device_code']} → {home_pile}", f"/devices/{d['device_code']}", {"command": "travel", "destination": home_pile},
-                  wait=["travel.arrived"], match={"destination": home_pile})
-        st["wait_device"] = d["device_code"]
-        steps.append(st)
-    steps.append(step(f"{d['device_code']}: load the price", f"/devices/{d['device_code']}",
-                      {"command": "collect_resources", "resources": {k: int(v) for k, v in as_amounts(price).items()}}, critical=True))
-    return steps, []
-
-
-def trade_deliver_steps(fleet: dict, devices: list[dict], trader_loc: str) -> list[dict]:
-    r = roster(fleet, devices)
-    out = []
-    for d in r["members"]:
-        if d.get("device_type") == "cargo_freighter" and d.get("location") != trader_loc:
-            st = step(f"{d['device_code']} → {trader_loc}", f"/devices/{d['device_code']}", {"command": "travel", "destination": trader_loc},
-                      wait=["travel.arrived"], match={"destination": trader_loc})
-            st["wait_device"] = d["device_code"]
-            out.append(st)
-    return out
-
-
 def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str) -> tuple[bool, str, dict]:
     """(done?, why, updates to mission). Mining: exhausted and no site being searched for N minutes.
     Explore: the survey controller reports no_targets."""
@@ -1014,3 +986,162 @@ def short_list(fleet: dict, devices: list[dict]) -> dict[str, int]:
 
 def summarize(x: Any) -> str:
     return ", ".join(f"{v}× {k.replace('_', ' ')}" for k, v in (x or {}).items())
+
+
+# --- contracts & trades -----------------------------------------------------------------------------------------------
+def deal(m: dict) -> dict:
+    """The mission's deal, contract or trade: {"kind", "location", "star", "price" {res: n}, "rewards" {res: n},
+    "label"}."""
+    c, t = m.get("contract") or {}, m.get("trade") or {}
+    if c:
+        return {"kind": "contract", "location": c.get("location") or "", "star": star_of(c.get("location")),
+                "price": as_amounts(c.get("price") or {}), "rewards": as_amounts(c.get("rewards") or {}),
+                "label": f"contract {c.get('title') or c.get('designation')}", "designation": c.get("designation")}
+    return {"kind": "trade", "location": t.get("location") or "", "star": star_of(t.get("location")) or t.get("star") or "",
+            "price": as_amounts(t.get("price") or {}), "rewards": as_amounts(t.get("rewards") or {}),
+            "label": f"trade {t.get('name') or t.get('trade_code')}", "controller": t.get("controller"),
+            "trade_code": t.get("trade_code")}
+
+
+def freighters(fleet: dict, devices: list[dict]) -> list[dict]:
+    """Members that carry cargo and fly themselves (cargo freighters)."""
+    return [d for d in members(fleet, devices) if flies_itself(d)
+            and (d.get("device_type") == "cargo_freighter" or _int(d.get("cargo_capacity")) > 0)]
+
+
+def site_short(price: dict, at_site: dict) -> dict[str, int]:
+    """What the site still lacks: the price minus what's already stockpiled there."""
+    have = as_amounts(at_site or {})
+    return {r: int(n - have.get(r, 0) + 0.999) for r, n in as_amounts(price).items() if n - have.get(r, 0) > 0}
+
+
+def pickup_plan(fleet: dict, devices: list[dict], need: dict[str, int], inventory: dict[str, dict], site: str,
+                dist) -> tuple[list[dict], dict[str, int], list[str]]:
+    """Which freighter collects what from which stockpile: piles nearest the site first (then the biggest), each
+    freighter filled up to its free cargo space. Returns (legs [{freighter, pile, take}], still missing, problems)."""
+    frs = sorted(freighters(fleet, devices), key=lambda d: d["device_code"])
+    if not frs:
+        return [], dict(need), ["the fleet has no cargo freighter to carry the materials"]
+    left = {r: n for r, n in need.items() if n > 0}
+    free = {d["device_code"]: _int(d.get("cargo_capacity")) - _int(d.get("cargo_used")) for d in frs}
+    piles = sorted(((loc, as_amounts(items)) for loc, items in inventory.items() if loc != site),
+                   key=lambda kv: (dist(star_of(kv[0]), star_of(site)), -sum(kv[1].values()), kv[0]))
+    legs = []
+    for loc, stock in piles:
+        if not left:
+            break
+        avail = {r: int(stock.get(r, 0)) for r in left if stock.get(r, 0) >= 1}
+        while avail and left:
+            fr = next((d for d in frs if free[d["device_code"]] > 0), None)
+            if not fr:
+                break
+            code, take = fr["device_code"], {}
+            for r in sorted(avail, key=lambda r: -left.get(r, 0)):
+                n = min(avail[r], left.get(r, 0), free[code])
+                if n > 0:
+                    take[r] = n
+                    avail[r] -= n
+                    left[r] -= n
+                    free[code] -= n
+            avail = {r: q for r, q in avail.items() if q > 0 and left.get(r, 0) > 0}
+            left = {r: q for r, q in left.items() if q > 0}
+            if take:
+                leg = next((x for x in legs if x["freighter"] == code and x["pile"] == loc), None)
+                if leg:
+                    for r, q in take.items():
+                        leg["take"][r] = leg["take"].get(r, 0) + q
+                else:
+                    legs.append({"freighter": code, "pile": loc, "take": take})
+            if free[code] <= 0:
+                continue
+            break
+    problems = []
+    if left:
+        if all(f <= 0 for f in free.values()):
+            problems.append("the freighters are full: " + ", ".join(f"{q} {r}" for r, q in left.items()) + " left behind")
+        else:
+            problems.append("not enough in any stockpile: " + ", ".join(f"{q} {r}" for r, q in left.items()) + " missing")
+    return legs, left, problems
+
+
+def pickup_steps(legs: list[dict], devices: list[dict]) -> list[dict]:
+    by = {d["device_code"]: d for d in devices}
+    steps, at = [], {}
+    for leg in legs:
+        code, pile = leg["freighter"], leg["pile"]
+        cur = at.get(code, (by.get(code) or {}).get("location"))
+        if cur != pile:
+            st = step(f"{code} → {pile} (pick up)", f"/devices/{code}", {"command": "travel", "destination": pile},
+                      wait=["travel.arrived"], match={"destination": pile}, critical=True)
+            st["wait_device"] = code
+            steps.append(st)
+            at[code] = pile
+        steps.append(step(f"{code}: load {', '.join(f'{q} {r}' for r, q in leg['take'].items())} at {pile}", f"/devices/{code}",
+                          {"command": "collect_resources", "resources": leg["take"]}, critical=True))
+    return steps
+
+
+def site_deliver_steps(fleet: dict, devices: list[dict], site: str, replicant_hosts: set[str],
+                       loaded: set[str] | None = None) -> list[dict]:
+    """Loaded freighters (`loaded`: the ones the load phase filled; the device list can lag) fly to the site and
+    deposit; a member vessel hosting a replicant goes too (it fulfils)."""
+    steps = []
+    for d in freighters(fleet, devices):
+        if _int(d.get("cargo_used")) <= 0 and d["device_code"] not in (loaded or set()):
+            continue
+        code = d["device_code"]
+        if d.get("location") != site:
+            st = step(f"{code} → {site}", f"/devices/{code}", {"command": "travel", "destination": site},
+                      wait=["travel.arrived"], match={"destination": site}, critical=True)
+            st["wait_device"] = code
+            steps.append(st)
+        steps.append(step(f"{code}: deposit at {site}", f"/devices/{code}", {"command": "deposit_resources"}, critical=True))
+    for d in members(fleet, devices):
+        if d["device_code"] in replicant_hosts and d.get("location") != site and not d.get("stowed_in_device_code") \
+                and not d.get("attached_to_device_code"):
+            st = step(f"{d['device_code']} → {site} (brings its replicant)", f"/devices/{d['device_code']}",
+                      {"command": "travel", "destination": site}, wait=["travel.arrived"], match={"destination": site})
+            st["wait_device"] = d["device_code"]
+            steps.append(st)
+    return steps
+
+
+def fulfil_step(dl: dict) -> dict:
+    if dl["kind"] == "contract":
+        return step(f"fulfil {dl['label']} at {dl['location']}", f"/locations/{dl['location']}/events/{dl['designation']}",
+                    None, critical=True)
+    return step(f"execute {dl['label']} at {dl['controller']}", f"/devices/{dl['controller']}/trades/{dl['trade_code']}",
+                None, critical=True)
+
+
+def collect_steps(fleet: dict, devices: list[dict], site: str, goods: dict) -> tuple[list[dict], list[str]]:
+    """Freighters at the site load the received goods (up to their free space)."""
+    left = {r: int(q) for r, q in as_amounts(goods).items() if q >= 1}
+    if not left:
+        return [], []
+    steps = []
+    for d in freighters(fleet, devices):
+        free = _int(d.get("cargo_capacity")) - _int(d.get("cargo_used"))
+        take = {}
+        for r in sorted(left, key=lambda r: -left[r]):
+            n = min(left[r], free)
+            if n > 0:
+                take[r], free, left[r] = n, free - n, left[r] - n
+        left = {r: q for r, q in left.items() if q > 0}
+        if not take:
+            continue
+        code = d["device_code"]
+        if d.get("location") != site:
+            st = step(f"{code} → {site}", f"/devices/{code}", {"command": "travel", "destination": site},
+                      wait=["travel.arrived"], match={"destination": site})
+            st["wait_device"] = code
+            steps.append(st)
+        steps.append(step(f"{code}: load {', '.join(f'{q} {r}' for r, q in take.items())} (received)", f"/devices/{code}",
+                          {"command": "collect_resources", "resources": take}))
+    return steps, ([f"no room for {', '.join(f'{q} {r}' for r, q in left.items())}: left at {site}"] if left else [])
+
+
+def nearest_drop_star(fleets: list[dict], star: str, home: str, dist) -> str:
+    """Where received goods go: the nearest system whose fleet takes materials in, else home."""
+    dests = sorted({f["home"] for f in destinations(fleets)}, key=lambda s: (dist(s, star), s))
+    return dests[0] if dests else home

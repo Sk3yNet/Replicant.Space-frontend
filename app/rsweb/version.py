@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.24.0"
+VERSION = "1.25.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.25.0", "2026-10-07", "Trade fleets take on contracts as well as trades: freighters pick up what the site is short of "
+     "from the nearest stockpiles, deposit it at the site, the fleet waits for a replicant there (a fleet vessel hosting one "
+     "goes along) and fulfils, then loads the rewards and takes them to the nearest system whose fleet takes materials "
+     "in before going home."),
     ("1.24.0", "2026-10-07", "Survey crews drop FTL relays and beacons: in each system without one of yours the carrier deploys a "
      "relay at the L4/L5 point (and activates it) and a beacon; if the survey finds a civilisation, the beacon is moved to "
      "that body before the fleet leaves. Starting a survey warns when there aren't enough aboard for the systems in the "

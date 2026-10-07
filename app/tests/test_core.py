@@ -4148,3 +4148,80 @@ def test_explore_mission_drops_outposts_and_warns(client):
     steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, m, "recall", devices)
     assert [s["desc"] for s in steps][-3:] == ["stow beacon B1 into HV", "HV → LOR-3 (civilisation)", "deploy beacon B1 at LOR-3"]
     assert any("civilisation at LOR-3" in x["text"] for x in m["log"])
+
+
+def test_deal_pickup_plan_uses_the_nearest_stockpiles():
+    from rsweb import fleets as fl
+    fleet = {"id": "t", "name": "Traders", "role": "trade", "home": "FAL", "wants": {}}
+    devices = [{"device_code": c, "device_type": "cargo_freighter", "location": "FAL-1-L4", "features": ["surge"],
+                "cargo_capacity": 300, "cargo_used": 0, "tags": ["fleet:t"]} for c in ("F1", "F2")]
+    inv = {"FAL-BELT-1": {"carbon": 1000, "silicates": 50}, "KEL-3": {"silicates": 500}, "SITE-2": {"carbon": 100},
+           "FAR-BELT-1": {"silicates": 900}}
+    pos = {"FAL": 0, "KEL": 1, "SITE": 2, "FAR": 50}
+    need = fl.site_short({"carbon": 450, "silicates": 200}, inv["SITE-2"])
+    assert need == {"carbon": 350, "silicates": 200}
+    legs, left, problems = fl.pickup_plan(fleet, devices, need, inv, "SITE-2", lambda a, b: abs(pos[a] - pos[b]))
+    # KEL is nearest the site: its silicates first; then FAL's carbon; FAR is never needed
+    assert [(x["freighter"], x["pile"], x["take"]) for x in legs] == [
+        ("F1", "KEL-3", {"silicates": 200}), ("F1", "FAL-BELT-1", {"carbon": 100}), ("F2", "FAL-BELT-1", {"carbon": 250})]
+    assert not left and not problems
+    steps = fl.pickup_steps(legs, devices)
+    assert [s["desc"] for s in steps][:3] == ["F1 → KEL-3 (pick up)", "F1: load 200 silicates at KEL-3", "F1 → FAL-BELT-1 (pick up)"]
+    # not enough anywhere: says what's missing
+    legs, left, problems = fl.pickup_plan(fleet, devices, {"rares": 10}, inv, "SITE-2", lambda a, b: 0)
+    assert not legs and left == {"rares": 10} and "missing" in problems[0]
+
+
+def test_contract_fleet_delivers_waits_fulfils_and_brings_the_rewards(client):
+    from rsweb import fleets as fl
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+    devices = [{"device_code": "F1", "device_type": "cargo_freighter", "location": "SOL-BELT-1", "features": ["surge"],
+                "cargo_capacity": 500, "cargo_used": 0, "tags": ["fleet:t"], "status": "idle"},
+               {"device_code": "HV", "device_type": "heaven_vessel", "location": "SOL-3-L4", "features": ["surge"],
+                "stow_capacity": 10, "tags": ["fleet:t"], "status": "idle"}]
+    fleet = {"id": "t", "name": "Traders", "role": "trade", "home": "SOL", "wants": {}, "station": False, "materials": ""}
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": [{"resource_type": "carbon", "quantity": 900}]}])
+    client.portal.call(db.kv_set, "replicants", {"R1": {"name": "Joe", "hosted_device_code": "HV", "location": "SOL-3-L4"}})
+    m = {"status": "running", "phase": None, "idx": 0, "targets": ["SOL"], "opts": {}, "log": [],
+         "contract": {"designation": "EV-1", "location": "SOL-4", "title": "Help them", "price": {"carbon": 200},
+                      "rewards": {"rares": 40}}}
+    steps, problems = client.portal.call(eng.fleet_phase_steps, fleet, m, "load", devices)
+    assert [s["desc"] for s in steps] == ["F1: load 200 carbon at SOL-BELT-1"] and m["loaded"] == ["F1"] and not problems
+    steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, m, "deliver", devices)
+    assert [s["desc"] for s in steps] == ["F1 → SOL-4", "F1: deposit at SOL-4", "HV → SOL-4 (brings its replicant)"]
+    steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, m, "trade", devices)
+    assert steps[0]["path"] == "/locations/SOL-4/events/EV-1" and steps[0]["method"] == "POST"
+    devices[0]["location"] = "SOL-4"
+    steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, m, "collect", devices)
+    assert steps[0]["body"] == {"command": "collect_resources", "resources": {"rares": 40}} and m["drop_star"] == "SOL"
+    # a trade executes on the trader's controller
+    t = {"status": "running", "log": [], "trade": {"controller": "TC1", "trade_code": "TRD-1", "location": "KEL-2", "price": {}}}
+    steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, t, "trade", devices)
+    assert steps[0]["path"] == "/devices/TC1/trades/TRD-1"
+    # the wait phase holds until a replicant is at the site, then fulfils
+    client.portal.call(db.kv_set, "replicants", {"R1": {"name": "Joe", "hosted_device_code": "HV", "location": "SOL-3-L4"}})
+    m.update({"phase": "wait", "job": None, "status": "running"})
+    client.portal.call(eng.save_fleets, [{**fleet, "mission": m}])
+    client.portal.call(eng.run_fleets)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "t")
+    assert f["mission"]["phase"] == "wait" and "waiting for a replicant" in f["mission"]["watch_note"]
+    client.portal.call(db.kv_set, "replicants", {"R1": {"name": "Joe", "hosted_device_code": "HV", "location": "SOL-4"}})
+    client.portal.call(eng.run_fleets)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "t")
+    assert f["mission"]["phase"] == "trade" and any("Joe at SOL-4: fulfilling" in x["text"] for x in f["mission"]["log"])
+    # the Fleets page offers open contracts to a trade fleet, and starting one targets its system
+    disc = {"designation": "SOL-3-L4-EVT-009", "location": "SOL-3-L4", "title": "Atmospheric Harvest", "tier": 1,
+            "criteria": [{"name": "default", "resources": {"carbon": 150}, "devices": []}], "rewards": {"resources": {"volatiles": 200}}}
+    client.portal.call(client.app.state.worker.handle_event, {"id": "4444444444499-0", "event": "event.discovered",
+                       "category": "event", "location": "SOL-3-L4", "star": "SOL", "payload": disc,
+                       "created_at": "2026-10-07T10:00:00+00:00"})
+    client.portal.call(eng.save_fleets, [{**fleet, "mission": None}])
+    page = client.get("/fleets", headers=H).text
+    assert "Atmospheric Harvest @ SOL-3-L4" in page and 'name="contract"' in page
+    import json as _json
+    client.post("/fleets/t/mission", data={"contract": _json.dumps({"designation": "SOL-3-L4-EVT-009", "location": "SOL-3-L4",
+                                                                    "title": "x", "price": {"carbon": 150}, "rewards": {}})},
+                headers=HX)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "t")
+    assert f["mission"]["targets"] == ["SOL"] and f["mission"]["contract"]["designation"] == "SOL-3-L4-EVT-009"

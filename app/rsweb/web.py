@@ -2467,7 +2467,19 @@ async def fleets_ctx(request: Request) -> dict:
         f["route"] = next((r for r in lctx["plan"].get("routes") or [] if r.get("fleet_id") == f["id"]), None)
         f["sends_to"] = fl.materials_target(f, items)
         f["takes_from"] = [x for x in items if x.get("materials") == f["id"]]
-    return {**lctx, "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
+    from . import gameevents as gev
+    from .shapes import normalize_inventory
+    inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await request.app.state.db.kv_get("inventory", []))}
+    contracts = []
+    for e in (await gev.load(request.app.state.db)).values():
+        if e.get("status") != "open" or not e.get("location"):
+            continue
+        prog = gev.progress(e, inv, st["devices"], st["replicants"])
+        price = {x["resource"]: x["need"] for x in (prog.get("best") or {}).get("resources") or []}
+        contracts.append({"designation": e["designation"], "location": e["location"], "title": e.get("title"), "price": price,
+                          "rewards": (e.get("rewards") or {}).get("resources") or {} if isinstance(e.get("rewards"), dict) else {},
+                          "short": fl.site_short(price, inv.get(e["location"]) or {})})
+    return {**lctx, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
             "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
             "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
 
@@ -2674,10 +2686,16 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
          "opts": {"deliver": form.get("deliver") == "on", "exhausted_minutes": int(form.get("exhausted_minutes") or 30)}}
     if f["role"] == "trade":
         try:
-            m["trade"] = json.loads(form.get("trade") or "{}")
+            if form.get("contract"):
+                m["contract"] = json.loads(form.get("contract"))
+                m["targets"] = [star_of(m["contract"].get("location"))]
+            else:
+                m["trade"] = json.loads(form.get("trade") or "{}")
+                m["targets"] = [m["trade"].get("star") or star_of(m["trade"].get("location"))]
         except ValueError:
-            return HTMLResponse('<div class="result err">Pick a trade.</div>')
-        m["targets"] = [m["trade"].get("star")]
+            m["targets"] = []
+        if not m["targets"] or not m["targets"][0]:
+            return HTMLResponse('<div class="result err">Pick a contract or a trade.</div>')
     if not m["targets"] or not m["targets"][0]:
         return HTMLResponse('<div class="result err">Give the mission a target system.</div>')
     if f["role"] == "mining":
