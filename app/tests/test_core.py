@@ -4284,3 +4284,26 @@ def test_tracking_drones_deactivate_right_before_they_move(client):
     r = client.get("/devices/AF00BEEF/command-form?command=compact", headers=HX)
     assert "Fold a large (modular) device" in r.text
     assert 'title="Fold a large (modular) device' in client.get("/devices/AF00BEEF", headers=H).text
+
+
+def test_fleet_carrier_fetches_before_going_home_and_old_home_tags_follow_the_fleet():
+    """Live 2026-10-07: Miner 1's only carrier was sent home every pass (it was away fetching an observatory), so the 31
+    devices waiting in KELMORNEA were never collected; the observatory was still tagged to:kelmornea after the move."""
+    from rsweb import loadouts as lo
+    D = lambda code, t, loc, **kw: {"device_code": code, "device_type": t, "location": loc, "status": "idle",  # noqa: E731
+                                    "replicant_code": "R1", **kw}
+    devices = [D("MF", "mobile_fleet", "FAL-1-L4", features=["surge", "attach"], attach_capacity=36, tags=["fleet:m1"]),
+               D("MD1", "mining_drone", "KEL-BELT-1", tags=["fleet:m1"]),
+               D("MD2", "mining_drone", "KEL-BELT-1", tags=["fleet:m1"]),
+               D("OBS", "galactic_observatory", "FAL-1-L4", features=["cruise", "modular"], tags=["fleet:m1", "to:kel"])]
+    stars = {s: {"position": {"x": i, "y": 0, "z": 0}, "entry_point": f"{s}-1-L4"} for i, s in enumerate(("FAL", "KEL", "LAR"))}
+    fleets = [{"id": "m1", "name": "Miner 1", "home": "LAR", "station": True, "wants": {}}]
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
+    assert [(dl["carrier"], dl["from"], sorted(dl["devices"]), dl.get("stay")) for dl in p["deliveries"]] == \
+        [("MF", "KEL", ["MD1", "MD2"], True)]                       # the biggest batch first, and it stays home after
+    assert "MF" not in p["returning"] and p["tag_add"]["OBS"] == ["to:lar"] and p["tag_remove"]["OBS"] == ["to:kel"]
+    steps = lo.delivery_steps(p["deliveries"][0], p["by_code"], stars, True)
+    assert "return" not in steps[-1]["desc"]
+    # nothing to carry: the carrier goes home on its own
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices[:1], [], {}, stars, {}, set(), [], {})
+    assert p["self_moves"] == [("MF", "LAR")] and p["returning"] == ["MF"]

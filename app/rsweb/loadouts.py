@@ -224,6 +224,18 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         tags = set(d.get("tags") or [])
         f = fleet_tag_of(d)
         return not (ignore & tags) and d.get("device_code") not in replicant_hosts and (not f or f in by_tag)
+    # A stationed fleet's device tagged to:<old home> (e.g. printed before the fleet moved) goes to its current home.
+    # Seen live 2026-10-07: Miner 1's observatory still tagged to:kelmornea after the fleet moved to LARSELAN.
+    retag: dict[str, tuple[str, str]] = {}
+    fixed = []
+    for d in devices:
+        f = by_tag.get(fleet_tag_of(d) or "")
+        dest = bound_for(d, known_stars)
+        if f and dest and dest != f["home"] and not d.get("location_stale"):
+            retag[d["device_code"]] = (to_tag(dest), to_tag(f["home"]))
+            d = {**d, "tags": [t for t in d.get("tags") or [] if t != to_tag(dest)] + [to_tag(f["home"])]}
+        fixed.append(d)
+    devices = fixed
     pool = [d for d in devices if visible(d)]
     stale = [d for d in pool if d.get("location_stale") or not (d.get("location") or d.get("stowed_in_device_code")
                                                                    or d.get("attached_to_device_code"))]
@@ -265,6 +277,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     tag_add: dict[str, set] = defaultdict(set)
     tag_remove: dict[str, set] = defaultdict(set)
     moves: dict[str, str] = {}        # device -> destination star
+    for code, (old_t, new_t) in retag.items():
+        tag_remove[code].add(old_t)
+        tag_add[code].add(new_t)
     assign: dict[str, str] = {}       # device -> fleet tag it joins (set by its move, or straight away)
     unmet: list[dict] = []
 
@@ -572,6 +587,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         return True
 
     returning = []
+    carriers_away: list[tuple[str, str]] = []
     for f in groups:
         tag = fl.fleet_tag(f["id"])
         for d in members(f):
@@ -579,6 +595,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             here = star_of(d.get("location"))
             if (here and here != home and code not in moves and SPARE not in (d.get("tags") or [])
                     and not bound_for(d, known_stars) and fleet_now(code) and left_behind(d, home, tag)):
+                if can_surge(d) and _carrier_cap(d, bps) > 0:
+                    # a carrier: deliveries may need it where it is; it goes home afterwards only if none does (below).
+                    # Seen live 2026-10-07: Miner 1's only carrier was sent home every pass, so it never fetched the
+                    # 31 devices waiting for it.
+                    carriers_away.append((code, home))
+                    continue
                 moves[code] = home
                 returning.append(code)
                 busy.discard(code)
@@ -719,7 +741,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         different account')."""
         return not owner or not c.get("replicant_code") or c["replicant_code"] == owner
 
-    for (here, dest, owner), codes in sorted(batches.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "")):
+    for (here, dest, owner), codes in sorted(batches.items(), key=lambda kv: (-len(kv[1]), kv[0][0], kv[0][1], kv[0][2] or "")):
         codes = sorted(codes)
         while codes:
             stowable = all("stow" in (by_code[x].get("available_commands") or ["stow"]) for x in codes)
@@ -752,11 +774,19 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             used.add(c["device_code"])
             dl = {"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
                   "devices": load, "replicant": replicant_hosts.get(c["device_code"]), "mode": carry_mode(c, bps)}
+            if (by_tag.get(fleet_tag_of(c) or "") or {}).get("home") == dest:
+                dl["stay"] = True   # the carrier's own fleet lives there: it stays home instead of flying back
             if fetched_from:
                 # it flies in first and loads where most of them are
                 spots = Counter(by_code[x].get("location") for x in load if can_travel(by_code[x]))
                 dl.update({"fetch_from": fetched_from, "carrier_loc": (spots.most_common(1)[0][0] if spots else by_code[load[0]].get("location"))})
             deliveries.append(dl)
+
+    for code, home in carriers_away:   # fleet carriers away from home that no delivery needed: home they go
+        if code not in used and code not in moves and code not in busy:
+            moves[code] = home
+            returning.append(code)
+            self_moves.append((code, home))
 
     # pinned devices (`at:<location>`) in their pin's system but somewhere else in it: send them to the spot
     pins = []
@@ -1018,7 +1048,7 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         steps.append(st)
         steps.append(rehome_step(code, by_code.get(code, {}), dest_star, keep_spare=code in gathering, join=assign.get(code)))
     back = dl.get("fetch_from") or cloc
-    if carriers_return and back:
+    if carriers_return and back and not dl.get("stay"):
         steps.append(move(back, "return", star_of(back)))
     return steps
 

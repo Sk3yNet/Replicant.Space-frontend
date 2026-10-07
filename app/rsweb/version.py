@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.25.2"
+VERSION = "1.25.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.25.3", "2026-10-07", "Fleet moves: a stationed fleet's carrier away from home is only sent home when no delivery needs "
+     "it (Miner 1's carrier kept being sent home instead of fetching its 31 devices); the biggest batches get carriers "
+     "first; a carrier delivering to its own fleet's home stays there; devices tagged for a fleet's old home are "
+     "re-tagged to the new one."),
     ("1.25.2", "2026-10-07", "Survey drones tracking a site are deactivated right before a job moves them (and activated once "
      "unloaded) — moving Miner 1 and 2 failed every pass with 'Cannot cruise while tracking a site'. Device commands "
      "have descriptions (above the fields, and as tooltips in the command picker)."),
