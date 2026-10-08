@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from collections import defaultdict
 import logging
 import re
@@ -1295,62 +1296,94 @@ class AutomationEngine(OpsRules):
         await self.db.kv_set("observatory_runs", runs)
         return out
 
-    async def auto_scout_pass(self) -> list[str]:
-        """Explore fleets with 'auto-scout prospects' ticked: when one is free, send it to the stars our observatories
-        found that nothing of ours has scanned yet — the nearest to its home first, up to its scout count (3), not
-        another player's warded system, not a stationed fleet's home, not a star already sent to."""
+    SCOUT_MIN_CAPACITY = 50.0   # a member at or below this (%) ends the scouting: finish the system, go home for repairs
+    SCOUT_RADIUS_LY = 100.0     # no further than this from home; nothing left inside it ends the scouting too
+
+    async def scout_next(self, f: dict, items: list[dict], devices: list[dict], here: str | None = None,
+                         exclude: set[str] | frozenset = frozenset()) -> tuple[str | None, str]:
+        """The next star an auto-scouting fleet surveys: one not surveyed yet (scanned, every body but the belts
+        surveyed), nearest its home first and then nearest where it is — so it works outward ring by ring through
+        adjacent systems. Without a replicant riding along: only systems in our relay coverage. Not another player's
+        warded system, another fleet's home, or a star another fleet is heading to. (star, why-none)."""
         from . import fleets as fl
+        from . import pathing as pa
         from . import wards
         from .census import observatory_stars
+        cat = await self.db.kv_get("stars", {}) or {}
+        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+        found, _ = await observatory_stars(self.db)
+        for k, v in found.items():
+            pos.setdefault(k, v.get("position"))
+        xyz_of = {k: v for k, v in ((k, pa.xyz(p)) for k, p in pos.items()) if v}
+        home = f.get("home") or ""
+        if home not in xyz_of:
+            return None, f"{home or 'its home'} has no position in the star catalogue"
+        scans = {r["star"]: r["data"] for r in await self.db.fetchall("SELECT star, data FROM systems")}
+        surveyed = await self.db.kv_get("surveyed", {}) or {}
+        busy = {star_of(t) for g in items if g.get("id") != f.get("id") and (g.get("mission") or {}).get("status") in ("running", "stalled")
+                for t in (g["mission"].get("targets") or [])}
+        skip = busy | (fl.worked_systems(items) - {home}) | wards.foreign(cat, devices) | set(exclude)
+        riding = bool(fl.fleet_replicant(f, devices, await self.db.kv_get("replicants", {}) or {}))
+
+        def done(star: str) -> bool:
+            if star not in scans:
+                return False
+            try:
+                scan = json.loads(scans[star] or "{}")
+            except ValueError:
+                return False
+            return not survey_targets(scan, surveyed, False, False, 1)   # every body but the belts surveyed
+        here_xyz = xyz_of.get(here or home) or xyz_of[home]
+        cands = []
+        for s, p in xyz_of.items():
+            if s in skip or done(s) or (not riding and not pa.served(s, xyz_of, devices)):
+                continue
+            dh, dc = math.dist(p, xyz_of[home]), math.dist(p, here_xyz)
+            if dh > self.SCOUT_RADIUS_LY:
+                continue
+            cands.append((round(dh / 2.0), dc, s))   # 2-ly rings outward from home; within a ring, the nearest hop first
+        if not cands:
+            return None, (f"every known system within {self.SCOUT_RADIUS_LY:g} ly of {home} "
+                          + ("" if riding else "inside relay coverage ") + "is surveyed or taken")
+        return min(cands)[2], ""
+
+    def scout_unhealthy(self, f: dict, devices: list[dict]) -> list[str]:
+        """Members at or below the scouting capacity limit."""
+        from . import fleets as fl
+        from .loadouts import _cap
+        return [d["device_code"] for d in fl.members(f, devices) if _cap(d) <= self.SCOUT_MIN_CAPACITY]
+
+    async def auto_scout_pass(self) -> list[str]:
+        """Explore fleets with 'auto-scout' ticked: when one is free and every member is above 50 % capacity, send it
+        to the next unsurveyed system (scout_next); each time it finishes a system it takes the next one, until a member
+        is down to 50 % — then it finishes that system and returns home for repairs."""
         items = await self.fleets()
         free = [f for f in items if f.get("role") == "explore" and f.get("auto_scout")
                 and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped")]
         if not free:
             return []
-        found, _ = await observatory_stars(self.db)
-        if not found:
-            return []
-        scanned = {r["star"] for r in await self.db.fetchall("SELECT star FROM systems")}
-        cat = await self.db.kv_get("stars", {}) or {}
-        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
-        for k, v in found.items():
-            pos.setdefault(k, v.get("position"))
-        sent = await self.db.kv_get("scouted", {}) or {}
-        busy = {star_of(t) for f in items if (f.get("mission") or {}).get("status") in ("running", "stalled")
-                for t in (f["mission"].get("targets") or [])}
-        skip = scanned | set(sent) | busy | fl.worked_systems(items) | wards.foreign(cat, await self.devices())
-        # stars ahead of a mining fleet on its heading go first: they're where that fleet will want to move next
-        from . import pathing as pa
-        xyz_of = {k: v for k, v in ((k, pa.xyz(p)) for k, p in pos.items()) if v}
-        ahead: set[str] = set()
-        for g in items:
-            hv = (g.get("heading") or {}).get("vector")
-            if g.get("role") == "mining" and g.get("home") and hv:
-                ahead |= set(pa.ahead(g["home"], xyz_of, hv, float(g.get("cone") or pa.DEFAULT_CONE), set(found)))
-        out = []
+        devices = await self.devices()
+        out, changed = [], False
         for f in free:
-            home = pos.get(f.get("home") or "")
-
-            def dist(s: str) -> float:
-                p = pos.get(s)
-                if not home or not p:
-                    return 1e9
-                return sum((float(p.get(k) or 0) - float(home.get(k) or 0)) ** 2 for k in "xyz") ** 0.5
-            todo = sorted((s for s in found if s not in skip), key=lambda s: (s not in ahead, dist(s), s))[:max(1, int(f.get("scout_count") or 3))]
-            if not todo:
+            weak = self.scout_unhealthy(f, devices)
+            if weak:
+                note = f"waiting for repairs: {', '.join(weak)} at or below {self.SCOUT_MIN_CAPACITY:g} % capacity"
+                if f.get("scout_note") != note:
+                    f["scout_note"], changed = note, True
                 continue
-            m = {"status": "running", "phase": None, "idx": 0, "targets": todo, "started_at": now_iso(), "log": [],
-                 "opts": {}, "auto": True}
-            self._mlog(m, "started automatically: scouting " + ", ".join(todo) + " (found by your observatories)")
-            f["mission"] = m
-            for s in todo:
-                sent[s] = now_iso()
-                skip.add(s)
-            out.append(f"{f['name']}: scouting {', '.join(todo)}")
-            await self.log("fleets", f"{f['name']}: scouting {', '.join(todo)} (prospected stars, auto)")
-        if out:
+            star, why = await self.scout_next(f, items, devices)
+            if not star:
+                if f.get("scout_note") != why:
+                    f["scout_note"], changed = why, True
+                continue
+            m = {"status": "running", "phase": None, "idx": 0, "targets": [star], "started_at": now_iso(), "log": [],
+                 "opts": {}, "auto": True, "scouting": True}
+            self._mlog(m, f"started automatically: scouting {star} (nearest unsurveyed system)")
+            f["mission"], f["scout_note"], changed = m, f"scouting from {f.get('home')}", True
+            out.append(f"{f['name']}: scouting {star}")
+            await self.log("fleets", f"{f['name']}: scouting {star} (auto)")
+        if changed:
             await self.save_fleets(items)
-            await self.db.kv_set("scouted", sent)
         return out
 
     async def decommission_queue_pass(self) -> list[str]:
@@ -2781,6 +2814,19 @@ class AutomationEngine(OpsRules):
                     self._mlog(m, "ending: everyone is already aboard")
                 changed = True
                 continue
+            if (fleet["role"] == "explore" and m.get("scouting") and m.get("phase") == "recall"
+                    and m.get("idx", 0) + 1 >= len(m.get("targets") or []) and not m.get("scout_ended")):
+                weak = self.scout_unhealthy(fleet, devices)
+                here = star_of((m.get("targets") or [None])[m.get("idx", 0)])
+                nxt, why = (None, "") if weak else await self.scout_next(fleet, items, devices, here, set(m.get("targets") or []))
+                if nxt:
+                    m["targets"].append(nxt)
+                    self._mlog(m, f"{here} surveyed — on to {nxt}")
+                else:
+                    m["scout_ended"] = True
+                    self._mlog(m, f"{here} surveyed — returning home " + (f"for repairs ({', '.join(weak)} at or below "
+                                                                           f"{self.SCOUT_MIN_CAPACITY:g} %)" if weak else f"({why})"))
+                changed = True
             phases = fl.PHASES[fleet["role"]]
             if m.get("phase") == "wait":
                 gate, note = await self._deal_gate(fleet, m, devices)

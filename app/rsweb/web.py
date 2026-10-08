@@ -3457,8 +3457,8 @@ async def fleets_auto_scout(request: Request, fid: str, user: str = Depends(curr
         f["scout_count"] = 3
     await eng.save_fleets(items)
     return HTMLResponse(f'<span class="small {"lv-done" if f["auto_scout"] else "muted"}">'
-                        + (f"Scouts up to {f['scout_count']} prospected system(s) a run when it's free."
-                           if f["auto_scout"] else "Off.") + "</span>")
+                        + ("On: scouts the nearest unsurveyed systems when it's free." if f["auto_scout"] else "Off.")
+                        + "</span>")
 
 
 @router.post("/fleets/traders", response_class=HTMLResponse)

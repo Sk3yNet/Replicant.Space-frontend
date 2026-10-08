@@ -5356,25 +5356,51 @@ def test_hub_watch_pass_warns_once(client):
     assert "HUB00001" in page and "needs maintenance" in page and "down since" in page
 
 
-def test_auto_scout_sends_explore_fleet_to_prospected_stars(client):
-    eng = client.app.state.worker.automations
+def test_auto_scout_surveys_nearest_first_until_worn(client):
+    eng, db = client.app.state.worker.automations, client.app.state.db
     w = client.app.state.worker
     stars = [{"designation": d, "position": {"x": x, "y": 0, "z": 0}} for d, x in
              (("NEARA", 2), ("NEARB", 3), ("FARC", 9), ("FARD", 12))]
     client.portal.call(w.handle_event, _ev(950, "prospect.completed", device="OBS00001", origin="SOL", stars_generated=4, stars=stars))
     client.portal.call(eng.save_fleets, [{"id": "x1", "name": "Scouts", "role": "explore", "home": "SOL", "wants": {}},
                                          {"id": "x2", "name": "Lazy", "role": "explore", "home": "SOL", "wants": {}}])
-    r = client.post("/fleets/x1/auto-scout", data={"auto_scout": "on", "scout_count": "2"}, headers=HX)
-    assert "up to 2" in r.text
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES('SOL', '{}', '2026-10-08')")
+    r = client.post("/fleets/x1/auto-scout", data={"auto_scout": "on"}, headers=HX)
+    assert "nearest unsurveyed" in r.text
     out = client.portal.call(eng.auto_scout_pass)
-    assert out == ["Scouts: scouting NEARA, NEARB"]
-    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "x1")
-    assert f["mission"]["targets"] == ["NEARA", "NEARB"] and f["mission"]["auto"]
-    assert client.portal.call(eng.auto_scout_pass) == []                      # busy, and the others aren't for Lazy
-    # the galaxy map highlights the prospected stars
-    data = client.get("/api/map.json?part=core", headers=H).json()
-    far = next(s for s in data["stars"] if s["designation"] == "FARC")
-    assert far["prospected"] and far["found_by"] == "OBS00001" and not far["scanned"]
+    assert out == ["Scouts: scouting NEARA"]                                 # the nearest one first, one at a time
+    assert client.portal.call(eng.auto_scout_pass) == []                      # busy; Lazy isn't auto-scouting
+    nxt, _ = client.portal.call(eng.scout_next, {"id": "x9", "home": "SOL"}, client.portal.call(eng.fleets),
+                                client.portal.call(eng.devices))
+    assert nxt == "NEARB"                                                     # NEARA is taken by Scouts
+    # no replicant aboard: FARC / FARD (9 and 12 ly) are outside the relay at SOL (7.5 ly) — never chosen
+    seen, ex = [], {"NEARB"}
+    while True:
+        nxt, why = client.portal.call(eng.scout_next, {"id": "x9", "home": "SOL"}, client.portal.call(eng.fleets),
+                                      client.portal.call(eng.devices), None, set(ex))
+        if not nxt:
+            break
+        seen.append(nxt)
+        ex.add(nxt)
+    assert "FARC" not in seen and "FARD" not in seen and "relay coverage" in why
+    # NEARA done: it takes the next one; a member worn to 50 % ends the run (it finishes that system and goes home)
+    items = client.portal.call(eng.fleets)
+    m = items[0]["mission"]
+    m.update({"phase": "recall", "job": None})
+    client.portal.call(eng.save_fleets, items)
+    client.portal.call(eng.run_fleets)
+    m = client.portal.call(eng.fleets)[0]["mission"]
+    assert m["targets"] == ["NEARA", "NEARB"] and any("on to NEARB" in str(x) for x in m["log"])
+    devices = client.portal.call(db.kv_get, "devices")
+    devices.append({"device_code": "WORN", "device_type": "survey_drone", "location": "NEARB-1", "status": "idle",
+                    "operational_capacity": 0.5, "tags": ["fleet:x1"]})
+    client.portal.call(db.kv_set, "devices", devices)
+    items = client.portal.call(eng.fleets)
+    items[0]["mission"].update({"phase": "recall", "job": None, "idx": 1})
+    client.portal.call(eng.save_fleets, items)
+    client.portal.call(eng.run_fleets)
+    m = client.portal.call(eng.fleets)[0]["mission"]
+    assert m["targets"] == ["NEARA", "NEARB"] and m["scout_ended"] and any("for repairs" in str(x) for x in m["log"])
 
 
 def test_profile_edit_and_reputation(client):
