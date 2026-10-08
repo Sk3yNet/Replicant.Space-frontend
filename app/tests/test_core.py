@@ -5747,3 +5747,32 @@ def test_replicant_vessel_in_a_fleet_counts_toward_its_loadout():
     cfg["fleets"][0]["wants"] = {"heaven_vessel": 2}                 # wanting two: one more is printed
     p = lo.plan(lo.normalize(cfg), devices, bps, {"SOL-3-L4": {"structural": 999}}, {}, {"E1029CB0": "D9351B81"}, set(), [], {})
     assert p["prints"] and p["prints"][0]["n"] == 1
+
+
+def test_replicant_vessel_follows_its_fleet_to_a_new_home(client):
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    reps = client.portal.call(db.kv_get, "replicants")
+    rep = next(iter(reps))
+    host = reps[rep]["hosted_device_code"]
+    devices = client.portal.call(db.kv_get, "devices")
+    for d in devices:
+        if d["device_code"] == host:
+            d["tags"] = (d.get("tags") or []) + ["fleet:m1"]
+            here = d["location"].split("-")[0]
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(eng.save_fleets, [{"id": "m1", "name": "Miner 1", "role": "mining", "home": here, "station": True, "wants": {}}])
+    assert client.portal.call(eng.rider_pass) == []                              # no home change: nothing to do
+    items = client.portal.call(eng.fleets)
+    items[0]["home"] = "LERNA"
+    client.portal.call(eng.save_fleets, items)                                   # e.g. the fleet chose its next home
+    out = client.portal.call(eng.rider_pass)
+    assert out == [f"{host} → LERNA"]
+    job = next(j for j in client.portal.call(eng.jobs) if j["device"] == host and j["rule"] == "fleets")
+    assert job["steps"][0]["path"] == f"/replicants/{rep}/travel" and job["steps"][0]["body"] == {"destination": "LERNA"}
+    for d in devices:   # arrived: the follow-up is done
+        if d["device_code"] == host:
+            d["location"] = "LERNA-3"
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(db.kv_set, "automation_jobs", [])
+    client.portal.call(eng.rider_pass)
+    assert client.portal.call(db.kv_get, "rider_moves") == {}

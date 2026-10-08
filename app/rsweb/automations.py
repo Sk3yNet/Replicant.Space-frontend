@@ -832,7 +832,7 @@ class AutomationEngine(OpsRules):
             for stage in ("run_fleets", "auto_deals_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "pathing_pass", "auto_scout_pass", "hub_watch_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "rider_pass", "pathing_pass", "auto_scout_pass", "hub_watch_pass"):
                 self.stage = stage
                 try:   # one stage failing on odd data mustn't stop every stage after it, every tick
                     out = await getattr(self, stage)()
@@ -959,6 +959,50 @@ class AutomationEngine(OpsRules):
                 (None, "mention", text, None, "/trail", now_iso()))
             self.hub.publish("notify", {"id": cur.lastrowid, "level": "mention", "title": text, "link": "/trail"})
             out.append(text)
+        return out
+
+    async def rider_pass(self) -> list[str]:
+        """A stationed fleet moved home: the vessels in it that host a replicant fly there too (the loadout pass never
+        moves a replicant's vessel, so without this it stayed behind). Only after a home change — a replicant you send
+        elsewhere afterwards isn't dragged back. Devices stowed in the vessel travel with it."""
+        from . import fleets as fl
+        pending = await self.db.kv_get("rider_moves", {}) or {}
+        if not pending:
+            return []
+        items = {f["id"]: f for f in await self.fleets()}
+        devices = await self.devices()
+        reps = await self.db.kv_get("replicants", {}) or {}
+        host_rep = {r.get("hosted_device_code"): c for c, r in reps.items() if r.get("hosted_device_code")}
+        busy = self.busy_devices(await self.jobs())
+        out = []
+        for fid, p in list(pending.items()):
+            f = items.get(fid)
+            if not f or f.get("home") != p["home"]:
+                pending.pop(fid)   # the fleet is gone, or has moved on again (that move made its own entry)
+                continue
+            riders = [d for d in fl.members(f, devices) if d.get("device_code") in host_rep]
+            left = []
+            for d in riders:
+                code = d["device_code"]
+                if star_of(d.get("location")) == p["home"]:
+                    continue
+                if code in busy or str(d.get("status") or "").startswith(("travel", "cruis", "surg")) \
+                        or p["sent"].count(code) >= 3:   # on its way (or tried three times: leave it be)
+                    left.append(code) if p["sent"].count(code) < 3 else None
+                    continue
+                rep = host_rep[code]
+                st = step(f"{reps[rep].get('name') or rep} follows {f['name']} to {p['home']}", f"/replicants/{rep}/travel",
+                          {"destination": p["home"]}, wait=["travel.arrived"], timeout=12 * 3600, critical=True)
+                st["wait_device"] = code
+                job = await self.create_job("fleets", f"{f['name']}: {reps[rep].get('name') or rep}'s vessel {code} follows "
+                                            f"the fleet to {p['home']}", code, [st], {"devices": [code], "fleet": fid})
+                if job:
+                    p["sent"].append(code)
+                    out.append(f"{code} → {p['home']}")
+                left.append(code)
+            if not left or (_now() - (_ts(p.get("at")) or _now())).total_seconds() > 48 * 3600:
+                pending.pop(fid)   # everyone's there (or it's been two days: give up quietly)
+        await self.db.kv_set("rider_moves", pending)
         return out
 
     async def fleet_rename_pass(self) -> list[str]:
@@ -2014,6 +2058,15 @@ class AutomationEngine(OpsRules):
         derived = ("roster", "points", "job", "zero", "report", "route", "sends_to", "takes_from", "target_options",
                    "owner_move", "owner_hosts", "owners", "orders", "outposts")   # page-only fields, never stored
         keep = [{k: v for k, v in f.items() if k not in derived} for f in items]
+        # a stationed fleet that changed home: its replicants' vessels follow it there (rider_pass)
+        before = {f.get("id"): f.get("home") for f in await self.db.kv_get("fleets", []) or [] if f.get("station")}
+        moved = {f["id"]: f["home"] for f in keep if stationed(f) and f.get("home") and before.get(f["id"])
+                 and before[f["id"]] != f["home"]}
+        if moved:
+            pending = await self.db.kv_get("rider_moves", {}) or {}
+            for fid, home in moved.items():
+                pending[fid] = {"home": home, "at": now_iso(), "sent": []}
+            await self.db.kv_set("rider_moves", pending)
         await self.db.kv_set("fleets", keep)
         set_stationed({fleet_tag(f["id"]): f["home"] for f in items if stationed(f)})
 
