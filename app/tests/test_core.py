@@ -5516,3 +5516,72 @@ def test_dry_belt_rests_controller_and_relaunches_with_its_directive(client):
     sd = next(s for s in job["steps"] if (s.get("body") or {}).get("command") == "set_directive")
     assert sd["body"]["directive"] == "gather_resources" and sd["body"].get("configuration") == {"structural": 100}
     assert "C1000001" not in (client.portal.call(db.kv_get, "rested") or {})
+
+
+def test_pathing_choose_never_picks_an_excluded_system():
+    from rsweb import pathing as pa
+    xyz = {"HOME": (0, 0, 0), "GOOD": (5, 0, 0), "BEST_BEHIND": (-5, 0, 0), "OTHERS": (4, 1, 0), "NEXT": (4, -1, 0),
+           "TARGET": (3, 0, 1), "WARD": (4, 0, 0), "FAR": (12, 0, 0), "UNSCANNED": (2, 0, 0)}
+    relay = [{"device_code": "R1", "device_type": "ftl_relay", "location": "HOME-5-L4", "status": "relaying"}]
+    fleet = {"id": "me", "name": "Me", "role": "mining", "station": True, "home": "HOME"}
+    fleets = [fleet, {"id": "o1", "name": "Other", "role": "mining", "home": "OTHERS"},
+              {"id": "o2", "name": "Mover", "role": "mining", "home": "ELSEWHERE", "next_home": "NEXT"},
+              {"id": "o3", "name": "Prospector", "role": "mining", "home": "ELSEWHERE2",
+               "mission": {"status": "running", "targets": ["TARGET-BELT-1"]}}]
+    rows = [{"star": s, "score": sc, "status": st, "distance": 1.0, "reasons": []} for s, sc, st in (
+        ("BEST_BEHIND", 99, "ok"), ("OTHERS", 95, "ok"), ("NEXT", 94, "ok"), ("TARGET", 93, "ok"), ("WARD", None, "warded"),
+        ("FAR", 92, "ok"), ("UNSCANNED", None, "unscanned"), ("HOME", 98, "ok"), ("GOOD", 50, "ok"))]
+    heading = pa.heading_from("custom", None, custom=[1, 0, 0])
+    star, why = pa.choose(fleet, fleets, rows, xyz, relay, heading, 60)
+    assert star == "GOOD" and why[0] == "score 50"
+    assert pa.choose(fleet, fleets, rows, xyz, relay, None, 60)[0] == "BEST_BEHIND"     # no heading: best anywhere served
+    none, reasons = pa.choose(fleet, fleets, [r for r in rows if r["star"] != "GOOD"], xyz, relay, heading, 60)
+    assert none is None and any("held by another fleet" in r for r in reasons) and any("outside relay" in r for r in reasons)
+    assert pa.dry("HOME", [], [], {"HOME": "x"}, set(), []) and not pa.dry("HOME", [], [], {}, set(), ["HOME-BELT-1"])
+    assert pa.dry("HOME", [], [{"star": "HOME", "verdict": "consider moving"}], {}, set(), ["HOME-BELT-1"])
+    assert pa.heading_from("outward", (3, 4, 0)) == [0.6, 0.8, 0.0]
+
+
+def test_pathing_pass_prospects_then_relocates(client):
+    from rsweb import prospects
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    stars = {"HOMEA": (0, 0, 0), "AHEADB": (5, 0, 0), "BEHINDC": (-5, 0, 0)}
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": k, "position": dict(zip("xyz", v))} for k, v in stars.items()]})
+    belt = {"asteroid_belt": {"belts": [{"designation": "X", "density": "dense", "resources": {"structural": "rich", "rares": "high"}}]}}
+    for s in ("AHEADB", "BEHINDC"):
+        client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                           (s, json.dumps(belt), "2026-10-08T00:00:00+00:00"))
+    devices = [{"device_code": "OBS00001", "device_type": "galactic_observatory", "location": "HOMEA-5-L4", "status": "idle",
+                "tags": ["fleet:m1"], "available_commands": ["prospect", "compact", "unfurl"]},
+               {"device_code": "REL00001", "device_type": "ftl_relay", "location": "HOMEA-5-L4", "status": "relaying", "tags": []}]
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(eng.save_fleets, [{"id": "m1", "name": "Miner 1", "role": "mining", "home": "HOMEA", "station": True, "wants": {}}])
+    r = client.post("/fleets/m1/path", data={"heading_kind": "star", "heading_star": "AHEADB", "cone": "60",
+                                             "auto_relocate": "on", "auto_prospect": "on"}, headers=HX)
+    assert r.status_code == 200
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert f["heading"]["vector"] == [1.0, 0.0, 0.0] and f["auto_relocate"] and f["auto_prospect"]
+    prospects.forget_inputs()
+    out = client.portal.call(eng.pathing_pass, True)
+    assert out == ["Miner 1: prospecting from HOMEA"]                      # only one system ahead: look for more
+    job = next(j for j in client.portal.call(eng.jobs) if j["rule"] == "pathing")
+    assert job["steps"][0]["body"] == {"command": "prospect", "direction": [1.0, 0.0, 0.0]}
+    # the home runs dry (no belt, no salvage) — after 2 h the fleet picks the system ahead, then moves after the grace
+    client.portal.call(db.kv_set, "salvage_state", {"nothing": {"HOMEA": datetime.now(timezone.utc).isoformat()}})
+    client.portal.call(eng.pathing_pass, True)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert f["depleted_since"] and not f.get("next_home")
+    items = client.portal.call(eng.fleets)
+    for x in items:
+        if x["id"] == "m1":
+            x["depleted_since"] = "2026-10-01T00:00:00+00:00"
+    client.portal.call(eng.save_fleets, items)
+    out = client.portal.call(eng.pathing_pass, True)
+    assert out == ["Miner 1: next home AHEADB"]                            # not BEHINDC, though it scores the same
+    page = client.get("/fleets", headers=H).text
+    assert "Next home <b><a href=\"/systems/AHEADB\">AHEADB</a></b>" in page and "/fleets/m1/next-home" in page
+    r = client.post("/fleets/m1/next-home", data={"action": "now"}, headers=HX)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert f["home"] == "AHEADB" and f["prev_home"] == "HOMEA" and not f.get("next_home")
+    notes = client.portal.call(db.fetchall, "SELECT title FROM notifications WHERE link='/fleets'")
+    assert any("moving home: HOMEA → AHEADB" in n["title"] for n in notes)

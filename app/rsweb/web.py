@@ -3171,6 +3171,65 @@ async def fleets_auto_deals(request: Request, fid: str, user: str = Depends(curr
                         + (f"Picks up {' and '.join(on)} on its own when it's free." if on else "Off.") + "</span>")
 
 
+@router.post("/fleets/{fid}/path", response_class=HTMLResponse)
+@_fleet_locked
+async def fleets_path(request: Request, fid: str, user: str = Depends(current_user)):
+    """A stationed mining fleet's path forward (pathing.py): heading, cone, auto-relocate, auto-prospect."""
+    from . import pathing as pa
+    form = await request.form()
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f or f.get("role") != "mining":
+        return HTMLResponse("", status_code=404)
+    cat = await request.app.state.db.kv_get("stars", {}) or {}
+    pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict)}
+    kind = form.get("heading_kind") or "keep"
+    try:
+        if kind == "none":
+            f.pop("heading", None)
+        elif kind == "outward":
+            f["heading"] = {"vector": pa.heading_from("outward", pa.xyz(pos.get(f.get("home")))),
+                            "label": f"outward from Sol through {f.get('home')}"}
+        elif kind == "star":
+            tgt = (form.get("heading_star") or "").strip().upper()
+            f["heading"] = {"vector": pa.heading_from("star", pa.xyz(pos.get(f.get("home"))), pa.xyz(pos.get(tgt))),
+                            "label": f"from {f.get('home')} toward {tgt}"}
+        elif kind == "custom":
+            vec = [x for x in re.split(r"[,\s]+", form.get("heading_vec") or "") if x]
+            f["heading"] = {"vector": pa.heading_from("custom", None, custom=vec), "label": "custom"}
+    except ValueError as e:
+        return HTMLResponse(f'<span class="lv-alert small">{html.escape(str(e))}</span>')
+    f["cone"] = _int(form.get("cone"), pa.DEFAULT_CONE, 10, 180)
+    f["auto_relocate"] = form.get("auto_relocate") == "on"
+    f["auto_prospect"] = form.get("auto_prospect") == "on"
+    if not f["auto_relocate"]:
+        for k in ("next_home", "next_home_at", "depleted_since"):
+            f.pop(k, None)
+    await eng.save_fleets(items)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/next-home", response_class=HTMLResponse)
+@_fleet_locked
+async def fleets_next_home(request: Request, fid: str, action: str = Form(...), user: str = Depends(current_user)):
+    """A planned move: cancel it (the fleet stays; it chooses again only after the home has been dry for a while
+    longer) or carry it out now."""
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f or not f.get("next_home"):
+        return HTMLResponse("", status_code=404)
+    if action == "cancel":
+        f["path_note"] = f"move to {f['next_home']} cancelled by {user}"
+        f.pop("next_home", None), f.pop("next_home_at", None)
+        f["depleted_since"] = now_iso()   # wait out the dry period again before choosing
+    elif action == "now":
+        f["next_home_at"] = now_iso()
+    await eng.save_fleets(items)
+    if action == "now":
+        await eng.pathing_pass(force=True)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
 @router.post("/fleets/{fid}/auto-scout", response_class=HTMLResponse)
 @_fleet_locked
 async def fleets_auto_scout(request: Request, fid: str, user: str = Depends(current_user)):

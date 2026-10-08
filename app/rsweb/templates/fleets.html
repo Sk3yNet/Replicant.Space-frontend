@@ -206,6 +206,39 @@
           <span id="auto-{{ f.id }}" class="muted">When the fleet is free it starts the nearest one your stockpiles can pay for
             (contracts first; not where another player's ward or hub is; a trade at most once a day). Its own replicant fulfils.</span>
         </form>{% endif %}
+        {% if f.role == 'mining' and f.station %}
+        <div class="small" style="margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
+          <b>Path forward</b>
+          {% if f.heading %}<span class="muted">· heading {{ f.heading.label }} <span class="mono">({{ f.heading.vector | join(', ') }})</span>, ±{{ f.cone or 60 }}°</span>{% else %}<span class="muted">· no heading</span>{% endif %}
+          {% if f.next_home %}<div class="lv-warning" style="margin-top:4px">Next home <b><a href="/systems/{{ f.next_home }}">{{ f.next_home }}</a></b> —
+            moving at {{ f.next_home_at | local }}
+            <button class="small" hx-post="/fleets/{{ f.id }}/next-home" hx-vals='{"action": "now"}' hx-swap="none">go now</button>
+            <button class="small ghost" hx-post="/fleets/{{ f.id }}/next-home" hx-vals='{"action": "cancel"}' hx-swap="none">cancel</button></div>{% endif %}
+          {% if f.path_note %}<div class="muted" style="margin-top:2px">{{ f.path_note }}</div>{% endif %}
+          <form hx-post="/fleets/{{ f.id }}/path" hx-target="#path-{{ f.id }}" style="margin-top:4px">
+            <div class="row" style="gap:12px;flex-wrap:wrap">
+              <label style="text-transform:none"><input type="checkbox" name="auto_relocate" {{ 'checked' if f.auto_relocate }}> move on when {{ f.home }} runs dry</label>
+              <label style="text-transform:none"><input type="checkbox" name="auto_prospect" {{ 'checked' if f.auto_prospect }}> observatory prospects along the heading</label>
+            </div>
+            <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">
+              <select name="heading_kind">
+                <option value="keep">keep the heading{% if not f.heading %} (none){% endif %}</option>
+                <option value="outward">outward from Sol through {{ f.home }}</option>
+                <option value="star">toward a star…</option>
+                <option value="custom">custom x, y, z…</option>
+                <option value="none">no heading</option></select>
+              <input name="heading_star" placeholder="star" size="10" list="path-stars">
+              <input name="heading_vec" placeholder="x, y, z" size="14">
+              <label style="text-transform:none">cone ±<input type="number" name="cone" min="10" max="180" value="{{ f.cone or 60 }}" style="width:4em">°</label>
+              <button class="small">Save</button>
+            </div>
+          </form>
+          <span id="path-{{ f.id }}"></span>
+          <div class="muted" style="margin-top:2px">When {{ f.home }} has been dry for 2 h (no belt or salvage left, every belt 'consider moving', or
+            another player's ward), the fleet picks the best-ranked system ahead (Systems › Mining prospects) — never one that's unscanned,
+            outside your relay coverage, warded, another fleet's home, or another mining fleet's next home or target — and moves after 30 min
+            unless you cancel. The heading is fixed when you set it, so each move keeps the same direction.</div>
+        </div>{% endif %}
         {% if f.role == 'explore' %}
         <form class="row small" hx-post="/fleets/{{ f.id }}/auto-scout" hx-trigger="change" hx-target="#scout-{{ f.id }}" style="gap:14px;margin:6px 0">
           <label style="text-transform:none"><input type="checkbox" name="auto_scout" {{ 'checked' if f.auto_scout }}> auto-scout prospects</label>
@@ -445,4 +478,5 @@
   });
 })();
 </script>
+<datalist id="path-stars">{% for s in stars %}<option value="{{ s }}">{% endfor %}</datalist>
 {% endblock %}

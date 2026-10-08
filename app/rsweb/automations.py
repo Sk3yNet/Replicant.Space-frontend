@@ -830,7 +830,7 @@ class AutomationEngine(OpsRules):
             for stage in ("run_fleets", "auto_deals_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_pass", "auto_scout_pass", "hub_watch_pass"):
+                          "decommission_queue_pass", "trail_pass", "pathing_pass", "auto_scout_pass", "hub_watch_pass"):
                 self.stage = stage
                 try:   # one stage failing on odd data mustn't stop every stage after it, every tick
                     out = await getattr(self, stage)()
@@ -873,6 +873,122 @@ class AutomationEngine(OpsRules):
                 (None, "mention", text, None, "/trail", now_iso()))
             self.hub.publish("notify", {"id": cur.lastrowid, "level": "mention", "title": text, "link": "/trail"})
             out.append(text)
+        return out
+
+    async def _notify(self, level: str, text: str, link: str = "/fleets") -> None:
+        cur = await self.db.execute("INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
+                                    (None, level, text, None, link, now_iso()))
+        self.hub.publish("notify", {"id": cur.lastrowid, "level": level, "title": text, "link": link})
+
+    async def pathing_pass(self, force: bool = False) -> list[str]:
+        """Stationed mining fleets with a heading / auto-prospect / auto-relocate (pathing.py): the observatory
+        prospects along the heading when few systems lie ahead; when the home has been dry for a while the fleet picks
+        its next home (best-ranked system ahead that nothing excludes), announces it, and after the grace period makes
+        it its home — the loadout pass then moves the fleet. Every 5 minutes."""
+        from . import fleets as fl
+        from . import pathing as pa
+        from . import prospects as pr
+        last = _ts(await self.db.kv_get("pathing_at", None))
+        if not force and last and (_now() - last).total_seconds() < 300:
+            return []
+        await self.db.kv_set("pathing_at", now_iso())
+        items = await self.fleets()
+        mine = [f for f in items if f.get("role") == "mining" and f.get("station") and f.get("home")
+                and (f.get("auto_relocate") or f.get("auto_prospect"))]
+        if not mine:
+            return []
+        devices = await self.devices()
+        inp = await pr.rank_inputs(self.db, self, devices)
+        xyz_of = inp["xyz"]
+        busy = self.busy_devices(await self.jobs())
+        scanned = set(inp["scanned"])
+        out, changed, now = [], False, _now()
+        nothing = ((await self.db.kv_get("salvage_state", {}) or {}).get("nothing") or {})
+        # the salvage rule re-marks "nothing to mine" every 24 h while it's still true; an older mark is out of date
+        nothing = {k: v for k, v in nothing.items() if _ts(v) and (now - _ts(v)).total_seconds() < 26 * 3600}
+        for f in mine:
+            home, heading = f["home"], (f.get("heading") or {}).get("vector")
+            cone = float(f.get("cone") or pa.DEFAULT_CONE)
+            # --- the observatory keeps prospecting along the heading
+            if f.get("auto_prospect") and heading:
+                obs = [d for d in fl.members(f, devices) if d.get("device_type") == "galactic_observatory"
+                       and star_of(d.get("location")) == home and not d.get("stowed_in_device_code")
+                       and d.get("device_code") not in busy]
+                lp = _ts(f.get("last_prospect_at"))
+                due = not lp or (now - lp).total_seconds() > float(f.get("prospect_every_hours") or pa.PROSPECT_EVERY_HOURS) * 3600
+                hold = pa.taken(f, items)
+                supply = [s for s in pa.ahead(home, xyz_of, heading, cone, set(xyz_of)) if s not in hold and s not in inp["warded"]]
+                for o in obs[:1]:
+                    st = str(o.get("status") or "")
+                    if st.startswith(("prospecting", "unfurling", "compacting")) or not due or len(supply) >= pa.AHEAD_WANTED:
+                        continue
+                    if (st.startswith("compact") or o.get("folded")) and "unfurl" in (o.get("available_commands") or []):
+                        await self.create_job("pathing", f"{f['name']}: unfurl observatory {o['device_code']} to prospect",
+                                              o["device_code"], [step(f"{o['device_code']}: unfurl", f"/devices/{o['device_code']}",
+                                                                      {"command": "unfurl"})], {"devices": []})
+                        continue
+                    if "prospect" not in (o.get("available_commands") or []):
+                        continue
+                    job = await self.create_job("pathing", f"{f['name']}: prospect along its heading ({len(supply)} system(s) "
+                                                "ahead)", o["device_code"],
+                                                [step(f"{o['device_code']}: prospect {heading}", f"/devices/{o['device_code']}",
+                                                      {"command": "prospect", "direction": heading})], {"devices": []})
+                    if job:
+                        f["last_prospect_at"] = now_iso()
+                        changed = True
+                        out.append(f"{f['name']}: prospecting from {home}")
+            if not f.get("auto_relocate"):
+                continue
+            # --- a planned move: carry it out once the grace period is over (if the target is still free)
+            if f.get("next_home"):
+                if now < (_ts(f.get("next_home_at")) or now):
+                    continue
+                nxt, block = f["next_home"], pa.taken(f, items).get(f["next_home"])
+                if block or nxt in inp["warded"]:
+                    f["path_note"] = f"{nxt} isn't free any more ({block or 'warded'}) — choosing again"
+                    f.pop("next_home", None), f.pop("next_home_at", None)
+                    changed = True
+                    continue
+                f["prev_home"], f["home"] = home, nxt
+                f.pop("next_home", None), f.pop("next_home_at", None), f.pop("depleted_since", None)
+                f["path_note"] = f"moved home {home} → {nxt} at {now_iso()}"
+                changed = True
+                out.append(f"{f['name']}: home {home} → {nxt}")
+                await self.log("fleets", f"{f['name']}: new home {nxt} (was {home}) — the loadout pass moves the fleet there")
+                await self._notify("warning", f"{f['name']} is moving home: {home} → {nxt}")
+                continue
+            # --- is the home dry, and for long enough?
+            why = pa.dry(home, devices, inp["viability"], nothing, inp["warded"], (await self.system_belts({home}))[home])
+            if not why:
+                if f.pop("depleted_since", None):
+                    changed = True
+                continue
+            if not f.get("depleted_since"):
+                f["depleted_since"], f["path_note"] = now_iso(), f"{home} looks dry: {why}"
+                changed = True
+                continue
+            if (now - _ts(f["depleted_since"])).total_seconds() < float(f.get("dry_hours") or pa.DRY_FOR_HOURS) * 3600:
+                continue
+            rows = (await pr.rank(self.db, self, devices, home, limit_unscanned=0))["rows"]
+            star, note = pa.choose(f, items, rows, xyz_of, devices, heading, cone)
+            if star:
+                f["next_home"] = star
+                f["next_home_at"] = (now + timedelta(minutes=float(f.get("grace_minutes") or pa.GRACE_MINUTES))).isoformat(timespec="seconds")
+                f["path_note"] = f"{home} is dry ({why}); next home {star}: " + ", ".join(note)
+                changed = True
+                out.append(f"{f['name']}: next home {star}")
+                await self.log("fleets", f"{f['name']}: {f['path_note']}")
+                await self._notify("warning", f"{f['name']}: {home} is dry — moving to {star} at "
+                                              f"{f['next_home_at'][11:16]} UTC unless you cancel ({', '.join(note[:2])})")
+            else:
+                msg = f"{home} is dry ({why}) but no system qualifies as the next home: " + "; ".join(note)
+                if f.get("path_note") != msg:
+                    f["path_note"] = msg
+                    changed = True
+                    await self.log("fleets", f"{f['name']}: {msg}", "alert")
+                    await self._notify("warning", f"{f['name']}: {msg}")
+        if changed:
+            await self.save_fleets(items)
         return out
 
     async def hub_watch_pass(self) -> list[str]:
@@ -937,6 +1053,14 @@ class AutomationEngine(OpsRules):
         busy = {star_of(t) for f in items if (f.get("mission") or {}).get("status") in ("running", "stalled")
                 for t in (f["mission"].get("targets") or [])}
         skip = scanned | set(sent) | busy | fl.worked_systems(items) | wards.foreign(cat, await self.devices())
+        # stars ahead of a mining fleet on its heading go first: they're where that fleet will want to move next
+        from . import pathing as pa
+        xyz_of = {k: v for k, v in ((k, pa.xyz(p)) for k, p in pos.items()) if v}
+        ahead: set[str] = set()
+        for g in items:
+            hv = (g.get("heading") or {}).get("vector")
+            if g.get("role") == "mining" and g.get("home") and hv:
+                ahead |= set(pa.ahead(g["home"], xyz_of, hv, float(g.get("cone") or pa.DEFAULT_CONE), set(found)))
         out = []
         for f in free:
             home = pos.get(f.get("home") or "")
@@ -946,7 +1070,7 @@ class AutomationEngine(OpsRules):
                 if not home or not p:
                     return 1e9
                 return sum((float(p.get(k) or 0) - float(home.get(k) or 0)) ** 2 for k in "xyz") ** 0.5
-            todo = sorted((s for s in found if s not in skip), key=lambda s: (dist(s), s))[:max(1, int(f.get("scout_count") or 3))]
+            todo = sorted((s for s in found if s not in skip), key=lambda s: (s not in ahead, dist(s), s))[:max(1, int(f.get("scout_count") or 3))]
             if not todo:
                 continue
             m = {"status": "running", "phase": None, "idx": 0, "targets": todo, "started_at": now_iso(), "log": [],

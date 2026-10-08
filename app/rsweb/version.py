@@ -16,11 +16,20 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.43.4"
+VERSION = "1.44.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.44.0", "2026-10-08", "Path forward for stationed mining fleets (Fleets page). A heading (outward from Sol through "
+     "the home, toward a star, or x, y, z) fixed when set, with a cone either side. 'Observatory prospects along the "
+     "heading': the fleet's galactic observatory (unfurled first if folded) prospects in that direction when fewer than "
+     "3 known systems lie ahead, at most every 4 h. 'Move on when the home runs dry': after 2 h dry (no belt and no "
+     "salvage left, every belt 'consider moving', or another player's ward), the fleet picks the best-ranked system "
+     "ahead from the mining prospects — never one that's unscanned, outside your relay coverage (no relay within 7.5 ly, "
+     "no hub within 15 ly), warded, another fleet's home, or another mining fleet's next home or mission target — "
+     "announces it and makes it its home after 30 min unless you cancel (or 'go now'); the loadout pass then moves the "
+     "fleet. Auto-scout explore fleets visit prospected stars ahead of a mining fleet's heading first."),
     ("1.43.4", "2026-10-08", "Fleets page faster. The mining-prospect ranking read every scanned system's resources from "
      "the events table once per mining fleet's home on every load; it now does that once and keeps it for a minute (or "
      "until the catalogue, devices, fleets or scans change), and those per-system reads use two new indexes (built once "
