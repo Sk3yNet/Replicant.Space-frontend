@@ -2225,7 +2225,7 @@ class AutomationEngine(OpsRules):
                 supply.pop(des, None)
         cfg = await self.loadout_cfg()
         ls = cfg.get("settings") or {}
-        reach = float(ls.get("max_supply_ly") if ls.get("max_supply_ly") is not None else 15)
+        reach = float(ls.get("max_supply_ly") if ls.get("max_supply_ly") is not None else lo.DEFAULT_SETTINGS["max_supply_ly"])
         stationed = {f["home"] for f in lo.stationed_fleets(cfg)}
         ignore = set(cfg.get("ignore_tags") or [])
         reps = await self.db.kv_get("replicants", {}) or {}

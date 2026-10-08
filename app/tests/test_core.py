@@ -5726,12 +5726,16 @@ def test_supply_range_keeps_prints_and_spares_near_the_fleet():
                             "fleets": [{"id": "f1", "name": "F1", "role": "mining", "home": home, "station": True,
                                         "wants": {"mining_drone": 2}}]})
         return lo.plan(cfg, devices, bps, inv, stars, {}, set(), [], {})
-    far = run("SOL", 15)
+    far = run("SOL", 20)
     assert not far["prints"] and not far.get("moves")
-    assert any("no autofactory within 15 ly of SOL" in u["why"] for u in far["unmet"])
-    near = run("NEAR", 15)
+    assert any("no autofactory within 20 ly of SOL" in u["why"] for u in far["unmet"])
+    near = run("NEAR", 20)
     assert near["prints"] and near["prints"][0]["factory"] == "AF1"
     assert run("SOL", 0)["prints"]                                     # 0 = any distance, as before
+    assert lo.normalize({})["settings"]["max_supply_ly"] == 100           # the default
+    assert lo.normalize({"settings": {"max_supply_ly": 15}})["settings"]["max_supply_ly"] == 100   # old default, saved
+    kept = lo.normalize({"settings": {"max_supply_ly": 15, "supply_range_v2": True}})["settings"]["max_supply_ly"]
+    assert kept == 15                                                  # chosen after the change: kept
 
 
 def test_replicant_vessel_in_a_fleet_counts_toward_its_loadout():

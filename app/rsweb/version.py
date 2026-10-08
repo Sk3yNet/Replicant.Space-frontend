@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.47.0"
+VERSION = "1.47.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.47.1", "2026-10-08", "Supply range (Fleets › Settings) defaults to 100 ly instead of 15; a saved 15 (the old "
+     "default) becomes 100 once."),
     ("1.47.0", "2026-10-08", "Contracts that ask for devices get them delivered: 'Deliver devices' on the Contracts page (or "
      "a trade fleet's run on the contract) tags fleetless spare or idle devices in supply range for it, and the loadouts "
      "pass flies or carries them to the exact location. Whatever no spare covers is printed only after you press "

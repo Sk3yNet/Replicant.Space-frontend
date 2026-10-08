@@ -36,7 +36,7 @@ DEFAULT_SETTINGS = {"print_missing": True, "need_stock": True, "carriers_return"
                     "use_replicant_vessels": False, "every_minutes": 15,
                     "gather_spares": True, "spare_depot": "",   # "" = automatic (see spare_depot())
                     "max_cruise_au": 30,
-                    "max_supply_ly": 15}   # prints and spares only from within this many ly of the fleet (0 = any)   # a device further than this from its carrier (in-system) is fetched, not flown over
+                    "max_supply_ly": 100}   # prints and spares only from within this many ly of the fleet (0 = any)   # a device further than this from its carrier (in-system) is fetched, not flown over
 
 
 def spare_depot(cfg: dict, devices: list[dict]) -> str | None:
@@ -129,6 +129,10 @@ def normalize(cfg: Any) -> dict:
         cfg, fleets, _ = fl.migrate(cfg, cfg["fleets"])
         cfg["fleets"] = [fl.resolve_template(f, cfg) for f in fleets]
     s = {**DEFAULT_SETTINGS, **(cfg.get("settings") or {})}
+    if not s.get("supply_range_v2"):   # 1.47.1: the default went from 15 to 100 ly; a saved 15 was the old default
+        if s.get("max_supply_ly") == 15:
+            s["max_supply_ly"] = DEFAULT_SETTINGS["max_supply_ly"]
+        s["supply_range_v2"] = True
     cfg["settings"] = s
     cfg["phases"] = sorted(cfg["phases"], key=lambda p: (p.get("order", 0), p.get("name", "")))
     return cfg
