@@ -168,3 +168,11 @@ svg.system .drone-idle rect { fill: #8a98b3; }
 svg.system .drone-moving rect { fill: var(--move); }
 svg.system .drone-other rect { fill: var(--warn); }
 svg.system.nodrones .drone { display: none; }
+
+/* Blueprints › Can afford at: printers flow into as many columns as the width allows, so the cell stays about as
+   tall as the device's description instead of one line per printer */
+.afford-col { width: 42%; }
+.afford { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5em, 1fr)); gap: 1px 10px; }
+.afford > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 700px) { .afford-col { width: auto; } }
+@media (min-width: 1000px) { .g2-wide { grid-template-columns: 2fr 1fr; } }

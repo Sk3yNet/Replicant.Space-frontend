@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.46.7"
+VERSION = "1.46.8"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.46.8", "2026-10-08", "Blueprints page: the 'Can afford at' printers flow into as many columns as the screen allows "
+     "(so each row stays about as tall as the device's description), and the blueprint table takes two thirds of the "
+     "width with the plan beside it."),
     ("1.46.7", "2026-10-08", "Survey missions without a survey controller: the survey is only done once the drones have been "
      "idle for 3 minutes and no job (auto-survey drives them body by body) is using them. At DABAH the drone was caught "
      "idle between two moons, the survey was called done and the recall failed ('Cannot cruise while scanning')."),

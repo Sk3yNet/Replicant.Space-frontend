@@ -9,18 +9,18 @@
 {% if not blueprints %}<p class="muted">Blueprints sync every 5 minutes and when something may have unlocked one; none cached yet.</p>{% endif %}
 
 <form hx-post="/blueprints/plan" hx-target="#plan" hx-trigger="input delay:300ms from:input[type=number], change from:select">
-<div class="grid g2">
+<div class="grid g2 g2-wide">
   <div class="card">
     <table>
-      <tr><th>Device</th><th class="num">Print</th><th>Cost</th><th>Can afford at</th><th class="num">Plan qty</th></tr>
+      <tr><th>Device</th><th class="num">Print</th><th>Cost</th><th class="afford-col">Can afford at</th><th class="num">Plan qty</th></tr>
       {% for b in blueprints %}
       <tr>
         <td><strong>{{ b.device_type | human }}</strong>{% if b.device_type in recent %} <span class="pill st-work">new</span>{% endif %}<div class="muted small">{{ b.short_description }}</div>
           <div class="small">{{ (b.features or []) | join(', ') }}{% if b.directives %} · directives: {{ b.directives | join(', ') }}{% endif %}</div></td>
         <td class="num mono">{{ ((b.print_time or 0) / 60) | round(1) }}m</td>
         <td class="small" style="white-space:nowrap">{% for r, v in (b.resources or {}) | dictsort %}{{ v }} {{ r }}<br>{% endfor %}</td>
-        <td class="small">{% for p in printers %}{% set n = b._afford.get(p.code, 0) %}
-          <div class="{{ 'lv-done' if n else 'muted' }}">{{ p.name }}: ×{{ n }}</div>{% endfor %}</td>
+        <td class="small afford-col"><div class="afford">{% for p in printers %}{% set n = b._afford.get(p.code, 0) %}
+          <span class="{{ 'lv-done' if n else 'muted' }}" title="{{ p.name }} @ {{ p.location }}: enough stock there for {{ n }}">{{ p.name }} <b>×{{ n }}</b></span>{% endfor %}</div></td>
         <td class="num"><input type="number" min="0" name="qty:{{ b.device_type }}" value="0" style="width:64px"></td>
       </tr>
       {% endfor %}
