@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.48.0"
+VERSION = "1.48.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.48.1", "2026-10-08", "Contracts with alternative options (Famine Assistance: 3 orbital farms, or a nutrient synthesizer "
+     "and resources …): a trade run counts the contract as ready at the site when any option is complete there, not only "
+     "the one whose resources it set out with; a fulfil the game refuses with 'Event criteria not met' sends the run back "
+     "to waiting at the site (up to 3 tries) instead of stalling. The Contracts page says the options are alternatives "
+     "and which one devices are delivered for."),
     ("1.48.0", "2026-10-08", "Devices › List: tick devices (or all listed) and send them one command, with its fields. "
      "Before sending, the ticked devices that can't take it are listed and skipped — the command isn't available to "
      "them right now, an automation job is using them (unless included), or a deploy/detach while the carrier is between "

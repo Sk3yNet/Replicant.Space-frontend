@@ -2278,6 +2278,14 @@ class AutomationEngine(OpsRules):
             await self.log("contracts", line)
         return out
 
+    async def _contract_option_ready(self, m: dict, inv: dict, devices: list[dict]) -> bool:
+        from . import fleets as fl
+        from . import gameevents as gev
+        e = (await gev.load(self.db)).get(fl.deal(m).get("designation") or "")
+        if not e or e.get("status") != "open":
+            return False
+        return any(c["ready_here"] for c in gev.progress(e, inv, devices, {})["criteria"])
+
     async def _deal_devices_short(self, m: dict, devices: list[dict]) -> str:
         """A contract run whose contract also asks for devices at its location: what's still missing there."""
         from . import fleets as fl
@@ -2303,6 +2311,11 @@ class AutomationEngine(OpsRules):
         dl = fl.deal(m)
         site = dl["location"]
         state, short = fl.deal_check(m, inv, devices)
+        if state != "ok" and m.get("contract") and await self._contract_option_ready(m, inv, devices):
+            # contracts offer alternative options (seen live 2026-10-08: Famine Assistance at AEMEROTH-2 — 3 orbital farms,
+            # or a nutrient synthesizer and resources …): another option is complete at the site, so the price this run
+            # set out to bring isn't needed
+            state, short = "ok", {}
         what = ", ".join(f"{q} {r}" for r, q in short.items())
         if state == "incoming":
             return "wait", f"{site} is short of {what}: it's on its way there"
@@ -2645,6 +2658,18 @@ class AutomationEngine(OpsRules):
                 continue
             j = jobs.get(m.get("job"))
             if j and j["status"] in ("running", "waiting"):
+                continue
+            err = next((s.get('error') for s in j['steps'] if s['status'] == 'failed'), '') if j else ''
+            if (j and j["status"] == "failed" and m.get("contract") and m.get("phase") == "trade"
+                    and "criteria not met" in str(err).lower() and int(m.get("criteria_misses") or 0) < 3):
+                # the game says the contract isn't satisfied yet (seen live 2026-10-08: Trader_1 stalled at AEMEROTH-2
+                # and stayed stalled after the contract's devices arrived): back to waiting at the site — the gate
+                # holds until an option is complete there, then fulfils again
+                m["criteria_misses"] = int(m.get("criteria_misses") or 0) + 1
+                m["phase"], m["job"] = "wait", None
+                self._mlog(m, f"the game says the contract's criteria aren't met yet ({err}) — waiting at the site "
+                              f"until they are (try {m['criteria_misses']} of 3)")
+                changed = True
                 continue
             if j and j["status"] == "failed":
                 m["status"] = "stalled"

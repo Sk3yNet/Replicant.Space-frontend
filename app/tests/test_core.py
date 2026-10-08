@@ -6031,3 +6031,36 @@ def test_bulk_check_detach_while_carrier_travels():
     ok, skip = bulk_check(["P1", "P2", "GONE"], "detach", devices, set(), {})
     assert ok == ["P2"] and {c for c, _ in skip} == {"P1", "GONE"}
     assert "between systems" in dict(skip)["P1"]
+
+
+def test_contract_run_accepts_any_option_and_waits_after_criteria_not_met(client):
+    """Live 2026-10-08: Famine Assistance at AEMEROTH-2 — 3 orbital farms OR a nutrient synthesizer and resources. The
+    run set out with one option's resources; the farms were delivered instead; the run had stalled on 'Event criteria
+    not met' and never tried again."""
+    eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
+    client.portal.call(w.handle_event, {**_ev(997, "event.discovered", designation="AEM-2-EVT-005", location="AEM-2",
+                                                title="Famine Assistance", criteria=[
+                                                    {"name": "orbital_farms", "resources": {}, "devices": [{"device_type": "orbital_farm", "quantity": 2}]},
+                                                    {"name": "nutrient_synthesis", "resources": {"carbon": 50},
+                                                     "devices": [{"device_type": "nutrient_synthesizer", "quantity": 1}]}]),
+                                        "location": "AEM-2"})
+    devices = client.portal.call(db.kv_get, "devices")
+    devices += [{"device_code": f"OF{i}", "device_type": "orbital_farm", "location": "AEM-2", "status": "idle", "tags": []} for i in (1, 2)]
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": [{"resource_type": "carbon", "quantity": 900}]}])
+    m = {"status": "running", "phase": "wait", "idx": 0, "targets": ["AEM"], "log": [], "opts": {},
+         "contract": {"designation": "AEM-2-EVT-005", "location": "AEM-2", "title": "Famine Assistance", "price": {"carbon": 50}}}
+    f = {"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}, "mission": m}
+    state, why = client.portal.call(eng._deal_gate, f, m, devices)
+    assert state != "rewind" and "short" not in why          # the farms option is complete: no carbon needed there
+    # a fulfil the game refuses with 'criteria not met' goes back to waiting, not stalled
+    jobs = client.portal.call(eng.jobs)
+    jobs.append({"id": "jt", "rule": "fleets", "title": "T: trade", "device": None, "status": "failed", "idx": 0, "meta": {"fleet": "t"},
+                 "steps": [{"desc": "fulfil", "status": "failed", "error": "Event criteria not met"}]})
+    client.portal.call(eng.save_jobs, jobs)
+    m.update({"phase": "trade", "job": "jt"})
+    client.portal.call(eng.save_fleets, [f])
+    client.portal.call(eng.run_fleets)
+    m2 = client.portal.call(eng.fleets)[0]["mission"]
+    assert m2["status"] == "running" and m2["criteria_misses"] == 1
+    assert any("criteria aren't met yet" in str(x) for x in m2["log"])
