@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.46.4"
+VERSION = "1.46.5"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.46.5", "2026-10-08", "Galaxy map: a left-click no longer draws a line from your replicant to the star (the distance "
+     "is still in the panel); lines come only from the right-click measuring tool."),
     ("1.46.4", "2026-10-08", "Missions: fleet members riding in a vessel that isn't one of the fleet's carriers (the "
      "Surveyors' survey controller and drones were stowed in Trader_1's heaven vessel in AEMEROTH) are now collected — "
      "deployed out of that vessel, then boarded by assemble (same system) or the gather tour (another system). A survey "

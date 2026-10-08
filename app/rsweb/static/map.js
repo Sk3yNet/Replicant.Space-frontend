@@ -292,12 +292,6 @@ function placeMovers(now) {
   }
 }
 
-function drawLine(a, b, color = 0xff5fa2) {
-  lineGroup.clear();
-  const g = new THREE.BufferGeometry().setFromPoints([pos(a), pos(b)]);
-  lineGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color })));
-}
-
 function focus(s) {
   const v = pos(s);
   controls.target.copy(v);
@@ -308,7 +302,7 @@ function show(s) {
   const from = repStar();
   const dist = from ? pos(from).distanceTo(pos(s)).toFixed(2) : null;
   const rep = fromSel?.value;
-  if (from) drawLine(from, s);
+  lineGroup.clear();   // no line on a left-click: lines are the right-click measuring tool's
   info.innerHTML = `
     <div class="row between"><h2>${esc(s.designation)}</h2><a class="small" href="/systems/${esc(s.designation)}">open system →</a></div>
     ${s.name ? `<div>${esc(s.name)}</div>` : ""}
