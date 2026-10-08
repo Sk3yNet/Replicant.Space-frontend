@@ -830,7 +830,7 @@ class AutomationEngine(OpsRules):
             for stage in ("run_fleets", "auto_deals_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_pass", "pathing_pass", "auto_scout_pass", "hub_watch_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "pathing_pass", "auto_scout_pass", "hub_watch_pass"):
                 self.stage = stage
                 try:   # one stage failing on odd data mustn't stop every stage after it, every tick
                     out = await getattr(self, stage)()
@@ -849,6 +849,90 @@ class AutomationEngine(OpsRules):
                         await self.log("civ_beacons", line)
             self.stage = None
             await self.note_tick()
+
+    async def trail_follow_pass(self) -> list[str]:
+        """Map › Trail › Follow to the end: the replicant that scanned flies to the system the latest departure points
+        at, looks for the target's beacons there and reads them; an arrival with no departure after it ends the
+        follow (the target is there), a departure sends it on to the next system (another candidate if this one has
+        no record of the target). State in kv trail["follow"]."""
+        from . import trail as tl
+        s = tl.normalize(await self.db.kv_get(tl.KV, {}) or {})
+        fo = s.get("follow") or {}
+        if not fo.get("active"):
+            return []
+        reps = await self.db.kv_get("replicants", {}) or {}
+        rep = fo.get("replicant")
+        host = (reps.get(rep) or {}).get("hosted_device_code")
+        name = (reps.get(rep) or {}).get("name") or rep
+        out: list[str] = []
+
+        def note(text: str) -> None:
+            fo.setdefault("log", []).append({"at": now_iso(), "text": text})
+            fo["log"] = fo["log"][-40:]
+            out.append(text)
+
+        async def finish(text: str, level: str = "mention") -> None:
+            fo["active"], fo["result"] = False, text
+            note(text)
+            await self.log("trail", f"follow {s['target_name']}: {text}")
+            await self._notify(level, f"Trail: {text}", "/trail")
+
+        if not rep or rep not in reps:
+            await finish("stopped: the replicant following the trail is gone", "warning")
+        elif fo.get("state") == "travel":
+            here = star_of((reps[rep] or {}).get("location") or (reps[rep] or {}).get("current_location"))
+            job = next((j for j in await self.jobs() if j["id"] == fo.get("job")), None) if fo.get("job") else None
+            if not fo.get("job") and here == fo.get("star"):
+                fo["state"] = "arrived"
+            elif not fo.get("job"):
+                st = step(f"{name} → {fo['star']} (following {s['target_name']})", f"/replicants/{rep}/travel",
+                          {"destination": fo["star"]}, wait=["travel.arrived"], timeout=12 * 3600, critical=True)
+                st["wait_device"] = host
+                j = await self.create_job("trail", f"follow {s['target_name']}: {name} → {fo['star']}", host, [st],
+                                          {"devices": [host] if host else []}, force=True)
+                if j:
+                    fo["job"] = j["id"]
+                    note(f"{name} sets off for {fo['star']}")
+            elif job is None or job["status"] == "done":
+                fo["state"], fo["job"] = "arrived", None
+                note(f"{name} reached {fo['star']}")
+            elif job["status"] in ("failed", "cancelled"):
+                err = next((x.get("error") for x in job["steps"] if x.get("error")), job["status"])
+                await finish(f"stopped: {name} couldn't travel to {fo['star']} ({err})", "warning")
+        if fo.get("active") and fo.get("state") == "arrived":
+            star = fo["star"]
+            try:
+                await tl.scan_for_beacons(self.api, rep, s)
+                for code, b in list(s["beacons"].items()):
+                    if b.get("star") == star or not b.get("star"):
+                        await tl.read_beacons(self.api, s, code)
+            except ApiError as e:
+                fo["tries"] = int(fo.get("tries") or 0) + 1
+                note(f"reading {star} failed: {e.message}")
+                if fo["tries"] >= 3:
+                    await finish(f"stopped: couldn't read the beacons at {star} ({e.message})", "warning")
+            else:
+                fo["tries"] = 0
+                fo.setdefault("visited", []).append(star)
+                cat = await self.db.kv_get("stars", {}) or {}
+                pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+                h = tl.next_hop(s, star, pos, fo["visited"])
+                if "end" in h:
+                    await finish(f"found {s['target_name']}: {h['end']} — {name} is there too")
+                elif "go" in h and len(fo["visited"]) < tl.MAX_HOPS:
+                    fo.update(state="travel", star=h["go"], alts=h["alts"], job=None)
+                    note(f"at {star}: {h['why']} — on to {h['go']}")
+                elif "go" in h:
+                    await finish(f"stopped after {tl.MAX_HOPS} systems at {star}: the trail goes on to {h['go']}", "warning")
+                elif fo.get("alts"):
+                    nxt, fo["alts"] = fo["alts"][0], fo["alts"][1:]
+                    fo.update(state="travel", star=nxt, job=None)
+                    note(f"at {star}: {h['cold']} — trying the next candidate, {nxt}")
+                else:
+                    await finish(f"the trail goes cold at {star}: {h['cold']}", "warning")
+        s["follow"] = fo
+        await self.db.kv_set(tl.KV, s)
+        return out
 
     async def trail_pass(self) -> list[str]:
         """Map › Trail: every 15 minutes re-read the followed replicant's beacons (trail.py); each new departure or
@@ -874,6 +958,33 @@ class AutomationEngine(OpsRules):
             self.hub.publish("notify", {"id": cur.lastrowid, "level": "mention", "title": text, "link": "/trail"})
             out.append(text)
         return out
+
+    async def fleet_rename_pass(self) -> list[str]:
+        """A renamed fleet's devices still carrying the old fleet: tag in the game (marked `_retag` by
+        fleets.apply_renames): one PATCH each, swapping the old tag for the new; tried again every 10 minutes."""
+        from . import fleets as fl
+        devices = await self.devices()
+        todo = [d for d in devices if d.get("_retag")]
+        if not todo:
+            return []
+        last = _ts(await self.db.kv_get("retag_at", None))
+        if last and (_now() - last).total_seconds() < 600:
+            return []
+        busy = self.busy_devices(await self.jobs())
+        steps = []
+        for d in todo:
+            if d["device_code"] in busy:
+                continue
+            new = next((t for t in d.get("tags") or [] if t.startswith("fleet:")), None)
+            if not new or new == d["_retag"]:
+                continue
+            steps.append(step(f"{d['device_code']}: {d['_retag']} → {new}", f"/devices/{d['device_code']}",
+                              {"configuration": {"add_tags": [new], "remove_tags": [d["_retag"]]}}, method="PATCH"))
+        if not steps:
+            return []
+        await self.db.kv_set("retag_at", now_iso())
+        await self.create_job("fleets", f"renamed fleet: retag {len(steps)} device(s)", None, steps, {"devices": []}, force=True)
+        return [f"retag {len(steps)}"]
 
     async def _notify(self, level: str, text: str, link: str = "/fleets") -> None:
         cur = await self.db.execute("INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",

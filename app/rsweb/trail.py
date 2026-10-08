@@ -141,6 +141,61 @@ def normalize(s: dict) -> dict:
     return s
 
 
+async def scan_for_beacons(api, replicant: str, s: dict) -> list[dict]:
+    """The target's beacons among the other devices in the replicant's current system (GET /scan/devices, paged).
+    Adds them to `s` and returns them. Raises ApiError."""
+    found, cursor = [], None
+    for _ in range(6):
+        params = {"device_type": "ftl_beacon", "limit": 50, **({"cursor": cursor} if cursor else {})}
+        if s.get("target_code"):
+            params["owner_replicant_code"] = s["target_code"]
+        body = await api.get(f"/replicants/{replicant}/scan/devices", **params) or {}
+        found += beacons_in(body, s.get("target_code"), s.get("target_name"))
+        cursor = body.get("next_cursor")
+        if not cursor:
+            break
+    for b in found:
+        s["beacons"].setdefault(b["code"], {**b, "found_at": _now()})
+    return found
+
+
+def at_star(s: dict, star: str) -> list[dict]:
+    """The target's logged movements at beacons in `star`, newest first."""
+    rows = []
+    for code, b in s["beacons"].items():
+        if (b.get("star") or "") != star:
+            continue
+        for r in s["audit"].get(code) or []:
+            if s.get("target_code") and r.get("replicant_code") != s["target_code"]:
+                continue
+            rows.append({**r, "_beacon": code})
+    rows.sort(key=lambda r: str(r.get("logged_at") or ""), reverse=True)
+    return rows
+
+
+MAX_HOPS = 25
+
+
+def next_hop(s: dict, star: str, positions: dict, visited: list[str]) -> dict:
+    """What following the trail does after reading the beacons in `star`:
+    {"end": text} — the target arrived here and hasn't left (or the trail goes cold);
+    {"go": star, "alts": [...], "why": text} — the latest departure from here points at `go`."""
+    rows = at_star(s, star)
+    if not rows:
+        return {"cold": f"no record of {s['target_name']} at a beacon in {star}"}
+    last = rows[0]
+    if last.get("travel_type") == "arrival":
+        return {"end": f"{s['target_name']} arrived at {last.get('location') or star} ({last.get('logged_at')}) and hasn't left"}
+    if last.get("travel_type") != "departure" or not last.get("vector"):
+        return {"cold": f"{s['target_name']}'s latest move at {star} isn't a departure with a direction"}
+    cands = [c for c in candidates(star, last["vector"], positions) if c["star"] not in visited]
+    if not cands:
+        return {"cold": f"{s['target_name']} left {star} toward no star the map knows — load the stars around {star}"}
+    c = cands[0]
+    return {"go": c["star"], "alts": [x["star"] for x in cands[1:4]],
+            "why": f"left {star} {last.get('logged_at')}: {c['star']} is {c['angle']}° off the vector, {c['distance']} ly"}
+
+
 def merge_read(cur: dict, read: dict) -> dict:
     """Put what a (slow) read found into the state as it is now: beacons removed meanwhile stay removed, and a
     target changed meanwhile isn't given the old target's log."""

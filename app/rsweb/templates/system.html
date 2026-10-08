@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ star }}{% endblock %}
 {% block content %}
+{% macro survey_box(body, text='') -%}
+<label style="text-transform:none;white-space:nowrap"><input type="checkbox" name="on" value="1" {{ 'checked' if surveyed.get(body) }}
+  hx-post="/systems/{{ star }}/surveyed" hx-vals='{{ {"body": body} | tojson }}' hx-trigger="change" hx-target="next span"
+  title="{{ 'surveyed ' ~ (surveyed[body] | ago) if surveyed.get(body) else 'not surveyed yet' }}"> {{ text }}<span></span></label>
+{%- endmacro %}
+
 {% set s = scan.star or {} %}
 <div class="row between">
   <h1>{{ star }} {% if s.spectral_type %}<span class="muted">{{ s.spectral_type }} · {{ s.color }}</span>{% endif %}
@@ -98,18 +104,20 @@
 
 <div class="grid g2" style="margin-top:14px">
   <div class="card">
-    <h2>Planets</h2>
+    <h2>Planets {% if fully_surveyed %}<span class="pill small st-work" title="every planet and belt surveyed">✓ system surveyed {{ fully_surveyed | ago }}</span>{% endif %}</h2>
     <table class="small">
-      <tr><th>Body</th><th>Type</th><th class="num">AU</th><th class="num">Moons</th><th>HZ</th></tr>
+      <tr><th>Body</th><th>Type</th><th class="num">AU</th><th class="num">Moons</th><th>HZ</th>{% if not fully_surveyed %}<th title="surveyed: auto-survey skips it">Surveyed</th>{% endif %}</tr>
       {% for p in scan.planets or [] %}<tr><td><a hx-get="/locations/{{ p.designation }}" hx-target="#loc-panel" href="/locations/{{ p.designation }}">{{ p.designation }}</a></td>
-        <td>{{ p.type }}</td><td class="num">{{ p.orbital_distance_au }}</td><td class="num">{{ p.moon_count }}</td><td>{{ '✓' if p.in_habitable_zone }}</td></tr>{% endfor %}
+        <td>{{ p.type }}</td><td class="num">{{ p.orbital_distance_au }}</td><td class="num">{{ p.moon_count }}</td><td>{{ '✓' if p.in_habitable_zone }}</td>
+        {% if not fully_surveyed %}<td>{{ survey_box(p.designation) }}</td>{% endif %}</tr>{% endfor %}
     </table>
     {% if scan.entry_point %}<p class="small muted">Entry point: {{ scan.entry_point }}</p>{% endif %}
   </div>
   <div class="card">
     <h2>Belts</h2>
     {% for b in (scan.asteroid_belt or {}).belts or [] %}
-      <h3><a hx-get="/locations/{{ b.designation }}" hx-target="#loc-panel" href="/locations/{{ b.designation }}">{{ b.designation }}</a> <span class="muted small">{{ b.density }} · {{ b.inner_radius_au }}–{{ b.outer_radius_au }} AU</span></h3>
+      <h3><a hx-get="/locations/{{ b.designation }}" hx-target="#loc-panel" href="/locations/{{ b.designation }}">{{ b.designation }}</a> <span class="muted small">{{ b.density }} · {{ b.inner_radius_au }}–{{ b.outer_radius_au }} AU</span>
+        {% if not fully_surveyed %}<span class="small" style="font-weight:normal">{{ survey_box(b.designation, 'surveyed') }}</span>{% endif %}</h3>
       <div class="chips">{% for r, lvl in (b.resources or {}) | dictsort %}<span class="chip">{{ r }} <b>{{ lvl }}</b></span>{% endfor %}</div>
     {% else %}<p class="muted">No belts recorded.</p>{% endfor %}
     {% if s %}<h2 style="margin-top:14px">Star</h2>

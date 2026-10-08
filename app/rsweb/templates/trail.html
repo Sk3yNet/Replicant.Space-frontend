@@ -57,6 +57,22 @@
         <span hx-get="/trail/eta?star={{ legs[0].best.star | urlencode }}" hx-trigger="load" hx-swap="outerHTML">…</span>{% endif %}){% endif %}. Find the beacon there and read it.</p>{% endif %}
     {% else %}<p class="muted small">Nothing logged yet.</p>{% endif %}
 
+    {% set fo = s.follow or {} %}
+    <div class="small" style="margin-top:10px;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
+      <div class="row between"><b>Follow to the end</b>
+        {% if fo.active %}<button class="small ghost" hx-post="/trail/follow" hx-vals='{"action": "stop"}' hx-target="#trail-result">stop</button>
+        {% elif scanner and (legs or last) %}<button class="small" hx-post="/trail/follow" hx-target="#trail-result"
+          hx-confirm="Send {{ scanner.name }} after {{ s.target_name }}, system by system, until an arrival has no departure after it?">follow {{ s.target_name }} with {{ scanner.name }}</button>{% endif %}</div>
+      {% if fo.active %}<div>{{ fo.state == 'travel' and 'heading for' or 'reading the beacons at' }} <b><a href="/systems/{{ fo.star }}">{{ fo.star }}</a></b>
+        {% if fo.state == 'travel' and scanner %}<span hx-get="/trail/eta?star={{ fo.star | urlencode }}" hx-trigger="load" hx-swap="outerHTML"></span>{% endif %}
+        {% if fo.visited %}<span class="muted"> · visited {{ fo.visited | join(' → ') }}</span>{% endif %}</div>
+      {% elif fo.result %}<div><b>{{ fo.result }}</b></div>
+      {% else %}<div class="muted">{{ scanner.name if scanner else 'The replicant that scanned' }} flies to where the latest departure
+        points, looks for {{ s.target_name }}'s beacons there and reads them, and keeps going until one shows {{ s.target_name }}
+        arriving and not leaving.</div>{% endif %}
+      {% if fo.log %}<details{{ ' open' if fo.active }}><summary class="muted">log</summary>{% for l in fo.log[-12:] | reverse %}<div class="muted">{{ l.at | local }} · {{ l.text }}</div>{% endfor %}</details>{% endif %}
+    </div>
+
     <h2 style="margin-top:14px">Departures <span class="muted small">newest first{% if scanner %} · travel sends {{ scanner.name }} (@ {{ scanner.star }}), the replicant that scanned{% endif %}</span></h2>
     {% for l in legs %}
       <div style="border-bottom:1px solid var(--line);padding:6px 0">

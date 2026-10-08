@@ -5585,3 +5585,109 @@ def test_pathing_pass_prospects_then_relocates(client):
     assert f["home"] == "AHEADB" and f["prev_home"] == "HOMEA" and not f.get("next_home")
     notes = client.portal.call(db.fetchall, "SELECT title FROM notifications WHERE link='/fleets'")
     assert any("moving home: HOMEA → AHEADB" in n["title"] for n in notes)
+
+
+def test_renaming_a_fleet_moves_its_tag(client):
+    world = client.app.state.api.http._transport.app.state.world
+    eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
+    for d in world.devices[:2]:
+        d["tags"] = ["fleet:ithvalai-home", "keepme"]
+    client.portal.call(w.sync_devices)
+    codes = [d["device_code"] for d in world.devices[:2]]
+    client.portal.call(eng.save_fleets, [{"id": "ithvalai-home", "name": "Miner 1", "role": "mining", "home": "SOL", "station": True, "wants": {}},
+                                         {"id": "hub", "name": "Hub", "role": "mining", "home": "AAA", "wants": {}, "materials": "ithvalai-home"}])
+    client.portal.call(db.kv_set, "loadout_orders", [{"fleet": "ithvalai-home", "star": "SOL", "device_type": "mining_drone"}])
+    r = client.post("/fleets/ithvalai-home/edit", data={"name": "Larselan Miners", "home": "SOL"}, headers=HX)
+    items = client.portal.call(eng.fleets)
+    assert {f["id"] for f in items} == {"larselan-miners", "hub"}
+    assert next(f for f in items if f["id"] == "hub")["materials"] == "larselan-miners"
+    assert client.portal.call(db.kv_get, "loadout_orders")[0]["fleet"] == "larselan-miners"
+    devs = {d["device_code"]: d for d in client.portal.call(db.kv_get, "devices")}
+    assert all("fleet:larselan-miners" in devs[c]["tags"] and "keepme" in devs[c]["tags"] for c in codes)   # at once
+    client.portal.call(w.sync_devices)                     # the game still has the old tag: still shown as the new one
+    devs = {d["device_code"]: d for d in client.portal.call(db.kv_get, "devices")}
+    assert all(devs[c]["_retag"] == "fleet:ithvalai-home" and "fleet:ithvalai-home" not in devs[c]["tags"] for c in codes)
+    assert client.portal.call(eng.fleet_rename_pass) == ["retag 2"]
+    import time
+    for _ in range(50):
+        if all("fleet:larselan-miners" in d["tags"] for d in world.devices[:2]):
+            break
+        time.sleep(0.1)
+    assert all("fleet:larselan-miners" in d["tags"] and "fleet:ithvalai-home" not in d["tags"] for d in world.devices[:2])
+    client.portal.call(w.sync_devices)
+    assert client.portal.call(db.kv_get, "fleet_renames") == {}               # done: nothing carries the old tag
+    assert not any(d.get("_retag") for d in client.portal.call(db.kv_get, "devices"))
+
+
+def test_surveyed_checkboxes_then_system_indicator(client):
+    from rsweb.automations import survey_targets
+    db = client.app.state.db
+    page = client.get("/systems/SOL", headers=H).text
+    row = client.portal.call(db.fetchone, "SELECT data FROM systems WHERE star='SOL'")
+    bodies = [t["target"] for t in survey_targets(json.loads(row["data"]), {}, False, True, 99)]
+    assert bodies and "/systems/SOL/surveyed" in page and "system surveyed" not in page
+    for b in bodies[:-1]:
+        r = client.post("/systems/SOL/surveyed", data={"body": b, "on": "1"}, headers=HX)
+        assert "✓" in r.text and "HX-Refresh" not in r.headers
+    r = client.post("/systems/SOL/surveyed", data={"body": bodies[0]}, headers=HX)   # untick one
+    assert bodies[0] not in client.portal.call(db.kv_get, "surveyed")
+    client.post("/systems/SOL/surveyed", data={"body": bodies[0], "on": "1"}, headers=HX)
+    r = client.post("/systems/SOL/surveyed", data={"body": bodies[-1], "on": "1"}, headers=HX)
+    assert r.headers.get("HX-Refresh") == "true"                                    # the last one: whole system
+    page = client.get("/systems/SOL", headers=H).text
+    assert "✓ system surveyed" in page and "/systems/SOL/surveyed" not in page
+    assert client.post("/systems/SOL/surveyed", data={"body": "LERNA-3", "on": "1"}, headers=HX).status_code == 400
+
+
+def test_trail_follow_to_the_end(client):
+    from rsweb import trail as tl
+    world = client.app.state.api.http._transport.app.state.world
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.post("/trail/target", data={"name": "bill"}, headers=HX)
+    rep = next(iter(client.portal.call(db.kv_get, "replicants")))
+    stars = {"SOL": (0, 0, 0), "EAST": (5, 0, 0), "EAST2": (5, 1.5, 0), "FAR": (10, 0, 0)}
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": k, "position": dict(zip("xyz", v))} for k, v in stars.items()]})
+    bill = {"owner_replicant_code": "B1LL0001", "owner_name": "Bill", "device_type": "ftl_beacon"}
+    world.foreign_devices = [{**bill, "device_code": "BB000001", "location": "SOL-3"}]
+    dep = lambda i, loc, v, t: {"id": i, "device_code": "BV1", "device_type": "heaven_vessel", "replicant_code": "B1LL0001",  # noqa: E731
+                                "travel_type": "departure", "location": loc, "logged_at": t, "vector": v}
+    arr = lambda i, loc, t: {"id": i, "device_code": "BV1", "device_type": "heaven_vessel", "replicant_code": "B1LL0001",  # noqa: E731
+                             "travel_type": "arrival", "location": loc, "logged_at": t, "vector": None}
+    world.audit["BB000001"] = [dep(1, "SOL-3", "1,0,0", "2026-10-08T01:00:00+00:00")]
+    client.post("/trail/scan", data={"replicant": rep}, headers=HX)
+    client.post("/trail/read", headers=HX)
+    page = client.get("/trail", headers=H).text
+    assert "follow Bill with" in page
+    r = client.post("/trail/follow", headers=HX)
+    assert "first stop EAST" in r.text
+
+    def arrive():   # the trip: the job is done and the replicant is there
+        jobs = client.portal.call(eng.jobs)
+        fo = client.portal.call(db.kv_get, tl.KV)["follow"]
+        for j in jobs:
+            if j["id"] == fo["job"]:
+                j["status"] = "done"
+        client.portal.call(db.kv_set, "automation_jobs", jobs)
+    client.portal.call(eng.trail_follow_pass)
+    fo = client.portal.call(db.kv_get, tl.KV)["follow"]
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == fo["job"])
+    assert job["steps"][0]["path"] == f"/replicants/{rep}/travel" and job["steps"][0]["body"] == {"destination": "EAST"}
+    # EAST has a beacon of Bill's: he arrived and left again, for FAR
+    world.foreign_devices.append({**bill, "device_code": "BB000002", "location": "EAST-2"})
+    world.audit["BB000002"] = [arr(2, "EAST-2", "2026-10-08T02:00:00+00:00"), dep(3, "EAST-2", "1,0,0", "2026-10-08T03:00:00+00:00")]
+    arrive()
+    client.portal.call(eng.trail_follow_pass)       # reached EAST
+    client.portal.call(eng.trail_follow_pass)       # read EAST → on to FAR
+    fo = client.portal.call(db.kv_get, tl.KV)["follow"]
+    assert fo["active"] and fo["state"] == "travel" and fo["star"] == "FAR" and fo["visited"] == ["EAST"]
+    client.portal.call(eng.trail_follow_pass)
+    world.foreign_devices.append({**bill, "device_code": "BB000003", "location": "FAR-1"})
+    world.audit["BB000003"] = [arr(4, "FAR-1", "2026-10-08T04:00:00+00:00")]
+    arrive()
+    client.portal.call(eng.trail_follow_pass)
+    client.portal.call(eng.trail_follow_pass)
+    fo = client.portal.call(db.kv_get, tl.KV)["follow"]
+    assert not fo["active"] and "found Bill" in fo["result"] and "FAR-1" in fo["result"] and fo["visited"] == ["EAST", "FAR"]
+    notes = client.portal.call(db.fetchall, "SELECT level, title FROM notifications WHERE link='/trail'")
+    assert any(n["level"] == "mention" and "found Bill" in n["title"] for n in notes)
+    assert "found Bill" in client.get("/trail", headers=H).text

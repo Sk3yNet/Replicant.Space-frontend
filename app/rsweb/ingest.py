@@ -499,6 +499,16 @@ class Worker:
             return
         self._short_streak = (None, 0)
         devices = merged
+        # a renamed fleet: devices the game still lists under the old fleet: tag show the new one until retagged;
+        # a rename nothing carries any more is done
+        from . import fleets as fl
+        renames = await self.db.kv_get(fl.RENAMES_KV, {}) or {}
+        if renames:
+            fl.apply_renames(devices, renames)
+            still = {d["_retag"] for d in devices if d.get("_retag")}
+            left = {o: n for o, n in renames.items() if fl.fleet_tag(o) in still}
+            if left != renames:
+                await self.db.kv_set(fl.RENAMES_KV, left)
         from .modular import FOLDED_KV
         marks = await self.db.kv_get(FOLDED_KV, {}) or {}
         for d in devices:   # large devices the game told us are folded (modular.folded)

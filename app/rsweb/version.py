@@ -16,11 +16,19 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.44.0"
+VERSION = "1.45.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.45.0", "2026-10-08", "Trail: 'follow to the end' — the replicant that scanned flies to the system the latest "
+     "departure points at, finds and reads the target's beacons there, and goes on system by system (the next "
+     "candidate if a system has no record of them) until one shows the target arriving and not leaving; then a "
+     "notification the badge counts. Progress, a log and Stop on the page. System pages: a 'surveyed' checkbox beside "
+     "each planet and belt (auto-survey skips surveyed bodies); once all are surveyed — or a survey controller finished "
+     "the system — the boxes give way to a '✓ system surveyed' indicator. Renaming a fleet now renames its id and its "
+     "fleet: tag: other fleets' materials, print orders and jobs follow at once, devices show the new tag straight away, "
+     "and the engine retags them in the game (retrying every 10 minutes until all carry it)."),
     ("1.44.0", "2026-10-08", "Path forward for stationed mining fleets (Fleets page). A heading (outward from Sol through "
      "the home, toward a star, or x, y, z) fixed when set, with a cone either side. 'Observatory prospects along the "
      "heading': the fleet's galactic observatory (unfurled first if folded) prospects in that direction when fewer than "

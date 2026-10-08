@@ -1335,6 +1335,44 @@ def devices_in_system(devices: list[dict], star: str) -> dict:
     return {"rows": rows, "summary": sorted(((t, sum(c.values()), c) for t, c in summary.items()), key=lambda x: (-x[1], x[0]))}
 
 
+async def survey_state(db, star: str, scan: dict) -> tuple[dict, str | None]:
+    """({body: when surveyed} for this system's planets and belts, when the whole system counts as surveyed or None).
+    The whole system: an AMI survey controller finished it (ami_surveyed), or every planet and belt is marked."""
+    from .automations import survey_targets
+    marks = await db.kv_get("surveyed", {}) or {}
+    bodies = [t["target"] for t in survey_targets(scan or {}, {}, False, True, 10_000)]
+    mine = {b: marks[b] for b in bodies if b in marks}
+    full = (await db.kv_get("ami_surveyed", {}) or {}).get(star)
+    if not full and bodies and len(mine) == len(bodies):
+        full = max(mine.values())
+    return mine, full
+
+
+@router.post("/systems/{star}/surveyed", response_class=HTMLResponse)
+async def system_surveyed(request: Request, star: str, body: str = Form(...), on: str = Form(""),
+                          user: str = Depends(current_user)):
+    """Mark one planet or belt surveyed (or not) by hand: auto-survey skips surveyed bodies. Once every one is
+    marked the system counts as fully surveyed and the page shows that instead of the boxes."""
+    db = request.app.state.db
+    star, body = star.upper(), body.strip().upper()
+    if star_of(body) != star:
+        return HTMLResponse("", status_code=400)
+    marks = await db.kv_get("surveyed", {}) or {}
+    if on:
+        marks[body] = marks.get(body) or now_iso()
+    else:
+        marks.pop(body, None)
+        done = await db.kv_get("ami_surveyed", {}) or {}
+        if done.pop(star, None):
+            await db.kv_set("ami_surveyed", done)
+    await db.kv_set("surveyed", marks)
+    row = await db.fetchone("SELECT data FROM systems WHERE star=?", (star,))
+    _, full = await survey_state(db, star, json.loads(row["data"]) if row else {})
+    if full:
+        return HTMLResponse("", headers={"HX-Refresh": "true"})
+    return HTMLResponse(f'<span class="small {"lv-done" if on else "muted"}">{"✓" if on else ""}</span>')
+
+
 @router.get("/systems/{star}", response_class=HTMLResponse)
 async def system_view(request: Request, star: str, refresh: int = 0, user: str = Depends(current_user)):
     star = star.upper()
@@ -1356,7 +1394,9 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     game_locs = {k: v for k, v in (st["locations"] or {}).items() if star_of(k) == star}
     qty = {x["code"]: x for x in res["sites_shown"] + res["salvage_shown"]}
     here = devices_in_system(st["devices"], star)
+    surveyed, full = await survey_state(db, star, scan)
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err,
+                      surveyed=surveyed, fully_surveyed=full,
                       updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t, here=here,
                       CATEGORY_LABEL=CATEGORY_LABEL, game_locs=game_locs, qty=qty,
                       viability=[v for v in await request.app.state.worker.automations.viability_report() if v["star"] == star])
@@ -2828,13 +2868,45 @@ async def _fleets(request: Request) -> tuple[Any, list[dict]]:
 async def fleets_create(request: Request, name: str = Form(...), role: str = Form("mining"), home: str = Form(""),
                         station: str = Form(""), template: str = Form(""), user: str = Depends(current_user)):
     eng, items = await _fleets(request)
-    fid = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:20] or "fleet"
-    while any(f["id"] == fid for f in items):
-        fid += "-2"
+    fid = fl.fleet_id_for(name, items)
     items.append({"id": fid, "name": name.strip(), "role": role if role in fl.ROLES else "mining", "home": home.strip().upper(),
                   "wants": {}, "station": station == "on", "materials": "", "template": template or None})
     await eng.save_fleets(items)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+async def rename_fleet(request: Request, f: dict, items: list[dict], name: str) -> None:
+    """A renamed fleet gets the id (and fleet: tag) of its new name. Everything holding the old id follows: other
+    fleets' materials, queued print orders, running jobs, the stored device list (devices show the new tag at once,
+    marked for retagging) — and the engine's rename pass changes the tags in the game (fleet_rename_pass)."""
+    old = f["id"]
+    new = fl.fleet_id_for(name, items, keep=old)
+    if new == old or fl.fleet_tag(new) == fl.fleet_tag(old):
+        return
+    db, eng = request.app.state.db, request.app.state.worker.automations
+    f["id"] = new
+    for x in items:
+        if x.get("materials") == old:
+            x["materials"] = new
+    renames = await db.kv_get(fl.RENAMES_KV, {}) or {}
+    renames = {k: (new if v == old else v) for k, v in renames.items()}
+    renames[old] = new
+    renames.pop(new, None)
+    await db.kv_set(fl.RENAMES_KV, renames)
+    orders = await db.kv_get("loadout_orders", []) or []
+    for o in orders:
+        if o.get("fleet") == old:
+            o["fleet"] = new
+    await db.kv_set("loadout_orders", orders)
+    jobs = await db.kv_get("automation_jobs", []) or []
+    for j in jobs:
+        if (j.get("meta") or {}).get("fleet") == old:
+            j["meta"]["fleet"] = new
+    await db.kv_set("automation_jobs", jobs)
+    devices = await db.kv_get("devices", []) or []
+    n = fl.apply_renames(devices, renames)
+    await db.kv_set("devices", devices)
+    await eng.log("fleets", f"fleet {old} renamed to {name}: its tag becomes {fl.fleet_tag(new)} ({n} device(s) to retag)")
 
 
 @router.post("/fleets/{fid}/edit", response_class=HTMLResponse)
@@ -2848,7 +2920,10 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
     if form.get("delete") == "1":
         items = [x for x in items if x["id"] != fid]
     else:
-        f["name"] = (form.get("name") or f["name"]).strip()
+        new_name = (form.get("name") or f["name"]).strip()
+        if new_name != f["name"]:
+            await rename_fleet(request, f, items, new_name)
+        f["name"] = new_name
         f["home"] = (form.get("home") or f["home"]).upper()
         f["role"] = form.get("role") if form.get("role") in fl.ROLES else f["role"]
         wants = None

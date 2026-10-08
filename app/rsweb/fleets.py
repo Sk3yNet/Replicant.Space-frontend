@@ -53,6 +53,35 @@ def fleet_tag(fid: str) -> str:
     return "fleet:" + re.sub(r"[^a-z0-9\-_.]", "", fid.lower())[:26]
 
 
+RENAMES_KV = "fleet_renames"   # {old fleet id: new id} while devices still carry the old fleet: tag in the game
+
+
+def fleet_id_for(name: str, items: list[dict], keep: str | None = None) -> str:
+    """The id (and so the fleet: tag) a fleet called `name` gets: its name slugged, unique among `items` (the fleet
+    `keep` itself doesn't count)."""
+    fid = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:20] or "fleet"
+    while any(f["id"] == fid and f["id"] != keep for f in items):
+        fid += "-2"
+    return fid
+
+
+def apply_renames(devices: list[dict], renames: dict[str, str]) -> int:
+    """Show devices still tagged with a renamed fleet's old tag under the new one (marked `_retag`: old tag), so the
+    whole app sees the new fleet at once; the engine's rename pass fixes the tags in the game. Returns how many."""
+    if not renames:
+        return 0
+    old_tags = {fleet_tag(o): fleet_tag(n) for o, n in renames.items()}
+    n = 0
+    for d in devices:
+        tags = d.get("tags") or []
+        hit = [t for t in tags if t in old_tags]
+        if hit:
+            d["tags"] = list(dict.fromkeys(old_tags.get(t, t) for t in tags))
+            d["_retag"] = hit[0]
+            n += 1
+    return n
+
+
 def fleet_of(d: dict) -> str | None:
     return next((t[6:] for t in d.get("tags") or [] if t.startswith("fleet:")), None)
 

@@ -72,21 +72,10 @@ async def trail_scan(request: Request, replicant: str = Form(...), user: str = D
     db, api = request.app.state.db, request.app.state.api
     s = await _state(db)
     s["scanner"] = replicant          # remembered: the vessel that scanned is the one the travel buttons send
-    found, cursor = [], None
     try:
-        for _ in range(6):
-            params = {"device_type": "ftl_beacon", "limit": 50, **({"cursor": cursor} if cursor else {})}
-            if s.get("target_code"):
-                params["owner_replicant_code"] = s["target_code"]
-            body = await api.get(f"/replicants/{replicant}/scan/devices", **params) or {}
-            found += tl.beacons_in(body, s.get("target_code"), s.get("target_name"))
-            cursor = body.get("next_cursor")
-            if not cursor:
-                break
+        found = await tl.scan_for_beacons(api, replicant, s)
     except ApiError as e:
         return _msg(f"Scan failed: {e.message}", ok=False)
-    for b in found:
-        s["beacons"].setdefault(b["code"], {**b, "found_at": now_iso()})
     await db.kv_set(tl.KV, s)
     if not found:
         return _msg(f"No beacon of {s['target_name']} in that replicant's system.", ok=False)
@@ -149,6 +138,42 @@ async def trail_stars(request: Request, replicant: str = Form(...), user: str = 
     found = await record(db, star_of(r.get("location") or r.get("current_location")) or "?", replicant, pages)
     placed = [x for x in found if x.get("position")]
     return _msg(f"{len(found)} stars around {r.get('name') or replicant} ({len(placed)} with positions) added to the map.")
+
+
+@router.post("/trail/follow", response_class=HTMLResponse)
+async def trail_follow(request: Request, action: str = Form("start"), user: str = Depends(current_user)):
+    """Follow the trail to the end with the replicant that scanned (engine: trail_follow_pass): fly to where the
+    latest departure points, read the beacons there, keep going until an arrival has no departure after it."""
+    db = request.app.state.db
+    s = await _state(db)
+    if action == "stop":
+        fo = s.get("follow") or {}
+        if fo.get("active"):
+            fo["active"], fo["result"] = False, f"stopped by {user}"
+            fo.setdefault("log", []).append({"at": now_iso(), "text": f"stopped by {user}"})
+            if fo.get("job"):
+                await request.app.state.worker.automations.cancel(fo["job"])
+            s["follow"] = fo
+            await db.kv_set(tl.KV, s)
+        return _msg("Stopped following.")
+    rep = s.get("scanner")
+    if not rep:
+        return _msg("Scan for beacons with a replicant first: that's the one that follows the trail.", ok=False)
+    pos = _positions(await db.kv_get("stars", {}) or {})
+    last = tl.last_seen(s["audit"], s["beacons"], s.get("target_code"))
+    legs = tl.legs(s["audit"], s["beacons"], s.get("target_code"), pos)
+    if last and last.get("travel_type") == "arrival":
+        first, alts, why = last["star"], [], f"{s['target_name']}'s latest move is an arrival at {last['star']}"
+    elif legs and legs[0]["candidates"]:
+        first, alts = legs[0]["candidates"][0]["star"], [c["star"] for c in legs[0]["candidates"][1:4]]
+        why = f"the latest departure (from {legs[0]['from']}) points at {first}"
+    else:
+        return _msg("Nothing to follow yet: read a beacon with a departure of theirs first (and load the stars around it).", ok=False)
+    s["follow"] = {"active": True, "replicant": rep, "state": "travel", "star": first, "alts": alts, "job": None,
+                   "visited": [], "started_at": now_iso(), "by": user,
+                   "log": [{"at": now_iso(), "text": f"following {s['target_name']}: {why}"}]}
+    await db.kv_set(tl.KV, s)
+    return _msg(f"Following {s['target_name']}: first stop {first}.")
 
 
 ETA_TTL = 1800   # seconds an estimate is reused (per replicant, its system and the target)
