@@ -5262,6 +5262,13 @@ def test_trail_page_end_to_end(client):
     assert '"/trail/travel"' in page and '{"star": "EAST"}' in page
     r = client.post("/trail/travel", data={"star": "EAST"}, headers=HX)
     assert f"/replicants/{rep}/travel" in r.text and "EAST" in r.text
+    # travel time for the replicant that scanned: the game's estimate, cached
+    assert "/trail/eta?star=EAST" in page
+    assert ">?<" in client.get("/trail/eta?star=EAST", headers=HX).text            # the game doesn't know EAST
+    r = client.get("/trail/eta?star=LERNA", headers=HX)
+    assert "≈" in r.text and "ly from" in r.text
+    eta = client.portal.call(client.app.state.db.kv_get, "trail_eta")
+    assert any(k.endswith("|LERNA") for k in eta)
 
 
 def _ward(code, loc, status="warding"):

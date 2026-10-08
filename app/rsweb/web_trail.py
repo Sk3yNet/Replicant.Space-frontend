@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 
 from .api import ApiError
 from .db import now_iso
-from .web import current_user, load_state, page, run_action, star_of
+from .web import current_user, f_duration, load_state, page, run_action, star_of
 from . import trail as tl
 
 router = APIRouter()
@@ -149,6 +149,46 @@ async def trail_stars(request: Request, replicant: str = Form(...), user: str = 
     found = await record(db, star_of(r.get("location") or r.get("current_location")) or "?", replicant, pages)
     placed = [x for x in found if x.get("position")]
     return _msg(f"{len(found)} stars around {r.get('name') or replicant} ({len(placed)} with positions) added to the map.")
+
+
+ETA_TTL = 1800   # seconds an estimate is reused (per replicant, its system and the target)
+
+
+@router.get("/trail/eta", response_class=HTMLResponse)
+async def trail_eta(request: Request, star: str, user: str = Depends(current_user)):
+    """How long the replicant that scanned would take to reach `star` (GET /replicants/{code}/stars/{star}:
+    estimated_travel_time), cached for half an hour so the page's lazy loads don't cost a request each time."""
+    db = request.app.state.db
+    s = await _state(db)
+    rep = s.get("scanner")
+    if not rep:
+        return HTMLResponse("")
+    r = (await load_state(request))["replicants"].get(rep) or {}
+    here = star_of(r.get("location") or r.get("current_location"))
+    star = star.strip().upper()
+    if star == here:
+        return HTMLResponse('<span class="muted small">here</span>')
+    cache = await db.kv_get("trail_eta", {}) or {}
+    key = f"{rep}|{here}|{star}"
+    hit = cache.get(key)
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).timestamp()
+    if not hit or now - float(hit.get("t") or 0) > ETA_TTL:
+        try:
+            body = await request.app.state.api.get(f"/replicants/{rep}/stars/{star}", background=True) or {}
+            st = body.get("star") or body
+            hit = {"t": now, "secs": st.get("estimated_travel_time"), "ly": st.get("distance_from_replicant")}
+        except ApiError as e:
+            return HTMLResponse(f'<span class="muted small" title="{html.escape(e.message)}">?</span>')
+        cache = {k: v for k, v in cache.items() if now - float(v.get("t") or 0) <= ETA_TTL}   # drop stale ones
+        cache[key] = hit
+        await db.kv_set("trail_eta", cache)
+    if hit.get("secs") is None:
+        return HTMLResponse('<span class="muted small">?</span>')
+    arrive = datetime.fromtimestamp(now + float(hit["secs"]), timezone.utc).isoformat(timespec="minutes")
+    ly = f" · {float(hit['ly']):.1f} ly from {html.escape(here)}" if hit.get("ly") is not None else ""
+    return HTMLResponse(f'<span class="small" title="{html.escape(r.get("name") or rep)}: estimated by the game{ly}; '
+                        f'arrives about {arrive} UTC">≈ {f_duration(hit["secs"])}</span>')
 
 
 @router.post("/trail/travel", response_class=HTMLResponse)

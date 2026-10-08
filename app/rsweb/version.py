@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.43.2"
+VERSION = "1.43.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.43.3", "2026-10-08", "Trail: a travel time beside each candidate system (and the likely next stop) for the "
+     "replicant that scanned — the game's own estimate, loaded as the rows come into view and kept for half an hour; "
+     "hover for the distance and the arrival time."),
     ("1.43.2", "2026-10-08", "Mining controllers no longer overheat on a dry belt. Seen live at LORSELAN: eight drones mined "
      "out five small sites in eight minutes, a ten-minute-old belt read still listed them, and the controller was "
      "relaunched onto nothing — it then logged ami_overheat every 20 s and lost about 9 % capacity an hour. Open-site "
