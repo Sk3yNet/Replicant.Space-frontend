@@ -16,11 +16,18 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.43.1"
+VERSION = "1.43.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.43.2", "2026-10-08", "Mining controllers no longer overheat on a dry belt. Seen live at LORSELAN: eight drones mined "
+     "out five small sites in eight minutes, a ten-minute-old belt read still listed them, and the controller was "
+     "relaunched onto nothing — it then logged ami_overheat every 20 s and lost about 9 % capacity an hour. Open-site "
+     "counts now leave out sites mined out since the belt was read, and a controller exhausted at a belt with no open "
+     "sites rests (its directive is cleared, drones stay put; option 'Rest a controller whose belt has no open sites' "
+     "under Salvage when mining sites run out). AMI schedules leave a resting controller alone; once the survey drones "
+     "open a site, back to the belt relaunches it with the directive and settings it had."),
     ("1.43.1", "2026-10-08", "Code review fixes. Safety: a command that timed out is no longer resent (it may have "
      "happened); the account-wipe blocklist can't be dodged with ./.. in a path; several places that put game text or "
      "URL values into HTML without escaping are fixed (a print-queue list, the cargo buttons, hx-vals with player "

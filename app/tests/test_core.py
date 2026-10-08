@@ -5460,3 +5460,52 @@ def test_review_engine_stage_failure_is_isolated(client):
     assert ran == [1, 1]                                                       # later stages still ran, each tick
     notes = client.portal.call(client.app.state.db.fetchall, "SELECT title FROM notifications WHERE title LIKE '%run_fleets%'")
     assert len(notes) == 1                                                     # said once, not every minute
+
+
+def test_dry_belt_rests_controller_and_relaunches_with_its_directive(client):
+    """Live 2026-10-08 (LORSELAN): eight drones mined out five small sites in eight minutes; a ten-minute-old belt read
+    still listed them, the controller was relaunched onto nothing and logged ami_overheat (heat 2.0, −0.05 % / 20 s)."""
+    eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
+    C = {"device_code": "C1000001", "device_type": "ami_mining_controller", "location": "LOR-BELT-1", "status": "coordinating",
+         "features": ["ami", "cruise", "stow"], "in_control_range": True, "ami_directive_status": "active",
+         "available_commands": ["set_directive", "clear_directive", "launch", "adopt"],
+         "ami_directive": {"name": "gather_resources", "config": {"structural": 100},
+                           "_eval_state": "exhausted:['structural']:LOR-BELT-1"}}
+    drones = [{"device_code": f"D100000{i}", "device_type": "mining_drone", "location": "LOR-BELT-1", "status": "idle",
+               "controller_device_code": "C1000001"} for i in range(2)]
+    client.portal.call(db.kv_set, "devices", [C] + drones)
+    client.portal.call(db.kv_set, "loc:LOR-BELT-1", {"resource_sites": [{"designation": "LOR-BELT-1-SITE-2"}]})
+    read = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(timespec="seconds")
+    client.portal.call(db.kv_set, "belt_reads", {"LOR-BELT-1": read})
+
+    async def enable():
+        s = await eng.settings()
+        s["rules"]["salvage_when_depleted"]["enabled"] = True
+        await eng.save_settings(s)
+    client.portal.call(enable)
+    assert client.portal.call(eng.open_sites_now, "LOR-BELT-1") == 1
+    client.portal.call(w.handle_event, {**_ev(961, "site.depleted", device="D1000000", site="LOR-BELT-1-SITE-2"),
+                                        "location": "LOR-BELT-1"})   # mined out after the read
+    assert client.portal.call(eng.open_sites_now, "LOR-BELT-1") == 0
+    assert client.portal.call(eng.belt_open_sites, ["LOR-BELT-1"]) == {"LOR-BELT-1": 0}
+    assert client.portal.call(eng.rule_back_to_belt, {"back_to_belt": True}) == []     # no relaunch onto nothing
+    out = client.portal.call(eng.rest_dry_controllers)
+    assert out == ["C1000001 rests at LOR-BELT-1"]
+    job = next(j for j in client.portal.call(eng.jobs) if j["device"] == "C1000001")
+    assert job["steps"][0]["body"] == {"command": "clear_directive"}
+    rested = client.portal.call(db.kv_get, "rested")
+    assert rested["C1000001"]["directive"] == "gather_resources" and rested["C1000001"]["belt"] == "LOR-BELT-1"
+    # the directive is cleared; later the survey drones open a site: relaunched with what it ran before
+    C2 = {**C, "ami_directive": {"name": None, "config": None, "_eval_state": None}, "ami_directive_status": None}
+    client.portal.call(db.kv_set, "devices", [C2] + drones)
+    client.portal.call(db.kv_set, "automation_jobs", [])
+    assert client.portal.call(eng.rest_dry_controllers) == []                     # still resting, not forgotten
+    client.portal.call(db.kv_set, "loc:LOR-BELT-1", {"resource_sites": [{"designation": "LOR-BELT-1-SITE-3"}]})
+    client.portal.call(db.kv_set, "belt_reads", {"LOR-BELT-1": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+    done = client.portal.call(eng.rule_back_to_belt, {"back_to_belt": True})
+    assert done == ["C1000001 → LOR-BELT-1"]
+    job = next(j for j in client.portal.call(eng.jobs) if j["device"] == "C1000001")
+    assert "rested while LOR-BELT-1 was dry" in job["title"]
+    sd = next(s for s in job["steps"] if (s.get("body") or {}).get("command") == "set_directive")
+    assert sd["body"]["directive"] == "gather_resources" and sd["body"].get("configuration") == {"structural": 100}
+    assert "C1000001" not in (client.portal.call(db.kv_get, "rested") or {})

@@ -103,14 +103,17 @@ def exhausted_place(state: str | None) -> str | None:
     return place or None
 
 
-def open_site_count(detail: dict | None) -> int:
-    """Open resource sites a belt's detail lists (salvage entries and fully used-up sites don't count)."""
+def open_site_count(detail: dict | None, gone: set[str] | None = None) -> int:
+    """Open resource sites a belt's detail lists (salvage entries and fully used-up sites don't count, nor `gone`:
+    sites a site.depleted event closed since the detail was read)."""
     n = 0
     for s in (detail or {}).get("resource_sites") or []:
         if not isinstance(s, dict):
             n += 1
             continue
         if s.get("site_type") == "salvage" or "-SAL-" in str(s.get("designation") or ""):
+            continue
+        if gone and s.get("designation") in gone:
             continue
         pct = s.get("resources_remaining_pct")
         if isinstance(pct, dict) and pct and all((v or 0) <= 0 for v in pct.values()):
@@ -153,7 +156,7 @@ def scattered(c: dict, devices: list[dict], managed: dict[str, str] | None = Non
 
 def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str, str], open_sites: dict[str, int],
                       system_belts: dict[str, list[str]], skip: set[str], directive_for: dict[str, str] | None = None,
-                      free: set[str] | None = None) -> list[dict]:
+                      free: set[str] | None = None, rested: set[str] | None = None) -> list[dict]:
     """Mining controllers that should be mining a belt but aren't: their directive is exhausted (at a body, or a stale
     exhausted at the belt itself), paused, or a finished salvage, while a belt in the system has open sites; or the
     controller is parked away from any belt (parked()) while its system has a belt. Returns one plan per controller:
@@ -176,7 +179,8 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
         salvage_done = name == "gather_salvage" and state.startswith(FINISHED_STATES)
         is_parked = parked(c)
         strewn = scattered(c, devices, managed)
-        if not (place or paused or salvage_done or is_parked or strewn):
+        resting = code in (rested or set())   # its directive was cleared while its belt was dry
+        if not (place or paused or salvage_done or is_parked or strewn or resting):
             continue
         star = (c.get("location") or "").split("-")[0]
         belt = belt_of(c.get("location"))
@@ -205,7 +209,8 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
                if strewn and (not place or open_sites.get(belt, 0) <= 0) else
                f"exhausted at {place}, its drones are away from {belt}" if place and place != belt else
                f"stale 'exhausted' at {belt}, which now has {open_sites.get(belt, 0)} open site(s)" if place == belt else
-               "finished salvage" if salvage_done else "directive paused")
+               "finished salvage" if salvage_done else
+               f"rested while {belt} was dry, it has {open_sites.get(belt, 0)} open site(s) now" if resting else "directive paused")
         d = (directive_for or {}).get(code) or (name if name and name != "gather_salvage" else "gather_evenly")
         if free is not None:
             free -= set(strays)   # each stray goes with one controller

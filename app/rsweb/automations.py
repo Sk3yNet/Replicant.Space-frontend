@@ -130,6 +130,10 @@ RULES: list[Rule] = [
           Option("recall", "bool", "AMI: recall its drones when the salvage is used up", True),
           Option("back_to_belt", "bool", "Bring controllers and drones back to a belt once it has open sites again", True),
           Option("back_cooldown_minutes", "int", "Back to the belt: wait before re-trying the same controller (min)", 30),
+          Option("rest_when_dry", "bool", "Rest a controller whose belt has no open sites (clear its directive, drones "
+                 "stay put) so it doesn't overheat; relaunch it when sites open", True,
+                 help="Seen live: a controller left on an exhausted directive with no open sites logs ami_overheat "
+                      "and loses about 9 % capacity an hour"),
           Option("drones_per_salvage", "int", "Drones per salvage when there's no AMI (0 = all on one)", 3),
           Option("cooldown_minutes", "int", "Wait before re-trying the same device (min)", 10)]),
     Rule("auto_survey", "Auto-survey new systems",
@@ -824,7 +828,7 @@ class AutomationEngine(OpsRules):
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
             for stage in ("run_fleets", "auto_deals_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
-                          "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rule_restart_idle_miners",
+                          "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_pass", "auto_scout_pass", "hub_watch_pass"):
                 self.stage = stage
@@ -1366,6 +1370,10 @@ class AutomationEngine(OpsRules):
             if "mining" in (ctrl.get("device_type") or "") and star_of(ctrl.get("location")) in warded:
                 results.append(f"{code}: another player's ward or hub in {star_of(ctrl.get('location'))} — no mining there")
                 continue
+            rest = (await self.db.kv_get("rested", {}) or {}).get(code)
+            if rest and not manual and await self.open_sites_now(rest["belt"]) <= 0:
+                results.append(f"{code}: resting at {rest['belt']} until it has open sites (an exhausted controller overheats)")
+                continue
             idle, why = await controller_idle(self.db, ctrl)
             if sched.get("only_idle", True) and not idle:
                 results.append(f"{code}: busy ({why})")
@@ -1376,10 +1384,10 @@ class AutomationEngine(OpsRules):
                 results.append(f"{code}: on salvage — left alone")
                 continue
             if not manual and dv.get("name") == sched["directive"] and state.startswith("exhausted"):
-                from .salvage import belt_of, exhausted_place, open_site_count
+                from .salvage import belt_of, exhausted_place
                 place = exhausted_place(state)
                 pb = belt_of(place)
-                if pb and pb == place and open_site_count(await self.db.kv_get(f"loc:{pb}", None)) > 0:
+                if pb and pb == place and await self.open_sites_now(pb) > 0:
                     pass  # stale: the belt it ran dry at has open sites again — re-sending restarts it
                 elif place and not pb:
                     results.append(f"{code}: exhausted at {place} (its drones are off the belt) — 'Salvage when depleted' "
@@ -2377,7 +2385,8 @@ class AutomationEngine(OpsRules):
         per = max(1, int(cfg.get("drones_per_belt") or 2))
         now = _now()
         done: list[str] = []
-        for belt, why in sorted(sites.exhausted_belts(devices, await self.exhausted_places()).items()):
+        rested = [v["belt"] for v in (await self.db.kv_get("rested", {}) or {}).values() if v.get("belt")]
+        for belt, why in sorted(sites.exhausted_belts(devices, await self.exhausted_places() + rested).items()):
             last = _ts(state.get(belt))
             if last and now - last < cooldown:
                 continue
@@ -2438,9 +2447,33 @@ class AutomationEngine(OpsRules):
                     reads[b] = now.isoformat(timespec="seconds")
                 except ApiError:
                     pass
-            out[b] = open_site_count(detail)
+            out[b] = open_site_count(detail, await self.depleted_since(b, reads.get(b)))
         await self.db.kv_set("belt_reads", reads)
         return out
+
+    async def depleted_since(self, belt: str, since: str | None) -> set[str]:
+        """Sites at `belt` a site.depleted event closed after `since` (when we last read the belt). Seen live
+        (2026-10-08, LORSELAN): eight drones mined out five small sites in eight minutes; a ten-minute-old read still
+        listed all five, and the controller was relaunched onto nothing — and overheated."""
+        if not since:
+            return set()
+        rows = await self.db.fetchall("SELECT payload FROM events WHERE event='site.depleted' AND received_at >= ? "
+                                      "AND payload LIKE ?", (since, f'%"{belt}-%'))
+        out = set()
+        for r in rows:
+            try:
+                site = (json.loads(r["payload"] or "{}") or {}).get("site")
+            except ValueError:
+                continue
+            if site and str(site).startswith(belt + "-"):
+                out.add(site)
+        return out
+
+    async def open_sites_now(self, belt: str) -> int:
+        """Open sites at a belt from our last read, less what has been mined out since (no request)."""
+        from .salvage import open_site_count
+        reads = await self.db.kv_get("belt_reads", {}) or {}
+        return open_site_count(await self.db.kv_get(f"loc:{belt}", None), await self.depleted_since(belt, reads.get(belt)))
 
     async def refresh_known_belts(self, every_minutes: int = 20, max_belts: int = 8) -> list[str]:
         """Keep the belts your devices are at current (open sites appear and close all the time), so closed or used-up
@@ -2541,7 +2574,8 @@ class AutomationEngine(OpsRules):
             t = _ts(at)
             if not t or (_now() - t).total_seconds() > max_age_hours * 3600:
                 continue
-            out[star_of(b)] = out.get(star_of(b), 0) + open_site_count(await self.db.kv_get(f"loc:{b}", None))
+            out[star_of(b)] = out.get(star_of(b), 0) + open_site_count(await self.db.kv_get(f"loc:{b}", None),
+                                                                       await self.depleted_since(b, at))
         return out
 
     async def system_belts(self, stars: set[str]) -> dict[str, list[str]]:
@@ -2567,7 +2601,9 @@ class AutomationEngine(OpsRules):
                     or (dv.get("name") == "gather_salvage" and st.startswith(sv.FINISHED_STATES)) or sv.parked(c))
         mgd = await managed_by(self.db)
         warded = await self.warded(devices)
-        cands = [c for c in ctrls if (candidate(c) or sv.scattered(c, devices, mgd)) and star_of(c.get("location")) not in warded]
+        rested = await self.db.kv_get("rested", {}) or {}
+        cands = [c for c in ctrls if (candidate(c) or sv.scattered(c, devices, mgd) or c.get("device_code") in rested)
+                 and star_of(c.get("location")) not in warded]
         if not cands:
             return []
         stars = {star_of(c.get("location")) for c in cands}
@@ -2582,7 +2618,7 @@ class AutomationEngine(OpsRules):
         cool = timedelta(minutes=int(cfg.get("back_cooldown_minutes") or 30))
         now = _now()
         skip = self.busy_devices(await self.jobs()) | {k for k, v in back.items() if _ts(v) and now - _ts(v) < cool}
-        directive_for = {}
+        directive_for = {k: v.get("directive") for k, v in rested.items() if v.get("directive")}   # what it ran before
         for sched in await self.schedules():   # use the directive an AMI schedule gives that controller, if any
             if sched.get("enabled", True):
                 for c in targets_of(sched, devices):
@@ -2590,16 +2626,66 @@ class AutomationEngine(OpsRules):
         done = []
         busy = self.busy_devices(await self.jobs())
         free = {d["device_code"] for d in devices if not _reserved(d) and d["device_code"] not in busy}
-        for p in sv.back_to_belt_plan(cands, devices, mgd, open_sites, sysb, skip, directive_for, free):
+        for p in sv.back_to_belt_plan(cands, devices, mgd, open_sites, sysb, skip, directive_for, free, set(rested)):
+            r = rested.get(p["ctrl"]) or {}
+            if r.get("directive") == p["directive"] and r.get("config"):
+                p["config"] = r["config"]   # the configuration it had before resting (e.g. gather_resources amounts)
             n = len(p["away"]) + len(p["strays"])
             job = await self.create_job("salvage_when_depleted",
                                         f"{p['ctrl']}: back to {p['belt']} ({p['why']})"
                                         + (f", bringing {n} drone(s)" if n else ""),
                                         p["ctrl"], sv.back_to_belt_steps(p), {"devices": p["away"] + p["strays"], "belt": p["belt"]})
             back[p["ctrl"]] = now.isoformat(timespec="seconds")
+            if job and rested.pop(p["ctrl"], None):
+                await self.db.kv_set("rested", rested)
             done.append(f"{p['ctrl']} → {p['belt']}" + (" (planned, dry run)" if not job else ""))
         await self.db.kv_set("salvage_state", {**(await self.db.kv_get("salvage_state", {}) or {}), "back": back})
         return done
+
+    async def rest_dry_controllers(self) -> list[str]:
+        """A mining controller whose directive is exhausted at its belt while that belt has no open sites (the survey
+        drones are still searching) and no salvage took it: clear its directive so it stops coordinating drones with
+        nothing to mine — seen live (2026-10-08, LORSELAN) to log ami_overheat every 20 s, heat 2.0, and lose ~9 %
+        capacity an hour. Its drones stay at the belt. kv "rested" remembers the directive; back to the belt relaunches
+        it once the belt has open sites, and AMI schedules leave it alone until then."""
+        cfg = await self.rule_cfg("salvage_when_depleted")
+        if not cfg or not cfg.get("rest_when_dry", True):
+            return []
+        from . import salvage as sv
+        from .ami_schedule import is_controller, kind_of
+        devices = await self.devices()
+        busy = self.busy_devices(await self.jobs())
+        rested = await self.db.kv_get("rested", {}) or {}
+        out = []
+        for c in devices:
+            code = c.get("device_code")
+            if not (is_controller(c) and kind_of(c.get("device_type")) == "mining") or _reserved(c) or code in busy \
+                    or code in rested or c.get("in_control_range") is False:
+                continue
+            dv = c.get("ami_directive") if isinstance(c.get("ami_directive"), dict) else {}
+            state = str(dv.get("_eval_state") or "")
+            if not dv.get("name") or dv.get("name") == "gather_salvage" or not state.startswith("exhausted"):
+                continue
+            place = sv.exhausted_place(state)
+            belt = sv.belt_of(place)
+            if not belt or belt != place or (await self.belt_open_sites([belt]))[belt] > 0:
+                continue   # exhausted at a body (back to the belt handles that), or the belt has sites: not dry
+            job = await self.create_job("salvage_when_depleted", f"{code}: rest at {belt} — no open sites, the survey "
+                                        "drones are searching (an exhausted controller overheats)", code,
+                                        [step(f"{code}: clear_directive", f"/devices/{code}", {"command": "clear_directive"},
+                                              critical=True)], {"devices": [], "belt": belt})
+            if job:
+                rested[code] = {"belt": belt, "directive": dv.get("name"), "config": dv.get("config") or {}, "at": now_iso()}
+                out.append(f"{code} rests at {belt}")
+        # forget a rest the player ended (a directive set by hand) or a controller that has gone
+        by = {d.get("device_code"): d for d in devices}
+        for code in list(rested):
+            d = by.get(code)
+            if d is None or ((d.get("ami_directive") or {}).get("name") and code not in busy
+                             and not str((d.get("ami_directive") or {}).get("_eval_state") or "").startswith("exhausted")):
+                rested.pop(code)
+        await self.db.kv_set("rested", rested)
+        return out
 
     async def rule_salvage(self) -> list[str]:
         """See salvage.py. Returns what it did (for the log / tests)."""
