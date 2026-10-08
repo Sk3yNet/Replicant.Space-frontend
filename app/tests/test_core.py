@@ -5255,3 +5255,10 @@ def test_trail_page_end_to_end(client):
     out = client.portal.call(eng.trail_pass)
     assert out == ["Bill: arrival at SOL-3"]
     assert client.portal.call(eng.trail_pass) == []                              # not again within 15 minutes
+    # the page keeps what was entered, and a candidate's travel button sends the replicant that scanned
+    client.post("/trail/beacon", data={"code": "bb000001", "star": "sol"}, headers=HX)
+    page = client.get("/trail", headers=H).text
+    assert f'value="{rep}" selected' in page and 'value="BB000001"' in page and 'value="SOL"' in page
+    assert '"/trail/travel"' in page and '{"star": "EAST"}' in page
+    r = client.post("/trail/travel", data={"star": "EAST"}, headers=HX)
+    assert f"/replicants/{rep}/travel" in r.text and "EAST" in r.text

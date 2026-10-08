@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 
 from .api import ApiError
 from .db import now_iso
-from .web import current_user, load_state, page, star_of
+from .web import current_user, load_state, page, run_action, star_of
 from . import trail as tl
 
 router = APIRouter()
@@ -38,8 +38,9 @@ async def trail_page(request: Request, user: str = Depends(current_user)):
     last = tl.last_seen(s["audit"], s["beacons"], s.get("target_code"))
     reps = [{"code": c, "name": r.get("name") or c, "star": star_of(r.get("location") or r.get("current_location"))}
             for c, r in st["replicants"].items()]
+    scanner = next((r for r in reps if r["code"] == s.get("scanner")), None)
     return await page(request, user, "trail.html", "trail", s=s, legs=legs, last=last, reps=reps, n_pos=len(pos),
-                      known_stars=sorted(pos))
+                      known_stars=sorted(pos), scanner=scanner)
 
 
 @router.post("/trail/target", response_class=HTMLResponse)
@@ -68,6 +69,7 @@ async def trail_scan(request: Request, replicant: str = Form(...), user: str = D
     """Find the target's beacons among the other devices in a replicant's current system (GET /scan/devices)."""
     db, api = request.app.state.db, request.app.state.api
     s = await _state(db)
+    s["scanner"] = replicant          # remembered: the vessel that scanned is the one the travel buttons send
     found, cursor = [], None
     try:
         for _ in range(6):
@@ -100,6 +102,7 @@ async def trail_beacon(request: Request, code: str = Form(...), star: str = Form
         s["audit"].pop(code, None)
         await db.kv_set(tl.KV, s)
         return _msg(f"Removed {code}.")
+    s["last_beacon"] = {"code": code, "star": star.strip().upper()}
     s["beacons"][code] = {**s["beacons"].get(code, {}), "code": code, "star": star.strip().upper() or None,
                           "found_at": now_iso()}
     await db.kv_set(tl.KV, s)
@@ -127,6 +130,9 @@ async def trail_stars(request: Request, replicant: str = Form(...), user: str = 
     db, api = request.app.state.db, request.app.state.api
     st = await load_state(request)
     r = st["replicants"].get(replicant) or {}
+    s = await _state(db)
+    s["stars_replicant"] = replicant
+    await db.kv_set(tl.KV, s)
     pages = []
     try:
         for n in range(1, 9):
@@ -140,3 +146,15 @@ async def trail_stars(request: Request, replicant: str = Form(...), user: str = 
     found = await record(db, star_of(r.get("location") or r.get("current_location")) or "?", replicant, pages)
     placed = [x for x in found if x.get("position")]
     return _msg(f"{len(found)} stars around {r.get('name') or replicant} ({len(placed)} with positions) added to the map.")
+
+
+@router.post("/trail/travel", response_class=HTMLResponse)
+async def trail_travel(request: Request, star: str = Form(...), replicant: str = Form(""),
+                       user: str = Depends(current_user)):
+    """Send the replicant that scanned for the beacons (its vessel) to a candidate system."""
+    s = await _state(request.app.state.db)
+    rep, star = (replicant or s.get("scanner") or "").strip(), star.strip().upper()
+    if not rep:
+        return _msg("Scan for beacons with a replicant first: that's the one the travel buttons send.", ok=False)
+    return await run_action(request, user, "POST", f"/replicants/{rep}/travel", {"destination": star},
+                            f"{rep} → {star} (following {s['target_name']})")
