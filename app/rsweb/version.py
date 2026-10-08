@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.48.2"
+VERSION = "1.48.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.48.3", "2026-10-08", "Placed beacons and relays (deployed, monitoring or relaying where they are) are never spare, never "
+     "sent to fill a shortfall or gathered at the spare depot; leftover spare tags on them are removed (seen live: 13 "
+     "working beacons the Surveyors dropped carried an old spare tag). A stationed fleet's own placed beacon at home still "
+     "counts toward its loadout; misplaced relays are still reported."),
     ("1.48.2", "2026-10-08", "Galaxy map is live: it redraws ships in transit, fleets, supply lines and mining when the live "
      "stream says something departed, arrived or changed (at most every few seconds), and a travel command's answer — "
      "yours or an automation's — goes on the cached device at once, so a new trip shows within seconds instead of after "
