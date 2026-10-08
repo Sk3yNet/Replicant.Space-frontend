@@ -36,6 +36,9 @@ CREATE INDEX IF NOT EXISTS ix_events_received ON events(received_at);
 CREATE INDEX IF NOT EXISTS ix_events_category ON events(category);
 CREATE INDEX IF NOT EXISTS ix_events_device ON events(device_code);
 CREATE INDEX IF NOT EXISTS ix_events_event ON events(event);
+-- per-system lookups (targets.system_resources / system_targets): star = ? OR location in [STAR-, STAR.)
+CREATE INDEX IF NOT EXISTS ix_events_star_event ON events(star, event);
+CREATE INDEX IF NOT EXISTS ix_events_loc_event ON events(location, event);
 
 -- Things in progress with a known finish time (travel, prints, scans ...).
 CREATE TABLE IF NOT EXISTS timers (

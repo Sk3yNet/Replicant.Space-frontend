@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.43.3"
+VERSION = "1.43.4"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.43.4", "2026-10-08", "Fleets page faster. The mining-prospect ranking read every scanned system's resources from "
+     "the events table once per mining fleet's home on every load; it now does that once and keeps it for a minute (or "
+     "until the catalogue, devices, fleets or scans change), and those per-system reads use two new indexes (built once "
+     "at the first start, which may take a few seconds on a big database) — about 5–10× faster each. Fleets sharing a "
+     "home share one destination list, and the destination and unscanned-star lists no longer build a record for "
+     "every star in the catalogue."),
     ("1.43.3", "2026-10-08", "Trail: a travel time beside each candidate system (and the likely next stop) for the "
      "replicant that scanned — the game's own estimate, loaded as the rows come into view and kept for half an hour; "
      "hover for the distance and the arrival time."),

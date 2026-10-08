@@ -102,23 +102,36 @@ def unexplored(cat: dict, explored: set[str], ref: dict | None, census_stars: di
 def destination_systems(cat: dict, explored: set[str], yours: set[str], here: str | None, limit: int = 400) -> list[dict]:
     """Systems to offer as travel destinations, nearest to `here` first, grouped: your systems (devices there),
     explored, unexplored. Census stars beyond the catalogue are included (they're merged into it)."""
-    pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict)}
-    ref = pos.get((here or "").split("-")[0])
-    out = []
-    for s in cat.get("stars") or []:
-        code = s.get("designation")
+    import heapq
+    here = (here or "").split("-")[0]
+    rp = next((s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict) and s.get("designation") == here), None)
+    ref = _xyz(rp)
+    order = {"Your systems": 0, "Explored": 1, "Unexplored": 2}
+    keyed, seen = [], set()
+    for s in cat.get("stars") or []:   # sort keys only (thousands of stars); dicts just for the ones returned
+        code = s.get("designation") if isinstance(s, dict) else None
         if not code:
             continue
+        seen.add(code)
         group = ("Your systems" if code in yours else "Explored" if code in explored or s.get("explored") is True
                  else "Unexplored")
-        d = _dist(ref, s.get("position"))
-        out.append({"value": code, "group": group, "distance": None if d is None else round(d, 2),
-                    "label": (f"{d:.1f} ly" if d is not None else "") + (" · census" if s.get("from_census") else "")})
-    for code in sorted(yours - {o["value"] for o in out}):   # not in the catalogue at all (no census yet)
-        out.append({"value": code, "group": "Your systems", "distance": None, "label": ""})
-    order = {"Your systems": 0, "Explored": 1, "Unexplored": 2}
-    out.sort(key=lambda o: (order[o["group"]], o["distance"] is None, o["distance"] or 0, o["value"]))
-    return out[:limit]
+        p = _xyz(s.get("position"))
+        d = math.dist(ref, p) if ref and p else None
+        keyed.append(((order[group], d is None, d or 0, code), group, d, s))
+    for code in sorted(yours - seen):   # not in the catalogue at all (no census yet)
+        keyed.append(((0, True, 0, code), "Your systems", None, {"designation": code}))
+    return [{"value": s["designation"], "group": group, "distance": None if d is None else round(d, 2),
+             "label": (f"{d:.1f} ly" if d is not None else "") + (" · census" if s.get("from_census") else "")}
+            for _, group, d, s in heapq.nsmallest(limit, keyed, key=lambda x: x[0])]
+
+
+def _xyz(p) -> tuple[float, float, float] | None:
+    if not isinstance(p, dict):
+        return None
+    try:
+        return (float(p.get("x") or 0), float(p.get("y") or 0), float(p.get("z") or 0))
+    except (TypeError, ValueError):
+        return None
 
 
 async def fetch_catalogue(api) -> dict:

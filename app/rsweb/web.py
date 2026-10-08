@@ -2744,9 +2744,12 @@ async def fleets_ctx(request: Request) -> dict:
     yours = {star_of(d.get("location")) for d in st["devices"] if d.get("location")}
     from . import prospects as _pr
     ranks: dict[str, dict] = {}   # origin -> {star: prospect}
+    dests: dict[str, list[dict]] = {}   # home -> destination list (fleets sharing a home share it)
     for f in items:
-        f["target_options"] = [o for o in destination_systems(cat, scanned | yours, yours, f.get("home"), limit=300)
-                               if o["value"] not in homes]
+        if f.get("home") not in dests:
+            dests[f.get("home")] = [o for o in destination_systems(cat, scanned | yours, yours, f.get("home"), limit=300)
+                                    if o["value"] not in homes]
+        f["target_options"] = [dict(o) for o in dests[f.get("home")]]
         if f.get("role") == "mining":   # mining targets: best prospects first, with their score and why
             o_star = f.get("home") or ""
             if o_star not in ranks:

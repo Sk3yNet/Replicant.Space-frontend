@@ -123,9 +123,23 @@ def wanted_from(totals: dict[str, float], series: dict[str, list[float]], waitin
     return want
 
 
-async def rank(db, eng, devices: list[dict], origin: str | None, limit_unscanned: int = 8) -> dict:
-    """Every scanned system scored (best first), plus the nearest unscanned catalogue stars as "survey first"."""
-    from . import outposts, printqueue, wards
+_INPUTS: dict[int, tuple[float, Any, tuple, dict]] = {}   # id(db) -> (when, db, signature, inputs)
+INPUTS_TTL = 60.0
+
+
+async def rank_inputs(db, eng, devices: list[dict]) -> dict:
+    """What every ranking needs whatever the origin: positions, warded systems, stationed homes, viability, what you
+    want, and each scanned system's scan and resources. system_resources reads the events table per system (about
+    0.15 s for a busy one with a few hundred thousand events), and the Fleets page ranks from each mining fleet's
+    home, so this is worked out once and kept for a minute."""
+    import time
+    srow = await db.fetchone("SELECT COUNT(*) n, MAX(updated_at) u FROM systems")
+    sig = (await db.kv_updated("stars"), await db.kv_updated("devices"), await db.kv_updated("fleets"),
+           await db.kv_updated("loadouts"), srow["n"] if srow else 0, srow["u"] if srow else None, len(devices))
+    hit = _INPUTS.get(id(db))
+    if hit and hit[1] is db and hit[2] == sig and time.monotonic() - hit[0] < INPUTS_TTL:
+        return hit[3]
+    from . import printqueue, wards
     from .shapes import normalize_blueprints
     from .targets import system_resources
     cat = await db.kv_get("stars", {}) or {}
@@ -148,15 +162,43 @@ async def rank(db, eng, devices: list[dict], origin: str | None, limit_unscanned
     series: dict[str, list[float]] = {}
     for r in await db.fetchall("SELECT resource, qty FROM inventory_history WHERE ts >= ? ORDER BY ts", (since,)):
         series.setdefault(r["resource"], []).append(r["qty"])
-    wanted = wanted_from(totals, series, waiting)
+    scanned = {r["star"]: json.loads(r["data"]) for r in await db.fetchall("SELECT star, data FROM systems")}
+    xyz = {}
+    for k, p in pos.items():
+        if isinstance(p, dict):
+            try:
+                xyz[k] = (float(p.get("x") or 0), float(p.get("y") or 0), float(p.get("z") or 0))
+            except (TypeError, ValueError):
+                pass
+    out = {"pos": pos, "xyz": xyz, "warded": warded, "homes": homes, "viability": viability, "wanted": wanted_from(totals, series, waiting),
+           "scanned": scanned, "resources": {star: await system_resources(db, star) for star in scanned}}
+    _INPUTS[id(db)] = (time.monotonic(), db, sig, out)
+    return out
+
+
+def forget_inputs(db=None) -> None:
+    """Drop the cached rank inputs (tests; or after something that changes them a lot)."""
+    if db is None:
+        _INPUTS.clear()
+    else:
+        _INPUTS.pop(id(db), None)
+
+
+async def rank(db, eng, devices: list[dict], origin: str | None, limit_unscanned: int = 8) -> dict:
+    """Every scanned system scored (best first), plus the nearest unscanned catalogue stars as "survey first"."""
+    from . import outposts
+    inp = await rank_inputs(db, eng, devices)
+    pos, warded, homes, viability, wanted, scanned = (inp["pos"], inp["warded"], inp["homes"], inp["viability"],
+                                                      inp["wanted"], inp["scanned"])
     origin = star_of(origin)
     rows = []
-    scanned = {r["star"]: json.loads(r["data"]) for r in await db.fetchall("SELECT star, data FROM systems")}
     for star, scan in scanned.items():
-        rows.append(score(star, scan, await system_resources(db, star), viability, _dist(pos.get(origin), pos.get(star)),
+        rows.append(score(star, scan, inp["resources"][star], viability, _dist(pos.get(origin), pos.get(star)),
                           bool(outposts.deployed_in(devices, star, "relay")), wanted, star in warded, homes.get(star)))
-    unscanned = sorted((s for s in pos if s not in scanned and pos.get(s)),
-                       key=lambda s: _dist(pos.get(origin), pos.get(s)) if pos.get(origin) else 0)[:limit_unscanned]
+    import heapq
+    xyz, o = inp["xyz"], inp["xyz"].get(origin)
+    unscanned = heapq.nsmallest(limit_unscanned, (s for s in pos if s not in scanned and pos.get(s)),
+                                key=lambda s: math.dist(o, xyz[s]) if o and s in xyz else 0)
     for star in unscanned:
         rows.append(score(star, None, None, [], _dist(pos.get(origin), pos.get(star)), False, wanted, star in warded,
                           homes.get(star)))

@@ -54,6 +54,12 @@ def _res_note(resources: Any) -> str:
     return ", ".join(good[:3]) or ", ".join(f"{r} {lvl}" for r, lvl in ranked[:2])
 
 
+def _loc_range(star: str) -> tuple[str, str]:
+    """Locations in a system as an index-friendly range: "STAR-" ≤ location < "STAR." ('.' follows '-'), the same
+    as LIKE 'STAR-%' but able to use ix_events_loc_event."""
+    return f"{star}-", f"{star}."
+
+
 def in_star(code: str, star: str) -> bool:
     """`code` is the system `star` or somewhere in it (KEL-3 is in KEL; KELMORNEA-3 isn't)."""
     return code == star or code.startswith(star + "-")
@@ -124,8 +130,8 @@ async def system_targets(db, star: str) -> dict:
             add(c)
 
     # events: scan/search reports, salvage, mining sites, arrivals …
-    rows = await db.fetchall("SELECT event, location, payload FROM events WHERE star=? OR location LIKE ? "
-                             "ORDER BY seq DESC LIMIT 3000", (star, f"{star}-%"))
+    rows = await db.fetchall("SELECT event, location, payload FROM events WHERE star=? OR (location >= ? AND location < ?) "
+                             "ORDER BY seq DESC LIMIT 3000", (star, *_loc_range(star)))
     for r in rows:
         p = json.loads(r["payload"] or "{}")
         name = r["event"]
@@ -239,9 +245,9 @@ async def system_resources(db, star: str) -> dict:
     depleted: set[str] = set()
     sites: dict[str, dict] = {}
     salvage: dict[str, dict] = {}
-    rows = await db.fetchall("SELECT event, payload, created_at FROM events WHERE (star=? OR location LIKE ?) AND event IN "
-                             "('site.depleted', 'salvage.depleted', 'salvage.discovered', 'mining.started', 'mining.retargeted') "
-                             "ORDER BY seq", (star, f"{star}-%"))
+    rows = await db.fetchall("SELECT event, payload, created_at FROM events WHERE (star=? OR (location >= ? AND location < ?)) "
+                             "AND +event IN ('site.depleted', 'salvage.depleted', 'salvage.discovered', 'mining.started', "
+                             "'mining.retargeted') ORDER BY seq", (star, *_loc_range(star)))   # +event: the star / location indexes, not ix_events_event
     for r in rows:
         p = json.loads(r["payload"] or "{}")
         if r["event"] in ("site.depleted", "salvage.depleted"):
