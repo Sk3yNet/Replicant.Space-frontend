@@ -82,6 +82,22 @@ def apply_renames(devices: list[dict], renames: dict[str, str]) -> int:
     return n
 
 
+def with_renamed_tags(method: str, path: str, body: Any, renames: dict[str, str]) -> Any:
+    """A PATCH that removes a renamed fleet's new tag from a device also removes the old one: until the rename pass
+    has retagged it, the device carries the old tag in the game (the app shows the new one), and leaving the old tag
+    would put the device back in the fleet at the next sync."""
+    if method != "PATCH" or not renames or not path.startswith("/devices/") or not isinstance(body, dict):
+        return body
+    cfg = body.get("configuration")
+    if not isinstance(cfg, dict) or not cfg.get("remove_tags"):
+        return body
+    back = {fleet_tag(n): fleet_tag(o) for o, n in renames.items()}
+    extra = [back[t] for t in cfg["remove_tags"] if t in back and back[t] not in cfg["remove_tags"]]
+    if not extra:
+        return body
+    return {**body, "configuration": {**cfg, "remove_tags": list(cfg["remove_tags"]) + extra}}
+
+
 def fleet_of(d: dict) -> str | None:
     return next((t[6:] for t in d.get("tags") or [] if t.startswith("fleet:")), None)
 

@@ -505,6 +505,8 @@ class AutomationEngine(OpsRules):
 
     # --- sending commands -------------------------------------------------------------------
     async def send(self, method: str, path: str, body: Any, label: str) -> tuple[bool, Any, str | None]:
+        from .fleets import RENAMES_KV, with_renamed_tags
+        body = with_renamed_tags(method, path, body, await self.db.kv_get(RENAMES_KV, {}) or {})
         status, resp, err = 200, None, None
         try:
             resp = await self.api.request(method, path, json_body=body, background=True)

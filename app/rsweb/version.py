@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.45.0"
+VERSION = "1.45.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.45.1", "2026-10-08", "Renamed fleets: taking a device out of the fleet while the game still has its old fleet: "
+     "tag removes that tag too (otherwise it rejoined the fleet at the next sync)."),
     ("1.45.0", "2026-10-08", "Trail: 'follow to the end' — the replicant that scanned flies to the system the latest "
      "departure points at, finds and reads the target's beacons there, and goes on system by system (the next "
      "candidate if a system has no record of them) until one shows the target arriving and not leaving; then a "

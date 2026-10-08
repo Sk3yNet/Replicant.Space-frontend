@@ -293,6 +293,7 @@ async def resource_series(request: Request, hours: int = 48) -> dict[str, list[f
 async def call_action(request: Request, user: str, method: str, path: str, body: Any, label: str) -> dict:
     """Send one game command, log it, start any countdown. Returns the outcome without rendering."""
     st = request.app.state
+    body = fl.with_renamed_tags(method, path, body, await st.db.kv_get(fl.RENAMES_KV, {}) or {})
     status, resp, err = 200, None, None
     try:
         resp = await st.api.request(method, path, json_body=body if method != "GET" else None)

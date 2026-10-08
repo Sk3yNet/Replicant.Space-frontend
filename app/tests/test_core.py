@@ -1945,11 +1945,22 @@ def test_fleet_loadout_lines_add_and_remove(client):
     # Save (name/role/home) no longer touches the loadout
     client.post("/fleets/p1/edit", data={"name": "P1b", "role": "mining", "home": "SOL"}, headers=HX)
     assert client.portal.call(eng.fleets)[0]["wants"] == {"ftl_relay_x": 3, dtype: 1}
+    assert client.portal.call(eng.fleets)[0]["id"] == "p1b"                  # renamed: the id (and tag) follow the name
     # qty 0 removes the line entirely and releases that type's members
-    client.post("/fleets/p1/want", data={"type": dtype, "qty": "0"}, headers=HX)
+    client.post("/fleets/p1b/want", data={"type": dtype, "qty": "0"}, headers=HX)
     assert client.portal.call(eng.fleets)[0]["wants"] == {"ftl_relay_x": 3}
-    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "fleets"][-1]
-    assert job["steps"][0]["path"] == f"/devices/{code}" and job["steps"][0]["body"] == {"configuration": {"remove_tags": ["fleet:p1"]}}
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "fleets" and "retag" not in j["title"]][-1]
+    assert job["steps"][0]["path"] == f"/devices/{code}" and job["steps"][0]["body"] == {"configuration": {"remove_tags": ["fleet:p1b"]}}
+    # sent while the game still has the old tag: the old one goes too, or the device would rejoin at the next sync
+    from rsweb.fleets import with_renamed_tags
+    assert with_renamed_tags("PATCH", f"/devices/{code}", job["steps"][0]["body"], {"p1": "p1b"}) == \
+        {"configuration": {"remove_tags": ["fleet:p1b", "fleet:p1"]}}
+    import time
+    for _ in range(50):
+        if "fleet:p1" not in (world.devices[1].get("tags") or []):
+            break
+        time.sleep(0.1)
+    assert not any(t.startswith("fleet:p1") for t in world.devices[1].get("tags") or [])
 
 
 def test_fleet_loadout_editor_lines(client):
