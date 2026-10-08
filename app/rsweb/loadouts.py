@@ -186,6 +186,11 @@ def fill_rank(device_type: str | None) -> int:
     return len(FILL_ORDER)
 
 
+def for_contract(d: dict) -> bool:
+    """Tagged for a contract (contractsupply.py): it goes to / stays at the contract's location, no fleet takes it."""
+    return any(str(t).startswith("contract:") for t in d.get("tags") or [])
+
+
 def is_factory(d: dict) -> bool:
     return "enqueue_print" in (d.get("available_commands") or []) or "autofactory" in (d.get("device_type") or "")
 
@@ -291,7 +296,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if dest and star_of(d.get("location")) != dest:
             moves[d["device_code"]] = dest
             f = by_tag.get(fleet_tag_of(d) or "")
-            if not fleet_tag_of(d) and GATHER not in (d.get("tags") or []) and homes_of.get(dest):
+            if not fleet_tag_of(d) and GATHER not in (d.get("tags") or []) and homes_of.get(dest) and not for_contract(d):
                 f = homes_of[dest][0]   # sent before stationed fleets (no fleet tag yet): it joins the fleet there on arrival
             if f and f["home"] == dest:
                 incoming[f["id"]][d.get("device_type")] += 1
@@ -317,8 +322,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     # fleetless devices each stationed fleet may take: in its home system, not spare, not on the way elsewhere
     unassigned: dict[str, list[dict]] = defaultdict(list)
     for d in pool:
-        if fleet_tag_of(d) or d["device_code"] in replicant_hosts:
-            continue
+        if fleet_tag_of(d) or d["device_code"] in replicant_hosts or for_contract(d):
+            continue   # a device on its way to (or kept at) a contract's location isn't the fleet there's to take
         tags = set(d.get("tags") or [])
         dest = bound_for(d, known_stars)
         if dest and star_of(d.get("location")) != dest and not ferry_side(d):
@@ -430,7 +435,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         code = d["device_code"]
         tags = set(d.get("tags") or [])
         spare_now = (SPARE in tags or SPARE in tag_add[code]) and SPARE not in tag_remove[code]
-        if spare_now and not fleet_now(code) and code not in moves and code not in busy and not ferry_side(d):
+        if spare_now and not fleet_now(code) and code not in moves and code not in busy and not ferry_side(d) and not for_contract(d):
             donors[d.get("device_type") or "device"].append(d)
 
     def working(d: dict) -> bool:
@@ -957,7 +962,7 @@ def tag_steps(p: dict) -> list[dict]:
 def print_steps(pr: dict) -> list[dict]:
     from .modular import MODULAR_TYPES
     body = {"command": "enqueue_print", "device_type": pr["device_type"], "quantity": pr["n"],
-            "tags": [to_tag(pr["star"])] + ([fl.fleet_tag(pr["fleet"])] if pr.get("fleet") else [])}
+            "tags": pr.get("tags") or [to_tag(pr["star"])] + ([fl.fleet_tag(pr["fleet"])] if pr.get("fleet") else [])}
     if pr["device_type"] in MODULAR_TYPES and pr.get("factory_star") and pr["factory_star"] != pr["star"]:
         body["flatpack"] = True   # bound for another system: printed compacted, so it needn't fold up (hours) to travel
     return [step(f"print {pr['n']}× {pr['device_type']} on {pr['factory']} for {pr['star']}"

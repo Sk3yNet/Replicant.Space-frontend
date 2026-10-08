@@ -860,7 +860,7 @@ class AutomationEngine(OpsRules):
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
-            for stage in ("run_fleets", "auto_deals_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("run_fleets", "auto_deals_pass", "contract_supply_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "rider_pass", "pathing_pass", "auto_scout_pass", "hub_watch_pass"):
@@ -2132,12 +2132,14 @@ class AutomationEngine(OpsRules):
                 d = fl.deal(m)
                 taken.add(d.get("designation") or f"{d.get('controller')}:{d.get('trade_code')}")
         cands: list[dict] = []
+        supply = await self.db.kv_get("contract_supply", {}) or {}
         for des, e in (await gev.load(self.db)).items():
             if e.get("status") != "open" or not e.get("location") or des in taken or star_of(e["location"]) in locked:
                 continue
             prog = gev.progress(e, inv, devices, reps)
-            if any(x["short_here"] for x in (prog.get("best") or {}).get("devices") or []):
-                continue   # it asks for devices that aren't at the location: a trade run carries resources only
+            if any(x["short_here"] for x in (prog.get("best") or {}).get("devices") or []) \
+                    and not (supply.get(des) or {}).get("active"):
+                continue   # it asks for devices that aren't there: only once you've set it delivering (Contracts page)
             price = {x["resource"]: x["need"] for x in (prog.get("best") or {}).get("resources") or []}
             rewards = (e.get("rewards") or {}).get("resources") or {} if isinstance(e.get("rewards"), dict) else {}
             cands.append({"kind": "contract", "key": des, "star": star_of(e["location"]),
@@ -2184,6 +2186,112 @@ class AutomationEngine(OpsRules):
             await self.save_fleets(items)
         return out
 
+    async def contract_supply_pass(self, force: bool = False) -> list[str]:
+        """Contracts asking for devices at their location (contractsupply.py): every few minutes, for each contract
+        you set delivering (Contracts page) or a trade fleet is running, send fleetless spare / idle devices there and
+        print only what you authorized; when a contract closes, its leftover devices become spare again."""
+        from . import contractsupply as cs
+        from . import fleets as fl
+        from . import gameevents as gev
+        from . import loadouts as lo
+        from .shapes import normalize_blueprints, normalize_inventory
+        last = _ts(await self.db.kv_get("contract_supply_last", None))
+        if not force and last and (_now() - last).total_seconds() < 240:
+            return []
+        await self.db.kv_set("contract_supply_last", now_iso())
+        supply = await self.db.kv_get(cs.KV, {}) or {}
+        evs = await gev.load(self.db)
+        devices = await self.devices()
+        running = {fl.deal(f["mission"]).get("designation") for f in await self.fleets()
+                   if (f.get("mission") or {}).get("status") in ("running", "stalled") and (f["mission"].get("contract"))}
+        out: list[str] = []
+        jobs = await self.jobs()
+        busy = self.busy_devices(jobs)
+        # closed (or no longer wanted) contracts: their leftover devices go spare, the entry goes
+        for des in list(supply):
+            e = evs.get(des)
+            if e and e.get("status") == "open" and (supply[des].get("active") or des in running):
+                continue
+            tag = cs.contract_tag(des)
+            left = [d for d in devices if tag in (d.get("tags") or []) and d.get("device_code") not in busy]
+            steps = [st for d in left for st in cs.release_steps(d, des)]
+            if steps:
+                job = await self.create_job("contracts", f"contract {des}: {len(left)} leftover device(s) back to spare",
+                                            None, steps, {"devices": [d["device_code"] for d in left]})
+                if not job:
+                    continue   # dry run: keep the entry so they're released once it's off
+                out.append(f"{des}: released {len(left)}")
+            if not e or e.get("status") != "open":
+                supply.pop(des, None)
+        cfg = await self.loadout_cfg()
+        ls = cfg.get("settings") or {}
+        reach = float(ls.get("max_supply_ly") if ls.get("max_supply_ly") is not None else 15)
+        stationed = {f["home"] for f in lo.stationed_fleets(cfg)}
+        ignore = set(cfg.get("ignore_tags") or [])
+        reps = await self.db.kv_get("replicants", {}) or {}
+        hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        bps = normalize_blueprints(await self.db.kv_get("blueprints", []))
+        cat = await self.db.kv_get("stars", {}) or {}
+        pos = {x.get("designation"): x.get("position") or {} for x in cat.get("stars") or [] if isinstance(x, dict)}
+        from .traffic import beacons as _beacons
+        civ_locs = {r["location"] for r in await self.civ_coverage() if r.get("completed") or r.get("open")}
+        protect = {b["device_code"] for b in _beacons(devices) if b.get("location") in civ_locs}   # as the loadouts pass
+        for des, e in evs.items():
+            if e.get("status") != "open" or not e.get("location"):
+                continue
+            prog = gev.progress(e, inv, devices, reps)
+            if not cs.need_of(prog):
+                continue
+            entry = supply.get(des) or {}
+            active = bool(entry.get("active")) or des in running
+            if not active and des not in supply:
+                continue
+            p = cs.plan(e, prog, entry, devices, hosts=hosts, busy=busy, protect=protect, ignore=ignore,
+                        stationed=stationed, blueprints=bps, inventory=inv, pos=pos, reach=reach, active=active)
+            by = {d.get("device_code"): d for d in devices}
+            entry.update({"location": e["location"], "star": e["star"], "assigned": p["assigned"], "printed": p["printed"],
+                          "orders": p["orders"], "checked_at": now_iso(), "rows": p["rows"], "ready": p["ready"]})
+            types = entry.setdefault("printed_types", {})
+            for c in p["printed"]:
+                if c in by:
+                    types[c] = by[c].get("device_type")
+            if p["send"]:
+                steps = [st for d in p["send"] for st in cs.send_steps(d, e)]
+                codes = [d["device_code"] for d in p["send"]]
+                if await self.create_job("contracts", f"contract {des}: send {', '.join(codes)} to {e['location']}",
+                                         None, steps, {"devices": codes}):
+                    for d in p["send"]:
+                        entry["assigned"][d["device_code"]] = {"type": d.get("device_type"), "at": now_iso()}
+                    busy |= set(codes)
+                    out.append(f"{des}: sending {len(codes)}")
+            for pr in p["prints"]:
+                if await self.create_job("contracts", f"contract {des}: print {pr['n']}× {pr['device_type']} on "
+                                         f"{pr['factory']} for {e['location']}", pr["factory"], lo.print_steps(pr),
+                                         {"devices": [], "star": e["star"]}):
+                    entry["orders"].append({"type": pr["device_type"], "factory": pr["factory"], "n": pr["n"], "at": now_iso()})
+                    busy.add(pr["factory"])
+                    out.append(f"{des}: printing {pr['n']}× {pr['device_type']}")
+            supply[des] = entry
+        await self.db.kv_set(cs.KV, supply)
+        for line in out:
+            await self.log("contracts", line)
+        return out
+
+    async def _deal_devices_short(self, m: dict, devices: list[dict]) -> str:
+        """A contract run whose contract also asks for devices at its location: what's still missing there."""
+        from . import fleets as fl
+        from . import gameevents as gev
+        des = fl.deal(m).get("designation")
+        if not m.get("contract") or not des:
+            return ""
+        e = (await gev.load(self.db)).get(des)
+        if not e or e.get("status") != "open":
+            return ""
+        prog = gev.progress(e, {}, devices, {})
+        short = {x["device_type"]: x["short_here"] for x in (prog.get("best") or {}).get("devices") or [] if x["short_here"]}
+        return ", ".join(f"{n}× {t.replace('_', ' ')}" for t, n in sorted(short.items()))
+
     async def _deal_gate(self, fleet: dict, m: dict, devices: list[dict], arriving: bool = False) -> tuple[str, str]:
         """A trade run at its wait phase: ("go", "") when the whole price is at the site and the fleet's replicant is
         there; ("wait", why) while it isn't (or materials are still on their way); ("rewind", why) when the site is
@@ -2206,6 +2314,12 @@ class AutomationEngine(OpsRules):
                                                        else "back to gathering it"))
             self._mlog(m, why)
             return "rewind", why
+        dev_short = await self._deal_devices_short(m, devices)
+        if dev_short:   # devices come by the contract's own delivery (contract_supply_pass), not in the fleet's holds
+            if arriving:
+                self._mlog(m, f"resources at {site}: waiting for devices there ({dev_short}) — Contracts page")
+            return "wait", (f"{site} still needs {dev_short}: they're delivered separately (Contracts page — printing "
+                            "them needs your authorization)")
         reps = await self.db.kv_get("replicants", {}) or {}
         own = fl.fleet_replicant(fleet, devices, reps)
         by = {d.get("device_code"): d for d in devices}

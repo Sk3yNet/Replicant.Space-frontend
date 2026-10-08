@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.46.9"
+VERSION = "1.47.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.47.0", "2026-10-08", "Contracts that ask for devices get them delivered: 'Deliver devices' on the Contracts page (or "
+     "a trade fleet's run on the contract) tags fleetless spare or idle devices in supply range for it, and the loadouts "
+     "pass flies or carries them to the exact location. Whatever no spare covers is printed only after you press "
+     "'Authorize printing' (nearest autofactory in range, tagged for the contract). The trade run waits at the site "
+     "until the devices are there; auto-fulfil takes a device contract once it's set delivering; stationed fleets "
+     "leave the contract's devices alone; when the contract closes, leftovers become spare."),
     ("1.46.9", "2026-10-08", "Contracts that ask for devices: a trade run carries resources only, so auto-fulfil no longer "
      "picks a contract whose devices aren't already at its location; the Fleets page lists the devices a contract also "
      "needs, and starting a run on one warns that they must be sent there first."),

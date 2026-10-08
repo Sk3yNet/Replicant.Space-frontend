@@ -5892,3 +5892,76 @@ def test_auto_contracts_skip_contracts_that_need_devices(client):
     devices += [{"device_code": f"R{i}", "device_type": "ftl_relay", "location": "AEM-2", "status": "idle", "tags": []} for i in (1, 2)]
     client.portal.call(db.kv_set, "devices", devices)
     assert client.portal.call(eng.auto_deals_pass) == ["T: contract Relay Network"]   # the devices are there now
+
+
+def test_loadouts_leave_contract_devices_alone():
+    from rsweb import loadouts as lo
+    cfg, devices, bps, inv, stars = _lo_world()
+    devices.append({"device_code": "CS", "device_type": "survey_drone", "location": "BBB-2", "status": "idle",
+                    "tags": ["contract:bbb-evt-1", "at:bbb-2"], "available_commands": ["travel"]})
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    b = {r["type"]: r for r in _rep(p, "BBB")["rows"]}
+    assert b["survey_drone"]["have"] == 1                       # BS only: the contract's drone isn't the fleet's
+    assert "CS" not in p["tag_add"] and "CS" not in p["moves"]  # neither joined nor made spare nor gathered
+
+
+def test_contract_device_delivery_waits_for_print_authorization(client):
+    eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": [{"resource_type": "carbon", "quantity": 900}]}])
+    client.portal.call(db.kv_set, "blueprints", [{"device_type": "ftl_relay", "resources": {"carbon": 40}, "print_time": 600}])
+    client.portal.call(w.handle_event, {**_ev(997, "event.discovered", designation="AEM-2-EVT-001", location="AEM-2",
+                                                title="Relay Network", criteria=[{"name": "default", "resources": {"carbon": 50},
+                                                                                  "devices": [{"device_type": "ftl_relay", "quantity": 2}]}]),
+                                        "location": "AEM-2"})
+    devices = client.portal.call(db.kv_get, "devices")
+    devices += [{"device_code": "S1", "device_type": "ftl_relay", "location": "SOL-3", "status": "idle", "tags": ["spare"]},
+                {"device_code": "F1", "device_type": "ftl_relay", "location": "SOL-3", "status": "idle", "tags": ["fleet:x"]},
+                {"device_code": "AF9", "device_type": "autofactory", "location": "SOL-BELT-1", "status": "idle",
+                 "available_commands": ["enqueue_print"], "tags": []}]
+    client.portal.call(db.kv_set, "devices", devices)
+    assert client.portal.call(eng.contract_supply_pass, True) == []    # nothing happens until you ask for it
+    client.post("/game-events/AEM-2-EVT-001/supply", data={"action": "start"}, headers=HX)
+    jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts"]
+    assert len(jobs) == 1 and "S1" in jobs[0]["title"]                 # the spare goes; the fleet's relay doesn't
+    tags = jobs[0]["steps"][0]["body"]["configuration"]
+    assert set(tags["add_tags"]) == {"to:aem", "at:aem-2", "contract:aem-2-evt-001"} and tags["remove_tags"] == ["spare"]
+    sup = client.portal.call(db.kv_get, "contract_supply")["AEM-2-EVT-001"]
+    row = sup["rows"][0]
+    assert row["short"] == 1 and row["print"] == 0 and "authorize" in row["why"]   # one more: no print without a yes
+    page = client.get("/game-events", headers=H).text
+    assert "Authorize printing" in page and "Stop delivering devices" in page
+    # once the tag shows, S1 counts as on its way; authorizing prints the other one, tagged for the contract
+    for d in devices:
+        if d["device_code"] == "S1":
+            d["tags"] = ["to:aem", "at:aem-2", "contract:aem-2-evt-001"]
+    client.portal.call(db.kv_set, "devices", devices)
+    client.post("/game-events/AEM-2-EVT-001/authorize-prints", headers=HX)
+    jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts"]
+    pj = [j for j in jobs if "print" in j["title"]]
+    assert len(pj) == 1 and pj[0]["device"] == "AF9"
+    body = pj[0]["steps"][0]["body"]
+    assert body["command"] == "enqueue_print" and body["quantity"] == 1
+    assert set(body["tags"]) == {"to:aem", "at:aem-2", "contract:aem-2-evt-001"}
+    client.portal.call(db.kv_set, "contract_supply_last", None)
+    client.portal.call(eng.contract_supply_pass, True)
+    jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts"]
+    assert len(jobs) == 2                                              # the print counts as coming: nothing more
+    row = client.portal.call(db.kv_get, "contract_supply")["AEM-2-EVT-001"]["rows"][0]
+    assert (row["coming"], row["printing"], row["short"]) == (["S1"], 1, 0)
+    # a trade run on it waits at the site until the relays are there
+    client.portal.call(eng.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
+    client.post("/fleets/t/auto-deals", data={"auto_contracts": "on"}, headers=HX)
+    assert client.portal.call(eng.auto_deals_pass) == ["T: contract Relay Network"]   # delivering: auto-fulfil may take it
+    f = client.portal.call(eng.fleets)[0]
+    client.portal.call(db.kv_set, "inventory", [{"location": "AEM-2", "items": [{"resource_type": "carbon", "quantity": 60}]}])
+    state, why = client.portal.call(eng._deal_gate, f, f["mission"], devices)   # the carbon is there, the relays aren't
+    assert state == "wait" and "2× ftl relay" in why
+    # the contract closes: the leftover relay goes back to spare
+    client.portal.call(w.handle_event, {**_ev(998, "event.completed", designation="AEM-2-EVT-001", location="AEM-2"),
+                                        "location": "AEM-2"})
+    client.portal.call(eng.contract_supply_pass, True)
+    rel = [j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts" and "back to spare" in j["title"]]
+    assert len(rel) == 1
+    cfgx = rel[0]["steps"][0]["body"]["configuration"]
+    assert cfgx["add_tags"] == ["spare"] and set(cfgx["remove_tags"]) == {"to:aem", "at:aem-2", "contract:aem-2-evt-001"}
+    assert "AEM-2-EVT-001" not in client.portal.call(db.kv_get, "contract_supply")

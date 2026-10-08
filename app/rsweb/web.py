@@ -2714,11 +2714,13 @@ async def game_events_ctx(request: Request) -> dict:
     inv = {i.get("location"): i.get("items") or {} for i in st["inventory"]}
     evs = await gev.load(db)
     settings = await db.kv_get("event_settings", {}) or {}
+    supply = await db.kv_get("contract_supply", {}) or {}
     open_, closed = [], []
     for e in sorted(evs.values(), key=lambda e: e.get("discovered_at") or "", reverse=True):
         if e["status"] == "open":
             e["prog"] = gev.progress(e, inv, st["devices"], st["replicants"])
             e["plan"] = gev.delivery_plan(e, e["prog"], st["devices"])
+            e["supply"] = supply.get(e["designation"])
             open_.append(e)
         else:
             closed.append(e)
@@ -2790,6 +2792,48 @@ async def game_event_fulfil(request: Request, des: str, replicant: str = Form(""
     except ValueError:
         return HTMLResponse('<div class="result err">The fulfil body isn\'t valid JSON.</div>')
     return await run_action(request, user, method.upper(), path, payload, f"fulfil {e['title']} ({des})")
+
+
+async def _supply_now(request: Request) -> None:
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        await eng.contract_supply_pass(force=True)
+
+
+@router.post("/game-events/{des}/supply", response_class=HTMLResponse)
+async def game_event_supply(request: Request, des: str, action: str = Form("start"), user: str = Depends(current_user)):
+    """Deliver devices (start) or stop: leftover devices tagged for it become spare again on the next pass."""
+    db = request.app.state.db
+    e, _ = await _event(request, des)
+    if not e and action == "start":
+        return HTMLResponse('<div class="result err">That event is no longer open.</div>')
+    supply = await db.kv_get("contract_supply", {}) or {}
+    entry = supply.setdefault(des, {})
+    entry["active"] = action == "start"
+    if action != "start":
+        entry["print_ok"] = {}   # stopping withdraws the authorization for prints not yet ordered
+    await db.kv_set("contract_supply", supply)
+    await _supply_now(request)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/game-events/{des}/authorize-prints", response_class=HTMLResponse)
+async def game_event_authorize_prints(request: Request, des: str, user: str = Depends(current_user)):
+    """Allow printing what no spare covers (as of the last check): print_ok = ordered so far + still short."""
+    db = request.app.state.db
+    e, _ = await _event(request, des)
+    if not e:
+        return HTMLResponse('<div class="result err">That event is no longer open.</div>')
+    supply = await db.kv_get("contract_supply", {}) or {}
+    entry = supply.setdefault(des, {})
+    ok = entry.setdefault("print_ok", {})
+    for r in entry.get("rows") or []:
+        if r.get("short"):
+            ok[r["type"]] = max(int(ok.get(r["type"]) or 0), int(r.get("ordered") or 0) + int(r["short"]))
+    entry["active"] = True
+    await db.kv_set("contract_supply", supply)
+    await _supply_now(request)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @router.post("/game-events/settings", response_class=HTMLResponse)
@@ -3206,7 +3250,8 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
             if miss:
                 w = ("this contract also asks for devices at " + e.get("location", "?") + ": "
                      + ", ".join(f"{n}× {t}" for t, n in miss.items())
-                     + " — a trade run only carries resources, so fulfilling fails until they're there (send them yourself)")
+                     + " — the run waits at the site until they're there; they're delivered from spares automatically, "
+                       "and printing any no spare covers needs your authorization on the Contracts page")
                 eng._mlog(m, "warning: " + w)
                 await eng.log("fleets", f"{f['name']}: {w}", "alert", notify=True)
     if warded and m.get("contract"):   # species interaction lock: other players can't complete location events there

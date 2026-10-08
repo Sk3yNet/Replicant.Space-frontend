@@ -39,7 +39,25 @@
         {% if e.plan.missing %}<div class="lv-alert">· missing in {{ e.star }}: {% for r, q in e.plan.missing.items() %}{{ q | round | int }} {{ r }}{{ ', ' if not loop.last }}{% endfor %} — mine or ferry it in</div>{% endif %}
         {% if e.plan.legs %}<div class="muted">with {{ e.plan.controller.device_code if e.plan.controller else '— no in-system transport controller —' }}</div>{% endif %}
       </div>{% endif %}
+      {% set dneed = (b.devices if b else []) | selectattr('need') | list %}{% set sp = e.supply or {} %}
+      {% if dneed %}<div class="small" style="margin-top:6px"><b>Devices:</b>
+        {% if sp.active %}<span class="pill st-move small">delivering</span>{% elif sp %}<span class="muted">stopped</span>{% endif %}
+        {% if sp.rows %}
+        <table class="small"><tr><th>Device</th><th class="num">Need</th><th class="num">There</th><th class="num">On the way</th><th class="num">Printing</th><th class="num">Short</th><th></th></tr>
+          {% for r in sp.rows %}<tr><td>{{ r.type | human }}</td><td class="num">{{ r.need }}</td><td class="num {{ 'lv-done' if r.here >= r.need else '' }}">{{ r.here }}</td>
+            <td class="num" title="{{ (r.coming + r.sending) | join(', ') }}">{{ (r.coming | length) + (r.sending | length) }}</td>
+            <td class="num">{{ r.printing + r.print }}</td><td class="num {{ 'lv-alert' if r.short else '' }}">{{ r.short }}</td>
+            <td class="muted">{{ r.why }}</td></tr>{% endfor %}
+        </table>{% endif %}
+        {% set short = (sp.rows or []) | selectattr('short') | list %}
+        {% if short %}<div style="margin-top:4px">No spare in range covers:
+          {% for r in short %}{{ r.short }}× {{ r.type | human }}{% if r.cost %} ({% for k, v in r.cost.items() %}{{ (v * r.short) | num }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}){% endif %}{{ ', ' if not loop.last }}{% endfor %}
+          <button class="small" hx-post="/game-events/{{ e.designation }}/authorize-prints" hx-confirm="Print these on the nearest autofactory in range?">Authorize printing</button></div>{% endif %}
+        <div class="muted">Spare or idle fleetless devices in range are tagged for it and the loadouts pass flies them to {{ e.location }}; nothing is printed until you authorize it. Leftovers become spare when the contract closes.</div>
+      </div>{% endif %}
       <div class="row" style="margin-top:8px">
+        {% if dneed %}{% if sp.active %}<button class="small ghost" hx-post="/game-events/{{ e.designation }}/supply" hx-vals='{"action": "stop"}'>Stop delivering devices</button>
+        {% elif not b.ready_here %}<button class="small" hx-post="/game-events/{{ e.designation }}/supply" hx-vals='{"action": "start"}'>Deliver devices</button>{% endif %}{% endif %}
         {% if not p.present %}
           <form class="inline" hx-post="/game-events/{{ e.designation }}/bring" hx-target="#ge-{{ e.designation }}">
             <select name="replicant">{% for code, r in replicants.items() %}<option value="{{ code }}">{{ r.name or code }} @ {{ r.location or r.current_location }}</option>{% endfor %}</select>
