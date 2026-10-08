@@ -58,16 +58,24 @@ def needs(devices: list[dict], stars: list[str]) -> dict[str, list[str]]:
     return {k: [s for s in seen if not deployed_in(devices, s, k)] for k in DROPS}
 
 
-def shortfall(carriers: set[str], devices: list[dict], stars: list[str], holds: dict[str, list[str]] | None = None) -> dict:
-    """What a survey mission over `stars` needs against what its carriers hold, plus warning lines."""
+def shortfall(carriers: set[str], devices: list[dict], stars: list[str], holds: dict[str, list[str]] | None = None,
+              members: list[dict] | None = None) -> dict:
+    """What a survey mission over `stars` needs against what its carriers hold — and the fleet's own relays / beacons
+    that aren't aboard yet but will be loaded when it assembles (seen live 2026-10-08: the warning said 0 aboard at
+    launch, a minute before assemble stowed all four of each) — plus warning lines."""
     need = needs(devices, stars)
-    have = {k: len(carried(carriers, devices, k, holds)) for k in DROPS}
+    have = {}
+    for k in DROPS:
+        codes = {d["device_code"] for d in carried(carriers, devices, k, holds)}
+        codes |= {d["device_code"] for d in members or [] if d.get("device_type") == KINDS[k]
+                  and not str(d.get("status") or "").startswith(("relaying", "monitoring", "active"))}   # not working somewhere
+        have[k] = len(codes)
     warn = []
     for k in DROPS:
         label = LABELS[k]
         n = len(need[k])
         if n > have[k]:
-            warn.append(f"{n} system(s) without your {label} ({', '.join(need[k])}) but only {have[k]} aboard — "
+            warn.append(f"{n} system(s) without your {label} ({', '.join(need[k])}) but only {have[k]} in the fleet — "
                         f"{n - have[k]} will be left without one")
     return {"need": need, "have": have, "warnings": warn}
 

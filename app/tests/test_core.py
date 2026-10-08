@@ -4110,8 +4110,14 @@ def test_survey_crew_drops_relays_and_beacons():
     fleet, devices = _survey_world()
     sf = op.shortfall({"HV"}, devices, ["LOR", "OTH", "FAL", "LOR"])
     assert sf["need"] == {"relay": ["LOR", "OTH"], "beacon": ["LOR", "OTH"]} and sf["have"] == {"relay": 1, "beacon": 1}
-    assert len(sf["warnings"]) == 2 and "only 1 aboard — 1 will be left without one" in sf["warnings"][0]
+    assert len(sf["warnings"]) == 2 and "only 1 in the fleet — 1 will be left without one" in sf["warnings"][0]
     assert op.shortfall({"HV"}, devices, ["LOR"])["warnings"] == []
+    # the fleet's own relay / beacon not aboard yet (loaded when it assembles) counts; one at work elsewhere doesn't
+    loose = [{"device_code": "R9", "device_type": "ftl_relay", "location": "FAL-1", "status": "idle", "tags": ["fleet:s"]},
+             {"device_code": "B9", "device_type": "ftl_beacon", "location": "FAL-1", "status": "idle", "tags": ["fleet:s"]}]
+    members = [d for d in devices if d["device_code"] in ("R1", "B1", "R0")] + loose
+    sf = op.shortfall({"HV"}, devices + loose, ["LOR", "OTH"], None, members)
+    assert sf["have"] == {"relay": 2, "beacon": 2} and sf["warnings"] == []
     steps, notes = op.drop_steps({"HV"}, devices, "LOR", "LOR-1-L4")
     assert [s["desc"] for s in steps] == ["deploy relay R1 at LOR-1-L4", "R1: activate relay", "deploy beacon B1 at LOR-1-L4"]
     # a relay only works at an L4/L5 point: on a planet it stays aboard (the beacon doesn't care)

@@ -2867,7 +2867,7 @@ async def fleets_ctx(request: Request) -> dict:
             m = f.get("mission") or {}
             left = (m.get("targets") or [])[m.get("idx", 0):] if m.get("status") in ("running", "stalled") else []
             carriers = {c["device_code"] for c in fl.roster(f, st["devices"])["carriers"]}
-            f["outposts"] = outposts.shortfall(carriers, st["devices"], left, stowed_map)
+            f["outposts"] = outposts.shortfall(carriers, st["devices"], left, stowed_map, fl.members(f, st["devices"]))
         f["route"] = next((r for r in lctx["plan"].get("routes") or [] if r.get("fleet_id") == f["id"]), None)
         f["sends_to"] = fl.materials_target(f, items)
         f["takes_from"] = [x for x in items if x.get("materials") == f["id"]]
@@ -3206,6 +3206,12 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
     member_codes = {d["device_code"] for d in fl.members(f, st0["devices"])}
     aboard = [r.get("name") or c for c, r in st0["replicants"].items() if r.get("hosted_device_code") in member_codes]
     dark = [t for t in dict.fromkeys(star_of(x) for x in m["targets"] if x) if not _op.deployed_in(st0["devices"], t, "relay")]
+    if dark and f["role"] == "explore":   # a survey crew drops a relay in each: fine if it has enough of them
+        crew = fl.members(f, st0["devices"])
+        own_relays = [d for d in crew if d.get("device_type") == _op.KINDS["relay"]
+                      and not str(d.get("status") or "").startswith(("relaying", "active"))]
+        if len(own_relays) >= len(dark):
+            dark = []
     if dark and not aboard:
         w = (f"no relay of yours in {', '.join(dark)} and no replicant rides with the fleet — devices there may be out of "
              "control range; add a vessel hosting a replicant to the fleet")
@@ -3217,8 +3223,9 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         from . import outposts
         st = await load_state(request)
         carriers = {c["device_code"] for c in fl.roster(f, st["devices"])["carriers"]}
-        sf = outposts.shortfall(carriers, st["devices"], m["targets"], await request.app.state.db.kv_get("stowed_map", {}) or {})
-        eng._mlog(m, "aboard: " + ", ".join(f"{sf['have'][k]} {outposts.LABELS[k]}(s) for {len(sf['need'][k])} system(s) "
+        sf = outposts.shortfall(carriers, st["devices"], m["targets"], await request.app.state.db.kv_get("stowed_map", {}) or {},
+                                fl.members(f, st["devices"]))
+        eng._mlog(m, "in the fleet: " + ", ".join(f"{sf['have'][k]} {outposts.LABELS[k]}(s) for {len(sf['need'][k])} system(s) "
                                             "without one" for k in outposts.DROPS))
         for w in sf["warnings"]:
             eng._mlog(m, "warning: " + w)

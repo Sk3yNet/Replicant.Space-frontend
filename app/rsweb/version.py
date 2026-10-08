@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.46.2"
+VERSION = "1.46.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.46.3", "2026-10-08", "Survey missions: the relay / beacon check at launch counts the fleet's own relays and beacons, "
+     "not only what's already aboard its carriers — it said '0 aboard' a minute before assemble stowed all of them. And "
+     "the 'no relay there and no replicant rides along' warning is skipped when the crew carries a relay for each system."),
     ("1.46.2", "2026-10-08", "Contracts: when the game answers 'Event already completed by this account', the fulfil "
      "step counts as done — a trade run carries on to collect and go home instead of stalling with an error — and the "
      "contract is marked completed so it isn't picked again."),
