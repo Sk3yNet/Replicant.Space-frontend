@@ -2572,7 +2572,8 @@ class AutomationEngine(OpsRules):
                     continue
                 changed = True   # "go" (fulfil next) or "rewind" (the next phase is deliver / load again)
             if m.get("phase") == "watch":
-                done, why, upd = fl.watch_done(fleet, m, devices, now_iso())
+                others = [j for j in await self.jobs() if (j.get("meta") or {}).get("fleet") != fleet["id"]]
+                done, why, upd = fl.watch_done(fleet, m, devices, now_iso(), self.busy_devices(others))
                 m.update(upd)
                 if m.get("watch_note") != why:
                     m["watch_note"] = why

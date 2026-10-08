@@ -908,10 +908,15 @@ def outside_controllers(fleet: dict, devices: list[dict]) -> list[dict]:
 WORK_DONE_STATES = ("exhausted", "depleted", "complete", "done", "idle:no_sources")   # a mining controller's _eval_state
 
 
-def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str) -> tuple[bool, str, dict]:
+IDLE_SURVEY_MINUTES = 3   # drones without a controller: idle this long (no scan, no trip, no job) before the survey's done
+
+
+def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str,
+               busy: set[str] | None = None) -> tuple[bool, str, dict]:
     """(done?, why, updates to mission). Mining: nothing left (belt exhausted or salvage used up; no controller: no
     drone mining) and no site being searched, for N minutes.
-    Explore: the survey controller reports no_targets."""
+    Explore: the survey controller reports no_targets; without one, the drones have been idle — not scanning, not
+    travelling and not in a job (auto-survey drives them body by body) — for a few minutes."""
     r = roster(fleet, devices)
     ms = r["members"]
     role = fleet.get("role")
@@ -919,8 +924,21 @@ def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str) ->
         ctrl = next((d for d in ms if kind(d) == "survey_controller"), None)
         st = str(((ctrl or {}).get("ami_directive") or {}).get("_eval_state") or "")
         if not ctrl:
-            busy = [d for d in ms if str(d.get("status") or "").startswith(("scanning", "searching", "travel", "cruis"))]
-            return (not busy), ("drones finished" if not busy else "drones still scanning"), {}
+            # seen live 2026-10-08 (DABAH): between one moon's scan and the trip to the next the drone looked idle for a
+            # moment, the survey was called done and the recall then failed ("Cannot cruise while scanning")
+            working = [d for d in ms if str(d.get("status") or "").startswith(("scanning", "searching", "travel", "cruis"))
+                       or d.get("device_code") in (busy or set())]
+            if working:
+                return False, "drones still surveying", {"idle_since": None}
+            since = mission.get("idle_since") or now_iso
+            from datetime import datetime
+            try:
+                mins = (datetime.fromisoformat(now_iso) - datetime.fromisoformat(since)).total_seconds() / 60
+            except ValueError:
+                mins = 0
+            if mins < IDLE_SURVEY_MINUTES:
+                return False, f"drones idle for {mins:.0f} min — making sure they're finished", {"idle_since": since}
+            return True, "drones finished", {"idle_since": since}
         return st.startswith(("no_targets", "done", "idle")), (st or "surveying"), {}
     ctrl = next((d for d in ms if kind(d) == "mining_controller"), None)
     st = str(((ctrl or {}).get("ami_directive") or {}).get("_eval_state") or "")

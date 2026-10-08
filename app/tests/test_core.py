@@ -5858,3 +5858,18 @@ def test_crew_riding_in_another_fleets_vessel_is_collected():
     descs = [s["desc"] for s in steps]
     assert not problems and "SC: deploy out of HV" in descs and "stow SC in CV" in descs
     assert descs.index("SC: deploy out of HV") < descs.index("stow SC in CV")
+
+
+def test_survey_without_controller_isnt_done_between_bodies():
+    """Live 2026-10-08 (DABAH): auto-survey drove the drone moon by moon; caught idle between two scans, the mission
+    called the survey done and its recall failed with 'Cannot cruise while scanning'."""
+    from rsweb import fleets as fl
+    f = {"id": "sol", "name": "Sol Sector", "role": "explore", "home": "SOL", "wants": {}}
+    drone = {"device_code": "SD", "device_type": "survey_drone", "location": "DABAH-1-5", "status": "idle", "tags": ["fleet:sol"]}
+    done, why, upd = fl.watch_done(f, {}, [drone], "2026-10-08T13:39:55+00:00", busy={"SD"})   # auto-survey's job runs it
+    assert not done and upd["idle_since"] is None
+    done, why, upd = fl.watch_done(f, {}, [drone], "2026-10-08T13:39:55+00:00", busy=set())
+    assert not done and upd["idle_since"] == "2026-10-08T13:39:55+00:00"                       # a pause, not the end yet
+    assert not fl.watch_done(f, upd, [{**drone, "status": "scanning"}], "2026-10-08T13:41:00+00:00")[0]
+    done, why, _ = fl.watch_done(f, upd, [drone], "2026-10-08T13:43:00+00:00", busy=set())
+    assert done and why == "drones finished"                                                    # idle 3 min: really done

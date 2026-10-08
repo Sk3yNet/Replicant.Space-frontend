@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.46.6"
+VERSION = "1.46.7"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.46.7", "2026-10-08", "Survey missions without a survey controller: the survey is only done once the drones have been "
+     "idle for 3 minutes and no job (auto-survey drives them body by body) is using them. At DABAH the drone was caught "
+     "idle between two moons, the survey was called done and the recall failed ('Cannot cruise while scanning')."),
     ("1.46.6", "2026-10-08", "Map › Stars: the unexplored stars' route buttons (one per replicant) are labelled with the "
      "replicant's name under 'route from', with a tooltip saying it's the game's preview and nothing moves."),
     ("1.46.5", "2026-10-08", "Galaxy map: a left-click no longer draws a line from your replicant to the star (the distance "
