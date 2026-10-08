@@ -823,7 +823,7 @@ class AutomationEngine(OpsRules):
             for stage in ("run_fleets", "auto_deals_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_pass"):
+                          "decommission_queue_pass", "trail_pass", "auto_scout_pass", "hub_watch_pass"):
                 self.stage = stage
                 out = await getattr(self, stage)()
                 if stage == "civ_beacon_pass":
@@ -858,6 +858,94 @@ class AutomationEngine(OpsRules):
                 (None, "mention", text, None, "/trail", now_iso()))
             self.hub.publish("notify", {"id": cur.lastrowid, "level": "mention", "title": text, "link": "/trail"})
             out.append(text)
+        return out
+
+    async def hub_watch_pass(self) -> list[str]:
+        """Map › Wards & hubs: a warning in the bell when a hub of ours needs attention — its 7-day shield ends within a
+        day, its capacity (as last reported, less 10 %/day) is under 50 %, or its system holds less than one
+        maintenance's worth. Once per hub and state, and again only after it recovered."""
+        from . import wardhub as wh
+        from .shapes import normalize_inventory
+        devices = await self.devices()
+        if not any(wh.is_hub(d) for d in devices):
+            return []
+        rows = wh.hubs(devices, await wh.hub_events(self.db),
+                       wh.stock_by_star(normalize_inventory(await self.db.kv_get("inventory", []))))
+        seen = await self.db.kv_get("hub_alerts", {}) or {}
+        out = []
+        for h in rows:
+            why = []
+            if h["shielded"] and h["shield_left_h"] is not None and h["shield_left_h"] < 24:
+                why.append(f"its shield ends in {h['shield_left_h']:.0f} h")
+            if not h["shielded"] and h["projected"] is not None and h["projected"] < 50:
+                why.append(f"capacity about {h['projected']:.0f} %")
+            if h["short"]:
+                why.append("short of one maintenance in " + h["star"] + ": "
+                           + ", ".join(f"{v:g} {k}" for k, v in h["short"].items()))
+            key = "|".join(sorted(w.split(" ")[0] for w in why))
+            if not why:
+                seen.pop(h["code"], None)
+                continue
+            if seen.get(h["code"]) == key:
+                continue
+            seen[h["code"]] = key
+            text = f"Hub {h['code']} at {h['location']}: " + "; ".join(why)
+            cur = await self.db.execute(
+                "INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
+                (None, "warning", text, None, "/wards", now_iso()))
+            self.hub.publish("notify", {"id": cur.lastrowid, "level": "warning", "title": text, "link": "/wards"})
+            out.append(text)
+        await self.db.kv_set("hub_alerts", seen)
+        return out
+
+    async def auto_scout_pass(self) -> list[str]:
+        """Explore fleets with 'auto-scout prospects' ticked: when one is free, send it to the stars our observatories
+        found that nothing of ours has scanned yet — the nearest to its home first, up to its scout count (3), not
+        another player's warded system, not a stationed fleet's home, not a star already sent to."""
+        from . import fleets as fl
+        from . import wards
+        from .census import observatory_stars
+        items = await self.fleets()
+        free = [f for f in items if f.get("role") == "explore" and f.get("auto_scout")
+                and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped")]
+        if not free:
+            return []
+        found, _ = await observatory_stars(self.db)
+        if not found:
+            return []
+        scanned = {r["star"] for r in await self.db.fetchall("SELECT star FROM systems")}
+        cat = await self.db.kv_get("stars", {}) or {}
+        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+        for k, v in found.items():
+            pos.setdefault(k, v.get("position"))
+        sent = await self.db.kv_get("scouted", {}) or {}
+        busy = {star_of(t) for f in items if (f.get("mission") or {}).get("status") in ("running", "stalled")
+                for t in (f["mission"].get("targets") or [])}
+        skip = scanned | set(sent) | busy | fl.worked_systems(items) | wards.foreign(cat, await self.devices())
+        out = []
+        for f in free:
+            home = pos.get(f.get("home") or "")
+
+            def dist(s: str) -> float:
+                p = pos.get(s)
+                if not home or not p:
+                    return 1e9
+                return sum((float(p.get(k) or 0) - float(home.get(k) or 0)) ** 2 for k in "xyz") ** 0.5
+            todo = sorted((s for s in found if s not in skip), key=lambda s: (dist(s), s))[:max(1, int(f.get("scout_count") or 3))]
+            if not todo:
+                continue
+            m = {"status": "running", "phase": None, "idx": 0, "targets": todo, "started_at": now_iso(), "log": [],
+                 "opts": {}, "auto": True}
+            self._mlog(m, "started automatically: scouting " + ", ".join(todo) + " (found by your observatories)")
+            f["mission"] = m
+            for s in todo:
+                sent[s] = now_iso()
+                skip.add(s)
+            out.append(f"{f['name']}: scouting {', '.join(todo)}")
+            await self.log("fleets", f"{f['name']}: scouting {', '.join(todo)} (prospected stars, auto)")
+        if out:
+            await self.save_fleets(items)
+            await self.db.kv_set("scouted", sent)
         return out
 
     async def decommission_queue_pass(self) -> list[str]:

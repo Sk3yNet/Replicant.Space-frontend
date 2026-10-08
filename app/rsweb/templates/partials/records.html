@@ -1,0 +1,16 @@
+{# Renders an API answer whose shape isn't documented: dicts as key/value lists, lists of dicts as tables. #}
+{% macro show(v, depth=0) -%}
+{%- if v is mapping -%}
+  {%- if not v %}<span class="muted">—</span>{% else %}<dl class="kv small">{% for k, x in v.items() %}<dt>{{ k | human }}</dt><dd>{{ show(x, depth + 1) }}</dd>{% endfor %}</dl>{% endif -%}
+{%- elif v is iterable and v is not string -%}
+  {%- set items = v | list -%}
+  {%- if not items %}<span class="muted">none</span>
+  {%- elif items[0] is mapping and depth < 3 -%}
+    {%- set cols = [] -%}{%- for it in items[:50] %}{% for k in it.keys() %}{% if k not in cols %}{% set _ = cols.append(k) %}{% endif %}{% endfor %}{% endfor -%}
+    <table class="small"><tr>{% for c in cols %}<th>{{ c | human }}</th>{% endfor %}</tr>
+      {% for it in items %}<tr>{% for c in cols %}<td>{{ show(it.get(c), depth + 1) if it.get(c) is not none else '' }}</td>{% endfor %}</tr>{% endfor %}</table>
+  {%- else %}{% for x in items %}{{ show(x, depth + 1) }}{{ ', ' if not loop.last }}{% endfor %}{% endif -%}
+{%- elif v is none %}<span class="muted">—</span>
+{%- elif v is sameas true %}yes{% elif v is sameas false %}no
+{%- else %}{{ v }}{% endif -%}
+{%- endmacro %}

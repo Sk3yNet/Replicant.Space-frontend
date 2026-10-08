@@ -5262,3 +5262,112 @@ def test_trail_page_end_to_end(client):
     assert '"/trail/travel"' in page and '{"star": "EAST"}' in page
     r = client.post("/trail/travel", data={"star": "EAST"}, headers=HX)
     assert f"/replicants/{rep}/travel" in r.text and "EAST" in r.text
+
+
+def _ward(code, loc, status="warding"):
+    return {"device_code": code, "device_type": "system_ward", "location": loc, "status": status, "features": ["ward"],
+            "operational_capacity": 100.0, "available_commands": ["deactivate" if status == "warding" else "activate", "travel"]}
+
+
+def test_wardhub_hub_shield_projection_and_ward_cap():
+    from rsweb import wardhub as wh
+    now = datetime(2026, 10, 20, tzinfo=timezone.utc)
+    hub = {"device_code": "HUB1", "device_type": "system_hub", "location": "SOL-5-L4", "status": "active",
+           "operational_capacity": 100.0}
+    evs = [{"event": "hub.activated", "device_code": "HUB1", "location": "SOL-5-L4", "payload": "{}",
+            "created_at": "2026-10-01T00:00:00+00:00"},
+           {"event": "hub.maintained", "device_code": "HUB1", "location": "SOL-5-L4",
+            "payload": json.dumps({"resources_consumed": {"structural": 50}, "capacity": 80}),
+            "created_at": "2026-10-18T00:00:00+00:00"}]
+    h = wh.hubs([hub], evs, {"SOL": {"structural": 20}}, now=now)[0]
+    assert not h["shielded"] and h["shield_until"].startswith("2026-10-08")
+    assert h["capacity"] == 80 and h["projected"] == 60.0 and h["days_left"] == 6.0     # 2 days at −10 %/day
+    assert h["short"] == {"structural": 30.0} and h["level"] == "warn"
+    # inside the 7 days: shielded, no decay
+    h = wh.hubs([hub], evs[:1], {}, now=datetime(2026, 10, 3, tzinfo=timezone.utc))[0]
+    assert h["shielded"] and h["projected"] == 100.0 and h["level"] == "ok"
+    w = wh.wards([_ward(f"W{i}", f"S{i}-OORT") for i in range(25)] + [_ward("WX", "SOL-OORT", "inactive"), hub,
+                                                                     _ward("WH", "SOL-KUIPER")])
+    assert w["active"] == 26 and w["free"] == 0 and w["clash"] == ["SOL"]
+    assert wh.evicted({"evicted_miners": ["D1", {"device_code": "D2", "owner_name": "Sylphrena"}]}) == [
+        {"device_code": "D1"}, {"device_code": "D2", "owner_name": "Sylphrena"}]
+
+
+def test_wards_page_activate_cap_and_evictions(client):
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices += [_ward("WA000001", "SOL-OORT", "inactive")] + [_ward(f"WF{i:06d}", f"STAR{i}-OORT") for i in range(24)]
+    client.portal.call(client.app.state.worker.sync_devices)
+    page = client.get("/wards", headers=H).text
+    assert "24 of 25 active" in page and "/wards/WA000001/activate" in page
+    world.evict_next = [{"device_code": "MD777777", "owner_name": "Sylphrena"}]
+    r = client.post("/wards/WA000001/activate", headers=HX)
+    assert "Evicted miners: MD777777 (Sylphrena)" in r.text
+    notes = client.portal.call(client.app.state.db.fetchall, "SELECT title, link FROM notifications WHERE link='/wards'")
+    assert any("MD777777" in n["title"] for n in notes)
+    client.portal.call(client.app.state.worker.sync_devices)
+    assert "25 of 25 active" in client.get("/wards", headers=H).text
+    world.devices.append(_ward("WB000001", "LERNA-OORT", "inactive"))
+    client.portal.call(client.app.state.worker.sync_devices)
+    r = client.post("/wards/WB000001/activate", headers=HX)
+    assert "25 wards are already active" in r.text
+    assert client.post("/wards/WB000001/explode", headers=HX).status_code == 404
+
+
+def test_hub_watch_pass_warns_once(client):
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices.append({"device_code": "HUB00001", "device_type": "system_hub", "location": "SOL-5-L4", "status": "active",
+                          "operational_capacity": 100.0, "available_commands": ["set_welcome_message"]})
+    client.portal.call(client.app.state.worker.sync_devices)
+    old = datetime.now(timezone.utc) - timedelta(days=12)
+    w = client.app.state.worker
+    client.portal.call(w.handle_event, {**_ev(901, "hub.activated", device="HUB00001", created=old), "location": "SOL-5-L4"})
+    client.portal.call(w.handle_event, {**_ev(902, "hub.maintained", device="HUB00001",
+                                              created=datetime.now(timezone.utc) - timedelta(days=4),
+                                              resources_consumed={"rares": 500}, capacity=70), "location": "SOL-5-L4"})
+    eng = w.automations
+    out = client.portal.call(eng.hub_watch_pass)
+    assert len(out) == 1 and "capacity about 30 %" in out[0] and "rares" in out[0]
+    assert client.portal.call(eng.hub_watch_pass) == []                       # once per state
+    page = client.get("/wards", headers=H).text
+    assert "HUB00001" in page and "needs maintenance" in page and "down since" in page
+
+
+def test_auto_scout_sends_explore_fleet_to_prospected_stars(client):
+    eng = client.app.state.worker.automations
+    w = client.app.state.worker
+    stars = [{"designation": d, "position": {"x": x, "y": 0, "z": 0}} for d, x in
+             (("NEARA", 2), ("NEARB", 3), ("FARC", 9), ("FARD", 12))]
+    client.portal.call(w.handle_event, _ev(950, "prospect.completed", device="OBS00001", origin="SOL", stars_generated=4, stars=stars))
+    client.portal.call(eng.save_fleets, [{"id": "x1", "name": "Scouts", "role": "explore", "home": "SOL", "wants": {}},
+                                         {"id": "x2", "name": "Lazy", "role": "explore", "home": "SOL", "wants": {}}])
+    r = client.post("/fleets/x1/auto-scout", data={"auto_scout": "on", "scout_count": "2"}, headers=HX)
+    assert "up to 2" in r.text
+    out = client.portal.call(eng.auto_scout_pass)
+    assert out == ["Scouts: scouting NEARA, NEARB"]
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "x1")
+    assert f["mission"]["targets"] == ["NEARA", "NEARB"] and f["mission"]["auto"]
+    assert client.portal.call(eng.auto_scout_pass) == []                      # busy, and the others aren't for Lazy
+    # the galaxy map highlights the prospected stars
+    data = client.get("/api/map.json?part=core", headers=H).json()
+    far = next(s for s in data["stars"] if s["designation"] == "FARC")
+    assert far["prospected"] and far["found_by"] == "OBS00001" and not far["scanned"]
+
+
+def test_profile_edit_and_reputation(client):
+    from rsweb.web_profile import profile_changes
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_devices)
+    rep = next(iter(client.portal.call(client.app.state.db.kv_get, "replicants")))
+    page = client.get(f"/replicants/{rep}", headers=H).text
+    assert f"/replicants/{rep}/profile" in page and f"/replicants/{rep}/reputation" in page
+    r = client.post(f"/replicants/{rep}/profile", data={"name": "bob-1", "orig_name": "bob-1", "pronouns": "they/them",
+                                                        "orig_pronouns": "", "plan": "", "orig_plan": ""}, headers=HX)
+    assert world.profile_patches[-1] == {"code": rep, "pronouns": "they/them"}       # only what changed
+    r = client.post(f"/replicants/{rep}/profile", data={"name": "Bill", "orig_name": "bob-1"}, headers=HX)
+    assert "Name already taken" in r.text
+    assert "Nothing changed" in client.post(f"/replicants/{rep}/profile", data={"name": "x", "orig_name": "x"}, headers=HX).text
+    assert profile_changes({"pronouns": "x" * 51, "orig_pronouns": ""})[1]
+    assert profile_changes({"name": "", "orig_name": "bob"})[1]
+    assert "acquainted" in client.get(f"/replicants/{rep}/reputation", headers=HX).text
+    page = client.get("/reputation", headers=H).text
+    assert "Veth" in page and "intelligent" in page and "curious, aquatic" in page and "events completed" in page

@@ -16,11 +16,19 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.42.1"
+VERSION = "1.43.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.43.0", "2026-10-08", "Map › Wards & hubs: your wards against the 25 cap (activate / deactivate; activating past the "
+     "cap or in a system with your hub is refused), and every miner a ward evicts is logged and noted in the bell. Hubs: "
+     "the 7-day shield, capacity as last reported less 10 %/day after it, last maintenance and what it used against the "
+     "stockpile in the hub's system; a warning when the shield ends within a day, capacity drops under 50 % or the "
+     "system can't cover one maintenance. Observatory prospects: the stars they find are highlighted on the Galaxy map "
+     "until something scans them, and explore fleets get 'auto-scout prospects' (when free, visit the nearest unscanned "
+     "ones, up to N a run). Replicant page: edit the public profile (name, pronouns, description, plan, project) and see "
+     "its reputation; Economy › Reputation shows the account's standing and the species you know."),
     ("1.42.1", "2026-10-08", "Trail: the page keeps what was last entered (the replicant that scanned, the one stars were "
      "loaded around, the last beacon code and system). Each departure's candidate systems get a travel button that sends "
      "the replicant that scanned for the beacons (and its vessel) there."),

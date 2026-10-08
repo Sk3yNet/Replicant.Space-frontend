@@ -145,6 +145,8 @@ class World:
         self.trips: dict[str, Any] = {}              # device -> pending arrival (asyncio handle), for cancelling
         self.objects: dict[str, dict] = {}           # STAR-OBJ-n -> object
         self.profiles: dict[str, dict] = {}          # other replicants' public profiles
+        self.profile_patches: list[dict] = []         # PATCH /replicants/{code} bodies
+        self.evict_next: list = []                    # what the next ward activate reports as evicted_miners
         self.xp = 87340
 
     def af_next(self, af: dict) -> None:
@@ -282,6 +284,26 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         return ok({"name": "bob-1", "replicant_code": code, "hosted_device_code": HOST, "location": world.location,
                    "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "status": "stationary", "experience_points": 1245,
                    "stowed_devices": [{"device_code": "3CA5D7E4", "device_type": "replicant_matrix"}]})
+
+    @app.patch("/v1/replicants/{code}")
+    async def replicant_patch(code: str, request: Request):
+        body = await request.json()
+        if body.get("name") == "Bill":
+            return ok({"error": "Name already taken"}, 409)
+        world.profile_patches.append({"code": code, **body})
+        return ok({"replicant_code": code, **body})
+
+    @app.get("/v1/replicants/{code}/reputation")
+    async def replicant_reputation(code: str):
+        return ok({"reputation": [{"species": "Veth", "standing": 12, "tier": "acquainted"}]})
+
+    @app.get("/v1/accounts/reputation")
+    async def account_reputation():
+        return ok({"reputation": [{"species": "Veth", "standing": 12, "tier": "acquainted", "events_completed": 2}]})
+
+    @app.get("/v1/species")
+    async def species():
+        return ok({"species": [{"name": "Veth", "home": "LERNA-3", "stage": "intelligent", "traits": ["curious", "aquatic"]}]})
 
     @app.get("/v1/replicants")
     async def directory(name: str | None = None, limit: int = 20):
@@ -467,6 +489,14 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             if any(k in d["device_type"] for k in ("maintenance", "trade")):
                 d["ami_directive"] = {"name": body.get("directive"), "config": body.get("configuration") or {}, "_eval_state": "idle"}
                 d["ami_directive_status"] = "active"
+        if cmd in ("activate", "deactivate") and d["device_type"] == "system_ward":
+            d["status"] = "warding" if cmd == "activate" else "inactive"
+            d["available_commands"] = [c for c in d["available_commands"] if c not in ("activate", "deactivate")] + [
+                "deactivate" if cmd == "activate" else "activate"]
+            world.emit(f"ward.{cmd}d", d)
+            if cmd == "activate":
+                return ok({"device_code": code, "status": "warding", "evicted_miners": world.evict_next})
+            return ok({"device_code": code, "status": "inactive"})
         if cmd == "activate" and "propulsor" in d["device_type"]:
             d["status"] = "diverting"
             obj = world.objects.get(d["location"])

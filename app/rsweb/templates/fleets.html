@@ -206,6 +206,13 @@
           <span id="auto-{{ f.id }}" class="muted">When the fleet is free it starts the nearest one your stockpiles can pay for
             (contracts first; not where another player's ward or hub is; a trade at most once a day). Its own replicant fulfils.</span>
         </form>{% endif %}
+        {% if f.role == 'explore' %}
+        <form class="row small" hx-post="/fleets/{{ f.id }}/auto-scout" hx-trigger="change" hx-target="#scout-{{ f.id }}" style="gap:14px;margin:6px 0">
+          <label style="text-transform:none"><input type="checkbox" name="auto_scout" {{ 'checked' if f.auto_scout }}> auto-scout prospects</label>
+          <label style="text-transform:none">up to <input type="number" name="scout_count" min="1" max="10" value="{{ f.scout_count or 3 }}" style="width:4em"> systems a run</label>
+          <span id="scout-{{ f.id }}" class="muted">When the fleet is free it visits the stars your observatories found that nothing
+            of yours has scanned, nearest to its home first (not another player's warded system, not a stationed fleet's home).</span>
+        </form>{% endif %}
         <h3>New mission</h3>
         <form hx-post="/fleets/{{ f.id }}/mission" hx-swap="none">
           {% if f.role == 'trade' %}

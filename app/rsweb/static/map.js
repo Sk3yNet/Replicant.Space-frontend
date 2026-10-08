@@ -143,6 +143,8 @@ function build() {
     if (s.scanned) marks.push([0x4fd18b, 2.4]);
     if (s.has_hub || (s.infra || []).some(t => t.includes("hub"))) marks.push([0xf0b64f, 2.8]);
     if (hasRep) marks.push([0xff5fa2, 4.2]);
+    const fresh = s.prospected && !s.scanned;   // found by our observatories, nothing has scanned it yet
+    if (fresh) marks.push([0xfff27a, 3.6]);
     for (const [c, sz] of marks) { const sp = ring(c); sp.scale.set(sz, sz, 1); sp.position.copy(v); mineGroup.add(sp); }
     RES_ORDER.forEach((res, k) => {
       const n = Math.min(10, (s.mining || {})[res] || 0);
@@ -160,10 +162,10 @@ function build() {
         m.position.copy(v); coverGroup.add(m);
       }
     }
-    if (s.devices > 0 || hasRep || s.has_hub) {
+    if (s.devices > 0 || hasRep || s.has_hub || fresh) {
       const d = document.createElement("div");
       d.className = "small"; d.textContent = s.designation;
-      Object.assign(d.style, { position: "absolute", color: hasRep ? "#ff9fc8" : "#9fb3d1", pointerEvents: "none", fontFamily: "monospace", fontSize: "11px" });
+      Object.assign(d.style, { position: "absolute", color: hasRep ? "#ff9fc8" : fresh && !s.devices ? "#fff27a" : "#9fb3d1", pointerEvents: "none", fontFamily: "monospace", fontSize: "11px" });
       el.appendChild(d); labels.push({ el: d, v });
     }
   }
@@ -321,6 +323,7 @@ function show(s) {
       ${Object.keys(s.mining || {}).length ? `<dt>Mining now</dt><dd>${Object.entries(s.mining).map(([r, n]) => `${n} on ${esc(r)}`).join(", ")}</dd>` : ""}
       ${(s.infra || []).length ? `<dt>Infrastructure</dt><dd>${esc(s.infra.join(", "))}</dd>` : ""}
       ${s.has_hub ? "<dt>Hub</dt><dd>yes</dd>" : ""}
+      ${s.prospected ? `<dt>Prospected</dt><dd>by ${esc(s.found_by || "an observatory")}${s.scanned ? "" : " · <b>not scanned yet</b>"}</dd>` : ""}
     </dl>
     ${rep ? `<div class="row">
       <button class="small" hx-get="/api/route?replicant=${rep}&star=${esc(s.designation)}" hx-target="#route-out">travel estimate</button>

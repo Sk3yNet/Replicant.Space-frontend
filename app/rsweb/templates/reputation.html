@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "partials/records.html" import show %}
+{% block title %}Reputation{% endblock %}
+{% block content %}
+<div class="row between"><h1>Reputation &amp; species</h1>
+  <a class="small" href="/reputation?refresh=1">ask the game again</a></div>
+<p class="muted small">Your standing with the civilisations you've met: completing their events (Economy › Contracts) earns it.
+  Read {{ c.at | ago if c.at else 'never' }}. The game doesn't document these answers, so they're shown as they come.</p>
+<div class="grid g2">
+  <div class="card">
+    <h2>Account</h2>
+    {% if c.account_err %}<p class="lv-alert small">{{ c.account_err }}</p>{% elif c.account %}{{ show(c.account) }}{% else %}<p class="muted small">No standing with any species yet.</p>{% endif %}
+    {% for code, r in (c.replicants or {}).items() %}
+      <h3 style="margin-top:12px"><a href="/replicants/{{ code }}">{{ names.get(code, code) }}</a></h3>
+      {% if r.err %}<p class="lv-alert small">{{ r.err }}</p>{% elif r.body %}{{ show(r.body) }}{% else %}<p class="muted small">Nothing yet.</p>{% endif %}
+    {% endfor %}
+  </div>
+  <div class="card">
+    <h2>Known species</h2>
+    {% if c.species_err %}<p class="lv-alert small">{{ c.species_err }}</p>{% elif c.species %}{{ show(c.species) }}{% else %}<p class="muted small">None yet. Survey drones find life when scanning bodies.</p>{% endif %}
+  </div>
+</div>
+{% endblock %}

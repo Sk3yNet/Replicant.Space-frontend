@@ -421,12 +421,12 @@ Gaps found by comparing the app with the game's API reference and docs (October 
 
 **Next**
 1. **Fleet controller** (once unlocked, see below): one travel command per fleet.
-2. **Observatory prospect automation**: chain `prospect.completed` into a scouting mission or Galaxy-map highlights.
-3. **System hub / ward management**: a hub shield and upkeep tracker (7-day shield, then −10 %/day; `hub.warning` / `hub.maintained`), feeding the hub from stockpiles, and the ward count against the 25 cap with `evicted_miners` reporting.
+2. ✅ **Observatory prospect automation** (1.43.0): prospected stars are highlighted on the Galaxy map until scanned; explore fleets can *auto-scout prospects*.
+3. ✅ **System hub / ward management** (1.43.0): Map › Wards & hubs — ward count against the 25 cap, activate/deactivate, `evicted_miners` log; hub shield and upkeep tracker with warnings. Hauling resources to a hub is left to fleet Materials, since how a hub draws its maintenance isn't documented.
 4. **FTL network tools**: relay network view (`/devices/<relay>/network`) with coverage gaps, and teleport / transfer to an empty matrix with a confirmation. (The slingshot is done: see the Replicant page.)
 5. **Megastructures**: a Contribute button (`POST /locations/<code>/contribute`) and the leaderboard.
-6. **BobNet**: per-relay channel and message history (`/devices/<relay>/channels`, `/messages`).
-7. **Smaller items**: replicant directory and own profile editing, reputation and species, simulations, and game feedback.
+6. ✅ **BobNet**: channels and message history (Messages page).
+7. **Smaller items**: ✅ own profile editing and ✅ reputation & species (1.43.0), ✅ game feedback (Diagnostics); still open: simulations.
 8. **Not planned**: webhooks. They would need a public, unauthenticated endpoint past oauth2-proxy. The event stream already covers it.
 
 ### Fleet controller — how the app would use it

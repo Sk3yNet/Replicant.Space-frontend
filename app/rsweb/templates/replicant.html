@@ -67,6 +67,25 @@
   </div>
 
   <div class="card">
+    <h2>Profile</h2>
+    <form hx-post="/replicants/{{ code }}/profile" hx-target="#profile-result" class="small">
+      {% for f, label, n, rows in [("name", "Name", 60, 0), ("pronouns", "Pronouns", 50, 0), ("description", "Description", 500, 3),
+                                   ("plan", "Plan", 500, 3), ("project", "Project", 2000, 4)] %}
+        <input type="hidden" name="orig_{{ f }}" value="{{ rep[f] or '' }}">
+        <label style="display:block;text-transform:none;margin-top:4px">{{ label }} <span class="muted">(≤{{ n }})</span>
+          {% if rows %}<textarea name="{{ f }}" rows="{{ rows }}" maxlength="{{ n }}" style="width:100%">{{ rep[f] or '' }}</textarea>
+          {% else %}<input name="{{ f }}" value="{{ rep[f] or '' }}" maxlength="{{ n }}" style="width:100%">{% endif %}</label>
+      {% endfor %}
+      <button class="small" style="margin-top:6px">Save profile</button>
+      <span class="muted">Only changed fields are sent. Other players see these in the directory.</span>
+    </form>
+    <div id="profile-result"></div>
+    <h3>Reputation</h3>
+    <div hx-get="/replicants/{{ code }}/reputation" hx-trigger="load" class="small muted">Loading…</div>
+    <p class="small"><a href="/reputation">Account reputation and known species →</a></p>
+  </div>
+
+  <div class="card">
     <h2>FTL slingshot</h2>
     {% if slingshots %}
     <table class="small">

@@ -307,8 +307,25 @@ async def call_action(request: Request, user: str, method: str, path: str, body:
     request.state.action_response = resp if err is None else None
     if not err:
         st.hub.publish("state", "action")
+        await record_evictions(st, path, resp)
     return {"label": label, "method": method, "path": path, "ok": err is None, "status": status,
             "error": err, "response": resp}
+
+
+async def record_evictions(st, path: str, resp: Any) -> None:
+    """A ward's activate can evict other players' miners (`evicted_miners`): keep a log and say so in the bell."""
+    from . import wardhub as wh
+    ev = wh.evicted(resp)
+    if not ev:
+        return
+    code = path.rstrip("/").split("/")[-1]
+    log_ = await st.db.kv_get(wh.EVICTIONS_KV, []) or []
+    log_.append({"at": now_iso(), "ward": code, "evicted": ev})
+    await st.db.kv_set(wh.EVICTIONS_KV, log_[-200:])
+    title = f"Ward {code} evicted {len(ev)} miner(s): {wh.eviction_text(ev)}"
+    cur = await st.db.execute("INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
+                              (None, "info", title, None, "/wards", now_iso()))
+    st.hub.publish("notify", {"id": cur.lastrowid, "level": "info", "title": title, "link": "/wards"})
 
 
 def render_action(request: Request, outcome: dict, note: str | None = None) -> HTMLResponse:
@@ -1464,11 +1481,15 @@ async def map_payload(request: Request, part: str = "all") -> dict:
             if any(k in t for k in ("relay", "hub", "beacon", "ward", "slingshot", "observatory")):
                 infra[star_of(d.get("location"))].append(t)
         scanned = {r["star"] for r in await db.fetchall("SELECT star FROM systems")}
+        from .census import observatory_stars
+        prospected, _ = await observatory_stars(db)   # stars our observatories found: highlighted until scanned
         stars = []
         for s in cat.get("stars") or []:
             d = s.get("designation")
             stars.append({**{k: s[k] for k in STAR_FIELDS if k in s}, "devices": presence.get(d, 0), "infra": infra.get(d, []),
-                          "scanned": d in scanned})
+                          "scanned": d in scanned,
+                          **({"prospected": prospected[d].get("found_at"), "found_by": prospected[d].get("found_by")}
+                             if d in prospected else {})})
         out.update({"stars": stars, "generated_at": cat.get("generated_at"), "sources": cat.get("sources"),
                     "catalogue_updated": await db.kv_updated("stars"),
                     "replicants": [{"code": c, "name": r.get("name"), "star": star_of(r.get("location") or r.get("current_location")),
@@ -3116,6 +3137,25 @@ async def fleets_auto_deals(request: Request, fid: str, user: str = Depends(curr
     on = [x for x, k in (("contracts", "auto_contracts"), ("trades", "auto_trades")) if f[k]]
     return HTMLResponse(f'<span class="small {"lv-done" if on else "muted"}">'
                         + (f"Picks up {' and '.join(on)} on its own when it's free." if on else "Off.") + "</span>")
+
+
+@router.post("/fleets/{fid}/auto-scout", response_class=HTMLResponse)
+async def fleets_auto_scout(request: Request, fid: str, user: str = Depends(current_user)):
+    """An explore fleet's 'auto-scout prospects' checkbox and how many systems a run visits."""
+    form = await request.form()
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f or f.get("role") != "explore":
+        return HTMLResponse("", status_code=404)
+    f["auto_scout"] = form.get("auto_scout") == "on"
+    try:
+        f["scout_count"] = max(1, min(10, int(form.get("scout_count") or 3)))
+    except ValueError:
+        f["scout_count"] = 3
+    await eng.save_fleets(items)
+    return HTMLResponse(f'<span class="small {"lv-done" if f["auto_scout"] else "muted"}">'
+                        + (f"Scouts up to {f['scout_count']} prospected system(s) a run when it's free."
+                           if f["auto_scout"] else "Off.") + "</span>")
 
 
 @router.post("/fleets/traders", response_class=HTMLResponse)

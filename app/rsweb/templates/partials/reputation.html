@@ -1,0 +1,2 @@
+{% from "partials/records.html" import show %}
+{% if err %}<span class="lv-alert">{{ err }}</span>{% elif body %}{{ show(body) }}{% else %}<span class="muted">Nothing yet — no standing with any species.</span>{% endif %}

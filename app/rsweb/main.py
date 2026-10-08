@@ -67,6 +67,10 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     app.include_router(web_ops.router)
     from . import web_trail
     app.include_router(web_trail.router)
+    from . import web_wards
+    app.include_router(web_wards.router)
+    from . import web_profile
+    app.include_router(web_profile.router)
     app.add_exception_handler(web.AuthError, web.auth_error_handler)
     return app
 

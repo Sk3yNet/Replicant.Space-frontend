@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Wards & hubs{% endblock %}
+{% block content %}
+<h1>Wards &amp; hubs</h1>
+<p class="muted small">A system ward stops other players mining in its system; a system hub does too, and relays, speeds
+  travel and shields itself for {{ 7 }} days after activation, then loses 10 % capacity a day unless it's maintained.
+  Wards and hubs don't share a system, and an account may run at most {{ w.cap }} wards.</p>
+<div id="wards-result"></div>
+
+<div class="grid g2">
+  <div class="card">
+    <h2>Wards <span class="muted small">{{ w.active }} of {{ w.cap }} active · {{ w.free }} free · {{ w.total }} owned</span></h2>
+    <div class="bar" title="{{ w.active }} of {{ w.cap }}" style="height:6px;background:var(--line);border-radius:3px;margin:4px 0 10px">
+      <div style="height:6px;border-radius:3px;width:{{ (100 * w.active / w.cap) | round | int }}%;background:{{ 'var(--alert, #e5534b)' if w.free == 0 else 'var(--accent, #6cb6ff)' }}"></div></div>
+    {% if w.clash %}<p class="small lv-alert">A ward and a hub of yours share {{ w.clash | join(', ') }} — the game doesn't allow both in one system.</p>{% endif %}
+    {% if w.rows %}<table class="small">
+      <tr><th>Ward</th><th>System</th><th>Status</th><th class="num">Cap.</th><th></th></tr>
+      {% for r in w.rows %}<tr{% if not r.warding %} class="muted"{% endif %}>
+        <td class="mono"><a href="/devices/{{ r.code }}">{{ r.code }}</a>{% if r.name %} <span class="muted">{{ r.name }}</span>{% endif %}</td>
+        <td>{% if r.star %}<a href="/systems/{{ r.star }}">{{ r.location }}</a>{% elif r.carrier %}aboard <a href="/devices/{{ r.carrier }}">{{ r.carrier }}</a>{% else %}{{ r.location or '?' }}{% endif %}</td>
+        <td>{% if r.warding %}<span class="pill small st-work">{{ r.status }}</span>{% else %}{{ r.status }}{% endif %}{% if r.hub_here %} <span class="pill small">hub here</span>{% endif %}</td>
+        <td class="num">{{ r.capacity | round | int if r.capacity is not none else '?' }}</td>
+        <td>{% if r.deployed and not r.warding and 'activate' in r.commands %}<button class="small ghost" hx-post="/wards/{{ r.code }}/activate" hx-target="#wards-result"{% if w.free == 0 %} disabled title="{{ w.cap }} wards are active already"{% endif %}>activate</button>
+            {% elif r.warding and 'deactivate' in r.commands %}<button class="small ghost" hx-post="/wards/{{ r.code }}/deactivate" hx-target="#wards-result"
+              hx-confirm="Deactivate the ward at {{ r.location }}? Other players can mine there again.">deactivate</button>{% endif %}</td>
+      </tr>{% endfor %}</table>
+    {% else %}<p class="muted small">No wards yet. Print a system_ward (Economy › Blueprints) and deploy it where your miners work.</p>{% endif %}
+
+    <h3 style="margin-top:14px">Evicted miners</h3>
+    {% for e in evictions %}<div class="small"><span class="muted">{{ e.at | local }}</span> · ward <span class="mono">{{ e.ward }}</span>:
+      {% for x in e.evicted %}{{ x.device_code or x.code or '?' }}{% if x.owner_name or x.replicant_name %} ({{ x.owner_name or x.replicant_name }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}</div>
+    {% else %}<p class="muted small">None recorded. When activating a ward pushes another player's miners out, the game lists
+      them and they show up here (and in the bell).</p>{% endfor %}
+  </div>
+
+  <div class="card">
+    <h2>Hubs</h2>
+    {% for h in hubs %}
+      <div style="border-bottom:1px solid var(--line);padding:6px 0">
+        <div class="row between"><div><b class="mono"><a href="/devices/{{ h.code }}">{{ h.code }}</a></b>
+          at <a href="/systems/{{ h.star }}">{{ h.location }}</a> <span class="muted small">{{ h.status }}</span></div>
+          <span class="pill small {{ 'st-off' if h.level == 'alert' else 'st-move' if h.level == 'warn' else 'st-work' }}">
+            {{ 'needs maintenance' if h.level == 'alert' else 'check upkeep' if h.level == 'warn' else 'ok' }}</span></div>
+        <dl class="kv small">
+          <dt>Shield</dt><dd>{% if h.shielded %}up — {{ h.shield_left_h }} h left (until {{ h.shield_until | local }}){% elif h.shield_until %}down since {{ h.shield_until | local }}{% else %}<span class="muted">activation not seen — the 7-day shield can't be timed</span>{% endif %}</dd>
+          <dt>Capacity</dt><dd>{% if h.capacity is not none %}{{ h.capacity | round(1) }} %{% if h.projected is not none and h.projected != h.capacity %} reported · about <b>{{ h.projected }} %</b> now{% endif %}{% else %}?{% endif %}
+            {% if h.days_left is not none %}<span class="muted">· {{ h.days_left }} day(s) to zero at −10 %/day</span>{% endif %}</dd>
+          <dt>Maintained</dt><dd>{% if h.last_maintained %}{{ h.last_maintained | ago }}{% if h.consumed %}, used {% for k, v in h.consumed.items() %}{{ v | round | int }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}{% else %}<span class="muted">not yet</span>{% endif %}</dd>
+          {% if h.last_warning %}<dt>Last warning</dt><dd>{{ h.last_warning.type or '?' }} at {{ h.last_warning.capacity }} % · {{ h.last_warning.at | ago }}</dd>{% endif %}
+          {% if h.consumed %}<dt>Stockpile in {{ h.star }}</dt><dd>{% for k, v in h.stock.items() %}{{ v | round | int }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}
+            {% if h.short %}<span class="lv-alert">— short of one maintenance by {% for k, v in h.short.items() %}{{ v }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}</dd>{% endif %}
+        </dl>
+        {% if h.short or h.level != 'ok' %}<p class="small muted">{% if stationed.get(h.star) %}{{ stationed[h.star].name }} is stationed in {{ h.star }}:
+          point another fleet's Materials at it (Fleets) so its home stockpile is ferried here for the hub.{% else %}No fleet is stationed in {{ h.star }}. Station one here and point
+          another fleet's Materials at it (Fleets) to keep a stockpile for the hub.{% endif %}</p>{% endif %}
+      </div>
+    {% else %}<p class="muted small">No hubs of yours. A system hub needs a high-tier blueprint; once deployed and activated it shows up here
+      with its shield and upkeep.</p>{% endfor %}
+  </div>
+</div>
+{% endblock %}
