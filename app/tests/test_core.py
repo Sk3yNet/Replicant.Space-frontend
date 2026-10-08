@@ -6107,3 +6107,16 @@ def test_placed_beacons_are_never_spare():
     assert "spare" not in p["tag_add"].get("HOME", []) and "spare" not in p["tag_add"].get("ABOARD", [])
     hub = {r["type"]: r for r in _rep(p, "AAA")["rows"]}["ftl_beacon"]
     assert hub["have"] == 2                                              # the one at home and the one aboard count
+
+
+def test_enqueue_print_on_a_replicant_vessel_uses_the_replicant_print(client):
+    db = client.app.state.db
+    reps = client.portal.call(db.kv_get, "replicants")
+    code, rep = next(iter(reps.items()))
+    host = rep.get("hosted_device_code")
+    assert host
+    r = client.post(f"/devices/{host}/command", data={"command": "enqueue_print", "f.device_type": "mining_drone",
+                                                      "f.quantity": "2"}, headers=HX)
+    assert "one device at a time" in r.text
+    sent = client.portal.call(db.fetchall, "SELECT path, body FROM actions ORDER BY rowid DESC LIMIT 1")[0]
+    assert sent["path"] == f"/replicants/{code}/print" and '"device_type": "mining_drone"' in sent["body"]

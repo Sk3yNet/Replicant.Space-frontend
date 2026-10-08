@@ -50,6 +50,9 @@ def bulk_check(codes: list[str], command: str, devices: list[dict], busy: set[st
             skip.append((code, f"{(d.get('device_type') or 'device').replace('_', ' ')} doesn't take {command} "
                                f"right now ({d.get('status') or 'status unknown'})"))
             continue
+        if command == "enqueue_print" and "vessel" in (d.get("device_type") or ""):
+            skip.append((code, "a vessel prints through its replicant, one at a time — use its device page"))
+            continue
         if code in busy and not include_busy:
             skip.append((code, "an automation job is using it (tick 'include devices automations are using' to send anyway)"))
             continue

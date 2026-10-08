@@ -144,7 +144,7 @@ def factory_for(t: str, n: int, devices: list[dict], star: str, busy: set[str], 
     cost = as_amounts((bps.get(t) or {}).get("resources"))
     cands = []
     for f in devices:
-        if not lo.is_factory(f) or f.get("device_code") in busy or f.get("location_stale") or not f.get("location") \
+        if not lo.is_factory(f) or "vessel" in (f.get("device_type") or "") or f.get("device_code") in busy or f.get("location_stale") or not f.get("location") \
                 or f.get("in_control_range") is False:
             continue
         cap = int((bps.get(f.get("device_type")) or {}).get("queue_size") or f.get("queue_capacity") or 10)

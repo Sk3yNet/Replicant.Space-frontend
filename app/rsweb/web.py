@@ -802,6 +802,20 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
         body.pop("direction", None)
         if vec is not None:
             body["direction"] = vec
+    if command == "enqueue_print":   # a replicant's vessel prints with the replicant's own print, one at a time
+        st = await load_state(request)
+        rep = next((c for c, r in st["replicants"].items() if r.get("hosted_device_code") == code), None)
+        if rep:
+            dtype = body.get("device_type") or extra.get("device_type")
+            if not dtype:
+                return bad("Pick a device type to print")
+            n = int(body.get("quantity") or extra.get("quantity") or 1)
+            note = (f"A vessel prints one device at a time — sent 1 of the {n} asked for." if n > 1 else None)
+            if body.get("tags") or extra.get("tags"):
+                note = (note + " " if note else "") + "Tags aren't part of the vessel's print — add them once it's printed."
+            out = await call_action(request, user, "POST", f"/replicants/{rep}/print", {"device_type": dtype},
+                                    f"{rep} prints {dtype} (vessel {code})")
+            return render_action(request, out, note=note)
     if command == "message":   # BobNet through a relay: no double sends
         if await bobnet_repeat(request.app.state.db, body.get("channel") or "", body.get("text") or ""):
             return bad(f"Already sent that to {body.get('channel')} in the last {BOBNET_REPEAT_MINUTES} minutes")
