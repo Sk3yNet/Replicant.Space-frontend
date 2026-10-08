@@ -286,7 +286,7 @@ def test_spares_are_gathered_at_the_depot_and_stay_spare():
          "available_commands": ["enqueue_print"], "features": ["print"]},
         {"device_code": "CV1", "device_type": "cargo_vessel", "location": "OTH-5", "status": "idle", "stow_capacity": 50,
          "features": ["surge", "cruise", "attach"], "available_commands": ["travel"]},
-        {"device_code": "BK1", "device_type": "ftl_beacon", "location": "OTH-KUIPER", "status": "monitoring", "tags": ["spare"],
+        {"device_code": "BK1", "device_type": "ftl_beacon", "location": "OTH-KUIPER", "status": "idle", "tags": ["spare"],
          "features": ["stow", "audit"], "available_commands": ["deploy", "stow", "decommission"]},
         {"device_code": "MD1", "device_type": "mining_drone", "location": "OTH-BELT-1", "status": "idle", "tags": ["spare"],
          "features": ["cruise", "mine", "stow"], "available_commands": ["travel", "stow", "start_mining"]},

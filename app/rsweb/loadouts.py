@@ -190,6 +190,17 @@ def fill_rank(device_type: str | None) -> int:
     return len(FILL_ORDER)
 
 
+PLACED_TYPES = ("ftl_beacon", "ftl_relay")
+
+
+def placed(d: dict) -> bool:
+    """A beacon or relay deployed and working at a location (monitoring / relaying): it stays where it is — never
+    spare, never sent to fill a shortfall or gathered at the depot. Stowed ones (a survey crew's next drops) count as usual."""
+    return ((d.get("device_type") or "") in PLACED_TYPES and bool(d.get("location"))
+            and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+            and str(d.get("status") or "").startswith(("monitoring", "relaying")))
+
+
 def for_contract(d: dict) -> bool:
     """Tagged for a contract (contractsupply.py): it goes to / stays at the contract's location, no fleet takes it."""
     return any(str(t).startswith("contract:") for t in d.get("tags") or [])
@@ -233,6 +244,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         never stationed) are left out; a stationed fleet's devices and fleetless devices are the planner's."""
         tags = set(d.get("tags") or [])
         f = fleet_tag_of(d)
+        if placed(d) and not (f in by_tag and by_tag[f]["home"] == star_of(d.get("location"))):
+            return False   # a beacon / relay at work where it is: not the planner's to count, spare or move
         return not (ignore & tags) and d.get("device_code") not in replicant_hosts and (not f or f in by_tag)
     # A stationed fleet's device tagged to:<old home> (e.g. printed before the fleet moved) goes to its current home.
     # Seen live 2026-10-07: Miner 1's observatory still tagged to:kelmornea after the fleet moved to LARSELAN.
@@ -287,6 +300,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     tag_add: dict[str, set] = defaultdict(set)
     tag_remove: dict[str, set] = defaultdict(set)
     moves: dict[str, str] = {}        # device -> destination star
+    for d in devices:   # leftover spare tags on placed beacons / relays go (seen live 2026-10-08: 13 working beacons tagged spare)
+        if placed(d) and SPARE in (d.get("tags") or []) and not (ignore & set(d.get("tags") or [])):
+            tag_remove[d["device_code"]].add(SPARE)
     for code, (old_t, new_t) in retag.items():
         tag_remove[code].add(old_t)
         tag_add[code].add(new_t)
@@ -343,7 +359,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
 
     def pinned(d: dict) -> bool:
         """Can't be made spare: busy (tracking a site, mid-job, out of range), protected, or the ferry's."""
-        return d["device_code"] in busy or d["device_code"] in protect or ferry_side(d)
+        return d["device_code"] in busy or d["device_code"] in protect or ferry_side(d) or placed(d)
 
     # 1-2: per stationed fleet: count, mark extras as spare, take fleetless devices at home, un-spare what's needed
     donors: dict[str, list[dict]] = defaultdict(list)  # type -> spare devices anywhere
@@ -868,7 +884,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     places, misplaced = [], []
     pinned_codes = {c for c, _ in pins}
     geo = dict(geo or {})
-    for d in pool:
+    in_pool = {d["device_code"] for d in pool}
+    for d in pool + [x for x in devices if placed(x) and x["device_code"] not in in_pool]:   # placed: report only
         code, t, loc = d["device_code"], d.get("device_type"), d.get("location")
         if (not pl.rule_for(t) or not loc or pinned_at(d) or code in moves or code in arrived or code in pinned_codes
                 or bound_for(d, known_stars) or d.get("stowed_in_device_code") or d.get("attached_to_device_code")

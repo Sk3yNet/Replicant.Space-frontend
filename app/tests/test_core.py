@@ -6082,3 +6082,28 @@ def test_travel_shows_on_the_map_straight_away(client):
     assert "attached_devices" not in d["travel"]
     ov = client.get("/api/map.json?part=overlay", headers=H).json()
     assert any("2AC61212" in m["label"] for m in ov["moving"])
+
+
+def test_placed_beacons_are_never_spare():
+    """Live 2026-10-08: 13 working beacons (dropped by the Surveyors) carried an old spare tag — fair game for
+    shortfalls and the spare depot."""
+    from rsweb import loadouts as lo
+    B = lambda code, loc, tags, status="monitoring", **kw: {"device_code": code, "device_type": "ftl_beacon",  # noqa: E731
+                                                           "location": loc, "status": status, "tags": tags,
+                                                           "available_commands": ["deploy", "stow"], **kw}
+    devices = [B("FAR", "ZALDANAL-1-L4", ["spare"]),                       # dropped in a surveyed system
+               B("HOME", "AAA-5", ["fleet:hub", "spare"]),                 # the fleet's own, at its home
+               B("ABOARD", None, ["fleet:hub"], status="stowed", stowed_in_device_code="V1")]
+    cfg = lo.normalize({"phases": [], "fleets_migrated": True,
+                        "fleets": [{"id": "hub", "name": "Hub", "role": "mining", "home": "AAA", "station": True,
+                                    "wants": {"ftl_beacon": 1}},
+                                   {"id": "bbb", "name": "B", "role": "mining", "home": "BBB", "station": True,
+                                    "wants": {"ftl_beacon": 1}}]})
+    stars = {"AAA": {"position": {"x": 0, "y": 0, "z": 0}}, "BBB": {"position": {"x": 1, "y": 0, "z": 0}},
+             "ZALDANAL": {"position": {"x": 2, "y": 0, "z": 0}}}
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
+    assert "spare" in p["tag_remove"]["FAR"] and "spare" in p["tag_remove"]["HOME"]
+    assert "FAR" not in p["moves"] and "HOME" not in p["moves"]          # BBB's shortfall isn't filled from them
+    assert "spare" not in p["tag_add"].get("HOME", []) and "spare" not in p["tag_add"].get("ABOARD", [])
+    hub = {r["type"]: r for r in _rep(p, "AAA")["rows"]}["ftl_beacon"]
+    assert hub["have"] == 2                                              # the one at home and the one aboard count
