@@ -184,6 +184,24 @@ def board_step(carrier: str, code: str, mode: str) -> dict:
     return st
 
 
+def unhosted(d: dict, carriers: set[str], by: dict[str, dict]) -> dict:
+    """A passenger riding in a vessel that isn't one of the fleet's carriers (seen live 2026-10-08: the Surveyors' survey
+    controller and drones stowed in Trader_1's heaven vessel in another system — the mission left without them) is
+    planned as if it stood where that vessel is, marked `_from_host`: it's deployed out of it first, then boards."""
+    host = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
+    if not host or host in carriers or not (by.get(host) or {}).get("location"):
+        return d
+    return {**d, "location": by[host]["location"], "stowed_in_device_code": None, "attached_to_device_code": None,
+            "_from_host": host}
+
+
+def deploy_out_step(d: dict) -> dict:
+    st = step(f"{d['device_code']}: deploy out of {d['_from_host']}", f"/devices/{d['device_code']}", {"command": "deploy"},
+              wait=["device.deployed"], timeout=SHORT_TIMEOUT, critical=True)
+    st["wait_device"] = d["device_code"]
+    return st
+
+
 def aboard(d: dict, carriers: set[str]) -> str | None:
     c = d.get("attached_to_device_code") or d.get("stowed_in_device_code")
     return c if c in carriers else None
@@ -431,8 +449,10 @@ def assemble_steps(fleet: dict, devices: list[dict], radii: dict[str, float] | N
     arriving: list[tuple[str, dict]] = []   # passengers already flying to their carrier
     landing: list[tuple[str, dict]] = []    # passengers flying somewhere else: they land, then board
     fetch: dict[str, dict[str, list[tuple[str, str]]]] = {}   # carrier -> pick-up spot -> [(device, mode)]
+    by = {x.get("device_code"): x for x in devices}
+    out_of_host: list[dict] = []            # riding in another fleet's vessel here: deployed out of it first
     # devices that can't stow first, so they get the attach points before stowable ones overflow onto them
-    for d in sorted(r["passengers"], key=lambda d: (stowable(d), d["device_code"])):
+    for d in sorted((unhosted(x, codes, by) for x in r["passengers"]), key=lambda d: (stowable(d), d["device_code"])):
         code = d["device_code"]
         if aboard(d, codes):
             continue
@@ -468,6 +488,13 @@ def assemble_steps(fleet: dict, devices: list[dict], radii: dict[str, float] | N
                 landing.append((code, trip))
             moves.append((code, loc[c["device_code"]]))
         board.append((c["device_code"], code, mode))
+        if d.get("_from_host"):
+            out_of_host.append(d)
+    for code in {x for spots in fetch.values() for ds in spots.values() for x, _ in ds}:
+        d = next((x for x in (unhosted(y, codes, by) for y in r["passengers"]) if x["device_code"] == code), {})
+        if d.get("_from_host") and d not in out_of_host:
+            out_of_host.append(d)
+    steps += [deploy_out_step(d) for d in sorted(out_of_host, key=lambda d: d["device_code"])]
     for code, trip in landing:
         w = _wait_arrive(code, trip["destination"], timeout=trip["seconds_left"] + 1800)
         w["seq0_from"] = 0   # it may land while earlier steps run: count from the start of the job
@@ -523,8 +550,11 @@ def gather_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str]) -
     base = star_of(tourer.get("location"))
     picks: list[dict] = []
     problems: list[str] = []
-    # 1. stranded members (a self-surging member just flies to the target later)
-    for d in r["passengers"]:
+    # 1. stranded members (a self-surging member just flies to the target later) — including any riding in a vessel
+    #    that isn't one of the fleet's carriers, counted where that vessel is
+    by = {x.get("device_code"): x for x in devices}
+    ccodes = {c["device_code"] for c in carriers}
+    for d in (unhosted(x, ccodes, by) for x in r["passengers"]):
         here = star_of(d.get("location"))
         if here and here not in carrier_stars and not d.get("attached_to_device_code"):
             picks.append(d)
@@ -586,6 +616,7 @@ def gather_steps(fleet: dict, plan: dict, stars: dict, radii: dict[str, float] |
             st["wait_device"] = carrier
             steps.append(st)
             here_loc = dest
+        steps += [deploy_out_step(d) for d in ds if d.get("_from_host")]   # out of the vessel they ride in, first
         first = len(steps)
         far = [d for d in ds if far_apart(d.get("location"), dest, radii, limit)]   # the carrier fetches these
         near = [d for d in ds if d not in far]

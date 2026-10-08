@@ -2292,6 +2292,15 @@ class AutomationEngine(OpsRules):
                 geo = pl.geography(target or "", devices, await self.system_scan(target) if target else None,
                                    (stars.get(target) or {}).get("entry_point"))
                 ctrl = next((d for d in fl.members(fleet, devices) if d.get("device_type") == "ami_survey_controller"), None)
+                if ctrl:   # it must be in the target system (in a carrier there, or deployed there)
+                    by = {d.get("device_code"): d for d in devices}
+                    host = by.get(ctrl.get("stowed_in_device_code") or ctrl.get("attached_to_device_code") or "") or {}
+                    where = star_of(ctrl.get("location") or host.get("location"))
+                    if where and where != star_of(target or ""):
+                        # seen live 2026-10-08: it rode in another fleet's vessel, the survey ran in that system instead
+                        m["stall"] = True
+                        return [], [f"the survey controller {ctrl['device_code']} is in {where}, not in {star_of(target or '')} "
+                                    "with the fleet — bring it aboard (Fleets: end mission & board, or move it), then retry"]
                 spot = pl.target("ami_survey_controller", geo) if ctrl and not pl.ok("ami_survey_controller",
                                                                                      ctrl.get("location"), geo) else None
                 return fl.explore_work_steps(fleet, devices, spot)

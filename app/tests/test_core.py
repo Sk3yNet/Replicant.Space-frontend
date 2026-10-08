@@ -5829,3 +5829,32 @@ def test_contract_already_completed_counts_as_done(client):
     assert client.portal.call(gev.load, db)["KELMORNEA-3-EVT-003"]["status"] == "completed"   # not offered again
     notes = client.portal.call(db.fetchall, "SELECT title FROM notifications WHERE title LIKE '%Electronics%'")
     assert not any("failed" in n["title"] for n in notes)
+
+
+def test_crew_riding_in_another_fleets_vessel_is_collected():
+    """Live 2026-10-08: the Surveyors' survey controller and drones were stowed in Trader_1's heaven vessel in AEMEROTH;
+    the mission left FALQUORYX without them and surveyed AEMEROTH instead of LYRHYRAN."""
+    from rsweb import fleets as fl
+    S = lambda **kw: {"status": "idle", "tags": [], **kw}  # noqa: E731
+    devices = [S(device_code="CV", device_type="cargo_vessel", location="FAL-BELT-1", tags=["fleet:surv"],
+                 features=["surge", "cruise", "attach", "transport"], stow_capacity=50, attach_capacity=3, cargo_capacity=200),
+               S(device_code="HV", device_type="heaven_vessel", location="AEM-2", tags=["fleet:trader"],
+                 features=["surge", "cruise"], stow_capacity=10),
+               S(device_code="SC", device_type="ami_survey_controller", location=None, status="stowed",
+                 stowed_in_device_code="HV", tags=["fleet:surv"], features=["ami", "cruise", "stow"]),
+               S(device_code="SD", device_type="survey_drone", location=None, status="stowed", stowed_in_device_code="HV",
+                 tags=["fleet:surv"], features=["cruise", "survey", "stow"])]
+    fleet = {"id": "surv", "name": "Surveyors", "role": "explore", "home": "FAL", "wants": {}}
+    stars = {k: {"position": {"x": x, "y": 0, "z": 0}, "entry_point": f"{k}-5-L4"} for k, x in (("FAL", 0), ("AEM", 3))}
+    plan = fl.gather_plan(fleet, devices, stars, set())
+    assert [s for s, _ in plan["tour"]] == ["AEM"] and {d["device_code"] for d in plan["tour"][0][1]} == {"SC", "SD"}
+    steps = fl.gather_steps(fleet, plan, stars)
+    descs = [s["desc"] for s in steps]
+    assert descs[0].startswith("CV → AEM") and "SC: deploy out of HV" in descs and "SD: deploy out of HV" in descs
+    assert descs.index("SC: deploy out of HV") < next(i for i, x in enumerate(descs) if x.startswith("stow SC in CV"))
+    # in the same system as the fleet's carrier: assemble deploys them out of the other vessel and boards them
+    devices[1]["location"] = "FAL-BELT-1"
+    steps, problems = fl.assemble_steps(fleet, devices)
+    descs = [s["desc"] for s in steps]
+    assert not problems and "SC: deploy out of HV" in descs and "stow SC in CV" in descs
+    assert descs.index("SC: deploy out of HV") < descs.index("stow SC in CV")
