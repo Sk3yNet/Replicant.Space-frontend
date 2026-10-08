@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.45.3"
+VERSION = "1.45.4"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.45.4", "2026-10-08", "Loadouts: a replicant's vessel tagged into a fleet counts toward that fleet's loadout (it "
+     "wasn't counted, so SOL's fleet got a second heaven_vessel printed); the planner still never spares or swaps it."),
     ("1.45.3", "2026-10-08", "Diagnostics snapshot: includes the last 60 commands sent (by you or the automations) and "
      "what the game answered, so a 'did that work?' can be checked from the snapshot."),
     ("1.45.2", "2026-10-08", "Supply range for fleet loadouts (Fleets › settings, default 15 ly; 0 = any): a fleet's "

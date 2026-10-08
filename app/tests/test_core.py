@@ -5726,3 +5726,24 @@ def test_supply_range_keeps_prints_and_spares_near_the_fleet():
     near = run("NEAR", 15)
     assert near["prints"] and near["prints"][0]["factory"] == "AF1"
     assert run("SOL", 0)["prints"]                                     # 0 = any distance, as before
+
+
+def test_replicant_vessel_in_a_fleet_counts_toward_its_loadout():
+    """Live 2026-10-08: the SOL fleet wants 1 heaven_vessel and has one (hosting a replicant); a second was printed."""
+    from rsweb import loadouts as lo
+    devices = [{"device_code": "E1029CB0", "device_type": "heaven_vessel", "location": "SOL-3-1", "status": "idle",
+                "tags": ["fleet:sol-sector"], "operational_capacity": 100.0},
+               {"device_code": "AF1", "device_type": "autofactory", "location": "SOL-3-L4", "status": "idle",
+                "available_commands": ["enqueue_print"], "operational_capacity": 100.0}]
+    bps = [{"device_type": "heaven_vessel", "resources": {"structural": 10}, "print_time": 60}]
+    cfg = lo.normalize({"phases": [], "fleets_migrated": True, "settings": {},
+                        "fleets": [{"id": "sol-sector", "name": "Sol Sector", "role": "explore", "home": "SOL", "station": True,
+                                    "wants": {"heaven_vessel": 1}}]})
+    p = lo.plan(cfg, devices, bps, {"SOL-3-L4": {"structural": 999}}, {}, {"E1029CB0": "D9351B81"}, set(), [], {})
+    assert not p["prints"]
+    row = next(r for r in p["report"]["sol-sector"]["rows"] if r["type"] == "heaven_vessel")
+    assert row["have"] == 1 and row["short"] == 0 and row["riders"] == 1
+    assert "E1029CB0" not in str(p.get("retag") or "") and "E1029CB0" not in (p.get("moves") or {})
+    cfg["fleets"][0]["wants"] = {"heaven_vessel": 2}                 # wanting two: one more is printed
+    p = lo.plan(lo.normalize(cfg), devices, bps, {"SOL-3-L4": {"structural": 999}}, {}, {"E1029CB0": "D9351B81"}, set(), [], {})
+    assert p["prints"] and p["prints"][0]["n"] == 1

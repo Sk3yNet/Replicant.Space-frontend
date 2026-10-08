@@ -340,6 +340,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     donors: dict[str, list[dict]] = defaultdict(list)  # type -> spare devices anywhere
     from . import wards
     warded = wards.foreign(stars, devices)   # another player's ward or hub: nothing of ours can mine there
+    # a replicant's vessel tagged into a fleet is a member: it counts toward the loadout, though the planner never
+    # moves, spares or swaps it (seen live 2026-10-08: SOL's heaven_vessel, hosting a replicant, wasn't counted and a
+    # second one was printed for the fleet)
+    riders: dict[str, Counter] = defaultdict(Counter)
+    for d in devices:
+        if d.get("device_code") in replicant_hosts and fleet_tag_of(d) in by_tag and not (ignore & set(d.get("tags") or [])):
+            riders[fleet_tag_of(d)][d.get("device_type") or "device"] += 1
     for f in groups:
         star, fid, tag = f["home"], f["id"], fl.fleet_tag(f["id"])
         mine = members(f)
@@ -348,6 +355,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         wants = fl.station_wants(f)
         for t in sorted(wants):  # types the loadout doesn't mention are "don't care": never spare, never filled
             want = int(wants.get(t) or 0)
+            ride = min(want, riders[tag][t])   # the replicants' vessels in the fleet fill part of the loadout
+            want -= ride
             have = [d for d in mine if (d.get("device_type") or "device") == t] + \
                    [d for d in free if (d.get("device_type") or "device") == t]
             ward_hold = star in warded and t in wards.MINING_TYPES and want > len(have)
@@ -387,7 +396,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             away = [d["device_code"] for d in keep if star_of(d.get("location")) != star]
             spares_here = [d["device_code"] for d in pool if d.get("device_type") == t and star_of(d.get("location")) == star
                            and SPARE in (d.get("tags") or []) and not fleet_tag_of(d) and not home_of(d, known_stars)]
-            rows.append({"type": t, "want": want, "have": len(have), "incoming": inc, "away": away, "spares_here": spares_here,
+            rows.append({"type": t, "want": want + ride, "have": len(have) + ride, "riders": ride, "incoming": inc, "away": away, "spares_here": spares_here,
                          "warded": ward_hold,
                          "short": max(0, want - len(have) - inc), "surplus": surplus,
                          "spare": [d["device_code"] for d in extra if fleet_tag_of(d) == tag]})
