@@ -27,8 +27,9 @@
         <td class="small">{% if s.from_census %}<span class="pill small" title="beyond the catalogue: found by a census from {{ s.census_from }}">census</span>{% endif %}
           {% if s.has_hub %}<span class="pill small">hub</span>{% endif %}{% if s.has_ward %}<span class="pill small" title="a system ward is active there">ward</span>{% endif %}
           {% if s.has_life %}<span class="pill small">life</span>{% endif %}</td>
-        <td>{% for c, at in reps.items() %}<button class="small ghost" hx-post="/replicants/{{ c }}/travel"
-              hx-vals='{{ {"destination": (s.designation) | string, "dry_run": "1"} | tojson }}' hx-target="#route-{{ loop.index0 }}-{{ s.designation }}">route</button>{% endfor %}</td>
+        <td style="white-space:nowrap">{% if reps %}<span class="muted">route from</span>{% endif %}
+          {% for c, at in reps.items() %}<button class="small ghost" hx-post="/replicants/{{ c }}/travel" title="the game's route preview for {{ rep_names.get(c, c) }} (at {{ at or '?' }}) to {{ s.designation }} — nothing moves"
+              hx-vals='{{ {"destination": (s.designation) | string, "dry_run": "1"} | tojson }}' hx-target="#route-{{ loop.index0 }}-{{ s.designation }}">{{ rep_names.get(c, c) }}</button>{% endfor %}</td>
       </tr>
       {% for c in reps %}<tr><td colspan="6" id="route-{{ loop.index0 }}-{{ s.designation }}" style="padding:0"></td></tr>{% endfor %}
       {% endfor %}
@@ -36,7 +37,7 @@
     {% else %}<p class="muted small">None known. Run a census from a vessel (right) to find the stars around it.</p>{% endif %}
     <p class="muted small">Unexplored: the census says nobody has explored it, or it's in the catalogue and you haven't scanned it
       or had a device there. ETAs use the census's own travel estimates{% if sec_per_ly %} (≈ {{ sec_per_ly | round(0) | int }} s per ly){% endif %};
-      press <b>route</b> for the game's preview.</p>
+      press a replicant's name under <b>route from</b> for the game's route preview from where that replicant is (nothing moves).</p>
   </div>
 
   <div>

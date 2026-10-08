@@ -1142,7 +1142,8 @@ async def stars_page(request: Request, ref: str = "", user: str = Depends(curren
                      key=lambda d: (star_of(d.get("location")) in done, d["device_code"]))
     return await page(request, user, "stars.html", "stars", rows=rows, ref=ref, refs=sorted(set(reps.values()) | here),
                       done=done, vessels=vessels, cstars=len(cstars), catalogue=len(cat.get("stars") or []),
-                      sec_per_ly=census.seconds_per_ly(cstars), reps=reps)
+                      sec_per_ly=census.seconds_per_ly(cstars), reps=reps,
+                      rep_names={c: r.get("name") or c for c, r in st["replicants"].items()})
 
 
 @router.post("/stars/census", response_class=HTMLResponse)
