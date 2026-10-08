@@ -151,6 +151,11 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
                     "station": bool(f.get("station")), "template": f.get("template"), "wants": f.get("wants") or {},
                     "materials": f.get("materials") or "", "mission": (f.get("mission") or {}).get("status")}
                    for f in await eng.fleets()],
+        # the last commands sent (by you or the automations) and what the game answered — e.g. "did my cancel work?"
+        "actions": [{"at": r["at"], "by": "automation" if r["user"] == "automation" else "you", "method": r["method"],
+                     "path": r["path"], "body": r["body"], "status": r["status"], "response": (r["response"] or "")[:400]}
+                    for r in reversed(await db.fetchall("SELECT at, user, method, path, body, status, response FROM actions "
+                                                        "ORDER BY id DESC LIMIT 60"))],
     }
     from . import version as ver
     app["server"] = {"version": ver.VERSION, "fingerprint": ver.FINGERPRINT, "build": ver.BUILD, "run": ver.RUN_ID,
