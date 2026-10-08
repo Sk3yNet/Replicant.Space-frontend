@@ -39,6 +39,21 @@ def items(dev: dict) -> list[dict]:
     return out
 
 
+EDITS_KV = "print_tag_edits"   # {factory: [{device_type, from: [tags], to: [tags], at}]} — applied when the print is out
+
+
+def edit_for(edits: list[dict], device_type: str | None, tags: list[str]) -> dict | None:
+    """The pending tag edit for a print of `device_type` carrying `tags` (first match)."""
+    return next((e for e in edits or [] if e.get("device_type") == device_type and set(e.get("from") or []) == set(tags or [])),
+                None)
+
+
+def parse_tags(text: str) -> list[str]:
+    """'fleet:x, to:sol  spare' → ['fleet:x', 'to:sol', 'spare'] (lower-case, de-duplicated)."""
+    import re
+    return list(dict.fromkeys(t.strip().lower() for t in re.split(r"[,\s]+", text or "") if t.strip()))
+
+
 def _ts(v: Any) -> datetime | None:
     if not v:
         return None

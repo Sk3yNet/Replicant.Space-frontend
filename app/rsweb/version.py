@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.45.5"
+VERSION = "1.46.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.46.0", "2026-10-08", "Print queue panel: the tags of the print in progress and of each queued print can be edited. "
+     "The game can't change a queued print, so the app keeps the edit and re-tags the device the moment it's printed; "
+     "the loadout order behind it follows at once (moved to another fleet or system, or dropped when no to: tag is "
+     "left), so the old fleet stops counting it as on its way."),
     ("1.45.5", "2026-10-08", "A replicant's vessel moves with its fleet: when a stationed fleet's home changes (by hand or "
      "when it picks its next home itself), its vessels hosting a replicant fly there too — devices stowed in them come "
      "along. Only after a home change, so a replicant you send elsewhere afterwards isn't pulled back."),

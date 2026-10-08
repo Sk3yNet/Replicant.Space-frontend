@@ -735,6 +735,27 @@ class AutomationEngine(OpsRules):
             if (name == "directive.completed" and "survey" in (ev.get("device_type") or "")
                     and (p.get("directive") or "survey_system") == "survey_system"):
                 await self.mark_system_surveyed(star_of(ev.get("location")) or ev.get("star") or "", ev.get("device_code"))
+            # tags changed while it was printing (Print queue panel): put them on the new device now
+            if name == "print.completed" and p.get("new_device_code"):
+                from . import printqueue as pqm
+                edits = await self.db.kv_get(pqm.EDITS_KV, {}) or {}
+                lst = edits.get(ev.get("device_code") or "") or []
+                was = [str(t) for t in p.get("tags") or []]
+                e = pqm.edit_for(lst, p.get("device_type"), was)
+                if e:
+                    lst.remove(e)
+                    edits[ev["device_code"]] = lst
+                    if not lst:
+                        edits.pop(ev["device_code"], None)
+                    await self.db.kv_set(pqm.EDITS_KV, edits)
+                    add = [t for t in e["to"] if t not in was]
+                    rem = [t for t in was if t not in e["to"]]
+                    if add or rem:
+                        await self.send("PATCH", f"/devices/{p['new_device_code']}",
+                                        {"configuration": {**({"add_tags": add} if add else {}),
+                                                           **({"remove_tags": rem} if rem else {})}},
+                                        f"auto: {p['new_device_code']} gets the tags set while it printed")
+                    p = {**p, "tags": list(e["to"])}   # what follows (orders, dispatch) sees the new tags
             # a print ordered for a system came out: remember its code until the device list shows it
             if name == "print.completed":
                 from .loadouts import at_tag, to_tag

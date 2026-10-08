@@ -5776,3 +5776,32 @@ def test_replicant_vessel_follows_its_fleet_to_a_new_home(client):
     client.portal.call(db.kv_set, "automation_jobs", [])
     client.portal.call(eng.rider_pass)
     assert client.portal.call(db.kv_get, "rider_moves") == {}
+
+
+def test_edit_tags_of_a_print_in_progress(client):
+    world = client.app.state.api.http._transport.app.state.world
+    eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
+    client.portal.call(db.kv_set, "loadout_orders", [{"star": "SOL", "fleet": "sol-sector", "device_type": "mining_drone",
+                                                       "factory": "AF00BEEF", "at": "2026-10-08T11:55:20+00:00"}])
+    r = client.post("/devices/AF00BEEF/print-tags", data={"device_type": "mining_drone", "original": "to:sol, fleet:sol-sector",
+                                                          "tags": "fleet:falquoryx-home, keepme"}, headers=HX)
+    assert "applied when printed" not in r.text or "will be tagged fleet:falquoryx-home, keepme" in r.text
+    assert client.portal.call(db.kv_get, "loadout_orders") == []              # no longer bound for SOL: not incoming there
+    edits = client.portal.call(db.kv_get, "print_tag_edits")
+    assert edits["AF00BEEF"][0]["to"] == ["fleet:falquoryx-home", "keepme"]
+    new = world.devices[2]
+    new["tags"] = ["to:sol", "fleet:sol-sector"]                              # as the game prints it
+    client.portal.call(w.handle_event, {**_ev(990, "print.completed", device="AF00BEEF", device_type="mining_drone",
+                                                new_device_code=new["device_code"], tags=["to:sol", "fleet:sol-sector"]),
+                                        "device_type": "autofactory"})
+    assert sorted(new["tags"]) == ["fleet:falquoryx-home", "keepme"]
+    assert not client.portal.call(db.kv_get, "print_tag_edits")
+    # re-aimed at another system instead: the order follows
+    client.portal.call(db.kv_set, "loadout_orders", [{"star": "SOL", "fleet": "sol-sector", "device_type": "mining_drone",
+                                                       "factory": "AF00BEEF"}])
+    client.post("/devices/AF00BEEF/print-tags", data={"device_type": "mining_drone", "original": "to:sol, fleet:sol-sector",
+                                                      "tags": "to:lerna, fleet:lerna-miners"}, headers=HX)
+    o = client.portal.call(db.kv_get, "loadout_orders")[0]
+    assert o["star"] == "LERNA" and o["fleet"] == "lerna-miners"
+    page = client.get("/devices/AF00BEEF/print-queue", headers=HX).text
+    assert "/devices/AF00BEEF/print-tags" in page

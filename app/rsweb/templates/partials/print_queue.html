@@ -1,4 +1,14 @@
 {# Print queue panel for one autofactory. Context: code, dev, cur, queue, remaining, exact, blueprints, outcome, cancel_cmd, compact #}
+{% macro tag_editor(item) -%}
+{%- set shown = (item.edit.to if item.edit else item.tags) or [] -%}
+<form class="inline small" style="margin-top:2px" hx-post="/devices/{{ code }}/print-tags" hx-target="#pq-{{ code }}" hx-swap="outerHTML">
+  <input type="hidden" name="device_type" value="{{ item.device_type }}"><input type="hidden" name="original" value="{{ (item.tags or []) | join(', ') }}">
+  <span class="muted">tags</span> <input name="tags" value="{{ shown | join(', ') }}" size="26" placeholder="no tags" title="comma-separated, e.g. fleet:sol-sector, to:sol">
+  <button class="small ghost">set</button>
+  {% if item.edit %}<span class="lv-warning" title="the game can't change a queued print: the app re-tags the device as soon as it's printed">
+    applied when printed (was: {{ (item.tags or []) | join(', ') or 'none' }})</span>{% endif %}
+</form>
+{%- endmacro %}
 <div id="pq-{{ code }}" class="pq" hx-get="/devices/{{ code }}/print-queue{{ '?compact=1' if compact }}" hx-trigger="every 60s, pq-refresh from:body" hx-swap="outerHTML">
   {% if compact %}<div class="row between"><strong><a href="/devices/{{ code }}">{{ dev.device_type | human }} {{ code }}</a></strong>
     <span class="muted small">{{ dev.location }}</span></div>{% endif %}
@@ -18,6 +28,7 @@
     {% else %}
       <div class="muted">Not printing{% if queue %} (status: {{ dev.status }}){% endif %}.</div>
     {% endif %}
+    {% if cur and cur.device_type and not compact %}{{ tag_editor(cur) }}{% endif %}
     {% if cur and cancel_cmd and not compact %}
       <button class="small ghost" style="margin-top:4px" hx-post="/devices/{{ code }}/print-queue" hx-vals='{"action": "cancel"}'
               hx-target="#pq-{{ code }}" hx-swap="outerHTML" hx-confirm="Cancel the current print?">Cancel current print</button>
@@ -30,7 +41,8 @@
       {% for it in queue %}
       <tr><td class="num mono">{{ it.index }}</td>
         <td>{{ it.device_type | human }}{% if it.quantity and it.quantity > 1 %} ×{{ it.quantity }}{% endif %}
-          {% if it.tags %}<span class="muted"> · {{ it.tags | join(', ') }}</span>{% endif %}
+          {% if compact and it.tags %}<span class="muted"> · {{ it.tags | join(', ') }}</span>{% endif %}
+          {% if not compact %}{{ tag_editor(it) }}{% endif %}
           {% if it.oncomplete %}<span class="muted"> · then {{ it.oncomplete.command or it.oncomplete }}{% if it.oncomplete.destination %} → {{ it.oncomplete.destination }}{% endif %}</span>{% endif %}</td>
         <td>{% if it.notify %}<a href="/devices/{{ it.notify }}" class="mono">{{ it.notify }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
         {% if not compact %}<td class="num"><button class="small ghost" hx-post="/devices/{{ code }}/print-queue"

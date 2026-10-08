@@ -502,10 +502,51 @@ async def print_queue_ctx(request: Request, code: str, dev: dict, outcome: dict 
     st = await load_state(request)
     known = {star_of(d.get("location")) for d in st["devices"] if d.get("location")}
     known |= {r["star"] for r in await db.fetchall("SELECT star FROM systems")}
+    edits = (await db.kv_get(printqueue.EDITS_KV, {}) or {}).get(code) or []
+    if cur:
+        cur = {**cur, "edit": printqueue.edit_for(edits, cur.get("device_type"), cur.get("tags") or [])}
+    queue = [{**it, "edit": printqueue.edit_for(edits, it["device_type"], it["tags"])} for it in queue]
     return {"code": code, "dev": dev, "queue": queue, "cur": cur, "remaining": remaining, "exact": exact,
             "blueprints": sorted(bps.values(), key=lambda b: b.get("device_type", "")), "outcome": outcome,
             "cancel_cmd": cancel_cmd, "compact": compact, "dest_stars": sorted(k for k in known if k),
             "here_star": star_of(dev.get("location"))}
+
+
+@router.post("/devices/{code}/print-tags", response_class=HTMLResponse)
+async def print_tags(request: Request, code: str, device_type: str = Form(...), original: str = Form(""),
+                     tags: str = Form(""), user: str = Depends(current_user)):
+    """Change the tags a print (printing now or waiting in the queue) will carry. The game can't edit a queued print,
+    so the app keeps the change and applies it to the device the moment it's printed (engine: print.completed). The
+    loadout order for it follows at once: a print moved to another fleet or system stops counting for the old one."""
+    from . import loadouts as lo
+    db = request.app.state.db
+    old, new = printqueue.parse_tags(original), printqueue.parse_tags(tags)
+    edits = await db.kv_get(printqueue.EDITS_KV, {}) or {}
+    lst = [e for e in edits.get(code) or [] if not (e.get("device_type") == device_type and set(e.get("from") or []) == set(old))]
+    if set(new) != set(old):
+        lst.append({"device_type": device_type, "from": old, "to": new, "at": now_iso(), "by": user})
+    edits[code] = lst
+    if not lst:
+        edits.pop(code, None)
+    await db.kv_set(printqueue.EDITS_KV, edits)
+    # the loadout order behind this print: re-aim it at the new to:/fleet: tags, or drop it if they're gone
+    orders = await db.kv_get("loadout_orders", []) or []
+    o = next((o for o in orders if o.get("factory") == code and o.get("device_type") == device_type and not o.get("device_code")
+              and (not old or lo.to_tag(o.get("star") or "") in old)), None)
+    if o:
+        to = next((t[3:].upper() for t in new if t.startswith("to:")), None)
+        fleet = next((t[6:] for t in new if t.startswith("fleet:")), None)
+        if to:
+            o["star"], o["fleet"] = to, fleet
+        else:
+            orders.remove(o)
+        await db.kv_set("loadout_orders", orders)
+    dev = await fetch_device(request, code)
+    note = (f"{device_type}: will be tagged {', '.join(new) or '(no tags)'} when it's printed" if set(new) != set(old)
+            else f"{device_type}: back to its original tags")
+    return partial(request, "partials/print_queue.html", **await print_queue_ctx(request, code, dev,
+                                                                                 outcome={"ok": True, "label": note, "method": "",
+                                                                                          "path": "kept by the app", "status": "saved"}))
 
 
 @router.get("/print-queue/locations", response_class=HTMLResponse)
