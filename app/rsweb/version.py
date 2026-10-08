@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.47.2"
+VERSION = "1.48.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.48.0", "2026-10-08", "Devices › List: tick devices (or all listed) and send them one command, with its fields. "
+     "Before sending, the ticked devices that can't take it are listed and skipped — the command isn't available to "
+     "them right now, an automation job is using them (unless included), or a deploy/detach while the carrier is between "
+     "systems. Each device's result is shown. set_directive, prospect and message stay per device."),
     ("1.47.2", "2026-10-08", "A surge plate still tagged taxi but run by no controller and not in taxi mode is idle where its "
      "ferry left it: it now goes home to its fleet like any device left behind (seen live: Printing Hub 1's four plates in "
      "ITHVALAI, flagged by Tags & controllers but never moved). Plates the game reports in taxi mode aren't flagged."),

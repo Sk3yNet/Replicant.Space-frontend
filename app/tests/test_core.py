@@ -5992,3 +5992,42 @@ def test_taxi_plate_no_controller_runs_goes_home():
     assert "WORKING1" not in p["moves"] and "RUN00001" not in p["moves"]
     flagged = {x["code"]: x["fixed"] for x in lo.audit(cfg, devices, stars, p)}
     assert flagged.get("ORPHAN01") is True and "WORKING1" not in flagged   # in taxi mode: at work, not flagged
+
+
+def test_bulk_command_on_ticked_devices(client):
+    page = client.get("/fleet", headers=H).text
+    assert 'class="bulk-pick" name="codes" value="2AC61210"' in page and "Send to ticked" in page
+    assert ">Recall (4 here)" in page or "recall" in page.lower()
+    assert 'value="set_directive"' not in page.split('id="bulk-cmd"')[1].split("</select>")[0]   # per-device only
+    form = client.get("/fleet/bulk-form?command=travel", headers=HX).text
+    assert 'name="f.destination"' in form
+    # the warning names the device that can't take it
+    pick = {"codes": ["2AC61210", "2AC61211", "AF00BEEF"], "command": "recall"}
+    warn = client.post("/fleet/bulk-check", data=pick, headers=HX).text
+    assert "<b>2</b> of 3 ticked" in warn and "AF00BEEF" in warn and "doesn&#x27;t take recall" in warn
+    # a device a running job uses is skipped unless included
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    jobs = client.portal.call(eng.jobs)
+    jobs.append({"id": "j1", "rule": "x", "title": "t", "device": "2AC61211", "steps": [], "idx": 0, "status": "running",
+                 "meta": {}})
+    client.portal.call(eng.save_jobs, jobs)
+    r = client.post("/fleet/bulk", data=pick, headers=HX).text
+    assert "recall: 1 of 3 sent" in r and "automation job is using it" in r
+    sent = client.portal.call(db.fetchall, "SELECT path, body FROM actions WHERE body LIKE '%recall%'")
+    assert [x["path"] for x in sent] == ["/devices/2AC61210"]
+    r = client.post("/fleet/bulk", data={**pick, "include_busy": "on"}, headers=HX).text
+    assert "recall: 2 of 3 sent" in r
+    # nothing ticked / a per-device command
+    assert "Tick at least one" in client.post("/fleet/bulk", data={"command": "recall"}, headers=HX).text
+    r = client.post("/fleet/bulk", data={"codes": ["MC91FF22"], "command": "set_directive"}, headers=HX).text
+    assert "0 of 1 sent" in r and "on its page" in r
+
+
+def test_bulk_check_detach_while_carrier_travels():
+    from rsweb.web_bulk import bulk_check
+    devices = [{"device_code": "P1", "device_type": "surge_plate", "available_commands": ["detach"], "status": "surging",
+                "travel": {"destination": "BBB", "arrives_at": "2099-01-01T00:00:00+00:00"}},
+               {"device_code": "P2", "device_type": "surge_plate", "available_commands": ["detach"], "status": "idle"}]
+    ok, skip = bulk_check(["P1", "P2", "GONE"], "detach", devices, set(), {})
+    assert ok == ["P2"] and {c for c, _ in skip} == {"P1", "GONE"}
+    assert "between systems" in dict(skip)["P1"]

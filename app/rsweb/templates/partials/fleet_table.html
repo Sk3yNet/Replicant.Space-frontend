@@ -1,8 +1,23 @@
-<p class="muted small">{{ devices | length }} device(s)</p>
+<form id="bulk-form" hx-post="/fleet/bulk" hx-target="#bulk-result" data-danger-check>
+<div class="row" style="align-items:flex-start;gap:12px;flex-wrap:wrap">
+  <span class="muted small">{{ devices | length }} device(s)</span>
+  {% if bulk_cmds %}
+  <label class="small" style="text-transform:none">Ticked devices:
+    <select name="command" id="bulk-cmd" hx-get="/fleet/bulk-form" hx-target="#bulk-fields" hx-trigger="change">
+      <option value="">— command —</option>
+      {% for c, n in bulk_cmds %}<option value="{{ c }}" title="{{ command_help.get(c, '') }}">{{ c | human }} ({{ n }} here){{ ' ⚠' if c in dangerous }}</option>{% endfor %}
+    </select></label>
+  <label class="small" style="text-transform:none"><input type="checkbox" name="include_busy"> include devices automations are using</label>
+  <button class="small">Send to ticked</button>
+  {% endif %}
+</div>
+<div id="bulk-fields"></div>
+<div id="bulk-warn" hx-target="this" hx-post="/fleet/bulk-check" hx-include="#bulk-form" hx-trigger="change from:#bulk-form delay:150ms" style="margin:4px 0"></div>
 <table>
-  <tr><th>Code</th><th>Type</th><th>Location</th><th>Status</th><th class="num">Capacity</th><th>Replicant</th><th>Commands</th></tr>
+  <tr><th><input type="checkbox" title="tick all listed" onclick="document.querySelectorAll('#bulk-form .bulk-pick').forEach(c => c.checked = this.checked)"></th><th>Code</th><th>Type</th><th>Location</th><th>Status</th><th class="num">Capacity</th><th>Replicant</th><th>Commands</th></tr>
   {% for d in devices %}
   <tr>
+    <td><input type="checkbox" class="bulk-pick" name="codes" value="{{ d.device_code }}"></td>
     <td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a></td>
     <td>{{ d.device_type | human }}{% for t in d.tags or [] %} <span class="pill small">{{ t }}</span>{% endfor %}</td>
     <td><a href="/systems/{{ d.location | star_of }}">{{ d.location }}</a></td>
@@ -12,6 +27,7 @@
     <td class="small muted">{{ (d.available_commands or []) | join(', ') }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="7" class="muted">No devices match.</td></tr>
+  <tr><td colspan="8" class="muted">No devices match.</td></tr>
   {% endfor %}
 </table>
+</form>

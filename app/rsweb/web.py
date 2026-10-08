@@ -436,7 +436,8 @@ async def fleet(request: Request, q: str = "", type: str = "", status: str = "",
     types = sorted({d.get("device_type") or "?" for d in st["devices"]})
     stars = sorted({star_of(d.get("location")) for d in st["devices"]})
     tags = sorted({t for d in st["devices"] for t in (d.get("tags") or [])})
-    kw = dict(devices=devs, types=types, stars=stars, tags=tags,
+    from .web_bulk import bulk_commands
+    kw = dict(devices=devs, types=types, stars=stars, tags=tags, bulk_cmds=bulk_commands(devs), dangerous=DANGEROUS,
               f={"q": q, "type": type, "status": status, "star": star, "tag": tag}, **{k: v for k, v in st.items() if k != "devices"})
     if request.headers.get("hx-request") and request.headers.get("hx-target") == "fleet-table":
         return partial(request, "partials/fleet_table.html", **kw)
