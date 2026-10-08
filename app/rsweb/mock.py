@@ -283,6 +283,14 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                    "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "status": "stationary", "experience_points": 1245,
                    "stowed_devices": [{"device_code": "3CA5D7E4", "device_type": "replicant_matrix"}]})
 
+    @app.get("/v1/replicants")
+    async def directory(name: str | None = None, limit: int = 20):
+        people = [{"name": "Bill", "replicant_code": "B1LL0001", "last_location": "SOL-3", "is_npc": True},
+                  {"name": "Billy-2", "replicant_code": "B1LLY002", "last_location": "LERNA", "is_npc": False},
+                  {"name": "Sylphrena", "replicant_code": "30B93F2F", "last_location": "IMPOLLA", "is_npc": True}]
+        hits = [p for p in people if not name or name.lower() in p["name"].lower()]
+        return ok({"replicants": hits[:limit], "next_cursor": None})
+
     @app.get("/v1/replicants/{code}/scan/devices")
     async def scan_devices(code: str, device_type: str | None = None):
         devs = [d for d in world.foreign_devices if not device_type or d["device_type"] == device_type]

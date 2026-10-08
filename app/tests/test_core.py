@@ -5200,3 +5200,58 @@ def test_trade_fleet_auto_picks_contracts_and_trades(client):
     assert client.portal.call(eng.auto_deals_pass) == []
     page = client.get("/fleets", headers=H).text
     assert "auto-fulfil contracts" in page and "auto-fulfil trades" in page
+
+
+def test_trail_matches_departure_vectors_to_stars():
+    from rsweb import trail as tl
+    pos = {"HOME": {"x": 0, "y": 0, "z": 0}, "A": {"x": 4, "y": 2, "z": -3}, "B": {"x": -4, "y": 2, "z": 3},
+           "FAR": {"x": 40, "y": 20, "z": -30}, "NEAR": {"x": 0.5, "y": 0, "z": 0}}
+    # the blog's example: (0,0,0) → (4,2,-3) gives about (0.7, 0.4, -0.6)
+    c = tl.candidates("HOME", "0.7,0.4,-0.6", pos)
+    assert c[0]["star"] == "A" and c[0]["good"] and c[0]["in_relay"]
+    assert c[1]["star"] == "FAR" and not c[1]["in_relay"]                 # same line, further: second
+    assert all(x["star"] not in ("B", "NEAR") for x in c)                 # the wrong way
+    assert tl.parse_vector({"x": 3, "y": 4, "z": 0}) == [0.6, 0.8, 0.0]
+    audit = {"BC1": [{"id": 2, "travel_type": "departure", "replicant_code": "BILL", "location": "HOME-1",
+                      "logged_at": "2026-10-08T02:00:00+00:00", "vector": "0.7,0.4,-0.6", "device_code": "V1"},
+                     {"id": 1, "travel_type": "arrival", "replicant_code": "BILL", "location": "HOME-1",
+                      "logged_at": "2026-10-08T01:00:00+00:00", "vector": None},
+                     {"id": 0, "travel_type": "departure", "replicant_code": "SOMEONE", "location": "HOME-1",
+                      "logged_at": "2026-10-08T03:00:00+00:00", "vector": "-1,0,0"}]}
+    legs = tl.legs(audit, {"BC1": {"star": "HOME"}}, "BILL", pos)
+    assert len(legs) == 1 and legs[0]["best"]["star"] == "A"
+    assert tl.last_seen(audit, {"BC1": {"star": "HOME"}}, "BILL")["travel_type"] == "departure"
+
+
+def test_trail_page_end_to_end(client):
+    from rsweb import trail as tl
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_account)
+    r = client.post("/trail/target", data={"name": "bill"}, headers=HX)
+    s = client.portal.call(client.app.state.db.kv_get, tl.KV)
+    assert s["target_code"] == "B1LL0001" and s["target_name"] == "Bill"       # the exact name wins over Billy-2
+    world.foreign_devices = [{"device_code": "BB000001", "device_type": "ftl_beacon", "location": "SOL-3",
+                              "owner_replicant_code": "B1LL0001", "owner_name": "Bill"},
+                             {"device_code": "XX000001", "device_type": "ftl_beacon", "location": "SOL-4",
+                              "owner_replicant_code": "30B93F2F", "owner_name": "Sylphrena"}]
+    world.audit["BB000001"] = [{"id": 1, "device_code": "BV1", "device_type": "heaven_vessel", "replicant_code": "B1LL0001",
+                                "travel_type": "departure", "location": "SOL-3", "logged_at": "2026-10-08T02:00:00+00:00",
+                                "vector": "1,0,0"}]
+    rep = next(iter(client.portal.call(client.app.state.db.kv_get, "replicants")))
+    r = client.post("/trail/scan", data={"replicant": rep}, headers=HX)
+    assert "BB000001" in r.text and "XX000001" not in r.text
+    r = client.post("/trail/read", headers=HX)
+    assert "1 new entry" in r.text
+    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [
+        {"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}}, {"designation": "EAST", "position": {"x": 5, "y": 0.1, "z": 0}},
+        {"designation": "WEST", "position": {"x": -5, "y": 0, "z": 0}}]})
+    page = client.get("/trail", headers=H).text
+    assert "heading for <b>EAST</b>" in page and "Trail" in page and "B1LL0001" in page
+    # the 15-minute pass reads the beacons again and notifies on a new move
+    eng = client.app.state.worker.automations
+    world.audit["BB000001"].append({"id": 2, "device_code": "BV1", "device_type": "heaven_vessel", "replicant_code": "B1LL0001",
+                                    "travel_type": "arrival", "location": "SOL-3", "logged_at": "2026-10-08T04:00:00+00:00",
+                                    "vector": None})
+    out = client.portal.call(eng.trail_pass)
+    assert out == ["Bill: arrival at SOL-3"]
+    assert client.portal.call(eng.trail_pass) == []                              # not again within 15 minutes

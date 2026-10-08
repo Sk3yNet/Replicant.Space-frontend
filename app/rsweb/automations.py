@@ -823,7 +823,7 @@ class AutomationEngine(OpsRules):
             for stage in ("run_fleets", "auto_deals_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass"):
+                          "decommission_queue_pass", "trail_pass"):
                 self.stage = stage
                 out = await getattr(self, stage)()
                 if stage == "civ_beacon_pass":
@@ -831,6 +831,34 @@ class AutomationEngine(OpsRules):
                         await self.log("civ_beacons", line)
             self.stage = None
             await self.note_tick()
+
+    async def trail_pass(self) -> list[str]:
+        """Map › Trail: every 15 minutes re-read the followed replicant's beacons (trail.py); each new departure or
+        arrival of theirs raises a notification (level 'mention': the bell's badge counts it)."""
+        from . import trail as tl
+        s = tl.normalize(await self.db.kv_get(tl.KV, {}) or {})
+        last = _ts(s.get("polled_at"))
+        if not s["beacons"] or (last and (_now() - last).total_seconds() < 900):
+            return []
+        s["polled_at"] = now_iso()
+        first = not s["seen"]
+        new, _errs = await tl.read_beacons(self.api, s)
+        await self.db.kv_set(tl.KV, s)
+        out = []
+        if first:
+            return out   # the first read only fills the log
+        for r in new:
+            if s.get("target_code") and r.get("replicant_code") != s["target_code"]:
+                continue
+            where = r.get("location") or "?"
+            text = (f"{s['target_name']}: {r.get('travel_type')} at {where}"
+                    + (f" (heading {r.get('vector')})" if r.get("travel_type") == "departure" and r.get("vector") else ""))
+            cur = await self.db.execute(
+                "INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
+                (None, "mention", text, None, "/trail", now_iso()))
+            self.hub.publish("notify", {"id": cur.lastrowid, "level": "mention", "title": text, "link": "/trail"})
+            out.append(text)
+        return out
 
     async def decommission_queue_pass(self) -> list[str]:
         """Devices asked to be decommissioned at an autofactory (decommission.py): once one is idle at its

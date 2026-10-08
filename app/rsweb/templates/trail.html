@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Trail{% endblock %}
+{% block content %}
+<div class="row between"><h1>Trail <span class="muted small">following {{ s.target_name }}{% if s.target_code %} · <span class="mono">{{ s.target_code }}</span>{% endif %}</span></h1>
+  <button class="small" hx-post="/trail/read" hx-target="#trail-result">Read all beacons</button></div>
+<p class="muted small">An active FTL beacon logs every arrival and departure in its system, with a direction vector for an
+  interstellar departure. Find {{ s.target_name }}'s public beacons, read their logs, and each departure's arrow is matched
+  against the star catalogue: the star whose direction from that system lines up best (nearer first, since hops stay
+  within relay range, {{ "%.1f" | format(7.5) }} ly) is the next stop. The beacons are re-read every 15 minutes and a new
+  departure or arrival raises a notification.</p>
+<div id="trail-result"></div>
+
+<div class="grid g2">
+  <div class="card">
+    <h2>1 · Who</h2>
+    <form class="row small" hx-post="/trail/target" hx-target="#trail-result">
+      <input name="name" value="{{ s.target_name }}" size="16"><button class="small">Find in the directory</button></form>
+    {% if s.target_code %}<p class="small">{{ s.target_name }} · <span class="mono">{{ s.target_code }}</span>
+      {% if s.target_last_location %} · last seen at <a href="/systems/{{ s.target_last_location | star_of }}">{{ s.target_last_location }}</a>{% endif %}
+      {% if s.target_npc %} <span class="pill small">NPC</span>{% endif %}</p>{% endif %}
+    {% if s.matches and s.matches | length > 1 %}<p class="muted small">Other matches: {% for m in s.matches[1:] %}{{ m.name }} ({{ m.code }}){{ ', ' if not loop.last }}{% endfor %} — type the exact name to pick one.</p>{% endif %}
+
+    <h2 style="margin-top:14px">2 · Beacons</h2>
+    <form class="row small" hx-post="/trail/scan" hx-target="#trail-result">
+      <select name="replicant">{% for r in reps %}<option value="{{ r.code }}">{{ r.name }} @ {{ r.star }}</option>{% endfor %}</select>
+      <button class="small">Look for {{ s.target_name }}'s beacons in its system</button></form>
+    <form class="row small" hx-post="/trail/beacon" hx-target="#trail-result" style="margin-top:6px">
+      <input name="code" placeholder="beacon code" size="10" required><input name="star" placeholder="system (optional)" size="12" list="trail-stars">
+      <button class="small">Add &amp; read</button></form>
+    <datalist id="trail-stars">{% for x in known_stars %}<option value="{{ x }}">{% endfor %}</datalist>
+    {% if s.beacons %}<table class="small" style="margin-top:8px">
+      <tr><th>Beacon</th><th>System</th><th class="num">Entries</th><th>Read</th><th></th></tr>
+      {% for code, b in s.beacons.items() %}<tr>
+        <td class="mono">{{ code }}</td><td>{% if b.star %}<a href="/systems/{{ b.star }}">{{ b.star }}</a>{% else %}?{% endif %}</td>
+        <td class="num">{{ (s.audit.get(code) or []) | length }}</td>
+        <td class="muted">{{ s.read_at.get(code) | ago if s.read_at.get(code) else 'never' }}</td>
+        <td><button class="small ghost" hx-post="/trail/read" hx-vals='{"beacon": "{{ code }}"}' hx-target="#trail-result">read</button>
+            <button class="small ghost" hx-post="/trail/beacon" hx-vals='{"code": "{{ code }}", "remove": "1"}' hx-target="#trail-result">✕</button></td>
+      </tr>{% endfor %}</table>{% else %}<p class="muted small">None yet. Start where {{ s.target_name }} always passes: SOL.</p>{% endif %}
+
+    <h2 style="margin-top:14px">3 · Stars to match against <span class="muted small">{{ n_pos }} with positions</span></h2>
+    <form class="row small" hx-post="/trail/stars" hx-target="#trail-result">
+      <select name="replicant">{% for r in reps %}<option value="{{ r.code }}">{{ r.name }} @ {{ r.star }}</option>{% endfor %}</select>
+      <button class="small">Load the stars around it</button></form>
+    <p class="muted small">The arrows can only point at stars the map knows. If a match is missing, load the stars around a
+      replicant near the trail (or run a census from a vessel there, Map › Stars).</p>
+  </div>
+
+  <div class="card">
+    <h2>Where {{ s.target_name }} is</h2>
+    {% if last %}<p>Latest logged: <b>{{ last.travel_type }}</b> at <a href="/systems/{{ last.star }}">{{ last.star }}</a>
+      <span class="muted small">{{ last.at | local }} · {{ last.at | ago }} · beacon {{ last.beacon }}</span></p>
+      {% if last.travel_type == 'arrival' %}<p class="small">An arrival with nothing after it: as far as these beacons know,
+        {{ s.target_name }} is in <b>{{ last.star }}</b>.</p>
+      {% elif legs %}<p class="small">Left {{ last.star }}{% if legs[0].best %} — heading for <b>{{ legs[0].best.star }}</b> most likely
+        ({{ legs[0].best.angle }}° off, {{ legs[0].best.distance }} ly){% endif %}. Find the beacon there and read it.</p>{% endif %}
+    {% else %}<p class="muted small">Nothing logged yet.</p>{% endif %}
+
+    <h2 style="margin-top:14px">Departures <span class="muted small">newest first</span></h2>
+    {% for l in legs %}
+      <div style="border-bottom:1px solid var(--line);padding:6px 0">
+        <div class="small"><b>{{ l.from }}</b> → ? <span class="muted">{{ l.at | local }} · {{ l.device }} {{ l.device_type | human }} ·
+          vector {{ l.vector | map('round', 2) | join(', ') }}</span></div>
+        {% if l.candidates %}<table class="small"><tr><th>Candidate</th><th class="num">off by</th><th class="num">ly</th><th></th></tr>
+          {% for c in l.candidates %}<tr{% if not loop.first %} class="muted"{% endif %}>
+            <td><a href="/systems/{{ c.star }}">{{ c.star }}</a></td><td class="num">{{ c.angle }}°</td><td class="num">{{ c.distance }}</td>
+            <td>{% if c.good %}<span class="pill small st-work">lines up</span>{% endif %}{% if not c.in_relay %} <span class="pill small">beyond relay range</span>{% endif %}</td></tr>{% endfor %}</table>
+        {% else %}<p class="muted small">No known star lies that way{% if not l.from %} (unknown origin){% endif %} — load the stars around {{ l.from or 'there' }} (left).</p>{% endif %}
+      </div>
+    {% else %}<p class="muted small">No departures by {{ s.target_name }} read yet.</p>{% endfor %}
+  </div>
+</div>
+{% endblock %}

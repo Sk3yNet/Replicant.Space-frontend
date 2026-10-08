@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.41.0"
+VERSION = "1.42.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.42.0", "2026-10-08", "Map › Trail: follow a replicant (Bill) through the audit logs of their public FTL beacons. "
+     "Find them in the directory, find their beacons in a replicant's system (or add a code), read the logs; each "
+     "departure's direction vector is matched against the stars the map knows (smallest angle, nearer first, relay range "
+     "marked) to give the next stop, and an arrival with nothing after it says where they are. 'Load the stars around' a "
+     "replicant adds the nearby stars to match against. The beacons are re-read every 15 minutes and each new move raises "
+     "a notification the badge counts."),
     ("1.41.0", "2026-10-07", "Trade runs: a run only waits at the site once the whole price is there; short with nothing on "
      "its way, it goes back to gathering (cargo still aboard at the site is deposited again), and materials on another "
      "vessel heading there are waited for. The replicant riding with the trade fleet fulfils (contracts get it in the "
