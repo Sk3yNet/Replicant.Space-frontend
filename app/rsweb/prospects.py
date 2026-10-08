@@ -18,7 +18,7 @@ from typing import Any
 from .targets import LEVELS
 
 DENSITY = {"dense": 1.0, "moderate": 0.85, "sparse": 0.65}
-VERDICT = {"ok": 15, "watch": 8}
+VERDICT = {"ok": 15, "watch": 8, "consider moving": 3}   # anything else (learning, untracked…) is unknown: 8
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 
 
@@ -85,8 +85,8 @@ def score(star: str, scan: dict | None, res: dict | None, viability: list[dict],
         out["reasons"].append(f"{int(salvageable):,} salvage")
     # staying power: belt viability verdicts (unknown counts as middling)
     verdicts = [v.get("verdict") for v in viability if star_of(v.get("belt")) == star]
-    parts["staying"] = float(max((VERDICT.get(v, 3) for v in verdicts), default=8))
-    if verdicts and all(v not in VERDICT for v in verdicts):
+    parts["staying"] = float(max((VERDICT.get(v, 8) for v in verdicts), default=8))
+    if verdicts and all(v == "consider moving" for v in verdicts):
         out["reasons"].append("sites close faster than they re-open")
     # access
     acc = 20 * max(0.0, 1 - distance / 30) if distance is not None else 8.0

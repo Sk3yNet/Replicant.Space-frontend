@@ -19,7 +19,7 @@
   <div class="card">
     <h2>Presets</h2>
     {% for m, p, b in presets %}
-      <div><a href="#" class="mono small" onclick="document.getElementById('c-method').value='{{ m }}';document.getElementById('c-path').value='{{ p }}';document.getElementById('c-body').value={{ b | tojson }};return false;">{{ m }} {{ p }}</a></div>
+      <div><a href="#" class="mono small" data-m="{{ m }}" data-p="{{ p }}" data-b="{{ b }}" onclick="document.getElementById('c-method').value=this.dataset.m;document.getElementById('c-path').value=this.dataset.p;document.getElementById('c-body').value=this.dataset.b;return false;">{{ m }} {{ p }}</a></div>
     {% endfor %}
   </div>
 </div>

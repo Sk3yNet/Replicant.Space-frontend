@@ -379,6 +379,7 @@ async def digest_dismiss(request: Request, user: str = Depends(current_user)):
 
 @router.get("/digest", response_class=HTMLResponse)
 async def digest_view(request: Request, hours: int = 24, user: str = Depends(current_user)):
+    hours = max(1, min(hours, 24 * 90))
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
     digest = await notify.build_digest(request.app.state.db, since)
     return await page(request, user, "digest.html", "dashboard", digest=digest, hours=hours)
@@ -448,7 +449,7 @@ async def fleet_refresh(request: Request, user: str = Depends(current_user)):
         msg = "Device list refreshed."
     except ApiError as e:
         msg = f"Refresh failed: {e.message}"
-    return HTMLResponse(f'<span class="muted">{msg}</span>', headers={"HX-Trigger": "fleet-refreshed"})
+    return HTMLResponse(f'<span class="muted">{html.escape(msg)}</span>', headers={"HX-Trigger": "fleet-refreshed"})
 
 
 @router.get("/devices/{code}", response_class=HTMLResponse)
@@ -514,7 +515,7 @@ async def print_queue_locations(request: Request, dest_star: str = "", user: str
         return HTMLResponse('<option value="">— system first —</option>')
     t = await system_targets(request.app.state.db, star)
     keep = ("planet", "moon", "belt", "lagrange", "outer", "object")
-    opts = ['<option value="">anywhere in ' + star + ' (entry point)</option>']
+    opts = ['<option value="">anywhere in ' + html.escape(star) + ' (entry point)</option>']
     for x in t["targets"]:
         if x["category"] in keep or x["category"].startswith(("planet", "moon")):
             text = f'{x["code"]} · {CATEGORY_LABEL.get(x["category"], x["category"])}' + (f' — {x["note"]}' if x.get("note") else "")
@@ -1417,7 +1418,7 @@ async def system_resources_refresh(request: Request, star: str, user: str = Depe
     if read_belts and not open_sites:
         msg += (". Belts only list sites that are open: a survey drone's <code>search</code> at the belt (or an AMI survey "
                 "controller on <code>belt_search</code>) opens one, and it stays open while the drone tracks it.")
-    err = f'<div class="lv-alert small">Could not read: {"; ".join(failed[:4])}</div>' if failed else ""
+    err = f'<div class="lv-alert small">Could not read: {html.escape("; ".join(failed[:4]))}</div>' if failed else ""
     reload = '<script>setTimeout(function(){location.reload()}, 2500)</script>' if (read_belts or read_bodies) else ""
     return HTMLResponse(f'<div class="small">{msg}</div>{err}{reload}')
 
@@ -1543,7 +1544,7 @@ async def map_refresh(request: Request, user: str = Depends(current_user)):
             bits.append(f"{len(src['observatory_unplaced'])} found without a position yet")
         return HTMLResponse(f"Catalogue refreshed: {', '.join(bits)}. Reload the map.")
     except ApiError as e:
-        return HTMLResponse(f"Refresh failed: {e.message} (the catalogue allows 1 request/minute)")
+        return HTMLResponse(f"Refresh failed: {html.escape(e.message)} (the catalogue allows 1 request/minute)")
 
 
 # --- blueprints & planning -------------------------------------------------------------------
@@ -1602,7 +1603,7 @@ async def blueprints_refresh(request: Request, user: str = Depends(current_user)
     try:
         added = await request.app.state.worker.sync_blueprints()
     except ApiError as e:
-        return HTMLResponse(f'<span class="lv-alert">Refresh failed: {e.message}</span>')
+        return HTMLResponse(f'<span class="lv-alert">Refresh failed: {html.escape(e.message)}</span>')
     return HTMLResponse("", headers={"HX-Refresh": "true"}) if added else HTMLResponse('<span class="muted">Up to date.</span>')
 
 
@@ -1790,7 +1791,7 @@ async def ami_refresh_targets(request: Request, code: str, user: str = Depends(c
         return HTMLResponse('<span class="lv-alert small">Unknown location.</span>')
     n, err = await refresh_targets(request, star)
     if err:
-        return HTMLResponse(f'<span class="lv-alert small">Could not read {star}: {err}</span>')
+        return HTMLResponse(f'<span class="lv-alert small">Could not read {html.escape(star)}: {html.escape(str(err))}</span>')
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
@@ -1879,7 +1880,7 @@ async def events_backfill(request: Request, user: str = Depends(current_user)):
         n = await request.app.state.worker.backfill()
         return HTMLResponse(f"Backfilled {n} event(s).")
     except ApiError as e:
-        return HTMLResponse(f"Backfill failed: {e.message}")
+        return HTMLResponse(f"Backfill failed: {html.escape(e.message)}")
 
 
 # --- notifications & messages ----------------------------------------------------------------
@@ -2349,7 +2350,7 @@ async def automations_schedule_add(request: Request, user: str = Depends(current
     try:
         body = directive_body(form)
     except ValueError as e:
-        return HTMLResponse(f'<span class="lv-alert">{e}</span>')
+        return HTMLResponse(f'<span class="lv-alert">{html.escape(str(e))}</span>')
     try:
         every = max(1, int(form.get("every_minutes") or 30))
     except ValueError:
@@ -2381,7 +2382,7 @@ async def automations_schedule_action(request: Request, sid: str, action: str, u
         elif action == "run":
             results = await eng.run_schedule(sched, manual=True)
             await eng.save_schedules(items)
-            return HTMLResponse(f'<span class="small">{"; ".join(results)}</span>', headers={"HX-Trigger": "schedules-changed"})
+            return HTMLResponse(f'<span class="small">{html.escape("; ".join(results))}</span>', headers={"HX-Trigger": "schedules-changed"})
         await eng.save_schedules(items)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
@@ -2666,9 +2667,9 @@ async def game_event_deliver(request: Request, des: str, user: str = Depends(cur
     if not plan["legs"]:
         msg = "Nothing to move: everything needed is already at the location." if not plan["short"] else \
             f"Not enough in {e['star']}: missing {', '.join(f'{int(q)} {r}' for r, q in plan['missing'].items())}."
-        return HTMLResponse(f'<div class="result {"ok" if not plan["short"] else "err"}">{msg}</div>')
+        return HTMLResponse(f'<div class="result {"ok" if not plan["short"] else "err"}">{html.escape(msg)}</div>')
     if not ctrl:
-        return HTMLResponse(f'<div class="result err">No in-system AMI transport controller in {e["star"]} to deliver with.</div>')
+        return HTMLResponse(f'<div class="result err">No in-system AMI transport controller in {html.escape(e["star"])} to deliver with.</div>')
     code = ctrl["device_code"]
     steps = []
     for leg in plan["legs"][:3]:
@@ -2802,12 +2803,25 @@ async def fleets_page(request: Request, user: str = Depends(current_user)):
     return await page(request, user, "fleets.html", "fleets", **await fleets_ctx(request))
 
 
+def _fleet_locked(fn):
+    """Run a fleet-editing route under the engine's lock: it reads, changes and saves the whole fleet list, as the
+    tick does, and an edit between the tick's read and save would be lost (or a job orphaned)."""
+    import functools
+
+    @functools.wraps(fn)
+    async def run(request: Request, *a, **kw):
+        async with request.app.state.worker.automations.lock:
+            return await fn(request, *a, **kw)
+    return run
+
+
 async def _fleets(request: Request) -> tuple[Any, list[dict]]:
     eng = request.app.state.worker.automations
     return eng, await eng.fleets()
 
 
 @router.post("/fleets", response_class=HTMLResponse)
+@_fleet_locked
 async def fleets_create(request: Request, name: str = Form(...), role: str = Form("mining"), home: str = Form(""),
                         station: str = Form(""), template: str = Form(""), user: str = Depends(current_user)):
     eng, items = await _fleets(request)
@@ -2821,6 +2835,7 @@ async def fleets_create(request: Request, name: str = Form(...), role: str = For
 
 
 @router.post("/fleets/{fid}/edit", response_class=HTMLResponse)
+@_fleet_locked
 async def fleets_edit(request: Request, fid: str, user: str = Depends(current_user)):
     form = await request.form()
     eng, items = await _fleets(request)
@@ -2881,6 +2896,7 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
 
 
 @router.post("/fleets/{fid}/station", response_class=HTMLResponse)
+@_fleet_locked
 async def fleets_station(request: Request, fid: str, user: str = Depends(current_user)):
     """Stationed (kept at its loadout in its home system) and materials: '' none, 'self' takes materials in, or the id of
     the fleet this one's home system ferries its stockpile to."""
@@ -2897,6 +2913,7 @@ async def fleets_station(request: Request, fid: str, user: str = Depends(current
 
 
 @router.post("/fleets/{fid}/owner", response_class=HTMLResponse)
+@_fleet_locked
 async def fleets_owner(request: Request, fid: str, owner: str = Form(""), keep_owner: str = Form(""), now: str = Form(""),
                        user: str = Depends(current_user)):
     """The replicant that should own every device in the fleet; `keep_owner` re-checks it every few minutes; `now`
@@ -2918,6 +2935,7 @@ async def fleets_owner(request: Request, fid: str, owner: str = Form(""), keep_o
 
 
 @router.post("/fleets/{fid}/want", response_class=HTMLResponse)
+@_fleet_locked
 async def fleets_want(request: Request, fid: str, user: str = Depends(current_user)):
     """Set one loadout line. A new type defaults to 1; qty 0 removes the type completely — the line goes
     and any member devices of that type leave the fleet (their fleet tag is removed)."""
@@ -2978,6 +2996,14 @@ async def fleets_members(request: Request, fid: str, user: str = Depends(current
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
+def _int(v, default: int, lo: int, hi: int) -> int:
+    """A form number, clamped; the default when it isn't one."""
+    try:
+        return max(lo, min(hi, int(float(v))))
+    except (TypeError, ValueError):
+        return default
+
+
 async def known_stars(request: Request) -> set[str]:
     """Every system the app knows: the catalogue (census stars included), scanned systems, where devices are."""
     db = request.app.state.db
@@ -2990,6 +3016,7 @@ async def known_stars(request: Request) -> set[str]:
 
 
 @router.post("/fleets/{fid}/mission", response_class=HTMLResponse)
+@_fleet_locked
 async def fleets_mission(request: Request, fid: str, user: str = Depends(current_user)):
     form = await request.form()
     eng, items = await _fleets(request)
@@ -3000,7 +3027,7 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         return HTMLResponse('<div class="result err">This fleet is already on a mission — recall or stop it first.</div>')
     targets = [t.strip().upper() for t in re.split(r"[,\s]+", form.get("targets") or "") if t.strip()]
     m = {"status": "running", "phase": None, "idx": 0, "targets": targets, "started_at": now_iso(), "log": [],
-         "opts": {"deliver": form.get("deliver") == "on", "exhausted_minutes": int(form.get("exhausted_minutes") or 30)}}
+         "opts": {"deliver": form.get("deliver") == "on", "exhausted_minutes": _int(form.get("exhausted_minutes"), 30, 1, 24 * 60)}}
     if f["role"] == "trade":
         try:
             if form.get("contract"):
@@ -3079,6 +3106,7 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
 
 
 @router.post("/fleets/{fid}/control", response_class=HTMLResponse)
+@_fleet_locked
 async def fleets_control(request: Request, fid: str, action: str = Form(...), user: str = Depends(current_user)):
     eng, items = await _fleets(request)
     f = next((x for x in items if x["id"] == fid), None)
@@ -3124,6 +3152,7 @@ async def fleets_control(request: Request, fid: str, action: str = Form(...), us
 
 
 @router.post("/fleets/{fid}/auto-deals", response_class=HTMLResponse)
+@_fleet_locked
 async def fleets_auto_deals(request: Request, fid: str, user: str = Depends(current_user)):
     """A trade fleet's 'auto-fulfil contracts' / 'auto-fulfil trades' checkboxes."""
     form = await request.form()
@@ -3140,6 +3169,7 @@ async def fleets_auto_deals(request: Request, fid: str, user: str = Depends(curr
 
 
 @router.post("/fleets/{fid}/auto-scout", response_class=HTMLResponse)
+@_fleet_locked
 async def fleets_auto_scout(request: Request, fid: str, user: str = Depends(current_user)):
     """An explore fleet's 'auto-scout prospects' checkbox and how many systems a run visits."""
     form = await request.form()
@@ -3169,7 +3199,7 @@ async def fleets_traders(request: Request, user: str = Depends(current_user)):
     try:
         traders = ((await api.get(f"/replicants/{rep}/traders")) or {}).get("traders") or []
     except ApiError as e:
-        return HTMLResponse(f'<span class="lv-alert small">{e.message}</span>')
+        return HTMLResponse(f'<span class="lv-alert small">{html.escape(e.message)}</span>')
     out = {}
     for t in traders[:10]:
         code = t.get("controller_code")
@@ -3237,6 +3267,7 @@ async def fleets_reform_apply(request: Request, user: str = Depends(current_user
 
 
 @router.post("/fleets/{fid}/print", response_class=HTMLResponse)
+@_fleet_locked
 async def fleets_print(request: Request, fid: str, user: str = Depends(current_user)):
     """Queue the fleet's shortfall on an autofactory (home system first); prints come out already in the fleet."""
     eng, items = await _fleets(request)
@@ -3283,22 +3314,23 @@ async def wallpaper_ctx(request: Request) -> dict:
 async def wallpaper_settings(request: Request, action: str = Form(...), label: str = Form(""), key_id: str = Form(""),
                              user: str = Depends(current_user)):
     db = request.app.state.db
-    st = wp.normalize(await db.kv_get(wp.KV, {}))
-    new = None
-    if action == "enable":
-        st["enabled"] = True
-    elif action == "disable":
-        st["enabled"] = False
-    elif action == "create":
-        key, rec = wp.new_key(label)
-        st["keys"].append(rec)
-        st["enabled"] = True
-        new = wp.link(_origin(request), key)
-    elif action == "revoke":
-        st["keys"] = [k for k in st["keys"] if k["id"] != key_id]
-    else:
+    if action not in ("enable", "disable", "create", "revoke"):
         return HTMLResponse('<div class="result err">Unknown action.</div>', status_code=400)
-    await db.kv_set(wp.KV, st)
+    async with _wp_lock:
+        st = wp.normalize(await db.kv_get(wp.KV, {}))
+        new = None
+        if action == "enable":
+            st["enabled"] = True
+        elif action == "disable":
+            st["enabled"] = False
+        elif action == "create":
+            key, rec = wp.new_key(label)
+            st["keys"].append(rec)
+            st["enabled"] = True
+            new = wp.link(_origin(request), key)
+        elif action == "revoke":
+            st["keys"] = [k for k in st["keys"] if k["id"] != key_id]
+        await db.kv_set(wp.KV, st)
     await request.app.state.worker.automations.log("wallpaper", f"wallpaper {action} by {user}"
                                                    + (f" ({label or 'wallpaper'})" if action == "create" else ""))
     return partial(request, "partials/wallpaper_card.html", **await wallpaper_ctx(request), new_link=new)
@@ -3306,6 +3338,9 @@ async def wallpaper_settings(request: Request, action: str = Form(...), label: s
 
 def _wp_off() -> Response:
     return PlainTextResponse("Not found", status_code=404)
+
+
+_wp_lock = asyncio.Lock()   # the wallpaper key store: last-used notes vs. revokes
 
 
 async def _wp_auth(request: Request, slug: str) -> tuple[dict | None, Response | None]:
@@ -3321,8 +3356,14 @@ async def _wp_auth(request: Request, slug: str) -> tuple[dict | None, Response |
         return None, JSONResponse({"error": "wallpaper key missing or revoked"}, status_code=401)
     last = parse_ts(rec.get("last_used"))
     if not last or (datetime.now(timezone.utc) - last).total_seconds() > 600:   # note use, at most every 10 min
-        rec["last_used"] = wp._now()
-        await db.kv_set(wp.KV, st)
+        # re-read and write in one go (no await in between): a key revoked meanwhile must not come back
+        async with _wp_lock:
+            cur = wp.normalize(await db.kv_get(wp.KV, {}))
+            r2 = wp.check(cur, request.headers.get(wp.HEADER))
+            if not r2:
+                return None, JSONResponse({"error": "wallpaper key missing or revoked"}, status_code=401)
+            r2["last_used"] = wp._now()
+            await db.kv_set(wp.KV, cur)
     return rec, None
 
 

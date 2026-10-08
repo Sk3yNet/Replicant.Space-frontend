@@ -406,7 +406,11 @@ async def sync(db, api, hub, rule_cfg: dict | None, max_beacons: int = 20, profi
     await db.kv_set("replicant_profiles", profiles)
     alerts = []
     if rule_cfg:
-        repeat = timedelta(hours=max(0, int(rule_cfg.get("repeat_hours") or 6)))
+        rh = rule_cfg.get("repeat_hours")
+        try:
+            repeat = timedelta(hours=max(0, int(rh if rh not in (None, "") else 6)))   # 0 is a valid choice: every time
+        except (TypeError, ValueError):
+            repeat = timedelta(hours=6)
         alerted = state.setdefault("alerted", {})
         now = datetime.now(timezone.utc)
         recent = [e for e in new_all if (_ts(e.get("logged_at")) or now) > now - timedelta(hours=24)]

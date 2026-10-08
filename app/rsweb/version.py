@@ -16,11 +16,23 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.43.0"
+VERSION = "1.43.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.43.1", "2026-10-08", "Code review fixes. Safety: a command that timed out is no longer resent (it may have "
+     "happened); the account-wipe blocklist can't be dodged with ./.. in a path; several places that put game text or "
+     "URL values into HTML without escaping are fixed (a print-queue list, the cargo buttons, hx-vals with player "
+     "channel names, error messages, the wallpaper caption). Robustness: an engine stage that fails no longer stops the "
+     "stages after it (said once in the bell); an event with odd data no longer skips its timers and notifications; "
+     "Backfill now runs the automations too; a device list that really shrank is accepted after three syncs; fleet "
+     "edits wait for the engine instead of racing it; old actions and read notifications are pruned after 30 days. "
+     "Fixes: Reset & reform no longer pulls devices out of a running mission; dequeue_print counts from 0 on the "
+     "command form; a stalled or stopped fleet isn't sent recruiting; a paused trade run keeps its deal and two auto "
+     "fleets can't spend the same stock; Trail doesn't burst notifications for a new beacon's backlog; a failed "
+     "decommission is retried; belt_search finishing no longer marks the whole system surveyed; multi-leg trips move "
+     "along their legs on the map; KEL no longer picks up KELMORNEA's sites; console presets work again."),
     ("1.43.0", "2026-10-08", "Map › Wards & hubs: your wards against the 25 cap (activate / deactivate; activating past the "
      "cap or in a system with your hub is refused), and every miner a ward evicts is logged and noted in the bell. Hubs: "
      "the 7-day shield, capacity as last reported less 10 %/day after it, last maintenance and what it used against the "

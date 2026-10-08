@@ -33,7 +33,7 @@
       {% for s in nearby %}<tr><td><a href="/systems/{{ s.designation }}">{{ s.designation }}</a> <span class="muted">{{ s.color }}</span>{% if s.has_hub %} <span class="pill">hub</span>{% endif %}
         {% if s.explored is false or (s.explored is not defined and s.designation not in explored) %} <span class="pill small" title="nobody has explored it yet">unexplored</span>{% endif %}</td>
         <td class="num">{{ s.distance_from_replicant }}</td><td class="num">{{ (s.estimated_travel_time or 0) | int }}s</td>
-        <td><button class="small ghost" hx-post="/replicants/{{ code }}/travel" hx-vals='{"destination": "{{ s.designation }}", "dry_run": "1"}' hx-target="#travel-result">route</button></td></tr>
+        <td><button class="small ghost" hx-post="/replicants/{{ code }}/travel" hx-vals='{{ {"destination": (s.designation) | string, "dry_run": "1"} | tojson }}' hx-target="#travel-result">route</button></td></tr>
       {% endfor %}
     </table>
     <div class="row small" style="margin-top:6px">

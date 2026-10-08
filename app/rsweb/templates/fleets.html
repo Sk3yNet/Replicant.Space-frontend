@@ -46,7 +46,7 @@
         {% elif not rep.short and not rep.surplus %}<span class="lv-done">✓ matches</span>
         {% else %}{% if rep.short %}<span class="lv-alert">short {{ rep.short }}</span>{% endif %}
           {% if rep.surplus %}<span class="pill small">{{ rep.surplus }} spare</span>{% endif %}{% endif %}</td>
-      <td>{% if rep %}<button class="small ghost" hx-post="/loadouts/apply" hx-vals='{"fleet": "{{ f.id }}"}' hx-target="#lo-result">Apply</button>{% endif %}</td>
+      <td>{% if rep %}<button class="small ghost" hx-post="/loadouts/apply" hx-vals='{{ {"fleet": (f.id) | string} | tojson }}' hx-target="#lo-result">Apply</button>{% endif %}</td>
     </tr>
     {% else %}<tr><td colspan="7" class="muted">No fleets yet. Create one above.</td></tr>{% endfor %}
   </table>
@@ -108,7 +108,7 @@
           <input name="name" value="{{ f.name }}" size="14"><select name="role">{% for ro in roles %}<option {{ 'selected' if ro == f.role }}>{{ ro }}</option>{% endfor %}</select>
           <select name="home">{% for s in stars %}<option {{ 'selected' if s == f.home }}>{{ s }}</option>{% endfor %}</select>
           <button class="small">Save</button>
-          {% if f.report %}<button type="button" class="small" hx-post="/loadouts/apply" hx-vals='{"fleet": "{{ f.id }}"}' hx-target="#fp-{{ f.id }}"
+          {% if f.report %}<button type="button" class="small" hx-post="/loadouts/apply" hx-vals='{{ {"fleet": (f.id) | string} | tojson }}' hx-target="#fp-{{ f.id }}"
               title="Run the loadout pass for this fleet now: take fleetless devices at home, spares, prints, bring members home">Apply loadout now</button>
           {% elif r.rows | selectattr('short') | list %}<button type="button" class="small" hx-post="/fleets/{{ f.id }}/fill" hx-target="#fp-{{ f.id }}" title="Take idle spares of the missing types, nearest first">Fill from spares</button>
             <button type="button" class="small" hx-post="/fleets/{{ f.id }}/print" hx-target="#fp-{{ f.id }}">Print what's missing</button>{% endif %}
@@ -151,7 +151,7 @@
         {% if f.orders %}<div class="small">Queued prints counted as incoming:
           {% for t, n in f.orders | groupby('device_type') %}{{ n | length }}× {{ t | human }}
             ({% for o in n %}<a class="mono" href="/devices/{{ o.factory }}">{{ o.factory }}</a>{{ ', ' if not loop.last }}{% endfor %}){{ ' · ' if not loop.last }}{% endfor %}
-          <button class="small ghost" hx-post="/loadouts/orders/clear" hx-vals='{"fleet": "{{ f.id }}"}'
+          <button class="small ghost" hx-post="/loadouts/orders/clear" hx-vals='{{ {"fleet": (f.id) | string} | tojson }}'
                   hx-confirm="Forget {{ f.orders | length }} queued print(s) for {{ f.name }}? They stop counting as incoming, and the next pass (or Apply loadout now) queues what's still missing.">Forget these</button>
           <div class="muted">Taking a print off a factory's queue here in the app forgets it automatically, and one the factory no longer holds is dropped within 10 minutes.</div></div>{% endif %}
         </details>

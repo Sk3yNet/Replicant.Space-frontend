@@ -33,7 +33,7 @@ function problem(e) {
   else if (m.startsWith("404"))
     message("<div>Nothing to show here yet: the wallpaper is turned off, or this system has no stored scan.</div>");
   else   // the server is unreachable for now: keep what's on screen, say so quietly; the next refresh tries again
-    $("caption").innerHTML += `<small>can't reach the server (${m}) — retrying</small>`;
+    $("caption").innerHTML += `<small>can't reach the server (${esc(m)}) — retrying</small>`;
 }
 
 async function get(path) {
@@ -98,7 +98,7 @@ async function showSystem(code, note = "") {
   const el = $("sys").querySelector("svg.system");
   if (el && !labels) el.classList.add("nolabels");
   $("sys").hidden = false;
-  $("caption").innerHTML = `${code}<small>${note}updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>` +
+  $("caption").innerHTML = `${esc(code)}<small>${note}updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>` +
     fleetsAt(code);
 }
 

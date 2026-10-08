@@ -28,7 +28,7 @@
           {% if s.has_hub %}<span class="pill small">hub</span>{% endif %}{% if s.has_ward %}<span class="pill small" title="a system ward is active there">ward</span>{% endif %}
           {% if s.has_life %}<span class="pill small">life</span>{% endif %}</td>
         <td>{% for c, at in reps.items() %}<button class="small ghost" hx-post="/replicants/{{ c }}/travel"
-              hx-vals='{"destination": "{{ s.designation }}", "dry_run": "1"}' hx-target="#route-{{ loop.index0 }}-{{ s.designation }}">route</button>{% endfor %}</td>
+              hx-vals='{{ {"destination": (s.designation) | string, "dry_run": "1"} | tojson }}' hx-target="#route-{{ loop.index0 }}-{{ s.designation }}">route</button>{% endfor %}</td>
       </tr>
       {% for c in reps %}<tr><td colspan="6" id="route-{{ loop.index0 }}-{{ s.designation }}" style="padding:0"></td></tr>{% endfor %}
       {% endfor %}
@@ -44,7 +44,7 @@
       <h2>Run a census</h2>
       {% for d in vessels %}{% set at = d.location | star_of %}
         <div class="row small" style="margin-bottom:6px">
-          <button class="small" hx-post="/stars/census" hx-vals='{"device": "{{ d.device_code }}"}' hx-target="#census-result"
+          <button class="small" hx-post="/stars/census" hx-vals='{{ {"device": (d.device_code) | string} | tojson }}' hx-target="#census-result"
                   {{ 'disabled' if d.status and not d.status.startswith(('idle', 'stowed', 'deployed', 'coordinating')) }}>Census from {{ at }}</button>
           <span><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> {{ d.device_type | human }} · {{ d.status }}</span>
           {% if done.get(at) %}<span class="muted">done {{ done[at].at | ago }}</span>{% endif %}

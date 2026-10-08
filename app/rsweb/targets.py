@@ -54,6 +54,11 @@ def _res_note(resources: Any) -> str:
     return ", ".join(good[:3]) or ", ".join(f"{r} {lvl}" for r, lvl in ranked[:2])
 
 
+def in_star(code: str, star: str) -> bool:
+    """`code` is the system `star` or somewhere in it (KEL-3 is in KEL; KELMORNEA-3 isn't)."""
+    return code == star or code.startswith(star + "-")
+
+
 def _codes_in(obj: Any, pattern: re.Pattern) -> set[str]:
     return set(pattern.findall(json.dumps(obj))) if obj else set()
 
@@ -120,7 +125,7 @@ async def system_targets(db, star: str) -> dict:
 
     # events: scan/search reports, salvage, mining sites, arrivals …
     rows = await db.fetchall("SELECT event, location, payload FROM events WHERE star=? OR location LIKE ? "
-                             "ORDER BY seq DESC LIMIT 3000", (star, f"{star}%"))
+                             "ORDER BY seq DESC LIMIT 3000", (star, f"{star}-%"))
     for r in rows:
         p = json.loads(r["payload"] or "{}")
         name = r["event"]
@@ -236,20 +241,20 @@ async def system_resources(db, star: str) -> dict:
     salvage: dict[str, dict] = {}
     rows = await db.fetchall("SELECT event, payload, created_at FROM events WHERE (star=? OR location LIKE ?) AND event IN "
                              "('site.depleted', 'salvage.depleted', 'salvage.discovered', 'mining.started', 'mining.retargeted') "
-                             "ORDER BY seq", (star, f"{star}%"))
+                             "ORDER BY seq", (star, f"{star}-%"))
     for r in rows:
         p = json.loads(r["payload"] or "{}")
         if r["event"] in ("site.depleted", "salvage.depleted"):
             depleted.add(p.get("site") or "")
         elif r["event"] == "salvage.discovered":
             code = p.get("designation") or p.get("location")
-            if code and code.startswith(star):
+            if code and in_star(code, star):
                 amounts, total = site_quantity(p)
                 salvage[code] = {"code": code, "name": p.get("name"), "type": p.get("salvage_type"), "amounts": amounts,
                                  "base": dict(amounts), "total": total, "at": r["created_at"], "source": "discovered"}
         else:
             code = p.get("site")
-            if code and code.startswith(star) and code not in sites:
+            if code and in_star(code, star) and code not in sites:
                 sites[code] = {"code": code, "belt": code.rsplit("-SITE-", 1)[0], "resource": p.get("resource_type") or p.get("new_resource"),
                                "level": p.get("availability"), "amounts": {}, "total": None, "at": None, "source": "mining"}
     known_at = None

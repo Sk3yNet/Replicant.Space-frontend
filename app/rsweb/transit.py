@@ -18,10 +18,13 @@ def star_of(loc: str | None) -> str:
 
 
 def _ts(v: Any) -> float | None:
+    if not v:
+        return None
     try:
-        return datetime.fromisoformat(str(v)).timestamp()
+        dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()   # no offset: UTC, like everywhere else
 
 
 def trip(d: dict, now: float | None = None) -> dict | None:
@@ -38,10 +41,15 @@ def trip(d: dict, now: float | None = None) -> dict | None:
     if not legs:
         legs = [{"from": tr.get("origin"), "to": tr.get("final_destination") or tr.get("destination"),
                  "type": tr.get("type") or "cruise", "time_seconds": t1 - t0}]
-    total = sum(float(x.get("time_seconds") or 0) for x in legs) or (t1 - t0)
-    scale, at, out = (t1 - t0) / total, t0, []
-    for x in legs:
-        dt = float(x.get("time_seconds") or 0) * scale if total else (t1 - t0) / len(legs)
+    # each leg's share of the trip: its own time, or (without one) the average of the timed legs — all equal when
+    # no leg has a time — scaled so the legs fill departure → arrival
+    times = [float(x.get("time_seconds") or 0) for x in legs]
+    timed = [s for s in times if s > 0]
+    guess = sum(timed) / len(timed) if timed else 1.0
+    weights = [s if s > 0 else guess for s in times]
+    scale, at, out = (t1 - t0) / sum(weights), t0, []
+    for x, w in zip(legs, weights):
+        dt = w * scale
         out.append({"from": x["from"], "to": x["to"], "type": x.get("type") or "cruise", "t0": at, "t1": at + dt})
         at += dt
     return {"code": d.get("device_code"), "device_type": d.get("device_type"), "status": d.get("status"),

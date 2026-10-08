@@ -108,8 +108,14 @@ class Registry:
             try:
                 self.tenants = json.loads(self.path.read_text())
             except Exception:
-                log.exception("tenants.json is unreadable; starting with no users (the file is left as it is)")
-                self.path = ts.data_dir / f"tenants.{int(time.time())}.json"
+                # set the bad file aside and carry on saving to tenants.json, so sign-ups after this survive restarts
+                aside = ts.data_dir / f"tenants.unreadable.{int(time.time())}.json"
+                log.exception("tenants.json is unreadable; moved to %s, starting with no users", aside.name)
+                try:
+                    self.path.rename(aside)
+                except OSError:
+                    log.exception("could not move the unreadable tenants.json aside")
+                    self.path = ts.data_dir / f"tenants.{int(time.time())}.json"
         if ts.owner_email and ts.owner_token:
             self.tenants.setdefault(ts.owner_email, {"created_at": _now()})
         for email, t in self.tenants.items():
@@ -269,10 +275,24 @@ class Supervisor:
             else:
                 ready = asyncio.create_task(self._wait_ready(p))
                 assert p.process.stdout is not None
-                async for raw in p.process.stdout:
-                    line = raw.decode(errors="replace").rstrip()
-                    p.log.append(line)
-                    print(f"[{slug}] {line}", flush=True)
+                try:
+                    buf = b""
+                    while chunk := await p.process.stdout.read(65536):   # chunks: a very long line can't break this
+                        buf += chunk
+                        *lines, buf = buf.split(b"\n")
+                        if len(buf) > 65536:
+                            lines, buf = lines + [buf], b""
+                        for raw in lines:
+                            line = raw.decode(errors="replace").rstrip()
+                            p.log.append(line)
+                            print(f"[{slug}] {line}", flush=True)
+                except Exception:
+                    # nobody would drain the pipe and the server would hang on its next log line: restart it
+                    log.exception("[%s] reading the server's output failed; restarting it", slug)
+                    try:
+                        p.process.kill()
+                    except ProcessLookupError:
+                        pass
                 code = await p.process.wait()
                 ready.cancel()
                 p.ready = False

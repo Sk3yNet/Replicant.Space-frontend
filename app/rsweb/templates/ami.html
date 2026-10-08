@@ -45,7 +45,7 @@
 
     <div class="row" style="margin-top:8px">
       {% for cmd in ['launch', 'withdraw', 'assemble', 'activate', 'clear_directive'] if cmd in (d.available_commands or [cmd]) %}
-      <button class="small {{ 'ghost' if cmd in ('withdraw','clear_directive') }}" hx-post="/devices/{{ d.device_code }}/command" hx-vals='{"command": "{{ cmd }}"}' hx-target="#ami-{{ d.device_code }}" {% if cmd in ('withdraw','clear_directive') %}hx-confirm="{{ cmd }} on {{ d.device_code }}?"{% endif %}>{{ cmd | human }}</button>
+      <button class="small {{ 'ghost' if cmd in ('withdraw','clear_directive') }}" hx-post="/devices/{{ d.device_code }}/command" hx-vals='{{ {"command": (cmd) | string} | tojson }}' hx-target="#ami-{{ d.device_code }}" {% if cmd in ('withdraw','clear_directive') %}hx-confirm="{{ cmd }} on {{ d.device_code }}?"{% endif %}>{{ cmd | human }}</button>
       {% endfor %}
     </div>
     <div id="ami-{{ d.device_code }}"></div>

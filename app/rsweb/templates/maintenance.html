@@ -19,7 +19,7 @@
     <h2 style="margin:0"><a href="/systems/{{ r.star }}">{{ r.star }}</a>
       <span class="small {{ 'lv-alert' if r.needs_attention else 'muted' }}">{{ r.verdict }}</span>
       <span class="small muted">{{ r.devices }} devices · worst {{ r.min }} % · average {{ r.avg }} %</span></h2>
-    {% if r.needs_attention %}<button class="small ghost" hx-post="/maintenance/run" hx-vals='{"star": "{{ r.star }}"}' hx-target="next .mt-out">Fix {{ r.star }}</button>{% endif %}
+    {% if r.needs_attention %}<button class="small ghost" hx-post="/maintenance/run" hx-vals='{{ {"star": (r.star) | string} | tojson }}' hx-target="next .mt-out">Fix {{ r.star }}</button>{% endif %}
   </div>
   <div class="mt-out"></div>
   <div class="small">Maintenance drones:
@@ -34,7 +34,7 @@
       <td class="num {{ 'lv-alert' if d.capacity < (cfg.critical or 60) }}">{{ d.capacity }} %</td>
       <td>{% if d.self_repairs %}<span class="muted">self-repairing</span>{% endif %}
         {% set ds = r.drones | selectattr('placed') | list %}{% if ds %}
-        <button class="small ghost" hx-post="/maintenance/repair" hx-vals='{"target": "{{ d.code }}", "drone": "{{ ds[0].code }}"}' hx-target="next .mt-r">Repair now</button><span class="mt-r"></span>{% endif %}</td></tr>{% endfor %}
+        <button class="small ghost" hx-post="/maintenance/repair" hx-vals='{{ {"target": (d.code) | string, "drone": (ds[0].code) | string} | tojson }}' hx-target="next .mt-r">Repair now</button><span class="mt-r"></span>{% endif %}</td></tr>{% endfor %}
   </table>
   {% endif %}
 </div>

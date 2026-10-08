@@ -107,7 +107,7 @@ UNLISTED_KEEP_HOURS = 12
 
 
 def merge_device_snapshot(prev: list[dict], new: list[dict], partial: bool = False, gone: set[str] | None = None,
-                          now: str | None = None) -> list[dict] | None:
+                          now: str | None = None, accept_short: bool = False) -> list[dict] | None:
     """Guard the device list against snapshots that leave devices out. None = ignore this snapshot entirely.
 
     • an empty or far-shorter list than last time (< half) is ignored
@@ -127,8 +127,8 @@ def merge_device_snapshot(prev: list[dict], new: list[dict], partial: bool = Fal
         # keep what this snapshot left out, flagged stale; take everything it did return
         seen = {d.get("device_code") for d in new}
         new = new + [{**d, "location_stale": True} for d in prev if d.get("device_code") not in seen]
-    elif prev and len(new) < len(prev) / 2:
-        return None
+    elif prev and not accept_short and len(new) < len([d for d in prev if d.get("device_code") not in gone]) / 2:
+        return None   # devices an event says are gone don't count; a short list that keeps coming back is accepted
     else:
         seen = {d.get("device_code") for d in new}
         keep = []
@@ -224,14 +224,29 @@ class Worker:
     async def handle_event(self, ev: dict) -> None:
         if not ev.get("id") or not ev.get("event"):
             return
+        if not isinstance(ev.get("payload"), dict):
+            ev["payload"] = {}
         is_new = await self.db.insert_event(ev)
+        if is_new:
+            await self.process_event(ev)
         await self.db.kv_set("event_cursor", str(ev["id"]))
-        if not is_new:
-            return
-        await self.apply_timers(ev)
-        if ev["event"] == "prospect.completed":
-            await self.on_prospect(ev)
-        late = is_late(ev)
+
+    async def process_event(self, ev: dict, notify_live: bool = True) -> None:
+        """Everything a new event sets off. Each part is guarded: the event is stored already, so a part that fails
+        on odd data must not stop the rest (or drop the stream connection)."""
+        for part in (self.apply_timers, self.on_prospect if ev["event"] == "prospect.completed" else None):
+            if part:
+                try:
+                    await part(ev)
+                except Exception:
+                    log.exception("%s failed on %s", part.__name__, ev.get("event"))
+        try:
+            await self._announce(ev, notify_live)
+        except Exception:
+            log.exception("notifying %s failed", ev.get("event"))
+
+    async def _announce(self, ev: dict, notify_live: bool) -> None:
+        late = is_late(ev) or not notify_live
         if late:
             self.late["n"] += 1
             self.late["oldest"] = self.late["oldest"] or ev.get("created_at")
@@ -306,14 +321,14 @@ class Worker:
         cursor = await self.db.kv_get("event_cursor")
         added = 0
         for _ in range(20):
-            body = await self.api.get("/events", background=True, limit=100, cursor=cursor)
+            body = await self.api.get("/events", background=True, limit=100, cursor=cursor, filtered="true")
             items = (body or {}).get("events") or []
             for ev in items:
-                if await self.db.insert_event(ev):
+                if not isinstance(ev.get("payload"), dict):
+                    ev["payload"] = {}
+                if ev.get("id") and ev.get("event") and await self.db.insert_event(ev):
                     added += 1
-                    await self.apply_timers(ev)
-                    if not is_late(ev):
-                        await notify.add_notification(self.db, ev)
+                    await self.process_event(ev)   # timers, notifications and the automations, as from the stream
                 cursor = str(ev.get("id"))
             nxt = (body or {}).get("next_cursor")
             if cursor:
@@ -414,6 +429,11 @@ class Worker:
     async def prune_timers(self) -> None:
         cutoff = _iso(datetime.now(timezone.utc) - timedelta(minutes=10))
         await self.db.execute("DELETE FROM timers WHERE ends_at < ?", (cutoff,))
+        # the action log and the bell would otherwise grow for ever: keep 30 days of actions, and read
+        # notifications for 30 days (unread ones stay until read)
+        month = _iso(datetime.now(timezone.utc) - timedelta(days=30))
+        await self.db.execute("DELETE FROM actions WHERE at < ?", (month,))
+        await self.db.execute("DELETE FROM notifications WHERE read = 1 AND created_at < ?", (month,))
 
     # --- polling -----------------------------------------------------------------------
     async def _poll_loop(self, name: str, interval: int, fn) -> None:
@@ -469,10 +489,16 @@ class Worker:
                 f"SELECT DISTINCT device_code FROM events WHERE event IN ({marks}) AND device_code IN ({','.join('?' * len(missing))})",
                 (*GONE_EVENTS, *missing))
             gone = {r["device_code"] for r in rows}
-        devices = merge_device_snapshot(prev, devices, partial, gone)
-        if devices is None:
-            log.warning("device sync returned an incomplete list (%s → fewer); keeping the previous one", len(prev))
+        # the same short list three syncs running is the truth (devices really lost), not a glitch
+        short = None if partial else len(devices)
+        streak = getattr(self, "_short_streak", (None, 0))
+        merged = merge_device_snapshot(prev, devices, partial, gone, accept_short=streak[0] == short and streak[1] >= 2)
+        if merged is None:
+            self._short_streak = (short, streak[1] + 1 if streak[0] == short else 1)
+            log.warning("device sync returned an incomplete list (%s → %s); keeping the previous one", len(prev), len(devices))
             return
+        self._short_streak = (None, 0)
+        devices = merged
         from .modular import FOLDED_KV
         marks = await self.db.kv_get(FOLDED_KV, {}) or {}
         for d in devices:   # large devices the game told us are folded (modular.folded)

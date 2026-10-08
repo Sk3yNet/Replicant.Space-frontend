@@ -85,6 +85,11 @@ async def controller_idle(db, ctrl: dict) -> tuple[bool, str]:
     return False, f"status {status}"
 
 
+def _home_key(star: str) -> str:
+    """What a `home:` tag for this star holds (loadouts.home_tag: sanitised, lower-case, 27 characters)."""
+    return re.sub(r"[^a-z0-9\-_:.]", "", (star or "").lower())[:27]
+
+
 def fleet_of(d: dict) -> str | None:
     return next((t for t in d.get("tags") or [] if t.startswith("fleet:")), None)
 
@@ -223,7 +228,7 @@ def handoffs(devices: list[dict], managed: dict[str, str], busy: set[str], skip:
         if (not kind or not here or code in run_by or code in busy or code in skip or reserved(d) or "spare" in tags
                 or ignore & tags or not str(d.get("status") or "").startswith("idle") or d.get("location_stale")
                 or d.get("in_control_range") is False or d.get("stowed_in_device_code") or d.get("attached_to_device_code")
-                or (homes and here.lower()[:29] not in homes)):
+                or (homes and _home_key(here) not in homes)):
             continue
         cands = [c for c in ctrls if kind_of(c.get("device_type")) == kind and star_of(c.get("location")) == here
                  and same_side(c, d)]
@@ -279,7 +284,7 @@ def wakeups(devices: list[dict], busy: set[str], done: dict[str, str], skip: set
         homes = {x[5:] for x in d.get("tags") or [] if x.startswith("home:")}
         if (not any(k in t for k in WAKE_TYPES) or not here or code in busy or code in (skip or set()) or reserved(d)
                 or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or d.get("in_control_range") is False
-                or (homes and here.lower()[:29] not in homes) or done.get(code) == here):
+                or (homes and _home_key(here) not in homes) or done.get(code) == here):
             continue
         st = str(d.get("status") or "")
         maint = "maintenance" in t

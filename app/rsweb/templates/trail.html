@@ -34,8 +34,8 @@
         <td class="mono">{{ code }}</td><td>{% if b.star %}<a href="/systems/{{ b.star }}">{{ b.star }}</a>{% else %}?{% endif %}</td>
         <td class="num">{{ (s.audit.get(code) or []) | length }}</td>
         <td class="muted">{{ s.read_at.get(code) | ago if s.read_at.get(code) else 'never' }}</td>
-        <td><button class="small ghost" hx-post="/trail/read" hx-vals='{"beacon": "{{ code }}"}' hx-target="#trail-result">read</button>
-            <button class="small ghost" hx-post="/trail/beacon" hx-vals='{"code": "{{ code }}", "remove": "1"}' hx-target="#trail-result">✕</button></td>
+        <td><button class="small ghost" hx-post="/trail/read" hx-vals='{{ {"beacon": (code) | string} | tojson }}' hx-target="#trail-result">read</button>
+            <button class="small ghost" hx-post="/trail/beacon" hx-vals='{{ {"code": (code) | string, "remove": "1"} | tojson }}' hx-target="#trail-result">✕</button></td>
       </tr>{% endfor %}</table>{% else %}<p class="muted small">None yet. Start where {{ s.target_name }} always passes: SOL.</p>{% endif %}
 
     <h2 style="margin-top:14px">3 · Stars to match against <span class="muted small">{{ n_pos }} with positions</span></h2>
@@ -65,7 +65,7 @@
           {% for c in l.candidates %}<tr{% if not loop.first %} class="muted"{% endif %}>
             <td><a href="/systems/{{ c.star }}">{{ c.star }}</a></td><td class="num">{{ c.angle }}°</td><td class="num">{{ c.distance }}</td>
             <td>{% if c.good %}<span class="pill small st-work">lines up</span>{% endif %}{% if not c.in_relay %} <span class="pill small">beyond relay range</span>{% endif %}</td>
-            <td>{% if scanner %}<button class="small ghost" hx-post="/trail/travel" hx-vals='{"star": "{{ c.star }}"}' hx-target="#trail-result"
+            <td>{% if scanner %}<button class="small ghost" hx-post="/trail/travel" hx-vals='{{ {"star": (c.star) | string} | tojson }}' hx-target="#trail-result"
               hx-confirm="Send {{ scanner.name }} (from {{ scanner.star }}) to {{ c.star }}?" title="Send {{ scanner.name }} there">travel</button>{% endif %}</td></tr>{% endfor %}</table>
         {% else %}<p class="muted small">No known star lies that way{% if not l.from %} (unknown origin){% endif %} — load the stars around {{ l.from or 'there' }} (left).</p>{% endif %}
       </div>

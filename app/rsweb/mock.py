@@ -709,7 +709,10 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     async def events(limit: int = 100, cursor: str | None = None):
         evs = world.events
         if cursor:
-            evs = [e for e in evs if e["id"] > cursor]
+            def key(i):   # "<ms>-<n>": compare as numbers, not text ("…-9" < "…-10")
+                a, _, b = str(i).partition("-")
+                return (int(a or 0), int(b or 0)) if a.isdigit() and (b or "0").isdigit() else (0, 0)
+            evs = [e for e in evs if key(e["id"]) > key(cursor)]
         page = evs[:limit]
         return ok({"events": page, "next_cursor": page[-1]["id"] if len(evs) > limit else None})
 

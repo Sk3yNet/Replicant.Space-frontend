@@ -57,6 +57,8 @@ async def trail_target(request: Request, name: str = Form(...), user: str = Depe
     if not pick:
         return _msg(f"No replicant called {name} in the directory.", ok=False)
     s = await _state(db)
+    if s.get("target_code") != pick.get("replicant_code"):   # someone else: their beacon logs start afresh
+        s["audit"], s["read_at"] = {}, {}
     s.update({"target_name": pick.get("name") or name, "target_code": pick.get("replicant_code"),
               "target_last_location": pick.get("last_location"), "target_npc": pick.get("is_npc")})
     s["matches"] = [{"name": r.get("name"), "code": r.get("replicant_code"), "last": r.get("last_location")} for r in found[:10]]
@@ -116,11 +118,12 @@ async def trail_read(request: Request, beacon: str = Form(""), user: str = Depen
     if not s["beacons"]:
         return _msg("No beacons to read yet — scan a system or add a beacon code.", ok=False)
     new, errs = await tl.read_beacons(api, s, beacon or None)
-    await db.kv_set(tl.KV, s)
+    await db.kv_set(tl.KV, tl.merge_read(await db.kv_get(tl.KV, {}) or {}, s))
     if errs and not new:
         return _msg("; ".join(errs), ok=False)
-    return _msg(f"Read {'1 beacon' if beacon else str(len(s['beacons'])) + ' beacon(s)'}: {len(new)} new entr"
-                f"{'y' if len(new) == 1 else 'ies'}" + (f" ({'; '.join(errs)})" if errs else ""))
+    n = sum(len(s["audit"].get(c) or []) for c in ([beacon] if beacon else s["beacons"]))
+    return _msg(f"Read {'1 beacon' if beacon else str(len(s['beacons'])) + ' beacon(s)'}: {n} entr{'y' if n == 1 else 'ies'}, "
+                f"{len(new)} new" + (f" ({'; '.join(errs)})" if errs else ""))
 
 
 @router.post("/trail/stars", response_class=HTMLResponse)

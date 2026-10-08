@@ -21,7 +21,7 @@
   <table class="small" style="margin-top:8px">
     <tr><th>Link</th><th>Created</th><th>Last used</th><th></th></tr>
     {% for k in wp['keys'] %}<tr><td>{{ k.label }}</td><td>{{ k.created_at | ago }}</td><td>{{ (k.last_used | ago) if k.last_used else 'never' }}</td>
-      <td><button class="small ghost" hx-post="/wallpaper-settings" hx-vals='{"action": "revoke", "key_id": "{{ k.id }}"}'
+      <td><button class="small ghost" hx-post="/wallpaper-settings" hx-vals='{{ {"action": "revoke", "key_id": (k.id) | string} | tojson }}'
           hx-target="#wallpaper-card" hx-swap="outerHTML" hx-confirm="Revoke the wallpaper link “{{ k.label }}”? That wallpaper stops updating.">Revoke</button></td></tr>{% endfor %}
   </table>{% endif %}
   <p class="small muted" style="margin-top:6px">Wallpaper address: <span class="mono">{{ wp_base }}</span>

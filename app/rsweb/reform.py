@@ -62,7 +62,7 @@ def plan(cfg: dict, devices: list[dict], fleets: list[dict], busy: set[str], hos
         why = ("replicant's vessel" if d["device_code"] in hosts else
                "ignored tag" if tags & ignore else
                "ferry / taxi" if tags & UNTOUCHED_TAGS or "ferry" in (by_code.get(d.get("controller_device_code") or "") or {}).get("tags", []) else
-               "fleet on a mission" if (fl.fleet_of(d) or "")[6:] in on_mission else
+               "fleet on a mission" if fl.fleet_of(d) in on_mission else
                "in a running job" if d["device_code"] in busy else
                "moving / in transit" if _moving(d) else   # an idle device with a to: tag and no job is a leftover
                "position unknown" if not where(d, by_code) else None)

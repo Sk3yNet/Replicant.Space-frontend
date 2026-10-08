@@ -8,7 +8,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import posixpath
 import time
+import urllib.parse
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
@@ -127,11 +129,14 @@ class RSClient:
     # --- requests ------------------------------------------------------------
     @staticmethod
     def check_allowed(method: str, path: str) -> None:
-        p = "/" + path.lstrip("/")
+        raw = urllib.parse.unquote(path.split("?")[0].split("#")[0])
+        if any(seg in (".", "..") for seg in raw.split("/")):   # httpx resolves dot segments after this check
+            raise ApiError(400, "paths with . or .. segments aren't sent")
+        p = "/" + posixpath.normpath("/" + raw.lstrip("/")).lstrip("/").lower()
         if p.startswith("/v1/"):
             p = p[3:]
         for m, blocked in BLOCKED:
-            if method.upper() == m and p.rstrip("/") == blocked:
+            if method.upper() == m and p.rstrip("/") == blocked.lower():
                 raise ApiError(403, f"{m} {blocked} is blocked by this client for safety")
 
     async def request(self, method: str, path: str, *, params: dict | None = None, json_body: Any = None,
@@ -150,14 +155,16 @@ class RSClient:
                 resp = await self.http.request(method, path, params=params, json=json_body)
             except httpx.HTTPError as e:
                 self.last_error = f"network: {e}"
-                if attempt >= retries:
+                # a command that timed out may have been carried out: only resend reads, or writes that never left
+                sent = not isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout))
+                if attempt >= retries or (method not in READ_METHODS and sent):
                     raise ApiError(0, f"network error: {e}") from e
                 attempt += 1
                 await asyncio.sleep(2 ** attempt)
                 continue
             self._note_headers(resp)
             if resp.status_code == 429:
-                retry = float(resp.headers.get("Retry-After", "10") or 10)
+                retry = retry_after(resp.headers.get("Retry-After"), 10.0)
                 bucket = self.get_bucket if method in READ_METHODS else self.act_bucket
                 bucket.blocked_until = time.monotonic() + retry
                 self.last_error = f"rate limited for {retry:.0f}s"
@@ -218,13 +225,29 @@ class RSClient:
                                     timeout=timeout) as resp:
             self._note_headers(resp)
             if resp.status_code == 429:
-                retry = float(resp.headers.get("Retry-After", "30") or 30)
+                retry = retry_after(resp.headers.get("Retry-After"), 30.0)
                 raise ApiError(429, f"stream rate limited, retry in {retry}s", {"retry": retry})
             if resp.status_code >= 400:
                 await resp.aread()
                 raise ApiError(resp.status_code, f"stream refused: {resp.text[:200]}")
             async for ev in parse_sse(resp.aiter_lines()):
                 yield ev
+
+
+def retry_after(v: str | None, default: float) -> float:
+    """Retry-After as seconds: a number, or an HTTP date (RFC 9110)."""
+    if not v:
+        return default
+    try:
+        return max(0.0, float(v))
+    except ValueError:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        from datetime import datetime, timezone
+        return max(0.0, (parsedate_to_datetime(v) - datetime.now(timezone.utc)).total_seconds())
+    except (TypeError, ValueError):
+        return default
 
 
 async def parse_sse(lines: AsyncIterator[str]) -> AsyncIterator[dict]:

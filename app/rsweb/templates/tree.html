@@ -15,7 +15,7 @@
     <div class="tpanel">
       <form hx-post="/devices/{{ code }}/command" hx-target="#tres-{{ code }}" data-danger-check>
         <div class="row">
-          <select name="command" hx-get="/devices/{{ code }}/command-form" hx-vals='{"rid": "tres-{{ code }}"}' hx-target="#tf-{{ code }}" hx-trigger="change">
+          <select name="command" hx-get="/devices/{{ code }}/command-form" hx-vals='{{ {"rid": "tres-" ~ (code)} | tojson }}' hx-target="#tf-{{ code }}" hx-trigger="change">
             <option value="">— choose a command —</option>
             {% for c in order_commands(d.available_commands or []) %}<option value="{{ c }}" title="{{ command_help.get(c, '') }}">{{ c | human }}{{ ' ⚠' if c in dangerous }}</option>{% endfor %}
           </select>

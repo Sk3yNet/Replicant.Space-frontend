@@ -288,7 +288,7 @@ def _already_unfurled(err: str | None) -> bool:
 
 
 def _ts(v: str | None) -> datetime | None:
-    if not v:
+    if not v or not isinstance(v, str):
         return None
     try:
         dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
@@ -400,6 +400,7 @@ class AutomationEngine(OpsRules):
         self.task: asyncio.Task | None = None
         self.stage: str | None = None          # what the current tick is doing (for the watchdog / snapshot)
         self._lock_alerted = False
+        self.stage_errors: dict[str, str] = {}  # stage -> its last error (announced once)
 
     # --- settings & persistence ---------------------------------------------------------
     async def settings(self) -> dict:
@@ -656,7 +657,7 @@ class AutomationEngine(OpsRules):
                 st["wait"] = []
             if not ok:
                 st["error"] = err
-                if st["tries"] < 2 and "rate" in (err or "").lower():
+                if st["tries"] < 2 and re.search(r"\brate.?limit|too many requests", (err or "").lower()):
                     await self._update(job)
                     return  # retry on next tick
                 if st["critical"]:
@@ -724,7 +725,9 @@ class AutomationEngine(OpsRules):
                     surveyed[target] = now_iso()
                     await self.db.kv_set("surveyed", surveyed)
             # an AMI survey controller finished survey_system: the whole system counts as surveyed
-            if name == "directive.completed" and "survey" in (ev.get("device_type") or ""):
+            # (not any directive: a belt_search finishing on the same controller says nothing about the planets)
+            if (name == "directive.completed" and "survey" in (ev.get("device_type") or "")
+                    and (p.get("directive") or "survey_system") == "survey_system"):
                 await self.mark_system_surveyed(star_of(ev.get("location")) or ev.get("star") or "", ev.get("device_code"))
             # a print ordered for a system came out: remember its code until the device list shows it
             if name == "print.completed":
@@ -825,7 +828,18 @@ class AutomationEngine(OpsRules):
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_pass", "auto_scout_pass", "hub_watch_pass"):
                 self.stage = stage
-                out = await getattr(self, stage)()
+                try:   # one stage failing on odd data mustn't stop every stage after it, every tick
+                    out = await getattr(self, stage)()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    log.exception("engine stage %s failed", stage)
+                    key = f"{stage}: {type(e).__name__}: {e}"[:300]
+                    if self.stage_errors.get(stage) != key:   # say so once per distinct error, not every minute
+                        self.stage_errors[stage] = key
+                        await self.log("engine", f"stage {stage} failed: {type(e).__name__}: {e}", "alert", notify=True)
+                    continue
+                self.stage_errors.pop(stage, None)
                 if stage == "civ_beacon_pass":
                     for line in out or []:
                         await self.log("civ_beacons", line)
@@ -841,12 +855,9 @@ class AutomationEngine(OpsRules):
         if not s["beacons"] or (last and (_now() - last).total_seconds() < 900):
             return []
         s["polled_at"] = now_iso()
-        first = not s["seen"]
-        new, _errs = await tl.read_beacons(self.api, s)
-        await self.db.kv_set(tl.KV, s)
+        new, _errs = await tl.read_beacons(self.api, s)   # a beacon's first read returns nothing new
+        await self.db.kv_set(tl.KV, tl.merge_read(await self.db.kv_get(tl.KV, {}) or {}, s))
         out = []
-        if first:
-            return out   # the first read only fills the log
         for r in new:
             if s.get("target_code") and r.get("replicant_code") != s["target_code"]:
                 continue
@@ -964,7 +975,15 @@ class AutomationEngine(OpsRules):
             if not d:
                 q.pop(code)   # gone from the list: decommissioned (or given away)
                 continue
-            if code in busy or not dc.ready(d, e):
+            if code in busy:
+                continue
+            sent = _ts(e.get("sent_at"))
+            if sent and (_now() - sent).total_seconds() > 600 and not await self.db.fetchone(
+                    "SELECT 1 FROM events WHERE event='device.decommissioned' AND device_code=?", (code,)):
+                # its job ended (failed, timed out, cancelled) and the device is still here: try again
+                e.pop("sent_at", None)
+                await self.log("decommission", f"{code}: still here after its decommission job ended — trying again")
+            if not dc.ready(d, e):
                 continue
             st = step(f"{code}: decommission at autofactory {e['factory']}", f"/devices/{code}", {"command": "decommission"},
                       wait=["device.decommissioned"], timeout=3600, critical=True)
@@ -1780,7 +1799,7 @@ class AutomationEngine(OpsRules):
         taken = set()
         for f in items:
             m = f.get("mission") or {}
-            if m.get("status") in ("running", "stalled"):
+            if m.get("status") in ("running", "stalled", "stopped"):   # a paused run still holds its deal
                 d = fl.deal(m)
                 taken.add(d.get("designation") or f"{d.get('controller')}:{d.get('trade_code')}")
         cands: list[dict] = []
@@ -1819,6 +1838,9 @@ class AutomationEngine(OpsRules):
             if not ok:
                 continue
             c = min(ok, key=lambda c: (c["kind"] != "contract", dist(f.get("home") or "", c["star"]), c["key"]))
+            committed = inv.setdefault("__committed__", {})   # what this pass already promised: one stock, one payment
+            for r, q in as_amounts(c["price"]).items():
+                committed[r] = committed.get(r, 0.0) - q
             m = {"status": "running", "phase": None, "idx": 0, "targets": [c["star"]], "started_at": now_iso(), "log": [],
                  "opts": {}, "auto": True, c["kind"]: c[c["kind"]]}
             self._mlog(m, f"started automatically: {fl.deal(m)['label']} at {fl.deal(m)['location']}")
@@ -2099,7 +2121,9 @@ class AutomationEngine(OpsRules):
         radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         out = []
         for f in await self.fleets():
-            if (only and f["id"] != only) or (f.get("mission") or {}).get("status") == "running" or f["id"] in working:
+            # a stalled or stopped mission still holds its devices where they are: don't send the carrier recruiting
+            if (only and f["id"] != only) or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped") \
+                    or f["id"] in working:
                 continue
             if fl.stationed(f):
                 continue   # the loadout pass keeps a stationed fleet filled, at its home

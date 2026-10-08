@@ -67,7 +67,7 @@
       <td>{{ t.shop_name or '—' }} <span class="muted">{{ t.owner_name }}</span>{% if t.owner_replicant_code in mine %} <span class="pill small">yours</span>{% endif %}</td>
       <td>{{ t.location }}</td><td>{{ tr.name }}</td><td>{{ describe(tr.criteria) }}</td><td>{{ describe(tr.rewards) }}</td>
       <td class="num">{{ tr.current_stock }}</td>
-      <td><button class="small" hx-post="/shop/buy" hx-vals='{"controller": "{{ code }}", "trade_code": "{{ tr.trade_code }}"}' hx-target="next .sh-b"
+      <td><button class="small" hx-post="/shop/buy" hx-vals='{{ {"controller": (code) | string, "trade_code": (tr.trade_code) | string} | tojson }}' hx-target="next .sh-b"
         hx-confirm="Buy {{ tr.name }} at {{ t.location }}: pay {{ describe(tr.criteria) }}, get {{ describe(tr.rewards) }}?">Buy</button><span class="sh-b"></span></td></tr>{% endfor %}{% endfor %}
   </table>
   {% else %}<p class="muted small">No traders read yet.</p>{% endif %}

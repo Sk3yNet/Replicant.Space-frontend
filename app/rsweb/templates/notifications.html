@@ -18,7 +18,7 @@
       <td style="width:22px" class="lv-{{ n.level if n.level == 'mention' else (n.kind if n.kind != 'info' else n.level) }}">●</td>
       <td><a href="{{ n.link or '#' }}">{{ n.title }}</a></td>
       <td class="small muted" style="white-space:nowrap">{{ n.created_at | local }} · {{ n.created_at | ago }}</td>
-      <td>{% if not n.read %}<button class="small ghost" hx-post="/notifications/read" hx-vals='{"id": {{ n.id }}}' hx-target="#n{{ n.id }}" hx-swap="delete">✓</button>{% endif %}</td>
+      <td>{% if not n.read %}<button class="small ghost" hx-post="/notifications/read" hx-vals='{{ {"id": n.id} | tojson }}' hx-target="#n{{ n.id }}" hx-swap="delete">✓</button>{% endif %}</td>
     </tr>
     {% else %}<tr><td class="muted">Nothing here. Alerts (hub warnings, incoming objects, failed teleports…) and accomplishments (prints, completed directives, trades…) show up as they happen.</td></tr>{% endfor %}
   </table>

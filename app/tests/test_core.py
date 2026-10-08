@@ -5241,7 +5241,7 @@ def test_trail_page_end_to_end(client):
     r = client.post("/trail/scan", data={"replicant": rep}, headers=HX)
     assert "BB000001" in r.text and "XX000001" not in r.text
     r = client.post("/trail/read", headers=HX)
-    assert "1 new entry" in r.text
+    assert "1 entry, 0 new" in r.text                                            # a first read fills the log
     client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [
         {"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}}, {"designation": "EAST", "position": {"x": 5, "y": 0.1, "z": 0}},
         {"designation": "WEST", "position": {"x": -5, "y": 0, "z": 0}}]})
@@ -5371,3 +5371,92 @@ def test_profile_edit_and_reputation(client):
     assert "acquainted" in client.get(f"/replicants/{rep}/reputation", headers=HX).text
     page = client.get("/reputation", headers=H).text
     assert "Veth" in page and "intelligent" in page and "curious, aquatic" in page and "events completed" in page
+
+
+# --- regressions from the 2026-10-08 code review -------------------------------------------------------------------
+def test_review_api_blocklist_dot_segments_and_write_retries():
+    for path in ("/accounts/./me", "/accounts/me/.", "/accounts/x/../me", "/v1/Accounts/Me", "/accounts%2fme"):
+        with pytest.raises(ApiError):
+            RSClient.check_allowed("DELETE", path)
+    RSClient.check_allowed("GET", "/devices/ABCD/audit")
+    from rsweb.api import retry_after
+    assert retry_after("7", 5) == 7 and retry_after("garbage", 5) == 5
+    assert retry_after("Wed, 21 Oct 2015 07:28:00 GMT", 5) == 0      # a date in the past: go now
+
+    calls = []
+
+    def handler(req):
+        calls.append(req.method)
+        raise httpx.ReadTimeout("slow", request=req)
+    s = Settings(api_token="t", api_base="http://x/v1")
+    c = RSClient(s, transport=httpx.MockTransport(handler))
+    with pytest.raises(ApiError):
+        asyncio.run(c.request("POST", "/devices/A", json_body={"command": "travel"}, retries=2))
+    assert calls == ["POST"]                         # a command that timed out may have happened: never resent
+
+
+def test_review_device_snapshot_gone_and_persistent_short_list():
+    from rsweb.ingest import merge_device_snapshot
+    prev = [{"device_code": c, "location": "SOL-3"} for c in ("A", "B", "C")]
+    new = [{"device_code": "A", "location": "SOL-3"}]
+    assert merge_device_snapshot(prev, new) is None                          # a glitchy short list is ignored…
+    assert [d["device_code"] for d in merge_device_snapshot(prev, new, gone={"B", "C"})] == ["A"]   # …not real losses
+    assert merge_device_snapshot(prev, new, accept_short=True) is not None  # and the same short list again is the truth
+
+
+def test_review_bad_event_payload_doesnt_break_processing(tmp_path):
+    async def go():
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        s = Settings(api_token="t", api_base="http://x/v1", db_path=str(tmp_path / "t.sqlite"))
+        w = Worker(s, db, RSClient(s, transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))), Hub())
+        bad = _ev(1, "travel.departed", destination="SOL-4", travel_time_seconds="n/a", arrives_at=12345)
+        await w.handle_event(bad)                                   # must not raise
+        await w.handle_event({**_ev(2, "hub.warning"), "payload": ["odd"]})
+        assert await db.kv_get("event_cursor") == _ev(2, "x")["id"]
+        assert notify.describe({"event": "hub.warning", "payload": ["odd"]})
+    asyncio.run(go())
+
+
+def test_review_reform_leaves_fleets_on_a_mission_alone():
+    from rsweb import reform
+    devices = [{"device_code": "M1", "device_type": "mining_drone", "location": "AAA-5-L4", "status": "idle",
+                "tags": ["fleet:prospectors"]}]
+    fleets = [{"id": "prospectors", "name": "P", "home": "BBB", "wants": {}, "mission": {"status": "running"}}]
+    p = reform.plan({"phases": [], "ignore_tags": []}, devices, fleets, busy=set(), hosts=set())
+    assert not p["retag"] and p["skipped"][0]["code"] == "M1"
+
+
+def test_review_prospects_transit_and_star_prefixes():
+    from rsweb import prospects, targets, transit
+    assert prospects.VERDICT.get("learning", 8) == 8 and prospects.VERDICT["consider moving"] == 3
+    d = {"device_code": "A", "travel": {"departed_at": "2026-10-08T00:00:00", "arrives_at": "2026-10-08T01:00:00",
+                                        "route": [{"from": "A", "to": "B"}, {"from": "B", "to": "C"}]}}
+    legs = transit.trip(d, now=0)["legs"]
+    assert [round(x["t1"] - x["t0"]) for x in legs] == [1800, 1800]          # not both at the destination at once
+    assert targets.in_star("KEL-3", "KEL") and not targets.in_star("KELMORNEA-3", "KEL")
+
+
+def test_review_escaping(client):
+    r = client.get("/print-queue/locations?dest_star=<img src=x onerror=alert(1)>", headers=H)
+    assert "<IMG" not in r.text and "&lt;IMG" in r.text
+    r = client.get("/devices/x');alert(1);('/command-form?command=collect_resources", headers=H)
+    assert "clearCargo('" not in r.text
+
+
+def test_review_engine_stage_failure_is_isolated(client):
+    eng = client.app.state.worker.automations
+    ran = []
+
+    async def boom():
+        raise ValueError("bad template")
+
+    async def fine():
+        ran.append(1)
+        return []
+    eng.run_fleets, eng.hub_watch_pass = boom, fine
+    client.portal.call(eng.tick)
+    client.portal.call(eng.tick)
+    assert ran == [1, 1]                                                       # later stages still ran, each tick
+    notes = client.portal.call(client.app.state.db.fetchall, "SELECT title FROM notifications WHERE title LIKE '%run_fleets%'")
+    assert len(notes) == 1                                                     # said once, not every minute

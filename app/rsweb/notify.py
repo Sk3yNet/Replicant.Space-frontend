@@ -56,7 +56,7 @@ def _res(d: Any) -> str:
 def describe(ev: dict) -> str:
     """One-line human description of an event."""
     e = ev.get("event", "")
-    p = ev.get("payload") or {}
+    p = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
     dev = ev.get("device_type") or "device"
     dc = ev.get("device_code") or ""
     who = f"{dev.replace('_', ' ')} {dc}".strip()
@@ -141,7 +141,7 @@ def describe(ev: dict) -> str:
         case "site.depleted" | "salvage.depleted":
             return f"Site depleted: {p.get('site')}"
         case _ if e.startswith("ami.") and e.endswith(".digest"):
-            act = p.get("activity") or {}
+            act = p.get("activity") if isinstance(p.get("activity"), dict) else {}
             return f"{who} digest ({p.get('directive', '')}): {act.get('event_count', 0)} events"
     extra = f" at {loc}" if loc else ""
     return f"{e} — {who}{extra}"
@@ -259,7 +259,8 @@ async def touch_visit(db: DB, email: str, gap_minutes: int) -> dict:
                "visit_started_at": now.isoformat(timespec="seconds"), "baseline_at": baseline,
                "digest_dismissed": 0}
         await db.execute(
-            "INSERT INTO visitors(email, last_seen_at, visit_started_at, baseline_at) VALUES(?,?,?,?)",
+            "INSERT INTO visitors(email, last_seen_at, visit_started_at, baseline_at) VALUES(?,?,?,?) "
+            "ON CONFLICT(email) DO NOTHING",   # two tabs on a first visit
             (email, row["last_seen_at"], row["visit_started_at"], baseline),
         )
         row["new_visit"] = True
@@ -299,7 +300,7 @@ async def build_digest(db: DB, since: str) -> dict:
     alerts: list[dict] = []
     ami_latest: dict[str, dict] = {}
     for e in events:
-        p = e["payload"] or {}
+        p = e["payload"] if isinstance(e["payload"], dict) else {}
         name = e["event"]
         if name == "print.completed":
             printed[p.get("device_type", "?")] += 1

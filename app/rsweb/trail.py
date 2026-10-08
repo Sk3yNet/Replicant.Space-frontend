@@ -141,6 +141,25 @@ def normalize(s: dict) -> dict:
     return s
 
 
+def merge_read(cur: dict, read: dict) -> dict:
+    """Put what a (slow) read found into the state as it is now: beacons removed meanwhile stay removed, and a
+    target changed meanwhile isn't given the old target's log."""
+    cur = normalize(cur)
+    if cur.get("target_code") != read.get("target_code"):
+        return cur
+    for code in read["audit"]:
+        if code in cur["beacons"]:
+            cur["audit"][code] = read["audit"][code]
+            if code in read["read_at"]:
+                cur["read_at"][code] = read["read_at"][code]
+            if read["beacons"].get(code, {}).get("star") and not cur["beacons"][code].get("star"):
+                cur["beacons"][code]["star"] = read["beacons"][code]["star"]
+    cur["seen"] = read["seen"]
+    if read.get("polled_at"):
+        cur["polled_at"] = read["polled_at"]
+    return cur
+
+
 def _now() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -148,7 +167,7 @@ def _now() -> str:
 
 async def read_beacons(api, s: dict, only: str | None = None) -> tuple[list[dict], list[str]]:
     """Read the audit log of the target's beacons (one GET each, newest 50, filtered to the target). Returns the
-    rows not seen before and any errors; keeps the log in `s`."""
+    rows not seen before (none from a beacon's first read) and any errors; keeps the log in `s`."""
     new, errs = [], []
     for code, b in list(s["beacons"].items()):
         if only and code != only:
@@ -163,10 +182,12 @@ async def read_beacons(api, s: dict, only: str | None = None) -> tuple[list[dict
             continue
         if not b.get("star"):
             b["star"] = next((star_of(r.get("location")) for r in rows if r.get("location")), None)
+        first = code not in s["read_at"]     # a beacon's first read only fills its log: its backlog isn't news
         s["audit"][code] = rows[:200]
         s["read_at"][code] = _now()
         seen = set(s["seen"])
-        new += [r for r in rows if r.get("id") is not None and str(r["id"]) not in seen]
+        if not first:
+            new += [r for r in rows if r.get("id") is not None and str(r["id"]) not in seen]
         s["seen"] = (s["seen"] + [str(r["id"]) for r in rows if r.get("id") is not None and str(r["id"]) not in seen])[-2000:]
     return new, errs
 

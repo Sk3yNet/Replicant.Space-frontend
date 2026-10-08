@@ -326,8 +326,8 @@ function show(s) {
       ${s.prospected ? `<dt>Prospected</dt><dd>by ${esc(s.found_by || "an observatory")}${s.scanned ? "" : " · <b>not scanned yet</b>"}</dd>` : ""}
     </dl>
     ${rep ? `<div class="row">
-      <button class="small" hx-get="/api/route?replicant=${rep}&star=${esc(s.designation)}" hx-target="#route-out">travel estimate</button>
-      <button class="small" hx-post="/replicants/${rep}/travel" hx-vals='{"destination":"${esc(s.designation)}","dry_run":"1"}' hx-target="#route-out">preview route</button>
+      <button class="small" hx-get="/api/route?replicant=${encodeURIComponent(rep)}&star=${encodeURIComponent(s.designation)}" hx-target="#route-out">travel estimate</button>
+      <button class="small" hx-post="/replicants/${encodeURIComponent(rep)}/travel" hx-vals='${esc(JSON.stringify({ destination: s.designation, dry_run: "1" }))}' hx-target="#route-out">preview route</button>
     </div><div id="route-out"></div>` : ""}`;
   if (window.htmx) htmx.process(info);
 }

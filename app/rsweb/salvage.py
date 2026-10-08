@@ -202,9 +202,9 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
                         and str(d.get("status") or "").startswith("idle"))
         why = (f"parked at {c.get('location')}, away from the belt" if is_parked and not place else
                f"its drones are away at {', '.join(sorted({by[k]['location'] for k in strewn}))} (multi-tasking overheats)"
-               if strewn and not place else
+               if strewn and (not place or open_sites.get(belt, 0) <= 0) else
                f"exhausted at {place}, its drones are away from {belt}" if place and place != belt else
-               f"stale 'exhausted' at {belt}, which now has {open_sites[belt]} open site(s)" if place == belt else
+               f"stale 'exhausted' at {belt}, which now has {open_sites.get(belt, 0)} open site(s)" if place == belt else
                "finished salvage" if salvage_done else "directive paused")
         d = (directive_for or {}).get(code) or (name if name and name != "gather_salvage" else "gather_evenly")
         if free is not None:

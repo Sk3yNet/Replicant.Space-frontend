@@ -72,7 +72,7 @@ COMMANDS: dict[str, list[Field]] = {
         F("oncomplete.resource_type", "resource", label="…mine resource"),
         F("flatpack", "bool", default=False),
     ],
-    "dequeue_print": [F("index", "int", required=True, default=1, help="Queue position (1 = first)")],
+    "dequeue_print": [F("index", "int", required=True, default=0, help="Queue position, counted from 0 (0 = first waiting)")],
     "clear_queue": [],
     "repair": [F("target", "device", help="Device to repair (if the drone needs a target)")],
     "replicate": [F("target", "device", required=True, label="empty matrix",

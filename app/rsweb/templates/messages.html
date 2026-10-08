@@ -17,7 +17,7 @@
         <div class="row between"><strong>{{ m.title or m.message_type or 'message' }}</strong>
           <span class="small muted">{{ (m.created_at or m.sent_at) | local }} {% if m.read is sameas false or m.is_read is sameas false %}<span class="pill st-idle">unread</span>{% endif %}</span></div>
         <div>{{ m.body or m.text or m.message }}</div>
-        {% if m.id or m.message_id %}<button class="small ghost" hx-post="/messages/read" hx-vals='{"id": {{ m.id or m.message_id }}}' hx-target="#msg-result">mark read</button>{% endif %}
+        {% if m.id or m.message_id %}<button class="small ghost" hx-post="/messages/read" hx-vals='{{ {"id": m.id or m.message_id} | tojson }}' hx-target="#msg-result">mark read</button>{% endif %}
       </div>
     {% else %}<p class="muted">No messages.</p>{% endfor %}
   </div>
@@ -51,7 +51,7 @@
           <td><input type="checkbox" name="channel" value="{{ c.name }}" {{ 'checked' if c.subscribed }}></td>
           <td class="mono">{{ c.name }}{% if not c.listed and channel_cache.at %} <span class="muted" title="not in the relay's list">(unlisted)</span>{% endif %}</td>
           <td>{{ (c.last_active | ago) if c.last_active else '—' }}</td>
-          <td>{% if relay %}<button type="button" class="small ghost" hx-post="/bobnet/history" hx-vals='{"channel": "{{ c.name }}"}'
+          <td>{% if relay %}<button type="button" class="small ghost" hx-post="/bobnet/history" hx-vals='{{ {"channel": (c.name) | string} | tojson }}'
                   hx-target="#bobnet-history">recent</button>{% endif %}</td></tr>
         {% else %}<tr><td colspan="4" class="muted">No channels known yet.</td></tr>{% endfor %}
       </table>
