@@ -97,6 +97,7 @@ const moveGroup = new THREE.Group(), fleetGroup = new THREE.Group(), supplyGroup
 scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup);
 const supplyLines = [];   // {curve, dots: [sprite], el, v}
 const sparkGroup = new THREE.Group(); scene.add(sparkGroup);
+const measureGroup = new THREE.Group(); scene.add(measureGroup);   // right-click measuring: its points and line
 const sparkles = [];      // {sp, c: centre, r, a0, w, tilt}
 const fleetLabels = [];   // {el, v, dy}
 const movers = [];   // {m: trip, cone, label el}
@@ -349,17 +350,36 @@ renderer.domElement.addEventListener("pointermove", ev => {
 });
 let downAt = null;
 renderer.domElement.addEventListener("pointerdown", ev => downAt = [ev.clientX, ev.clientY]);
-renderer.domElement.addEventListener("pointerup", ev => {
-  if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 4) return;
-  const s = pick(ev); if (!s) return;
-  if (ev.shiftKey) {
-    measure.push(s); if (measure.length > 2) measure = [s];
-    if (measure.length === 2) {
-      drawLine(measure[0], measure[1], 0x4fd18b);
-      info.innerHTML = `<h2>Measure</h2><p>${esc(measure[0].designation)} ↔ ${esc(measure[1].designation)}: <b>${pos(measure[0]).distanceTo(pos(measure[1])).toFixed(2)} ly</b></p>`;
-    }
+// measuring is right-click only (a right-drag still pans): 1st sets the first point, 2nd the second, 3rd clears both
+renderer.domElement.addEventListener("contextmenu", ev => ev.preventDefault());
+function measureMark(s) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: 0x4fd18b, transparent: true, depthWrite: false }));
+  sp.scale.set(3, 3, 1); sp.position.copy(pos(s)); measureGroup.add(sp);
+}
+function rightClick(ev) {
+  if (measure.length >= 2) {            // third right-click: clear
+    measure = []; measureGroup.clear();
+    info.innerHTML = `<p class="muted">Measurement cleared. Right-click a star to start another.</p>`;
     return;
   }
+  const s = pick(ev); if (!s) return;
+  if (measure.length === 1 && measure[0] === s) return;
+  measure.push(s); measureMark(s);
+  if (measure.length === 1) {
+    info.innerHTML = `<h2>Measure</h2><p>From <b>${esc(s.designation)}</b> — right-click a second star.</p>`;
+    return;
+  }
+  const [a, b] = measure;
+  measureGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos(a), pos(b)]),
+                                  new THREE.LineBasicMaterial({ color: 0x4fd18b })));
+  info.innerHTML = `<h2>Measure</h2><p>${esc(a.designation)} ↔ ${esc(b.designation)}: <b>${pos(a).distanceTo(pos(b)).toFixed(2)} ly</b></p>
+    <p class="muted small">Right-click again to clear.</p>`;
+}
+renderer.domElement.addEventListener("pointerup", ev => {
+  if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 4) return;
+  if (ev.button === 2) { rightClick(ev); return; }
+  if (ev.button !== 0) return;
+  const s = pick(ev); if (!s) return;
   show(s);
 });
 
