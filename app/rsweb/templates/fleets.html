@@ -386,6 +386,9 @@
         from its carrier waits, and the (surge-capable) carrier goes to pick it up
         <span class="muted">— fleet boarding, recall, gather and loadout deliveries. In-system distances come from the system
         scans (else Kuiper ≈ 40, Oort ≈ 2000 AU).</span></label>
+      <label style="text-transform:none;display:block">Supply range: print on autofactories and take spares only within
+        <input type="number" name="max_supply_ly" min="0" step="any" value="{{ cfg.settings.max_supply_ly if cfg.settings.max_supply_ly is not none else 15 }}" style="width:60px"> ly
+        of the fleet's system <span class="muted">(0 = any distance). Short with nothing in range, the line says so instead of printing far away.</span></label>
       <div class="row" style="margin-top:8px"><button>Save settings</button><span id="lo-saved"></span></div>
     </form>
   </div>

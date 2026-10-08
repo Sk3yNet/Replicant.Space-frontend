@@ -2630,6 +2630,11 @@ async def loadouts_settings(request: Request, user: str = Depends(current_user))
         cfg["settings"]["max_cruise_au"] = max(0.0, float(form.get("max_cruise_au") or lo.DEFAULT_SETTINGS["max_cruise_au"]))
     except ValueError:
         pass
+    try:   # blank = the default; 0 = no limit
+        v = form.get("max_supply_ly")
+        cfg["settings"]["max_supply_ly"] = max(0.0, float(v if v not in (None, "") else lo.DEFAULT_SETTINGS["max_supply_ly"]))
+    except ValueError:
+        pass
     await save_loadouts(request, cfg)
     return HTMLResponse('<span class="lv-done small">Saved.</span>', headers={"HX-Refresh": "true"})
 

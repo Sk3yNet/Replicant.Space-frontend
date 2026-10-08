@@ -5702,3 +5702,27 @@ def test_trail_follow_to_the_end(client):
     notes = client.portal.call(db.fetchall, "SELECT level, title FROM notifications WHERE link='/trail'")
     assert any(n["level"] == "mention" and "found Bill" in n["title"] for n in notes)
     assert "found Bill" in client.get("/trail", headers=H).text
+
+
+def test_supply_range_keeps_prints_and_spares_near_the_fleet():
+    from rsweb import loadouts as lo
+    D = lambda code, t, loc, **kw: {"device_code": code, "device_type": t, "location": loc, "status": "idle",  # noqa: E731
+                                    "operational_capacity": 100.0, **kw}
+    devices = [D("AF1", "autofactory", "FALQ-3-L4", available_commands=["enqueue_print"]),
+               D("SP1", "mining_drone", "FALQ-BELT-1", tags=["spare"])]
+    bps = [{"device_type": "mining_drone", "resources": {"structural": 10}, "print_time": 60},
+           {"device_type": "autofactory", "resources": {"structural": 100}, "print_time": 600, "queue_size": 10}]
+    inv = {"FALQ-3-L4": {"structural": 1000}}
+    stars = {k: {"position": {"x": x, "y": 0, "z": 0}} for k, x in (("FALQ", 0), ("SOL", 40), ("NEAR", 5))}
+
+    def run(home, reach):
+        cfg = lo.normalize({"phases": [], "settings": {"max_supply_ly": reach}, "fleets_migrated": True,
+                            "fleets": [{"id": "f1", "name": "F1", "role": "mining", "home": home, "station": True,
+                                        "wants": {"mining_drone": 2}}]})
+        return lo.plan(cfg, devices, bps, inv, stars, {}, set(), [], {})
+    far = run("SOL", 15)
+    assert not far["prints"] and not far.get("moves")
+    assert any("no autofactory within 15 ly of SOL" in u["why"] for u in far["unmet"])
+    near = run("NEAR", 15)
+    assert near["prints"] and near["prints"][0]["factory"] == "AF1"
+    assert run("SOL", 0)["prints"]                                     # 0 = any distance, as before

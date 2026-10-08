@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.45.1"
+VERSION = "1.45.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.45.2", "2026-10-08", "Supply range for fleet loadouts (Fleets › settings, default 15 ly; 0 = any): a fleet's "
+     "missing devices are only printed on autofactories — and only taken from spares — within that distance of its "
+     "system. Out of range, the loadout line says 'no autofactory within N ly' instead of printing far away (a fleet "
+     "in SOL was being supplied from FALQUORYX)."),
     ("1.45.1", "2026-10-08", "Renamed fleets: taking a device out of the fleet while the game still has its old fleet: "
      "tag removes that tag too (otherwise it rejoined the fleet at the next sync)."),
     ("1.45.0", "2026-10-08", "Trail: 'follow to the end' — the replicant that scanned flies to the system the latest "

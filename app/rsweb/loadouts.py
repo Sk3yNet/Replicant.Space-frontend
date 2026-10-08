@@ -35,7 +35,8 @@ WORKING = ("mining", "searching", "tracking", "scanning", "collecting", "deposit
 DEFAULT_SETTINGS = {"print_missing": True, "need_stock": True, "carriers_return": True,
                     "use_replicant_vessels": False, "every_minutes": 15,
                     "gather_spares": True, "spare_depot": "",   # "" = automatic (see spare_depot())
-                    "max_cruise_au": 30}   # a device further than this from its carrier (in-system) is fetched, not flown over
+                    "max_cruise_au": 30,
+                    "max_supply_ly": 15}   # prints and spares only from within this many ly of the fleet (0 = any)   # a device further than this from its carrier (in-system) is fetched, not flown over
 
 
 def spare_depot(cfg: dict, devices: list[dict]) -> str | None:
@@ -448,6 +449,14 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     for code in load:
         load[code] = max(load[code], ordered.get(code, 0.0))
 
+    reach = float(s.get("max_supply_ly") or 0)
+
+    def near(d: dict, star: str) -> bool:
+        """Close enough to supply `star`: within max_supply_ly (seen live 2026-10-08: a fleet in SOL was given prints on
+        FALQUORYX's autofactories, too far away to be of use)."""
+        dist = _dist(star_of(d.get("location")), star, pos)
+        return not reach or dist <= reach or dist >= 1e9   # positions unknown: can't tell, so allowed
+
     def usable(tag: str | None) -> list[dict]:
         """Factories with queue room a fleet may print on: fleetless ones and its own; another fleet's only when there's
         nothing else (e.g. every autofactory belongs to the printing hub)."""
@@ -466,6 +475,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         open_f = usable(tag)
         if not open_f:
             return None, "every autofactory's print queue is full"
+        open_f = [f for f in open_f if near(f, star)]
+        if not open_f:
+            return None, f"no autofactory within {reach:g} ly of {star} (Fleets › settings: supply range)"
         for f in sorted(open_f, key=lambda f: (star_of(f.get("location")) != star, _dist(star_of(f.get("location")), star, pos))):
             stock = as_amounts(inventory.get(f.get("location")) or {})
             free = {r: stock.get(r, 0.0) - reserved[f.get("location")][r] for r in cost}
@@ -493,9 +505,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 unmet.append({"star": star, "type": row["type"], "n": need,
                               "why": "waiting — no open mining sites in its belts right now (survey drones must open some first)"})
                 continue
-            cands = sorted((d for d in donors.get(row["type"], []) if star_of(d.get("location")) == star or not working(d)),
+            cands = sorted((d for d in donors.get(row["type"], []) if (star_of(d.get("location")) == star or not working(d))
+                            and near(d, star)),
                            key=lambda d: (_dist(star_of(d.get("location")), star, pos), not _idle(d), -_cap(d), d["device_code"]))
-            held = [d for d in donors.get(row["type"], []) if d not in cands]
+            held = [d for d in donors.get(row["type"], []) if d not in cands and near(d, star)]
             for d in cands[:need]:
                 donors[row["type"]].remove(d)
                 code = d["device_code"]
@@ -514,7 +527,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 unmet.append({"star": star, "type": row["type"], "n": len(wait),
                               "why": f"spare(s) {', '.join(d['device_code'] for d in wait)} still working — sent once idle"})
                 need -= len(wait)
-            own = [g for g in factories if fleet_tag_of(g) == tag and queue_free.get(g["device_code"], 1) > 0]
+            own = [g for g in factories if fleet_tag_of(g) == tag and queue_free.get(g["device_code"], 1) > 0 and near(g, star)]
             if need > 0 and s["print_missing"] and own and row["type"] in bps:
                 # Seen live (2026-10-06): three fleets each with an autofactory, all three prints on one of them. A fleet
                 # with its own autofactory prints there; short of stock, the print waits for materials in its queue.
