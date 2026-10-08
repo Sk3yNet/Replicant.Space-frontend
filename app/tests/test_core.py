@@ -5367,6 +5367,14 @@ def test_auto_scout_surveys_nearest_first_until_worn(client):
     client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES('SOL', '{}', '2026-10-08')")
     r = client.post("/fleets/x1/auto-scout", data={"auto_scout": "on"}, headers=HX)
     assert "nearest unsurveyed" in r.text
+    devices = client.portal.call(db.kv_get, "devices")
+    devices.append({"device_code": "TIRED", "device_type": "survey_drone", "location": "SOL-3", "status": "idle",
+                    "operational_capacity": 0.8, "tags": ["fleet:x1"]})
+    client.portal.call(db.kv_set, "devices", devices)
+    assert client.portal.call(eng.auto_scout_pass) == []                      # 80 %: not until everything is at 85 %
+    assert "below 85 %" in next(x for x in client.portal.call(eng.fleets) if x["id"] == "x1")["scout_note"]
+    devices[-1]["operational_capacity"] = 0.9
+    client.portal.call(db.kv_set, "devices", devices)
     out = client.portal.call(eng.auto_scout_pass)
     assert out == ["Scouts: scouting NEARA"]                                 # the nearest one first, one at a time
     assert client.portal.call(eng.auto_scout_pass) == []                      # busy; Lazy isn't auto-scouting

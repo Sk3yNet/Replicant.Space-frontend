@@ -1297,6 +1297,7 @@ class AutomationEngine(OpsRules):
         return out
 
     SCOUT_MIN_CAPACITY = 50.0   # a member at or below this (%) ends the scouting: finish the system, go home for repairs
+    SCOUT_START_CAPACITY = 85.0  # a run starts only with every member at or above this (%)
     SCOUT_RADIUS_LY = 100.0     # no further than this from home; nothing left inside it ends the scouting too
 
     async def scout_next(self, f: dict, items: list[dict], devices: list[dict], here: str | None = None,
@@ -1347,16 +1348,18 @@ class AutomationEngine(OpsRules):
                           + ("" if riding else "inside relay coverage ") + "is surveyed or taken")
         return min(cands)[2], ""
 
-    def scout_unhealthy(self, f: dict, devices: list[dict]) -> list[str]:
-        """Members at or below the scouting capacity limit."""
+    def scout_unhealthy(self, f: dict, devices: list[dict], start_at: float | None = None) -> list[str]:
+        """Members at or below the in-run limit (50 %), or — to start a run — below `start_at` (85 %)."""
         from . import fleets as fl
         from .loadouts import _cap
-        return [d["device_code"] for d in fl.members(f, devices) if _cap(d) <= self.SCOUT_MIN_CAPACITY]
+        return [d["device_code"] for d in fl.members(f, devices)
+                if (_cap(d) < start_at if start_at is not None else _cap(d) <= self.SCOUT_MIN_CAPACITY)]
 
     async def auto_scout_pass(self) -> list[str]:
         """Explore fleets with 'auto-scout' ticked: when one is free and every member is above 50 % capacity, send it
         to the next unsurveyed system (scout_next); each time it finishes a system it takes the next one, until a member
-        is down to 50 % — then it finishes that system and returns home for repairs."""
+        is down to 50 % — then it finishes that system and returns home for repairs. A run starts only with every member at
+        85 % or more."""
         items = await self.fleets()
         free = [f for f in items if f.get("role") == "explore" and f.get("auto_scout")
                 and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped")]
@@ -1365,9 +1368,9 @@ class AutomationEngine(OpsRules):
         devices = await self.devices()
         out, changed = [], False
         for f in free:
-            weak = self.scout_unhealthy(f, devices)
+            weak = self.scout_unhealthy(f, devices, self.SCOUT_START_CAPACITY)
             if weak:
-                note = f"waiting for repairs: {', '.join(weak)} at or below {self.SCOUT_MIN_CAPACITY:g} % capacity"
+                note = f"waiting for repairs: {', '.join(weak)} below {self.SCOUT_START_CAPACITY:g} % capacity"
                 if f.get("scout_note") != note:
                     f["scout_note"], changed = note, True
                 continue

@@ -16,11 +16,18 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.48.3"
+VERSION = "1.49.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.49.0", "2026-10-08", "Auto-scout surveys the nearest unsurveyed systems (scanned, every body but the belts surveyed) "
+     "within 100 ly of home, ring by ring, one system after another — only inside relay coverage when no replicant rides "
+     "along; a member down to 50 % ends the run (it finishes that system and goes home), and a run starts only with every "
+     "member at 85 % or more. Every fleet's observatory unfurls and prospects wherever it's deployed — the heading (else "
+     "outward from Sol) then 13 more directions, each until it finds nothing new ('already surveyed' counts) — and compacts "
+     "when every direction is tried or its fleet is leaving. enqueue_print on a replicant's vessel sends the replicant's "
+     "own print (one at a time); bulk and contract printing skip vessels."),
     ("1.48.3", "2026-10-08", "Placed beacons and relays (deployed, monitoring or relaying where they are) are never spare, never "
      "sent to fill a shortfall or gathered at the spare depot; leftover spare tags on them are removed (seen live: 13 "
      "working beacons the Surveyors dropped carried an old spare tag). A stationed fleet's own placed beacon at home still "
