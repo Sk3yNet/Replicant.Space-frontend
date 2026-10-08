@@ -4,6 +4,7 @@
 <script type="importmap">{"imports": {"three": "/static/vendor/three.module.min.js?v={{ APP_VERSION }}", "three/addons/OrbitControls.js": "/static/vendor/OrbitControls.js?v={{ APP_VERSION }}"}}</script>
 {% endblock %}
 {% block content %}
+<span id="map-live" sse-swap="state" hidden></span>{# subscribes this page to the live "state" messages: map.js redraws on them #}
 <div id="map">
   <div id="map-tools">
     <input id="map-search" placeholder="find star…" list="star-list" size="14"><datalist id="star-list"></datalist>

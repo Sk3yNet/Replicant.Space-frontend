@@ -6064,3 +6064,21 @@ def test_contract_run_accepts_any_option_and_waits_after_criteria_not_met(client
     m2 = client.portal.call(eng.fleets)[0]["mission"]
     assert m2["status"] == "running" and m2["criteria_misses"] == 1
     assert any("criteria aren't met yet" in str(x) for x in m2["log"])
+
+
+def test_travel_shows_on_the_map_straight_away(client):
+    """The travel command's answer is put on the cached device at once (the device sync is up to a minute away)."""
+    db = client.app.state.db
+    devices = client.portal.call(db.kv_get, "devices")
+    for d in devices:
+        if d["device_code"] == "2AC61212":
+            d.pop("travel", None)
+            d["status"] = "idle"
+    client.portal.call(db.kv_set, "devices", devices)
+    r = client.post("/devices/2AC61212/command", data={"command": "travel", "f.destination": "ABOTEIN-3"}, headers=HX)
+    assert r.status_code == 200
+    d = next(x for x in client.portal.call(db.kv_get, "devices") if x["device_code"] == "2AC61212")
+    assert d["travel"]["destination"] == "ABOTEIN-3" and d["travel"]["departed_at"] and d["status"] == "travelling"
+    assert "attached_devices" not in d["travel"]
+    ov = client.get("/api/map.json?part=overlay", headers=H).json()
+    assert any("2AC61212" in m["label"] for m in ov["moving"])

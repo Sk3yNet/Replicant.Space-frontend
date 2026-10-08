@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.48.1"
+VERSION = "1.48.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.48.2", "2026-10-08", "Galaxy map is live: it redraws ships in transit, fleets, supply lines and mining when the live "
+     "stream says something departed, arrived or changed (at most every few seconds), and a travel command's answer — "
+     "yours or an automation's — goes on the cached device at once, so a new trip shows within seconds instead of after "
+     "the next device sync."),
     ("1.48.1", "2026-10-08", "Contracts with alternative options (Famine Assistance: 3 orbital farms, or a nutrient synthesizer "
      "and resources …): a trade run counts the contract as ready at the site when any option is complete there, not only "
      "the one whose resources it set out with; a fulfil the game refuses with 'Event criteria not met' sends the run back "

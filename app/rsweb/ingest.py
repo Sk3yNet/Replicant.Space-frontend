@@ -425,6 +425,27 @@ class Worker:
         else:
             kind, key = resp.get("status") or "action", f"{resp.get('status') or 'action'}:{code}"
         await self.set_timer(key, kind, label, end, device_code=code, source="action")
+        if kind == "travel" and resp.get("departed_at"):
+            await self.note_trip(resp.get("device_code") or code, resp)
+
+    async def note_trip(self, code: str, resp: dict) -> None:
+        """A travel command's answer is the trip itself (origin, route, departed_at, arrives_at …): put it on the cached
+        device — and on the devices riding along — straight away, so the maps show it now rather than after the next
+        device sync (up to a minute later)."""
+        riders = {x if isinstance(x, str) else (x or {}).get("device_code") for x in resp.get("attached_devices") or []}
+        codes = {code} | {c for c in riders if c}
+        trip = {k: v for k, v in resp.items() if k not in ("attached_devices", "device_code")}
+        devices = await self.db.kv_get("devices", []) or []
+        hit = False
+        for d in devices:
+            if d.get("device_code") in codes:
+                d["travel"] = trip
+                if not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed", "attached")):
+                    d["status"] = "travelling"
+                hit = True
+        if hit:
+            await self.db.kv_set("devices", devices)
+            self.hub.publish("state", "travel.started")
 
     async def prune_timers(self) -> None:
         cutoff = _iso(datetime.now(timezone.utc) - timedelta(minutes=10))

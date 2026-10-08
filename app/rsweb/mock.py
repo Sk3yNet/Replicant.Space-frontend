@@ -534,7 +534,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                             x["location"] = dest
                 world.emit("travel.arrived", d, destination=dest, origin=origin, travel_type="cruise", attached_devices=[])
             world.trips[code] = loop.call_later(secs, arrived)
-            return ok({"device_code": code, "status": "travelling", "arrives_at": iso(arrive)})
+            # like the live game (2026-10-08): the answer is the trip itself
+            return ok({**d["travel"], "device_code": code, "status": "travelling", "attached_devices": [],
+                       "progress_percent": 0.0})
         if cmd == "deploy":
             d["status"] = "idle"
             world.emit("device.deployed", d, deployed_from_device_code=HOST)

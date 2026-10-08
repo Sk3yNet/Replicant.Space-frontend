@@ -494,3 +494,16 @@ function load(first) {
 }
 load(true).catch(e => { info.innerHTML = `<p class="muted">Could not load the map: ${esc(e.message)}</p>`; OPTS.onError?.(e); });
 if (OPTS.refreshMinutes) setInterval(() => load(false).catch(e => OPTS.onError?.(e)), OPTS.refreshMinutes * 60000);
+
+// Live: the page's event stream (base.html, sse "state") says when something departed, arrived or changed — redraw
+// what's on the stars (ships in transit, fleets, supply lines, mining), at most every few seconds.
+const LIVE = /^(travel\.|device\.|devices$|action$|automation$|mining\.)/;
+let liveTimer = null, liveLast = 0;
+function liveRefresh() {
+  liveTimer = null; liveLast = Date.now();
+  fetchPart("overlay").then(o => applyOverlay(o, false)).catch(() => {});
+}
+document.addEventListener("htmx:sseMessage", e => {
+  if (e.detail.type !== "state" || !LIVE.test(String(e.detail.data || "")) || liveTimer || !data.stars.length) return;
+  liveTimer = setTimeout(liveRefresh, Math.max(1500, 5000 - (Date.now() - liveLast)));
+});
