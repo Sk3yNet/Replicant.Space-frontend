@@ -2136,6 +2136,8 @@ class AutomationEngine(OpsRules):
             if e.get("status") != "open" or not e.get("location") or des in taken or star_of(e["location"]) in locked:
                 continue
             prog = gev.progress(e, inv, devices, reps)
+            if any(x["short_here"] for x in (prog.get("best") or {}).get("devices") or []):
+                continue   # it asks for devices that aren't at the location: a trade run carries resources only
             price = {x["resource"]: x["need"] for x in (prog.get("best") or {}).get("resources") or []}
             rewards = (e.get("rewards") or {}).get("resources") or {} if isinstance(e.get("rewards"), dict) else {}
             cands.append({"kind": "contract", "key": des, "star": star_of(e["location"]),

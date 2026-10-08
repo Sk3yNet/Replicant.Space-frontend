@@ -2881,9 +2881,10 @@ async def fleets_ctx(request: Request) -> dict:
             continue
         prog = gev.progress(e, inv, st["devices"], st["replicants"])
         price = {x["resource"]: x["need"] for x in (prog.get("best") or {}).get("resources") or []}
+        dev_short = {x["device_type"]: x["short_here"] for x in (prog.get("best") or {}).get("devices") or [] if x["short_here"]}
         contracts.append({"designation": e["designation"], "location": e["location"], "title": e.get("title"), "price": price,
                           "rewards": (e.get("rewards") or {}).get("resources") or {} if isinstance(e.get("rewards"), dict) else {},
-                          "short": fl.site_short(price, inv.get(e["location"]) or {})})
+                          "short": fl.site_short(price, inv.get(e["location"]) or {}), "devices_short": dev_short})
     return {**lctx, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
             "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
             "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
@@ -3196,6 +3197,18 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
     if warded and f["role"] != "trade":
         return HTMLResponse(f'<div class="result err">{html.escape(", ".join(warded))}: another player\'s system ward or hub is '
                             'there, so nothing of yours can mine it. Pick another system (Systems › Mining prospects).</div>')
+    if m.get("contract"):   # devices the contract asks for: a trade run carries resources only
+        from . import gameevents as gev
+        e = (await gev.load(request.app.state.db)).get(m["contract"].get("designation") or "")
+        if e:
+            prog = gev.progress(e, {}, st0["devices"], st0["replicants"])
+            miss = {x["device_type"]: x["short_here"] for x in (prog.get("best") or {}).get("devices") or [] if x["short_here"]}
+            if miss:
+                w = ("this contract also asks for devices at " + e.get("location", "?") + ": "
+                     + ", ".join(f"{n}× {t}" for t, n in miss.items())
+                     + " — a trade run only carries resources, so fulfilling fails until they're there (send them yourself)")
+                eng._mlog(m, "warning: " + w)
+                await eng.log("fleets", f"{f['name']}: {w}", "alert", notify=True)
     if warded and m.get("contract"):   # species interaction lock: other players can't complete location events there
         return HTMLResponse(f'<div class="result err">{html.escape(", ".join(warded))}: another player\'s system ward or hub is there, and '
                             "its species interaction lock stops anyone else completing the civilisation's events. "

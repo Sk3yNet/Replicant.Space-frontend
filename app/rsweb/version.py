@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.46.8"
+VERSION = "1.46.9"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.46.9", "2026-10-08", "Contracts that ask for devices: a trade run carries resources only, so auto-fulfil no longer "
+     "picks a contract whose devices aren't already at its location; the Fleets page lists the devices a contract also "
+     "needs, and starting a run on one warns that they must be sent there first."),
     ("1.46.8", "2026-10-08", "Blueprints page: the 'Can afford at' printers flow into as many columns as the screen allows "
      "(so each row stays about as tall as the device's description), and the blueprint table takes two thirds of the "
      "width with the plan beside it."),

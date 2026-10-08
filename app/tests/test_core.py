@@ -5809,8 +5809,9 @@ def test_edit_tags_of_a_print_in_progress(client):
                                                       "tags": "to:lerna, fleet:lerna-miners"}, headers=HX)
     o = client.portal.call(db.kv_get, "loadout_orders")[0]
     assert o["star"] == "LERNA" and o["fleet"] == "lerna-miners"
+    world.queues["AF00BEEF"] = [{"device_type": "mining_drone", "tags": ["to:sol", "fleet:sol-sector"]}]   # something queued
     page = client.get("/devices/AF00BEEF/print-queue", headers=HX).text
-    assert "/devices/AF00BEEF/print-tags" in page
+    assert "/devices/AF00BEEF/print-tags" in page and "applied when printed" in page
 
 
 def test_contract_already_completed_counts_as_done(client):
@@ -5873,3 +5874,21 @@ def test_survey_without_controller_isnt_done_between_bodies():
     assert not fl.watch_done(f, upd, [{**drone, "status": "scanning"}], "2026-10-08T13:41:00+00:00")[0]
     done, why, _ = fl.watch_done(f, upd, [drone], "2026-10-08T13:43:00+00:00", busy=set())
     assert done and why == "drones finished"                                                    # idle 3 min: really done
+
+
+def test_auto_contracts_skip_contracts_that_need_devices(client):
+    eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": [{"resource_type": "carbon", "quantity": 900}]}])
+    client.portal.call(w.handle_event, {**_ev(997, "event.discovered", designation="AEM-2-EVT-001", location="AEM-2",
+                                                title="Relay Network", criteria=[{"name": "default", "resources": {"carbon": 50},
+                                                                                  "devices": [{"device_type": "ftl_relay", "quantity": 2}]}]),
+                                        "location": "AEM-2"})
+    client.portal.call(eng.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
+    client.post("/fleets/t/auto-deals", data={"auto_contracts": "on"}, headers=HX)
+    assert client.portal.call(eng.auto_deals_pass) == []                    # 2 relays wanted at AEM-2: not carried
+    page = client.get("/fleets", headers=H).text
+    assert "also needs devices there: 2× ftl relay" in page
+    devices = client.portal.call(db.kv_get, "devices")
+    devices += [{"device_code": f"R{i}", "device_type": "ftl_relay", "location": "AEM-2", "status": "idle", "tags": []} for i in (1, 2)]
+    client.portal.call(db.kv_set, "devices", devices)
+    assert client.portal.call(eng.auto_deals_pass) == ["T: contract Relay Network"]   # the devices are there now
