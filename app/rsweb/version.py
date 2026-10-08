@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.47.1"
+VERSION = "1.47.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.47.2", "2026-10-08", "A surge plate still tagged taxi but run by no controller and not in taxi mode is idle where its "
+     "ferry left it: it now goes home to its fleet like any device left behind (seen live: Printing Hub 1's four plates in "
+     "ITHVALAI, flagged by Tags & controllers but never moved). Plates the game reports in taxi mode aren't flagged."),
     ("1.47.1", "2026-10-08", "Supply range (Fleets › Settings) defaults to 100 ly instead of 15; a saved 15 (the old "
      "default) becomes 100 once."),
     ("1.47.0", "2026-10-08", "Contracts that ask for devices get them delivered: 'Deliver devices' on the Contracts page (or "

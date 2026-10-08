@@ -5969,3 +5969,26 @@ def test_contract_device_delivery_waits_for_print_authorization(client):
     cfgx = rel[0]["steps"][0]["body"]["configuration"]
     assert cfgx["add_tags"] == ["spare"] and set(cfgx["remove_tags"]) == {"to:aem", "at:aem-2", "contract:aem-2-evt-001"}
     assert "AEM-2-EVT-001" not in client.portal.call(db.kv_get, "contract_supply")
+
+
+def test_taxi_plate_no_controller_runs_goes_home():
+    """Live 2026-10-08: Printing Hub 1's four surge plates (tagged taxi, no controller, not in taxi mode) sat idle in
+    ITHVALAI — the check flagged them, the planner never sent them home."""
+    from rsweb import loadouts as lo
+    plate = lambda code, **kw: {"device_code": code, "device_type": "surge_plate", "location": "BBB-BELT-1", "status": "idle",  # noqa: E731
+                                "attach_capacity": 1, "features": ["surge", "cruise", "attach", "taxi"],
+                                "available_commands": ["attach", "detach", "travel"], **kw}
+    devices = [plate("ORPHAN01", tags=["fleet:hub", "taxi"]),
+               plate("WORKING1", tags=["fleet:hub", "taxi"], taxi_mode="taxi"),
+               {"device_code": "TC", "device_type": "ami_transport_controller", "location": "BBB-BELT-1", "status": "idle",
+                "tags": ["ferry"]},
+               plate("RUN00001", tags=["fleet:hub", "taxi"], controller_device_code="TC")]
+    cfg = lo.normalize({"phases": [], "fleets_migrated": True,
+                        "fleets": [{"id": "hub", "name": "Hub", "role": "mining", "home": "AAA", "station": True,
+                                    "wants": {"surge_plate": 3}}]})
+    stars = {"AAA": {"position": {"x": 0, "y": 0, "z": 0}}, "BBB": {"position": {"x": 2, "y": 0, "z": 0}}}
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
+    assert p["moves"].get("ORPHAN01") == "AAA"
+    assert "WORKING1" not in p["moves"] and "RUN00001" not in p["moves"]
+    flagged = {x["code"]: x["fixed"] for x in lo.audit(cfg, devices, stars, p)}
+    assert flagged.get("ORPHAN01") is True and "WORKING1" not in flagged   # in taxi mode: at work, not flagged

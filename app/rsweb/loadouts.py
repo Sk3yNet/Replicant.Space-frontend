@@ -615,8 +615,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 or st.startswith(("travel", "cruis", "surg", "mining", "collecting", "depositing", "printing", "repairing"))):
             return False
         tags = set(d.get("tags") or [])
-        if d.get("taxi_mode") == "taxi" or "taxi" in tags or (FERRY_TAG in tags and not is_ami_controller(d)):
-            return False   # a taxi plate or a ferry's freighter: away from home is its job
+        # a taxi plate or a ferry's freighter: away from home is its job — while it has one. A plate still tagged taxi but
+        # not in taxi mode and run by no controller is idle where its ferry left it (seen live 2026-10-08: Printing
+        # Hub 1's four surge plates idle in ITHVALAI, flagged by the check but never sent home)
+        orphan = not d.get("controller_device_code") and d.get("taxi_mode") != "taxi" and st.startswith(("idle", "stowed"))
+        if d.get("taxi_mode") == "taxi" or ("taxi" in tags and not orphan) or (FERRY_TAG in tags and not is_ami_controller(d)):
+            return False
         c = by_code_all.get(d.get("controller_device_code") or "")
         if d.get("controller_device_code") and not c:
             return False   # run by a controller we can't see: leave it to it
@@ -1455,7 +1459,7 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
         if dest and here == dest:
             add(d, f"arrived in {dest} but still tagged to:{dest.lower()}", code in arrived, "arrival step clears it")
         f = stationed.get(ftags[0]) if ftags else None
-        if f and here and here != f["home"] and not dest and SPARE not in tags and not ctrl \
+        if f and here and here != f["home"] and not dest and SPARE not in tags and not ctrl and d.get("taxi_mode") != "taxi" \
                 and str(d.get("status") or "").startswith(("idle", "stowed")) and not d.get("location_stale"):
             add(d, f"idle in {here}, away from {f['name']}'s home {f['home']}", code in moves, "sent home")
         cfleet = next((t for t in ctrl_dev.get("tags") or [] if t.startswith("fleet:")), None)
