@@ -863,7 +863,7 @@ class AutomationEngine(OpsRules):
             for stage in ("run_fleets", "auto_deals_pass", "contract_supply_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "rider_pass", "pathing_pass", "auto_scout_pass", "hub_watch_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass"):
                 self.stage = stage
                 try:   # one stage failing on odd data mustn't stop every stage after it, every tick
                     out = await getattr(self, stage)()
@@ -1097,34 +1097,7 @@ class AutomationEngine(OpsRules):
         for f in mine:
             home, heading = f["home"], (f.get("heading") or {}).get("vector")
             cone = float(f.get("cone") or pa.DEFAULT_CONE)
-            # --- the observatory keeps prospecting along the heading
-            if f.get("auto_prospect") and heading:
-                obs = [d for d in fl.members(f, devices) if d.get("device_type") == "galactic_observatory"
-                       and star_of(d.get("location")) == home and not d.get("stowed_in_device_code")
-                       and d.get("device_code") not in busy]
-                lp = _ts(f.get("last_prospect_at"))
-                due = not lp or (now - lp).total_seconds() > float(f.get("prospect_every_hours") or pa.PROSPECT_EVERY_HOURS) * 3600
-                hold = pa.taken(f, items)
-                supply = [s for s in pa.ahead(home, xyz_of, heading, cone, set(xyz_of)) if s not in hold and s not in inp["warded"]]
-                for o in obs[:1]:
-                    st = str(o.get("status") or "")
-                    if st.startswith(("prospecting", "unfurling", "compacting")) or not due or len(supply) >= pa.AHEAD_WANTED:
-                        continue
-                    if (st.startswith("compact") or o.get("folded")) and "unfurl" in (o.get("available_commands") or []):
-                        await self.create_job("pathing", f"{f['name']}: unfurl observatory {o['device_code']} to prospect",
-                                              o["device_code"], [step(f"{o['device_code']}: unfurl", f"/devices/{o['device_code']}",
-                                                                      {"command": "unfurl"})], {"devices": []})
-                        continue
-                    if "prospect" not in (o.get("available_commands") or []):
-                        continue
-                    job = await self.create_job("pathing", f"{f['name']}: prospect along its heading ({len(supply)} system(s) "
-                                                "ahead)", o["device_code"],
-                                                [step(f"{o['device_code']}: prospect {heading}", f"/devices/{o['device_code']}",
-                                                      {"command": "prospect", "direction": heading})], {"devices": []})
-                    if job:
-                        f["last_prospect_at"] = now_iso()
-                        changed = True
-                        out.append(f"{f['name']}: prospecting from {home}")
+            # (prospecting: observatory_pass)
             if not f.get("auto_relocate"):
                 continue
             # --- a planned move: carry it out once the grace period is over (if the target is still free)
@@ -1215,6 +1188,111 @@ class AutomationEngine(OpsRules):
             self.hub.publish("notify", {"id": cur.lastrowid, "level": "warning", "title": text, "link": "/wards"})
             out.append(text)
         await self.db.kv_set("hub_alerts", seen)
+        return out
+
+    async def observatory_pass(self) -> list[str]:
+        """prospecting.py: every fleet's deployed observatory unfurls and prospects, direction by direction, and compacts
+        when every direction is used up or its fleet is set to leave."""
+        from . import fleets as fl
+        from . import pathing as pa
+        from . import prospecting as pr
+        from .loadouts import bound_for
+        from .modular import compact_step, compacted, folded, unfurl_step
+        from .shapes import normalize_blueprints
+        devices = await self.devices()
+        obs = [d for d in devices if d.get("device_type") == "galactic_observatory" and fl.fleet_of(d)]
+        if not obs:
+            return []
+        items = {fl.fleet_tag(f["id"])[6:]: f for f in await self.fleets()}
+        jobs = await self.jobs()
+        by_id = {j["id"]: j for j in jobs}
+        busy = self.busy_devices(jobs)
+        runs = await self.db.kv_get("observatory_runs", {}) or {}
+        cat = await self.db.kv_get("stars", {}) or {}
+        pos = {x.get("designation"): x.get("position") or {} for x in cat.get("stars") or [] if isinstance(x, dict)}
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        out: list[str] = []
+        for o in obs:
+            code, st = o["device_code"], str(o.get("status") or "")
+            f = items.get(fl.fleet_of(o) or "")
+            here = star_of(o.get("location"))
+            if not f or not here or o.get("stowed_in_device_code") or o.get("attached_to_device_code") \
+                    or o.get("location_stale") or st.startswith(("travel", "cruis", "surg", "stowed")):
+                continue
+            run = runs.get(code) or {}
+            if run.get("star") != here:
+                run = {"star": here, "used": [], "idx": 0, "found": 0}
+            # the prospect in flight: wait for it, then judge it by the new stars it found
+            if run.get("job"):
+                j = by_id.get(run["job"])
+                if j and j["status"] in ("running", "waiting"):
+                    runs[code] = run
+                    continue
+                err = next((x.get("error") for x in (j or {}).get("steps", []) if x.get("status") == "failed"), None)
+                if j and j["status"] == "failed" and not pr.already_surveyed(err):
+                    run.pop("job", None)
+                    run["retry_at"] = (_now() + timedelta(minutes=30)).isoformat(timespec="seconds")
+                    run["note"] = f"prospect refused: {err}"
+                    runs[code] = run
+                    continue
+                if not pr.already_surveyed(err):
+                    if st.startswith("prospecting"):
+                        runs[code] = run
+                        continue
+                    rows = await self.db.fetchall("SELECT payload FROM events WHERE event='prospect.completed' AND device_code=? "
+                                                  "AND seq > ?", (code, run.get("seq0") or 0))
+                    if not rows and _ts(run.get("at")) and (_now() - _ts(run["at"])).total_seconds() < 6 * 3600:
+                        runs[code] = run
+                        continue   # finished but the event isn't in yet
+                    before = set(run.get("known") or [])   # the stars known when this prospect started
+                    found = set()
+                    for r in rows:
+                        found |= {(x.get("designation") if isinstance(x, dict) else x)
+                                  for x in json.loads(r["payload"] or "{}").get("stars") or []}
+                    new = len(found - before - {None})
+                    run["found"] = int(run.get("found") or 0) + new
+                else:
+                    new = 0
+                if not new:
+                    run.setdefault("used", []).append(run.get("idx") or 0)
+                run.pop("job", None)
+            leaving = bool(f.get("next_home")) or (bound_for(o, set(pos)) not in (None, here))
+            nxt = pr.next_index(run)
+            run["done"] = nxt is None
+            runs[code] = run
+            if code in busy or (_ts(run.get("retry_at")) and _now() < _ts(run["retry_at"])):
+                continue
+            if leaving or run["done"]:   # pack up: the fleet moves on, or nothing is left to find here
+                if not compacted(o) and "compact" in (o.get("available_commands") or ["compact"]) \
+                        and not st.startswith(("prospecting", "unfurling")):
+                    why = "the fleet is leaving" if leaving else f"every direction tried in {here}"
+                    if await self.create_job("observatory", f"{f['name']}: compact observatory {code} ({why})", code,
+                                             [compact_step(code, bps, o, f"({why})")], {"devices": [code]}):
+                        out.append(f"{code}: compacting ({why})")
+                continue
+            if st.startswith(("compacting", "unfurling")):
+                continue
+            if folded(o) or st.startswith("compact"):
+                if await self.create_job("observatory", f"{f['name']}: unfurl observatory {code} to prospect", code,
+                                         [unfurl_step(code)], {"devices": [code]}):
+                    out.append(f"{code}: unfurling")
+                continue
+            if "prospect" not in (o.get("available_commands") or []):
+                continue
+            dirs = pr.directions(pr.base_heading((f.get("heading") or {}).get("vector"), pa.xyz(pos.get(here))))
+            v = dirs[nxt]
+            seq0 = (await self.db.fetchone("SELECT max(seq) AS s FROM events") or {"s": 0})["s"] or 0
+            job = await self.create_job("observatory", f"{f['name']}: prospect from {here} (direction {nxt + 1} of {len(dirs)})",
+                                        code, [step(f"{code}: prospect {v}", f"/devices/{code}", {"command": "prospect", "direction": v})],
+                                        {"devices": [code]})
+            if job:
+                from .census import observatory_stars
+                found_so_far, unplaced = await observatory_stars(self.db)
+                run.update({"idx": nxt, "job": job["id"], "seq0": seq0, "at": now_iso(),
+                            "known": sorted(set(pos) | set(found_so_far) | set(unplaced))})
+                run.pop("note", None)
+                out.append(f"{code}: prospecting from {here}, direction {nxt + 1}")
+        await self.db.kv_set("observatory_runs", runs)
         return out
 
     async def auto_scout_pass(self) -> list[str]:

@@ -206,6 +206,7 @@
           <span id="auto-{{ f.id }}" class="muted">When the fleet is free it starts the nearest one your stockpiles can pay for
             (contracts first; not where another player's ward or hub is; a trade at most once a day). Its own replicant fulfils.</span>
         </form>{% endif %}
+        {% for line in obs_status.get(f.id, []) %}<div class="small muted">🔭 {{ line }}</div>{% endfor %}
         {% if f.role == 'mining' and f.station %}
         <div class="small" style="margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
           <b>Path forward</b>
@@ -218,7 +219,7 @@
           <form hx-post="/fleets/{{ f.id }}/path" hx-target="#path-{{ f.id }}" style="margin-top:4px">
             <div class="row" style="gap:12px;flex-wrap:wrap">
               <label style="text-transform:none"><input type="checkbox" name="auto_relocate" {{ 'checked' if f.auto_relocate }}> move on when {{ f.home }} runs dry</label>
-              <label style="text-transform:none"><input type="checkbox" name="auto_prospect" {{ 'checked' if f.auto_prospect }}> observatory prospects along the heading</label>
+              <span class="muted small">its observatory prospects on its own wherever it's deployed — the heading first, then 13 other directions</span>
             </div>
             <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">
               <select name="heading_kind">

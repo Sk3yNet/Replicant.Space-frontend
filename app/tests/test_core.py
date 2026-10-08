@@ -5579,9 +5579,9 @@ def test_pathing_pass_prospects_then_relocates(client):
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
     assert f["heading"]["vector"] == [1.0, 0.0, 0.0] and f["auto_relocate"] and f["auto_prospect"]
     prospects.forget_inputs()
-    out = client.portal.call(eng.pathing_pass, True)
-    assert out == ["Miner 1: prospecting from HOMEA"]                      # only one system ahead: look for more
-    job = next(j for j in client.portal.call(eng.jobs) if j["rule"] == "pathing")
+    out = client.portal.call(eng.observatory_pass)
+    assert out == ["OBS00001: prospecting from HOMEA, direction 1"]        # along the heading first
+    job = next(j for j in client.portal.call(eng.jobs) if j["rule"] == "observatory")
     assert job["steps"][0]["body"] == {"command": "prospect", "direction": [1.0, 0.0, 0.0]}
     # the home runs dry (no belt, no salvage) — after 2 h the fleet picks the system ahead, then moves after the grace
     client.portal.call(db.kv_set, "salvage_state", {"nothing": {"HOMEA": datetime.now(timezone.utc).isoformat()}})
@@ -6120,3 +6120,54 @@ def test_enqueue_print_on_a_replicant_vessel_uses_the_replicant_print(client):
     assert "one device at a time" in r.text
     sent = client.portal.call(db.fetchall, "SELECT path, body FROM actions ORDER BY rowid DESC LIMIT 1")[0]
     assert sent["path"] == f"/replicants/{code}/print" and '"device_type": "mining_drone"' in sent["body"]
+
+
+def test_prospect_directions():
+    from rsweb import prospecting as pr
+    import math
+    h = [1.0, 0.0, 0.0]
+    d = pr.directions(h)
+    assert len(d) == 14 and d[0] == h and d[-1] == [-1.0, 0.0, 0.0]
+    ang = lambda v: round(math.degrees(math.acos(max(-1, min(1, sum(a * b for a, b in zip(v, h)))))))  # noqa: E731
+    assert [ang(v) for v in d[1:7]] == [45] * 6 and [ang(v) for v in d[7:13]] == [90] * 6
+    assert pr.base_heading(None, (3, 4, 0)) == [0.6, 0.8, 0.0]               # no heading: outward from Sol
+
+
+def test_observatory_prospects_each_direction_then_compacts(client):
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "HOMEA", "position": {"x": 0, "y": 5, "z": 0}}]})
+    obs = {"device_code": "OBS00001", "device_type": "galactic_observatory", "location": "HOMEA-5-L4", "status": "idle",
+           "tags": ["fleet:ex"], "available_commands": ["prospect", "compact", "unfurl"]}
+    client.portal.call(db.kv_set, "devices", [obs])
+    client.portal.call(eng.save_fleets, [{"id": "ex", "name": "Explorers", "role": "explore", "home": "HOMEA", "wants": {}}])
+
+    def last_job():
+        return [j for j in client.portal.call(eng.jobs) if j["rule"] == "observatory"][-1]
+
+    def finish(stars=None, error=None):
+        jobs = client.portal.call(eng.jobs)
+        j = jobs[-1]
+        j["status"] = "failed" if error else "done"
+        if error:
+            j["steps"][0].update({"status": "failed", "error": error})
+        client.portal.call(eng.save_jobs, jobs)
+        if stars is not None:
+            client.portal.call(client.app.state.worker.handle_event, {**_ev(990 + len(jobs), "prospect.completed", "OBS00001",
+                                                                              datetime(2026, 10, 8, 12, tzinfo=timezone.utc),
+                                                                              stars=[{"designation": s, "position": {"x": 1, "y": 1, "z": 1}} for s in stars])})
+
+    assert client.portal.call(eng.observatory_pass) == ["OBS00001: prospecting from HOMEA, direction 1"]
+    assert last_job()["steps"][0]["body"]["direction"] == [0.0, 1.0, 0.0]     # outward from Sol: no heading set
+    finish(stars=["NEWSTAR1"])                                                  # found one: the same direction again
+    assert client.portal.call(eng.observatory_pass) == ["OBS00001: prospecting from HOMEA, direction 1"]
+    finish(stars=["NEWSTAR1"])                                                  # nothing new: used up
+    assert client.portal.call(eng.observatory_pass) == ["OBS00001: prospecting from HOMEA, direction 2"]
+    finish(error="This location has already been surveyed")                    # the game says so: used up too
+    assert client.portal.call(eng.observatory_pass) == ["OBS00001: prospecting from HOMEA, direction 3"]
+    runs = client.portal.call(db.kv_get, "observatory_runs")
+    runs["OBS00001"].update({"used": list(range(14)), "job": None})
+    client.portal.call(db.kv_set, "observatory_runs", runs)
+    finish()
+    out = client.portal.call(eng.observatory_pass)
+    assert out == ["OBS00001: compacting (every direction tried in HOMEA)"]
+    assert "done in HOMEA" in client.get("/fleets", headers=H).text

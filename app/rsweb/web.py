@@ -2944,7 +2944,15 @@ async def fleets_ctx(request: Request) -> dict:
         contracts.append({"designation": e["designation"], "location": e["location"], "title": e.get("title"), "price": price,
                           "rewards": (e.get("rewards") or {}).get("resources") or {} if isinstance(e.get("rewards"), dict) else {},
                           "short": fl.site_short(price, inv.get(e["location"]) or {}), "devices_short": dev_short})
-    return {**lctx, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
+    from . import prospecting as _pr
+    runs = await request.app.state.db.kv_get("observatory_runs", {}) or {}
+    obs_status: dict[str, list[str]] = {}
+    for d in st["devices"]:
+        if d.get("device_type") == "galactic_observatory" and fl.fleet_of(d) and runs.get(d["device_code"]):
+            r = runs[d["device_code"]]
+            obs_status.setdefault(fl.fleet_of(d), []).append(
+                f"{d['device_code']}: {_pr.summary(r)}" + (f" — {r['note']}" if r.get("note") else ""))
+    return {**lctx, "obs_status": obs_status, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
             "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
             "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
 
