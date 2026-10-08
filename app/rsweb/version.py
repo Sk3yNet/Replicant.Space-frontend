@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.46.1"
+VERSION = "1.46.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.46.2", "2026-10-08", "Contracts: when the game answers 'Event already completed by this account', the fulfil "
+     "step counts as done — a trade run carries on to collect and go home instead of stalling with an error — and the "
+     "contract is marked completed so it isn't picked again."),
     ("1.46.1", "2026-10-08", "Galaxy map: measuring is on the right mouse button only — the first right-click on a star sets "
      "the first point, the second sets the other and shows the distance, the third clears both (a right-drag still "
      "pans; the browser menu no longer opens on the map). Left-click just opens the star."),

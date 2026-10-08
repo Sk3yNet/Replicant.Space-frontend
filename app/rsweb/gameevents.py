@@ -20,6 +20,7 @@ from .shapes import as_amounts
 
 DEFAULT_FULFIL = "POST /locations/{location}/events/{designation}"   # confirmed by the player
 CLOSED = ("event.completed", "event.expired", "event.failed", "event.cancelled")
+DONE_KV = "contracts_done"   # {designation: when}: the game said "already completed by this account"
 
 
 def star_of(loc: str | None) -> str:
@@ -58,6 +59,10 @@ async def load(db) -> dict[str, dict]:
             e["closed_at"] = r["created_at"]
         else:  # event.updated / progress etc.: keep whatever it says
             e.update({k: v for k, v in p.items() if v is not None})
+    for des, at in (await db.kv_get(DONE_KV, {}) or {}).items():
+        e = out.get(des)
+        if e and e.get("status") == "open":
+            e["status"], e["closed_at"] = "completed", at
     for e in out.values():
         e.setdefault("location", "")
         e["star"] = star_of(e.get("location"))

@@ -5805,3 +5805,21 @@ def test_edit_tags_of_a_print_in_progress(client):
     assert o["star"] == "LERNA" and o["fleet"] == "lerna-miners"
     page = client.get("/devices/AF00BEEF/print-queue", headers=HX).text
     assert "/devices/AF00BEEF/print-tags" in page
+
+
+def test_contract_already_completed_counts_as_done(client):
+    from rsweb import gameevents as gev
+    from rsweb.automations import step
+    eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(w.handle_event, {**_ev(995, "event.discovered", designation="KELMORNEA-3-EVT-003", location="KELMORNEA-3",
+                                                title="Electronics Shortage"), "location": "KELMORNEA-3"})
+    world.events_done = {"KELMORNEA-3-EVT-003"}          # done already (an earlier try, or by hand)
+    st = step("fulfil contract Electronics Shortage at KELMORNEA-3", "/locations/KELMORNEA-3/events/KELMORNEA-3-EVT-003",
+              None, critical=True)
+    job = client.portal.call(eng.create_job, "fleets", "Trader_1: trade", None, [st], {"devices": [], "fleet": "trader-1"})
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
+    assert job["status"] == "done" and "already completed" in job["steps"][0]["note"]
+    assert client.portal.call(gev.load, db)["KELMORNEA-3-EVT-003"]["status"] == "completed"   # not offered again
+    notes = client.portal.call(db.fetchall, "SELECT title FROM notifications WHERE title LIKE '%Electronics%'")
+    assert not any("failed" in n["title"] for n in notes)

@@ -661,6 +661,14 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         return ok({"locations": {"SOL-BELT-1": {"devices": 6, "replicants": 1, "resource_sites": 4, "resources": 1980},
                                  "SOL-3-L4": {"devices": 1, "replicants": 0, "resource_sites": 0, "resources": 412}}})
 
+    @app.post("/v1/locations/{code}/events/{des}")
+    async def fulfil_event(code: str, des: str):
+        done = world.__dict__.setdefault("events_done", set())
+        if des in done:
+            return ok({"error": "Event already completed by this account"}, 400)
+        done.add(des)
+        return ok({"status": "completed", "designation": des})
+
     @app.get("/v1/locations/{code}")
     async def location(code: str):
         if code == "SOL":

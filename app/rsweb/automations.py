@@ -656,6 +656,16 @@ class AutomationEngine(OpsRules):
                 st["wait"] = []
                 from .modular import remember
                 await remember(self.db, st["path"].split("/")[2], False, now_iso())
+            if not ok and re.match(r"^/locations/[^/]+/events/[^/]+$", st.get("path") or "") \
+                    and "already completed" in (err or "").lower():
+                # seen live (2026-10-08): "Event already completed by this account" — the contract is done (by an
+                # earlier try, or by hand): that's the goal, so the run collects its rewards and goes home
+                ok, st["note"] = True, err
+                st["wait"] = []
+                from .gameevents import DONE_KV
+                done = await self.db.kv_get(DONE_KV, {}) or {}
+                done[st["path"].rsplit("/", 1)[1]] = now_iso()
+                await self.db.kv_set(DONE_KV, done)
             if (not ok and (st.get("body") or {}).get("command") == "change_owner"
                     and "already belongs to that replicant" in (err or "").lower()):
                 # seen live (2026-10-06): a second owner pass for a device the first had already moved
