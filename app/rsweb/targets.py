@@ -372,3 +372,40 @@ async def system_resources(db, star: str) -> dict:
             "salvage": sorted(salvage.values(), key=lambda s: (s["depleted"], s["code"])), "totals": totals_sorted,
             "known_at": known_at, "unknown_sites": sum(1 for s in sites.values() if s["total"] is None and not s["depleted"]),
             "mineable": sum(t["sites"] for t in totals.values()), "salvageable": sum(t["salvage"] for t in totals.values())}
+
+
+async def site_yields(db) -> tuple[dict[tuple[str, str], tuple[float, int]], dict[tuple[str, str], tuple[float, int]]]:
+    """What a mining site gives before a resource runs out, learned from `mining.resource_depleted` (quantity_mined per
+    drone, per site): ({(belt, resource): (avg per site, sites)}, {(level, resource): (avg, sites)} across all belts,
+    for belts without their own history yet)."""
+    per_site: dict[tuple[str, str], float] = defaultdict(float)
+    belt_of: dict[str, str] = {}
+    for r in await db.fetchall("SELECT payload FROM events WHERE event='mining.resource_depleted'"):
+        try:
+            p = json.loads(r["payload"] or "{}")
+        except ValueError:
+            continue
+        site, res, q = p.get("site"), p.get("resource_type") or p.get("resource"), _num(p.get("quantity_mined"))
+        if not site or not res or q is None:
+            continue
+        per_site[(site, res)] += q
+        belt_of[site] = p.get("location") or site.rsplit("-SITE-", 1)[0]
+    by_belt: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for (site, res), q in per_site.items():
+        by_belt[(belt_of[site], res)].append(q)
+    levels: dict[str, dict] = {}
+    for row in await db.fetchall("SELECT data FROM systems"):
+        try:
+            scan = json.loads(row["data"] or "{}")
+        except ValueError:
+            continue
+        for b in ((scan.get("asteroid_belt") or {}).get("belts")) or []:
+            if b.get("designation"):
+                levels[b["designation"]] = b.get("resources") or {}
+    by_level: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for (belt, res), qs in by_belt.items():
+        lvl = (levels.get(belt) or {}).get(res)
+        if lvl:
+            by_level[(lvl, res)] += qs
+    avg = lambda d: {k: (sum(v) / len(v), len(v)) for k, v in d.items() if v}   # noqa: E731
+    return avg(by_belt), avg(by_level)

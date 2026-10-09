@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.50.0"
+VERSION = "1.51.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.51.0", "2026-10-09", "System page reorganised into Resources (one row per resource: richness, open sites, % left, "
+     "≈ units left, salvage, stockpiled), Belts (per belt: richness, viability line, open sites with % left) and Bodies "
+     "(planets, moons, L-points with their salvage, stock and devices) — replacing Resources available, Locations, "
+     "Belts, Belt viability and Planets. ≈ units left: open sites' % left × what a site gave before running out "
+     "(mining history; belts of the same richness until a belt has its own). Galaxy map: relay/hub range off by default."),
     ("1.50.0", "2026-10-09", "Galaxy map: a faint cone for each observatory prospecting now, from its system along the "
      "direction, darker as the scan progresses (at most ~15 %, never hiding what's behind); reach learned from past finds "
      "(≈25 ly until then); 'prospecting' toggle. The observatory pass no longer sends a second prospect to one already "

@@ -53,76 +53,68 @@
 </div>
 
 {% from "partials/viability.html" import viability_table %}
-{% if viability %}<div class="card" style="margin-top:14px"><h2>Belt viability</h2>{{ viability_table(viability) }}</div>{% endif %}
-<div class="grid g2" style="margin-top:14px">
-  <div class="card">
-    <div class="row between"><h2>Resources available</h2>
-      <span class="row"><span class="muted small">{{ ('site quantities as of ' ~ (res.known_at | ago)) if res.known_at else 'no site quantities read yet' }}</span>
-        <button class="small" hx-post="/systems/{{ star }}/resources/refresh" hx-target="#res-msg" title="reads each belt and salvage location (1 request each)">Refresh quantities</button></span></div>
-    <div id="res-msg"></div>
-    {% if res.totals %}
-    <table class="small">
-      <tr><th>Resource</th><th>Belt level</th><th class="num">At mining sites</th><th class="num">Salvage</th><th class="num">Stockpiled</th></tr>
-      {% for r, t in res.totals.items() %}<tr><td>{{ r }}</td><td>{{ t.level or '' }}</td>
-        <td class="num">{{ (t.sites | num) if t.sites else ('?' if t.site_count else '') }}{% if t.site_count %} <span class="muted">({{ t.site_count }} site{{ 's' if t.site_count != 1 }})</span>{% endif %}</td>
-        <td class="num">{{ t.salvage | num if t.salvage else '' }}</td><td class="num">{{ t.stock | num if t.stock else '' }}</td></tr>{% endfor %}
-      <tr><th>Total</th><th></th><th class="num">{{ res.mineable | num }}</th><th class="num">{{ res.salvageable | num }}</th><th class="num">{{ res.totals.values() | sum(attribute='stock') | num }}</th></tr>
-    </table>
-    {% if res.hidden %}<p class="muted small">{{ res.hidden | length }} used-up salvage / depleted or closed site(s) hidden. Belts never run out — open new sites by searching with survey drones.</p>{% endif %}
-    {% if res.unknown_sites %}<p class="muted small">{{ res.unknown_sites }} site(s) with no quantity yet — "Refresh quantities" reads them from the game.</p>{% endif %}
-    {% else %}<p class="muted small">Nothing known yet. "Refresh quantities" reads the belts and salvage here (needs presence or a relay).</p>{% endif %}
-
-    {% if res.sites_shown %}<h3>Mining sites</h3>
-    <table class="small"><tr><th>Site</th><th>Resource</th><th>Level</th><th class="num">Available</th></tr>
-      {% for x in res.sites_shown %}<tr><td><a hx-get="/locations/{{ x.code }}" hx-target="#loc-panel" href="/locations/{{ x.code }}">{{ x.code }}</a></td>
-        <td>{{ x.resource or (x.amounts.keys() | join(', ')) }}</td><td>{{ x.level or '' }}</td>
-        <td class="num">{% if x.depleted %}depleted{% elif x.total is not none %}{{ x.total | num }}{% elif x.remaining_pct %}<span title="{% for r, pc in x.remaining_pct.items() %}{{ r }} {{ pc | round | int }}%{{ ', ' if not loop.last }}{% endfor %}">{{ (x.remaining_pct.values() | sum / (x.remaining_pct | length)) | round | int }}% left</span>{% else %}?{% endif %}</td></tr>{% endfor %}
-    </table>{% endif %}
-    {% if res.salvage_shown %}<h3>Salvage</h3>
-    <table class="small"><tr><th>Location</th><th>What</th><th>Contents</th><th class="num">Total</th></tr>
-      {% for x in res.salvage_shown %}<tr><td><a hx-get="/locations/{{ x.body }}" hx-target="#loc-panel" href="/locations/{{ x.body }}" title="on {{ x.body }}">{{ x.code }}</a></td>
-        <td>{{ x.name or '' }}{% if x.type %} <span class="muted">{{ x.type | human }}</span>{% endif %}</td>
-        <td>{% if x.remaining_pct %}{% for r, pc in x.remaining_pct.items() %}{{ r }}{% if r in x.amounts %} {{ x.amounts[r] | num }}{% endif %} <span class="muted">{{ pc | round | int }}%</span>{{ ', ' if not loop.last }}{% endfor %}
-            {% else %}{% for r, q in x.amounts.items() %}{{ r }} {{ q | num }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</td>
-        <td class="num">{{ 'depleted' if x.depleted else (x.total | num if x.total is not none else '?') }}</td></tr>{% endfor %}
-    </table>{% endif %}
-  </div>
-  <div class="card">
-    <h2>Locations <span class="muted small">{{ sys_t.targets | length }} known</span></h2>
-    <table class="small">
-      <tr><th>Location</th><th>Kind</th><th>Notes</th><th class="num">Available</th><th class="num">Devices</th></tr>
-      {% for t in sys_t.targets %}{% set q = qty.get(t.code) %}<tr>
-        <td><a hx-get="/locations/{{ t.code }}" hx-target="#loc-panel" href="/locations/{{ t.code }}">{{ t.code }}</a></td>
-        <td class="muted">{{ CATEGORY_LABEL.get(t.category, t.category) }}</td>
-        <td>{{ t.note }}{% if t.stock %} <span class="muted">· stock {% for r, v in t.stock.items() %}{{ v | num }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}
-          {% if game_locs.get(t.code) and game_locs[t.code].resource_sites %}<span class="muted"> · {{ game_locs[t.code].resource_sites }} sites</span>{% endif %}</td>
-        <td class="num">{% if q %}{{ 'depleted' if q.depleted else (q.total | num if q.total is not none else '?') }}{% endif %}</td>
-        <td class="num">{{ t.devices or '' }}</td></tr>{% endfor %}
-    </table>
-  </div>
+<div class="card" style="margin-top:14px">
+  <div class="row between"><h2>Resources</h2>
+    <span class="row"><span class="muted small">{{ ('open sites as of ' ~ (res.known_at | ago)) if res.known_at else 'no belt read yet' }}</span>
+      <button class="small" hx-post="/systems/{{ star }}/resources/refresh" hx-target="#res-msg" title="reads each belt and salvage location (1 request each)">Refresh quantities</button></span></div>
+  <div id="res-msg"></div>
+  {% if resources %}
+  <table class="small">
+    <tr><th>Resource</th><th>Richness</th><th class="num">Open sites</th><th class="num">% left</th>
+      <th class="num" title="open sites' % left × what a site gave before running out (your mining history)">≈ units left</th>
+      <th class="num">Salvage</th><th class="num">Stockpiled</th></tr>
+    {% for r in resources %}<tr><td>{{ r.resource }}</td>
+      <td>{% for b, lvl in r.levels.items() %}{{ lvl }}{% if r.levels | length > 1 %} <span class="muted">({{ b.split('-')[-1] }})</span>{% endif %}{{ ', ' if not loop.last }}{% endfor %}</td>
+      <td class="num">{{ r.open_sites or '' }}</td><td class="num">{{ (r.pct_left ~ '%') if r.pct_left is not none else '' }}</td>
+      <td class="num">{% if r.left is not none %}{{ '≈' if r.guess }}{{ r.left | num }}{% endif %}</td>
+      <td class="num">{{ r.salvage | num if r.salvage else '' }}</td><td class="num">{{ r.stock | num if r.stock else '' }}</td></tr>{% endfor %}
+  </table>
+  {% if res.hidden %}<p class="muted small">{{ res.hidden | length }} used-up salvage / depleted or closed site(s) hidden.</p>{% endif %}
+  <p class="muted small">Only what's in the open sites — survey drones keep opening new ones; belts never run out.
+    ≈ units: from what past sites gave before running out (≈ = from other belts of the same richness).</p>
+  {% else %}<p class="muted small">Nothing known yet. "Refresh quantities" reads the belts and salvage here (needs presence or a relay).</p>{% endif %}
 </div>
 
-<div class="grid g2" style="margin-top:14px">
-  <div class="card">
-    <h2>Planets {% if fully_surveyed %}<span class="pill small st-work" title="every planet and belt surveyed">✓ system surveyed {{ fully_surveyed | ago }}</span>{% endif %}</h2>
-    <table class="small">
-      <tr><th>Body</th><th>Type</th><th class="num">AU</th><th class="num">Moons</th><th>HZ</th>{% if not fully_surveyed %}<th title="surveyed: auto-survey skips it">Surveyed</th>{% endif %}</tr>
-      {% for p in scan.planets or [] %}<tr><td><a hx-get="/locations/{{ p.designation }}" hx-target="#loc-panel" href="/locations/{{ p.designation }}">{{ p.designation }}</a></td>
-        <td>{{ p.type }}</td><td class="num">{{ p.orbital_distance_au }}</td><td class="num">{{ p.moon_count }}</td><td>{{ '✓' if p.in_habitable_zone }}</td>
-        {% if not fully_surveyed %}<td>{{ survey_box(p.designation) }}</td>{% endif %}</tr>{% endfor %}
-    </table>
-    {% if scan.entry_point %}<p class="small muted">Entry point: {{ scan.entry_point }}</p>{% endif %}
+<div class="card" style="margin-top:14px">
+  <h2>Belts</h2>
+  {% for b in belts %}
+  <div style="margin-bottom:10px">
+    <h3 style="margin:4px 0"><a hx-get="/locations/{{ b.code }}" hx-target="#loc-panel" href="/locations/{{ b.code }}">{{ b.code }}</a>
+      <span class="muted small">{{ b.density }} · {{ b.inner_radius_au }}–{{ b.outer_radius_au }} AU{% if b.devices %} · {{ b.devices }} device(s){% endif %}</span>
+      {% if not fully_surveyed %}<span class="small" style="font-weight:normal">{{ survey_box(b.code, 'surveyed') }}</span>{% endif %}</h3>
+    <div class="chips">{% for r, lvl in (b.resources or {}) | dictsort %}<span class="chip" {% if b.basis.get(r) %}title="a site gave ≈{{ b.basis[r].avg | num }} {{ r }} ({{ b.basis[r].n }} site{{ 's' if b.basis[r].n != 1 }}{{ '' if b.basis[r].own else ', other belts' }})"{% endif %}>{{ r }} <b>{{ lvl }}</b>{% if b.left.get(r) %} <span class="muted">≈{{ b.left[r] | num }} left</span>{% endif %}</span>{% endfor %}</div>
+    {% set v = b.viability %}{% if v %}<div class="small" style="margin-top:4px">
+      search {{ (v.search_min | round | int ~ ' min') if v.search_min else '—' }} · site life {{ (v.site_life_min | round | int ~ ' min') if v.site_life_min else '—' }}
+      · ratio {{ v.ratio if v.ratio is not none else '—' }} · {{ v.mining }}/{{ v.miners }} mining · survey {{ v.survey }}{% if v.survey_needed %}/{{ v.survey_needed }}{% endif %}
+      · <span class="pill small {{ {'consider moving': 'lv-alert', 'watch': 'st-work', 'ok': 'lv-done'}.get(v.verdict, '') }}">{{ v.verdict }}</span>
+      {% if v.move_to %}→ {{ v.move_to.belt }}{% endif %}{% if v.survey_short and v.verdict != 'consider moving' %} <span class="muted">(+{{ v.survey_short }} survey drone(s) would keep the miners busy)</span>{% endif %}</div>{% endif %}
+    {% if b.sites %}<details class="small" style="margin-top:4px"><summary>{{ b.sites | length }} open site(s)</summary>
+      <table class="small"><tr><th>Site</th><th>% left</th></tr>
+        {% for x in b.sites %}<tr><td><a hx-get="/locations/{{ x.code }}" hx-target="#loc-panel" href="/locations/{{ x.code }}">{{ x.code.split('-')[-1] }}</a></td>
+          <td>{% if x.remaining_pct %}{% for r, pc in x.remaining_pct.items() %}{{ r }} {{ pc | round | int }}%{{ ', ' if not loop.last }}{% endfor %}{% elif x.total is not none %}{{ x.total | num }}{% else %}?{% endif %}</td></tr>{% endfor %}
+      </table></details>{% endif %}
   </div>
-  <div class="card">
-    <h2>Belts</h2>
-    {% for b in (scan.asteroid_belt or {}).belts or [] %}
-      <h3><a hx-get="/locations/{{ b.designation }}" hx-target="#loc-panel" href="/locations/{{ b.designation }}">{{ b.designation }}</a> <span class="muted small">{{ b.density }} · {{ b.inner_radius_au }}–{{ b.outer_radius_au }} AU</span>
-        {% if not fully_surveyed %}<span class="small" style="font-weight:normal">{{ survey_box(b.designation, 'surveyed') }}</span>{% endif %}</h3>
-      <div class="chips">{% for r, lvl in (b.resources or {}) | dictsort %}<span class="chip">{{ r }} <b>{{ lvl }}</b></span>{% endfor %}</div>
-    {% else %}<p class="muted">No belts recorded.</p>{% endfor %}
-    {% if s %}<h2 style="margin-top:14px">Star</h2>
-    <dl class="kv small">{% for k in ['mass_solar','luminosity_solar','temperature_k','age_my'] %}{% if s[k] is defined %}<dt>{{ k | human }}</dt><dd>{{ s[k] }}</dd>{% endif %}{% endfor %}</dl>{% endif %}
-  </div>
+  {% else %}<p class="muted">No belts recorded.</p>{% endfor %}
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h2>Bodies {% if fully_surveyed %}<span class="pill small st-work" title="every planet and belt surveyed">✓ system surveyed {{ fully_surveyed | ago }}</span>{% endif %}</h2>
+  <table class="small">
+    <tr><th>Body</th><th>Kind</th><th class="num">AU</th><th class="num">Moons</th><th>HZ</th><th>Notes</th><th>Salvage</th><th class="num">Devices</th>
+      {% if not fully_surveyed %}<th title="surveyed: auto-survey skips it">Surveyed</th>{% endif %}</tr>
+    {% for t in bodies %}{% set p = t.planet or {} %}<tr>
+      <td><a hx-get="/locations/{{ t.code }}" hx-target="#loc-panel" href="/locations/{{ t.code }}">{{ t.code }}</a></td>
+      <td class="muted">{{ p.type or CATEGORY_LABEL.get(t.category, t.category) | lower }}</td>
+      <td class="num">{{ p.orbital_distance_au or '' }}</td><td class="num">{{ p.moon_count if p else '' }}</td><td>{{ '✓' if p.in_habitable_zone }}</td>
+      <td>{{ t.note or '' }}{% if t.stock %} <span class="muted">stock {% for r, v in t.stock.items() %}{{ v | num }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}</td>
+      <td>{% for x in t.salvage %}<div title="{{ x.code }}">{{ x.name or (x.type | human) or 'salvage' }}:
+          {% if x.remaining_pct %}{% for r, pc in x.remaining_pct.items() %}{{ r }}{% if r in x.amounts %} {{ x.amounts[r] | num }}{% endif %} <span class="muted">{{ pc | round | int }}%</span>{{ ', ' if not loop.last }}{% endfor %}
+          {% else %}{% for r, q in x.amounts.items() %}{{ r }} {{ q | num }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</div>{% endfor %}</td>
+      <td class="num">{{ t.devices or '' }}</td>
+      {% if not fully_surveyed %}<td>{% if t.category == 'planet' %}{{ survey_box(t.code) }}{% endif %}</td>{% endif %}</tr>{% endfor %}
+  </table>
+  {% if scan.entry_point %}<p class="small muted">Entry point: {{ scan.entry_point }}</p>{% endif %}
+  {% if s %}<p class="small muted">Star: {% for k in ['mass_solar','luminosity_solar','temperature_k','age_my'] %}{% if s[k] is defined %}{{ k | human }} {{ s[k] }}{{ ' · ' if not loop.last }}{% endif %}{% endfor %}</p>{% endif %}
 </div>
 {% endblock %}
 

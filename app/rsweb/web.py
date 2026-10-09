@@ -1453,11 +1453,63 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     qty = {x["code"]: x for x in res["sites_shown"] + res["salvage_shown"]}
     here = devices_in_system(st["devices"], star)
     surveyed, full = await survey_state(db, star, scan)
+    viability = [v for v in await request.app.state.worker.automations.viability_report() if v["star"] == star]
+    belts, resources, bodies = await system_layout(db, star, scan, st, sys_t, res, viability)
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err,
                       surveyed=surveyed, fully_surveyed=full,
                       updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t, here=here,
                       CATEGORY_LABEL=CATEGORY_LABEL, game_locs=game_locs, qty=qty,
-                      viability=[v for v in await request.app.state.worker.automations.viability_report() if v["star"] == star])
+                      belts=belts, resources=resources, bodies=bodies)
+
+
+async def system_layout(db, star: str, scan: dict, st: dict, sys_t: dict, res: dict, viability: list[dict]):
+    """The system page's three cards: belts (richness, viability, open sites, ≈ units left), one row per resource across
+    them, and every other body (planets, moons, L-points … with their salvage)."""
+    from .targets import site_yields
+    yb, yl = await site_yields(db)
+    vrow = {v["belt"]: v for v in viability}
+    devs_at = Counter(d.get("location") for d in st["devices"])
+    belts = []
+    for b in ((scan.get("asteroid_belt") or {}).get("belts")) or []:
+        code = b.get("designation")
+        if not code:
+            continue
+        sites = [x for x in res["sites_shown"] if x.get("belt") == code]
+        left, basis = {}, {}
+        for r, lvl in (b.get("resources") or {}).items():
+            avg, n = yb.get((code, r)) or yl.get((lvl, r)) or (None, 0)
+            if avg is None:
+                continue
+            pct = sum(float((x.get("remaining_pct") or {}).get(r, 0)) for x in sites) / 100.0
+            left[r] = round(pct * avg)
+            basis[r] = {"avg": round(avg), "n": n, "own": (code, r) in yb}
+        belts.append({**b, "code": code, "sites": sites, "viability": vrow.get(code), "devices": devs_at.get(code, 0),
+                      "left": left, "basis": basis})
+    resources = []
+    for r, t in res["totals"].items():
+        pcts = [float((x.get("remaining_pct") or {})[r]) for x in res["sites_shown"] if r in (x.get("remaining_pct") or {})]
+        est = [b["left"][r] for b in belts if r in b["left"]]
+        resources.append({"resource": r, "levels": {b["code"]: (b.get("resources") or {}).get(r) for b in belts
+                                                   if (b.get("resources") or {}).get(r)},
+                          "open_sites": len(pcts), "pct_left": round(sum(pcts) / len(pcts)) if pcts else None,
+                          "left": sum(est) if est else None,
+                          "guess": any(not b["basis"].get(r, {}).get("own", True) for b in belts if r in b["left"]),
+                          "salvage": t.get("salvage") or 0, "stock": t.get("stock") or 0})
+    planets = {p.get("designation"): p for p in scan.get("planets") or []}
+    salvage_on: dict[str, list] = defaultdict(list)
+    for x in res["salvage_shown"]:
+        salvage_on[x.get("body")].append(x)
+    bodies = [{**t, "planet": planets.get(t["code"]), "salvage": salvage_on.get(t["code"], [])}
+              for t in sys_t["targets"] if t["category"] not in ("belt", "site", "salvage")]
+    known = {t["code"] for t in bodies}
+    bodies += [{"code": c, "category": "planet", "planet": p, "salvage": salvage_on.get(c, []), "devices": 0}
+               for c, p in planets.items() if c and c not in known]
+    order = {"star": 0, "planet": 1, "moon": 2, "lagrange": 3}
+    def au(t: dict) -> float:   # moons and L-points sort with their planet (STAR-3-1, STAR-3-L4 → STAR-3)
+        parent = planets.get("-".join(t["code"].split("-")[:2])) or {}
+        return float(parent.get("orbital_distance_au") or (0 if t["category"] == "star" else 99))
+    bodies.sort(key=lambda t: (au(t), order.get(t["category"], 9), t["code"]))
+    return belts, resources, bodies
 
 
 @router.post("/systems/{star}/resources/refresh", response_class=HTMLResponse)

@@ -1044,7 +1044,7 @@ def test_system_resources_and_map_places(client):
     for ev in [e for e in world.events if e["event"] == "salvage.discovered"]:
         client.portal.call(client.app.state.worker.handle_event, dict(ev))
     page = client.get("/systems/SOL", headers=H).text
-    assert "Resources available" in page and "Derelict hauler" in page and "SOL-3-1-SAL-1" in page
+    assert "<h2>Resources</h2>" in page and "Derelict hauler" in page and "SOL-3-1-SAL-1" in page
     r = client.post("/systems/SOL/resources/refresh", headers=HX)
     assert "open mining site(s)" in r.text and "salvage body" in r.text and "Could not read" not in r.text
     res = client.portal.call(system_resources, client.app.state.db, "SOL")
@@ -2567,7 +2567,7 @@ def test_locations_list_hides_sites_only_seen_in_old_events(client):
     res = client.portal.call(system_resources, db, "SOL")
     s7 = next(x for x in res["sites_shown"] if x["code"] == "SOL-BELT-1-SITE-7")
     assert s7["remaining_pct"] == {"carbon": 40.0, "structural": 0.0}
-    assert "20% left" in client.get("/systems/SOL", headers=H).text
+    assert "carbon 40%" in client.get("/systems/SOL", headers=H).text      # the open site's % left, per resource
 
 
 def test_live_mined_out_belt_with_searches_running():
@@ -2651,7 +2651,7 @@ def test_viability_engine_alerts_once_and_pages_render(client):
     assert len(alerts) == 1 and "SOL-BELT-1: searches take 3.0× a site's life" in alerts[0]
     assert client.portal.call(eng.track_viability) == []            # once per crossing
     page = client.get("/systems/SOL", headers=H).text
-    assert "Belt viability" in page and "consider moving" in page
+    assert "site life" in page and "consider moving" in page
     assert "Belt viability alerts" in client.get("/automations", headers=H).text
 
 
@@ -6244,3 +6244,13 @@ def test_observatory_pass_stands_aside_while_loadouts_moves_it(client):
     assert "moving it to ITHVALAI" in client.portal.call(db.kv_get, "observatory_runs")["OBS00002"]["note"]
     client.portal.call(db.kv_set, "loadout_moves", {"at": now_iso(), "moves": {}})
     assert client.portal.call(eng.observatory_pass) == ["OBS00002: unfurling"]   # staying: back to prospecting
+
+
+def test_site_yield_estimate_from_mining_history(client):
+    from rsweb.targets import site_yields
+    db, w = client.app.state.db, client.app.state.worker
+    for i, (site, q) in enumerate((("SOL-BELT-1-SITE-1", 300), ("SOL-BELT-1-SITE-1", 100), ("SOL-BELT-1-SITE-2", 200))):
+        client.portal.call(w.handle_event, _ev(880 + i, "mining.resource_depleted", f"D{i}", location="SOL-BELT-1",
+                                               site=site, resource_type="carbon", quantity_mined=q))
+    by_belt, _ = client.portal.call(site_yields, db)
+    assert by_belt[("SOL-BELT-1", "carbon")] == (300.0, 2)      # site 1: 400 by two drones, site 2: 200
