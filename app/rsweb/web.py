@@ -3495,7 +3495,7 @@ async def fleets_path(request: Request, fid: str, user: str = Depends(current_us
     form = await request.form()
     eng, items = await _fleets(request)
     f = next((x for x in items if x["id"] == fid), None)
-    if not f or f.get("role") != "mining":
+    if not f or f.get("role") not in ("mining", "explore"):
         return HTMLResponse("", status_code=404)
     cat = await request.app.state.db.kv_get("stars", {}) or {}
     pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict)}
@@ -3516,6 +3516,16 @@ async def fleets_path(request: Request, fid: str, user: str = Depends(current_us
     except ValueError as e:
         return HTMLResponse(f'<span class="lv-alert small">{html.escape(str(e))}</span>')
     f["cone"] = _int(form.get("cone"), pa.DEFAULT_CONE, 10, 180)
+    if f.get("role") == "explore":   # advancing explorer: each finished system's farthest star ahead becomes home
+        f["advance"] = form.get("advance") == "on"
+        try:
+            f["hop_ly"] = max(1.0, min(100.0, float(form.get("hop_ly") or 30)))
+        except ValueError:
+            f["hop_ly"] = 30.0
+        if f["advance"]:
+            f["station"] = True   # the loadout pass carries a stationed fleet to its new home
+        await eng.save_fleets(items)
+        return HTMLResponse("", headers={"HX-Refresh": "true"})
     f["auto_relocate"] = form.get("auto_relocate") == "on"
     f["auto_prospect"] = form.get("auto_prospect") == "on"
     if not f["auto_relocate"]:

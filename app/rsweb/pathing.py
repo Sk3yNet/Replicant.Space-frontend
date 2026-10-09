@@ -180,3 +180,23 @@ def ahead(home: str, xyz_of: dict[str, tuple], heading: list[float] | None, cone
         if a is not None and a <= cone and d <= max_ly:
             out.append((d, s))
     return [s for _, s in sorted(out)]
+
+
+def advance_target(home: str, xyz_of: dict[str, tuple], heading: list[float], cone: float, hop_ly: float,
+                   skip: set[str], ok=lambda s: True) -> str | None:
+    """An advancing explore fleet's next home: the farthest star within hop_ly inside the cone around the heading,
+    not in `skip` (other fleets' homes, systems already advanced from) and passing `ok` (e.g. relay coverage)."""
+    o = xyz_of.get(home)
+    if not o or not heading:
+        return None
+    best = None
+    for s, p in xyz_of.items():
+        if s == home or s in skip or not p:
+            continue
+        d = math.dist(o, p)
+        a = angle(o, p, heading)
+        if a is None or a > cone or d > hop_ly or not ok(s):
+            continue
+        if best is None or d > best[0]:
+            best = (d, s)
+    return best[1] if best else None

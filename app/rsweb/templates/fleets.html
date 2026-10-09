@@ -207,7 +207,7 @@
             (contracts first; not where another player's ward or hub is; a trade at most once a day). Its own replicant fulfils.</span>
         </form>{% endif %}
         {% for line in obs_status.get(f.id, []) %}<div class="small muted">🔭 {{ line }}</div>{% endfor %}
-        {% if f.role == 'mining' and f.station %}
+        {% if (f.role == 'mining' and f.station) or (f.role == 'explore' and f.id in obs_fleets) %}
         <div class="small" style="margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
           <b>Path forward</b>
           {% if f.heading %}<span class="muted">· heading {{ f.heading.label }} <span class="mono">({{ f.heading.vector | join(', ') }})</span>, ±{{ f.cone or 60 }}°</span>{% else %}<span class="muted">· no heading</span>{% endif %}
@@ -218,7 +218,12 @@
           {% if f.path_note %}<div class="muted" style="margin-top:2px">{{ f.path_note }}</div>{% endif %}
           <form hx-post="/fleets/{{ f.id }}/path" hx-target="#path-{{ f.id }}" style="margin-top:4px">
             <div class="row" style="gap:12px;flex-wrap:wrap">
+              {% if f.role == 'explore' %}
+              <label style="text-transform:none"><input type="checkbox" name="advance" {{ 'checked' if f.advance }}> advance along the heading</label>
+              <label style="text-transform:none">hops up to <input type="number" name="hop_ly" min="1" max="100" step="any" value="{{ f.hop_ly or 30 }}" style="width:4em"> ly</label>
+              {% else %}
               <label style="text-transform:none"><input type="checkbox" name="auto_relocate" {{ 'checked' if f.auto_relocate }}> move on when {{ f.home }} runs dry</label>
+              {% endif %}
               {% if f.id in obs_fleets %}<span class="muted small">its observatory prospects on its own wherever it's deployed — the heading first, then 13 other directions</span>{% endif %}
             </div>
             <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">
@@ -235,10 +240,14 @@
             </div>
           </form>
           <span id="path-{{ f.id }}"></span>
+          {% if f.role == 'explore' %}<div class="muted" style="margin-top:2px">Advancing: when its observatory has prospected every direction from
+            {{ f.home }}, the farthest star ahead (inside the cone, within the hop distance; inside your relay coverage unless a replicant
+            rides along; not another fleet's home or a system it has left) becomes its home, and the fleet packs up and moves there —
+            leaving a relay and a beacon behind when it has them. It's stationed so the loadout pass carries it.</div>{% else %}
           <div class="muted" style="margin-top:2px">When {{ f.home }} has been dry for 2 h (no belt or salvage left, every belt 'consider moving', or
             another player's ward), the fleet picks the best-ranked system ahead (Systems › Mining prospects) — never one that's unscanned,
             outside your relay coverage, warded, another fleet's home, or another mining fleet's next home or target — and moves after 30 min
-            unless you cancel. The heading is fixed when you set it, so each move keeps the same direction.</div>
+            unless you cancel. The heading is fixed when you set it, so each move keeps the same direction.</div>{% endif %}
         </div>{% endif %}
         {% if f.role == 'explore' %}
         <form class="row small" hx-post="/fleets/{{ f.id }}/auto-scout" hx-trigger="change" hx-target="#scout-{{ f.id }}" style="gap:14px;margin:6px 0">

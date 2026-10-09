@@ -6274,3 +6274,27 @@ def test_contracts_page_lists_quiet_civilizations_for_approval(client):
     assert "Civilizations not asking for anything" in page and "VETH-2" in page and "VETH-3" not in page
     client.post("/game-events/approve", data={"key": "species:veth", "on": "1"}, headers=HX)
     assert "species:veth" in client.portal.call(db.kv_get, "contract_approvals")
+
+
+def test_advancing_explorer_moves_home_to_farthest_star_ahead(client):
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    stars = {"HOMEA": (0, 0, 0), "NEAR1": (5, 0, 0), "FAR1": (20, 1, 0), "TOOFAR": (60, 0, 0), "BEHIND": (-10, 0, 0)}
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": k, "position": dict(zip("xyz", v))} for k, v in stars.items()]})
+    devices = [{"device_code": "OBSX", "device_type": "galactic_observatory", "location": "HOMEA-3-L4", "status": "idle",
+                "tags": ["fleet:ex"], "available_commands": ["prospect", "compact", "unfurl"]},
+               {"device_code": "VES1", "device_type": "heaven_vessel", "location": "HOMEA-3-L4", "status": "idle", "tags": ["fleet:ex"]},
+               {"device_code": "RLY1", "device_type": "ftl_relay", "location": "HOMEA-3-L4", "status": "relaying", "tags": ["fleet:ex"]}]
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(db.kv_set, "replicants", {"R1": {"name": "bob", "hosted_device_code": "VES1"}})   # rides along
+    client.portal.call(eng.save_fleets, [{"id": "ex", "name": "Pathfinder", "role": "explore", "home": "HOMEA", "wants": {}}])
+    r = client.post("/fleets/ex/path", data={"heading_kind": "custom", "heading_vec": "1, 0, 0", "cone": "30",
+                                             "advance": "on", "hop_ly": "30"}, headers=HX)
+    assert r.status_code == 200
+    client.portal.call(db.kv_set, "observatory_runs", {"OBSX": {"star": "HOMEA", "used": list(range(14)), "idx": 0, "found": 3}})
+    out = client.portal.call(eng.observatory_pass)
+    assert out == ["Pathfinder: advancing HOMEA → FAR1"]                     # farthest ahead within 30 ly, not NEAR1
+    f = client.portal.call(eng.fleets)[0]
+    assert f["home"] == "FAR1" and f["prev_home"] == "HOMEA" and f["station"] and f["advanced_from"] == ["HOMEA"]
+    job = [j for j in client.portal.call(eng.jobs) if "leave a relay" in j["title"]][0]
+    assert job["steps"][0]["body"]["configuration"] == {"add_tags": ["at:homea-3-l4"], "remove_tags": ["fleet:ex"]}
+    assert "advance along the heading" in client.get("/fleets", headers=H).text

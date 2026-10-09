@@ -1204,7 +1204,9 @@ class AutomationEngine(OpsRules):
         obs = [d for d in devices if d.get("device_type") == "galactic_observatory" and fl.fleet_of(d)]
         if not obs:
             return []
-        items = {fl.fleet_tag(f["id"])[6:]: f for f in await self.fleets()}
+        fleet_list = await self.fleets()
+        items = {fl.fleet_tag(f["id"])[6:]: f for f in fleet_list}
+        fleets_changed = False
         jobs = await self.jobs()
         by_id = {j["id"]: j for j in jobs}
         busy = self.busy_devices(jobs)
@@ -1282,6 +1284,12 @@ class AutomationEngine(OpsRules):
             if moving and moving != here and lfresh:
                 run["note"] = f"loadouts is moving it to {moving}"
                 continue   # loadouts compacts and carries it; nothing for this pass to do
+            if run["done"] and f.get("role") == "explore" and f.get("advance") and here == f.get("home") and not leaving:
+                # advance along the heading: the farthest star ahead becomes the fleet's home; the loadout pass packs up
+                # and carries everyone there (the observatory compacts for the trip), leaving a relay and a beacon behind
+                if await self._advance_explorer(f, fleet_list, devices, pos, out):
+                    fleets_changed = True
+                    continue
             if leaving or run["done"]:   # pack up: the fleet moves on, or nothing is left to find here
                 if not compacted(o) and "compact" in (o.get("available_commands") or ["compact"]) \
                         and not st.startswith(("prospecting", "unfurling")):
@@ -1313,7 +1321,53 @@ class AutomationEngine(OpsRules):
                 run.pop("note", None)
                 out.append(f"{code}: prospecting from {here}, direction {nxt + 1}")
         await self.db.kv_set("observatory_runs", runs)
+        if fleets_changed:
+            await self.save_fleets(fleet_list)
         return out
+
+    async def _advance_explorer(self, f: dict, fleets: list[dict], devices: list[dict], pos: dict, out: list[str]) -> bool:
+        """Move an advancing explore fleet's home to the farthest star ahead (pathing.advance_target). Without a replicant
+        aboard only stars inside relay coverage qualify (arrivals outside it couldn't be commanded). A relay and a beacon
+        of the fleet's in the old system stay there (fleet tag off, pinned where they are) when there's none of ours
+        besides; a fleet without them just moves. True when it moved."""
+        from . import fleets as fl
+        from . import pathing as pa
+        from . import prospecting as pr
+        from .loadouts import at_tag
+        home = f["home"]
+        xyz_of = {k: v for k, v in ((k, pa.xyz(p)) for k, p in pos.items()) if v}
+        heading = (f.get("heading") or {}).get("vector") or pr.base_heading(None, xyz_of.get(home))
+        riding = bool(fl.fleet_replicant(f, devices, await self.db.kv_get("replicants", {}) or {}))
+        skip = set(pa.taken(f, fleets)) | set(f.get("advanced_from") or [])
+        nxt = pa.advance_target(home, xyz_of, heading, float(f.get("cone") or pa.DEFAULT_CONE),
+                                float(f.get("hop_ly") or 30), skip,
+                                (lambda s: True) if riding else (lambda s: pa.served(s, xyz_of, devices)))
+        if not nxt:
+            note = (f"nothing ahead within {f.get('hop_ly') or 30:g} ly" + ("" if riding else " inside relay coverage")
+                    + " — staying in " + home)
+            if f.get("path_note") != note:
+                f["path_note"] = note
+                await self.log("fleets", f"{f['name']}: {note}", notify=True)
+                return True
+            return False
+        tag = fl.fleet_tag(f["id"])
+        steps = []
+        for t in ("ftl_relay", "ftl_beacon"):
+            mine_here = [d for d in devices if d.get("device_type") == t and star_of(d.get("location")) == home
+                         and not d.get("stowed_in_device_code")]
+            ours = [d for d in mine_here if tag in (d.get("tags") or [])]
+            if ours and len(mine_here) == len(ours):   # no other one of ours there: leave this one behind
+                d = ours[0]
+                steps.append(step(f"{d['device_code']}: stays in {home}", f"/devices/{d['device_code']}",
+                                  {"configuration": {"add_tags": [at_tag(d["location"])], "remove_tags": [tag]}}, method="PATCH"))
+        if steps:
+            await self.create_job("fleets", f"{f['name']}: leave a relay / beacon in {home}", None, steps, {"devices": []})
+        f.setdefault("advanced_from", []).append(home)
+        f["prev_home"], f["home"], f["station"] = home, nxt, True
+        f["path_note"] = f"advanced from {home} to {nxt} (farthest star ahead within {f.get('hop_ly') or 30:g} ly)"
+        out.append(f"{f['name']}: advancing {home} → {nxt}")
+        await self.log("fleets", f"{f['name']}: every direction prospected from {home} — advancing to {nxt}", notify=True)
+        return True
 
     SCOUT_MIN_CAPACITY = 50.0   # a member at or below this (%) ends the scouting: finish the system, go home for repairs
     SCOUT_START_CAPACITY = 85.0  # a run starts only with every member at or above this (%)
