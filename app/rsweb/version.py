@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.51.0"
+VERSION = "1.51.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.51.1", "2026-10-09", "Fleets page: the observatory note shows only on fleets that have an observatory or whose "
+     "loadout wants one. README rewritten as a current per-tab overview; roadmap trimmed to open items."),
     ("1.51.0", "2026-10-09", "System page reorganised into Resources (one row per resource: richness, open sites, % left, "
      "≈ units left, salvage, stockpiled), Belts (per belt: richness, viability line, open sites with % left) and Bodies "
      "(planets, moons, L-points with their salvage, stock and devices) — replacing Resources available, Locations, "
