@@ -33,9 +33,11 @@
         {% if reps %}<button class="small ghost" hx-post="/systems/{{ star }}/scan-others" hx-target="#oth-msg">Scan for other devices</button>{% endif %}</div>
       <div id="oth-msg"></div>
       {% if others_warded %}<div class="small lv-alert">Another player's ward or hub covers this system.</div>{% endif %}
-      {% for g in others %}<div class="small"><b>{{ g.name }}</b>: {% for t, n in g.types.items() %}{{ n }}× {{ t | human }}{{ ', ' if not loop.last }}{% endfor %}
-        <div class="muted mono">{% for d in g.devices %}{{ d.code }} {{ d.location }}{{ ' · ' if not loop.last }}{% endfor %}</div></div>
-      {% else %}<p class="muted small">{% if others_snap %}No fixed devices of other players at the last scan.{% else %}Not scanned yet.{% endif %}</p>{% endfor %}
+      {% if others %}<table class="small"><tr><th>Owner</th><th>Device</th><th>Code</th><th>Location</th></tr>
+        {% for g in others %}{% for d in g.devices | sort(attribute='type') %}<tr>
+          <td>{% if loop.first %}<b>{{ g.name }}</b>{% endif %}</td><td>{{ (d.type or 'device') | human }}</td>
+          <td class="mono">{{ d.code }}</td><td class="mono"><a href="/locations/{{ d.location }}">{{ d.location }}</a></td></tr>{% endfor %}{% endfor %}
+      </table>{% else %}<p class="muted small">{% if others_snap %}No fixed devices of other players at the last scan.{% else %}Not scanned yet.{% endif %}</p>{% endif %}
       <p class="muted small">Fixed devices only (beacons, relays, wards, hubs, factories, observatories, controllers){% if others_snap %} · scanned {{ others_snap.scanned_at | ago }}{% endif %}.
         A replicant arriving here scans it; {% if reps %}or use the button{% else %}only a replicant in the system can scan it{% endif %}. Dropped after 7 days.</p>
     </div>
