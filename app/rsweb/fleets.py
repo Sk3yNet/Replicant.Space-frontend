@@ -694,6 +694,9 @@ def travel_steps(fleet: dict, devices: list[dict], star: str, stars: dict) -> li
     dest = destination(star, stars)
     movers = [d for d in r["members"] if (is_carrier(d) or flies_itself(d))
               and not d.get("attached_to_device_code") and not d.get("stowed_in_device_code")]
+    # the vessel carrying a replicant goes last: without a relay, the others are only in control range while the
+    # replicant is still there to command them
+    movers.sort(key=lambda d: bool(d.get("hosting_replicant")))
     steps = [step(f"{d['device_code']} → {dest}", f"/devices/{d['device_code']}", {"command": "travel", "destination": dest}, critical=True)
              for d in movers if star_of(d.get("location")) != star]
     n = len(steps)

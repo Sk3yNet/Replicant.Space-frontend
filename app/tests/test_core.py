@@ -6406,3 +6406,15 @@ def test_relocation_only_when_the_carriers_fit_everyone(client):
     f2 = dict(f)
     how = client.portal.call(eng.start_relocation, f2, "AAA", "BBB", [ves, rider("D1"), rider("D2"), rider("D3"), rider("D4"), rider("D5"), rider("D6")])
     assert "piecemeal" in how and "mission" not in f2                         # too many riders: the loadout pass carries them
+
+
+def test_replicant_vessel_travels_last():
+    """Without a relay the other carriers are only commandable while the replicant is still there."""
+    from rsweb import fleets as fl
+    D = lambda code, t, **kw: {"device_code": code, "device_type": t, "location": "AAA-3-L4", "status": "idle",  # noqa: E731
+                               "tags": ["fleet:x"], "features": ["surge", "cruise"], **kw}
+    devices = [D("HV1", "heaven_vessel", hosting_replicant="R1", stow_capacity=10), D("PL1", "surge_plate", attach_capacity=1),
+               D("CV1", "cargo_vessel", stow_capacity=50)]
+    steps = fl.travel_steps({"id": "x", "home": "AAA"}, devices, "BBB", {})
+    sent = [s["path"].split("/")[-1] for s in steps if (s.get("body") or {}).get("command") == "travel"]
+    assert sent[-1] == "HV1" and set(sent) == {"HV1", "PL1", "CV1"}
