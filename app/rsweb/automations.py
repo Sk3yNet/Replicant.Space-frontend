@@ -1223,6 +1223,18 @@ class AutomationEngine(OpsRules):
             run = runs.get(code) or {}
             if run.get("star") != here:
                 run = {"star": here, "used": [], "idx": 0, "found": 0}
+            if st.startswith("prospecting") and not (run.get("live") and _ts(run["live"].get("completes_at"))
+                                                    and _ts(run["live"]["completes_at"]) > _now()):
+                # the prospect's direction / start / end (for the galaxy map): from the device list, else its details once
+                from .observatory import live_prospect
+                live = live_prospect(o)
+                if not live:
+                    try:
+                        live = live_prospect(await self.api.request("GET", f"/devices/{code}", background=True) or {})
+                    except ApiError:
+                        live = None
+                if live:
+                    run["live"] = {k: live.get(k) for k in ("direction", "started_at", "completes_at", "origin")}
             # the prospect in flight: wait for it, then judge it by the new stars it found
             if run.get("job"):
                 j = by_id.get(run["job"])
@@ -1271,8 +1283,8 @@ class AutomationEngine(OpsRules):
                                              [compact_step(code, bps, o, f"({why})")], {"devices": [code]}):
                         out.append(f"{code}: compacting ({why})")
                 continue
-            if st.startswith(("compacting", "unfurling")):
-                continue
+            if st.startswith(("compacting", "unfurling", "prospecting")):
+                continue   # busy (a prospect started by hand counts too)
             if folded(o) or st.startswith("compact"):
                 if await self.create_job("observatory", f"{f['name']}: unfurl observatory {code} to prospect", code,
                                          [unfurl_step(code)], {"devices": [code]}):

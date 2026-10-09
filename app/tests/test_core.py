@@ -6205,3 +6205,26 @@ def test_observatory_prospects_each_direction_then_compacts(client):
     out = client.portal.call(eng.observatory_pass)
     assert out == ["OBS00001: compacting (every direction tried in HOMEA)"]
     assert "done in HOMEA" in client.get("/fleets", headers=H).text
+
+
+def test_prospect_cones_on_the_galaxy_map(client):
+    from rsweb.observatory import live_prospect, reach_estimate
+    pos = {"HOME": {"x": 0, "y": 0, "z": 0}}
+    finds = [{"origin": "HOME", "direction": [1, 0, 0],
+              "stars": [{"designation": f"S{i}", "position": {"x": 10 + i, "y": i, "z": 0}} for i in range(6)]}]
+    reach, half, learned = reach_estimate(finds, pos)
+    assert learned and reach == 16.0 and 0 < half < 30
+    assert reach_estimate([], pos) == (25.0, 30.0, False)                  # nothing learned yet: the guess
+    db = client.app.state.db
+    live = {"completes_at": "2099-10-08T23:34:17-04:00", "direction": [-0.9068, -0.4214, 0.0094], "eta_seconds": 10284,
+            "origin": "SOL", "progress_percent": 76.2, "started_at": "2026-10-08T11:34:17-04:00"}
+    assert live_prospect({"device_code": "O", "prospect": live}) == live
+    devices = client.portal.call(db.kv_get, "devices")
+    devices.append({"device_code": "OBSV0001", "device_type": "galactic_observatory", "location": "SOL-3-L4",
+                    "status": "prospecting", "prospect": live, "tags": []})
+    client.portal.call(db.kv_set, "devices", devices)
+    ov = client.get("/api/map.json?part=overlay", headers=H).json()
+    p = ov["prospects"][0]
+    assert p["code"] == "OBSV0001" and p["origin"] == "SOL" and p["direction"] == live["direction"]
+    assert p["t1"] > p["t0"] and p["reach"] == 25.0 and not p["learned"]
+    assert 'id="opt-prospect"' in client.get("/map", headers=H).text

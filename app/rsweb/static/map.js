@@ -94,7 +94,8 @@ scene.add(grid);
 let data = { stars: [], replicants: [] };
 let starPoints, mineGroup = new THREE.Group(), coverGroup = new THREE.Group(), lineGroup = new THREE.Group();
 const moveGroup = new THREE.Group(), fleetGroup = new THREE.Group(), supplyGroup = new THREE.Group();
-scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup);
+const prospectGroup = new THREE.Group();
+scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup, prospectGroup);
 const supplyLines = [];   // {curve, dots: [sprite], el, v}
 const sparkGroup = new THREE.Group(); scene.add(sparkGroup);
 const measureGroup = new THREE.Group(); scene.add(measureGroup);   // right-click measuring: its points and line
@@ -249,6 +250,49 @@ function buildSupply() {
     el.appendChild(d);
     const k = fromSame[l.from] = (fromSame[l.from] ?? -1) + 1;
     supplyLines.push({ curve, dots, el: d, v: curve.getPoint(.5), dy: -14 - 12 * k });
+  }
+}
+
+// observatories prospecting: a faint cone from the system along the direction, darker as the scan progresses (at most
+// ~15 % opaque, and never hiding what's behind it). Reach / width come from past finds ("≈" while still a guess).
+const PROSPECT = 0x7fe3ff, DOWN = new THREE.Vector3(0, -1, 0);
+const prospectCones = [];
+function buildProspects() {
+  prospectGroup.clear();
+  prospectCones.forEach(x => x.el.remove()); prospectCones.length = 0;
+  for (const p of data.prospects || []) {
+    const dir = new THREE.Vector3(...(p.direction || [1, 0, 0])).normalize();
+    const h = p.reach, r = h * Math.tan(p.half_angle * Math.PI / 180);
+    const geo = new THREE.ConeGeometry(r, h, 40, 1, true);
+    geo.translate(0, -h / 2, 0);   // apex at the system, opening along -y …
+    const mat = new THREE.MeshBasicMaterial({ color: PROSPECT, transparent: true, opacity: .02, depthWrite: false,
+                                              side: THREE.DoubleSide });
+    const cone = new THREE.Mesh(geo, mat);
+    cone.position.copy(pos(p));
+    cone.quaternion.setFromUnitVectors(DOWN, dir);   // … turned to the prospect's direction
+    cone.raycast = () => {};                         // clicks go through to the stars behind it
+    prospectGroup.add(cone);
+    const d = document.createElement("div");
+    Object.assign(d.style, { position: "absolute", color: "#bdf2ff", pointerEvents: "none", fontFamily: "monospace",
+                             fontSize: "11px", whiteSpace: "nowrap" });
+    el.appendChild(d);
+    prospectCones.push({ p, mat, el: d, v: pos(p).add(dir.multiplyScalar(h * .5)) });
+  }
+}
+function placeProspects(now, showLabels) {
+  prospectGroup.visible = checked("opt-prospect", OPTS.prospect !== false);
+  const w = el.clientWidth, hgt = el.clientHeight, v = new THREE.Vector3();
+  for (const x of prospectCones) {
+    const f = Math.max(0, Math.min(1, (now - x.p.t0) / Math.max(1, x.p.t1 - x.p.t0)));
+    x.mat.opacity = .02 + .13 * f;
+    v.copy(x.v).project(camera);
+    const vis = prospectGroup.visible && showLabels && v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
+    x.el.style.display = vis ? "block" : "none";
+    if (vis) {
+      x.el.textContent = `🔭 ${x.p.code} · ${Math.round(f * 100)}% · ${now < x.p.t1 ? fmt((x.p.t1 - now) / 1000) + " left" : "finishing"}` +
+                         ` · ${x.p.learned ? "" : "≈"}${x.p.reach} ly`;
+      x.el.style.left = ((v.x + 1) / 2 * w) + "px"; x.el.style.top = ((1 - v.y) / 2 * hgt) + "px";
+    }
   }
 }
 
@@ -430,6 +474,7 @@ function animate(t = 0) {
     if (vis) { x.el.style.left = ((tmp.x + 1) / 2 * w) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px"; }
   }
   placeMovers(Date.now());
+  placeProspects(Date.now(), showLabels);
   moveGroup.visible = checked("opt-moving", OPTS.moving !== false);
   for (const x of movers) {
     tmp.copy(x.v).project(camera);
@@ -466,16 +511,17 @@ function infoText(d, loadingOverlay) {
 function applyOverlay(o, first) {
   const per = o.per_star || {};
   for (const s of data.stars) Object.assign(s, per[s.designation] || { drones: [], mining: {} });
-  Object.assign(data, { moving: o.moving || [], fleets: o.fleets || [], supply: o.supply || [] });
+  Object.assign(data, { moving: o.moving || [], fleets: o.fleets || [], supply: o.supply || [], prospects: o.prospects || [] });
   build();
   buildMovers();
+  buildProspects();
   buildFleets();
   buildSupply();
   if (first && data.stars.length) infoText(data, false);
 }
 function load(first) {
   return fetchPart("core").then(d => {
-    const keep = { moving: data.moving, fleets: data.fleets, supply: data.supply };   // until the new overlay lands
+    const keep = { moving: data.moving, fleets: data.fleets, supply: data.supply, prospects: data.prospects };   // until the new overlay lands
     data = { ...keep, ...d };
     d.stars.forEach(s => byName[s.designation] = s);
     if ($("star-list")) $("star-list").innerHTML = d.stars.map(s => `<option value="${esc(s.designation)}">`).join("");

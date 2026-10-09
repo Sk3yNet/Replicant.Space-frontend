@@ -42,3 +42,41 @@ def aim_vector(aim: str, here: dict | None, target: dict | None = None) -> list[
             raise ValueError("that's the observatory's own system — pick another star")
         return d
     raise ValueError(f"unknown aim {aim!r}")
+
+
+def live_prospect(d: dict) -> dict | None:
+    """The prospect a device reports while prospecting ({direction, started_at, completes_at, origin, …}), wherever in
+    the device record it sits."""
+    for v in [d.get("prospect"), d.get("prospecting")] + list(d.values()):
+        if isinstance(v, dict) and v.get("direction") and (v.get("completes_at") or v.get("started_at")):
+            return v
+    return None
+
+
+def reach_estimate(payloads: list[dict], pos: dict, default_ly: float = 25.0, default_deg: float = 30.0) -> tuple[float, float, bool]:
+    """How far and how wide a prospect looks, learned from the stars past prospects found: (reach ly, half-angle °,
+    learned?). Reach: the farthest find from its origin, rounded up; half-angle: covers 90 % of the finds off the aimed
+    direction (when the event says the direction)."""
+    import math
+    dists, angles = [], []
+    for p in payloads:
+        o = _xyz(pos.get(p.get("origin") or ""))
+        if not o:
+            continue
+        d = p.get("direction")
+        dn = math.sqrt(sum(a * a for a in d)) if isinstance(d, list) and len(d) == 3 else 0
+        for s in p.get("stars") or []:
+            sp = _xyz(s.get("position")) if isinstance(s, dict) else None
+            if not sp:
+                continue
+            v = [b - a for a, b in zip(o, sp)]
+            r = math.sqrt(sum(a * a for a in v))
+            if r <= 0:
+                continue
+            dists.append(r)
+            if dn:
+                c = sum(a * b for a, b in zip(v, d)) / (r * dn)
+                angles.append(math.degrees(math.acos(max(-1.0, min(1.0, c)))))
+    reach = float(math.ceil(max(dists))) if dists else default_ly
+    half = sorted(angles)[int(0.9 * (len(angles) - 1))] if len(angles) >= 5 else default_deg
+    return reach, round(max(5.0, min(90.0, half)), 1), bool(dists)

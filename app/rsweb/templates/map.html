@@ -18,6 +18,7 @@
     <label><input type="checkbox" id="opt-fleets" checked> fleets</label>
     <label><input type="checkbox" id="opt-supply" checked> supply lines</label>
     <label><input type="checkbox" id="opt-production" checked> mining</label>
+    <label><input type="checkbox" id="opt-prospect" checked> prospecting</label>
     <button class="small" id="btn-top">top-down</button>
     <button class="small" id="btn-home">my replicant</button>
     <button class="small ghost" hx-post="/map/refresh" hx-target="#map-status">refresh catalogue</button>
@@ -27,7 +28,7 @@
   <div id="map-tip"></div>
   <div class="legend">
     <i style="background:#6cb6ff"></i>your devices <i style="background:#ff5fa2"></i>replicant <i style="background:#4fd18b"></i>scanned
-    <i style="background:#f0b64f"></i>hub <i style="background:#fff27a"></i>prospected, not scanned yet <i style="background:#3fd0c9"></i>fleet <i style="background:#b48cff"></i>in transit (arrow points where it's going)
+    <i style="background:#f0b64f"></i>hub <i style="background:#fff27a"></i>prospected, not scanned yet <i style="background:#3fd0c9"></i>fleet <i style="background:#b48cff"></i>in transit (arrow points where it's going) <i style="background:#7fe3ff"></i>observatory prospecting (cone)
     <br>sparkles = drones mining now: <i style="background:#b0bec5"></i>structural <i style="background:#ffa726"></i>conductive
     <i style="background:#e6c88f"></i>silicates <i style="background:#a1887f"></i>carbon <i style="background:#4dd0e1"></i>volatiles
     <i style="background:#e040fb"></i>rares · right-click two stars to measure (a third right-click clears)

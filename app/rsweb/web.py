@@ -1606,6 +1606,26 @@ async def map_payload(request: Request, part: str = "all") -> dict:
         positions = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if s.get("position")}
         items = await request.app.state.worker.automations.fleets()
         fleets = [fl.activity(f, st["devices"], status_class) for f in items]
+        # observatories prospecting now: a cone from the system along the direction (reach / width learned from finds)
+        from .observatory import live_prospect, reach_estimate
+        runs = await db.kv_get("observatory_runs", {}) or {}
+        prospects = []
+        for d in st["devices"]:
+            if d.get("device_type") != "galactic_observatory" or not str(d.get("status") or "").startswith("prospecting"):
+                continue
+            live = live_prospect(d) or (runs.get(d["device_code"]) or {}).get("live")
+            t0, t1 = transit._ts((live or {}).get("started_at")), transit._ts((live or {}).get("completes_at"))
+            origin = (live or {}).get("origin") or star_of(d.get("location"))
+            if not live or not t0 or not t1 or t1 <= t0 or origin not in positions:
+                continue
+            prospects.append({"code": d["device_code"], "origin": origin, "direction": live.get("direction"),
+                              "t0": t0 * 1000, "t1": t1 * 1000})
+        if prospects:
+            rows = await db.fetchall("SELECT payload FROM events WHERE event='prospect.completed' ORDER BY seq DESC LIMIT 200")
+            reach, half, learned = reach_estimate([json.loads(r["payload"] or "{}") for r in rows], positions)
+            for p in prospects:
+                p.update({"position": positions[p["origin"]], "reach": reach, "half_angle": half, "learned": learned})
+        out["prospects"] = prospects
         out.update({"per_star": per_star, "moving": transit.galaxy_movers(transit.trips(st["devices"]), positions),
                     "fleets": [f for f in fleets if f["members"]], "supply": fl.supply_links(items, st["devices"])})
         if part == "all":   # the old shape too: drones / mining on each star
