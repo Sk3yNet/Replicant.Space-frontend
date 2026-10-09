@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.49.0"
+VERSION = "1.50.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.50.0", "2026-10-09", "Galaxy map: a faint cone for each observatory prospecting now, from its system along the "
+     "direction, darker as the scan progresses (at most ~15 %, never hiding what's behind); reach learned from past finds "
+     "(≈25 ly until then); 'prospecting' toggle. The observatory pass no longer sends a second prospect to one already "
+     "prospecting, and stands aside while loadouts is moving the observatory to another system (no unfurl/compact "
+     "tug-of-war)."),
     ("1.49.0", "2026-10-08", "Auto-scout surveys the nearest unsurveyed systems (scanned, every body but the belts surveyed) "
      "within 100 ly of home, ring by ring, one system after another — only inside relay coverage when no replicant rides "
      "along; a member down to 50 % ends the run (it finishes that system and goes home), and a run starts only with every "
