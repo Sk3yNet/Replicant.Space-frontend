@@ -137,3 +137,35 @@ def delivery_plan(e: dict, prog: dict, devices: list[dict]) -> dict:
             if remaining[r] <= 0:
                 remaining.pop(r)
     return {"controller": ctrl, "legs": legs, "missing": {r: q for r, q in remaining.items() if q > 0}, "short": short}
+
+
+# --- approval before anything fulfils a contract on its own ----------------------------------------------------------
+# Auto-fulfil (the Work on contracts rule, trade fleets' auto-fulfil contracts) only takes a contract whose species you
+# have approved on the Contracts page (off until you tick it). The species comes from the system scan of the contract's
+# body; without one, the body itself is what you approve.
+APPROVALS_KV = "contract_approvals"
+
+
+async def life_map(db) -> dict[str, dict]:
+    from .traffic import inhabited
+    systems = {}
+    for r in await db.fetchall("SELECT star, data FROM systems"):
+        try:
+            systems[r["star"]] = json.loads(r["data"] or "{}")
+        except ValueError:
+            continue
+    return inhabited(systems)
+
+
+def species_key(e: dict, life: dict[str, dict]) -> tuple[str, str]:
+    """(approval key, label) for a contract: its species, else its body."""
+    sp = (life.get(e.get("location") or "") or {}).get("species") or e.get("species")
+    if sp:
+        return f"species:{str(sp).lower()}", str(sp)
+    return f"body:{e.get('location')}", f"the inhabitants of {e.get('location')}"
+
+
+async def approved(db, e: dict, life: dict[str, dict] | None = None, approvals: dict | None = None) -> bool:
+    life = life if life is not None else await life_map(db)
+    approvals = approvals if approvals is not None else (await db.kv_get(APPROVALS_KV, {}) or {})
+    return species_key(e, life)[0] in approvals

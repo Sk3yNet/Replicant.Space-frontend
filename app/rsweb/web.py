@@ -2802,12 +2802,15 @@ async def game_events_ctx(request: Request) -> dict:
     evs = await gev.load(db)
     settings = await db.kv_get("event_settings", {}) or {}
     supply = await db.kv_get("contract_supply", {}) or {}
+    life, approvals = await gev.life_map(db), await db.kv_get(gev.APPROVALS_KV, {}) or {}
     open_, closed = [], []
     for e in sorted(evs.values(), key=lambda e: e.get("discovered_at") or "", reverse=True):
         if e["status"] == "open":
             e["prog"] = gev.progress(e, inv, st["devices"], st["replicants"])
             e["plan"] = gev.delivery_plan(e, e["prog"], st["devices"])
             e["supply"] = supply.get(e["designation"])
+            key, label = gev.species_key(e, life)
+            e["approval"] = {"key": key, "label": label, "on": key in approvals}
             open_.append(e)
         else:
             closed.append(e)
@@ -2879,6 +2882,19 @@ async def game_event_fulfil(request: Request, des: str, replicant: str = Form(""
     except ValueError:
         return HTMLResponse('<div class="result err">The fulfil body isn\'t valid JSON.</div>')
     return await run_action(request, user, method.upper(), path, payload, f"fulfil {e['title']} ({des})")
+
+
+@router.post("/game-events/approve", response_class=HTMLResponse)
+async def game_event_approve(request: Request, key: str = Form(...), on: str = Form(""), user: str = Depends(current_user)):
+    """Approve (or withdraw approval for) a species' contracts: auto-fulfil only takes approved ones."""
+    db = request.app.state.db
+    approvals = await db.kv_get(gev.APPROVALS_KV, {}) or {}
+    if on:
+        approvals[key] = {"at": now_iso(), "by": user}
+    else:
+        approvals.pop(key, None)
+    await db.kv_set(gev.APPROVALS_KV, approvals)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 async def _supply_now(request: Request) -> None:

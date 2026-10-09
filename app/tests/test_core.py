@@ -1633,6 +1633,11 @@ def test_contracts_rule_fulfils_when_ready(client):
     client.portal.call(w.handle_event, {"id": "4444444444450-0", "event": "event.discovered", "category": "event",
                                         "location": "SOL-BELT-1", "payload": disc, "created_at": "2026-10-01T10:00:00+00:00"})
     client.portal.call(client.app.state.db.kv_set, "replicants", {"77F75255": {"name": "bob-1", "location": "SOL-BELT-1"}})
+    assert client.portal.call(eng.rule_contracts, True) == []                  # not approved yet: left to you
+    page = client.get("/game-events", headers=H).text
+    assert "Approve fulfilling contracts from <b>the inhabitants of SOL-BELT-1</b>" in page
+    client.post("/game-events/approve", data={"key": "body:SOL-BELT-1", "on": "1"}, headers=HX)
+    client.portal.call(client.app.state.db.kv_set, "contracts_state", {})
     done = client.portal.call(eng.rule_contracts, True)
     assert done == ["fulfil SOL-BELT-1-EVT-001"]
     act = client.portal.call(client.app.state.db.fetchone, "SELECT method, path FROM actions ORDER BY id DESC LIMIT 1")
@@ -5359,6 +5364,7 @@ def test_hub_watch_pass_warns_once(client):
 def test_auto_scout_surveys_nearest_first_until_worn(client):
     eng, db = client.app.state.worker.automations, client.app.state.db
     w = client.app.state.worker
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}}]})   # no random mock stars
     stars = [{"designation": d, "position": {"x": x, "y": 0, "z": 0}} for d, x in
              (("NEARA", 2), ("NEARB", 3), ("FARC", 9), ("FARD", 12))]
     client.portal.call(w.handle_event, _ev(950, "prospect.completed", device="OBS00001", origin="SOL", stars_generated=4, stars=stars))
@@ -5921,6 +5927,7 @@ def test_auto_contracts_skip_contracts_that_need_devices(client):
                                                 title="Relay Network", criteria=[{"name": "default", "resources": {"carbon": 50},
                                                                                   "devices": [{"device_type": "ftl_relay", "quantity": 2}]}]),
                                         "location": "AEM-2"})
+    client.post("/game-events/approve", data={"key": "body:AEM-2", "on": "1"}, headers=HX)   # its species approved
     client.portal.call(eng.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
     client.post("/fleets/t/auto-deals", data={"auto_contracts": "on"}, headers=HX)
     assert client.portal.call(eng.auto_deals_pass) == []                    # 2 relays wanted at AEM-2: not carried
@@ -5951,6 +5958,7 @@ def test_contract_device_delivery_waits_for_print_authorization(client):
                                                 title="Relay Network", criteria=[{"name": "default", "resources": {"carbon": 50},
                                                                                   "devices": [{"device_type": "ftl_relay", "quantity": 2}]}]),
                                         "location": "AEM-2"})
+    client.post("/game-events/approve", data={"key": "body:AEM-2", "on": "1"}, headers=HX)   # its species approved
     devices = client.portal.call(db.kv_get, "devices")
     devices += [{"device_code": "S1", "device_type": "ftl_relay", "location": "SOL-3", "status": "idle", "tags": ["spare"]},
                 {"device_code": "F1", "device_type": "ftl_relay", "location": "SOL-3", "status": "idle", "tags": ["fleet:x"]},

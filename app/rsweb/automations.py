@@ -2269,9 +2269,12 @@ class AutomationEngine(OpsRules):
                 taken.add(d.get("designation") or f"{d.get('controller')}:{d.get('trade_code')}")
         cands: list[dict] = []
         supply = await self.db.kv_get("contract_supply", {}) or {}
+        life, approvals = await gev.life_map(self.db), await self.db.kv_get(gev.APPROVALS_KV, {}) or {}
         for des, e in (await gev.load(self.db)).items():
             if e.get("status") != "open" or not e.get("location") or des in taken or star_of(e["location"]) in locked:
                 continue
+            if not await gev.approved(self.db, e, life, approvals):
+                continue   # its species isn't approved yet (Contracts page)
             prog = gev.progress(e, inv, devices, reps)
             if any(x["short_here"] for x in (prog.get("best") or {}).get("devices") or []) \
                     and not (supply.get(des) or {}).get("active"):
@@ -2938,6 +2941,7 @@ class AutomationEngine(OpsRules):
         done = []
         from . import wards
         locked = wards.foreign(await self.db.kv_get("stars", {}) or {}, devices)   # wards and hubs lock contracts
+        life, approvals = await gev.life_map(self.db), await self.db.kv_get(gev.APPROVALS_KV, {}) or {}
         for des, e in (await gev.load(self.db)).items():
             if e["status"] != "open" or not e.get("location"):
                 continue
@@ -2945,7 +2949,8 @@ class AutomationEngine(OpsRules):
                 continue   # another player's ward or hub: its species interaction lock stops us completing this event
             prog = gev.progress(e, inv, devices, reps)
             tried = state.get(des) or {}
-            if prog["state"] == "ready" and cfg.get("auto_fulfil", True):
+            if prog["state"] == "ready" and cfg.get("auto_fulfil", True) \
+                    and await gev.approved(self.db, e, life, approvals):   # its species approved on the Contracts page
                 t = _ts(tried.get("fulfil"))
                 if t and (_now() - t).total_seconds() < 1800:
                     continue  # tried recently; let the event stream catch up (or the error be read)

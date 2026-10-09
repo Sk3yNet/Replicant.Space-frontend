@@ -13,6 +13,11 @@
     <span class="pill {{ {'ready': 'st-work', 'needs replicant': 'st-move', 'deliver': 'st-idle'}.get(p.state, 'lv-alert') }}">{{ p.state }}</span>
   </div>
   <div class="small"><a href="/systems/{{ e.star }}">{{ e.location }}</a> · discovered {{ e.discovered_at | ago }}</div>
+  <label class="small" style="text-transform:none;display:block;margin-top:4px">
+    <input type="checkbox" name="on" value="1" {{ 'checked' if e.approval.on }} hx-post="/game-events/approve"
+           hx-vals='{{ {"key": e.approval.key} | tojson }}' hx-trigger="change">
+    Approve fulfilling contracts from <b>{{ e.approval.label }}</b> automatically
+    {% if not e.approval.on %}<span class="muted">— off: auto-fulfil leaves this contract to you (Fulfil still works)</span>{% endif %}</label>
   {% if e.description %}<p class="muted small">{{ e.description }}</p>{% endif %}
   <div class="grid g2">
     <div>
