@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.53.0"
+VERSION = "1.54.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.54.0", "2026-10-09", "Explore fleets with an observatory get the Path forward box and 'advance along the heading': "
+     "once the observatory has prospected every direction from home, the farthest star ahead (inside the cone, within the "
+     "hop distance, default 30 ly; inside relay coverage unless a replicant rides along) becomes the fleet's home and the "
+     "loadout pass carries it there, leaving a relay and a beacon behind when it has them."),
     ("1.53.0", "2026-10-09", "Contracts page: a collapsed list of civilizations with no open contract (from system scans, "
      "and places that asked before), each with the auto-fulfill approval checkbox. American spelling throughout the UI, "
      "logs, comments and docs; the Map tab reads Defense (the game's own names, like travel.cancelled, are unchanged)."),
