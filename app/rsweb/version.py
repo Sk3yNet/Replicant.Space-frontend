@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.52.0"
+VERSION = "1.53.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.53.0", "2026-10-09", "Contracts page: a collapsed list of civilizations with no open contract (from system scans, "
+     "and places that asked before), each with the auto-fulfill approval checkbox. American spelling throughout the UI, "
+     "logs, comments and docs; the Map tab reads Defense (the game's own names, like travel.cancelled, are unchanged)."),
     ("1.52.0", "2026-10-09", "Contracts: each contract has an 'Approve fulfilling contracts from <species> automatically' "
      "checkbox, off by default. The Work on contracts rule and trade fleets' auto-fulfil only take contracts whose species "
      "(from the body's scan; else the body itself) you approved; the Fulfill button and runs you start still work."),
