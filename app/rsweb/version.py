@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.51.1"
+VERSION = "1.52.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.52.0", "2026-10-09", "Contracts: each contract has an 'Approve fulfilling contracts from <species> automatically' "
+     "checkbox, off by default. The Work on contracts rule and trade fleets' auto-fulfil only take contracts whose species "
+     "(from the body's scan; else the body itself) you approved; the Fulfil button and runs you start still work."),
     ("1.51.1", "2026-10-09", "Fleets page: the observatory note shows only on fleets that have an observatory or whose "
      "loadout wants one. README rewritten as a current per-tab overview; roadmap trimmed to open items."),
     ("1.51.0", "2026-10-09", "System page reorganised into Resources (one row per resource: richness, open sites, % left, "
