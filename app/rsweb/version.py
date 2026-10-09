@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.55.0"
+VERSION = "1.56.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.56.0", "2026-10-09", "A stationed mining or explore fleet whose home changes (edited, moved on when dry, go now, or "
+     "advancing) moves in one relocation mission whenever its carriers' hold slots and attach points cover every rider; "
+     "otherwise the loadout pass carries it piecemeal, and the log says why. In a fleet's travel phase the vessel carrying "
+     "a replicant gets its travel command last, so the others are still in control range when theirs goes out."),
     ("1.55.0", "2026-10-09", "Replicant cooperation: Account page sets replicant_cooperation (individual / shared), each "
      "replicant's profile its cohort_permission (private / public); boarding skips the owner hand-over when cooperation "
      "already allows it, and ownership errors carry a hint to these settings. An advancing explore fleet now moves in one "
