@@ -429,7 +429,9 @@ Gaps found by comparing the app with the game's API reference and docs (October 
 5. **Megastructures**: a Contribute button (`POST /locations/<code>/contribute`) and the leaderboard.
 6. ✅ **BobNet**: channels and message history (Messages page).
 7. **Smaller items**: ✅ own profile editing and ✅ reputation & species (1.43.0), ✅ game feedback (Diagnostics); still open: simulations.
-8. **Not planned**: webhooks. They would need a public, unauthenticated endpoint past oauth2-proxy. The event stream already covers it.
+8. **Housekeeping**: clean up this README (it has grown release by release); add comments explaining the code blocks
+   throughout the app.
+9. **Not planned**: webhooks. They would need a public, unauthenticated endpoint past oauth2-proxy. The event stream already covers it.
 
 ### Fleet controller — how the app would use it
 
