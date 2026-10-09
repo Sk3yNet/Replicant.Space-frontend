@@ -1209,6 +1209,8 @@ class AutomationEngine(OpsRules):
         by_id = {j["id"]: j for j in jobs}
         busy = self.busy_devices(jobs)
         runs = await self.db.kv_get("observatory_runs", {}) or {}
+        lmoves = await self.db.kv_get("loadout_moves", {}) or {}
+        lfresh = bool(_ts(lmoves.get("at")) and (_now() - _ts(lmoves["at"])).total_seconds() < 3600)
         cat = await self.db.kv_get("stars", {}) or {}
         pos = {x.get("designation"): x.get("position") or {} for x in cat.get("stars") or [] if isinstance(x, dict)}
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
@@ -1269,12 +1271,17 @@ class AutomationEngine(OpsRules):
                 if not new:
                     run.setdefault("used", []).append(run.get("idx") or 0)
                 run.pop("job", None)
-            leaving = bool(f.get("next_home")) or (bound_for(o, set(pos)) not in (None, here))
+            moving = (lmoves.get("moves") or {}).get(code)
+            leaving = (bool(f.get("next_home")) or (bound_for(o, set(pos)) not in (None, here))
+                       or bool(moving and moving != here and lfresh))
             nxt = pr.next_index(run)
             run["done"] = nxt is None
             runs[code] = run
             if code in busy or (_ts(run.get("retry_at")) and _now() < _ts(run["retry_at"])):
                 continue
+            if moving and moving != here and lfresh:
+                run["note"] = f"loadouts is moving it to {moving}"
+                continue   # loadouts compacts and carries it; nothing for this pass to do
             if leaving or run["done"]:   # pack up: the fleet moves on, or nothing is left to find here
                 if not compacted(o) and "compact" in (o.get("available_commands") or ["compact"]) \
                         and not st.startswith(("prospecting", "unfurling")):
@@ -1588,6 +1595,9 @@ class AutomationEngine(OpsRules):
         stowed_in = {c: k for k, kids in (await self.db.kv_get("stowed_map", {}) or {}).items() for c in kids}
         lines = lo.describe(p)
         started = 0
+        # what this pass moves to another system (the observatory pass leaves those alone instead of unfurling them —
+        # seen live 2026-10-09: Miner 2's observatory unfurled while loadouts was compacting it for the trip to ITHVALAI)
+        await self.db.kv_set("loadout_moves", {"at": now_iso(), "moves": dict(p.get("moves") or {})})
         radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         for ctrl, codes in sorted((p.get("releases") or {}).items()):
             why = "no longer in the loadout" if set(codes) <= set(p.get("made_spare") or []) else "in another system / spare"

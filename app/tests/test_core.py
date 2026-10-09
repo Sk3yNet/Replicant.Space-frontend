@@ -6228,3 +6228,19 @@ def test_prospect_cones_on_the_galaxy_map(client):
     assert p["code"] == "OBSV0001" and p["origin"] == "SOL" and p["direction"] == live["direction"]
     assert p["t1"] > p["t0"] and p["reach"] == 25.0 and not p["learned"]
     assert 'id="opt-prospect"' in client.get("/map", headers=H).text
+
+
+def test_observatory_pass_stands_aside_while_loadouts_moves_it(client):
+    """Live 2026-10-09: Miner 2's observatory was unfurled to prospect while loadouts was compacting it for ITHVALAI."""
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "HOMEA", "position": {"x": 0, "y": 5, "z": 0}}]})
+    obs = {"device_code": "OBS00002", "device_type": "galactic_observatory", "location": "HOMEA-6-L4", "status": "compacted",
+           "tags": ["fleet:m2"], "available_commands": ["prospect", "compact", "unfurl"]}
+    client.portal.call(db.kv_set, "devices", [obs])
+    client.portal.call(eng.save_fleets, [{"id": "m2", "name": "Miner 2", "role": "mining", "home": "HOMEA", "wants": {}}])
+    from rsweb.db import now_iso
+    client.portal.call(db.kv_set, "loadout_moves", {"at": now_iso(), "moves": {"OBS00002": "ITHVALAI"}})
+    assert client.portal.call(eng.observatory_pass) == []                    # no unfurl, no compact of its own
+    assert "moving it to ITHVALAI" in client.portal.call(db.kv_get, "observatory_runs")["OBS00002"]["note"]
+    client.portal.call(db.kv_set, "loadout_moves", {"at": now_iso(), "moves": {}})
+    assert client.portal.call(eng.observatory_pass) == ["OBS00002: unfurling"]   # staying: back to prospecting
