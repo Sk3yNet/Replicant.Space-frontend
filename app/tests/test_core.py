@@ -6298,3 +6298,20 @@ def test_advancing_explorer_moves_home_to_farthest_star_ahead(client):
     job = [j for j in client.portal.call(eng.jobs) if "leave a relay" in j["title"]][0]
     assert job["steps"][0]["body"]["configuration"] == {"add_tags": ["at:homea-3-l4"], "remove_tags": ["fleet:ex"]}
     assert "advance along the heading" in client.get("/fleets", headers=H).text
+
+
+def test_loadout_prints_never_go_to_a_vessel():
+    """Live 2026-10-09: a replenishment print went to an idle heaven vessel (it lists enqueue_print) instead of the
+    system's autofactory."""
+    from rsweb import loadouts as lo
+    D = lambda code, t, **kw: {"device_code": code, "device_type": t, "location": "AAA-3-L4", "status": "idle", **kw}  # noqa: E731
+    devices = [D("AF1", "autofactory", available_commands=["enqueue_print"], print_queue=[{"device_type": "x"}] * 3),
+               D("HV2", "heaven_vessel", available_commands=["enqueue_print", "travel"])]
+    cfg = lo.normalize({"phases": [], "fleets_migrated": True, "settings": {"need_stock": False},
+                        "fleets": [{"id": "f", "name": "F", "role": "mining", "home": "AAA", "station": True,
+                                    "wants": {"mining_drone": 2}}]})
+    bps = [{"device_type": "mining_drone", "resources": {"structural": 10}, "print_time": 60},
+           {"device_type": "autofactory", "queue_size": 10}]
+    p = lo.plan(cfg, devices, bps, {"AAA-3-L4": {"structural": 100}}, {"AAA": {"position": {"x": 0, "y": 0, "z": 0}}},
+                {}, set(), [], {})
+    assert p["prints"] and all(pr["factory"] == "AF1" for pr in p["prints"])

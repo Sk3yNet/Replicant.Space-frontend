@@ -207,7 +207,11 @@ def for_contract(d: dict) -> bool:
 
 
 def is_factory(d: dict) -> bool:
-    return "enqueue_print" in (d.get("available_commands") or []) or "autofactory" in (d.get("device_type") or "")
+    """An autofactory, or another printer that works a queue. Not a vessel: it lists enqueue_print but only prints through
+    its replicant, one at a time (seen live 2026-10-09: a fleet's replenishment print queued on a heaven vessel instead
+    of the system's autofactories, and never printed)."""
+    t = d.get("device_type") or ""
+    return "vessel" not in t and ("enqueue_print" in (d.get("available_commands") or []) or "autofactory" in t)
 
 
 def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict[str, dict], stars: dict[str, dict],
