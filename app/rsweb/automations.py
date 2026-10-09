@@ -1125,7 +1125,7 @@ class AutomationEngine(OpsRules):
                     continue
                 f["prev_home"], f["home"] = home, nxt
                 f.pop("next_home", None), f.pop("next_home_at", None), f.pop("depleted_since", None)
-                f["path_note"] = f"moved home {home} → {nxt} at {now_iso()}"
+                f["path_note"] = f"moved home {home} → {nxt} at {now_iso()} — " + await self.start_relocation(f, home, nxt)
                 changed = True
                 out.append(f"{f['name']}: home {home} → {nxt}")
                 await self.log("fleets", f"{f['name']}: new home {nxt} (was {home}) — the loadout pass moves the fleet there")
@@ -1340,6 +1340,29 @@ class AutomationEngine(OpsRules):
             await self.save_fleets(fleet_list)
         return out
 
+    async def start_relocation(self, f: dict, old: str, new: str, devices: list[dict] | None = None) -> str:
+        """A stationed mining or explore fleet whose home just changed moves there together, in one relocation mission
+        (pack up — large devices compacted — everyone aboard, gather strays, travel, unload), when its carriers' hold slots
+        and attach points cover every rider. Otherwise (or for a trade fleet) the loadout pass carries it piecemeal.
+        Returns what happens, for the log."""
+        from . import fleets as fl
+        from .shapes import normalize_blueprints
+        if f.get("role") not in ("mining", "explore") or not f.get("station") or old == new \
+                or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
+            return "the loadout pass moves it"
+        devices = devices if devices is not None else await self.devices()
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        if not [d for d in fl.members(f, devices) if star_of(d.get("location")) != new]:
+            return "nothing to move"
+        short = fl.attach_points(f, devices, bps)["now"]["short"]
+        if short > 0:
+            return f"its carriers are {short} seat(s) short of carrying everyone, so the loadout pass moves it piecemeal"
+        m = {"status": "running", "phase": None, "idx": 0, "targets": [new], "started_at": now_iso(), "log": [],
+             "opts": {}, "auto": True, "relocate": True}
+        self._mlog(m, f"relocating {old} → {new}: pack up, everyone aboard, travel together, unload")
+        f["mission"] = m
+        return "moving together in one relocation mission (everyone aboard before anything leaves)"
+
     async def _advance_explorer(self, f: dict, fleets: list[dict], devices: list[dict], pos: dict, out: list[str]) -> bool:
         """Move an advancing explore fleet's home to the farthest star ahead (pathing.advance_target). Without a replicant
         aboard only stars inside relay coverage qualify (arrivals outside it couldn't be commanded). A relay and a beacon
@@ -1383,10 +1406,8 @@ class AutomationEngine(OpsRules):
         # one relocation mission: compact the observatory and board everyone (nothing leaves until all are aboard —
         # far out there's no relay, so anything left behind couldn't be commanded once the replicant goes), fly together,
         # unload at the new home. The loadout pass leaves a fleet on a mission alone.
-        m = {"status": "running", "phase": None, "idx": 0, "targets": [nxt], "started_at": now_iso(), "log": [],
-             "opts": {}, "auto": True, "relocate": True}
-        self._mlog(m, f"relocating {home} → {nxt}: pack up, everyone aboard, travel together, unload")
-        f["mission"] = m
+        how = await self.start_relocation(f, home, nxt, devices)
+        f["path_note"] += f" — {how}"
         out.append(f"{f['name']}: advancing {home} → {nxt}")
         await self.log("fleets", f"{f['name']}: every direction prospected from {home} — advancing to {nxt}", notify=True)
         return True

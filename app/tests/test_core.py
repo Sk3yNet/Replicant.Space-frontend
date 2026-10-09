@@ -6289,7 +6289,10 @@ def test_advancing_explorer_moves_home_to_farthest_star_ahead(client):
     client.portal.call(db.kv_set, "stars", {"stars": [{"designation": k, "position": dict(zip("xyz", v))} for k, v in stars.items()]})
     devices = [{"device_code": "OBSX", "device_type": "galactic_observatory", "location": "HOMEA-3-L4", "status": "idle",
                 "tags": ["fleet:ex"], "available_commands": ["prospect", "compact", "unfurl"]},
-               {"device_code": "VES1", "device_type": "heaven_vessel", "location": "HOMEA-3-L4", "status": "idle", "tags": ["fleet:ex"]},
+               {"device_code": "VES1", "device_type": "heaven_vessel", "location": "HOMEA-3-L4", "status": "idle", "tags": ["fleet:ex"],
+                "features": ["surge", "cruise", "stow"], "stow_capacity": 10},
+               {"device_code": "PLT1", "device_type": "surge_plate", "location": "HOMEA-3-L4", "status": "idle", "tags": ["fleet:ex"],
+                "features": ["surge", "attach"], "attach_capacity": 1},   # the observatory can't stow: it attaches
                {"device_code": "RLY1", "device_type": "ftl_relay", "location": "HOMEA-3-L4", "status": "relaying", "tags": ["fleet:ex"]}]
     client.portal.call(db.kv_set, "devices", devices)
     client.portal.call(db.kv_set, "replicants", {"R1": {"name": "bob", "hosted_device_code": "VES1"}})   # rides along
@@ -6389,3 +6392,17 @@ def test_path_forward_form_shows_the_saved_heading(client):
     client.post("/fleets/m1/path", data={"heading_kind": "star", "heading_star": "TGT", "cone": "30"}, headers=HX)
     f = client.portal.call(eng.fleets)[0]
     assert f["heading"]["vector"] == [1.0, 0.0, 0.0] and f["cone"] == 30     # unchanged choice: vector kept, cone saved
+
+
+def test_relocation_only_when_the_carriers_fit_everyone(client):
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    rider = lambda c: {"device_code": c, "device_type": "survey_drone", "location": "AAA-1", "status": "idle",  # noqa: E731
+                       "tags": ["fleet:m"], "features": ["cruise", "stow"]}
+    ves = {"device_code": "V", "device_type": "cargo_vessel", "location": "AAA-1", "status": "idle", "tags": ["fleet:m"],
+           "features": ["surge", "cruise"], "stow_capacity": 2}
+    f = {"id": "m", "name": "M", "role": "mining", "home": "BBB", "station": True, "wants": {}}
+    how = client.portal.call(eng.start_relocation, dict(f), "AAA", "BBB", [ves, rider("D1"), rider("D2")])
+    assert "relocation mission" in how                                         # 2 riders, 2 hold slots: together
+    f2 = dict(f)
+    how = client.portal.call(eng.start_relocation, f2, "AAA", "BBB", [ves, rider("D1"), rider("D2"), rider("D3"), rider("D4"), rider("D5"), rider("D6")])
+    assert "piecemeal" in how and "mission" not in f2                         # too many riders: the loadout pass carries them

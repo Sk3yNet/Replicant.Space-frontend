@@ -244,9 +244,10 @@
           <span id="path-{{ f.id }}"></span>
           {% if f.role == 'explore' %}<div class="muted" style="margin-top:2px">Advancing: when its observatory has prospected every direction from
             {{ f.home }}, the farthest star ahead (inside the cone, within the hop distance; inside your relay coverage unless a replicant
-            rides along; not another fleet's home or a system it has left) becomes its home, and the fleet moves there in one relocation
-            mission: the observatory compacts and everyone boards before anything leaves (far out, nothing left behind could be
-            commanded), then they fly together and unload. A relay and a beacon stay behind when it has them.</div>{% else %}
+            rides along; not another fleet's home or a system it has left) becomes its home. When its carriers can take every rider (the
+            carrying budget below shows no shortfall; an observatory needs an attach point, it can't stow), it moves in one
+            relocation mission: everyone boards before anything leaves, then they fly together and unload. Otherwise the loadout
+            pass carries it piecemeal. A relay and a beacon stay behind when it has them.</div>{% else %}
           <div class="muted" style="margin-top:2px">When {{ f.home }} has been dry for 2 h (no belt or salvage left, every belt 'consider moving', or
             another player's ward), the fleet picks the best-ranked system ahead (Systems › Mining prospects) — never one that's unscanned,
             outside your relay coverage, warded, another fleet's home, or another mining fleet's next home or target — and moves after 30 min

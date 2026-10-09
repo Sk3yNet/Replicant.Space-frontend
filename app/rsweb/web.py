@@ -3165,8 +3165,12 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
         if new_name != f["name"]:
             await rename_fleet(request, f, items, new_name)
         f["name"] = new_name
+        old_home = f.get("home")
         f["home"] = (form.get("home") or f["home"]).upper()
         f["role"] = form.get("role") if form.get("role") in fl.ROLES else f["role"]
+        if old_home and f["home"] != old_home and f.get("station"):   # a stationed fleet's new home: move together if it can
+            how = await eng.start_relocation(f, old_home, f["home"])
+            await eng.log("fleets", f"{f['name']}: new home {f['home']} (was {old_home}) — {how}")
         wants = None
         if "template" in form:
             f["template"] = form.get("template") or None

@@ -298,15 +298,20 @@ def roster(fleet: dict, devices: list[dict]) -> dict:
                       and not aboard(d, {c["device_code"] for c in carriers})]}
 
 
+RELOCATE_PHASES = ["assemble", "gather", "travel", "deploy"]
+
+
 def next_phase(role: str, m: dict) -> str | None:
     """The phase after m["phase"] (mutates m["idx"] when an explore fleet moves on to its next target)."""
     cur = m.get("phase")
+    if m.get("relocate"):   # a stationed fleet moving home together: pack up, gather, travel, unload — then done
+        seq = RELOCATE_PHASES
+        i = seq.index(cur) if cur in seq else -1
+        return seq[i + 1] if i + 1 < len(seq) else None
     if role == "explore":
         seq = PHASES["explore"]
         if cur is None:
             return seq[0]
-        if m.get("relocate") and cur == "deploy":
-            return None   # a relocation (advancing explorer): everyone packed up, flown and unloaded together — done
         if cur in seq[:-1]:
             return seq[seq.index(cur) + 1]
         if cur == "recall":
