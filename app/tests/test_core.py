@@ -6367,3 +6367,19 @@ def test_owner_handoff_skipped_when_cooperation_allows():
     assert len(with_owner_handoff(stow, devices, {"public": {"A"}})) == 1
     assert "Replicant cooperation" in ownership_hint("Target host device must belong to this replicant")
     assert ownership_hint("Device is already in motion") == ""
+
+
+def test_path_forward_form_shows_the_saved_heading(client):
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "HOMEA", "position": {"x": 3, "y": 4, "z": 0}},
+                                                      {"designation": "TGT", "position": {"x": 9, "y": 4, "z": 0}}]})
+    client.portal.call(eng.save_fleets, [{"id": "m1", "name": "Miner 1", "role": "mining", "home": "HOMEA", "station": True, "wants": {}}])
+    client.post("/fleets/m1/path", data={"heading_kind": "star", "heading_star": "TGT", "cone": "45"}, headers=HX)
+    page = client.get("/fleets", headers=H).text
+    assert '<option value="star" selected>' in page and 'name="heading_star" placeholder="star" size="10" list="path-stars" value="TGT"' in page
+    items = client.portal.call(eng.fleets)
+    items[0]["home"] = "ELSEWHERE"                                           # the fleet moved since
+    client.portal.call(eng.save_fleets, items)
+    client.post("/fleets/m1/path", data={"heading_kind": "star", "heading_star": "TGT", "cone": "30"}, headers=HX)
+    f = client.portal.call(eng.fleets)[0]
+    assert f["heading"]["vector"] == [1.0, 0.0, 0.0] and f["cone"] == 30     # unchanged choice: vector kept, cone saved

@@ -227,14 +227,16 @@
               {% if f.id in obs_fleets %}<span class="muted small">its observatory prospects on its own wherever it's deployed — the heading first, then 13 other directions</span>{% endif %}
             </div>
             <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">
-              <select name="heading_kind">
-                <option value="keep">keep the heading{% if not f.heading %} (none){% endif %}</option>
-                <option value="outward">outward from Sol through {{ f.home }}</option>
-                <option value="star">toward a star…</option>
-                <option value="custom">custom x, y, z…</option>
-                <option value="none">no heading</option></select>
-              <input name="heading_star" placeholder="star" size="10" list="path-stars">
-              <input name="heading_vec" placeholder="x, y, z" size="14">
+              {% set h = f.heading or {} %}{% set hl = h.label or '' %}
+              {% set hk = h.kind or ('outward' if hl.startswith('outward') else 'star' if ' toward ' in hl else 'custom' if h.vector else 'none') %}
+              {% set hstar = h.star or (hl.split(' toward ')[-1] if ' toward ' in hl else '') %}
+              <select name="heading_kind" title="saved: {{ hl or 'no heading' }}">
+                <option value="outward" {{ 'selected' if hk == 'outward' }}>outward from Sol through {{ f.home }}</option>
+                <option value="star" {{ 'selected' if hk == 'star' }}>toward a star…</option>
+                <option value="custom" {{ 'selected' if hk == 'custom' }}>custom x, y, z…</option>
+                <option value="none" {{ 'selected' if hk == 'none' }}>no heading</option></select>
+              <input name="heading_star" placeholder="star" size="10" list="path-stars" value="{{ hstar }}">
+              <input name="heading_vec" placeholder="x, y, z" size="14" value="{{ (h.vector | join(', ')) if hk == 'custom' else '' }}">
               <label style="text-transform:none">cone ±<input type="number" name="cone" min="10" max="180" value="{{ f.cone or 60 }}" style="width:4em">°</label>
               <button class="small">Save</button>
             </div>

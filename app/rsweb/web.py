@@ -3520,19 +3520,27 @@ async def fleets_path(request: Request, fid: str, user: str = Depends(current_us
     cat = await request.app.state.db.kv_get("stars", {}) or {}
     pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict)}
     kind = form.get("heading_kind") or "keep"
+    # the form shows the saved heading: the same choice sent back unchanged keeps the saved vector (it's fixed when set,
+    # so re-saving the cone mustn't recompute "outward" from a home the fleet has since moved to)
+    h = f.get("heading") or {}
+    same = (h and kind == h.get("kind") and (kind != "star" or (form.get("heading_star") or "").strip().upper() == h.get("star"))
+            and (kind != "custom" or [round(float(x), 4) for x in re.split(r"[,\s]+", form.get("heading_vec") or "") if x]
+                 == [round(float(x), 4) for x in h.get("vector") or []]))
+    if same or (kind == "none" and not h):
+        kind = "keep"
     try:
         if kind == "none":
             f.pop("heading", None)
         elif kind == "outward":
             f["heading"] = {"vector": pa.heading_from("outward", pa.xyz(pos.get(f.get("home")))),
-                            "label": f"outward from Sol through {f.get('home')}"}
+                            "label": f"outward from Sol through {f.get('home')}", "kind": "outward"}
         elif kind == "star":
             tgt = (form.get("heading_star") or "").strip().upper()
             f["heading"] = {"vector": pa.heading_from("star", pa.xyz(pos.get(f.get("home"))), pa.xyz(pos.get(tgt))),
-                            "label": f"from {f.get('home')} toward {tgt}"}
+                            "label": f"from {f.get('home')} toward {tgt}", "kind": "star", "star": tgt}
         elif kind == "custom":
             vec = [x for x in re.split(r"[,\s]+", form.get("heading_vec") or "") if x]
-            f["heading"] = {"vector": pa.heading_from("custom", None, custom=vec), "label": "custom"}
+            f["heading"] = {"vector": pa.heading_from("custom", None, custom=vec), "label": "custom", "kind": "custom"}
     except ValueError as e:
         return HTMLResponse(f'<span class="lv-alert small">{html.escape(str(e))}</span>')
     f["cone"] = _int(form.get("cone"), pa.DEFAULT_CONE, 10, 180)
