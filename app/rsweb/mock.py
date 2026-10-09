@@ -142,7 +142,7 @@ class World:
         self.audit: dict[str, list[dict]] = {}       # beacon -> audit rows (newest last)
         self.trades: dict[str, list[dict]] = {}      # trade controller -> trades
         self.feedback: list[dict] = []
-        self.trips: dict[str, Any] = {}              # device -> pending arrival (asyncio handle), for cancelling
+        self.trips: dict[str, Any] = {}              # device -> pending arrival (asyncio handle), for canceling
         self.objects: dict[str, dict] = {}           # STAR-OBJ-n -> object
         self.profiles: dict[str, dict] = {}          # other replicants' public profiles
         self.profile_patches: list[dict] = []         # PATCH /replicants/{code} bodies
@@ -589,7 +589,7 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         d = next((x for x in world.devices if x["device_code"] == code), None)
         h = world.trips.pop(code, None)
         if not d or not h or not d.get("travel"):
-            return ok({"error": "Device is not travelling"}, 400)
+            return ok({"error": "Device is not traveling"}, 400)
         h.cancel()
         tr = d.pop("travel")
         d["location"], d["status"] = tr["origin"], "idle"    # it turns back (instantly here)

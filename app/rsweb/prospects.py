@@ -185,7 +185,7 @@ def forget_inputs(db=None) -> None:
 
 
 async def rank(db, eng, devices: list[dict], origin: str | None, limit_unscanned: int = 8) -> dict:
-    """Every scanned system scored (best first), plus the nearest unscanned catalogue stars as "survey first"."""
+    """Every scanned system scored (best first), plus the nearest unscanned catalog stars as "survey first"."""
     from . import outposts
     inp = await rank_inputs(db, eng, devices)
     pos, warded, homes, viability, wanted, scanned = (inp["pos"], inp["warded"], inp["homes"], inp["viability"],

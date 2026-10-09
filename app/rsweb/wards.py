@@ -1,7 +1,7 @@
 """Other players' system wards (and hubs).
 
 A system ward stops other players mining in its system, and so does a system hub (the player confirmed, 2026-10-07).
-The star catalogue (`GET /stars`) and a stellar census flag them with `has_ward` / `has_hub` (present only when true),
+The star catalog (`GET /stars`) and a stellar census flag them with `has_ward` / `has_hub` (present only when true),
 which is also true for one of ours; so a system is warded by someone else when it's flagged and none of our wards or
 hubs is deployed there. Used to:
   • refuse a mining mission to such a system (and stall one that finds the target warded on the way),
@@ -29,9 +29,9 @@ def ours(devices: Iterable[dict]) -> set[str]:
 
 
 def foreign(stars: Any, devices: Iterable[dict]) -> set[str]:
-    """Systems another player has warded: flagged has_ward or has_hub in the catalogue / census, and no ward or hub
+    """Systems another player has warded: flagged has_ward or has_hub in the catalog / census, and no ward or hub
     of ours there.
-    `stars`: the catalogue ({"stars": [...]}), a list of star records, or {designation: record}.
+    `stars`: the catalog ({"stars": [...]}), a list of star records, or {designation: record}.
     Wards and hubs also carry a species interaction lock: other players can't complete location events (contracts)
     there (game docs / the player, 2026-10-07)."""
     if isinstance(stars, dict) and "stars" in stars:

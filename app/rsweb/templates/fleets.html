@@ -268,7 +268,7 @@
             <datalist id="fl-stars-{{ f.id }}">{% for o in f.target_options %}<option value="{{ o.value }}">{{ o.group }}{% if o.label %} · {{ o.label }}{% endif %}</option>{% endfor %}</datalist>
             {% if f.role == 'explore' and f.outposts %}<div class="muted small">Aboard: {{ f.outposts.have.relay }} FTL relay(s),
               {{ f.outposts.have.beacon }} FTL beacon(s). Each system without one of yours gets one of each (the relay at an L4/L5
-              point); a civilisation found by the survey gets the beacon at its body. Starting warns if there aren't enough.
+              point); a civilization found by the survey gets the beacon at its body. Starting warns if there aren't enough.
               A system ward in the loadout goes with the fleet: deployed and activated where it works, taken back aboard
               when it leaves.</div>{% endif %}
             {% if home_systems %}<div class="muted small">Not available as targets (a stationed fleet works them):

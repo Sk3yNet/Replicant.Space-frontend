@@ -10,7 +10,7 @@
 <div class="card">
   <div class="row between">
     <h2 style="margin:0">Mining diagnosis <span class="muted small">captured {{ snap.captured_at | ago }}{% if snap.app.server %} by v{{ snap.app.server.version }}{% endif %} · {{ snap.requests }} requests
-      {% if snap.skipped %}· {{ snap.skipped | length }} skipped (cap){% endif %}{% if snap.partial_device_list %} · <span class="lv-alert">device list was partial (replicant travelling?)</span>{% endif %}</span></h2>
+      {% if snap.skipped %}· {{ snap.skipped | length }} skipped (cap){% endif %}{% if snap.partial_device_list %} · <span class="lv-alert">device list was partial (replicant traveling?)</span>{% endif %}</span></h2>
     <a class="button small" href="/diagnostics/snapshot.json" hx-boost="false" download>Download snapshot (JSON)</a>
   </div>
   {% if diag.headline %}<ul class="small">{% for h in diag.headline %}<li>{{ h }}</li>{% endfor %}</ul>{% endif %}

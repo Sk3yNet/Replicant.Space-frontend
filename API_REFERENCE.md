@@ -1,7 +1,7 @@
 # Replicant Space API — Developer Reference
 
-Compiled 2026-09-29 from https://replicant.space/docs/ via WebFetch (page text is summarised by a
-fetch model, so JSON blocks labelled "verbatim" were explicitly requested character-for-character;
+Compiled 2026-09-29 from https://replicant.space/docs/ via WebFetch (page text is summarized by a
+fetch model, so JSON blocks labeled "verbatim" were explicitly requested character-for-character;
 everything else is as-reported). Anything not seen in the docs is marked **(INFERRED)**.
 
 ---
@@ -35,7 +35,7 @@ Actions typically return `{"status": "<verb_state>", ...}` (e.g. `travel_initiat
    - `latest=true` (newest first) is **incompatible with `cursor`** on endpoints that support it.
    - Default `limit` 20, max 50 for device lists; `/v1/events` default & max 100; `/devices/tags/{tag}` default 10.
 2. **Page-based** — `/replicants/{code}/stars`: `page` (default 1), `per_page` (1–50, default 10); response echoes `page`, `per_page`.
-3. **Unpaginated** — `/v1/stars` (full catalogue), `/v1/blueprints`, `/v1/locations`, `/v1/achievements`.
+3. **Unpaginated** — `/v1/stars` (full catalog), `/v1/blueprints`, `/v1/locations`, `/v1/achievements`.
 
 ### Error envelope
 ```json
@@ -45,7 +45,7 @@ Single `error` string; category from HTTP status. Some errors add a `detail` obj
 ```json
 {
   "error": "No new stars visible from this location",
-  "detail": { "neighbours": 22, "outward_neighbours": 14, "expected": 16.8, "ratio": 1.31, "outward_ratio": 1.667 }
+  "detail": { "neighbors": 22, "outward_neighbours": 14, "expected": 16.8, "ratio": 1.31, "outward_ratio": 1.667 }
 }
 ```
 
@@ -64,7 +64,7 @@ Single `error` string; category from HTTP status. Some errors add a `detail` obj
 
 ### Rate limits
 - Global per token: **GET 120/min**, **actions (POST/PATCH/DELETE) 60/min**.
-- Per-endpoint: registration 10/h, verification 30/h, webhook changes 12/h, feedback 10/h, **star catalogue 1/min**.
+- Per-endpoint: registration 10/h, verification 30/h, webhook changes 12/h, feedback 10/h, **star catalog 1/min**.
 - 429 headers: `Retry-After` (s), `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` (unix ts).
 - 429 body is different from the normal error envelope:
 ```json
@@ -75,7 +75,7 @@ Single `error` string; category from HTTP status. Some errors add a `detail` obj
 `STAR` · planet `STAR-2` · moon `STAR-2-1` · belt `STAR-BELT-1` · resource site `STAR-BELT-1-SITE-2` ·
 salvage `STAR-1-3-SAL-1` · system object/asteroid/megastructure `STAR-OBJ-1` · Lagrange `STAR-4-L1..L5` ·
 outer `STAR-KUIPER`, `STAR-OORT`.
-Galactic coords: `position: {x, y, z}` in **light-years offset from Sol (0,0,0)**; +x toward Galactic Centre, +y direction of rotation, +z Galactic north.
+Galactic coords: `position: {x, y, z}` in **light-years offset from Sol (0,0,0)**; +x toward Galactic Center, +y direction of rotation, +z Galactic north.
 
 ### Resources
 `carbon`, `conductive`, `rares`, `silicates`, `structural`, `volatiles`.
@@ -242,7 +242,7 @@ Query `location`, `device_type`, `cursor` (int device ID), `limit` (20, max 50).
   "next_cursor": 4821
 }
 ```
-Note: this example shows `operational_capacity` as 0–1 fraction while `/v1/devices` shows 0–100 (`67.0`). Treat as percentage 0–100 and normalise if ≤1 **(INFERRED — docs inconsistent)**.
+Note: this example shows `operational_capacity` as 0–1 fraction while `/v1/devices` shows 0–100 (`67.0`). Treat as percentage 0–100 and normalize if ≤1 **(INFERRED — docs inconsistent)**.
 
 ### GET /v1/replicants/{code}/stars — nearest stars
 Query `page`, `per_page` (1–50). Response: `page`, `per_page`, `replicant_position{x,y,z}`, `stars[]` with
@@ -570,8 +570,8 @@ Query `location` (star or location code), `cursor` (location code string), `limi
 ```
 (`items` omits zero resources.)
 
-### GET /v1/stars — full star catalogue
-- Unpaginated JSON, **1 request/minute**, regenerated every 5 min (`generated_at`). Catalogue covers ~70 ly; observatories discover beyond.
+### GET /v1/stars — full star catalog
+- Unpaginated JSON, **1 request/minute**, regenerated every 5 min (`generated_at`). Catalog covers ~70 ly; observatories discover beyond.
 - Size: example `total: 24`; real size not stated (INFERRED: hundreds–thousands; cache locally).
 ```json
 {
@@ -642,7 +642,7 @@ All return 200.
 - A mining controller needn't be at the same location as its drones; drones can be spread across several sites.
 - `gather_salvage` moves all available mining drones to one location. `gather_resources` **fails if the drones aren't all
   at the same location**.
-- "High levels of multi-tasking can introduce overheating and unreliable behaviour": a controller running drones in
+- "High levels of multi-tasking can introduce overheating and unreliable behavior": a controller running drones in
   many places logs `ami_overheat` (device log, about every 20 s seen live) and may report `_eval_state`
   `gated:cold_repair` (seen live with its drones idle at a Lagrange point, away from the belt).
 - The client keeps each mining controller's drones with it at its belt (rule *Salvage when mining sites run out*,
@@ -705,7 +705,7 @@ data: {"version":1,"category":"mining","event":"mining.started","device_code":"2
 ### Legacy per-replicant log: GET /v1/replicants/{code}/events
 Query `cursor` (int), `limit` (20), `latest`, `event_type`, `device_type`, `device`. Items: `created_at, device_code, device_type, event_type (snake legacy e.g. device_deployed, print_complete, device_cruise_arrived), message (human text), payload`. Same format as `/v1/devices/{code}/logs` (which also has integer `id`).
 
-### Event catalogue (dotted `event` names; category = prefix)
+### Event catalog (dotted `event` names; category = prefix)
 | Category | Event | Payload fields |
 |---|---|---|
 | ami | `ami.adopted` | `devices[{device_code, device_type}]` |
@@ -790,7 +790,7 @@ Query `cursor` (int), `limit` (20), `latest`, `event_type`, `device_type`, `devi
 | triangulation | `triangulation.failed` | `signature`, `target`, `reason` |
 | ward | `ward.activated` / `ward.deactivated` | — |
 
-Note the real `mining.started` example also carries `belt` and `designation` beyond the catalogue list — payloads may be supersets.
+Note the real `mining.started` example also carries `belt` and `designation` beyond the catalog list — payloads may be supersets.
 Legacy `event_type` names seen (webhook / replicant events / device logs): `device_deployed`, `print_complete`, `device_cruise_arrived`, `device_cruise_departed`.
 
 ---
@@ -863,7 +863,7 @@ location; `_eval_state` like `searching:4:0`).
 category: "resource_trade", event_type, tier, criteria: [{name: "default", resources: {carbon: 150, silicates: 200}, devices: []}],
 rewards: {civilisation_points, completion_achievement, resources: {volatiles: 150}, xp}}`.
 `event.completed` `{designation, location, event_type, tier, consumed: {resources: {...}}, rewards: {...}}`.
-A replicant must be present at the location, with the criteria materials there; then `POST /v1/locations/{location}/events/{designation}` (no body) fulfils it (confirmed).
+A replicant must be present at the location, with the criteria materials there; then `POST /v1/locations/{location}/events/{designation}` (no body) fulfills it (confirmed).
 
 **Device list while the replicant travels:** `GET /devices` returns an **empty first page with a `next_cursor`**
 (`{"devices": [], "next_cursor": 894310}`) — a partial snapshot. The client keeps devices missing from such a
@@ -920,7 +920,7 @@ and the loadout pass. Tag `at:<location>` = the client's pin (lower-case locatio
 
 ## 10. Notes from the docs site (replicant.space/docs, read 2026-10-03)
 
-- **Civilisations** (`/docs/concepts/civilisations/`): survey drones find life when scanning a body. Life stages run `prebiotic`, `microbial`, `complex`, `intelligent`, `spacefaring`. Intelligent species that detect your drone create a Location Event, which escalates through 4 tiers. Rewards are `civilisation_points`, a completion achievement, resources and XP. **Deploy an FTL beacon at a completed event's location to receive the daily messages about new requests; without one you only learn of them by re-scanning.** `GET /v1/accounts/events?status=active`, `POST /v1/locations/{location}/events/{designation}`, `GET /v1/species`.
+- **Civilizations** (`/docs/concepts/civilisations/`): survey drones find life when scanning a body. Life stages run `prebiotic`, `microbial`, `complex`, `intelligent`, `spacefaring`. Intelligent species that detect your drone create a Location Event, which escalates through 4 tiers. Rewards are `civilisation_points`, a completion achievement, resources and XP. **Deploy an FTL beacon at a completed event's location to receive the daily messages about new requests; without one you only learn of them by re-scanning.** `GET /v1/accounts/events?status=active`, `POST /v1/locations/{location}/events/{designation}`, `GET /v1/species`.
 - **FTL beacon** (`/docs/ftl-beacons/`): features `stow`, `audit`, `comms` (live). **Confirmed by the player:** a deployed beacon can be stowed into a vessel at the same location (`{"command": "stow", "target": "<vessel>"}` on the beacon), so a vessel can fetch one and redeploy it elsewhere. It logs "the comings and goings of every device in the system, including other players". Audit parameters: `cursor`, `limit` (default 20), `latest` (not with cursor), `device_type`, `replicant_code`. The vector is given for interstellar moves only; destinations are not revealed. Live status: `monitoring`.
 - **Maintenance drone** (`/docs/drones/maintenance/`): `patrol` picks the most damaged device, cruises to it, deactivates it, repairs it to 100 %, reactivates it, then moves on. Live: status `repairing (<code>)`, `_eval_state` `repairing:<code>`, `repair {target_device_code, progress_percent, eta_seconds, started_at}`. Service bots hot-repair without deactivating. Vessels with cradle and print self-repair below 30 % at 1 %/h.
 - **Asteroids** (`/docs/api/locations/asteroids/`): bring propulsors to the asteroid's location, deploy and activate them. Thrust accumulates per running propulsor. At 0 % impact likelihood it's diverted, giving every participant a permanent mining bonus in the system. Required strength scales with mass and with proximity to impact time. Vector charges and trajectory deflectors exist for deliberate launches.

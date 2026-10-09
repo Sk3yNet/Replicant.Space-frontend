@@ -61,7 +61,7 @@ def bulk_check(codes: list[str], command: str, devices: list[dict], busy: set[st
                                                        or next((c for c, kids in stowed.items() if code in kids), None))
             trip = fl.in_flight(by.get(carrier) or {}) if carrier else None
             if trip:
-                skip.append((code, f"{carrier} is travelling to {trip['destination']} — it would come out between systems"))
+                skip.append((code, f"{carrier} is traveling to {trip['destination']} — it would come out between systems"))
                 continue
         ok.append(code)
     return ok, skip

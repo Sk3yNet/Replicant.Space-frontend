@@ -2,7 +2,7 @@
 {% block title %}Contracts{% endblock %}
 {% block content %}
 <h1>Contracts <span class="muted small">in-game events · {{ open | length }} open</span></h1>
-<p class="muted small">Discovered events and what they ask for. A replicant must be at the event's location to fulfil one; the
+<p class="muted small">Discovered events and what they ask for. A replicant must be at the event's location to fulfill one; the
   criteria are consumed from what's there. Progress counts stock at the location and across its system.</p>
 {% with ids="contracts" %}{% include "partials/rules_slot.html" %}{% endwith %}
 
@@ -17,7 +17,7 @@
     <input type="checkbox" name="on" value="1" {{ 'checked' if e.approval.on }} hx-post="/game-events/approve"
            hx-vals='{{ {"key": e.approval.key} | tojson }}' hx-trigger="change">
     Approve fulfilling contracts from <b>{{ e.approval.label }}</b> automatically
-    {% if not e.approval.on %}<span class="muted">— off: auto-fulfil leaves this contract to you (Fulfil still works)</span>{% endif %}</label>
+    {% if not e.approval.on %}<span class="muted">— off: auto-fulfil leaves this contract to you (Fulfill still works)</span>{% endif %}</label>
   {% if e.description %}<p class="muted small">{{ e.description }}</p>{% endif %}
   <div class="grid g2">
     <div>
@@ -71,7 +71,7 @@
         {% endif %}
         {% if e.plan.legs %}<button class="small" hx-post="/game-events/{{ e.designation }}/deliver" hx-target="#ge-{{ e.designation }}">Deliver materials</button>{% endif %}
         <button class="small {{ '' if p.state == 'ready' else 'ghost' }}" hx-post="/game-events/{{ e.designation }}/fulfil" hx-target="#ge-{{ e.designation }}"
-                {% if p.state != 'ready' %}hx-confirm="Not everything looks ready ({{ p.state }}). Try anyway?"{% endif %}>Fulfil</button>
+                {% if p.state != 'ready' %}hx-confirm="Not everything looks ready ({{ p.state }}). Try anyway?"{% endif %}>Fulfill</button>
       </div>
       <div id="ge-{{ e.designation }}"></div>
     </div>
@@ -88,10 +88,10 @@
     {% else %}<p class="muted small">None yet.</p>{% endfor %}
   </div>
   <div class="card">
-    <h2>How to fulfil</h2>
+    <h2>How to fulfill</h2>
     <form hx-post="/game-events/settings" hx-target="#ge-saved">
       <input name="fulfil" value="{{ settings.fulfil or '' }}" style="width:100%" placeholder='POST /locations/{location}/events/{designation}'>
-      <div class="muted small">The request the <b>Fulfil</b> button sends: <code>METHOD /path {json body}</code>. Placeholders: <code>{designation}</code>,
+      <div class="muted small">The request the <b>Fulfill</b> button sends: <code>METHOD /path {json body}</code>. Placeholders: <code>{designation}</code>,
         <code>{replicant}</code> (one at the location), <code>{location}</code>, <code>{criteria}</code>. Leave blank for the game's call: <code>POST /locations/{location}/events/{designation}</code>.</div>
       <div class="row" style="margin-top:6px"><button class="small">Save</button><span id="ge-saved"></span></div>
     </form>

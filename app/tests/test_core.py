@@ -1,4 +1,4 @@
-"""Core behaviour: SSE parsing, rate limiting, safety blocks, timers, notifications, digest, auth."""
+"""Core behavior: SSE parsing, rate limiting, safety blocks, timers, notifications, digest, auth."""
 import asyncio
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -1595,7 +1595,7 @@ def test_contracts_tracker_progress_and_actions(client):
     assert "TC000001" in r.text
     job = [j for j in client.portal.call(w.automations.jobs) if j["rule"] == "chain"][-1]
     assert job["steps"][0]["body"]["configuration"] == {"route": {"collect": "SOL-BELT-1", "deliver": "SOL-3-L4"}, "requirement": {"carbon": 100}}
-    # fulfil uses the game's call by default
+    # fulfill uses the game's call by default
     assert "/locations/SOL-3-L4/events/SOL-3-L4-EVT-001" in client.post("/game-events/SOL-3-L4-EVT-001/fulfil", headers=HX).text
     client.post("/game-events/settings", data={"fulfil": 'POST /replicants/{replicant}/events/{designation} {"criteria": "{criteria}"}'}, headers=HX)
     r = client.post("/game-events/SOL-3-L4-EVT-001/fulfil", data={"replicant": "77F75255"}, headers=HX)
@@ -1639,7 +1639,7 @@ def test_contracts_rule_fulfils_when_ready(client):
     client.post("/game-events/approve", data={"key": "body:SOL-BELT-1", "on": "1"}, headers=HX)
     client.portal.call(client.app.state.db.kv_set, "contracts_state", {})
     done = client.portal.call(eng.rule_contracts, True)
-    assert done == ["fulfil SOL-BELT-1-EVT-001"]
+    assert done == ["fulfill SOL-BELT-1-EVT-001"]
     act = client.portal.call(client.app.state.db.fetchone, "SELECT method, path FROM actions ORDER BY id DESC LIMIT 1")
     assert (act["method"], act["path"]) == ("POST", "/locations/SOL-BELT-1/events/SOL-BELT-1-EVT-001")
     assert client.portal.call(eng.rule_contracts, True) == []   # not retried straight away
@@ -3261,7 +3261,7 @@ def test_rules_live_on_their_pages_and_nav_is_grouped(client):
     eng = client.app.state.worker.automations
     # the Automations page lists every rule with a link to where its settings are
     page = client.get("/automations", headers=H).text
-    assert "Asteroid defence" in page and 'href="/defence">Map › Defence →' in page
+    assert "Asteroid defense" in page and 'href="/defence">Map › Defense →' in page
     assert 'name="max_prints"' not in page                       # the settings cards moved out
     # each page loads its own rules' cards
     assert 'rules-panel?ids=asteroid_defence"' in client.get("/defence", headers=H).text
@@ -3284,7 +3284,7 @@ def test_rules_live_on_their_pages_and_nav_is_grouped(client):
         assert f">{g}<" in nav or f">{g}<span" in nav
     sub = page[page.index('<nav class="sub">'):]
     sub = sub[:sub.index("</nav>")]
-    assert all(t in sub for t in ("Galaxy", "Systems", "Traffic", "Defence", "Upkeep")) and "Blueprints" not in sub
+    assert all(t in sub for t in ("Galaxy", "Systems", "Traffic", "Defense", "Upkeep")) and "Blueprints" not in sub
     assert 'href="/diagnostics"' in page and 'href="/console"' in page   # account menu
     fp = client.get("/loadouts", headers=H).text   # the old Home fleets URL lands on Fleets
     assert "<h1>Fleets" in fp and ">Fleets</a>" in fp and ">Reset &amp; reform</a>" in fp
@@ -3565,7 +3565,7 @@ def test_census_merges_into_the_catalogue_and_lists_unexplored():
     known = {s["designation"]: s for s in CENSUS["stars"]}
     merged = census.merge(cat, known)
     by = {s["designation"]: s for s in merged["stars"]}
-    assert by["ZALDANAL"]["from_census"] and "distance_from_replicant" not in by["ZALDANAL"]   # beyond the catalogue: added
+    assert by["ZALDANAL"]["from_census"] and "distance_from_replicant" not in by["ZALDANAL"]   # beyond the catalog: added
     assert by["OTHILETH"]["explored"] is True and by["OTHILETH"]["entry_point"] == "OTHILETH-1-L4"
     assert not by["OTHILETH"].get("from_census") and len(merged["stars"]) == 4
     assert census.seconds_per_ly(known) == pytest.approx(727 / 14.55)
@@ -3595,7 +3595,7 @@ def test_census_on_arrival_runs_once_per_system(client):
     arrival["id"] = "7777777777777-1"
     client.portal.call(client.app.state.worker.handle_event, arrival)
     assert count() == 1                                           # SOL has had its census
-    # the catalogue refresh keeps census stars
+    # the catalog refresh keeps census stars
     client.portal.call(client.app.state.worker.sync_catalogue)
     assert any(s["designation"] == "ZALDANAL" for s in client.portal.call(client.app.state.db.kv_get, "stars")["stars"])
     page = client.get("/stars", headers=H).text
@@ -4147,7 +4147,7 @@ def test_survey_crew_moves_the_beacon_to_a_civilisation():
             {"location": "OTH-2", "star": "OTH", "open": [{"designation": "E2"}], "completed": [], "life": None}]
     assert op.civ_places(rows, "LOR") == ["LOR-3", "LOR-4-1"]
     steps, notes = op.civ_move_steps(devices[0], devices, "LOR", ["LOR-3"])
-    assert [s["desc"] for s in steps] == ["stow beacon B1 into HV", "HV → LOR-3 (civilisation)", "deploy beacon B1 at LOR-3"]
+    assert [s["desc"] for s in steps] == ["stow beacon B1 into HV", "HV → LOR-3 (civilization)", "deploy beacon B1 at LOR-3"]
     assert "moving beacon B1" in notes[0]
     devices[3]["location"] = "LOR-3"                                   # already there: nothing to do
     assert op.civ_move_steps(devices[0], devices, "LOR", ["LOR-3"]) == ([], [])
@@ -4170,7 +4170,7 @@ def test_explore_mission_drops_outposts_and_warns(client):
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "s")
     texts = [x["text"] for x in (f.get("mission") or {}).get("log") or []]
     assert any("FTL relay(s)" in t for t in texts)
-    # recall: once everyone is aboard, the beacon goes to the civilisation the survey found
+    # recall: once everyone is aboard, the beacon goes to the civilization the survey found
     devices[3].update({"location": "LOR-1-L4", "stowed_in_device_code": None, "status": "monitoring"})
     devices[1].update({"location": None, "stowed_in_device_code": "HV"})
 
@@ -4179,8 +4179,8 @@ def test_explore_mission_drops_outposts_and_warns(client):
     eng.civ_coverage = cov
     m = {"status": "running", "phase": "watch", "idx": 0, "targets": ["LOR"], "opts": {}, "log": []}
     steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, m, "recall", devices)
-    assert [s["desc"] for s in steps][-3:] == ["stow beacon B1 into HV", "HV → LOR-3 (civilisation)", "deploy beacon B1 at LOR-3"]
-    assert any("civilisation at LOR-3" in x["text"] for x in m["log"])
+    assert [s["desc"] for s in steps][-3:] == ["stow beacon B1 into HV", "HV → LOR-3 (civilization)", "deploy beacon B1 at LOR-3"]
+    assert any("civilization at LOR-3" in x["text"] for x in m["log"])
 
 
 def test_deal_pickup_plan_uses_the_nearest_stockpiles():
@@ -4440,7 +4440,7 @@ def test_deploy_is_refused_while_the_carrier_is_travelling(client):
     cargo.update({"status": "stowed", "location": None, "stowed_in_device_code": vessel["device_code"]})
     client.portal.call(client.app.state.worker.sync_devices)
     r = client.post(f"/devices/{cargo['device_code']}/command", data={"command": "deploy"}, headers=HX)
-    assert "is travelling to ABOTEIN-1-L4" in r.text and "between systems" in r.text
+    assert "is traveling to ABOTEIN-1-L4" in r.text and "between systems" in r.text
 
 
 def test_feedback_goes_to_the_developers(client):
@@ -4481,7 +4481,7 @@ def test_cancel_travel_from_the_device_page(client):
     assert "result ok" in r.text, r.text
     client.portal.call(client.app.state.worker.sync_devices)
     page = client.get(f"/devices/{drone['device_code']}", headers=H).text
-    assert "Travelling to <b>SOL-4</b>" in page and "Cancel travel" in page
+    assert "Traveling to <b>SOL-4</b>" in page and "Cancel travel" in page
     r = client.post(f"/devices/{drone['device_code']}/cancel-travel", headers=HX)
     assert "result ok" in r.text and "DELETE" in r.text
     assert drone["location"] == start and not drone.get("travel")
@@ -4610,7 +4610,7 @@ def test_supply_links_between_fleets():
     assert links[("KEL", "XYZ", "materials")]["state"] == "active" and links[("KEL", "XYZ", "materials")]["to_fleet"] == "Factory"
     assert links[("XYZ", "QRS", "trade")]["state"] == "active" and links[("QRS", "ABC", "trade")]["state"] == "active"
     assert not any("NOPE" in k for k in links)
-    # a ferry controller running the route: ferrying, with its freighters; something travelling along it: moving
+    # a ferry controller running the route: ferrying, with its freighters; something traveling along it: moving
     devices = [{"device_code": "TC", "device_type": "ami_transport_controller", "location": "ABC-2",
                 "ami_directive": {"name": "ferry", "config": {"collect": "ABC-2", "deliver": "XYZ-3-L4"}}},
                {"device_code": "F1", "device_type": "cargo_freighter", "controller_device_code": "TC", "location": "ABC-2"},
@@ -4632,7 +4632,7 @@ def test_compact_on_an_already_compacted_device_counts_as_done(client, monkeypat
     from rsweb.automations import _already_compact, _already_unfurled, step
     assert _already_compact("Device is already compacted") and _already_compact("Cannot compact: device is compacted")
     assert _already_compact("Device is already compacting") and not _already_compact("Device is not compacted")
-    assert not _already_compact("Cannot compact while travelling")
+    assert not _already_compact("Cannot compact while traveling")
     assert _already_unfurled("Device is not compacted") and _already_unfurled("Device is already unfurled")
     eng = client.app.state.worker.automations
     reply = {}
@@ -4659,7 +4659,7 @@ def test_compact_on_an_already_compacted_device_counts_as_done(client, monkeypat
     assert "X" in client.portal.call(client.app.state.db.kv_get, FOLDED_KV)   # remembered: the next pass sends the carrier
     j = run("Device is already compacting")
     assert j["status"] in ("running", "waiting") and j["steps"][0]["wait"] == ["device.compacted"]
-    assert run("Cannot compact while travelling")["status"] == "failed"
+    assert run("Cannot compact while traveling")["status"] == "failed"
 
 
 def test_folded_devices_are_remembered_so_the_carrier_comes(client):
@@ -5191,7 +5191,7 @@ def test_trade_run_only_waits_once_everything_is_at_the_site():
     at = {"device_code": "F1", "location": "SOL-4", "cargo": {"rares": 10}}
     assert fl.deal_check(m, inv, [at])[0] == "redeliver"
     assert fl.deal_check(m, {"SOL-4": {"carbon": 200, "rares": 10}}, [])[0] == "ok"
-    # the fleet's own replicant fulfils (contract template gets it)
+    # the fleet's own replicant fulfills (contract template gets it)
     devs = [{"device_code": "HV", "tags": ["fleet:t"]}]
     assert fl.fleet_replicant({"id": "t"}, devs, {"R9": {"hosted_device_code": "XX"}, "R1": {"hosted_device_code": "HV"}})[0] == "R1"
     st = fl.fulfil_step(fl.deal(m), "R1", 'POST /locations/{location}/events/{designation} {"replicant_code": "{replicant}"}')
@@ -5866,7 +5866,7 @@ def test_contract_already_completed_counts_as_done(client):
     client.portal.call(w.handle_event, {**_ev(995, "event.discovered", designation="KELMORNEA-3-EVT-003", location="KELMORNEA-3",
                                                 title="Electronics Shortage"), "location": "KELMORNEA-3"})
     world.events_done = {"KELMORNEA-3-EVT-003"}          # done already (an earlier try, or by hand)
-    st = step("fulfil contract Electronics Shortage at KELMORNEA-3", "/locations/KELMORNEA-3/events/KELMORNEA-3-EVT-003",
+    st = step("fulfill contract Electronics Shortage at KELMORNEA-3", "/locations/KELMORNEA-3/events/KELMORNEA-3-EVT-003",
               None, critical=True)
     job = client.portal.call(eng.create_job, "fleets", "Trader_1: trade", None, [st], {"devices": [], "fleet": "trader-1"})
     job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
@@ -6095,7 +6095,7 @@ def test_contract_run_accepts_any_option_and_waits_after_criteria_not_met(client
     f = {"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}, "mission": m}
     state, why = client.portal.call(eng._deal_gate, f, m, devices)
     assert state != "rewind" and "short" not in why          # the farms option is complete: no carbon needed there
-    # a fulfil the game refuses with 'criteria not met' goes back to waiting, not stalled
+    # a fulfill the game refuses with 'criteria not met' goes back to waiting, not stalled
     jobs = client.portal.call(eng.jobs)
     jobs.append({"id": "jt", "rule": "fleets", "title": "T: trade", "device": None, "status": "failed", "idx": 0, "meta": {"fleet": "t"},
                  "steps": [{"desc": "fulfil", "status": "failed", "error": "Event criteria not met"}]})

@@ -687,7 +687,7 @@ MOVE_COMMANDS = {"travel"}
 
 
 async def chain_context(request: Request, traveller: str | None, replicant: str | None = None) -> dict:
-    """Device choices for the "then, on arrival" rows: the traveller, what it carries, what's nearby, the rest."""
+    """Device choices for the "then, on arrival" rows: the traveler, what it carries, what's nearby, the rest."""
     st = await load_state(request)
     devs = st["devices"]
     me = next((d for d in devs if d.get("device_code") == traveller), {})
@@ -835,7 +835,7 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
                                                     or next((c for c, kids in stowed.items() if code in kids), None))
         trip = fl.in_flight(by.get(carrier) or {}) if carrier else None
         if trip:
-            return bad(f"{carrier} is travelling to {trip['destination']} — {command} once it has arrived, or the device "
+            return bad(f"{carrier} is traveling to {trip['destination']} — {command} once it has arrived, or the device "
                        "comes out between systems with no location")
     if command in MOVE_COMMANDS:
         try:
@@ -1704,7 +1704,7 @@ async def map_refresh(request: Request, user: str = Depends(current_user)):
         stars = await full_catalogue(request.app.state.db, await fetch_catalogue(request.app.state.api))
         await request.app.state.db.kv_set("stars", stars)
         src = stars["sources"]
-        bits = [f"{src['catalogue']} from the game's catalogue"
+        bits = [f"{src['catalogue']} from the game's catalog"
                 + (f" (it says {src['catalogue_total']})" if src.get("catalogue_total") not in (None, src["catalogue"]) else "")]
         if src["census"]:
             bits.append(f"{src['census']} from censuses")
@@ -1712,9 +1712,9 @@ async def map_refresh(request: Request, user: str = Depends(current_user)):
             bits.append(f"{src['observatory']} found by your observatories")
         if src["observatory_unplaced"]:
             bits.append(f"{len(src['observatory_unplaced'])} found without a position yet")
-        return HTMLResponse(f"Catalogue refreshed: {', '.join(bits)}. Reload the map.")
+        return HTMLResponse(f"Catalog refreshed: {', '.join(bits)}. Reload the map.")
     except ApiError as e:
-        return HTMLResponse(f"Refresh failed: {html.escape(e.message)} (the catalogue allows 1 request/minute)")
+        return HTMLResponse(f"Refresh failed: {html.escape(e.message)} (the catalog allows 1 request/minute)")
 
 
 # --- blueprints & planning -------------------------------------------------------------------
@@ -2258,8 +2258,8 @@ async def device_decommission_at(request: Request, code: str, factory: str = For
         if e:   # take the pins off again; it stays fleetless (spare) where it is
             body = {"configuration": {"remove_tags": [t for t in dev.get("tags") or [] if t.startswith(("to:", "at:"))],
                                       "add_tags": ["spare"]}}
-            await call_action(request, user, "PATCH", f"/devices/{code}", body, f"{code}: decommission cancelled")
-        return HTMLResponse('<div class="result ok">Cancelled — the device stays where it is, as a spare.</div>',
+            await call_action(request, user, "PATCH", f"/devices/{code}", body, f"{code}: decommission canceled")
+        return HTMLResponse('<div class="result ok">Canceled — the device stays where it is, as a spare.</div>',
                             headers={"HX-Refresh": "true"})
     fac = next((f for f in dc.factories(st["devices"], {}, None) if f["code"] == factory), None)
     if not fac:
@@ -2279,7 +2279,7 @@ async def device_decommission_at(request: Request, code: str, factory: str = For
 @router.post("/devices/{code}/cancel-travel", response_class=HTMLResponse)
 async def device_cancel_travel(request: Request, code: str, user: str = Depends(current_user)):
     """Cancel a trip. Documented only for replicants (DELETE /replicants/{code}/travel), so a vessel hosting one goes
-    through its replicant; any other device tries the device equivalent and shows what the game says. A cancelled
+    through its replicant; any other device tries the device equivalent and shows what the game says. A canceled
     trip turns back: travel.cancelled carries origin and return_time_seconds."""
     st = await load_state(request)
     rep = next((c for c, r in st["replicants"].items() if r.get("hosted_device_code") == code), None)
@@ -2436,7 +2436,7 @@ RULE_HOME = {
     "restart_idle_miners": ("Map › Systems", "/systems"), "reopen_sites": ("Map › Systems", "/systems"),
     "salvage_when_depleted": ("Map › Systems", "/systems"), "belt_viability": ("Map › Systems", "/systems"),
     "visitor_alerts": ("Map › Traffic", "/traffic"), "civ_beacons": ("Map › Traffic", "/traffic"),
-    "asteroid_defence": ("Map › Defence", "/defence"), "maintenance": ("Map › Upkeep", "/maintenance"),
+    "asteroid_defence": ("Map › Defense", "/defence"), "maintenance": ("Map › Upkeep", "/maintenance"),
     "ami_schedules": ("Devices › AMI", "/ami"), "loadouts": ("Fleets", "/fleets"),
     "fleet_fill": ("Fleets", "/fleets"),
     "consolidate": ("Economy › Blueprints", "/blueprints"), "contracts": ("Economy › Contracts", "/game-events"),
@@ -2880,8 +2880,8 @@ async def game_event_fulfil(request: Request, des: str, replicant: str = Form(""
     try:
         payload = json.loads(body) if body.strip() else None
     except ValueError:
-        return HTMLResponse('<div class="result err">The fulfil body isn\'t valid JSON.</div>')
-    return await run_action(request, user, method.upper(), path, payload, f"fulfil {e['title']} ({des})")
+        return HTMLResponse('<div class="result err">The fulfill body isn\'t valid JSON.</div>')
+    return await run_action(request, user, method.upper(), path, payload, f"fulfill {e['title']} ({des})")
 
 
 @router.post("/game-events/approve", response_class=HTMLResponse)
@@ -3289,7 +3289,7 @@ def _int(v, default: int, lo: int, hi: int) -> int:
 
 
 async def known_stars(request: Request) -> set[str]:
-    """Every system the app knows: the catalogue (census stars included), scanned systems, where devices are."""
+    """Every system the app knows: the catalog (census stars included), scanned systems, where devices are."""
     db = request.app.state.db
     cat = await db.kv_get("stars", {}) or {}
     out = {s.get("designation") for s in cat.get("stars") or [] if isinstance(s, dict) and s.get("designation")}
@@ -3338,7 +3338,7 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
             close = difflib.get_close_matches(star_of(t), sorted(known), n=3, cutoff=0.6)
             hints.append(f"{t}" + (f" (did you mean {' / '.join(close)}?)" if close else ""))
         return HTMLResponse(f'<div class="result err">Unknown system: {html.escape(", ".join(hints))}. Pick one from the list — '
-                            'stars beyond the catalogue need a census first (Map › Stars).</div>')
+                            'stars beyond the catalog need a census first (Map › Stars).</div>')
     if f["role"] in ("mining", "explore"):
         homes = fl.worked_systems(items)
         taken = [t for t in m["targets"] if star_of(t) in homes]
@@ -3369,7 +3369,7 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
                 await eng.log("fleets", f"{f['name']}: {w}", "alert", notify=True)
     if warded and m.get("contract"):   # species interaction lock: other players can't complete location events there
         return HTMLResponse(f'<div class="result err">{html.escape(", ".join(warded))}: another player\'s system ward or hub is there, and '
-                            "its species interaction lock stops anyone else completing the civilisation's events. "
+                            "its species interaction lock stops anyone else completing the civilization's events. "
                             'Trades with traders are still fine.</div>')
     if warded:
         eng._mlog(m, f"warning: another player's ward or hub in {', '.join(warded)} — fine for a trade, but nothing can mine there")
@@ -3520,7 +3520,7 @@ async def fleets_next_home(request: Request, fid: str, action: str = Form(...), 
     if not f or not f.get("next_home"):
         return HTMLResponse("", status_code=404)
     if action == "cancel":
-        f["path_note"] = f"move to {f['next_home']} cancelled by {user}"
+        f["path_note"] = f"move to {f['next_home']} canceled by {user}"
         f.pop("next_home", None), f.pop("next_home_at", None)
         f["depleted_since"] = now_iso()   # wait out the dry period again before choosing
     elif action == "now":

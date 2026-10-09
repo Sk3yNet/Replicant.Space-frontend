@@ -67,7 +67,7 @@ def describe(ev: dict) -> str:
         case "travel.arrived":
             return f"{who} arrived at {p.get('destination', loc)}"
         case "travel.cancelled":
-            return f"{who} cancelled travel to {p.get('destination', '?')}"
+            return f"{who} canceled travel to {p.get('destination', '?')}"
         case "print.started":
             return f"Printing {p.get('device_type', '?')} at {loc}"
         case "print.completed":
@@ -283,7 +283,7 @@ async def touch_visit(db: DB, email: str, gap_minutes: int) -> dict:
 # --- digest --------------------------------------------------------------------
 
 async def build_digest(db: DB, since: str) -> dict:
-    """Summarise what happened and what was accomplished since `since` (ISO)."""
+    """Summarize what happened and what was accomplished since `since` (ISO)."""
     rows = await db.fetchall(
         "SELECT * FROM events WHERE received_at > ? ORDER BY seq", (since,)
     )

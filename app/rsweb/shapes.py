@@ -1,4 +1,4 @@
-"""Normalise loosely-documented API shapes.
+"""Normalize loosely-documented API shapes.
 
 The docs show resource amounts as objects ({"structural": 120}), but the live API
 returns lists in some places. Everything is converted to {name: float} before use.

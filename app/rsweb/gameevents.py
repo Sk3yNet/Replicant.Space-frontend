@@ -4,10 +4,10 @@ From live data:
   event.discovered {designation, location, title, description, category, event_type, tier,
                     criteria: [{name, resources: {res: n}, devices: [...]}], rewards: {...}}
   event.completed  {designation, location, event_type, tier, consumed: {resources: {...}}, rewards: {...}}
-A replicant must be present (at the event's location) to fulfil it; the consumed resources match the criteria.
+A replicant must be present (at the event's location) to fulfill it; the consumed resources match the criteria.
 
 This module builds the tracker: open events, progress against stock at the location / in the system,
-what's missing, and whether a replicant is there. Fulfil: POST /v1/locations/{location}/events/{designation}
+what's missing, and whether a replicant is there. Fulfill: POST /v1/locations/{location}/events/{designation}
 (no body) with the materials at the location and a replicant present — confirmed by the player.
 """
 from __future__ import annotations
@@ -139,7 +139,7 @@ def delivery_plan(e: dict, prog: dict, devices: list[dict]) -> dict:
     return {"controller": ctrl, "legs": legs, "missing": {r: q for r, q in remaining.items() if q > 0}, "short": short}
 
 
-# --- approval before anything fulfils a contract on its own ----------------------------------------------------------
+# --- approval before anything fulfills a contract on its own ----------------------------------------------------------
 # Auto-fulfil (the Work on contracts rule, trade fleets' auto-fulfil contracts) only takes a contract whose species you
 # have approved on the Contracts page (off until you tick it). The species comes from the system scan of the contract's
 # body; without one, the body itself is what you approve.

@@ -62,7 +62,7 @@ RULES: list[Rule] = [
     Rule("census_on_arrival", "Stellar census on arrival",
          "When a vessel that can run a stellar census (heaven and cargo vessels) arrives in a system that hasn't had one, "
          "it runs `stellar_census`: the stars around it, explored or not, with positions and entry points. They're added "
-         "to the star catalogue, which only covers ~70 ly around Sol, so the map, routes and the Unexplored stars list know "
+         "to the star catalog, which only covers ~70 ly around Sol, so the map, routes and the Unexplored stars list know "
          "them. One action per new system.", default_on=True),
     Rule("ami_schedules", "Run AMI schedules",
          "Master switch for the AMI schedules below: every N minutes each schedule checks its controller(s); "
@@ -99,10 +99,10 @@ RULES: list[Rule] = [
          "alert suggesting the nearest belt that is cheaper to search. Figures are on each System page and in Diagnostics.",
          [Option("move_at_percent", "int", "Alert when search time exceeds this % of a site's life", 250)]),
     Rule("contracts", "Work on contracts (in-game events)",
-         "Every few minutes, for each open event: if what it asks for is at its location and a replicant is there, fulfil it "
+         "Every few minutes, for each open event: if what it asks for is at its location and a replicant is there, fulfill it "
          "(POST /locations/<location>/events/<designation>). Optionally have the system's in-system transport controller "
          "deliver the shortfall from other stockpiles, and send a replicant that's already in the same system.",
-         [Option("auto_fulfil", "bool", "Fulfil as soon as it's ready", True),
+         [Option("auto_fulfil", "bool", "Fulfill as soon as it's ready", True),
           Option("auto_deliver", "bool", "Deliver missing materials from elsewhere in the system", False),
           Option("send_replicant", "bool", "Send a replicant already in the same system once the materials are there", False,
                  help="Moves your replicant"),
@@ -160,8 +160,8 @@ RULES: list[Rule] = [
          [Option("include_npcs", "bool", "Also alert on NPC replicants", True),
           Option("repeat_hours", "int", "Don't repeat an alert for the same replicant and system within (hours)", 6)],
          default_on=True),
-    Rule("civ_beacons", "Beacons at civilisation event sites",
-         "Civilisations only send their follow-up requests (the daily messages about new events) when an FTL beacon is "
+    Rule("civ_beacons", "Beacons at civilization event sites",
+         "Civilizations only send their follow-up requests (the daily messages about new events) when an FTL beacon is "
          "deployed AT the planet or moon of one of their events — a beacon in the Kuiper belt or Oort cloud doesn't count. "
          "As soon as a survey discovers an event (and every 10 minutes for older ones) this puts a beacon at that body, so "
          "it's already there when you complete the event. Beacons can't fly, so, cheapest first: a vessel in the system "
@@ -174,9 +174,9 @@ RULES: list[Rule] = [
           Option("use_replicant_vessel", "bool", "Also use vessels that host your replicant to carry beacons", False,
                  help="Moves your replicant"),
           Option("spare_redundant", "bool", "Mark beacons a system doesn't need as spare", True,
-                 help="Once a system has a beacon at a civilisation's body, its other beacons (e.g. Kuiper/Oort) are spare; "
+                 help="Once a system has a beacon at a civilization's body, its other beacons (e.g. Kuiper/Oort) are spare; "
                       "the Loadouts pass gathers spares at the spare depot")]),
-    Rule("asteroid_defence", "Asteroid defence",
+    Rule("asteroid_defence", "Asteroid defense",
          "Tracks incoming asteroids (from system.object_detected and by reading the object every 15 minutes): hours to "
          "impact, likelihood, required strength and progress, and estimates how many propulsors it takes to divert it in "
          "time. Alerts when the picture changes. It can activate idle propulsors at the asteroid, send idle ones in the "
@@ -327,7 +327,7 @@ def event_matches(st: dict, ev: dict, device: str | None) -> bool:
             continue
         have, want = str(have).upper(), str(v).upper()
         if k == "destination" and "-" not in want:
-            # travelling "to a star" lands at one of its locations (entry point, L4 …)
+            # traveling "to a star" lands at one of its locations (entry point, L4 …)
             if have != want and not have.startswith(want + "-"):
                 return False
         elif have != want:
@@ -724,7 +724,7 @@ class AutomationEngine(OpsRules):
                 job["status"] = "cancelled"
                 job["finished_at"] = now_iso()
                 await self._update(job)
-                await self.log(job["rule"], f"cancelled: {job['title']}")
+                await self.log(job["rule"], f"canceled: {job['title']}")
 
     # --- event & tick handling ------------------------------------------------------------------
     async def on_event(self, ev: dict, late: bool = False) -> None:
@@ -808,10 +808,10 @@ class AutomationEngine(OpsRules):
                     await self._advance(job["id"])
                 elif (st["status"] == "waiting" and name == "travel.cancelled" and "travel.arrived" in st.get("wait", [])
                       and wait_dev and ev.get("device_code") == wait_dev):
-                    # a cancelled trip never arrives: the device turns back to where it started (the event's
+                    # a canceled trip never arrives: the device turns back to where it started (the event's
                     # return_time_seconds), so stop waiting for it instead of sitting out the timeout
                     back = int(float(p.get("return_time_seconds") or 0))
-                    st["error"] = (f"travel cancelled — {wait_dev} returns to {p.get('origin') or 'where it started'}"
+                    st["error"] = (f"travel canceled — {wait_dev} returns to {p.get('origin') or 'where it started'}"
                                    + (f" (≈{back // 60} min)" if back else ""))
                     if st.get("critical"):
                         st["status"], job["status"] = "failed", "failed"
@@ -1337,7 +1337,7 @@ class AutomationEngine(OpsRules):
         xyz_of = {k: v for k, v in ((k, pa.xyz(p)) for k, p in pos.items()) if v}
         home = f.get("home") or ""
         if home not in xyz_of:
-            return None, f"{home or 'its home'} has no position in the star catalogue"
+            return None, f"{home or 'its home'} has no position in the star catalog"
         scans = {r["star"]: r["data"] for r in await self.db.fetchall("SELECT star, data FROM systems")}
         surveyed = await self.db.kv_get("surveyed", {}) or {}
         busy = {star_of(t) for g in items if g.get("id") != f.get("id") and (g.get("mission") or {}).get("status") in ("running", "stalled")
@@ -1429,7 +1429,7 @@ class AutomationEngine(OpsRules):
             sent = _ts(e.get("sent_at"))
             if sent and (_now() - sent).total_seconds() > 600 and not await self.db.fetchone(
                     "SELECT 1 FROM events WHERE event='device.decommissioned' AND device_code=?", (code,)):
-                # its job ended (failed, timed out, cancelled) and the device is still here: try again
+                # its job ended (failed, timed out, canceled) and the device is still here: try again
                 e.pop("sent_at", None)
                 await self.log("decommission", f"{code}: still here after its decommission job ended — trying again")
             if not dc.ready(d, e):
@@ -1472,7 +1472,7 @@ class AutomationEngine(OpsRules):
         return cfg
 
     async def geography(self, devices: list[dict], stars: dict[str, dict]) -> dict[str, dict]:
-        """Per system: belts, Lagrange points and inner planets (from its scan, the catalogue and device positions)."""
+        """Per system: belts, Lagrange points and inner planets (from its scan, the catalog and device positions)."""
         from . import placement as pl
         scans = {r["star"]: r["data"] for r in await self.db.fetchall("SELECT star, data FROM systems")}
         belts_seen = list((await self.db.kv_get("belt_reads", {}) or {}).keys())
@@ -2479,7 +2479,7 @@ class AutomationEngine(OpsRules):
         def at_site(code: str, r: dict) -> bool:
             host = by.get(r.get("hosted_device_code") or "") or {}
             return site in (r.get("location"), r.get("current_location"), host.get("location"))
-        if own:   # the fleet's own replicant fulfils its trades
+        if own:   # the fleet's own replicant fulfills its trades
             code, r = own
             m["fulfiller"] = code
             if not at_site(code, r):
@@ -2493,8 +2493,8 @@ class AutomationEngine(OpsRules):
             if arriving:
                 self._mlog(m, f"everything delivered to {site}: waiting for a replicant there (none rides with the fleet)")
                 await self.log("fleets", f"{fleet['name']}: materials at {site} — no replicant rides with the fleet; send "
-                                         f"one there to fulfil {dl['label']}", notify=True)
-            return "wait", f"materials at {site}: waiting for a replicant there to fulfil"
+                                         f"one there to fulfill {dl['label']}", notify=True)
+            return "wait", f"materials at {site}: waiting for a replicant there to fulfill"
         m["fulfiller"] = here[0]
         self._mlog(m, f"{reps[here[0]].get('name') or here[0]} at {site}: fulfilling")
         return "go", ""
@@ -2608,7 +2608,7 @@ class AutomationEngine(OpsRules):
                               "(no fleet tag): it won't be recalled or taken home — add it under Add / remove devices")
             steps = fl.recall_steps(fleet, devices, inv, haul, radii, far_au)
             if fleet["role"] == "explore" and target:
-                # the survey found a civilisation: once everyone is aboard, the beacon goes to that body (civilisations
+                # the survey found a civilization: once everyone is aboard, the beacon goes to that body (civilizations
                 # only send follow-up requests to a beacon AT their planet or moon)
                 from . import outposts
                 carrier = next(iter(fl.roster(fleet, devices)["carriers"]), None)
@@ -2667,7 +2667,7 @@ class AutomationEngine(OpsRules):
 
     async def deal_phase_steps(self, fleet: dict, m: dict, phase: str, devices: list[dict], inv: dict[str, dict],
                                stars: dict[str, dict]) -> tuple[list[dict], list[str]]:
-        """A contract / trade mission (fleets.deal): gather the price, deliver it, fulfil, collect the rewards, go home."""
+        """A contract / trade mission (fleets.deal): gather the price, deliver it, fulfill, collect the rewards, go home."""
         from . import fleets as fl
         from . import loadouts as lo
         dl = fl.deal(m)
@@ -2693,7 +2693,7 @@ class AutomationEngine(OpsRules):
             reps = await self.db.kv_get("replicants", {}) or {}
             hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
             return fl.site_deliver_steps(fleet, devices, site, hosts, set(m.get("loaded") or [])), []
-        if phase == "trade":   # the fleet's replicant (or the one found at the site) fulfils
+        if phase == "trade":   # the fleet's replicant (or the one found at the site) fulfills
             settings = await self.db.kv_get("event_settings", {}) or {}
             return [fl.fulfil_step(dl, m.get("fulfiller"), (settings.get("fulfil") or "").strip() or None)], []
         if phase == "collect":
@@ -2803,7 +2803,7 @@ class AutomationEngine(OpsRules):
                     and "criteria not met" in str(err).lower() and int(m.get("criteria_misses") or 0) < 3):
                 # the game says the contract isn't satisfied yet (seen live 2026-10-08: Trader_1 stalled at AEMEROTH-2
                 # and stayed stalled after the contract's devices arrived): back to waiting at the site — the gate
-                # holds until an option is complete there, then fulfils again
+                # holds until an option is complete there, then fulfills again
                 m["criteria_misses"] = int(m.get("criteria_misses") or 0) + 1
                 m["phase"], m["job"] = "wait", None
                 self._mlog(m, f"the game says the contract's criteria aren't met yet ({err}) — waiting at the site "
@@ -2863,7 +2863,7 @@ class AutomationEngine(OpsRules):
                         m["watch_note"] = note
                         changed = True
                     continue
-                changed = True   # "go" (fulfil next) or "rewind" (the next phase is deliver / load again)
+                changed = True   # "go" (fulfill next) or "rewind" (the next phase is deliver / load again)
             if m.get("phase") == "watch":
                 others = [j for j in await self.jobs() if (j.get("meta") or {}).get("fleet") != fleet["id"]]
                 done, why, upd = fl.watch_done(fleet, m, devices, now_iso(), self.busy_devices(others))
@@ -2900,7 +2900,7 @@ class AutomationEngine(OpsRules):
                     if gate == "wait":
                         m["watch_note"] = note
                         break
-                    continue   # everything there and the replicant too: fulfil now
+                    continue   # everything there and the replicant too: fulfill now
                 steps, problems = await self.fleet_phase_steps(fleet, m, nxt, devices)
                 for pr in problems:
                     self._mlog(m, f"{nxt}: {pr}")
@@ -2920,7 +2920,7 @@ class AutomationEngine(OpsRules):
             await self.save_fleets(items)
 
     async def rule_contracts(self, force: bool = False) -> list[str]:
-        """See gameevents.py. Fulfil ready events; optionally deliver shortfalls / send a nearby replicant."""
+        """See gameevents.py. Fulfill ready events; optionally deliver shortfalls / send a nearby replicant."""
         cfg = await self.rule_cfg("contracts")
         if not cfg:
             return []
@@ -2959,11 +2959,11 @@ class AutomationEngine(OpsRules):
                           .replace("{criteria}", (prog.get("best") or {}).get("name") or "default"))
                 method, _, rest = filled.partition(" ")
                 path, _, body = rest.partition(" ")
-                job = await self.create_job("contracts", f"fulfil {e.get('title')} at {e['location']}", None,
-                                            [step(f"fulfil {des}", path, json.loads(body) if body.strip() else None, method=method.upper())],
+                job = await self.create_job("contracts", f"fulfill {e.get('title')} at {e['location']}", None,
+                                            [step(f"fulfill {des}", path, json.loads(body) if body.strip() else None, method=method.upper())],
                                             {"event": des})
                 tried["fulfil"] = now_iso()
-                done.append(f"fulfil {des}" + ("" if job else " (dry run)"))
+                done.append(f"fulfill {des}" + ("" if job else " (dry run)"))
             elif prog["state"] == "deliver" and cfg.get("auto_deliver"):
                 plan = gev.delivery_plan(e, prog, devices)
                 ctrl = plan["controller"]

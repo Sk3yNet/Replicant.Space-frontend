@@ -6,7 +6,7 @@ which one). Bill drops a public beacon in every system on his route, hops within
 within 70 ly of Sol, always passing through SOL.
 
 So: find his beacons (other devices in a system: GET /replicants/{ours}/scan/devices), read their audit logs
-(GET /devices/{beacon}/audit?replicant_code=<his>), and for each departure rank the catalogue stars by how closely
+(GET /devices/{beacon}/audit?replicant_code=<his>), and for each departure rank the catalog stars by how closely
 the direction from the beacon's system to the star matches the vector — nearer first among near-equals, since his
 hops stay inside relay range. The best match is the next system on the trail; a system where his latest arrival has
 no later departure is where he is.

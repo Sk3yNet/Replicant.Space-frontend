@@ -5,8 +5,8 @@ The game's docs (quoted by the player, 2026-10-07):
     Toward Sol           [−x, −y, −z]  looks back inward (negate each component of your current position)
     Sideways             [0, 1, 0]     looks along the y-axis, perpendicular to the Sol line
     Toward another star  [dx, dy, dz]  the target's position minus your star's position
-Positions are the star catalogue's (light-years from Sol). A `prospect.completed` event lists the stars it found
-(`stars_generated`, `stars`); they're merged into the catalogue like census stars (ingest).
+Positions are the star catalog's (light-years from Sol). A `prospect.completed` event lists the stars it found
+(`stars_generated`, `stars`); they're merged into the catalog like census stars (ingest).
 """
 from __future__ import annotations
 
@@ -29,14 +29,14 @@ def aim_vector(aim: str, here: dict | None, target: dict | None = None) -> list[
     h = _xyz(here)
     if aim == "sol":
         if h is None:
-            raise ValueError("the observatory's system isn't in the star catalogue, so 'toward Sol' can't be worked out")
+            raise ValueError("the observatory's system isn't in the star catalog, so 'toward Sol' can't be worked out")
         if not any(h):
             raise ValueError("the observatory is at Sol: 'toward Sol' has no direction — pick another aim")
         return [round(-v, 3) for v in h]
     if aim == "star":
         t = _xyz(target)
         if h is None or t is None:
-            raise ValueError("both systems need positions in the star catalogue (Map › Stars) to aim at a star")
+            raise ValueError("both systems need positions in the star catalog (Map › Stars) to aim at a star")
         d = [round(b - a, 3) for a, b in zip(h, t)]
         if not any(d):
             raise ValueError("that's the observatory's own system — pick another star")

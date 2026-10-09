@@ -1,5 +1,5 @@
 """Replay one automation tick against a Diagnostics snapshot, with a stub API that answers GETs from the snapshot
-and records commands instead of sending them. Approximate: snapshots lack the star catalogue, blueprints and replicants.
+and records commands instead of sending them. Approximate: snapshots lack the star catalog, blueprints and replicants.
 Usage: python tools/replay_snapshot.py <snapshot.json>"""
 import asyncio, json, sys, tempfile, time, traceback
 from datetime import datetime, timezone

@@ -1,4 +1,4 @@
-"""Traffic & civilisation contact, asteroid defence, maintenance and the trade shop — against the mock game."""
+"""Traffic & civilization contact, asteroid defense, maintenance and the trade shop — against the mock game."""
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -80,7 +80,7 @@ def test_visitor_alert_respects_repeat_window_and_npcs():
     assert list(tr.visitors(new, {"ME"}, include_npcs=True, profiles={})) == [("NPC1", "SOL")]
 
 
-# --- civilisation contact ---------------------------------------------------------------------------------
+# --- civilization contact ---------------------------------------------------------------------------------
 def test_civ_coverage_needs_beacon_at_the_event_body(client):
     w = client.app.state.worker
     client.portal.call(w.handle_event, {"id": "e1", "event": "event.discovered", "created_at": iso(datetime.now(timezone.utc)),
@@ -122,7 +122,7 @@ def test_printed_beacon_is_deployed_where_it_was_wanted(client):
     assert job["steps"][0]["path"] == "/devices/NEWB0001" and job["steps"][0]["body"] == {"command": "deploy"}
 
 
-# --- asteroid defence ---------------------------------------------------------------------------------------
+# --- asteroid defense ---------------------------------------------------------------------------------------
 def test_asteroid_estimate_send_and_print(client):
     now = datetime.now(timezone.utc)
     w = world(client)
@@ -145,7 +145,7 @@ def test_asteroid_estimate_send_and_print(client):
     rep = client.portal.call(e.defence_report)[0]
     assert rep["needed"] == 3 and rep["thrust_source"].startswith("assumed")
     jobs = [j for j in client.portal.call(e.jobs) if j["rule"] == "asteroid_defence"]
-    assert [j["title"] for j in jobs] == ["defence: PP000001 → SOL-OBJ-3"]          # sent; printing is off by default
+    assert [j["title"] for j in jobs] == ["defense: PP000001 → SOL-OBJ-3"]          # sent; printing is off by default
     assert any("printing is off" in x for x in out["lines"])
     # "Defend now" prints the rest (2), straight to the asteroid, pinned there
     r = client.post("/defence/SOL-OBJ-3/act", headers=HX)
@@ -275,7 +275,7 @@ def test_redundant_beacons():
             {"device_code": "Z1", "device_type": "ftl_beacon", "location": "Z-KUIPER", "status": "monitoring"}]
     red = {r["code"]: r["why"] for r in tr.redundant_beacons(devs, rows)}
     assert set(red) == {"K1", "Y2"}                      # Kuiper beacon next to a civ beacon; Y's second beacon; Z keeps its only one
-    assert "civilisation" in red["K1"]
+    assert "civilization" in red["K1"]
 
 
 def test_spares_are_gathered_at_the_depot_and_stay_spare():
@@ -339,7 +339,7 @@ def test_existing_system_beacon_is_moved_to_the_civ_body_before_printing_one():
     assert p["kind"] == "wait" and "CV busy" in p["text"]
     # no vessel with a hold at all: say so (a printed beacon couldn't get there either)
     assert "needs a vessel with a hold" in tr.placement("X-3", [kb, af], {}, {}, keep={"X-3"})["text"]
-    # a beacon already at another civilisation's body is never taken
+    # a beacon already at another civilization's body is never taken
     assert tr.placement("X-3", [cv, {**kb, "location": "X-2"}, af], {}, {}, keep={"X-3", "X-2"})["kind"] == "factory"
 
 

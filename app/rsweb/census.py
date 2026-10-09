@@ -1,6 +1,6 @@
 """Stellar census: the stars around a vessel, and what's still unexplored.
 
-The game's star catalogue (`GET /stars`) only covers about 70 ly around Sol. Seen live (2026-10-06): a starter region
+The game's star catalog (`GET /stars`) only covers about 70 ly around Sol. Seen live (2026-10-06): a starter region
 ~500 ly out (OTHILETH at −459, −224) had none of its stars in it, so the map and routes knew nothing nearby. A vessel
 with the `census` feature (heaven and cargo vessels) answers `stellar_census` straight away with the stars around it:
 
@@ -11,7 +11,7 @@ with the `census` feature (heaven and cargo vessels) answers `stellar_census` st
 Kept in the db:
   kv "census"        {origin star: {"at", "device", "count"}}       one entry per system a census was run from
   kv "census_stars"  {designation: star record + census_at, census_from}   the latest record of every star seen
-The census stars are merged into the stored catalogue (kv "stars") whenever it's read from the game, so the map,
+The census stars are merged into the stored catalog (kv "stars") whenever it's read from the game, so the map,
 distances, routes and travel all know them.
 """
 from __future__ import annotations
@@ -31,8 +31,8 @@ def can_census(d: dict) -> bool:
 
 
 def merge(cat: dict | None, census_stars: dict[str, dict]) -> dict:
-    """The catalogue with every census star in it: new stars are added (marked `from_census`), stars it already has get
-    the census's explored / life / ward flags (and an entry point if it lacked one). Positions stay the catalogue's."""
+    """The catalog with every census star in it: new stars are added (marked `from_census`), stars it already has get
+    the census's explored / life / ward flags (and an entry point if it lacked one). Positions stay the catalog's."""
     cat = dict(cat or {})
     stars = [dict(s) for s in cat.get("stars") or [] if isinstance(s, dict)]
     by = {s.get("designation"): s for s in stars}
@@ -85,7 +85,7 @@ def seconds_per_ly(census_stars: dict[str, dict]) -> float | None:
 
 def unexplored(cat: dict, explored: set[str], ref: dict | None, census_stars: dict[str, dict], limit: int = 100) -> list[dict]:
     """Stars nobody has explored yet, nearest to `ref` (a position) first: the census says explored false, or the
-    catalogue has the star and we've neither scanned it nor been there."""
+    catalog has the star and we've neither scanned it nor been there."""
     rate = seconds_per_ly(census_stars)
     out = []
     for s in cat.get("stars") or []:
@@ -101,7 +101,7 @@ def unexplored(cat: dict, explored: set[str], ref: dict | None, census_stars: di
 
 def destination_systems(cat: dict, explored: set[str], yours: set[str], here: str | None, limit: int = 400) -> list[dict]:
     """Systems to offer as travel destinations, nearest to `here` first, grouped: your systems (devices there),
-    explored, unexplored. Census stars beyond the catalogue are included (they're merged into it)."""
+    explored, unexplored. Census stars beyond the catalog are included (they're merged into it)."""
     import heapq
     here = (here or "").split("-")[0]
     rp = next((s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict) and s.get("designation") == here), None)
@@ -118,7 +118,7 @@ def destination_systems(cat: dict, explored: set[str], yours: set[str], here: st
         p = _xyz(s.get("position"))
         d = math.dist(ref, p) if ref and p else None
         keyed.append(((order[group], d is None, d or 0, code), group, d, s))
-    for code in sorted(yours - seen):   # not in the catalogue at all (no census yet)
+    for code in sorted(yours - seen):   # not in the catalog at all (no census yet)
         keyed.append(((0, True, 0, code), "Your systems", None, {"designation": code}))
     return [{"value": s["designation"], "group": group, "distance": None if d is None else round(d, 2),
              "label": (f"{d:.1f} ly" if d is not None else "") + (" · census" if s.get("from_census") else "")}
@@ -136,7 +136,7 @@ def _xyz(p) -> tuple[float, float, float] | None:
 
 async def fetch_catalogue(api) -> dict:
     """GET /stars. Documented as unpaginated; if the game ever pages it (next_cursor), the rest is followed too (at
-    most 20 pages — the catalogue allows 1 request/minute, so a second page may be refused; what was read is kept)."""
+    most 20 pages — the catalog allows 1 request/minute, so a second page may be refused; what was read is kept)."""
     body = await api.get("/stars", background=True) or {}
     stars = list(body.get("stars") or [])
     cursor = body.get("next_cursor")
@@ -186,7 +186,7 @@ async def observatory_stars(db) -> tuple[dict[str, dict], list[str]]:
 
 
 async def full_catalogue(db, raw: dict) -> dict:
-    """The game's catalogue plus the stars our censuses and observatories found beyond it."""
+    """The game's catalog plus the stars our censuses and observatories found beyond it."""
     extra = dict(await db.kv_get("census_stars", {}) or {})
     obs, unplaced = await observatory_stars(db)
     for k, v in obs.items():

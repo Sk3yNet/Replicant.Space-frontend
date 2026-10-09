@@ -1,4 +1,4 @@
-"""Pages for traffic & civilisation contact, asteroid defence, maintenance and your trade shop."""
+"""Pages for traffic & civilization contact, asteroid defense, maintenance and your trade shop."""
 from __future__ import annotations
 
 import html
@@ -27,7 +27,7 @@ def _lines(lines: list[str], ok: bool = True) -> HTMLResponse:
 
 
 # =====================================================================================
-# traffic & civilisation contact
+# traffic & civilization contact
 # =====================================================================================
 @router.get("/traffic", response_class=HTMLResponse)
 async def traffic_page(request: Request, star: str = "", others: int = 0, user: str = Depends(current_user)):
@@ -77,7 +77,7 @@ async def traffic_spare_redundant(request: Request, user: str = Depends(current_
 
 
 # =====================================================================================
-# asteroid defence
+# asteroid defense
 # =====================================================================================
 @router.get("/defence", response_class=HTMLResponse)
 async def defence_page(request: Request, user: str = Depends(current_user)):

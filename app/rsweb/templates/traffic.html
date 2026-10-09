@@ -10,10 +10,10 @@
 {% with ids="visitor_alerts,civ_beacons" %}{% include "partials/rules_slot.html" %}{% endwith %}
 
 <div class="card">
-  <h2>Civilisation contact</h2>
-  <p class="small muted">A civilisation only sends follow-up requests (the daily messages about new events) when an FTL beacon is deployed
+  <h2>Civilization contact</h2>
+  <p class="small muted">A civilization only sends follow-up requests (the daily messages about new events) when an FTL beacon is deployed
     <b>at the planet or moon</b> of one of its events. A beacon in the system's Kuiper belt or Oort cloud logs traffic but
-    doesn't count for this. The rule places one as soon as a survey discovers an event, so it's already there when you complete it. Rule <a href="/automations">Beacons at civilisation event sites</a> is
+    doesn't count for this. The rule places one as soon as a survey discovers an event, so it's already there when you complete it. Rule <a href="/automations">Beacons at civilization event sites</a> is
     <b>{{ 'on' if rules.civ_beacons.enabled else 'off' }}</b>.</p>
   {% if coverage %}
   <table class="small"><tr><th>Location</th><th>Life</th><th>Events done</th><th>Open</th><th>Beacon here</th><th>Other beacons in system</th><th>State</th><th></th></tr>

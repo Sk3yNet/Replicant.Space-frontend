@@ -17,7 +17,7 @@ const cover = q.get("cover") !== "0";          // relay/hub range spheres
 const fleets = q.get("fleets") !== "0";        // fleet markers (galaxy) and fleets in the caption (systems)
 const supply = q.get("supply") !== "0";        // supply lines between fleets' systems
 const production = q.get("production") !== "0"; // sparkles: drones mining each resource, per system
-// resource colours: the galaxy's sparkles and the panel's stockpile rows (keep in step with map.js RES_COLOR)
+// resource colors: the galaxy's sparkles and the panel's stockpile rows (keep in step with map.js RES_COLOR)
 const RES_CSS = { structural: "#b0bec5", conductive: "#ffa726", silicates: "#e6c88f", carbon: "#a1887f", volatiles: "#4dd0e1",
                   rares: "#e040fb" };
 const hud = ["left", "right", "off"].includes(q.get("hud")) ? q.get("hud") : "right";   // the dashboard panel

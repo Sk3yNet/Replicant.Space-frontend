@@ -4,8 +4,8 @@ A survey (explore) fleet leaves one FTL relay and one FTL beacon in each system 
   • relay  — deployed at an L4/L5 Lagrange point (the only place it works) and activated; it extends remote command and
              BobNet (7.5 ly, chains automatically)
   • beacon — deployed wherever the carrier unloads; it logs the system's traffic from anywhere in the system. If the
-             survey finds a civilisation (an event at a body, or a body with intelligent / spacefaring life), the carrier
-             picks the beacon up again once everyone is aboard and deploys it at that body: civilisations only send their
+             survey finds a civilization (an event at a body, or a body with intelligent / spacefaring life), the carrier
+             picks the beacon up again once everyone is aboard and deploys it at that body: civilizations only send their
              follow-up requests to a beacon AT their planet or moon.
 They ride in the fleet's carriers (stowed or attached); they don't have to be fleet members.
 System wards aren't left behind: a ward travels with its fleet as a member (put system_ward in the loadout). It's
@@ -126,7 +126,7 @@ def presence(devices: list[dict]) -> dict[str, dict[str, list[dict]]]:
 
 
 def civ_places(rows: list[dict], star: str) -> list[str]:
-    """Civilisation bodies in a system (from traffic.coverage rows): event locations first, then bodies with
+    """Civilization bodies in a system (from traffic.coverage rows): event locations first, then bodies with
     intelligent / spacefaring life."""
     ev = [r["location"] for r in rows if r["star"] == star and (r.get("open") or r.get("completed"))]
     life = [r["location"] for r in rows if r["star"] == star and r["location"] not in ev
@@ -136,7 +136,7 @@ def civ_places(rows: list[dict], star: str) -> list[str]:
 
 def civ_move_steps(carrier: dict, devices: list[dict], star: str, civ: list[str],
                    holds: dict[str, list[str]] | None = None) -> tuple[list[dict], list[str]]:
-    """The carrier takes a beacon to the first civilisation body without one: a beacon of yours elsewhere in the
+    """The carrier takes a beacon to the first civilization body without one: a beacon of yours elsewhere in the
     system is picked up (stowed), else one it carries is used. Nothing to do when a civ body already has a beacon."""
     mine = deployed_in(devices, star, "beacon")
     at = {d["location"] for d in mine}
@@ -164,12 +164,12 @@ def civ_move_steps(carrier: dict, devices: list[dict], star: str, civ: list[str]
     else:
         aboard_b = carried({code}, devices, "beacon", holds)
         if not aboard_b:
-            return [], [f"civilisation at {target}, but no beacon of yours in {star} or aboard {code} to put there"]
+            return [], [f"civilization at {target}, but no beacon of yours in {star} or aboard {code} to put there"]
         bcode, how = aboard_b[0]["device_code"], f"deploying beacon {aboard_b[0]['device_code']}"
     if cloc != target or loose:
-        steps.append(travel(target, "civilisation"))
+        steps.append(travel(target, "civilization"))
     st = step(f"deploy beacon {bcode} at {target}", f"/devices/{bcode}", {"command": "deploy"}, wait=["device.deployed"],
               timeout=120, critical=True)
     st["wait_device"] = bcode
     steps.append(st)
-    return steps, [f"civilisation at {target}: {how} there"]
+    return steps, [f"civilization at {target}: {how} there"]

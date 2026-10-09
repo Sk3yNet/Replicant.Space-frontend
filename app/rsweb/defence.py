@@ -1,4 +1,4 @@
-"""Asteroid defence: track incoming objects and work out how many propulsors it takes to divert them in time.
+"""Asteroid defense: track incoming objects and work out how many propulsors it takes to divert them in time.
 
 From the game (docs + GET /locations/<STAR-OBJ-n>):
   object: {designation, object_type: "incoming_asteroid", status: "active", impact_target, impact_eta, impact_likelihood (%),
@@ -9,7 +9,7 @@ From the game (docs + GET /locations/<STAR-OBJ-n>):
   Events: system.object_detected {object_designation, size_class, impact_target, impact_eta, discovery_source},
           diversion.activated / .diverted / .partial / .impacted.
 
-The estimate (labelled as such on the page): thrust per propulsor = current_thrust_per_hour ÷ active_propulsors when
+The estimate (labeled as such on the page): thrust per propulsor = current_thrust_per_hour ÷ active_propulsors when
 the game says so, else the blueprint's figure, else 4/h (the docs' example). Still needed = required_strength ×
 (1 − progress_pct/100); propulsors needed = ⌈still needed ÷ (thrust per propulsor × hours left)⌉. When two readings
 show progress, the observed rate is used to project when it will be done.
@@ -196,13 +196,13 @@ def plan_steps(a: dict, p: dict) -> list[tuple[str, list[dict], list[str]]]:
     des = a["designation"]
     jobs = []
     for c in p["activate"]:
-        jobs.append((f"defence: activate {c} at {des}", [step(f"activate {c} at {des}", f"/devices/{c}", {"command": "activate"})], [c]))
+        jobs.append((f"defense: activate {c} at {des}", [step(f"activate {c} at {des}", f"/devices/{c}", {"command": "activate"})], [c]))
     for c in p["send"]:
         tr = step(f"{c}: travel → {des}", f"/devices/{c}", {"command": "travel", "destination": des},
                   wait=["travel.arrived"], critical=True, match={"destination": des})
         tr["wait_device"] = c
         tag = step(f"{c}: pin at {des}", f"/devices/{c}", {"configuration": {"add_tags": [at_tag(des)]}}, method="PATCH")
-        jobs.append((f"defence: {c} → {des}", [tag, tr, step(f"activate {c} at {des}", f"/devices/{c}", {"command": "activate"})], [c]))
+        jobs.append((f"defense: {c} → {des}", [tag, tr, step(f"activate {c} at {des}", f"/devices/{c}", {"command": "activate"})], [c]))
     pr = p.get("print")
     if pr:
         body = {"command": "enqueue_print", "device_type": pr["device_type"], "quantity": pr["n"],
@@ -210,7 +210,7 @@ def plan_steps(a: dict, p: dict) -> list[tuple[str, list[dict], list[str]]]:
         if pr["cruise"]:
             body["oncomplete"] = {"command": "travel", "destination": des}
         parts = pr.get("parts") or [{"factory": pr["factory"], "n": pr["n"]}]
-        jobs.append((f"defence: print {pr['n']}× {pr['device_type']} for {des}",
+        jobs.append((f"defense: print {pr['n']}× {pr['device_type']} for {des}",
                      [step(f"{x['factory']}: print {x['n']}× {pr['device_type']} → {des}", f"/devices/{x['factory']}",
                            {**body, "quantity": x["n"]}) for x in parts],
                      []))

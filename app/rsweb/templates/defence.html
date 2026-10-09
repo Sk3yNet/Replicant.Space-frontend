@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Defence{% endblock %}
+{% block title %}Defense{% endblock %}
 {% block content %}
 <div class="row between">
-  <h1>Asteroid defence</h1>
+  <h1>Asteroid defense</h1>
   <span class="small muted">{% if read_at %}read {{ read_at | ago }}{% endif %}
     <button class="small" hx-post="/defence/read" hx-target="#df-msg">Read objects now</button></span>
 </div>
@@ -10,7 +10,7 @@
 {% with ids="asteroid_defence" %}{% include "partials/rules_slot.html" %}{% endwith %}
 <p class="small muted">Asteroids on a collision course are diverted by taking propulsors to the asteroid, deploying and activating them; each
   running propulsor builds thrust until impact likelihood reaches 0 %. Required strength grows as impact gets closer, so act early.
-  Rule <a href="#" onclick="document.querySelector('.rules-panel').open=true;return false">Asteroid defence</a> is <b>{{ 'on' if cfg.enabled else 'off' }}</b>
+  Rule <a href="#" onclick="document.querySelector('.rules-panel').open=true;return false">Asteroid defense</a> is <b>{{ 'on' if cfg.enabled else 'off' }}</b>
   (activate idle {{ 'on' if cfg.activate else 'off' }} · send idle {{ 'on' if cfg.send_idle else 'off' }} ·
   print shortfall {{ 'on' if cfg.print_missing else 'off' }}).</p>
 

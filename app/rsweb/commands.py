@@ -118,7 +118,7 @@ DESCRIPTIONS: dict[str, str] = {
     "search": "A survey drone searches the belt it's at and opens a mining site, then stays tracking it (moving or "
               "deactivating it closes the site).",
     "stellar_census": "List the stars around this vessel: positions, entry points and whether they're explored. Adds "
-                      "them to the star catalogue (Map › Stars).",
+                      "them to the star catalog (Map › Stars).",
     "prospect": "A galactic observatory looks for resources and events in a direction (optional).",
     "enqueue_print": "Add a print to this autofactory's queue. It waits for materials at the factory's location; tags "
                      "and an on-complete command apply to the new device.",

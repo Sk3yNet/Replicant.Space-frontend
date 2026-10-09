@@ -71,7 +71,7 @@ def heading_from(kind: str, home: tuple | None, target: tuple | None = None, cus
         return unit(home)
     if kind == "star":
         if not home or not target:
-            raise ValueError("both systems need positions in the star catalogue")
+            raise ValueError("both systems need positions in the star catalog")
         v = unit([b - a for a, b in zip(home, target)])
         if not v:
             raise ValueError("that's the fleet's own system")

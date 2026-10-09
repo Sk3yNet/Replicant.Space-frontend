@@ -8,9 +8,9 @@
     <select name="ref" onchange="this.form.submit()">{% for s in refs %}<option {{ 'selected' if s == ref }}>{{ s }}</option>{% endfor %}</select>
   </form>
 </div>
-<p class="muted small">The game's star catalogue only covers about 70 ly around Sol. Further out, a <b>stellar census</b> from a heaven or
+<p class="muted small">The game's star catalog only covers about 70 ly around Sol. Further out, a <b>stellar census</b> from a heaven or
   cargo vessel lists the stars around it: positions, entry points and whether anyone has explored them. They're added to the
-  catalogue here, so the map, routes and travel know them. The <b>Stellar census on arrival</b> rule runs one in every new system.</p>
+  catalog here, so the map, routes and travel know them. The <b>Stellar census on arrival</b> rule runs one in every new system.</p>
 {% with ids="census_on_arrival" %}{% include "partials/rules_slot.html" %}{% endwith %}
 
 <div class="grid g2">
@@ -24,7 +24,7 @@
         <td class="num">{{ s.distance if s.distance is not none else '?' }}</td>
         <td class="num">{% if s.eta is not none %}≈ {{ (s.eta / 60) | round(0) | int }} min{% endif %}</td>
         <td class="num">{{ s.estimated_planets or '' }}</td>
-        <td class="small">{% if s.from_census %}<span class="pill small" title="beyond the catalogue: found by a census from {{ s.census_from }}">census</span>{% endif %}
+        <td class="small">{% if s.from_census %}<span class="pill small" title="beyond the catalog: found by a census from {{ s.census_from }}">census</span>{% endif %}
           {% if s.has_hub %}<span class="pill small">hub</span>{% endif %}{% if s.has_ward %}<span class="pill small" title="a system ward is active there">ward</span>{% endif %}
           {% if s.has_life %}<span class="pill small">life</span>{% endif %}</td>
         <td style="white-space:nowrap">{% if reps %}<span class="muted">route from</span>{% endif %}
@@ -35,7 +35,7 @@
       {% endfor %}
     </table>
     {% else %}<p class="muted small">None known. Run a census from a vessel (right) to find the stars around it.</p>{% endif %}
-    <p class="muted small">Unexplored: the census says nobody has explored it, or it's in the catalogue and you haven't scanned it
+    <p class="muted small">Unexplored: the census says nobody has explored it, or it's in the catalog and you haven't scanned it
       or had a device there. ETAs use the census's own travel estimates{% if sec_per_ly %} (≈ {{ sec_per_ly | round(0) | int }} s per ly){% endif %};
       press a replicant's name under <b>route from</b> for the game's route preview from where that replicant is (nothing moves).</p>
   </div>

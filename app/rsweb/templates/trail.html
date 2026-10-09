@@ -5,7 +5,7 @@
   <button class="small" hx-post="/trail/read" hx-target="#trail-result">Read all beacons</button></div>
 <p class="muted small">An active FTL beacon logs every arrival and departure in its system, with a direction vector for an
   interstellar departure. Find {{ s.target_name }}'s public beacons, read their logs, and each departure's arrow is matched
-  against the star catalogue: the star whose direction from that system lines up best (nearer first, since hops stay
+  against the star catalog: the star whose direction from that system lines up best (nearer first, since hops stay
   within relay range, {{ "%.1f" | format(7.5) }} ly) is the next stop. The beacons are re-read every 15 minutes and a new
   departure or arrival raises a notification.</p>
 <div id="trail-result"></div>

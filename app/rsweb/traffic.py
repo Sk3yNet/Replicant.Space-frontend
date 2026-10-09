@@ -1,11 +1,11 @@
-"""Beacon traffic audit and civilisation contact.
+"""Beacon traffic audit and civilization contact.
 
 Traffic: every FTL beacon logs "the comings and goings of every device in the system, including other players"
 (GET /devices/{beacon}/audit → {audit: [{id, device_code, device_type, replicant_code, travel_type: arrival|departure,
 location, logged_at, vector}]}). The app reads each deployed beacon every few minutes, keeps the log, and raises a
 "visitor" notification when another replicant's devices arrive in one of your systems.
 
-Civilisation contact (why civilisation alerts don't arrive): the game only sends a civilisation's follow-up requests
+Civilization contact (why civilization alerts don't arrive): the game only sends a civilization's follow-up requests
 ("daily messages about new requests") when an FTL beacon is deployed AT the location of an event you completed there —
 the planet or moon itself, not the system's Kuiper belt / Oort cloud. Without one you only see new requests by
 re-scanning the body. `coverage()` lists inhabited bodies and event locations and whether a beacon sits there;
@@ -142,7 +142,7 @@ def filtered(entries: list[dict], mine: set[str], star: str = "", others_only: b
     return list(reversed(rows))[:limit]
 
 
-# --- civilisation contact ---------------------------------------------------------------------------------------
+# --- civilization contact ---------------------------------------------------------------------------------------
 def inhabited(systems: dict[str, dict]) -> dict[str, dict]:
     """Bodies with life, from stored system scans: {designation: {life_stage, species, star}}."""
     out: dict[str, dict] = {}
@@ -161,7 +161,7 @@ def inhabited(systems: dict[str, dict]) -> dict[str, dict]:
 
 
 def coverage(events: dict[str, dict], devices: list[dict], systems: dict[str, dict]) -> list[dict]:
-    """One row per location that matters for civilisation contact: event locations (open or completed) and bodies
+    """One row per location that matters for civilization contact: event locations (open or completed) and bodies
     with intelligent / spacefaring life. `beacon` = your deployed beacon there; `needs_beacon` = an event was
     discovered or completed there and no beacon sits at that exact location — placing it as soon as a survey finds
     the event means it's already there when you complete it, so the follow-up requests reach you from day one."""
@@ -202,7 +202,7 @@ def coverage(events: dict[str, dict], devices: list[dict], systems: dict[str, di
 
 def redundant_beacons(devices: list[dict], rows: list[dict], busy: set[str] | None = None) -> list[dict]:
     """Beacons a system doesn't need: any beacon logs the whole system's traffic, so once a system has a beacon at a
-    civilisation's body (an event location or a body with intelligent/spacefaring life), its other beacons are
+    civilization's body (an event location or a body with intelligent/spacefaring life), its other beacons are
     redundant; without one, one beacon is kept and the rest are redundant. Beacons already spare are skipped."""
     busy = busy or set()
     civ_locs = {r["location"] for r in rows if r.get("completed") or r.get("open")
@@ -216,7 +216,7 @@ def redundant_beacons(devices: list[dict], rows: list[dict], busy: set[str] | No
         civ = [b for b in bs if b["location"] in civ_locs]
         if civ:
             keep = {b["device_code"] for b in civ}
-            why = f"{star} has a beacon at a civilisation's body ({', '.join(sorted(b['location'] for b in civ))})"
+            why = f"{star} has a beacon at a civilization's body ({', '.join(sorted(b['location'] for b in civ))})"
         else:
             keep = {sorted(bs, key=lambda b: b["device_code"])[0]["device_code"]}
             why = f"{star} already has beacon {next(iter(keep))}"
@@ -291,7 +291,7 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
                     "replicant": hosts[code][0] if code in hosts else None,
                     "text": f"fly {v.get('device_type', 'vessel').replace('_', ' ')} {code} {v.get('location')} → {loc} "
                             f"and deploy beacon {b}" + moves(code)}
-    # any beacon of yours in this system that isn't at a civilisation's body can be moved there — it logs the whole
+    # any beacon of yours in this system that isn't at a civilization's body can be moved there — it logs the whole
     # system's traffic wherever it sits, so nothing is lost. Spare / civ-tagged ones first, then e.g. the Kuiper beacon.
     loose = sorted((d for d in devices if "beacon" in (d.get("device_type") or "") and star_of(d.get("location")) == star
                     and deployed(d) and d.get("device_code") not in busy and d.get("location") not in keep

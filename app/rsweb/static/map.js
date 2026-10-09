@@ -1,4 +1,4 @@
-// 3D galaxy map of the star catalogue (positions in light-years from Sol).
+// 3D galaxy map of the star catalog (positions in light-years from Sol).
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/OrbitControls.js";
 
@@ -99,7 +99,7 @@ scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup, 
 const supplyLines = [];   // {curve, dots: [sprite], el, v}
 const sparkGroup = new THREE.Group(); scene.add(sparkGroup);
 const measureGroup = new THREE.Group(); scene.add(measureGroup);   // right-click measuring: its points and line
-const sparkles = [];      // {sp, c: centre, r, a0, w, tilt}
+const sparkles = [];      // {sp, c: center, r, a0, w, tilt}
 const fleetLabels = [];   // {el, v, dy}
 const movers = [];   // {m: trip, cone, label el}
 const labels = [];
@@ -214,7 +214,7 @@ function buildFleets() {
 
 // supply lines between systems: an arc bowed above the galactic plane, amber for materials, blue for trade.
 // Planned (configured, nothing moving yet) is faint and dotted, a running ferry or mission is solid, and while
-// something is travelling along it, dots flow from source to destination.
+// something is traveling along it, dots flow from source to destination.
 const SUPPLY = { materials: 0xffb74d, trade: 0x6cb6ff };
 const SUPPLY_TEXT = { materials: "#ffd59a", trade: "#a9d3ff" };
 function buildSupply() {
@@ -502,7 +502,7 @@ function infoText(d, loadingOverlay) {
                    (src.catalogue_total != null && src.catalogue_total !== src.catalogue ? ` (it says ${src.catalogue_total})` : ""),
                  src.census && `${src.census} from censuses`, src.observatory && `${src.observatory} found by your observatories`,
                  (src.observatory_unplaced || []).length && `${src.observatory_unplaced.length} found without a position yet`].filter(Boolean);
-  info.innerHTML = `<p>${d.stars.length} stars · catalogue generated ${esc(d.generated_at || "?")}.</p>` +
+  info.innerHTML = `<p>${d.stars.length} stars · catalog generated ${esc(d.generated_at || "?")}.</p>` +
     (parts.length ? `<p class="small muted">${esc(parts.join(" · "))}</p>` : "") +
     (loadingOverlay ? `<p class="small muted">Loading fleets, ships in transit and mining…</p>` : "") +
     (mv ? `<p class="small"><b>In transit between stars</b></p><ul class="small">${mv}</ul>` : "") +
@@ -528,7 +528,7 @@ function load(first) {
     build();
     if (first) {
       if (!d.stars.length) {
-        info.innerHTML = `<p class="muted">No star catalogue cached yet. It syncs every 30 minutes, or use “refresh catalogue”.</p>`;
+        info.innerHTML = `<p class="muted">No star catalog cached yet. It syncs every 30 minutes, or use “refresh catalog”.</p>`;
       } else {
         infoText(data, true);
         const s = (OPTS.focus && byName[OPTS.focus]) || repStar(); if (s) focus(s);

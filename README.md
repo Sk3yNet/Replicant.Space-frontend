@@ -24,7 +24,7 @@ Per-release detail is in the app's version history (Account › Server, or `app/
 |---|---|
 | Dashboard | — |
 | Devices | Tree · List · AMI |
-| Map | Galaxy · Stars · Systems · Traffic · Trail · Wards & hubs · Defence · Upkeep |
+| Map | Galaxy · Stars · Systems · Traffic · Trail · Wards & hubs · Defense · Upkeep |
 | Fleets | Fleets · Reset & reform |
 | Economy | Blueprints · Contracts · Reputation · Shop |
 | Activity | Automations · Events · Messages · Notifications |
@@ -49,7 +49,7 @@ rule with an on/off switch, plus the jobs and the log.
   launch / withdraw, and **AMI schedules** that re-issue directives to idle controllers.
 
 ### Maps
-- **Galaxy**: 3D map of the star catalogue (plus stars from censuses and your observatories), live: ships in transit, fleets,
+- **Galaxy**: 3D map of the star catalog (plus stars from censuses and your observatories), live: ships in transit, fleets,
   supply lines, mining sparkles and **prospecting cones** (each observatory scan, darker as it progresses) redraw as events
   arrive. Relay/hub range, search, distances, route preview; right-click two stars to measure.
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
@@ -57,13 +57,13 @@ rule with an on/off switch, plus the jobs and the log.
   resource: richness, open sites, % left, ≈ units left — learned from what past sites gave — salvage, stockpiled),
   **Belts** (richness, a viability line, open sites) and **Bodies** (planets, moons, L-points with their salvage and stock).
   *Mining prospects* scores every scanned system out of 100. Surveyed checkboxes per body.
-- **Traffic**: civilisation contact (a beacon must sit at the body of the civilisation's event), visitors, each beacon's audit log,
+- **Traffic**: civilization contact (a beacon must sit at the body of the civilization's event), visitors, each beacon's audit log,
   redundant beacons.
 - **Trail**: follow a replicant through the audit logs of public FTL beacons; candidate systems with travel time and a travel
   button; *follow to the end* keeps going until the target stops moving.
 - **Wards & hubs**: your wards (against the 25 cap), hub shield and upkeep with warnings, `evicted_miners` log. Other players'
   warded systems are left alone by every mining rule and mission.
-- **Defence**: incoming asteroids with a propulsor estimate and **Defend now**. **Upkeep**: wear per system and maintenance
+- **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Upkeep**: wear per system and maintenance
   coverage.
 
 ### Fleets
@@ -88,7 +88,7 @@ lines or a template).
 - **Blueprints**: costs and print times, what each printer can afford, a production planner that queues prints (spread over
   several autofactories) and can mine or deliver the shortfall.
 - **Contracts**: in-game events with criteria (any one option completes it), rewards and progress; *send replicant*, *deliver
-  materials*, *fulfil*. **Deliver devices** sends spare devices to a contract's location; printing what no spare covers waits
+  materials*, *fulfill*. **Deliver devices** sends spare devices to a contract's location; printing what no spare covers waits
   for **Authorize printing**.
 - **Reputation**: account and per-replicant reputation, known species. **Shop**: your trade controllers, trades, other traders.
 
@@ -118,7 +118,7 @@ lines or a template).
 1. Go to <https://console.cloud.google.com/> and create a project, e.g. "replicant".
 2. Open **APIs & Services ▸ OAuth consent screen**. Choose External, fill in the app name and your email, and add yourself as a test user. It can stay in *Testing* mode.
 3. Open **Credentials ▸ Create credentials ▸ OAuth client ID ▸ Web application**.
-   - Authorised redirect URI: `https://<PUBLIC_HOST>/oauth2/callback`
+   - Authorized redirect URI: `https://<PUBLIC_HOST>/oauth2/callback`
 4. Copy the client ID and secret.
 
 ### 2. Cloudflare Tunnel
@@ -259,13 +259,16 @@ RS_API_BASE=http://127.0.0.1:9000/v1 RS_API_TOKEN=dev DEV_USER=you@example.com u
 pytest -q
 ```
 
+**Conventions:** American spelling in all text (UI, logs, comments, docs). The game's own names stay as the API spells them
+(e.g. the `travel.cancelled` event, the `travelling` status).
+
 Never set `DEV_USER` in the stack: it makes the app trust requests with no identity header.
 
 Multi-user mode runs locally too: `OWNER_EMAIL=you@example.com DATA_DIR=./data DB_PATH=./data/rsweb.sqlite RS_API_BASE=http://127.0.0.1:9000/v1 DEV_USER=you@example.com python -m rsweb.tenants`
 serves the walkthrough at <http://127.0.0.1:8000/_tenant/> (the mock accepts any key). The per-user servers listen on 8100 and up;
 open them directly with `DEV_USER` unset and an `X-Auth-Request-Email` header, or put `nginx/multi.conf` in front.
 
-**Replaying a snapshot:** `python tools/replay_snapshot.py <snapshot.json>` runs one automation tick against a Diagnostics snapshot with a stub API (GETs answered from the snapshot, commands recorded, nothing sent) and prints the new log lines, the loadout pass and the commands it would have sent. It is approximate: snapshots don't carry the star catalogue, blueprints or replicants.
+**Replaying a snapshot:** `python tools/replay_snapshot.py <snapshot.json>` runs one automation tick against a Diagnostics snapshot with a stub API (GETs answered from the snapshot, commands recorded, nothing sent) and prints the new log lines, the loadout pass and the commands it would have sent. It is approximate: snapshots don't carry the star catalog, blueprints or replicants.
 
 ## Configuration (app)
 
@@ -293,7 +296,7 @@ app/rsweb/
   api.py                   rate-limited API client + SSE parser
   ingest.py                event stream, pollers, timers, device sync
   automations.py           the automation engine: jobs, rules, fleet missions, tick stages
-  ops_rules.py             the Traffic / Defence / Upkeep / Shop rules (mixed into the engine)
+  ops_rules.py             the Traffic / Defense / Upkeep / Shop rules (mixed into the engine)
   loadouts.py              the loadout pass: spares, prints, deliveries, placement
   fleets.py                fleets, missions, deals; reform.py rebuilds tags
   pathing.py, prospects.py, prospecting.py, observatory.py   path forward, system scores, observatory prospecting

@@ -5,7 +5,7 @@
   <span class="pill {{ dev.status | status_class }}">{{ dev.status }}</span></h1>
 {% if err %}<div class="banner">Live fetch failed ({{ err }}); showing the last synced copy.</div>{% endif %}
 {% if trip %}<div class="card row between" style="align-items:center">
-  <div class="small">Travelling to <b>{{ trip.destination }}</b>{% if trip.seconds_left %} · {{ (trip.seconds_left / 60) | round(0) | int }} min left{% endif %}</div>
+  <div class="small">Traveling to <b>{{ trip.destination }}</b>{% if trip.seconds_left %} · {{ (trip.seconds_left / 60) | round(0) | int }} min left{% endif %}</div>
   <div><button class="small" hx-post="/devices/{{ code }}/cancel-travel" hx-target="#cancel-result"
       hx-confirm="Cancel {{ code }}'s trip? It turns back to where it started (the return takes a while too){{ ' — and takes replicant ' ~ host_rep ~ ' with it' if host_rep }}.">Cancel travel</button></div>
 </div><div id="cancel-result"></div>{% endif %}

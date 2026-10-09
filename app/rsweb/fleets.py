@@ -18,9 +18,9 @@ A mission is a list of phases; each phase becomes one job, and the next phase st
            gather_evenly, and (deliver mode) the transport controller ferries to the nearest destination system.
            Haul mode: freighters fill up at the belt on recall and bring it home.
   explore  for each target: assemble → travel → deploy → survey_system → watch (no_targets) → recall; then home
-  trade    contracts (civilisation events) and trades: load (freighters collect what the site is still short of, from
+  trade    contracts (civilization events) and trades: load (freighters collect what the site is still short of, from
            the nearest stockpiles) → assemble → travel → deliver (deposit at the site; a vessel hosting a replicant goes
-           too) → wait (for a replicant at the site) → trade (fulfil the event / execute the trade) → collect (the
+           too) → wait (for a replicant at the site) → trade (fulfill the event / execute the trade) → collect (the
            rewards) → recall → return (to the nearest system whose fleet takes materials in) → unload → home
 Unload, back home: cargo is deposited at the home stockpile. A stationed fleet's devices also come off the carriers
 (they work the home system); any other fleet stays aboard, ready for its next mission.
@@ -916,7 +916,7 @@ def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str,
     """(done?, why, updates to mission). Mining: nothing left (belt exhausted or salvage used up; no controller: no
     drone mining) and no site being searched, for N minutes.
     Explore: the survey controller reports no_targets; without one, the drones have been idle — not scanning, not
-    travelling and not in a job (auto-survey drives them body by body) — for a few minutes."""
+    traveling and not in a job (auto-survey drives them body by body) — for a few minutes."""
     r = roster(fleet, devices)
     ms = r["members"]
     role = fleet.get("role")
@@ -1193,7 +1193,7 @@ def pickup_steps(legs: list[dict], devices: list[dict]) -> list[dict]:
 def site_deliver_steps(fleet: dict, devices: list[dict], site: str, replicant_hosts: set[str],
                        loaded: set[str] | None = None) -> list[dict]:
     """Loaded freighters (`loaded`: the ones the load phase filled; the device list can lag) fly to the site and
-    deposit; a member vessel hosting a replicant goes too (it fulfils)."""
+    deposit; a member vessel hosting a replicant goes too (it fulfills)."""
     steps = []
     for d in freighters(fleet, devices):
         if _int(d.get("cargo_used")) <= 0 and d["device_code"] not in (loaded or set()):
@@ -1216,7 +1216,7 @@ def site_deliver_steps(fleet: dict, devices: list[dict], site: str, replicant_ho
 
 
 def fulfil_step(dl: dict, replicant: str | None = None, template: str | None = None) -> dict:
-    """Fulfil the deal. A contract goes through the events settings' request template (default
+    """Fulfill the deal. A contract goes through the events settings' request template (default
     POST /locations/{location}/events/{designation}; {replicant} = the fleet's replicant); a trade is executed at its
     controller with the replicant there."""
     if dl["kind"] == "contract":
@@ -1226,7 +1226,7 @@ def fulfil_step(dl: dict, replicant: str | None = None, template: str | None = N
                   .replace("{replicant}", replicant or "").replace("{criteria}", "default"))
         method, _, rest = filled.partition(" ")
         path, _, body = rest.partition(" ")
-        return step(f"fulfil {dl['label']} at {dl['location']}" + (f" ({replicant})" if replicant else ""), path,
+        return step(f"fulfill {dl['label']} at {dl['location']}" + (f" ({replicant})" if replicant else ""), path,
                     _json.loads(body) if body.strip() else None, method=method.upper() or "POST", critical=True)
     return step(f"execute {dl['label']} at {dl['controller']}", f"/devices/{dl['controller']}/trades/{dl['trade_code']}",
                 None, critical=True)
@@ -1300,7 +1300,7 @@ def supply_links(fleets: list[dict], devices: list[dict]) -> list[dict]:
       • materials — a fleet's Materials sends to another fleet (its home → theirs), or a mining mission in deliver
                     mode hauls from the system it works to its drop point
       • trade     — a trade fleet's run: home → the deal's site, and the site → where the rewards are dropped
-    state: "moving" (something is travelling from → to right now), "ferrying" (an AMI transport controller in `from`
+    state: "moving" (something is traveling from → to right now), "ferrying" (an AMI transport controller in `from`
     runs a ferry to `to`), "active" (a running mission is using it), else "planned" (configured, nothing moving yet)."""
     from .transit import trip
     homes: dict[str, dict] = {}   # the fleet a system's deliveries go to: one that takes materials in, else any
@@ -1356,15 +1356,15 @@ def supply_links(fleets: list[dict], devices: list[dict]) -> list[dict]:
     return out
 
 
-# --- trade runs: is the price at the site, and who fulfils ---------------------------------------------------
+# --- trade runs: is the price at the site, and who fulfills ---------------------------------------------------
 def fleet_replicant(fleet: dict, devices: list[dict], replicants: dict) -> tuple[str, dict] | None:
-    """The replicant riding with the fleet (hosted on one of its vessels): the one that fulfils its trades."""
+    """The replicant riding with the fleet (hosted on one of its vessels): the one that fulfills its trades."""
     codes = {d["device_code"] for d in members(fleet, devices)}
     return next(((c, r) for c, r in sorted(replicants.items()) if r.get("hosted_device_code") in codes), None)
 
 
 def incoming_to(site: str, devices: list[dict]) -> dict[str, float]:
-    """Cargo on its way to `site`: what vessels travelling there carry."""
+    """Cargo on its way to `site`: what vessels traveling there carry."""
     out: dict[str, float] = {}
     for d in devices:
         tr = d.get("travel") or {}

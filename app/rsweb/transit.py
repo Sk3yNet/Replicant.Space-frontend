@@ -28,7 +28,7 @@ def _ts(v: Any) -> float | None:
 
 
 def trip(d: dict, now: float | None = None) -> dict | None:
-    """The device's current trip with timed legs, or None when it isn't travelling (or the trip is long over)."""
+    """The device's current trip with timed legs, or None when it isn't traveling (or the trip is long over)."""
     tr = d.get("travel") or {}
     t0 = _ts(tr.get("departed_at"))
     t1 = _ts(tr.get("final_arrives_at") or tr.get("arrives_at"))
@@ -59,7 +59,7 @@ def trip(d: dict, now: float | None = None) -> dict | None:
 
 
 def trips(devices: list[dict], now: float | None = None) -> list[dict]:
-    """Every device's trip, devices travelling together (same route, arriving within a minute) as one."""
+    """Every device's trip, devices traveling together (same route, arriving within a minute) as one."""
     groups: dict[tuple, dict] = {}
     for d in devices:
         t = trip(d, now)

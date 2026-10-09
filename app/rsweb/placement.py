@@ -6,7 +6,7 @@
   ami_survey_controller  — the asteroid belt too; with no belt in the system, the inner system (a planet, its moons or
                            its Lagrange points — never the Kuiper belt, Oort cloud or an object).
 
-`geography()` gathers what is known about a system (its scan, the catalogue's entry point, where devices are);
+`geography()` gathers what is known about a system (its scan, the catalog's entry point, where devices are);
 `target()` picks the spot for a device type and `ok()` says whether a location already satisfies the rule.
 """
 from __future__ import annotations

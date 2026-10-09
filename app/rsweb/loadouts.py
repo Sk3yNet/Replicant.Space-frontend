@@ -218,7 +218,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     `open_sites`: star → open mining sites on its belts (recently read); a system known to have none gets no extra
     mining drones (they'd sit idle) until sites open."""
     open_sites = open_sites or {}
-    protect = protect or set()   # devices that must stay where they are (e.g. the beacon at a civilisation's body)
+    protect = protect or set()   # devices that must stay where they are (e.g. the beacon at a civilization's body)
     cfg = normalize(cfg)
     s = cfg["settings"]
     ignore = set(cfg["ignore_tags"])
@@ -391,7 +391,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             surplus = max(0, len(have) - want)
             # who stays: members first, then non-spare, controller-run, already tagged home here (from before stationed
             # fleets), at home, busy ones (can't be moved anyway), then idle-less-healthy last
-            # (seen live: FALQUORYX's home-tagged autofactory was about to be made spare in favour of a fresh untagged one)
+            # (seen live: FALQUORYX's home-tagged autofactory was about to be made spare in favor of a fresh untagged one)
             ranked = sorted(have, key=lambda d: (fleet_tag_of(d) != tag, SPARE in (d.get("tags") or []),
                                                  not d.get("controller_device_code"),
                                                  home_tag(star) not in (d.get("tags") or []),
@@ -955,7 +955,7 @@ def _free(d: dict, bps: dict, stowed_map: dict) -> float:
 
 
 def destination(star: str, stars: dict[str, dict]) -> str:
-    """Where to send things in a system: its entry point when the catalogue knows it, else the star."""
+    """Where to send things in a system: its entry point when the catalog knows it, else the star."""
     return (stars.get(star) or {}).get("entry_point") or star
 
 
@@ -1522,7 +1522,7 @@ def queued_counts(dev: dict) -> tuple[Counter, int]:
 
 
 def reconcile_orders(orders: list[dict], devices: list[dict], now_ts: float) -> list[dict]:
-    """Drop orders their autofactory no longer holds (removed or cleared by hand, cancelled, or lost), and printed
+    """Drop orders their autofactory no longer holds (removed or cleared by hand, canceled, or lost), and printed
     ones whose new device code never came through after 30 minutes."""
     from .automations import _ts
     by = {d.get("device_code"): d for d in devices}

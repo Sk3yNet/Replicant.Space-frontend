@@ -23,10 +23,10 @@ VERSION = "1.52.0"
 CHANGES: list[tuple[str, str, str]] = [
     ("1.52.0", "2026-10-09", "Contracts: each contract has an 'Approve fulfilling contracts from <species> automatically' "
      "checkbox, off by default. The Work on contracts rule and trade fleets' auto-fulfil only take contracts whose species "
-     "(from the body's scan; else the body itself) you approved; the Fulfil button and runs you start still work."),
+     "(from the body's scan; else the body itself) you approved; the Fulfill button and runs you start still work."),
     ("1.51.1", "2026-10-09", "Fleets page: the observatory note shows only on fleets that have an observatory or whose "
      "loadout wants one. README rewritten as a current per-tab overview; roadmap trimmed to open items."),
-    ("1.51.0", "2026-10-09", "System page reorganised into Resources (one row per resource: richness, open sites, % left, "
+    ("1.51.0", "2026-10-09", "System page reorganized into Resources (one row per resource: richness, open sites, % left, "
      "≈ units left, salvage, stockpiled), Belts (per belt: richness, viability line, open sites with % left) and Bodies "
      "(planets, moons, L-points with their salvage, stock and devices) — replacing Resources available, Locations, "
      "Belts, Belt viability and Planets. ≈ units left: open sites' % left × what a site gave before running out "
@@ -53,7 +53,7 @@ CHANGES: list[tuple[str, str, str]] = [
      "the next device sync."),
     ("1.48.1", "2026-10-08", "Contracts with alternative options (Famine Assistance: 3 orbital farms, or a nutrient synthesizer "
      "and resources …): a trade run counts the contract as ready at the site when any option is complete there, not only "
-     "the one whose resources it set out with; a fulfil the game refuses with 'Event criteria not met' sends the run back "
+     "the one whose resources it set out with; a fulfill the game refuses with 'Event criteria not met' sends the run back "
      "to waiting at the site (up to 3 tries) instead of stalling. The Contracts page says the options are alternatives "
      "and which one devices are delivered for."),
     ("1.48.0", "2026-10-08", "Devices › List: tick devices (or all listed) and send them one command, with its fields. "
@@ -80,7 +80,7 @@ CHANGES: list[tuple[str, str, str]] = [
     ("1.46.7", "2026-10-08", "Survey missions without a survey controller: the survey is only done once the drones have been "
      "idle for 3 minutes and no job (auto-survey drives them body by body) is using them. At DABAH the drone was caught "
      "idle between two moons, the survey was called done and the recall failed ('Cannot cruise while scanning')."),
-    ("1.46.6", "2026-10-08", "Map › Stars: the unexplored stars' route buttons (one per replicant) are labelled with the "
+    ("1.46.6", "2026-10-08", "Map › Stars: the unexplored stars' route buttons (one per replicant) are labeled with the "
      "replicant's name under 'route from', with a tooltip saying it's the game's preview and nothing moves."),
     ("1.46.5", "2026-10-08", "Galaxy map: a left-click no longer draws a line from your replicant to the star (the distance "
      "is still in the panel); lines come only from the right-click measuring tool."),
@@ -91,7 +91,7 @@ CHANGES: list[tuple[str, str, str]] = [
     ("1.46.3", "2026-10-08", "Survey missions: the relay / beacon check at launch counts the fleet's own relays and beacons, "
      "not only what's already aboard its carriers — it said '0 aboard' a minute before assemble stowed all of them. And "
      "the 'no relay there and no replicant rides along' warning is skipped when the crew carries a relay for each system."),
-    ("1.46.2", "2026-10-08", "Contracts: when the game answers 'Event already completed by this account', the fulfil "
+    ("1.46.2", "2026-10-08", "Contracts: when the game answers 'Event already completed by this account', the fulfill "
      "step counts as done — a trade run carries on to collect and go home instead of stalling with an error — and the "
      "contract is marked completed so it isn't picked again."),
     ("1.46.1", "2026-10-08", "Galaxy map: measuring is on the right mouse button only — the first right-click on a star sets "
@@ -133,7 +133,7 @@ CHANGES: list[tuple[str, str, str]] = [
      "fleet. Auto-scout explore fleets visit prospected stars ahead of a mining fleet's heading first."),
     ("1.43.4", "2026-10-08", "Fleets page faster. The mining-prospect ranking read every scanned system's resources from "
      "the events table once per mining fleet's home on every load; it now does that once and keeps it for a minute (or "
-     "until the catalogue, devices, fleets or scans change), and those per-system reads use two new indexes (built once "
+     "until the catalog, devices, fleets or scans change), and those per-system reads use two new indexes (built once "
      "at the first start, which may take a few seconds on a big database) — about 5–10× faster each. Fleets sharing a "
      "home share one destination list, and the destination and unscanned-star lists no longer build a record for "
      "every star in the catalogue."),
@@ -178,7 +178,7 @@ CHANGES: list[tuple[str, str, str]] = [
      "a notification the badge counts."),
     ("1.41.0", "2026-10-07", "Trade runs: a run only waits at the site once the whole price is there; short with nothing on "
      "its way, it goes back to gathering (cargo still aboard at the site is deposited again), and materials on another "
-     "vessel heading there are waited for. The replicant riding with the trade fleet fulfils (contracts get it in the "
+     "vessel heading there are waited for. The replicant riding with the trade fleet fulfills (contracts get it in the "
      "request template). Trade fleets get 'auto-fulfil contracts' and 'auto-fulfil trades': when free, the fleet starts "
      "the nearest deal your stockpiles can pay for (contracts first, not in another player's warded system, a trade at "
      "most once a day)."),
@@ -201,12 +201,12 @@ CHANGES: list[tuple[str, str, str]] = [
      "Contracts: another player's ward or hub has a species interaction lock, so contract missions there are refused and "
      "the contracts rule skips them (trades with traders still go)."),
     ("1.36.1", "2026-10-07", "Galaxy: stars from every stored observatory prospect are added to the map (finds from before "
-     "1.36 too), the catalogue is followed across pages if the game ever pages it, and the map and 'refresh catalogue' "
-     "say where the stars came from (the game's catalogue lists only the starter region's 12). Wards: a system where one "
-     "of your drones is mining doesn't count as warded against you (the catalogue flags every starter system has_ward)."),
+     "1.36 too), the catalog is followed across pages if the game ever pages it, and the map and 'refresh catalog' "
+     "say where the stars came from (the game's catalog lists only the starter region's 12). Wards: a system where one "
+     "of your drones is mining doesn't count as warded against you (the catalog flags every starter system has_ward)."),
     ("1.36.0", "2026-10-07", "Galactic observatory: the prospect command offers an aim — outward (default), toward Sol, "
-     "sideways, toward a star (worked out from the star catalogue), or a custom vector — instead of typing numbers. Stars "
-     "a prospect finds are added to the map and the catalogue is re-read when it reports back."),
+     "sideways, toward a star (worked out from the star catalog), or a custom vector — instead of typing numbers. Stars "
+     "a prospect finds are added to the map and the catalog is re-read when it reports back."),
     ("1.35.1", "2026-10-07", "Another player's system hub keeps us out like a ward: a system flagged has_hub with no hub of "
      "ours counts as warded (missions, stationed fleets' miners, mining rules, prospects). Trades may still go there."),
     ("1.35.0", "2026-10-07", "Mining prospects (Systems › Mining prospects): every scanned system scored for a mining fleet "
@@ -236,9 +236,9 @@ CHANGES: list[tuple[str, str, str]] = [
      "unassigned mining drones, which they adopt, then re-set the directive and launch. In a scanned system with no belt, "
      "miners go to salvage; with no salvage either, an alert once a day. Snapshots include the controllers' game logs and "
      "the diagnosis names controllers logging ami_overheat or gated by the game."),
-    ("1.31.0", "2026-10-07", "Galaxy and wallpaper: what each system is mining right now, as coloured four-point sparkles "
+    ("1.31.0", "2026-10-07", "Galaxy and wallpaper: what each system is mining right now, as colored four-point sparkles "
      "orbiting its star (one per drone mining, one orbit per resource; the legend and the wallpaper's stockpile rows give "
-     "the colours). The markers around stars (your devices, scanned, hub, replicant, fleet) are thin rings now instead of "
+     "the colors). The markers around stars (your devices, scanned, hub, replicant, fleet) are thin rings now instead of "
      "stacked glows. A 'mining' checkbox / production=0 hides the sparkles."),
     ("1.30.3", "2026-10-07", "Large devices: the app remembers a device is folded when the game says so (device.compacted, a "
      "compacted print, a compact refused as already compacted) even when its status doesn't, so the loadout pass sends "
@@ -264,8 +264,8 @@ CHANGES: list[tuple[str, str, str]] = [
      "/wallpaper/ pages show the galaxy, one system or a cycle through your systems. Off until you make a link."),
     ("1.27.0", "2026-10-07", "Diagnostics: send feedback (bug / idea / typo) to the game's developers. Device pages: Cancel travel "
      "while a device is moving (a vessel hosting a replicant cancels through its replicant). A job waiting for a trip "
-     "that gets cancelled stops waiting at once (the device turns back to where it started)."),
-    ("1.26.4", "2026-10-07", "A manual deploy or detach is refused while the carrier is travelling (slingshot E28DBE58, deployed "
+     "that gets canceled stops waiting at once (the device turns back to where it started)."),
+    ("1.26.4", "2026-10-07", "A manual deploy or detach is refused while the carrier is traveling (slingshot E28DBE58, deployed "
      "mid-surge, came out between systems with no location)."),
     ("1.26.3", "2026-10-07", "Vessels hosting a replicant can be added to a fleet under Add / remove devices (marked 'hosts "
      "<name>'): the replicant then travels with the fleet."),
@@ -293,10 +293,10 @@ CHANGES: list[tuple[str, str, str]] = [
      "job moves them and unfurled once they land ('Cannot attach a large device' when carrying new observatories)."),
     ("1.25.0", "2026-10-07", "Trade fleets take on contracts as well as trades: freighters pick up what the site is short of "
      "from the nearest stockpiles, deposit it at the site, the fleet waits for a replicant there (a fleet vessel hosting one "
-     "goes along) and fulfils, then loads the rewards and takes them to the nearest system whose fleet takes materials "
+     "goes along) and fulfills, then loads the rewards and takes them to the nearest system whose fleet takes materials "
      "in before going home."),
     ("1.24.0", "2026-10-07", "Survey crews drop FTL relays and beacons: in each system without one of yours the carrier deploys a "
-     "relay at the L4/L5 point (and activates it) and a beacon; if the survey finds a civilisation, the beacon is moved to "
+     "relay at the L4/L5 point (and activates it) and a beacon; if the survey finds a civilization, the beacon is moved to "
      "that body before the fleet leaves. Starting a survey warns when there aren't enough aboard for the systems in the "
      "list, and the fleet card shows what's aboard."),
     ("1.23.7", "2026-10-07", "A fleet with no autofactory of its own that prints on another fleet's (e.g. the printing hub's) "
@@ -322,21 +322,21 @@ CHANGES: list[tuple[str, str, str]] = [
      "and no known salvage the mission stalls with that reason. change_owner on a device the replicant already owns counts as done."),
     ("1.23.0", "2026-10-06", "Fleet owner: pick the replicant that owns a fleet; Set owner now hands every member to it "
                              "(change_owner), and keep re-checks every 5 minutes. Devices hosting a replicant are left alone."),
-    ("1.22.1", "2026-10-06", "Mission targets are checked against known systems (did-you-mean on a typo) and offer every catalogue "
+    ("1.22.1", "2026-10-06", "Mission targets are checked against known systems (did-you-mean on a typo) and offer every catalog "
                              "and census star. The production planner no longer gives gather orders to a fleet's controller that "
                              "isn't at its station. to:/at: tags that aren't locations are ignored and flagged; the print queue "
                              "refuses a typed destination that isn't a location."),
-    ("1.22.0", "2026-10-06", "Drone badges on the system map (M mining, S survey, T transport, R maintenance; count, coloured by "
+    ("1.22.0", "2026-10-06", "Drone badges on the system map (M mining, S survey, T transport, R maintenance; count, colored by "
                              "activity, hover for each drone; toggle). The galaxy map's system panel lists drones by kind."),
     ("1.21.1", "2026-10-06", "change_owner sends the new owner as `target` (the game rejected `replicant_code`)."),
     ("1.21.0", "2026-10-06", "BobNet channels on the Messages page: list them from a relay, tick the ones to listen to (or join "
                              "by name) and save to the account; recent messages from the relay. Fleets that aren't stationed now "
                              "stay aboard their carriers when they get home — only cargo is deposited."),
     ("1.20.0", "2026-10-06", "Devices in transit on the system and galaxy maps: an arrow on a dashed route pointing where they're "
-                             "going, with progress and time left, updated live. Devices travelling together show as one. On a "
+                             "going, with progress and time left, updated live. Devices traveling together show as one. On a "
                              "system map, surges in or out sit on the rim toward the other star."),
     ("1.19.0", "2026-10-06", "Stellar census: new rule Stellar census on arrival (on) and Map › Stars with a census button per vessel; "
-                             "census stars (beyond the catalogue's ~70 ly) are merged into the catalogue so the map, routes and "
+                             "census stars (beyond the catalog's ~70 ly) are merged into the catalog so the map, routes and "
                              "travel know them. Map › Stars lists unexplored stars nearest a chosen system. Travel destinations "
                              "are a system-then-location picker (census stars included). Nearest stars on the Replicant page page "
                              "through 20 at a time."),
@@ -373,7 +373,7 @@ CHANGES: list[tuple[str, str, str]] = [
                              "mobile fleets based in a system are listed with it); Fleets is Mobile fleets."),
     ("1.14.0", "2026-10-05", "Several autofactories in a system share the printing, evenly by print time (each print goes to the "
                              "factory that would finish it first, counting its current print and queue): loadout passes, the "
-                             "Blueprints planner (Spread over N autofactories), fleet Print missing and defence propulsors; "
+                             "Blueprints planner (Spread over N autofactories), fleet Print missing and defense propulsors; "
                              "maintenance drones and civ beacons go to the least-loaded one. Mining and explore missions can't "
                              "target a system with a home fleet (a loadout phase): only its home fleet works it."),
     ("1.13.2", "2026-10-05", "Late events (over 30 min old when they arrive, e.g. the stream catching up after the 1.12.2 "
@@ -388,7 +388,7 @@ CHANGES: list[tuple[str, str, str]] = [
                              "auto-survey. Working devices in the wrong spot are only reported. Replicant page: FTL slingshot card "
                              "(link to a matrix if needed, then teleport; refuses below 80 % capacity)."),
     ("1.12.3", "2026-10-05", "Fix: Stop/Resume/End on a stalled fleet mission deadlocked the automation engine (the page took the "
-                             "engine lock, then cancelled the mission's job, which took it again) — seen live: no rule, event or "
+                             "engine lock, then canceled the mission's job, which took it again) — seen live: no rule, event or "
                              "loadout pass ran for ~43 h. The engine lock is now re-entrant; a watchdog alerts when it is held for "
                              "over 10 min, and snapshots show the engine status and last tick. Fleet deploy: 'Device is already "
                              "deployed' counts as done. Loadouts: when a system has too many of a type, the device already tagged "
@@ -397,22 +397,22 @@ CHANGES: list[tuple[str, str, str]] = [
                              "picks them up and goes back afterwards (seen live: 26 devices in AEMEROTH stuck 'waiting for a carrier'). "
                              "Spare devices are no longer re-adopted by AMI schedules / Restart idle miners (released drones were being "
                              "taken back within minutes). The ferry's controller, freighters, drones and taxi plates are never made spare; "
-                             "the beacon at a civilisation's body is never made spare. Snapshots include the loadout config."),
-    ("1.12.1", "2026-10-03", "Civilisation beacons: an existing beacon in the system (e.g. the Kuiper/Oort one) is moved to the civ body "
+                             "the beacon at a civilization's body is never made spare. Snapshots include the loadout config."),
+    ("1.12.1", "2026-10-03", "Civilization beacons: an existing beacon in the system (e.g. the Kuiper/Oort one) is moved to the civ body "
                              "by a vessel before anything is printed; with no free vessel it waits instead of printing a second one. "
-                             "Beacons already at a civilisation's body are never taken."),
-    ("1.12.0", "2026-10-03", "Redundant beacons (a system that already has a beacon at a civilisation's body, or a second beacon in a "
+                             "Beacons already at a civilization's body are never taken."),
+    ("1.12.0", "2026-10-03", "Redundant beacons (a system that already has a beacon at a civilization's body, or a second beacon in a "
                              "system) are tagged spare — Traffic page 'Mark spare' or the civ beacon rule. Loadouts gather idle spares "
                              "at a spare depot (set it, or automatic: a materials destination system with an autofactory); they stay "
                              "spare there. Carriers pick up devices that can't fly (beacons) by going to them."),
-    ("1.11.1", "2026-10-03", "Beacons at civilisation event sites: placed as soon as a survey discovers an event (not only on "
+    ("1.11.1", "2026-10-03", "Beacons at civilization event sites: placed as soon as a survey discovers an event (not only on "
                              "completion). New ways to get one there: a vessel picks up a loose beacon tagged civ/spare and carries "
                              "it; otherwise one is printed on the system's autofactory (tagged civ) and fetched on a later pass. "
                              "Vessels hosting your replicant are only used if you allow it."),
     ("1.11.0", "2026-10-03", "Traffic page: each beacon's audit log read every 10 min, visitor alerts for other replicants, and "
-                             "civilisation contact (civ follow-up requests need a beacon AT the body where you completed an event — "
-                             "Kuiper/Oort beacons don't count) with Place beacon + rule 'Beacons at civilisation event sites'. "
-                             "Defence page + rule: incoming asteroids, propulsors needed vs time left, activate/send/print. "
+                             "civilization contact (civ follow-up requests need a beacon AT the body where you completed an event — "
+                             "Kuiper/Oort beacons don't count) with Place beacon + rule 'Beacons at civilization event sites'. "
+                             "Defense page + rule: incoming asteroids, propulsors needed vs time left, activate/send/print. "
                              "Upkeep page + rule: maintenance drones kept on patrol, wear per system. Shop page: open a trade shop, "
                              "add/remove trades (escrow check), buy from other traders. README roadmap."),
     ("1.10.1", "2026-10-03", "A print bound for another system is dispatched as soon as it comes out (print.completed → device "
@@ -471,7 +471,7 @@ CHANGES: list[tuple[str, str, str]] = [
                             "directive at home (no activate); bound (to:) devices skipped by in-system rules; leaving controllers "
                             "release drones and clear their directive."),
     ("1.3.0", "2026-10-02", "Fleet builder: line-list loadout editor (auto-save, qty 0 removes), attach points available vs needed."),
-    ("1.2.0", "2026-10-01", "Contracts tracker + fulfil, re-open sites, mobile fleets (mining/explore/trade), ferry fixes, "
+    ("1.2.0", "2026-10-01", "Contracts tracker + fulfill, re-open sites, mobile fleets (mining/explore/trade), ferry fixes, "
                             "partial device-list guard while the replicant travels."),
     ("1.1.0", "2026-09-30", "AMI schedules, print queue panel, tree by type, loadouts with phases/spares/prints/deliveries, "
                             "salvage when depleted, system resources on the map."),

@@ -1,4 +1,4 @@
-"""Automation rules for the 'watch' side of the game: civilisation beacons, asteroid defence and maintenance.
+"""Automation rules for the 'watch' side of the game: civilization beacons, asteroid defense and maintenance.
 
 Mixed into AutomationEngine (automations.py), so `self` has db, api, hub, worker, create_job, log, settings …
 """
@@ -22,7 +22,7 @@ def _ts(v):
 
 
 class OpsRules:
-    # --- civilisation beacons -------------------------------------------------------------------------------------
+    # --- civilization beacons -------------------------------------------------------------------------------------
     async def civ_coverage(self) -> list[dict]:
         from . import gameevents as ge
         from . import traffic as tr
@@ -148,7 +148,7 @@ class OpsRules:
             await self.log("visitor_alerts", a)
         return out
 
-    # --- asteroid defence -----------------------------------------------------------------------------------------
+    # --- asteroid defense -----------------------------------------------------------------------------------------
     async def defence_objects(self) -> dict[str, dict]:
         """Tracked objects, after picking up detections and closures from the event log."""
         import json as _json
