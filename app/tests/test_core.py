@@ -6315,3 +6315,15 @@ def test_loadout_prints_never_go_to_a_vessel():
     p = lo.plan(cfg, devices, bps, {"AAA-3-L4": {"structural": 100}}, {"AAA": {"position": {"x": 0, "y": 0, "z": 0}}},
                 {}, set(), [], {})
     assert p["prints"] and all(pr["factory"] == "AF1" for pr in p["prints"])
+
+
+def test_device_list_shows_a_stowed_device_where_its_carrier_is(client):
+    db = client.app.state.db
+    devices = client.portal.call(db.kv_get, "devices")
+    devices += [{"device_code": "CARRY001", "device_type": "cargo_vessel", "location": "SOL-3-L4", "status": "idle"},
+                {"device_code": "RIDER001", "device_type": "survey_drone", "location": None, "status": "stowed",
+                 "stowed_in_device_code": "CARRY001"}]
+    client.portal.call(db.kv_set, "devices", devices)
+    page = client.get("/fleet?q=RIDER001", headers=H).text
+    assert "SOL-3-L4" in page and 'in <a href="/devices/CARRY001">CARRY001</a>' in page
+    assert "RIDER001" in client.get("/fleet?star=SOL&q=RIDER001", headers=H).text      # the system filter finds it

@@ -432,9 +432,25 @@ def filter_devices(devices: list[dict], q: str, dtype: str, status: str, star: s
 async def fleet(request: Request, q: str = "", type: str = "", status: str = "", star: str = "", tag: str = "",
                 user: str = Depends(current_user)):
     st = await load_state(request)
-    devs = filter_devices(st["devices"], q, type, status, star, tag)
+    # a stowed / attached device has no location of its own: show where its carrier is ("in <carrier>")
+    by = {d.get("device_code"): d for d in st["devices"]}
+    stowed = await request.app.state.db.kv_get("stowed_map", {}) or {}
+    held_by = {c: k for k, kids in stowed.items() for c in kids}
+    shown = []
+    for d in st["devices"]:
+        if not d.get("location"):
+            carrier = d.get("stowed_in_device_code") or d.get("attached_to_device_code") or held_by.get(d.get("device_code"))
+            for _ in range(3):   # a carrier may itself ride in another
+                c = by.get(carrier or "") or {}
+                if c.get("location") or not c:
+                    break
+                carrier = c.get("stowed_in_device_code") or c.get("attached_to_device_code") or held_by.get(carrier)
+            if (by.get(carrier or "") or {}).get("location"):
+                d = {**d, "location": by[carrier]["location"], "carried_by": carrier}
+        shown.append(d)
+    devs = filter_devices(shown, q, type, status, star, tag)
     types = sorted({d.get("device_type") or "?" for d in st["devices"]})
-    stars = sorted({star_of(d.get("location")) for d in st["devices"]})
+    stars = sorted({star_of(d.get("location")) for d in shown})
     tags = sorted({t for d in st["devices"] for t in (d.get("tags") or [])})
     from .web_bulk import bulk_commands
     kw = dict(devices=devs, types=types, stars=stars, tags=tags, bulk_cmds=bulk_commands(devs), dangerous=DANGEROUS,

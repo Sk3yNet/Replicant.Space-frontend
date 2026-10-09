@@ -20,7 +20,7 @@
     <td><input type="checkbox" class="bulk-pick" name="codes" value="{{ d.device_code }}"></td>
     <td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a></td>
     <td>{{ d.device_type | human }}{% for t in d.tags or [] %} <span class="pill small">{{ t }}</span>{% endfor %}</td>
-    <td><a href="/systems/{{ d.location | star_of }}">{{ d.location }}</a></td>
+    <td><a href="/systems/{{ d.location | star_of }}">{{ d.location }}</a>{% if d.carried_by %} <span class="muted small">in <a href="/devices/{{ d.carried_by }}">{{ d.carried_by }}</a></span>{% endif %}</td>
     <td><span class="pill {{ d.status | status_class }}">{{ d.status }}</span></td>
     <td class="num">{% set cap = d.operational_capacity | capacity %}{% if cap is not none %}<span class="{{ 'lv-alert' if cap < 50 }}">{{ cap | round | int }}%</span>{% endif %}</td>
     <td class="mono small"><a href="/replicants/{{ d.replicant_code }}">{{ d.replicant_code }}</a></td>
