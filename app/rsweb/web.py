@@ -3025,6 +3025,7 @@ async def fleets_ctx(request: Request) -> dict:
             obs_status.setdefault(fl.fleet_of(d), []).append(
                 f"{d['device_code']}: {_pr.summary(r)}" + (f" — {r['note']}" if r.get("note") else ""))
     obs_fleets = {fl.fleet_of(d) for d in st["devices"] if d.get("device_type") == "galactic_observatory" and fl.fleet_of(d)}
+    obs_fleets |= {f["id"] for f in items if (fl.station_wants(f) or {}).get("galactic_observatory")}   # or its loadout wants one
     return {**lctx, "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
             "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
             "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
