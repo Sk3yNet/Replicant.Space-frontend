@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.54.1"
+VERSION = "1.55.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.55.0", "2026-10-09", "Replicant cooperation: Account page sets replicant_cooperation (individual / shared), each "
+     "replicant's profile its cohort_permission (private / public); boarding skips the owner hand-over when cooperation "
+     "already allows it, and ownership errors carry a hint to these settings. An advancing explore fleet now moves in one "
+     "relocation mission (observatory compacted, everyone aboard before anything leaves, travel together, unload), so "
+     "nothing is stranded out of relay range. Path forward form shows the saved heading; re-saving keeps its vector."),
     ("1.54.1", "2026-10-09", "The loadout pass (and contract printing, the spare depot, decommissioning) never counts a vessel "
      "as an autofactory: a fleet's replenishment print had been queued on an idle heaven vessel, which never prints from a "
      "queue. Device list: a stowed or attached device shows its carrier's location ('in <carrier>'), and the system "

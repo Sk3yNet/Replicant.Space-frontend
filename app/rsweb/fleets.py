@@ -305,6 +305,8 @@ def next_phase(role: str, m: dict) -> str | None:
         seq = PHASES["explore"]
         if cur is None:
             return seq[0]
+        if m.get("relocate") and cur == "deploy":
+            return None   # a relocation (advancing explorer): everyone packed up, flown and unloaded together — done
         if cur in seq[:-1]:
             return seq[seq.index(cur) + 1]
         if cur == "recall":

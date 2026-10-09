@@ -1296,6 +1296,9 @@ class AutomationEngine(OpsRules):
             if moving and moving != here and lfresh:
                 run["note"] = f"loadouts is moving it to {moving}"
                 continue   # loadouts compacts and carries it; nothing for this pass to do
+            if (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
+                run["note"] = "its fleet is on a mission"
+                continue   # the mission packs up / unloads the observatory; nothing for this pass to do
             if run["done"] and f.get("role") == "explore" and f.get("advance") and here == f.get("home") and not leaving:
                 # advance along the heading: the farthest star ahead becomes the fleet's home; the loadout pass packs up
                 # and carries everyone there (the observatory compacts for the trip), leaving a relay and a beacon behind
@@ -1376,7 +1379,14 @@ class AutomationEngine(OpsRules):
             await self.create_job("fleets", f"{f['name']}: leave a relay / beacon in {home}", None, steps, {"devices": []})
         f.setdefault("advanced_from", []).append(home)
         f["prev_home"], f["home"], f["station"] = home, nxt, True
-        f["path_note"] = f"advanced from {home} to {nxt} (farthest star ahead within {f.get('hop_ly') or 30:g} ly)"
+        f["path_note"] = f"advancing from {home} to {nxt} (farthest star ahead within {f.get('hop_ly') or 30:g} ly)"
+        # one relocation mission: compact the observatory and board everyone (nothing leaves until all are aboard —
+        # far out there's no relay, so anything left behind couldn't be commanded once the replicant goes), fly together,
+        # unload at the new home. The loadout pass leaves a fleet on a mission alone.
+        m = {"status": "running", "phase": None, "idx": 0, "targets": [nxt], "started_at": now_iso(), "log": [],
+             "opts": {}, "auto": True, "relocate": True}
+        self._mlog(m, f"relocating {home} → {nxt}: pack up, everyone aboard, travel together, unload")
+        f["mission"] = m
         out.append(f"{f['name']}: advancing {home} → {nxt}")
         await self.log("fleets", f"{f['name']}: every direction prospected from {home} — advancing to {nxt}", notify=True)
         return True

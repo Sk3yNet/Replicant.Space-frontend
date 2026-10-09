@@ -6297,14 +6297,20 @@ def test_advancing_explorer_moves_home_to_farthest_star_ahead(client):
     r = client.post("/fleets/ex/path", data={"heading_kind": "custom", "heading_vec": "1, 0, 0", "cone": "30",
                                              "advance": "on", "hop_ly": "30"}, headers=HX)
     assert r.status_code == 200
+    assert "advance along the heading" in client.get("/fleets", headers=H).text
     client.portal.call(db.kv_set, "observatory_runs", {"OBSX": {"star": "HOMEA", "used": list(range(14)), "idx": 0, "found": 3}})
     out = client.portal.call(eng.observatory_pass)
     assert out == ["Pathfinder: advancing HOMEA → FAR1"]                     # farthest ahead within 30 ly, not NEAR1
     f = client.portal.call(eng.fleets)[0]
     assert f["home"] == "FAR1" and f["prev_home"] == "HOMEA" and f["station"] and f["advanced_from"] == ["HOMEA"]
+    m = f["mission"]
+    assert m["relocate"] and m["targets"] == ["FAR1"] and m["status"] == "running"   # one move, everyone together
+    from rsweb import fleets as fl
+    assert fl.next_phase("explore", {**m, "phase": "travel"}) == "deploy"
+    assert fl.next_phase("explore", {**m, "phase": "deploy"}) is None               # unloaded at the new home: done
+    assert client.portal.call(eng.observatory_pass) == []                          # the mission handles the observatory
     job = [j for j in client.portal.call(eng.jobs) if "leave a relay" in j["title"]][0]
     assert job["steps"][0]["body"]["configuration"] == {"add_tags": ["at:homea-3-l4"], "remove_tags": ["fleet:ex"]}
-    assert "advance along the heading" in client.get("/fleets", headers=H).text
 
 
 def test_loadout_prints_never_go_to_a_vessel():
