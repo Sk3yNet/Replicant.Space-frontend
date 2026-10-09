@@ -6262,3 +6262,15 @@ def test_site_yield_estimate_from_mining_history(client):
                                                site=site, resource_type="carbon", quantity_mined=q))
     by_belt, _ = client.portal.call(site_yields, db)
     assert by_belt[("SOL-BELT-1", "carbon")] == (300.0, 2)      # site 1: 400 by two drones, site 2: 200
+
+
+def test_contracts_page_lists_quiet_civilizations_for_approval(client):
+    db = client.app.state.db
+    scan = {"planets": [{"designation": "VETH-2", "life_stage": "intelligent", "species": "Veth"},
+                        {"designation": "VETH-3", "life_stage": "microbial"}]}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("VETH", json.dumps(scan), "2026-10-09"))
+    page = client.get("/game-events", headers=H).text
+    assert "Civilizations not asking for anything" in page and "VETH-2" in page and "VETH-3" not in page
+    client.post("/game-events/approve", data={"key": "species:veth", "on": "1"}, headers=HX)
+    assert "species:veth" in client.portal.call(db.kv_get, "contract_approvals")

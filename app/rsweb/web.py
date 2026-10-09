@@ -2814,7 +2814,22 @@ async def game_events_ctx(request: Request) -> dict:
             open_.append(e)
         else:
             closed.append(e)
-    return {"open": open_, "closed": closed[:30], "replicants": st["replicants"], "settings": settings}
+    # civilizations with no open contract: approve them ahead of their next request
+    from .traffic import CIV_STAGES
+    asking = {e.get("location") for e in open_}
+    quiet: dict[str, dict] = {}
+    for body, info in life.items():
+        if info.get("life_stage") in CIV_STAGES and body not in asking:
+            quiet[body] = {"location": body, "star": info.get("star"), "stage": info.get("life_stage")}
+    for e in closed:   # bodies that asked before (their scan may not be stored)
+        loc = e.get("location")
+        if loc and loc not in asking:
+            quiet.setdefault(loc, {"location": loc, "star": e.get("star"), "stage": "asked before"})
+    for q in quiet.values():
+        key, label = gev.species_key(q, life)
+        q["approval"] = {"key": key, "label": label, "on": key in approvals}
+    quiet_rows = sorted(quiet.values(), key=lambda q: (q["approval"]["on"], q["location"]))
+    return {"open": open_, "closed": closed[:30], "replicants": st["replicants"], "settings": settings, "quiet": quiet_rows}
 
 
 @router.get("/game-events", response_class=HTMLResponse)
