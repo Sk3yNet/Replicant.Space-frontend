@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.54.0"
+VERSION = "1.54.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.54.1", "2026-10-09", "The loadout pass (and contract printing, the spare depot, decommissioning) never counts a vessel "
+     "as an autofactory: a fleet's replenishment print had been queued on an idle heaven vessel, which never prints from a "
+     "queue. Device list: a stowed or attached device shows its carrier's location ('in <carrier>'), and the system "
+     "filter finds it."),
     ("1.54.0", "2026-10-09", "Explore fleets with an observatory get the Path forward box and 'advance along the heading': "
      "once the observatory has prospected every direction from home, the farthest star ahead (inside the cone, within the "
      "hop distance, default 30 ly; inside relay coverage unless a replicant rides along) becomes the fleet's home and the "

@@ -5361,10 +5361,17 @@ def test_hub_watch_pass_warns_once(client):
     assert "HUB00001" in page and "needs maintenance" in page and "down since" in page
 
 
-def test_auto_scout_surveys_nearest_first_until_worn(client):
+def test_auto_scout_surveys_nearest_first_until_worn(client, monkeypatch):
     eng, db = client.app.state.worker.automations, client.app.state.db
     w = client.app.state.worker
-    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}}]})   # no random mock stars
+    # only SOL in the catalogue: the mock's random stars (re-synced in the background) mustn't compete with NEARA / NEARB
+    real_get = db.kv_get
+
+    async def kv_get(key, default=None):
+        if key == "stars":
+            return {"stars": [{"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}}]}
+        return await real_get(key, default)
+    monkeypatch.setattr(db, "kv_get", kv_get)
     stars = [{"designation": d, "position": {"x": x, "y": 0, "z": 0}} for d, x in
              (("NEARA", 2), ("NEARB", 3), ("FARC", 9), ("FARD", 12))]
     client.portal.call(w.handle_event, _ev(950, "prospect.completed", device="OBS00001", origin="SOL", stars_generated=4, stars=stars))
