@@ -9,6 +9,14 @@
       {% for k in ['name','email','status','timezone','experience_points_total','created_at','unread_message_count'] %}{% if account[k] is defined %}<dt>{{ k | human }}</dt><dd>{{ account[k] }}</dd>{% endif %}{% endfor %}
       <dt>BobNet channels</dt><dd>{{ (account.bobnet_channels or []) | join(', ') }}</dd>
     </dl>
+    <form hx-post="/account/cooperation" hx-target="#coop-result" class="small" style="margin-top:8px">
+      <label style="text-transform:none">Replicant cooperation
+        <select name="replicant_cooperation">{% for v in ('individual', 'shared') %}<option {{ 'selected' if (account.replicant_cooperation or 'individual') == v }}>{{ v }}</option>{% endfor %}</select></label>
+      <button class="small">Save</button>
+      <div class="muted">individual: each replicant's devices are its own, unless its cohort permission is public (Replicant page).
+        shared: all your replicants may operate on each other's devices. Trading and teleporting aren't affected.</div>
+    </form>
+    <div id="coop-result"></div>
     <h2 style="margin-top:14px">Client status</h2>
     <dl class="kv small">
       <dt>Signed in as</dt><dd>{{ user }}</dd>

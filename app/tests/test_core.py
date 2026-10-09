@@ -6334,3 +6334,21 @@ def test_device_list_shows_a_stowed_device_where_its_carrier_is(client):
     page = client.get("/fleet?q=RIDER001", headers=H).text
     assert "SOL-3-L4" in page and 'in <a href="/devices/CARRY001">CARRY001</a>' in page
     assert "RIDER001" in client.get("/fleet?star=SOL&q=RIDER001", headers=H).text      # the system filter finds it
+
+
+def test_replicant_cooperation_and_cohort_permission(client):
+    from rsweb.web_profile import profile_changes
+    world = client.app.state.api.http._transport.app.state.world
+    db = client.app.state.db
+    client.portal.call(client.app.state.worker.sync_devices)
+    rep = next(iter(client.portal.call(db.kv_get, "replicants")))
+    page = client.get(f"/replicants/{rep}", headers=H).text
+    assert 'name="cohort_permission"' in page
+    client.post(f"/replicants/{rep}/profile", data={"cohort_permission": "public", "orig_cohort_permission": "private"}, headers=HX)
+    assert world.profile_patches[-1] == {"code": rep, "cohort_permission": "public"}
+    assert profile_changes({"cohort_permission": "everyone", "orig_cohort_permission": "private"})[1]   # not a choice
+    assert 'name="replicant_cooperation"' in client.get("/account", headers=H).text
+    r = client.post("/account/cooperation", data={"replicant_cooperation": "shared"}, headers=HX)
+    assert r.status_code == 200
+    sent = client.portal.call(db.fetchall, "SELECT path, body FROM actions ORDER BY rowid DESC LIMIT 1")[0]
+    assert sent["path"] == "/accounts/me" and '"replicant_cooperation": "shared"' in sent["body"]

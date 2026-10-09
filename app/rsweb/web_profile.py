@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import html
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
 from .api import ApiError
@@ -16,6 +16,9 @@ router = APIRouter()
 
 # PATCH /v1/replicants/{code}: name (unique), pronouns ≤50, description ≤500, plan ≤500, project ≤2000
 PROFILE_FIELDS = {"name": 60, "pronouns": 50, "description": 500, "plan": 500, "project": 2000}
+# cohort_permission: whether sibling replicants may operate on this one's devices (only matters while the account's
+# replicant_cooperation is "individual"); docs: replicant.space/docs/concepts/replicants
+CHOICE_FIELDS = {"cohort_permission": ("private", "public")}
 
 
 def profile_changes(form) -> tuple[dict, list[str]]:
@@ -34,6 +37,13 @@ def profile_changes(form) -> tuple[dict, list[str]]:
             bad.append(f"{f} is {len(v)} characters (at most {n})")
             continue
         body[f] = v
+    for f, allowed in CHOICE_FIELDS.items():
+        v = str(form.get(f) or "").strip()
+        if f in form and v != str(form.get(f"orig_{f}") or "").strip():
+            if v not in allowed:
+                bad.append(f"{f} must be one of {', '.join(allowed)}")
+            else:
+                body[f] = v
     return body, bad
 
 
@@ -60,6 +70,22 @@ async def _get(api, path: str) -> tuple[object, str | None]:
         return await api.get(path), None
     except ApiError as e:
         return None, f"{e.status}: {e.message}"
+
+
+@router.post("/account/cooperation", response_class=HTMLResponse)
+async def account_cooperation(request: Request, replicant_cooperation: str = Form(...), user: str = Depends(current_user)):
+    """Account-level replicant cooperation (PATCH /accounts/me): "individual" (each replicant's cohort_permission
+    decides) or "shared" (every replicant may operate on every sibling's devices)."""
+    if replicant_cooperation not in ("individual", "shared"):
+        return HTMLResponse('<div class="result err">Pick individual or shared.</div>')
+    out = await call_action(request, user, "PATCH", "/accounts/me", {"replicant_cooperation": replicant_cooperation},
+                            f"replicant cooperation: {replicant_cooperation}")
+    if out["ok"]:
+        db = request.app.state.db
+        acct = await db.kv_get("account", {}) or {}
+        acct["replicant_cooperation"] = replicant_cooperation
+        await db.kv_set("account", acct)
+    return render_action(request, out)
 
 
 @router.get("/replicants/{code}/reputation", response_class=HTMLResponse)
