@@ -1,9 +1,10 @@
 """Other players' fixed devices, and their comings and goings at our beacons (the Galaxy and System maps).
 
-Fixed devices: what is unlikely to move — FTL beacons, relays, wards, hubs, autofactories, observatories, controllers,
+Drones are kept too (`drones`), but only for the System page: a total per player and type, and how many of
+theirs work each belt (the belt's viability line). Fixed devices: what is unlikely to move — FTL beacons, relays, wards, hubs, autofactories, observatories, controllers,
 slingshots. Vessels, drones, surge plates and replicants are left out. kv "others":
 
-    stars       {STAR: {scanned_at, by, devices: [{code, type, location, owner, owner_name}]}}
+    stars       {STAR: {scanned_at, by, devices: [{code, type, location, owner, owner_name}], drones: [... + status]}}
                 the latest scan of other devices in the system (GET /replicants/{ours}/scan/devices). A new scan
                 replaces it whole; a beacon-logged departure removes that device; a snapshot older than KEEP_DAYS goes.
     rep_at      {replicant: star} where each of our replicants was when its system was last scanned: a replicant
@@ -23,6 +24,7 @@ from . import trail as tl
 
 KV = "others"
 KEEP_DAYS = 7
+RAW_MAX = 500
 ARROW_HOURS = 1.0
 FIXED = ("beacon", "relay", "ward", "hub", "factory", "observatory", "controller", "slingshot")
 MOVING = ("vessel", "drone", "plate", "propulsor")
@@ -64,7 +66,12 @@ def record_scan(s: dict, star: str, scanned: list[dict], mine: set[str], by: str
              "owner": d.get("owner_replicant_code"), "owner_name": d.get("owner_name")}
             for d in scanned if isinstance(d, dict) and is_fixed(d.get("device_type"))
             and d.get("owner_replicant_code") not in mine and star_of(d.get("location")) == star]
-    s["stars"][star] = {"scanned_at": now.isoformat(timespec="seconds"), "by": by, "devices": devs}
+    drones = [{"code": d.get("device_code"), "type": d.get("device_type"), "location": d.get("location"),
+               "owner": d.get("owner_replicant_code"), "owner_name": d.get("owner_name"), "status": d.get("status")}
+              for d in scanned if isinstance(d, dict) and "drone" in str(d.get("device_type") or "")
+              and d.get("owner_replicant_code") not in mine and star_of(d.get("location")) == star]
+    s["stars"][star] = {"scanned_at": now.isoformat(timespec="seconds"), "by": by, "devices": devs, "drones": drones,
+                        "raw": [d for d in scanned if isinstance(d, dict)][:RAW_MAX]}   # the scan as the game answered
     return s["stars"][star]
 
 
@@ -80,6 +87,7 @@ def apply_departures(s: dict, entries: list[dict]) -> int:
             before = len(snap["devices"])
             snap["devices"] = [d for d in snap["devices"] if d.get("code") not in left]
             gone += before - len(snap["devices"])
+            snap["drones"] = [d for d in snap.get("drones") or [] if d.get("code") not in left]
     return gone
 
 
@@ -100,6 +108,24 @@ def summary(snap: dict | None, profiles: dict | None = None) -> list[dict]:
         g["devices"].append(d)
         g["types"][d.get("type") or "device"] += 1
     return sorted(({**g, "types": dict(g["types"])} for g in by.values()), key=lambda g: -len(g["devices"]))
+
+
+def drone_totals(snap: dict | None, profiles: dict | None = None) -> list[dict]:
+    """[{name, types: {type: n}, n}] — each player's drones in the system, most first."""
+    by: dict[str, dict] = {}
+    for d in (snap or {}).get("drones") or []:
+        o = d.get("owner") or d.get("owner_name") or "?"
+        g = by.setdefault(o, {"name": d.get("owner_name") or ((profiles or {}).get(o) or {}).get("name") or o,
+                              "types": defaultdict(int), "n": 0})
+        g["types"][d.get("type") or "drone"] += 1
+        g["n"] += 1
+    return sorted(({**g, "types": dict(g["types"])} for g in by.values()), key=lambda g: -g["n"])
+
+
+def drones_at(snap: dict | None, place: str, kind: str = "mining") -> int:
+    """Other players' drones of a kind at a place or inside it (a belt and its sites) at the last scan."""
+    return sum(1 for d in (snap or {}).get("drones") or [] if kind in str(d.get("type") or "")
+               and (d.get("location") == place or str(d.get("location") or "").startswith(place + "-")))
 
 
 def warded_by_others(stars: Any, devices: list[dict]) -> set[str]:

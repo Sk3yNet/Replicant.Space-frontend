@@ -3259,7 +3259,12 @@ class AutomationEngine(OpsRules):
                        if isinstance(x, dict) and x.get("site_index") is not None]
                 known[b] = max(idx) if idx else 0
         cfg = (await self.settings())["rules"].get("belt_viability") or {}
-        return via.report(state, stars, (cfg.get("move_at_percent") or 250) / 100, known)
+        rows = via.report(state, stars, (cfg.get("move_at_percent") or 250) / 100, known)
+        from . import others as oth   # other players' mining drones on the belt at the last scan of the system
+        snaps = oth.normalize(await self.db.kv_get(oth.KV, {}))["stars"]
+        for r in rows:
+            r["theirs"] = oth.drones_at(snaps.get(r.get("star")), r.get("belt") or "")
+        return rows
 
     async def track_viability(self) -> list[str]:
         """Fold this pass's device list and freshly read belt details into the viability record (no API calls);

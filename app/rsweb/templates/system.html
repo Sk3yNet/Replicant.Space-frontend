@@ -37,8 +37,19 @@
         {% for g in others %}{% for d in g.devices | sort(attribute='type') %}<tr>
           <td>{% if loop.first %}<b>{{ g.name }}</b>{% endif %}</td><td>{{ (d.type or 'device') | human }}</td>
           <td class="mono">{{ d.code }}</td><td class="mono"><a href="/locations/{{ d.location }}">{{ d.location }}</a></td></tr>{% endfor %}{% endfor %}
-      </table>{% else %}<p class="muted small">{% if others_snap %}No fixed devices of other players at the last scan.{% else %}Not scanned yet.{% endif %}</p>{% endif %}
-      <p class="muted small">Fixed devices only (beacons, relays, wards, hubs, factories, observatories, controllers){% if others_snap %} · scanned {{ others_snap.scanned_at | ago }}{% endif %}.
+      </table>{% endif %}
+      {% if other_drones %}<div class="small" style="margin-top:6px"><b>Drones</b>
+        {% for g in other_drones %}<div>{{ g.name }}: {% for t, n in g.types.items() %}{{ n }}× {{ t | human }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endfor %}</div>{% endif %}
+      {% if not others and not other_drones %}<p class="muted small">{% if others_snap %}No devices of other players at the last scan.{% else %}Not scanned yet.{% endif %}</p>{% endif %}
+      {% if others_snap and others_snap.raw is defined %}<details class="small" style="margin-top:6px">
+        <summary>Full scan <span class="muted">{{ others_snap.raw | length }} device(s) · by {{ others_snap.by or '?' }}</span></summary>
+        {% if others_snap.raw %}<table class="small"><tr><th>Owner</th><th>Type</th><th>Code</th><th>Location</th><th>Status</th></tr>
+          {% for d in others_snap.raw %}<tr><td>{{ d.owner_name or d.owner_replicant_code }}</td><td>{{ (d.device_type or '') | human }}</td>
+            <td class="mono">{{ d.device_code }}</td><td class="mono">{{ d.location }}</td><td class="muted">{{ d.status or '' }}</td></tr>{% endfor %}
+        </table>{% endif %}
+        <details><summary>Raw JSON</summary><pre class="mono" style="max-height:320px;overflow:auto;white-space:pre-wrap">{{ others_snap.raw | tojson(indent=1) }}</pre></details>
+      </details>{% endif %}
+      <p class="muted small">Fixed devices (beacons, relays, wards, hubs, factories, observatories, controllers) and drone totals; their mining drones also count on each belt's viability line{% if others_snap %} · scanned {{ others_snap.scanned_at | ago }}{% endif %}.
         A replicant arriving here scans it; {% if reps %}or use the button{% else %}only a replicant in the system can scan it{% endif %}. Dropped after 7 days.</p>
     </div>
   </div>
@@ -98,7 +109,7 @@
     <div class="chips">{% for r, lvl in (b.resources or {}) | dictsort %}<span class="chip" {% if b.basis.get(r) %}title="a site gave ≈{{ b.basis[r].avg | num }} {{ r }} ({{ b.basis[r].n }} site{{ 's' if b.basis[r].n != 1 }}{{ '' if b.basis[r].own else ', other belts' }})"{% endif %}>{{ r }} <b>{{ lvl }}</b>{% if b.left.get(r) %} <span class="muted">≈{{ b.left[r] | num }} left</span>{% endif %}</span>{% endfor %}</div>
     {% set v = b.viability %}{% if v %}<div class="small" style="margin-top:4px">
       search {{ (v.search_min | round | int ~ ' min') if v.search_min else '—' }} · site life {{ (v.site_life_min | round | int ~ ' min') if v.site_life_min else '—' }}
-      · ratio {{ v.ratio if v.ratio is not none else '—' }} · {{ v.mining }}/{{ v.miners }} mining · survey {{ v.survey }}{% if v.survey_needed %}/{{ v.survey_needed }}{% endif %}
+      · ratio {{ v.ratio if v.ratio is not none else '—' }} · {{ v.mining }}/{{ v.miners }} mining{% if v.theirs %} · <span class="lv-alert" title="other players' mining drones on this belt at the last scan">{{ v.theirs }} of other players'</span>{% endif %} · survey {{ v.survey }}{% if v.survey_needed %}/{{ v.survey_needed }}{% endif %}
       · <span class="pill small {{ {'consider moving': 'lv-alert', 'watch': 'st-work', 'ok': 'lv-done'}.get(v.verdict, '') }}">{{ v.verdict }}</span>
       {% if v.move_to %}→ {{ v.move_to.belt }}{% endif %}{% if v.survey_short and v.verdict != 'consider moving' %} <span class="muted">(+{{ v.survey_short }} survey drone(s) would keep the miners busy)</span>{% endif %}</div>{% endif %}
     {% if b.sites %}<details class="small" style="margin-top:4px"><summary>{{ b.sites | length }} open site(s)</summary>

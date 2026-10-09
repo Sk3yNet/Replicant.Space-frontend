@@ -1492,6 +1492,7 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     osnap = oth.normalize(await db.kv_get(oth.KV, {}))["stars"].get(star)
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err,
                       others=oth.summary(osnap, await db.kv_get("replicant_profiles", {}) or {}), others_snap=osnap,
+                      other_drones=oth.drone_totals(osnap, await db.kv_get("replicant_profiles", {}) or {}),
                       others_warded=star in oth.warded_by_others(await db.kv_get("stars", {}) or {}, st["devices"]),
                       surveyed=surveyed, fully_surveyed=full,
                       updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t, here=here,

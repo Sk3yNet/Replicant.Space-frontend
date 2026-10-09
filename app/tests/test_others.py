@@ -54,6 +54,8 @@ def test_arrival_scans_system_and_map_shows_it(client):
     assert sol["n"] == 1 and sol["owners"][0]["name"] == "helga"
     page = client.get("/systems/SOL", headers=H).text
     assert "Other players here" in page and "helga" in page and "other-player" in page
+    assert "1× mining drone" in page                                          # drones: totals (and the full scan below)
+    assert "Full scan" in page and "SOL-BELT-1" in page and "Raw JSON" in page
 
 
 def test_trail_reset_keeps_target(client):
@@ -71,3 +73,17 @@ def test_traffic_poll_setting(client):
     r = client.post("/traffic/settings", data={"poll_minutes": "3"}, headers=HX)
     assert "every 3 minutes" in r.text
     assert client.portal.call(client.app.state.worker.traffic_interval) == 180
+
+
+def test_drone_totals_and_belt_count():
+    s = oth.normalize({})
+    scan = [{"device_code": f"M{i}", "device_type": "mining_drone", "location": "SOL-BELT-1-SITE-1", "owner_replicant_code": "X",
+             "owner_name": "helga", "status": "mining (carbon)"} for i in range(3)] + \
+           [{"device_code": "S1", "device_type": "survey_drone", "location": "SOL-BELT-1", "owner_replicant_code": "X", "owner_name": "helga"},
+            {"device_code": "M9", "device_type": "mining_drone", "location": "SOL-BELT-2", "owner_replicant_code": "Y", "owner_name": "bob"}]
+    oth.record_scan(s, "SOL", scan, {REP})
+    snap = s["stars"]["SOL"]
+    assert snap["devices"] == []                                           # drones aren't fixed devices
+    tot = oth.drone_totals(snap)
+    assert tot[0]["name"] == "helga" and tot[0]["types"] == {"mining_drone": 3, "survey_drone": 1}
+    assert oth.drones_at(snap, "SOL-BELT-1") == 3 and oth.drones_at(snap, "SOL-BELT-2") == 1

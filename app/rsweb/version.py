@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.58.0"
+VERSION = "1.59.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.59.0", "2026-10-09", "System page, Other players here: each player's drone totals by type, a count of their "
+     "mining drones on each belt's viability line, and the full device scan (table of everything it found, plus the raw "
+     "JSON as the game sent it)."),
     ("1.58.0", "2026-10-09", "Relays: an explore fleet's relays and beacons wait at home as cargo (the placement step no "
      "longer sends them to the L4/L5 point and the wake-up rule no longer switches them on), and no relay is placed or "
      "activated in a system where one of yours already relays. Of a survey crew's relays already working at home, one "
