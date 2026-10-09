@@ -502,6 +502,11 @@ def assemble_steps(fleet: dict, devices: list[dict], radii: dict[str, float] | N
         if d.get("_from_host") and d not in out_of_host:
             out_of_host.append(d)
     steps += [deploy_out_step(d) for d in sorted(out_of_host, key=lambda d: d["device_code"])]
+    # a relay that was switched on where it waited (its home's L4/L5 point) is switched off before it moves or boards
+    boarding = {code for _, code, _ in board} | {x for spots in fetch.values() for ds in spots.values() for x, _ in ds}
+    for code in sorted(boarding):
+        if str((by.get(code) or {}).get("status") or "").startswith("relaying"):
+            steps.append(step(f"{code}: deactivate relay (to board)", f"/devices/{code}", {"command": "deactivate"}))
     for code, trip in landing:
         w = _wait_arrive(code, trip["destination"], timeout=trip["seconds_left"] + 1800)
         w["seq0_from"] = 0   # it may land while earlier steps run: count from the start of the job

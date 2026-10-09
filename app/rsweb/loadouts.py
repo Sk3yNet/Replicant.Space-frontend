@@ -201,6 +201,21 @@ def placed(d: dict) -> bool:
             and str(d.get("status") or "").startswith(("monitoring", "relaying")))
 
 
+def relaying_stars(devices: list[dict], exclude: set[str] | frozenset = frozenset()) -> set[str]:
+    """Systems where a relay of ours is switched on (status relaying), not counting the `exclude` devices."""
+    return {star_of(d.get("location")) for d in devices if (d.get("device_type") or "") == "ftl_relay"
+            and d.get("location") and d.get("device_code") not in exclude and str(d.get("status") or "").startswith("relaying")}
+
+
+def survey_cargo(devices: list[dict], fleets: list[dict]) -> set[str]:
+    """An explore fleet's relays and beacons: carried to be dropped one per new system, so the placement step and the
+    wake-up rule leave them alone while they wait at home (seen live 2026-10-09: three Surveyors relays printed in
+    FALQUORYX were each sent to its L4 point and switched on)."""
+    tags = {fl.fleet_tag(f["id"]) for f in fleets or [] if f.get("role") == "explore"}
+    return {d["device_code"] for d in devices if (d.get("device_type") or "") in PLACED_TYPES
+            and tags & set(d.get("tags") or [])}
+
+
 def for_contract(d: dict) -> bool:
     """Tagged for a contract (contractsupply.py): it goes to / stays at the contract's location, no fleet takes it."""
     return any(str(t).startswith("contract:") for t in d.get("tags") or [])
@@ -307,6 +322,18 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     for d in devices:   # leftover spare tags on placed beacons / relays go (seen live 2026-10-08: 13 working beacons tagged spare)
         if placed(d) and SPARE in (d.get("tags") or []) and not (ignore & set(d.get("tags") or [])):
             tag_remove[d["device_code"]].add(SPARE)
+    # an explore fleet's relay switched on at home (before survey_cargo kept them aboard) stays as the system's relay and
+    # leaves the fleet — the first one where no other relay of ours works; the others go with the fleet next mission
+    cargo = survey_cargo(devices, cfg["fleets"])
+    covered = relaying_stars(devices, cargo)
+    for d in sorted((x for x in devices if x["device_code"] in cargo and placed(x)
+                     and (x.get("device_type") or "") == "ftl_relay"), key=lambda x: x["device_code"]):
+        st = star_of(d.get("location"))
+        if st in covered or not is_place(d.get("location") or ""):
+            continue
+        covered.add(st)
+        tag_remove[d["device_code"]].update(t for t in d.get("tags") or [] if t.startswith("fleet:"))
+        tag_add[d["device_code"]].add(at_tag(d["location"]))
     for code, (old_t, new_t) in retag.items():
         tag_remove[code].add(old_t)
         tag_add[code].add(new_t)
@@ -893,9 +920,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         code, t, loc = d["device_code"], d.get("device_type"), d.get("location")
         if (not pl.rule_for(t) or not loc or pinned_at(d) or code in moves or code in arrived or code in pinned_codes
                 or bound_for(d, known_stars) or d.get("stowed_in_device_code") or d.get("attached_to_device_code")
-                or d.get("location_stale") or SPARE in (d.get("tags") or [])):
+                or d.get("location_stale") or SPARE in (d.get("tags") or []) or code in cargo):
             continue
         star = star_of(loc)
+        if t == "ftl_relay" and star in relaying_stars(devices, {code}):
+            continue   # one working relay covers the system: another isn't sent to its L4/L5 point
         g = geo.get(star) or geo.setdefault(star, pl.geography(star, devices, None, (stars.get(star) or {}).get("entry_point")))
         if pl.ok(t, loc, g):
             continue

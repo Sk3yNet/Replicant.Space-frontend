@@ -3070,7 +3070,7 @@ def test_loadout_plan_places_relays_and_controllers():
     cfg, devices, bps, inv, stars = _lo_world()
     devices.append({"device_code": "RL", "device_type": "ftl_relay", "location": "AAA-BELT-1", "status": "idle",
                     "features": ["cruise", "relay"], "available_commands": ["travel", "activate"], "operational_capacity": 100.0})
-    devices.append({"device_code": "RL2", "device_type": "ftl_relay", "location": "AAA-3", "status": "relaying",
+    devices.append({"device_code": "RL2", "device_type": "ftl_relay", "location": "BBB-3", "status": "relaying",
                     "features": ["cruise", "relay"], "available_commands": ["travel", "activate"], "operational_capacity": 100.0})
     devices.append({"device_code": "MC2", "device_type": "ami_mining_controller", "location": "BBB-5-L4", "status": "idle",
                     "features": ["cruise", "ami"], "available_commands": ["travel"], "operational_capacity": 100.0})
@@ -6418,3 +6418,42 @@ def test_replicant_vessel_travels_last():
     steps = fl.travel_steps({"id": "x", "home": "AAA"}, devices, "BBB", {})
     sent = [s["path"].split("/")[-1] for s in steps if (s.get("body") or {}).get("command") == "travel"]
     assert sent[-1] == "HV1" and set(sent) == {"HV1", "PL1", "CV1"}
+
+
+def test_survey_relays_wait_at_home_and_one_relay_per_system():
+    from rsweb import loadouts as lo
+    from rsweb import placement as pl
+    cfg, devices, bps, inv, stars = _lo_world()
+    cfg = {**cfg, "fleets": list(cfg.get("fleets") or []) + [{"id": "surveyors", "role": "explore", "home": "AAA"}]}
+    devices += [
+        {"device_code": "SR1", "device_type": "ftl_relay", "location": "AAA-BELT-1", "status": "idle", "tags": ["fleet:surveyors"],
+         "available_commands": ["travel", "activate"], "operational_capacity": 100.0},
+        {"device_code": "SR2", "device_type": "ftl_relay", "location": "AAA-3-L4", "status": "relaying", "tags": ["fleet:surveyors"],
+         "available_commands": ["deactivate"], "operational_capacity": 100.0},
+        {"device_code": "SR3", "device_type": "ftl_relay", "location": "AAA-3-L4", "status": "relaying", "tags": ["fleet:surveyors"],
+         "available_commands": ["deactivate"], "operational_capacity": 100.0}]
+    geo = {"AAA": pl.geography("AAA", devices, None, "AAA-OORT")}
+    geo["AAA"]["lagrange"] = ["AAA-3-L4"]
+    assert lo.survey_cargo(devices, cfg["fleets"]) == {"SR1", "SR2", "SR3"}
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {}, geo=geo)
+    assert "SR1" not in dict(p["places"])                         # cargo: not sent to the L4 point
+    assert "fleet:surveyors" in p["tag_remove"].get("SR2", []) and "at:aaa-3-l4" in p["tag_add"]["SR2"]   # stays as AAA's relay
+    assert "SR3" not in p["tag_remove"] or "fleet:surveyors" not in p["tag_remove"]["SR3"]               # goes with the fleet
+    # an idle relay that isn't cargo isn't placed where one already relays
+    devices.append({"device_code": "RX", "device_type": "ftl_relay", "location": "AAA-BELT-1", "status": "idle",
+                    "available_commands": ["travel", "activate"], "operational_capacity": 100.0})
+    assert "RX" not in dict(lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {}, geo=geo)["places"])
+
+
+def test_working_relay_is_switched_off_before_boarding():
+    from rsweb import fleets as fl
+    f = {"id": "s", "role": "explore", "home": "AAA"}
+    devs = [{"device_code": "MF", "device_type": "mobile_fleet", "location": "AAA-3-L4", "status": "idle", "tags": ["fleet:s"],
+             "attach_capacity": 36, "features": ["surge"]},
+            {"device_code": "RR", "device_type": "ftl_relay", "location": "AAA-3-L4", "status": "relaying", "tags": ["fleet:s"],
+             "available_commands": ["deactivate", "travel"]}]
+    steps, _ = fl.assemble_steps(f, devs)
+    names = [s["name"] if "name" in s else s.get("label", "") for s in steps]
+    i = next(i for i, s in enumerate(steps) if (s.get("body") or {}).get("command") == "deactivate")
+    j = next(i for i, s in enumerate(steps) if "RR" in str(s.get("body")) and (s.get("body") or {}).get("command") != "deactivate")
+    assert i < j, names

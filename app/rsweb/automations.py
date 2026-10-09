@@ -1760,6 +1760,7 @@ class AutomationEngine(OpsRules):
         """After the moves: drones that reached their system join its controller; inactive maintenance drones and
         AMI controllers that reached home are switched on (once per arrival)."""
         from .ami_schedule import handoff_steps, handoffs, managed_by, wakeup_steps, wakeups
+        from . import loadouts as lo
         rc = {"adopt_arrivals": True, "activate_arrivals": True, **((await self.settings())["rules"].get("loadouts") or {})}
         devices = await self.devices()
         busy = self.busy_devices(await self.jobs())
@@ -1774,6 +1775,10 @@ class AutomationEngine(OpsRules):
                                                       handoff_steps(h), {"devices": [h["drone"]]}, force=manual))
         if rc.get("activate_arrivals", True):
             done = await self.db.kv_get("loadout_woken", {}) or {}
+            # a survey crew's relays wait switched off, and one working relay per system is enough
+            skip = skip | lo.survey_cargo(devices, cfg.get("fleets") or []) | {
+                d["device_code"] for d in devices if (d.get("device_type") or "") == "ftl_relay"
+                and star_of(d.get("location")) in lo.relaying_stars(devices, {d["device_code"]})}
             by = {d.get("device_code"): d for d in devices}
             for w in wakeups(devices, busy, done, skip):
                 code = w["code"]
