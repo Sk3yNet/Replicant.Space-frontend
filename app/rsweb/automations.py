@@ -279,6 +279,11 @@ class EngineLock:
 LOCK_ALERT_SECONDS = 600     # the watchdog alerts once the engine lock has been held this long
 
 
+def ownership_hint(err: str | None) -> str:
+    from .modular import ownership_hint as hint   # modular imports this module
+    return hint(err)
+
+
 def _already_compact(err: str | None) -> bool:
     """A compact refused because the device is already compacted, or already compacting."""
     e = (err or "").lower()
@@ -533,6 +538,13 @@ class AutomationEngine(OpsRules):
                 return
 
     # --- jobs --------------------------------------------------------------------------------------
+    async def cooperation(self) -> dict:
+        """The account's replicant cooperation: {"shared": bool, "public": replicants whose cohort_permission is public}."""
+        acct = await self.db.kv_get("account", {}) or {}
+        reps = await self.db.kv_get("replicants", {}) or {}
+        return {"shared": acct.get("replicant_cooperation") == "shared",
+                "public": {c for c, r in reps.items() if isinstance(r, dict) and r.get("cohort_permission") == "public"}}
+
     async def create_job(self, rule: str, title: str, device: str | None, steps: list[dict], meta: dict | None = None,
                          force: bool = False) -> dict | None:
         """force=True: a job the player asked for directly (e.g. a command chain) — dry run doesn't apply."""
@@ -547,7 +559,7 @@ class AutomationEngine(OpsRules):
         from .shapes import normalize_blueprints
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         # drones tracking a site deactivate before moving; large (modular) devices compact (modular.py)
-        steps = prepare_moves(steps, await self.devices(), bps)
+        steps = prepare_moves(steps, await self.devices(), bps, await self.cooperation())
         jobs = await self.jobs()
         job = {"id": f"{rule}-{int(_now().timestamp() * 1000)}-{len(jobs)}", "rule": rule, "title": title,
                "device": device, "steps": steps, "idx": 0, "status": "running", "created_at": now_iso(),
@@ -685,10 +697,10 @@ class AutomationEngine(OpsRules):
                         done.pop(job["meta"]["star"], None)  # it didn't happen: allow a later retry
                         await self.db.kv_set("beacon_systems", done)
                     await self._update(job)
-                    await self.log(job["rule"], f"stopped: {job['title']} — {st['desc']} failed: {err}", "alert", notify=True)
+                    await self.log(job["rule"], f"stopped: {job['title']} — {st['desc']} failed: {err}{ownership_hint(err)}", "alert", notify=True)
                     return
                 st["status"] = "skipped"
-                await self.log(job["rule"], f"{job['title']}: skipped '{st['desc']}' ({err})", "alert")
+                await self.log(job["rule"], f"{job['title']}: skipped '{st['desc']}' ({err}){ownership_hint(err)}", "alert")
                 job["idx"] += 1
                 done_steps = [x for x in job["steps"][:job["idx"]] if x["method"] != "WAIT"]
                 last3, last6 = done_steps[-3:], done_steps[-6:]
@@ -696,7 +708,7 @@ class AutomationEngine(OpsRules):
                         or (len(last6) == 6 and all(x["status"] == "skipped" for x in last6))):
                     job["status"] = "failed"
                     await self._update(job)
-                    await self.log(job["rule"], f"stopped: {job['title']} — 3 steps in a row failed with: {err}", "alert", notify=True)
+                    await self.log(job["rule"], f"stopped: {job['title']} — 3 steps in a row failed with: {err}{ownership_hint(err)}", "alert", notify=True)
                     return
                 await self._update(job)
                 continue

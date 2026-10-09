@@ -150,7 +150,29 @@ def _boarding(st: dict) -> tuple[str | None, str | None]:
     return None, None
 
 
-def with_owner_handoff(steps: list[dict], devices: list[dict]) -> list[dict]:
+OWNERSHIP_ERRORS = ("belongs to a different", "must belong to this replicant", "not owned by", "does not own",
+                    "belong to this replicant")
+
+
+def ownership_hint(err: str | None) -> str:
+    """When the game refuses because another of your replicants owns the device: where to let them share."""
+    e = str(err or "").lower()
+    if any(k in e for k in OWNERSHIP_ERRORS):
+        return (" — hint: another of your replicants owns it; let them share devices under Account › Replicant cooperation "
+                "(shared), or set that replicant's Cohort permission to public (Replicant page)")
+    return ""
+
+
+def coop_allows(coop: dict | None, actor: str | None, owner: str | None) -> bool:
+    """Replicant cooperation (docs: concepts/replicants): may `actor` operate on a device `owner` owns? Same replicant,
+    an account set to "shared", or an owner whose cohort_permission is "public"."""
+    if not actor or not owner or actor == owner:
+        return True
+    coop = coop or {}
+    return bool(coop.get("shared")) or owner in (coop.get("public") or set())
+
+
+def with_owner_handoff(steps: list[dict], devices: list[dict], coop: dict | None = None) -> list[dict]:
     """A carrier only takes devices its own replicant owns (live 2026-10-06/07: 'Target device belongs to a different
     account', 'Target host device must belong to this replicant'). Right before a device boards a carrier another
     replicant owns, it's handed to that replicant (change_owner); at the destination its fleet's owner setting (keep)
@@ -160,8 +182,14 @@ def with_owner_handoff(steps: list[dict], devices: list[dict]) -> list[dict]:
     for st in steps:
         cargo, carrier = _boarding(st)
         c, k = by.get(cargo) or {}, by.get(carrier) or {}
+        # attach: the carrier's replicant acts on the cargo; stow: the cargo's replicant acts on the carrier. Where
+        # cooperation already allows that, no hand-over is needed.
+        attach = (st.get("body") or {}).get("command") == "attach"
+        actor, owner = ((k.get("replicant_code"), c.get("replicant_code")) if attach
+                        else (c.get("replicant_code"), k.get("replicant_code")))
         if (cargo and cargo not in done and c.get("replicant_code") and k.get("replicant_code")
-                and c["replicant_code"] != k["replicant_code"] and not c.get("hosting_replicant")):
+                and c["replicant_code"] != k["replicant_code"] and not c.get("hosting_replicant")
+                and not coop_allows(coop, actor, owner)):
             out.append(step(f"{cargo}: hand to {k['replicant_code']} (owner of carrier {carrier})", f"/devices/{cargo}",
                             {"command": "change_owner", "target": k["replicant_code"]}, critical=True))
             done.add(cargo)
@@ -179,10 +207,11 @@ def with_owner_handoff(steps: list[dict], devices: list[dict]) -> list[dict]:
     return out
 
 
-def prepare_moves(steps: list[dict], devices: list[dict], bps: dict[str, dict] | None = None) -> list[dict]:
+def prepare_moves(steps: list[dict], devices: list[dict], bps: dict[str, dict] | None = None,
+                  coop: dict | None = None) -> list[dict]:
     """Every job's steps: drones tracking a site deactivate before moving, large devices compact, and a device boarding
-    another replicant's carrier is handed to that replicant first."""
-    return with_owner_handoff(with_compaction(with_untracking(steps, devices), devices, bps), devices)
+    another replicant's carrier is handed to that replicant first (unless replicant cooperation allows it as it is)."""
+    return with_owner_handoff(with_compaction(with_untracking(steps, devices), devices, bps), devices, coop)
 
 
 def _wrap(steps: list[dict], codes: set[str], before_move, after_land) -> list[dict]:

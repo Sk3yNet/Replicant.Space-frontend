@@ -330,6 +330,10 @@ async def record_evictions(st, path: str, resp: Any) -> None:
 
 
 def render_action(request: Request, outcome: dict, note: str | None = None) -> HTMLResponse:
+    from .modular import ownership_hint
+    hint = ownership_hint(outcome.get("error")).removeprefix(" — hint: ")
+    if hint:
+        note = (note + " " if note else "") + hint[0].upper() + hint[1:] + "."
     return partial(request, "partials/action_result.html", note=note, **outcome)
 
 

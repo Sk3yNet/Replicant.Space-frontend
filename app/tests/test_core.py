@@ -6352,3 +6352,18 @@ def test_replicant_cooperation_and_cohort_permission(client):
     assert r.status_code == 200
     sent = client.portal.call(db.fetchall, "SELECT path, body FROM actions ORDER BY rowid DESC LIMIT 1")[0]
     assert sent["path"] == "/accounts/me" and '"replicant_cooperation": "shared"' in sent["body"]
+
+
+def test_owner_handoff_skipped_when_cooperation_allows():
+    from rsweb.automations import step
+    from rsweb.modular import ownership_hint, with_owner_handoff
+    devices = [{"device_code": "CAR", "replicant_code": "A"}, {"device_code": "DRN", "replicant_code": "B"}]
+    attach = [step("attach", "/devices/CAR", {"command": "attach", "device": "DRN"})]
+    stow = [step("stow", "/devices/DRN", {"command": "stow", "target": "CAR"})]
+    assert len(with_owner_handoff(attach, devices)) == 2                                      # private: hand over
+    assert len(with_owner_handoff(attach, devices, {"shared": True})) == 1                    # shared account
+    assert len(with_owner_handoff(attach, devices, {"public": {"B"}})) == 1                   # A may act on B's drone
+    assert len(with_owner_handoff(stow, devices, {"public": {"B"}})) == 2                     # B may not use A's carrier
+    assert len(with_owner_handoff(stow, devices, {"public": {"A"}})) == 1
+    assert "Replicant cooperation" in ownership_hint("Target host device must belong to this replicant")
+    assert ownership_hint("Device is already in motion") == ""
