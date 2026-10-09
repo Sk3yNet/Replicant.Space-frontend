@@ -185,7 +185,7 @@ class Worker:
             asyncio.create_task(self._poll_loop("messages", self.s.poll_messages, self.sync_messages), name="p-msg"),
             asyncio.create_task(self._poll_loop("blueprints", self.s.poll_blueprints, self.sync_blueprints), name="p-bp"),
             asyncio.create_task(self._poll_loop("catalogue", self.s.poll_catalogue, self.sync_catalogue), name="p-cat"),
-            asyncio.create_task(self._poll_loop("traffic", self.s.poll_traffic, self.automations.sync_traffic), name="p-traffic"),
+            asyncio.create_task(self._poll_loop("traffic", self.traffic_interval, self.automations.sync_traffic), name="p-traffic"),
             asyncio.create_task(self._poll_loop("objects", self.s.poll_objects, self.automations.poll_objects), name="p-objects"),
         ]
 
@@ -468,7 +468,15 @@ class Worker:
             except Exception as e:
                 log.warning("sync %s failed: %s", name, e)
                 await self.db.kv_set(f"sync:{name}", {"ok": False, "at": now_iso(), "error": str(e)})
-            await asyncio.sleep(interval)
+            await asyncio.sleep(await interval() if callable(interval) else interval)
+
+    async def traffic_interval(self) -> int:
+        """Beacon audit polling: Map › Traffic's setting (minutes), else POLL_TRAFFIC."""
+        m = ((await self.db.kv_get("traffic_settings", {})) or {}).get("poll_minutes")
+        try:
+            return max(60, int(float(m) * 60)) if m not in (None, "") else self.s.poll_traffic
+        except (TypeError, ValueError):
+            return self.s.poll_traffic
 
     async def sync_account(self) -> None:
         me = await self.api.get("/accounts/me", background=True)

@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.56.0"
+VERSION = "1.57.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.57.0", "2026-10-09", "Other players on the maps: their fixed devices (beacons, relays, wards, hubs, factories, "
+     "observatories, controllers) from the latest scan of each system (a replicant arriving scans it; System page has a "
+     "button), someone else's ward or hub as a shield, and arrows for arrivals and departures your beacons logged in the "
+     "last hour with the likely other end of the trip. On the Galaxy map they fade with distance from the view's center. "
+     "The followed trail is drawn in gold; Trail has a Reset button. Traffic sets how often beacons are read."),
     ("1.56.0", "2026-10-09", "A stationed mining or explore fleet whose home changes (edited, moved on when dry, go now, or "
      "advancing) moves in one relocation mission whenever its carriers' hold slots and attach points cover every rider; "
      "otherwise the loadout pass carries it piecemeal, and the log says why. In a fleet's travel phase the vessel carrying "

@@ -146,6 +146,13 @@ class OpsRules:
         out = await tr.sync(self.db, self.api, self.hub, cfg if cfg.get("enabled") else None)
         for a in out["alerts"]:
             await self.log("visitor_alerts", a)
+        from . import others
+        state = await self.db.kv_get("traffic", {}) or {}
+        mine = tr.my_codes(await self.db.kv_get("account", {}) or {}, await self.db.kv_get("replicants", {}) or {},
+                           await self.db.kv_get("devices", []) or [])
+        out["others"] = await others.on_traffic_poll(self.db, self.api, state.get("entries") or [], mine)
+        if self.hub and (out["new"] or out["others"]["scanned"] or out["others"]["removed"]):
+            self.hub.publish("state", "traffic")    # the Galaxy map redraws its arrows / other players
         return out
 
     # --- asteroid defense -----------------------------------------------------------------------------------------

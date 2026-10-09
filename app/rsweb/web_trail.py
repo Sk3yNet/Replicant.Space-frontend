@@ -140,6 +140,24 @@ async def trail_stars(request: Request, replicant: str = Form(...), user: str = 
     return _msg(f"{len(found)} stars around {r.get('name') or replicant} ({len(placed)} with positions) added to the map.")
 
 
+@router.post("/trail/reset", response_class=HTMLResponse)
+async def trail_reset(request: Request, user: str = Depends(current_user)):
+    """Clear the beacon trail (the target relocated): beacons, their logs and the follow — keeps who is followed."""
+    db = request.app.state.db
+    s = await _state(db)
+    fo = s.get("follow") or {}
+    if fo.get("active") and fo.get("job"):
+        await request.app.state.worker.automations.cancel(fo["job"])
+    for k in ("beacons", "audit", "read_at"):
+        s[k] = {}
+    s["seen"] = []
+    for k in ("last_beacon", "follow", "polled_at"):
+        s.pop(k, None)
+    await db.kv_set(tl.KV, s)
+    request.app.state.hub.publish("state", "trail")
+    return _msg(f"Trail cleared: still following {s['target_name']}. Scan for their beacons again.")
+
+
 @router.post("/trail/follow", response_class=HTMLResponse)
 async def trail_follow(request: Request, action: str = Form("start"), user: str = Depends(current_user)):
     """Follow the trail to the end with the replicant that scanned (engine: trail_follow_pass): fly to where the

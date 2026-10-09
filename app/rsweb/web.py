@@ -1251,7 +1251,8 @@ def _angle(code: str) -> float:
 
 def build_system_view(star: str, scan: dict, devices: list[dict], inventory: list[dict],
                       places: list[dict] | None = None, res: dict | None = None,
-                      groups: list[dict] | None = None, star_pos: dict[str, dict] | None = None) -> dict:
+                      groups: list[dict] | None = None, star_pos: dict[str, dict] | None = None,
+                      others: list[dict] | None = None) -> dict:
     """Lay out a top-down, log-scaled diagram of a star system as SVG primitives."""
     size, c = 760, 380
     planets = scan.get("planets") or []
@@ -1321,6 +1322,16 @@ def build_system_view(star: str, scan: dict, devices: list[dict], inventory: lis
         if xy:
             shapes["markers"].append({"loc": loc, "x": xy[0], "y": xy[1], "devices": by_loc.get(loc, []),
                                       "stock": inv.get(loc, {}), "drones": drone_summary(by_loc.get(loc, []))})
+    # other players' fixed devices (others.py snapshot): hollow coral rings beside ours
+    theirs: dict[str, list[dict]] = defaultdict(list)
+    for d in others or []:
+        if star_of(d.get("location")) == star:
+            theirs[d["location"]].append(d)
+    shapes["others"] = []
+    for loc, ds in sorted(theirs.items()):
+        xy = loc_xy(loc)
+        if xy:
+            shapes["others"].append({"loc": loc, "x": xy[0] + 7, "y": xy[1] - 7, "devices": ds})
     # every other known location: resource sites, salvage, Lagrange points, objects, outer system
     qty = {x["code"]: x for x in ((res or {}).get("sites", []) + (res or {}).get("salvage", []))}
     hidden = (res or {}).get("hidden") or set()
@@ -1389,8 +1400,10 @@ async def system_view_model(request: Request, star: str, scan: dict, st: dict, s
     from . import transit
     cat = await db.kv_get("stars", {}) or {}
     star_pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("position")}
+    from . import others as oth
+    snap = oth.normalize(await db.kv_get(oth.KV, {}))["stars"].get(star) or {}
     return build_system_view(star, scan, st["devices"], st["inventory"], sys_t["targets"], res,
-                             transit.trips(st["devices"]), star_pos)
+                             transit.trips(st["devices"]), star_pos, others=snap.get("devices"))
 
 
 def devices_in_system(devices: list[dict], star: str) -> dict:
@@ -1475,11 +1488,32 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     surveyed, full = await survey_state(db, star, scan)
     viability = [v for v in await request.app.state.worker.automations.viability_report() if v["star"] == star]
     belts, resources, bodies = await system_layout(db, star, scan, st, sys_t, res, viability)
+    from . import others as oth
+    osnap = oth.normalize(await db.kv_get(oth.KV, {}))["stars"].get(star)
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err,
+                      others=oth.summary(osnap, await db.kv_get("replicant_profiles", {}) or {}), others_snap=osnap,
+                      others_warded=star in oth.warded_by_others(await db.kv_get("stars", {}) or {}, st["devices"]),
                       surveyed=surveyed, fully_surveyed=full,
                       updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t, here=here,
                       CATEGORY_LABEL=CATEGORY_LABEL, game_locs=game_locs, qty=qty,
                       belts=belts, resources=resources, bodies=bodies)
+
+
+@router.post("/systems/{star}/scan-others", response_class=HTMLResponse)
+async def system_scan_others(request: Request, star: str, user: str = Depends(current_user)):
+    """Scan the other devices in the system from one of our replicants there (GET /replicants/{code}/scan/devices)."""
+    from . import others as oth, traffic as tr
+    star = star.upper()
+    st = await load_state(request)
+    rep = next((c for c, r in st["replicants"].items() if star_of(r.get("location") or r.get("current_location")) == star), None)
+    if not rep:
+        return HTMLResponse(f'<div class="result err">None of your replicants is in {html.escape(star)}: only a replicant in the system can scan it.</div>')
+    try:
+        await oth.scan_into(request.app.state.db, request.app.state.api, rep,
+                            tr.my_codes(st["account"], st["replicants"], st["devices"]))
+    except ApiError as e:
+        return HTMLResponse(f'<div class="result err">Scan failed: {html.escape(e.message)}</div>')
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 async def system_layout(db, star: str, scan: dict, st: dict, sys_t: dict, res: dict, viability: list[dict]):
@@ -1698,6 +1732,15 @@ async def map_payload(request: Request, part: str = "all") -> dict:
             for p in prospects:
                 p.update({"position": positions[p["origin"]], "reach": reach, "half_angle": half, "learned": learned})
         out["prospects"] = prospects
+        # other players: their fixed devices (latest scans), arrivals / departures at our beacons, the followed trail
+        from . import others as oth, traffic as tr
+        profiles = await db.kv_get("replicant_profiles", {}) or {}
+        traffic = await db.kv_get("traffic", {}) or {}
+        mine = tr.my_codes(st["account"], st["replicants"], st["devices"])
+        out["others"] = oth.map_others(oth.normalize(await db.kv_get(oth.KV, {})), positions,
+                                       oth.warded_by_others(cat, st["devices"]), profiles)
+        out["traffic"] = oth.map_traffic(traffic.get("entries") or [], mine, positions, profiles)
+        out["trail"] = oth.map_trail(await db.kv_get("trail", {}) or {}, positions)
         out.update({"per_star": per_star, "moving": transit.galaxy_movers(transit.trips(st["devices"]), positions),
                     "fleets": [f for f in fleets if f["members"]], "supply": fl.supply_links(items, st["devices"])})
         if part == "all":   # the old shape too: drones / mining on each star

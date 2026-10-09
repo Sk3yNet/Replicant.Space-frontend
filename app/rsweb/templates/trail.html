@@ -2,7 +2,9 @@
 {% block title %}Trail{% endblock %}
 {% block content %}
 <div class="row between"><h1>Trail <span class="muted small">following {{ s.target_name }}{% if s.target_code %} · <span class="mono">{{ s.target_code }}</span>{% endif %}</span></h1>
-  <button class="small" hx-post="/trail/read" hx-target="#trail-result">Read all beacons</button></div>
+  <span><button class="small" hx-post="/trail/read" hx-target="#trail-result">Read all beacons</button>
+  <button class="small ghost" hx-post="/trail/reset" hx-target="#trail-result"
+    hx-confirm="Clear the beacon trail ({{ s.beacons | length }} beacon(s), their logs and any follow in progress)? {{ s.target_name }} stays the one followed.">Reset trail</button></span></div>
 <p class="muted small">An active FTL beacon logs every arrival and departure in its system, with a direction vector for an
   interstellar departure. Find {{ s.target_name }}'s public beacons, read their logs, and each departure's arrow is matched
   against the star catalog: the star whose direction from that system lines up best (nearer first, since hops stay

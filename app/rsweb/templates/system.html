@@ -19,7 +19,7 @@
   <div class="card">
     {% include "partials/system_svg.html" %}
     <div class="row between"><p class="muted small" style="margin:4px 0">Log-scaled orbits. Green band = habitable zone, dashed rings = belts / Kuiper.
-      Blue circles = your devices or stockpiles · purple ▶ = in transit (dashed: its route; at the rim: surging in or out) · drone badges M mining, S survey, T transport, R maintenance
+      Blue circles = your devices or stockpiles · dashed coral circles = other players' fixed devices · purple ▶ = in transit (dashed: its route; at the rim: surging in or out) · drone badges M mining, S survey, T transport, R maintenance
       (green working, gray idle, purple moving, amber other; hover for each drone) · ◆ resource site · ▲ salvage · ■ Lagrange point · ● object / outer system (numbers = quantity available). Click anything for detail.</p>
       <label class="small" style="text-transform:none;white-space:nowrap"><input type="checkbox" checked onchange="document.querySelector('svg.system').classList.toggle('nolabels', !this.checked)"> labels</label>
       <label class="small" style="text-transform:none;white-space:nowrap"><input type="checkbox" checked onchange="document.querySelector('svg.system').classList.toggle('nodrones', !this.checked)"> drones</label></div>
@@ -28,6 +28,17 @@
     <div class="card" id="loc-panel"><p class="muted">Click a planet or marker to load location detail.</p></div>
     {% if reps %}<div class="card" style="margin-top:14px"><h2>Your replicants here</h2>
       {% for r in reps %}<div><a href="/replicants/{{ r.replicant_code }}">{{ r.name }}</a> @ {{ r.location or r.current_location }}</div>{% endfor %}</div>{% endif %}
+    <div class="card" style="margin-top:14px">
+      <div class="row between"><h2>Other players here</h2>
+        {% if reps %}<button class="small ghost" hx-post="/systems/{{ star }}/scan-others" hx-target="#oth-msg">Scan for other devices</button>{% endif %}</div>
+      <div id="oth-msg"></div>
+      {% if others_warded %}<div class="small lv-alert">Another player's ward or hub covers this system.</div>{% endif %}
+      {% for g in others %}<div class="small"><b>{{ g.name }}</b>: {% for t, n in g.types.items() %}{{ n }}× {{ t | human }}{{ ', ' if not loop.last }}{% endfor %}
+        <div class="muted mono">{% for d in g.devices %}{{ d.code }} {{ d.location }}{{ ' · ' if not loop.last }}{% endfor %}</div></div>
+      {% else %}<p class="muted small">{% if others_snap %}No fixed devices of other players at the last scan.{% else %}Not scanned yet.{% endif %}</p>{% endfor %}
+      <p class="muted small">Fixed devices only (beacons, relays, wards, hubs, factories, observatories, controllers){% if others_snap %} · scanned {{ others_snap.scanned_at | ago }}{% endif %}.
+        A replicant arriving here scans it; {% if reps %}or use the button{% else %}only a replicant in the system can scan it{% endif %}. Dropped after 7 days.</p>
+    </div>
   </div>
 </div>
 

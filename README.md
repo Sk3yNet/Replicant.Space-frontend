@@ -51,16 +51,22 @@ rule with an on/off switch, plus the jobs and the log.
 ### Maps
 - **Galaxy**: 3D map of the star catalog (plus stars from censuses and your observatories), live: ships in transit, fleets,
   supply lines, mining sparkles and **prospecting cones** (each observatory scan, darker as it progresses) redraw as events
-  arrive. Relay/hub range, search, distances, route preview; right-click two stars to measure.
+  arrive. Relay/hub range, search, distances, route preview; right-click two stars to measure. **Other players** (coral):
+  their fixed devices from the latest scans, a shield where someone else's ward or hub is, and an arrow for each arrival or
+  departure your beacons logged in the last hour (with the likely other end of the trip), all fading with distance from the
+  point the view is centered on. The **trail** of the replicant you follow is drawn in gold.
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
 - **Systems / System page**: a top-down map with your devices, stockpiles, sites and salvage. Three cards: **Resources** (per
   resource: richness, open sites, % left, ≈ units left — learned from what past sites gave — salvage, stockpiled),
   **Belts** (richness, a viability line, open sites) and **Bodies** (planets, moons, L-points with their salvage and stock).
-  *Mining prospects* scores every scanned system out of 100. Surveyed checkboxes per body.
+  *Mining prospects* scores every scanned system out of 100. Surveyed checkboxes per body. *Other players here*: their
+  fixed devices (beacons, relays, wards, hubs, factories, observatories, controllers) from the latest scan, also drawn on the
+  map; a replicant arriving in a system scans it, or use *Scan for other devices*. Snapshots older than 7 days are dropped.
 - **Traffic**: civilization contact (a beacon must sit at the body of the civilization's event), visitors, each beacon's audit log,
-  redundant beacons.
+  redundant beacons. How often beacons are read (default 10 minutes).
 - **Trail**: follow a replicant through the audit logs of public FTL beacons; candidate systems with travel time and a travel
-  button; *follow to the end* keeps going until the target stops moving.
+  button; *follow to the end* keeps going until the target stops moving. *Reset trail* clears the beacons and logs when the
+  target relocates.
 - **Wards & hubs**: your wards (against the 25 cap), hub shield and upkeep with warnings, `evicted_miners` log. Other players'
   warded systems are left alone by every mining rule and mission.
 - **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Upkeep**: wear per system and maintenance
@@ -300,6 +306,7 @@ app/rsweb/
   loadouts.py              the loadout pass: spares, prints, deliveries, placement
   fleets.py                fleets, missions, deals; reform.py rebuilds tags
   pathing.py, prospects.py, prospecting.py, observatory.py   path forward, system scores, observatory prospecting
+  others.py                other players' fixed devices, beacon traffic arrows and the trail for the maps
   gameevents.py, contractsupply.py   contracts and their device delivery
   targets.py, sites.py, salvage.py, viability.py   locations, sites, salvage, belt viability
   traffic.py, trail.py, census.py, transit.py      beacons, trails, star census, things in transit

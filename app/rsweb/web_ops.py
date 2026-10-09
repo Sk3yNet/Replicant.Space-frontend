@@ -48,7 +48,21 @@ async def traffic_page(request: Request, star: str = "", others: int = 0, user: 
                       stars=sorted({e.get("star") for e in entries if e.get("star")}),
                       rules=s["rules"], placements={r["location"]: tr.placement(r["location"], st["devices"], st["replicants"], stowed)
                                                     for r in cov if not r["beacon"]},
-                      redundant=tr.redundant_beacons(st["devices"], cov))
+                      redundant=tr.redundant_beacons(st["devices"], cov),
+                      tsettings=await db.kv_get("traffic_settings", {}) or {},
+                      poll_default=round(request.app.state.settings.poll_traffic / 60, 1))
+
+
+@router.post("/traffic/settings", response_class=HTMLResponse)
+async def traffic_settings(request: Request, user: str = Depends(current_user)):
+    raw = ((await request.form()).get("poll_minutes") or "").strip()
+    try:
+        m = None if raw == "" else max(1.0, min(120.0, float(raw)))
+    except ValueError:
+        return _lines(["Minutes must be a number."], ok=False)
+    await request.app.state.db.kv_set("traffic_settings", {"poll_minutes": m})
+    return _lines([f"Beacons are read every {m:g} minutes from the next read on." if m else
+                   "Back to the default; takes effect from the next read."])
 
 
 @router.post("/traffic/refresh", response_class=HTMLResponse)

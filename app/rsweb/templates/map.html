@@ -19,6 +19,8 @@
     <label><input type="checkbox" id="opt-supply" checked> supply lines</label>
     <label><input type="checkbox" id="opt-production" checked> mining</label>
     <label><input type="checkbox" id="opt-prospect" checked> prospecting</label>
+    <label title="Other players' fixed devices and their arrivals / departures at your beacons; fades with distance from the view's center"><input type="checkbox" id="opt-others" checked> other players</label>
+    <label title="The replicant you follow on Map › Trail"><input type="checkbox" id="opt-trail" checked> trail</label>
     <button class="small" id="btn-top">top-down</button>
     <button class="small" id="btn-home">my replicant</button>
     <button class="small ghost" hx-post="/map/refresh" hx-target="#map-status">refresh catalog</button>
@@ -28,7 +30,7 @@
   <div id="map-tip"></div>
   <div class="legend">
     <i style="background:#6cb6ff"></i>your devices <i style="background:#ff5fa2"></i>replicant <i style="background:#4fd18b"></i>scanned
-    <i style="background:#f0b64f"></i>hub <i style="background:#fff27a"></i>prospected, not scanned yet <i style="background:#3fd0c9"></i>fleet <i style="background:#b48cff"></i>in transit (arrow points where it's going) <i style="background:#7fe3ff"></i>observatory prospecting (cone)
+    <i style="background:#f0b64f"></i>hub <i style="background:#fff27a"></i>prospected, not scanned yet <i style="background:#3fd0c9"></i>fleet <i style="background:#b48cff"></i>in transit (arrow points where it's going) <i style="background:#7fe3ff"></i>observatory prospecting (cone) <i style="background:#ff7a6b"></i>other players (ring: fixed devices, shield: their ward or hub, arrow: arrived / left in the last hour; fades with distance) <i style="background:#ffd54f"></i>trail
     <br>sparkles = drones mining now: <i style="background:#b0bec5"></i>structural <i style="background:#ffa726"></i>conductive
     <i style="background:#e6c88f"></i>silicates <i style="background:#a1887f"></i>carbon <i style="background:#4dd0e1"></i>volatiles
     <i style="background:#e040fb"></i>rares · right-click two stars to measure (a third right-click clears)

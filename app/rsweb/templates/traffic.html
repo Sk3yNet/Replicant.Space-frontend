@@ -7,6 +7,10 @@
     <button class="small" hx-post="/traffic/refresh" hx-target="#tr-msg">Read beacons now</button></span>
 </div>
 <div id="tr-msg"></div>
+<form class="inline small" hx-post="/traffic/settings" hx-target="#tr-msg" style="margin-bottom:8px">
+  Read beacons every <input name="poll_minutes" size="4" value="{{ tsettings.poll_minutes if tsettings.poll_minutes is not none else '' }}" placeholder="{{ poll_default }}"> minutes
+  <button class="small ghost">Save</button>
+  <span class="muted">one request per deployed beacon each read · arrivals and departures show on the Galaxy map for an hour</span></form>
 {% with ids="visitor_alerts,civ_beacons" %}{% include "partials/rules_slot.html" %}{% endwith %}
 
 <div class="card">

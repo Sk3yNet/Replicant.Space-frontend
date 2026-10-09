@@ -35,6 +35,13 @@
           </g>{% endfor %}
         </g>
       {% endfor %}
+      {% for o in view.others or [] %}
+        <g class="marker other-player" hx-get="/locations/{{ o.loc }}" hx-target="#loc-panel">
+          <circle cx="{{ o.x }}" cy="{{ o.y }}" r="{{ 4 + [o.devices|length, 6]|min }}" fill="none" stroke="#ff7a6b" stroke-width="1.5" stroke-dasharray="3 2"/>
+          <title>Other players at {{ o.loc }}:
+{% for d in o.devices %}{{ d.owner_name or d.owner }} · {{ (d.type or 'device') | replace('_', ' ') }} {{ d.code }}
+{% endfor %}</title>
+        </g>{% endfor %}
       {% if view.oort %}<text x="{{ view.size - 170 }}" y="20">Oort {{ view.oort.au | round | int }} AU ↗</text>{% endif %}
       <g class="movers">{% for m in view.movers %}{% set s0 = m.segs[0] %}
         <g class="mover mover-{{ m.way }}" data-segs='{{ m.segs | tojson }}' data-t0="{{ m.t0 }}" data-t1="{{ m.t1 }}"

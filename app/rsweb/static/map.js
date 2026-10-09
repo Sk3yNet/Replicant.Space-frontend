@@ -95,7 +95,8 @@ let data = { stars: [], replicants: [] };
 let starPoints, mineGroup = new THREE.Group(), coverGroup = new THREE.Group(), lineGroup = new THREE.Group();
 const moveGroup = new THREE.Group(), fleetGroup = new THREE.Group(), supplyGroup = new THREE.Group();
 const prospectGroup = new THREE.Group();
-scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup, prospectGroup);
+const othersGroup = new THREE.Group(), trafficGroup = new THREE.Group(), trailGroup = new THREE.Group();
+scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup, prospectGroup, othersGroup, trafficGroup, trailGroup);
 const supplyLines = [];   // {curve, dots: [sprite], el, v}
 const sparkGroup = new THREE.Group(); scene.add(sparkGroup);
 const measureGroup = new THREE.Group(); scene.add(measureGroup);   // right-click measuring: its points and line
@@ -296,6 +297,127 @@ function placeProspects(now, showLabels) {
   }
 }
 
+// other players: a coral ring where they have fixed devices (beacons, relays, wards, factories…), a shield where
+// someone else's ward or hub is, and an arrow for each arrival / departure our beacons logged in the last hour (in:
+// coming from the vector's side, out: leaving along it). All of it fades with distance from the point the view is
+// centered on: full within FADE_NEAR ly, gone by FADE_FAR.
+const OTHER = 0xff7a6b, OTHER_TEXT = "#ffb0a6", FADE_NEAR = 5, FADE_FAR = 30, ARROW_MS = 3600e3;
+const shieldTex = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d");
+  g.strokeStyle = "rgba(255,255,255,1)"; g.lineWidth = 4; g.lineJoin = "round";
+  g.beginPath(); g.moveTo(32, 6); g.lineTo(54, 14); g.quadraticCurveTo(54, 44, 32, 58); g.quadraticCurveTo(10, 44, 10, 14);
+  g.closePath(); g.stroke();
+  return new THREE.CanvasTexture(c);
+})();
+const faders = [];   // {v, mats: [[material, base opacity]], el, born (ms, arrows only)}
+function fadeAt(v) {
+  const d = v.distanceTo(controls.target);
+  return Math.max(0, Math.min(1, (FADE_FAR - d) / (FADE_FAR - FADE_NEAR)));
+}
+function label(text, color, title) {
+  const d = document.createElement("div");
+  d.textContent = text; if (title) d.title = title;
+  Object.assign(d.style, { position: "absolute", color, pointerEvents: "none", fontFamily: "monospace", fontSize: "10px",
+                           whiteSpace: "nowrap", textShadow: "0 1px 2px #000" });
+  el.appendChild(d); return d;
+}
+function ago(ms) { return fmt((Date.now() - ms) / 1000) + " ago"; }
+const othersBy = {};
+function buildOthers() {
+  othersGroup.clear(); trafficGroup.clear();
+  faders.forEach(x => x.el?.remove()); faders.length = 0;
+  for (const k in othersBy) delete othersBy[k];
+  for (const o of data.others || []) {
+    othersBy[o.star] = o;
+    const v = pos(o), mats = [];
+    if (o.n) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: OTHER, transparent: true, depthWrite: false }));
+      const sz = 2.6 + Math.min(2, o.n * .25); sp.scale.set(sz, sz, 1); sp.position.copy(v); othersGroup.add(sp);
+      mats.push([sp.material, .8]);
+    }
+    if (o.ward) {
+      const sh = new THREE.Sprite(new THREE.SpriteMaterial({ map: shieldTex, color: OTHER, transparent: true, depthWrite: false }));
+      sh.scale.set(1.4, 1.4, 1); sh.position.copy(v).add(new THREE.Vector3(0, 0, 2.2)); othersGroup.add(sh);
+      mats.push([sh.material, .9]);
+    }
+    const who = o.owners.map(w => w.name).join(", ");
+    faders.push({ v, mats, el: who ? label(who, OTHER_TEXT) : null, dy: 10 });
+  }
+  for (const a of data.traffic || []) {
+    const at = pos(a), dir = new THREE.Vector3(...a.vector).normalize(), far = at.clone().add(dir.clone().multiplyScalar(4));
+    const [p0, p1] = a.way === "in" ? [far, at] : [at, far];
+    const mat = new THREE.LineBasicMaterial({ color: OTHER, transparent: true });
+    trafficGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p0, p1]), mat));
+    const head = new THREE.Mesh(new THREE.ConeGeometry(.35, 1.1, 10), new THREE.MeshBasicMaterial({ color: OTHER, transparent: true }));
+    head.position.copy(p1); head.quaternion.setFromUnitVectors(UP, p1.clone().sub(p0).normalize()); trafficGroup.add(head);
+    const what = Object.entries(a.types).map(([t, n]) => `${n > 1 ? n + " " : ""}${t}`).join(" + ");
+    const el2 = label("", OTHER_TEXT);
+    faders.push({ v: at, mats: [[mat, .9], [head.material, .9]], el: el2, born: a.at, dy: -16,
+                  text: () => `${a.way === "in" ? "→" : "←"} ${a.who} · ${what} ${a.way === "in" ? "arrived" : "left"} ${ago(a.at)}` +
+                              (a.guess ? ` · ${a.way === "in" ? "from" : "toward"} ≈ ${a.guess}` : "") });
+  }
+}
+function placeOthers(now, showLabels, w, h) {
+  othersGroup.visible = trafficGroup.visible = checked("opt-others", OPTS.others !== false);
+  for (const x of faders) {
+    let f = fadeAt(x.v);
+    if (x.born) f *= Math.max(0, 1 - (now - x.born) / ARROW_MS);
+    x.mats.forEach(([m, base]) => { m.opacity = base * f; m.visible = f > 0.01; });
+    if (!x.el) continue;
+    tmp.copy(x.v).project(camera);
+    const vis = othersGroup.visible && showLabels && f > 0.15 && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
+    x.el.style.display = vis ? "block" : "none";
+    if (vis) {
+      if (x.text) x.el.textContent = x.text();
+      x.el.style.opacity = f;
+      x.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px";
+    }
+  }
+}
+
+// the followed replicant's trail (Map › Trail): gold legs from each logged departure to the star its vector points
+// at (dashed when the match is loose), a ring on their beacons' systems, and where they were last seen
+const TRAIL = 0xffd54f;
+let trailLabel = null;
+function buildTrail() {
+  trailGroup.clear(); trailLabel?.el.remove(); trailLabel = null;
+  const t = data.trail; if (!t) return;
+  for (const l of t.legs) {
+    const a = pos({ position: l.a }), b = pos({ position: l.b });
+    const mat = l.good ? new THREE.LineBasicMaterial({ color: TRAIL, transparent: true, opacity: .8 })
+                       : new THREE.LineDashedMaterial({ color: TRAIL, dashSize: .4, gapSize: .4, transparent: true, opacity: .6 });
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), mat);
+    if (!l.good) line.computeLineDistances();
+    trailGroup.add(line);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(.3, .9, 10), new THREE.MeshBasicMaterial({ color: TRAIL }));
+    head.position.copy(a.clone().lerp(b, .6)); head.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize());
+    trailGroup.add(head);
+  }
+  for (const n of t.beacons) {
+    const s = byName[n]; if (!s) continue;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: TRAIL, transparent: true, opacity: .5, depthWrite: false }));
+    sp.scale.set(2.2, 2.2, 1); sp.position.copy(pos(s)); trailGroup.add(sp);
+  }
+  if (t.last) {
+    const v = pos({ position: t.last.position });
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: TRAIL, transparent: true, depthWrite: false }));
+    sp.scale.set(4.6, 4.6, 1); sp.position.copy(v); trailGroup.add(sp);
+    const at = Date.parse(t.last.at);
+    trailLabel = { v, el: label("", "#ffe58a"), text: () => `★ ${t.name} ${t.last.travel_type === "arrival" ? "arrived" : "left"} ${t.last.star}` +
+                   (isNaN(at) ? "" : ` ${ago(at)}`) };
+  }
+}
+function placeTrail(showLabels, w, h) {
+  trailGroup.visible = checked("opt-trail", OPTS.trail !== false);
+  if (!trailLabel) return;
+  tmp.copy(trailLabel.v).project(camera);
+  const vis = trailGroup.visible && showLabels && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
+  trailLabel.el.style.display = vis ? "block" : "none";
+  if (vis) { trailLabel.el.textContent = trailLabel.text(); trailLabel.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px";
+             trailLabel.el.style.top = ((1 - tmp.y) / 2 * h + 22) + "px"; }
+}
+
 // devices in transit between stars: a dashed route and an arrow that moves along it as time passes
 const MOVE = 0xb48cff;
 function buildMovers() {
@@ -362,6 +484,7 @@ function show(s) {
       ${Object.keys(s.mining || {}).length ? `<dt>Mining now</dt><dd>${Object.entries(s.mining).map(([r, n]) => `${n} on ${esc(r)}`).join(", ")}</dd>` : ""}
       ${(s.infra || []).length ? `<dt>Infrastructure</dt><dd>${esc(s.infra.join(", "))}</dd>` : ""}
       ${s.has_hub ? "<dt>Hub</dt><dd>yes</dd>" : ""}
+      ${othersBy[s.designation] ? `<dt>Other players</dt><dd>${othersBy[s.designation].owners.map(w => `${esc(w.name)}: ${Object.entries(w.types).map(([t, n]) => `${n > 1 ? n + "× " : ""}${esc(t.replace(/_/g, " "))}`).join(", ")}`).join("<br>") || ""}${othersBy[s.designation].ward && !othersBy[s.designation].n ? "warded by another player" : ""}${othersBy[s.designation].scanned_at ? ` <span class="muted">· scanned ${fmt((Date.now() - Date.parse(othersBy[s.designation].scanned_at)) / 1000)} ago</span>` : ""}</dd>` : ""}
       ${s.prospected ? `<dt>Prospected</dt><dd>by ${esc(s.found_by || "an observatory")}${s.scanned ? "" : " · <b>not scanned yet</b>"}</dd>` : ""}
     </dl>
     ${rep ? `<div class="row">
@@ -474,6 +597,8 @@ function animate(t = 0) {
     if (vis) { x.el.style.left = ((tmp.x + 1) / 2 * w) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px"; }
   }
   placeMovers(Date.now());
+  placeOthers(Date.now(), showLabels, w, h);
+  placeTrail(showLabels, w, h);
   placeProspects(Date.now(), showLabels);
   moveGroup.visible = checked("opt-moving", OPTS.moving !== false);
   for (const x of movers) {
@@ -511,17 +636,21 @@ function infoText(d, loadingOverlay) {
 function applyOverlay(o, first) {
   const per = o.per_star || {};
   for (const s of data.stars) Object.assign(s, per[s.designation] || { drones: [], mining: {} });
-  Object.assign(data, { moving: o.moving || [], fleets: o.fleets || [], supply: o.supply || [], prospects: o.prospects || [] });
+  Object.assign(data, { moving: o.moving || [], fleets: o.fleets || [], supply: o.supply || [], prospects: o.prospects || [],
+                        others: o.others || [], traffic: o.traffic || [], trail: o.trail || null });
   build();
   buildMovers();
   buildProspects();
+  buildOthers();
+  buildTrail();
   buildFleets();
   buildSupply();
   if (first && data.stars.length) infoText(data, false);
 }
 function load(first) {
   return fetchPart("core").then(d => {
-    const keep = { moving: data.moving, fleets: data.fleets, supply: data.supply, prospects: data.prospects };   // until the new overlay lands
+    const keep = { moving: data.moving, fleets: data.fleets, supply: data.supply, prospects: data.prospects,
+                   others: data.others, traffic: data.traffic, trail: data.trail };   // until the new overlay lands
     data = { ...keep, ...d };
     d.stars.forEach(s => byName[s.designation] = s);
     if ($("star-list")) $("star-list").innerHTML = d.stars.map(s => `<option value="${esc(s.designation)}">`).join("");
@@ -543,7 +672,7 @@ if (OPTS.refreshMinutes) setInterval(() => load(false).catch(e => OPTS.onError?.
 
 // Live: the page's event stream (base.html, sse "state") says when something departed, arrived or changed — redraw
 // what's on the stars (ships in transit, fleets, supply lines, mining), at most every few seconds.
-const LIVE = /^(travel\.|device\.|devices$|action$|automation$|mining\.)/;
+const LIVE = /^(travel\.|device\.|devices$|action$|automation$|mining\.|traffic$|trail$)/;
 let liveTimer = null, liveLast = 0;
 function liveRefresh() {
   liveTimer = null; liveLast = Date.now();
