@@ -272,3 +272,31 @@ async def shop_buy(request: Request, user: str = Depends(current_user)):
     if not out["ok"]:
         note = "Trades are paid from what you hold at the shop's location — bring the payment there first."
     return render_action(request, out, note)
+
+
+# =====================================================================================
+# lost equipment
+# =====================================================================================
+@router.get("/lost", response_class=HTMLResponse)
+async def lost_page(request: Request, user: str = Depends(current_user)):
+    from . import lost as ls
+    db = request.app.state.db
+    s = ls.normalize(await db.kv_get(ls.KV, {}))
+    st = await load_state(request)
+    names = {c: (r.get("name") or c) for c, r in st["replicants"].items()}
+    rows = sorted(s["lost"].values(), key=lambda r: r.get("since") or "", reverse=True)
+    return await page(request, user, "lost.html", "lost", rows=rows, found=list(reversed(s["found"])), names=names)
+
+
+@router.post("/lost/forget", response_class=HTMLResponse)
+async def lost_forget(request: Request, user: str = Depends(current_user)):
+    """Stop tracking a device you've written off (it comes back if it's seen lost again)."""
+    from . import lost as ls
+    code = ((await request.form()).get("code") or "").strip()
+    db = request.app.state.db
+    s = ls.normalize(await db.kv_get(ls.KV, {}))
+    rec = s["lost"].pop(code, None)
+    if rec:
+        s["found"].append({**rec, "found_at": now_iso(), "found_location": None, "outcome": f"written off by {user}"})
+        await db.kv_set(ls.KV, s)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})

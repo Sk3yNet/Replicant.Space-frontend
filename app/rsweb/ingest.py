@@ -551,6 +551,11 @@ class Worker:
                 d.pop("folded", None)
         await self.db.kv_set("devices", devices)
         self.hub.publish("state", "devices")
+        try:   # lost equipment: out of sight (surging, unlisted, out of range) until seen again
+            from .lost import track
+            await track(self.db, devices)
+        except Exception as e:  # never let this break the device sync
+            log.info("lost-equipment tracking failed: %s", e)
         try:
             await self.sync_stowed(devices)
         except Exception as e:  # never let this break the device sync

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Lost{% endblock %}
+{% block content %}
+<h1>Lost equipment <span class="muted small">{{ rows | length }} out of sight</span></h1>
+<p class="muted small">Devices out of sight, with where they were last seen, until they show up again: <b>surging</b> (on an
+  interstellar trip — the game often leaves those out of the device list until they arrive), <b>unlisted</b> (the device list
+  leaves them out), <b>out of range</b> (no relay of yours reaches them — 7.5 ly, a hub 15 ly — and no replicant is in their
+  system), or <b>aboard</b> a carrier that's one of those. Checked on every device sync.</p>
+<div class="card">
+  {% if rows %}<table class="small"><tr><th>Device</th><th>Why</th><th>Last known location</th><th>Since</th><th>Heading to</th><th>Owner</th><th></th></tr>
+    {% for r in rows %}<tr>
+      <td><a class="mono" href="/devices/{{ r.code }}">{{ r.code }}</a> {{ (r.type or 'device') | human }}</td>
+      <td>{{ r.reason }}{% if r.carrier %} <span class="muted">· in <a class="mono" href="/devices/{{ r.carrier }}">{{ r.carrier }}</a></span>{% endif %}</td>
+      <td>{% if r.last_location %}<a href="/systems/{{ r.last_location | star_of }}">{{ r.last_location }}</a>{% else %}<span class="muted">unknown</span>{% endif %}</td>
+      <td>{{ r.since | ago }}</td>
+      <td>{% if r.heading_to %}{{ r.heading_to }}{% if r.arrives_at %} <span class="muted">· due {{ r.arrives_at | ago }}</span>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{{ names.get(r.replicant, r.replicant or '?') }}</td>
+      <td><button class="small ghost" hx-post="/lost/forget" hx-vals='{{ {"code": (r.code) | string} | tojson }}' hx-confirm="Stop tracking {{ r.code }}?">write off</button></td></tr>{% endfor %}
+  </table>{% else %}<p class="muted">Nothing out of sight.</p>{% endif %}
+</div>
+<div class="card" style="margin-top:14px">
+  <h2>Seen again <span class="muted small">last {{ found | length }}</span></h2>
+  {% if found %}<table class="small"><tr><th>Device</th><th>Was</th><th>Last known</th><th>Lost</th><th>Back</th><th>Where</th></tr>
+    {% for r in found %}<tr><td><a class="mono" href="/devices/{{ r.code }}">{{ r.code }}</a> {{ (r.type or 'device') | human }}</td>
+      <td class="muted">{{ r.reason }}</td><td>{{ r.last_location or '—' }}</td><td>{{ r.since | ago }}</td>
+      <td>{% if r.outcome == 'found' %}{{ r.found_at | ago }}{% else %}<span class="lv-alert">{{ r.outcome }}</span> {{ r.found_at | ago }}{% endif %}</td>
+      <td>{{ r.found_location or '—' }}</td></tr>{% endfor %}
+  </table>{% else %}<p class="muted small">None yet.</p>{% endif %}
+</div>
+{% endblock %}

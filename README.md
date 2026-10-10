@@ -48,6 +48,10 @@ rule with an on/off switch, plus the jobs and the log.
 - **AMI**: controllers with their latest digest, a directive picker with targets from the controller's system, adopt / release /
   launch / withdraw, and **AMI schedules** that re-issue directives to idle controllers.
 
+- **Lost** (Devices › Lost): devices out of sight — surging, left out of the device list, out of relay range with no replicant
+  in their system, or aboard a carrier that is — with their last known location and where they're heading, until they're seen
+  again (then listed under *Seen again*). Write one off to stop tracking it.
+
 ### Maps
 - **Galaxy**: 3D map of the star catalog (plus stars from censuses and your observatories), live: ships in transit, fleets,
   supply lines, mining sparkles and **prospecting cones** (each observatory scan, darker as it progresses) redraw as events
@@ -317,6 +321,7 @@ app/rsweb/
   fleets.py                fleets, missions, deals; reform.py rebuilds tags
   pathing.py, prospects.py, prospecting.py, observatory.py   path forward, system scores, observatory prospecting
   bootstrap.py, boot_engine.py   bootstrap fleets: stages and decisions; the engine pass that runs them
+  lost.py                  lost equipment: last known locations of devices out of sight
   others.py                other players' fixed devices, beacon traffic arrows and the trail for the maps
   gameevents.py, contractsupply.py   contracts and their device delivery
   targets.py, sites.py, salvage.py, viability.py   locations, sites, salvage, belt viability
