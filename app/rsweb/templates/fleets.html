@@ -42,6 +42,10 @@
           <option value="">—</option>
           <option value="self" {{ 'selected' if f.materials == 'self' }}>takes materials in ↘</option>
           {% for g in fleets if g.id != f.id %}<option value="{{ g.id }}" {{ 'selected' if f.materials == g.id }}>send to {{ g.name }} ({{ g.home }}) ↗</option>{% endfor %}
+        </select>
+        <select name="supplied_from" title="Supplied from: that fleet's autofactories print this fleet's shortfalls and its carriers bring them, at any distance (everything else stays within the supply range)">
+          <option value="">supplied nearby</option>
+          {% for g in fleets if g.id != f.id and g.role != 'bootstrap' %}<option value="{{ g.id }}" {{ 'selected' if f.supplied_from == g.id }}>supplied from {{ g.name }} ({{ g.home }})</option>{% endfor %}
         </select></form>
         {% if f.route %}<div class="muted">ferry {{ f.route.controller }}: {{ f.route.source }} → {{ f.route.dest }}</div>{% endif %}
         {% if f.takes_from %}<div class="muted">from {{ f.takes_from | map(attribute='name') | join(', ') }}</div>{% endif %}</td>

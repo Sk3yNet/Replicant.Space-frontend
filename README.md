@@ -82,7 +82,11 @@ A fleet is a named group of devices tagged `fleet:<id>`, with a role (mining / e
 lines or a template).
 - **Stationed** fleets are kept at their loadout in their home system by the **loadout pass**: extras become `spare`, spares
   are sent where they're short (within the supply range, default 100 ly), what's still missing is printed and carried there
-  (large devices are compacted first). Placed beacons and relays are never made spare or moved.
+  (large devices are compacted first). Placed beacons and relays are never made spare or moved. A borrowed carrier only comes
+  from within the supply range of the pick-up (the trip itself can be any length, e.g. a new home across the gap); a fleet's
+  own carriers go anywhere. Spares are only gathered to a depot within range. **Supplied from** (Overview): a hub whose
+  autofactories print the fleet's shortfalls and whose carriers bring them, at any distance — e.g. a Sol-sector fleet
+  supplied from a home-sector printing hub.
 - **Missions** run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*,
   *Stop*, *End mission & board* and *Recall*. Mining works the richest belt (or salvage); explore surveys each target and
   leaves a relay and a beacon; trade runs a contract or trade end to end.
@@ -101,7 +105,8 @@ lines or a template).
   your OK), and send their materials to the hub by cargo freighter. The hub and every outpost get an AMI mining controller
   (`maintain_ratios`: the mix the bootstrap's missing devices cost) and an AMI survey controller (`belt_search`); while the
   salvage rule has one on salvage or resting at a dry belt, the bootstrap leaves it alone. Start one with *New bootstrap*
-  (a replicant's vessel and what's aboard), or *Convert to bootstrap* on an existing fleet that has a replicant's vessel. A ward goes up where it costs under 6 hours of the
+  (a replicant's vessel and what's aboard), or *Convert to bootstrap* on an existing fleet that has a replicant's vessel;
+  *Back to a normal fleet* makes it a stationed fleet again, homed where most of its devices are. A ward goes up where it costs under 6 hours of the
   system's output, or at once when another player's drones mine there. Everything it prints is tagged `boot:<id>`: the
   loadout pass never lends it others' spares, factories or carriers, nor lends its own.
 - Also: owner hand-over (`change_owner`), materials (*send to* / *takes materials in*), *fill from spares*, carrying budget,

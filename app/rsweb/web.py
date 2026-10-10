@@ -3283,6 +3283,27 @@ async def fleets_bootstrap_control(request: Request, fid: str, user: str = Depen
                         st[k] = max(0.0, float(v))
                     except ValueError:
                         return HTMLResponse(f'<div class="result err">{k} must be a number</div>')
+        elif action == "normal":
+            # back to an ordinary stationed fleet, homed where most of its devices are (the vessel aside), loadout = them
+            from . import bootstrap as bt
+            st = await load_state(request)
+            mine = [d for d in bt.members(f, st["devices"])]
+            others = [d for d in mine if d.get("device_code") != b.get("vessel")]
+            homes = Counter(star_of(d.get("location")) for d in others if d.get("location"))
+            home = homes.most_common(1)[0][0] if homes else (f.get("home") or b.get("home"))
+            for k in ("boot",):
+                f.pop(k, None)
+            f.update({"role": "mining", "home": home, "station": True, "template": None,
+                      "wants": dict(Counter(d.get("device_type") for d in others if d.get("device_type")))})
+            for x in items:
+                if x.get("parent") == fid:
+                    x.pop("parent", None)
+            steps = [eng._tag_step(d["device_code"], [fl.fleet_tag(fid)], [bt.family_tag(fid)]) for d in mine]
+            await eng.save_fleets(items)
+            await eng.create_job("fleets", f"{f['name']}: back to a normal fleet in {home}", None, steps,
+                                 {"devices": [d["device_code"] for d in mine]}, force=True)
+            await eng.log("fleets", f"{f['name']} is a normal stationed fleet again, home {home} ({len(mine)} device(s))")
+            return HTMLResponse("", headers={"HX-Refresh": "true"})
         elif action == "end":
             items = [x for x in items if x["id"] != fid]
             for x in items:
@@ -3412,6 +3433,9 @@ async def fleets_station(request: Request, fid: str, user: str = Depends(current
     f["station"] = form.get("station") == "on"
     m = (form.get("materials") or "").strip()
     f["materials"] = m if m == "self" or any(x["id"] == m and x["id"] != fid for x in items) else ""
+    if "supplied_from" in form:   # a hub whose autofactories and carriers may supply this fleet at any distance
+        sup = (form.get("supplied_from") or "").strip()
+        f["supplied_from"] = sup if any(x["id"] == sup and x["id"] != fid for x in items) else ""
     await eng.save_fleets(items)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 

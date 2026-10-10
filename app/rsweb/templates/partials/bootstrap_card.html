@@ -50,6 +50,8 @@
         <button class="small" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{"action": "run"}' hx-target="#bt-{{ f.id }}">Run a pass now</button>
         {% if b.paused %}<button class="small" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{"action": "resume"}' hx-target="#bt-{{ f.id }}">Resume</button>
         {% else %}<button class="small ghost" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{"action": "pause"}' hx-target="#bt-{{ f.id }}">Pause</button>{% endif %}
+        <button class="small ghost" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{"action": "normal"}' hx-target="#bt-{{ f.id }}"
+          hx-confirm="Turn {{ f.name }} back into a normal stationed fleet, homed where most of its devices are, with them as its loadout?">Back to a normal fleet</button>
         <button class="small ghost" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{"action": "end"}' hx-target="#bt-{{ f.id }}"
           hx-confirm="End this bootstrap? Its hub and outposts stay as normal stationed fleets (still using only their own devices).">End bootstrap</button>
       </div>

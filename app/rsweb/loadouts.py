@@ -260,6 +260,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     def fleet_fam(tag: str | None) -> str | None:
         f = by_tag.get(tag or "")
         return f"boot:{f['family']}" if f and f.get("family") else None
+
+    def supplier(tag: str | None) -> str | None:
+        """The fleet tag of the hub this fleet is *supplied from* (any distance: its prints and carriers may cross)."""
+        sup = (by_tag.get(tag or "") or {}).get("supplied_from")
+        return fl.fleet_tag(sup) if sup else None
     homes_of = defaultdict(list)             # star -> its stationed fleets
     for f in groups:
         homes_of[f["home"]].append(f)
@@ -535,7 +540,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         """Factories with queue room a fleet may print on: fleetless ones and its own; another fleet's only when there's
         nothing else (e.g. every autofactory belongs to the printing hub)."""
         open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0 and fam(f) == fleet_fam(tag)]
-        mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) == tag]
+        sup = supplier(tag)
+        mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) in {tag, sup} - {None}]
         return mine or open_f
 
     def factory_for(t: str, star: str, tag: str | None = None) -> tuple[dict | None, str]:
@@ -549,10 +555,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         open_f = usable(tag)
         if not open_f:
             return None, "every autofactory's print queue is full"
-        open_f = [f for f in open_f if near(f, star)]
+        sup = supplier(tag)
+        open_f = [f for f in open_f if near(f, star) or (sup and fleet_tag_of(f) == sup)]
         if not open_f:
             return None, f"no autofactory within {reach:g} ly of {star} (Fleets › settings: supply range)"
-        for f in sorted(open_f, key=lambda f: (star_of(f.get("location")) != star, _dist(star_of(f.get("location")), star, pos))):
+        # supplied from a hub: its factories first, wherever they are; else the nearest
+        for f in sorted(open_f, key=lambda f: (bool(sup) and fleet_tag_of(f) != sup, star_of(f.get("location")) != star,
+                                               _dist(star_of(f.get("location")), star, pos))):
             stock = as_amounts(inventory.get(f.get("location")) or {})
             free = {r: stock.get(r, 0.0) - reserved[f.get("location")][r] for r in cost}
             if all(free[r] >= v for r, v in cost.items()):
@@ -722,6 +731,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 if (code in moves or code in busy or star_of(d.get("location")) == depot or not d.get("location")
                         or d.get("controller_device_code") or working(d) or pinned_at(d) or d.get("location_stale")
                         or d.get("taxi_mode") == "taxi" or "taxi" in (d.get("tags") or []) or fam(d)
+                        or not near(d, depot)   # never flown further than the supply range just to be parked
                         or not str(d.get("status") or "").startswith(("idle", "stowed", "inactive", "monitoring", "deployed"))):
                     continue
                 moves[code] = depot
@@ -870,9 +880,14 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             fetched_from = None
             if not options:
                 # none in this system: send the nearest free carrier from another system to pick them up
+                btag = fleet_tag_of(by_code.get(codes[0]) or {}) or assign.get(codes[0])
                 remote = [c for c in carriers if star_of(c.get("location")) not in (here, "") and c["device_code"] not in used
                           and same_owner(c, owner) and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")
-                          and not (grounded and carry_mode(c, bps) == "attach") and _free(c, bps, stowed_map) > 0]
+                          and not (grounded and carry_mode(c, bps) == "attach") and _free(c, bps, stowed_map) > 0
+                          # a borrowed carrier only comes from within the supply range of the pick-up (seen live 2026-10-10:
+                          # five carriers flew ~500 ly empty to move one drone each); the fleet's own, or its supplier's, may come from anywhere
+                          and (not reach or not (reach < _dist(star_of(c.get("location")), here, pos) < 1e9)
+                               or (btag and fleet_tag_of(c) and fleet_tag_of(c) in (btag, supplier(btag))))]
                 remote.sort(key=lambda c: (bool(owner) and c.get("replicant_code") != owner,
                                            _dist(star_of(c.get("location")), here, pos), -_free(c, bps, stowed_map), c["device_code"]))
                 if remote:
@@ -883,7 +898,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 whose = f" owned by {owner}" if owner and hosts else ""
                 unmet.append({"star": dest, "type": ", ".join(sorted({by_code[c].get('device_type') for c in codes})),
                               "n": len(codes), "why": f"waiting for a surge-capable carrier{whose} in {here} (or a free one "
-                                                      f"elsewhere) to {what}" + (" — a device hosting a replicant only rides its own replicant's carrier" if whose else "")})
+                                                      + (f"within {reach:g} ly" if reach else "elsewhere") + f") to {what}" + (" — a device hosting a replicant only rides its own replicant's carrier" if whose else "")})
                 break
             c = max(options, key=lambda c: (not owner or c.get("replicant_code") == owner, _free(c, bps, stowed_map),
                                             c["device_code"]))   # a carrier of the devices' own replicant first

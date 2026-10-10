@@ -276,3 +276,58 @@ def test_convert_a_fleet_to_a_bootstrap(client):
     # a fleet without a replicant's vessel can't be converted
     client.portal.call(e.save_fleets, fleets + [{"id": "bare", "name": "Bare", "role": "mining", "home": "SOL"}])
     assert "heaven vessel hosting a replicant" in client.post("/fleets/bare/to-bootstrap", headers=HX).text
+
+
+def _range_world():
+    def dev(code, t, loc, **kw):
+        return {"device_code": code, "device_type": t, "location": loc, "status": "idle", "operational_capacity": 100.0,
+                "features": kw.pop("features", ["cruise", "stow"]), "available_commands": kw.pop("cmds", ["travel", "stow", "deploy"]), **kw}
+    stars = {"AAA": {"designation": "AAA", "position": {"x": 0, "y": 0, "z": 0}},
+             "BBB": {"designation": "BBB", "position": {"x": 3, "y": 0, "z": 0}},
+             "FAR": {"designation": "FAR", "position": {"x": 500, "y": 0, "z": 0}}}
+    bps = [{"device_type": "mining_drone", "resources": {"structural": 100}, "print_time": 180},
+           {"device_type": "ami_mining_controller", "resources": {"structural": 100}, "print_time": 600}]
+    return dev, stars, bps
+
+
+def test_borrowed_carriers_stay_within_range_own_ones_may_cross():
+    from rsweb import loadouts as lo
+    dev, stars, bps = _range_world()
+    devices = [dev("M1", "mining_drone", "BBB-BELT-1", tags=["fleet:aaa"]),
+               dev("CAR", "surge_carrier", "FAR-OORT", features=["surge", "cruise"], cmds=["travel", "deploy"], attach_capacity=9)]
+    cfg = {"fleets": [{"id": "aaa", "name": "A", "role": "mining", "home": "AAA", "station": True, "wants": {"mining_drone": 1}}],
+           "settings": {"max_supply_ly": 100}}
+    p = lo.plan(cfg, devices, bps, {}, stars, {}, set(), [], {})
+    assert not p["deliveries"] and any("within 100 ly" in u["why"] for u in p["unmet"])   # 500 ly away, borrowed: no
+    devices[1]["tags"] = ["fleet:aaa"]                                                  # the fleet's own: may come
+    cfg["fleets"][0]["wants"]["surge_carrier"] = 1
+    p = lo.plan(cfg, devices, bps, {}, stars, {}, set(), [], {})
+    assert any(d["carrier"] == "CAR" and "M1" in d["devices"] for d in p["deliveries"])
+
+
+def test_supplied_from_prints_at_any_distance():
+    from rsweb import loadouts as lo
+    dev, stars, bps = _range_world()
+    af = dev("AF", "autofactory", "FAR-3-L4", features=["print"], cmds=["enqueue_print"], tags=["fleet:hub"])
+    cfg = {"fleets": [{"id": "hub", "name": "Hub", "role": "mining", "home": "FAR", "station": True, "wants": {"autofactory": 1}},
+                      {"id": "bb", "name": "B", "role": "mining", "home": "BBB", "station": True, "wants": {"ami_mining_controller": 1}}],
+           "settings": {"max_supply_ly": 100, "print_missing": True, "need_stock": False}}
+    inv = {"FAR-3-L4": {"structural": 1000.0}}
+    p = lo.plan(cfg, [af], bps, inv, stars, {}, set(), [], {})
+    assert not any(pr.get("fleet") == "bb" for pr in p["prints"])                      # 500 ly: out of range
+    cfg["fleets"][1]["supplied_from"] = "hub"
+    p = lo.plan(cfg, [af], bps, inv, stars, {}, set(), [], {})
+    assert any(pr.get("fleet") == "bb" and pr["factory"] == "AF" for pr in p["prints"])
+
+
+def test_back_to_a_normal_fleet(client):
+    devs = [vessel("SOL-BELT-1"), drone("M1", "mining_drone", "ABOTEIN-BELT-1"), drone("M2", "mining_drone", "ABOTEIN-BELT-1"),
+            drone("S1", "survey_drone", "SOL-BELT-1")]
+    e = _setup(client, "home", devs)
+    r = client.post("/fleets/p/bootstrap", data={"action": "normal"}, headers=HX)
+    assert r.status_code == 200
+    f = next(x for x in client.portal.call(e.fleets) if x["id"] == "p")
+    assert f["role"] == "mining" and f["station"] and f["home"] == "ABOTEIN" and "boot" not in f
+    assert f["wants"] == {"mining_drone": 2, "survey_drone": 1}
+    job = next(j for j in client.portal.call(e.jobs) if "back to a normal fleet" in j["title"])
+    assert all(s["body"]["configuration"] == {"add_tags": ["fleet:p"], "remove_tags": ["boot:p"]} for s in job["steps"])
