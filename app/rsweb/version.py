@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.66.1"
+VERSION = "1.67.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.67.0", "2026-10-10", "Long trips: waits for an arrival last until the game's ETA (+30 min) and are extended while "
+     "the device is still moving (up to 48 h) — seen live: Surveyors' wait timed out mid-surge to the Sol zone and its "
+     "deploys failed; 'Cannot … while travelling' refusals are retried every 5 min while still on course. A canceled "
+     "trip, an arrival somewhere else, or a carrier that turned back now stops the job (missions stall) instead of "
+     "carrying on, so nothing is deployed anywhere but the destination."),
     ("1.66.1", "2026-10-10", "Fleets › Add / remove devices: devices in other fleets are offered too, marked with their "
      "fleet (adding one moves it over), grouped and sorted — fleetless first, then by fleet, system and type."),
     ("1.66.0", "2026-10-10", "Fleets never leave with a partial loadout: a launch with gaps is refused (Launch anyway "

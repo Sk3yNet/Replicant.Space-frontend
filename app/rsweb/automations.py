@@ -209,6 +209,10 @@ RULES: list[Rule] = [
 RULES_BY_ID = {r.id: r for r in RULES}
 
 STEP_TIMEOUT = 3600          # waiting for travel/scan to finish
+MAX_TRIP_WAIT_H = 48         # a wait for an arrival is extended while the device is still moving, up to this long
+BUSY_RE = re.compile(r"while (the )?(replicant|device|carrier|vessel)? ?is (still )?(travel|cruis|surg|in motion)|"
+                     r"already in motion|is (currently )?(travel|surg|cruis)", re.I)
+BUSY_RETRY_S, BUSY_TRIES = 300, 36   # retry such a refusal every 5 min, for up to 3 h
 SHORT_TIMEOUT = 120          # waiting for deploy/stow confirmation
 MAX_LOG = 300
 
@@ -306,6 +310,27 @@ def _ts(v: str | None) -> datetime | None:
     except ValueError:
         return None
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _trip_eta(resp: dict) -> datetime | None:
+    """When a command's answer says it'll be done: arrives_at / final_arrives_at / completes_at, else the route's
+    total time (total_time_seconds, time_seconds, or the legs' time_seconds summed) from now."""
+    for src in (resp, resp.get("travel") if isinstance(resp.get("travel"), dict) else {}):
+        for k in ("final_arrives_at", "arrives_at", "completes_at"):
+            t = _ts(src.get(k))
+            if t:
+                return t
+    secs = resp.get("total_time_seconds") or resp.get("time_seconds") or resp.get("eta_seconds")
+    route = resp.get("route")
+    if not secs and isinstance(route, list):
+        secs = sum(float((x or {}).get("time_seconds") or 0) for x in route if isinstance(x, dict))
+    elif not secs and isinstance(route, dict):
+        secs = route.get("time_seconds")
+    try:
+        secs = float(secs or 0)
+    except (TypeError, ValueError):
+        secs = 0
+    return _now() + timedelta(seconds=secs) if secs > 0 else None
 
 
 def star_of(loc: str | None) -> str:
@@ -630,15 +655,25 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 ref = st.get("seq0_from")
                 if isinstance(ref, int) and 0 <= ref < len(job["steps"]):
                     st["seq0"] = job["steps"][ref].get("seq0", st["seq0"])
+                # a trip this job sent: wait at least until the game's ETA (+30 min) — a ~500 ly surge outlasts the
+                # default hour (seen live 2026-10-10: Surveyors' wait timed out mid-surge, the deploys then failed)
+                eta = _ts((job.get("etas") or {}).get(st.get("wait_device") or job.get("device") or ""))
+                if eta:
+                    st["timeout"] = max(st.get("timeout", STEP_TIMEOUT), (eta - _now()).total_seconds() + 1800)
                 ok, resp, err = True, None, None
             else:
                 ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
             st["response"] = resp if isinstance(resp, (dict, list)) else None
             if ok and isinstance(resp, dict):
-                # long trips: wait at least until the game's own ETA (+30 min) before giving up
-                eta = _ts(resp.get("arrives_at")) or _ts(resp.get("completes_at"))
+                # long trips: wait at least until the game's own ETA (+30 min) before giving up — this step, and the
+                # job's later waits for the same device (travel answers: arrives_at, or a route's time_seconds)
+                eta = _trip_eta(resp)
                 if eta:
                     st["timeout"] = max(st.get("timeout", STEP_TIMEOUT), (eta - _now()).total_seconds() + 1800)
+                    if (st.get("body") or {}).get("command") == "travel" and str(st.get("path") or "").startswith("/devices/"):
+                        job.setdefault("etas", {})[st["path"].split("/")[2]] = eta.isoformat(timespec="seconds")
+            if ok and (st.get("body") or {}).get("command") == "travel" and str(st.get("path") or "").startswith("/devices/"):
+                job.setdefault("trips", {})[st["path"].split("/")[2]] = st["body"].get("destination")
             if (not ok and (st.get("body") or {}).get("command") == "deploy"
                     and "already deployed" in (err or "").lower()):
                 # seen live (2026-10-04, Surveyors fleet): drones already out — that's what the step wanted
@@ -690,6 +725,16 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 if st["tries"] < 2 and re.search(r"\brate.?limit|too many requests", (err or "").lower()):
                     await self._update(job)
                     return  # retry on next tick
+                if st["tries"] < BUSY_TRIES and BUSY_RE.search(err or "") and not await self._off_course(st, job):
+                    # the game refuses while something is still on its way ("Cannot deploy while replicant is
+                    # travelling"): try again in a few minutes instead of skipping it
+                    st["status"], st["retry_at"] = "retrying", (_now() + timedelta(seconds=BUSY_RETRY_S)).isoformat(timespec="seconds")
+                    job["status"] = "waiting"
+                    await self._update(job)
+                    if st["tries"] == 1:
+                        await self.log(job["rule"], f"{job['title']}: '{st['desc']}' — {err}; trying again every "
+                                                    f"{BUSY_RETRY_S // 60} min")
+                    return
                 if st["critical"]:
                     st["status"] = "failed"
                     job["status"] = "failed"
@@ -729,6 +774,59 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             job["status"] = "running"
             await self._update(job)
             job = await self._get(job_id)
+
+    async def _not_arrived(self, st: dict, job: dict) -> str | None:
+        """A wait for an arrival that's over: is the device in the system it was sent to? None = yes (or unknown)."""
+        code = st.get("wait_device") or job.get("device")
+        dest = (st.get("match") or {}).get("destination") or (job.get("trips") or {}).get(code or "")
+        d = next((x for x in await self.devices() if x.get("device_code") == code), None)
+        if not d or not dest or not d.get("location") or d.get("location_stale"):
+            return None
+        if star_of(d["location"]) != star_of(dest):
+            return f"{code} didn't arrive at {dest}: it's at {d['location']}"
+        return None
+
+    async def _off_course(self, st: dict, job: dict) -> str | None:
+        """For a step after a trip in this job: the carrier is now heading somewhere else, or has stopped somewhere
+        else, than the trip's destination. None = on course (or no trip to compare with)."""
+        trips = job.get("trips") or {}
+        if not trips:
+            return None
+        by = {x.get("device_code"): x for x in await self.devices()}
+        code = str(st.get("path") or "").split("/")[2] if str(st.get("path") or "").startswith("/devices/") else None
+        d = by.get(code or "") or {}
+        cands = [c for c in (d.get("stowed_in_device_code"), d.get("attached_to_device_code"), code) if c in trips]
+        if not cands:
+            cands = [c for c in trips if c in by]
+        for c in cands:
+            dest, car = star_of(trips[c]), by.get(c) or {}
+            tr = car.get("travel") or {}
+            heading = star_of(tr.get("final_destination") or tr.get("destination"))
+            moving = str(car.get("status") or "").startswith(("travel", "cruis", "surg"))
+            if moving and heading and heading != dest:
+                return f"{c} is heading to {heading}, not {dest} (trip canceled or redirected)"
+            if not moving and car.get("location") and not car.get("location_stale") and star_of(car["location"]) != dest:
+                return f"{c} is at {car['location']}, not {dest}"
+        return None
+
+    async def _still_travelling(self, st: dict, job: dict, now) -> bool:
+        """A wait for an arrival that timed out while the device is evidently still on its way (moving, or left out of
+        the device list mid-surge): extend it, up to MAX_TRIP_WAIT_H in all."""
+        code = st.get("wait_device") or job.get("device")
+        d = next((x for x in await self.devices() if x.get("device_code") == code), None)
+        first = _ts(st.setdefault("first_started_at", st.get("started_at") or now.isoformat(timespec="seconds"))) or now
+        if not d or (now - first).total_seconds() > MAX_TRIP_WAIT_H * 3600:
+            return False
+        st_ = str(d.get("status") or "")
+        moving = st_.startswith(("travel", "cruis", "surg")) or (d.get("unlisted") and not d.get("location"))
+        if not moving:
+            return False
+        st["started_at"] = now.isoformat(timespec="seconds")
+        if not st.get("extended"):
+            await self.log(job["rule"], f"{job['title']}: {code} is still on its way — waiting longer for '{st['desc']}'")
+        st["extended"] = int(st.get("extended") or 0) + 1
+        await self._update(job)
+        return True
 
     async def cancel(self, job_id: str) -> None:
         async with self.lock:
@@ -826,15 +924,11 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     back = int(float(p.get("return_time_seconds") or 0))
                     st["error"] = (f"travel canceled — {wait_dev} returns to {p.get('origin') or 'where it started'}"
                                    + (f" (≈{back // 60} min)" if back else ""))
-                    if st.get("critical"):
-                        st["status"], job["status"] = "failed", "failed"
-                        await self.log(job["rule"], f"stopped: {job['title']} — {st['error']}", "alert")
-                    else:
-                        st["status"], job["status"] = "skipped", "running"
-                        job["idx"] += 1
+                    # whatever came next (deploy, unload …) was meant for the destination: stop here, so nothing is
+                    # done back where it started (a fleet mission stalls; Retry flies again)
+                    st["status"], job["status"] = "failed", "failed"
                     await self._update(job)
-                    if job["status"] == "running":
-                        await self._advance(job["id"])
+                    await self.log(job["rule"], f"stopped: {job['title']} — {st['error']}", "alert", notify=True)
             if name in ("site.depleted", "salvage.depleted") and not late:
                 try:
                     await self.rule_salvage()
@@ -865,7 +959,29 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 if job["status"] != "waiting":
                     continue
                 st = job["steps"][job["idx"]]
+                if st.get("status") == "retrying":
+                    off = await self._off_course(st, job)
+                    if off:   # turned back or went elsewhere: the retried step was meant for the destination
+                        st["status"], st["error"], job["status"] = "failed", off, "failed"
+                        await self._update(job)
+                        await self.log(job["rule"], f"stopped: {job['title']} — {off}", "alert", notify=True)
+                        continue
+                    if now >= (_ts(st.get("retry_at")) or now):
+                        st["status"], job["status"] = "pending", "running"
+                        await self._update(job)
+                        await self._advance(job["id"])
+                    continue
                 started = _ts(st.get("started_at")) or now
+                if (now - started).total_seconds() > st.get("timeout", STEP_TIMEOUT) \
+                        and "travel.arrived" in (st.get("wait") or []) and await self._still_travelling(st, job, now):
+                    continue   # still on its way (or out of sight mid-surge): keep waiting
+                if (now - started).total_seconds() > st.get("timeout", STEP_TIMEOUT) and "travel.arrived" in (st.get("wait") or []):
+                    miss = await self._not_arrived(st, job)
+                    if miss:   # not where the job sent it: don't go on to deploy / unload somewhere else
+                        st["status"], st["error"], job["status"] = "failed", miss, "failed"
+                        await self._update(job)
+                        await self.log(job["rule"], f"stopped: {job['title']} — {miss}", "alert", notify=True)
+                        continue
                 if (now - started).total_seconds() > st.get("timeout", STEP_TIMEOUT):
                     st["status"] = "skipped"
                     st["error"] = "timed out waiting for " + "/".join(st["wait"])

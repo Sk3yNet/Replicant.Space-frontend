@@ -136,6 +136,12 @@ lines or a template).
   `cover=0`, `fleets=0`, `supply=0`, `production=0`, `hud=right|left|off`.
 
 ### How automation works
+
+**Long trips** (e.g. ~500 ly from the home sector to the Sol zone): a wait for an arrival lasts until the game's own ETA
+(+30 min) and is extended while the device is still moving (up to 48 h); a command the game refuses because something
+is still travelling is retried every 5 min (up to 3 h) while it's still heading where the job sent it. A canceled trip,
+an arrival somewhere else, or a carrier that turned back stops the job (a fleet mission stalls; *Retry* flies again), so
+nothing is deployed or unloaded anywhere but the destination.
 - Rules run in the app container, so they keep going with the browser closed. Each rule creates **jobs**: ordered game commands,
   some waiting for an event (e.g. `travel.arrived`) before the next. A failing step is logged and skipped; a failing *critical*
   step stops the job with an alert. Jobs are stored in SQLite and survive redeploys.

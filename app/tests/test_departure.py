@@ -79,3 +79,122 @@ def test_add_devices_lists_other_fleets_members_grouped(client):
     assert "in no fleet" in card and "in Other" in card
     assert card.index("in no fleet") < card.index("in Other")          # fleetless first
     assert 'name="add" value="M3"' not in card                        # its own members aren't offered
+
+
+def test_trip_eta_and_busy_errors():
+    from rsweb import automations as au
+    eta = au._trip_eta({"route": [{"time_seconds": 3600}, {"time_seconds": 18000}]})
+    assert 21500 < (eta - au._now()).total_seconds() <= 21600
+    assert au._trip_eta({"arrives_at": "2030-01-01T00:00:00Z"}).year == 2030
+    assert au.BUSY_RE.search("Cannot deploy while replicant is travelling")
+    assert au.BUSY_RE.search("Device is already in motion") and not au.BUSY_RE.search("Unknown star designation")
+
+
+def test_long_trip_wait_and_busy_retry(client):
+    from datetime import timedelta
+    from rsweb import automations as au
+    e = eng(client)
+    db = client.app.state.db
+    sent = []
+
+    async def fake_send(method, path, body, label):
+        sent.append((path, (body or {}).get("command")))
+        if (body or {}).get("command") == "travel":
+            return True, {"route": [{"time_seconds": 6 * 3600}]}, None
+        if (body or {}).get("command") == "deploy" and len([x for x in sent if x[1] == "deploy"]) == 1:
+            return False, None, "Cannot deploy while replicant is travelling"
+        return True, {}, None
+    e.send = fake_send
+    steps = [au.step("V → FAR", "/devices/V1", {"command": "travel", "destination": "FAR"}),
+             {**au.step("wait for V1 at FAR", "", None, method="WAIT", wait=["travel.arrived"]), "wait_device": "V1"},
+             au.step("deploy D1", "/devices/D1", {"command": "deploy"})]
+    job = client.portal.call(e.create_job, "fleets", "trip", "V1", steps, {}, True)
+    job = next(j for j in client.portal.call(e.jobs) if j["id"] == job["id"])
+    assert job["steps"][1]["status"] == "waiting" and job["steps"][1]["timeout"] > 6 * 3600   # waits out the ETA
+    # past the timeout but the vessel is still surging: keep waiting
+    client.portal.call(db.kv_set, "devices", [{"device_code": "V1", "status": "surging", "location": None, "unlisted": True}])
+    jobs = client.portal.call(e.jobs)
+    j = next(x for x in jobs if x["id"] == job["id"])
+    j["steps"][1]["started_at"] = (au._now() - timedelta(hours=8)).isoformat()
+    client.portal.call(e.save_jobs, jobs)
+    client.portal.call(e.tick)
+    j = next(x for x in client.portal.call(e.jobs) if x["id"] == job["id"])
+    assert j["steps"][1]["status"] == "waiting" and j["steps"][1].get("extended") == 1
+    # it arrives; the deploy is refused once (still travelling) and retried, not skipped
+    client.portal.call(db.kv_set, "devices", [{"device_code": "V1", "status": "idle", "location": "FAR-OORT"}])
+    j["steps"][1]["status"] = "done"
+    j["idx"], j["status"] = 2, "running"
+    jobs = [x if x["id"] != j["id"] else j for x in client.portal.call(e.jobs)]
+    client.portal.call(e.save_jobs, jobs)
+    client.portal.call(e._advance, j["id"])
+    j = next(x for x in client.portal.call(e.jobs) if x["id"] == job["id"])
+    assert j["steps"][2]["status"] == "retrying" and j["status"] == "waiting"
+    j["steps"][2]["retry_at"] = au._now().isoformat()
+    client.portal.call(e.save_jobs, [x if x["id"] != j["id"] else j for x in client.portal.call(e.jobs)])
+    client.portal.call(e.tick)
+    j = next(x for x in client.portal.call(e.jobs) if x["id"] == job["id"])
+    assert j["steps"][2]["status"] == "done" and j["status"] == "done"
+
+
+def _trip_job(client, e, extra_steps):
+    from rsweb import automations as au
+
+    async def fake_send(method, path, body, label):
+        if (body or {}).get("command") == "travel":
+            return True, {"arrives_at": (au._now()).isoformat()}, None
+        if (body or {}).get("command") == "deploy":
+            return False, None, "Cannot deploy while replicant is travelling"
+        return True, {}, None
+    e.send = fake_send
+    steps = [au.step("V → FAR", "/devices/V1", {"command": "travel", "destination": "FAR"}),
+             {**au.step("wait for V1 at FAR", "", None, method="WAIT", wait=["travel.arrived"], match={"destination": "FAR"}),
+              "wait_device": "V1"}] + extra_steps
+    job = client.portal.call(e.create_job, "fleets", "trip", "V1", steps, {}, True)
+    return job["id"]
+
+
+def test_canceled_trip_stops_the_job(client):
+    from rsweb import automations as au
+    e = eng(client)
+    jid = _trip_job(client, e, [au.step("deploy D1", "/devices/D1", {"command": "deploy"})])
+    client.portal.call(e.on_event, {"event": "travel.cancelled", "device_code": "V1", "payload": {"origin": "HOME", "return_time_seconds": 600}})
+    j = next(x for x in client.portal.call(e.jobs) if x["id"] == jid)
+    assert j["status"] == "failed" and "travel canceled" in j["steps"][1]["error"] and j["steps"][2]["status"] == "pending"
+
+
+def test_timed_out_arrival_somewhere_else_stops_the_job(client):
+    from datetime import timedelta
+    from rsweb import automations as au
+    e = eng(client)
+    jid = _trip_job(client, e, [au.step("deploy D1", "/devices/D1", {"command": "deploy"})])
+    client.portal.call(client.app.state.db.kv_set, "devices", [{"device_code": "V1", "status": "idle", "location": "HOME-OORT"}])
+    jobs = client.portal.call(e.jobs)
+    j = next(x for x in jobs if x["id"] == jid)
+    j["steps"][1]["started_at"] = (au._now() - timedelta(hours=10)).isoformat()
+    j["steps"][1]["timeout"] = 60
+    client.portal.call(e.save_jobs, jobs)
+    client.portal.call(e.tick)
+    j = next(x for x in client.portal.call(e.jobs) if x["id"] == jid)
+    assert j["status"] == "failed" and "didn't arrive at FAR" in j["steps"][1]["error"]
+
+
+def test_busy_retry_stops_when_the_carrier_turned_back(client):
+    from rsweb import automations as au
+    e = eng(client)
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "devices", [{"device_code": "V1", "status": "idle", "location": "FAR-OORT"},
+                                              {"device_code": "D1", "status": "stowed", "stowed_in_device_code": "V1"}])
+    jid = _trip_job(client, e, [au.step("deploy D1", "/devices/D1", {"command": "deploy"})])
+    j = next(x for x in client.portal.call(e.jobs) if x["id"] == jid)
+    j["steps"][1]["status"], j["idx"], j["status"] = "done", 2, "running"
+    client.portal.call(e.save_jobs, [x if x["id"] != jid else j for x in client.portal.call(e.jobs)])
+    client.portal.call(e._advance, jid)
+    j = next(x for x in client.portal.call(e.jobs) if x["id"] == jid)
+    assert j["steps"][2]["status"] == "retrying"
+    # the vessel turned back home
+    client.portal.call(db.kv_set, "devices", [{"device_code": "V1", "status": "travelling", "location": "FAR-OORT",
+                                               "travel": {"destination": "HOME-OORT"}},
+                                              {"device_code": "D1", "status": "stowed", "stowed_in_device_code": "V1"}])
+    client.portal.call(e.tick)
+    j = next(x for x in client.portal.call(e.jobs) if x["id"] == jid)
+    assert j["status"] == "failed" and "heading to HOME, not FAR" in j["steps"][2]["error"]
