@@ -21,9 +21,15 @@
   {% if e.description %}<p class="muted small">{{ e.description }}</p>{% endif %}
   <div class="grid g2">
     <div>
-      {% if p.criteria | length > 1 %}<div class="small"><b>Any one</b> of these {{ p.criteria | length }} options completes it{% if b %} — working toward <b>{{ b.name | human }}</b>{% endif %}.</div>{% endif %}
+      {% if p.criteria | length > 1 %}<div class="small"><b>Any one</b> of these {{ p.criteria | length }} options completes it.
+        <label style="text-transform:none">Fulfill with
+          <select name="option" hx-post="/game-events/{{ e.designation }}/option" hx-trigger="change">
+            <option value="">whichever is ready first{% if b and not e.chosen %} (now: {{ b.name | human }}){% endif %}</option>
+            {% for c in p.criteria %}<option value="{{ c.name }}" {{ 'selected' if c.chosen }}>{{ c.name | human }}</option>{% endfor %}
+          </select></label>
+        <span class="muted">— deliveries, device supply, auto-fulfill and the Fulfill button use it</span></div>{% endif %}
       {% for c in p.criteria %}
-      <h3 style="margin:6px 0">{{ 'Criteria' if c.name == 'default' else c.name | human }} {% if c.ready_here %}<span class="lv-done small">✓ all here</span>{% elif c.ready_system %}<span class="small">in system — needs delivering</span>{% endif %}</h3>
+      <h3 style="margin:6px 0{{ ';opacity:.55' if (p.criteria | selectattr('chosen') | list) and not c.chosen }}">{{ 'Criteria' if c.name == 'default' else c.name | human }}{% if c.chosen %} <span class="pill small st-work">chosen</span>{% endif %} {% if c.ready_here %}<span class="lv-done small">✓ all here</span>{% elif c.ready_system %}<span class="small">in system — needs delivering</span>{% endif %}</h3>
       <table class="small"><tr><th>Needs</th><th class="num">Qty</th><th class="num">At {{ e.location }}</th><th class="num">In {{ e.star }}</th></tr>
         {% for x in c.resources %}<tr><td>{{ x.resource }}</td><td class="num">{{ x.need | num }}</td>
           <td class="num {{ 'lv-done' if not x.short_here else '' }}">{{ x.at_location | num }}</td>

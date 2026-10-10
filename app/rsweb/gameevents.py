@@ -63,7 +63,10 @@ async def load(db) -> dict[str, dict]:
         e = out.get(des)
         if e and e.get("status") == "open":
             e["status"], e["closed_at"] = "completed", at
+    choices = await db.kv_get(CHOICE_KV, {}) or {}
     for e in out.values():
+        if choices.get(e["designation"]):
+            e["chosen"] = choices[e["designation"]]
         e.setdefault("location", "")
         e["star"] = star_of(e.get("location"))
         e.setdefault("title", (e.get("event_type") or e["designation"]).replace("_", " ").title())
@@ -108,7 +111,12 @@ def progress(e: dict, inventory: dict[str, dict], devices: list[dict], replicant
             present.append({"code": code, "name": name})
         elif star_of(rloc) == star:
             nearby.append({"code": code, "name": name, "location": rloc})
-    best = next((c for c in crits if c["ready_here"]), None) or next((c for c in crits if c["ready_system"]), None) or (crits[0] if crits else None)
+    chosen = next((c for c in crits if e.get("chosen") and c["name"] == e["chosen"]), None)
+    for c in crits:
+        c["chosen"] = c is chosen
+    # the option you picked on the Contracts page; else whichever is ready first
+    best = chosen or next((c for c in crits if c["ready_here"]), None) or next((c for c in crits if c["ready_system"]), None) \
+        or (crits[0] if crits else None)
     state = ("ready" if best and best["ready_here"] and present else
              "needs replicant" if best and best["ready_here"] else
              "deliver" if best and best["ready_system"] else "gather")
@@ -144,6 +152,7 @@ def delivery_plan(e: dict, prog: dict, devices: list[dict]) -> dict:
 # have approved on the Contracts page (off until you tick it). The species comes from the system scan of the contract's
 # body; without one, the body itself is what you approve.
 APPROVALS_KV = "contract_approvals"
+CHOICE_KV = "contract_choice"   # {designation: option name}: the way a contract with several options is fulfilled
 
 
 async def life_map(db) -> dict[str, dict]:

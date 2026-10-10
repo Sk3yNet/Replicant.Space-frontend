@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.59.0"
+VERSION = "1.60.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.60.0", "2026-10-10", "Contracts with several options: a Fulfill with picker per contract (default: whichever is "
+     "ready first). The chosen option drives readiness, material deliveries and trade runs, device supply, auto-fulfill "
+     "and the Fulfill button."),
     ("1.59.0", "2026-10-09", "System page, Other players here: each player's drone totals by type, a count of their "
      "mining drones on each belt's viability line, and the full device scan (table of everything it found, plus the raw "
      "JSON as the game sent it)."),

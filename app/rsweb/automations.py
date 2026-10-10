@@ -2525,7 +2525,10 @@ class AutomationEngine(OpsRules):
         e = (await gev.load(self.db)).get(fl.deal(m).get("designation") or "")
         if not e or e.get("status") != "open":
             return False
-        return any(c["ready_here"] for c in gev.progress(e, inv, devices, {})["criteria"])
+        prog = gev.progress(e, inv, devices, {})
+        if any(c["chosen"] for c in prog["criteria"]):   # you picked the option: only that one counts
+            return bool(prog["best"]["ready_here"])
+        return any(c["ready_here"] for c in prog["criteria"])
 
     async def _deal_devices_short(self, m: dict, devices: list[dict]) -> str:
         """A contract run whose contract also asks for devices at its location: what's still missing there."""

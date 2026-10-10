@@ -6457,3 +6457,29 @@ def test_working_relay_is_switched_off_before_boarding():
     i = next(i for i, s in enumerate(steps) if (s.get("body") or {}).get("command") == "deactivate")
     j = next(i for i, s in enumerate(steps) if "RR" in str(s.get("body")) and (s.get("body") or {}).get("command") != "deactivate")
     assert i < j, names
+
+
+def test_contract_option_picked_on_the_contracts_page(client):
+    from rsweb import gameevents as gev
+    eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
+    client.portal.call(w.handle_event, {**_ev(998, "event.discovered", designation="AEM-2-EVT-006", location="AEM-2",
+                                                title="Famine Assistance", criteria=[
+                                                    {"name": "orbital_farms", "resources": {}, "devices": [{"device_type": "orbital_farm", "quantity": 2}]},
+                                                    {"name": "nutrient_synthesis", "resources": {"carbon": 50}, "devices": []}]),
+                                        "location": "AEM-2"})
+    devices = client.portal.call(db.kv_get, "devices")
+    devices += [{"device_code": f"OF{i}", "device_type": "orbital_farm", "location": "AEM-2", "status": "idle", "tags": []} for i in (1, 2)]
+    client.portal.call(db.kv_set, "devices", devices)
+    e = client.portal.call(gev.load, db)["AEM-2-EVT-006"]
+    assert gev.progress(e, {}, devices, {})["best"]["name"] == "orbital_farms"          # auto: the ready one
+    r = client.post("/game-events/AEM-2-EVT-006/option", data={"option": "nutrient_synthesis"}, headers=HX)
+    assert r.status_code == 200
+    e = client.portal.call(gev.load, db)["AEM-2-EVT-006"]
+    prog = gev.progress(e, {}, devices, {})
+    assert prog["best"]["name"] == "nutrient_synthesis" and prog["state"] == "gather"   # picked: farms no longer count
+    m = {"contract": {"designation": "AEM-2-EVT-006"}, "deal": {"designation": "AEM-2-EVT-006"}}
+    assert not client.portal.call(eng._contract_option_ready, m, {}, devices)
+    page = client.get("/game-events", headers=H).text
+    assert "Fulfill with" in page and 'value="nutrient_synthesis" selected' in page
+    client.post("/game-events/AEM-2-EVT-006/option", data={"option": ""}, headers=HX)
+    assert gev.progress(client.portal.call(gev.load, db)["AEM-2-EVT-006"], {}, devices, {})["best"]["name"] == "orbital_farms"

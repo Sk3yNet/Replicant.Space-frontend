@@ -2976,6 +2976,20 @@ async def game_event_approve(request: Request, key: str = Form(...), on: str = F
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
+@router.post("/game-events/{des}/option", response_class=HTMLResponse)
+async def game_event_option(request: Request, des: str, option: str = Form(""), user: str = Depends(current_user)):
+    """Pick which option a contract with several is fulfilled with ("" = whichever is ready first)."""
+    db = request.app.state.db
+    choices = await db.kv_get(gev.CHOICE_KV, {}) or {}
+    if option:
+        choices[des] = option
+    else:
+        choices.pop(des, None)
+    await db.kv_set(gev.CHOICE_KV, choices)
+    await _supply_now(request)   # devices it asks for follow the option
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
 async def _supply_now(request: Request) -> None:
     eng = request.app.state.worker.automations
     async with eng.lock:
