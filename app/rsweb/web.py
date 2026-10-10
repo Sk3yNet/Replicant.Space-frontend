@@ -3216,6 +3216,45 @@ async def fleets_bootstrap_new(request: Request, name: str = Form(...), replican
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
+@router.post("/fleets/{fid}/to-bootstrap", response_class=HTMLResponse)
+@_fleet_locked
+async def fleets_to_bootstrap(request: Request, fid: str, user: str = Depends(current_user)):
+    """Convert a fleet into a bootstrap (keeping its id, so its fleet: tag still names its members): it needs a member
+    vessel hosting a replicant; every member is tagged boot:<id>, and it starts from where that vessel is."""
+    from . import bootstrap as bt
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f or f.get("role") == "bootstrap":
+        return HTMLResponse('<div class="result err">No such fleet, or it already is a bootstrap.</div>')
+    if (f.get("mission") or {}).get("status") in fl.AWAY:
+        return HTMLResponse('<div class="result err">It is on a mission: end it first.</div>')
+    st = await load_state(request)
+    mine = fl.members(f, st["devices"])
+    codes = {d.get("device_code") for d in mine}
+    rep = next(((c, r) for c, r in st["replicants"].items() if r.get("hosted_device_code") in codes), None)
+    if not rep:
+        return HTMLResponse('<div class="result err">A bootstrap needs a heaven vessel hosting a replicant among the '
+                            'fleet\'s members — add it under Add / remove devices first.</div>')
+    code, r = rep
+    vessel = r["hosted_device_code"]
+    if any((x.get("boot") or {}).get("vessel") == vessel for x in items):
+        return HTMLResponse('<div class="result err">That vessel already runs a bootstrap.</div>')
+    v = next((d for d in st["devices"] if d.get("device_code") == vessel), {})
+    home = star_of(v.get("location") or r.get("location") or r.get("current_location")) or f.get("home")
+    f.update({"role": "bootstrap", "home": home, "station": False, "materials": "", "template": None, "wants": {},
+              "boot": bt.new_state(vessel, code, home)})
+    f.pop("mission", None)
+    for x in items:   # nobody sends materials to it any more
+        if x.get("materials") == fid:
+            x["materials"] = ""
+    await eng.save_fleets(items)
+    steps = [eng._tag_step(c, [bt.family_tag(fid)]) for c in sorted(codes)]
+    await eng.create_job("fleets", f"{f['name']}: converted to a bootstrap in {home}", vessel, steps,
+                         {"devices": sorted(codes), "bootstrap": fid}, force=True)
+    await eng.log("fleets", f"{f['name']} converted to a bootstrap by {user}: {len(codes)} device(s), starting in {home}")
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
 @router.post("/fleets/{fid}/bootstrap", response_class=HTMLResponse)
 async def fleets_bootstrap_control(request: Request, fid: str, user: str = Depends(current_user)):
     """Bootstrap controls: decide (your OK on the hub, an outpost, a waypoint, a replacement), pause / resume,

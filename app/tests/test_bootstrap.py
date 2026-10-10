@@ -233,3 +233,46 @@ def test_controllers_in_the_kits_and_their_directives(client):
     bodies = {s["path"]: s["body"] for s in job["steps"]}
     assert bodies["/devices/SC"]["directive"] == "belt_search"
     assert bodies["/devices/MC"]["directive"] == "maintain_ratios" and set(bodies["/devices/MC"]["configuration"]) <= set(bt.RESOURCES)
+
+
+def test_controllers_on_salvage_or_resting_are_left_to_the_salvage_rule(client):
+    devs = [vessel("SOL-BELT-1"),
+            {"device_code": "MC", "device_type": "ami_mining_controller", "location": "SOL-BELT-1", "status": "coordinating",
+             "tags": ["boot:p", "fleet:p-hub"], "ami_directive": {"name": "gather_salvage"}},
+            {"device_code": "MR", "device_type": "ami_mining_controller", "location": "SOL-BELT-1", "status": "idle",
+             "tags": ["boot:p", "fleet:p-hub"]}]
+    e = _setup(client, "hub", devs, hub="SOL", children={"hub": "p-hub"})
+    client.portal.call(client.app.state.db.kv_set, "rested", {"MR": {"belt": "SOL-BELT-1"}})
+    fleets = client.portal.call(e.fleets) + [{"id": "p-hub", "name": "Pioneer · Hub", "role": "mining", "home": "SOL",
+                                              "station": True, "wants": {"ami_mining_controller": 2}, "family": "p", "parent": "p"}]
+    client.portal.call(e.save_fleets, fleets)
+    client.portal.call(e.bootstrap_pass)
+    assert not [j for j in client.portal.call(e.jobs) if j["title"].endswith("controller directives")]
+    log = " ".join(x["text"] for x in next(f for f in client.portal.call(e.fleets) if f["id"] == "p")["boot"]["log"])
+    assert "MC (SOL): on salvage" in log and "MR (SOL): resting" in log
+
+
+def test_convert_a_fleet_to_a_bootstrap(client):
+    db, e = client.app.state.db, eng(client)
+    reps = client.portal.call(db.kv_get, "replicants")
+    code = next(iter(reps))
+    vessel_code = reps[code]["hosted_device_code"]
+    devices = client.portal.call(db.kv_get, "devices")
+    for d in devices:
+        if d["device_code"] == vessel_code or d.get("device_type") == "mining_drone":
+            d["tags"] = list(d.get("tags") or []) + ["fleet:old"]
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(e.save_fleets, [{"id": "old", "name": "Old", "role": "mining", "home": "SOL", "station": True,
+                                        "wants": {"mining_drone": 3}},
+                                       {"id": "x", "name": "X", "role": "mining", "home": "ABOTEIN", "materials": "old"}])
+    r = client.post("/fleets/old/to-bootstrap", headers=HX)
+    assert r.status_code == 200 and "err" not in r.text
+    fleets = client.portal.call(e.fleets)
+    f = next(x for x in fleets if x["id"] == "old")
+    assert f["role"] == "bootstrap" and not f["station"] and f["boot"]["vessel"] == vessel_code and f["boot"]["replicant"] == code
+    assert next(x for x in fleets if x["id"] == "x")["materials"] == ""
+    job = next(j for j in client.portal.call(e.jobs) if "converted to a bootstrap" in j["title"])
+    assert all(s["body"]["configuration"]["add_tags"] == ["boot:old"] for s in job["steps"])
+    # a fleet without a replicant's vessel can't be converted
+    client.portal.call(e.save_fleets, fleets + [{"id": "bare", "name": "Bare", "role": "mining", "home": "SOL"}])
+    assert "heaven vessel hosting a replicant" in client.post("/fleets/bare/to-bootstrap", headers=HX).text

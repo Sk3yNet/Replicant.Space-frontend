@@ -129,6 +129,7 @@ class BootstrapMixin:
                 if n > have.get(t, 0):
                     short[t] = short.get(t, 0) + n - have.get(t, 0)
         want = bt.ratios({t: n for t, n in short.items() if t in w["bps"]}, w["bps"])
+        rested = set(await self.db.kv_get("rested", {}) or {})
         sent = b.setdefault("directives", {})
         steps, codes = [], []
         for g in kids:
@@ -149,6 +150,18 @@ class BootstrapMixin:
                                           {"command": "set_directive", "directive": "belt_search", "configuration": {}}))
                         codes.append(code)
                     continue
+                # the salvage rule's: on salvage, or rested at a dry belt (kv "rested", directive cleared), or exhausted
+                # there — leave it; back to the belt re-sets its directive once the belt has open sites
+                ev_state = str((dv.get("_eval_state") if isinstance(dv, dict) else "") or "")
+                if name == "gather_salvage" or code in rested or ev_state.startswith("exhausted"):
+                    why = "on salvage" if name == "gather_salvage" else "resting: its belt is dry"
+                    if (sent.get(code) or {}).get("hold") != why:
+                        sent[code] = {**(sent.get(code) or {}), "hold": why}
+                        self._boot_log(b, f"{code} ({g['home']}): {why} — left to the salvage rule")
+                    continue
+                if (sent.get(code) or {}).get("hold"):
+                    sent[code].pop("hold", None)
+                    sent[code].pop("at", None)   # back at an open belt: set its ratios straight away
                 last = sent.get(code) or {}
                 drift = max((abs(want.get(r, 0) - (last.get("ratios") or {}).get(r, 0)) for r in set(want) | set(last.get("ratios") or {})), default=1)
                 stale = not last.get("at") or last["at"] < _hours_ago(6)

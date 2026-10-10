@@ -119,6 +119,9 @@
           {% elif r.rows | selectattr('short') | list %}<button type="button" class="small" hx-post="/fleets/{{ f.id }}/fill" hx-target="#fp-{{ f.id }}" title="Take idle spares of the missing types, nearest first">Fill from spares</button>
             <button type="button" class="small" hx-post="/fleets/{{ f.id }}/print" hx-target="#fp-{{ f.id }}">Print what's missing</button>{% endif %}
           <button class="small ghost" name="delete" value="1" hx-confirm="Delete fleet {{ f.name }}? Its devices keep their fleet tag until you remove them.">Delete</button>
+          <button type="button" class="small ghost" hx-post="/fleets/{{ f.id }}/to-bootstrap" hx-target="#fp-{{ f.id }}"
+            title="Turn this fleet into a bootstrap: its replicant's heaven vessel and every member become the bootstrap's own"
+            hx-confirm="Convert {{ f.name }} into a bootstrap fleet? Its members become the bootstrap's own (boot:{{ f.id }}); it stops being stationed and starts from where its vessel is.">Convert to bootstrap</button>
         </div>
       </form>
       <div id="fp-{{ f.id }}"></div>
