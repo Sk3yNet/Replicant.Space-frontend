@@ -67,6 +67,7 @@ class BootstrapMixin:
                 if line:
                     out.append(line)
             await self._boot_wards(f, fleets, devices, w)
+            await self._boot_controllers(f, fleets, devices, w)
             if json.dumps(b, sort_keys=True, default=str) != before:
                 if b.get("decision") and b.get("decision_noted") != json.dumps(b["decision"], sort_keys=True, default=str):
                     b["decision_noted"] = json.dumps(b["decision"], sort_keys=True, default=str)
@@ -109,6 +110,57 @@ class BootstrapMixin:
                 why = "another player's drones mine there" if crowded else f"costs {cost / rate:.1f} h of its output"
                 self._boot_log(b, f"ward for {star}: {why}")
                 await self.log("fleets", f"{f['name']}: a system ward for {star} — {why}")
+
+    async def _boot_controllers(self, f: dict, fleets: list[dict], devices: list[dict], w: dict) -> None:
+        """The hub's and each outpost's AMI controllers, once active at the system's best belt: the survey controller runs
+        belt_search (keeps sites open), the mining controller maintain_ratios — the mix the family's missing devices cost,
+        refreshed when it shifts (at most every 6 h). The loadout pass already has new drones join them."""
+        from . import fleets as fl
+        from .automations import step
+        b = f["boot"]
+        kids = [g for g in fleets if g.get("family") == f["id"] and g.get("station") and g.get("home")]
+        if not kids:
+            return
+        busy = self.busy_devices(await self.jobs())
+        short: dict[str, int] = {}
+        for g in kids:
+            have = Counter(d.get("device_type") for d in fl.members(g, devices))
+            for t, n in fl.station_wants(g).items():
+                if n > have.get(t, 0):
+                    short[t] = short.get(t, 0) + n - have.get(t, 0)
+        want = bt.ratios({t: n for t, n in short.items() if t in w["bps"]}, w["bps"])
+        sent = b.setdefault("directives", {})
+        steps, codes = [], []
+        for g in kids:
+            belt = (bt.best_belt(w["scans"].get(g["home"])) or {}).get("designation")
+            for d in fl.members(g, devices):
+                t, code = d.get("device_type"), d.get("device_code")
+                st = str(d.get("status") or "")
+                at = d.get("location") or ""
+                if t not in ("ami_mining_controller", "ami_survey_controller") or code in busy or not belt \
+                        or not at.startswith(g["home"] + "-BELT") or st.startswith(("inactive", "stowed", "travel", "cruis", "surg")) \
+                        or d.get("in_control_range") is False:
+                    continue
+                dv = d.get("ami_directive") or {}
+                name = dv.get("name") if isinstance(dv, dict) else dv
+                if t == "ami_survey_controller":
+                    if name != "belt_search":
+                        steps.append(step(f"{code}: belt_search at {at}", f"/devices/{code}",
+                                          {"command": "set_directive", "directive": "belt_search", "configuration": {}}))
+                        codes.append(code)
+                    continue
+                last = sent.get(code) or {}
+                drift = max((abs(want.get(r, 0) - (last.get("ratios") or {}).get(r, 0)) for r in set(want) | set(last.get("ratios") or {})), default=1)
+                stale = not last.get("at") or last["at"] < _hours_ago(6)
+                if name != "maintain_ratios" or (drift > 0.1 and stale):
+                    steps.append(step(f"{code}: maintain_ratios {want}", f"/devices/{code}",
+                                      {"command": "set_directive", "directive": "maintain_ratios", "configuration": want}))
+                    sent[code] = {"ratios": want, "at": now_iso()}
+                    codes.append(code)
+        if steps:
+            await self.create_job("fleets", f"{f['name']}: controller directives", None, steps,
+                                  {"devices": codes, "bootstrap": f["id"]})
+            self._boot_log(b, f"controller directives: {len(steps)}")
 
     async def _boot_adopt_prints(self, f: dict, devices: list[dict]) -> None:
         """A print the vessel finished: the new device (of the printed type, new since the print, aboard or where the

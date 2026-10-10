@@ -212,3 +212,24 @@ def test_loadouts_keep_a_bootstrap_self_reliant():
     p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
     assert (p.get("assign") or {}).get("CC") != "fleet:bb"          # the ordinary spare isn't sent to the bootstrap's fleet
     assert not any(pr.get("fleet") == "bb" and pr["factory"] == "AF" for pr in p["prints"])   # nor printed on others' factory
+
+
+def test_controllers_in_the_kits_and_their_directives(client):
+    assert bt.HUB_KIT["ami_mining_controller"] == 1 and bt.OUTPOST_KIT["ami_survey_controller"] == 1
+    r = bt.ratios({"autofactory": 1}, BPS)
+    assert abs(sum(r.values()) - 1) < 0.02 and r["structural"] > r["rares"] > 0
+    devs = [vessel("SOL-BELT-1"),
+            {"device_code": "MC", "device_type": "ami_mining_controller", "location": "SOL-BELT-1", "status": "coordinating",
+             "tags": ["boot:p", "fleet:p-hub"]},
+            {"device_code": "SC", "device_type": "ami_survey_controller", "location": "SOL-BELT-1", "status": "idle",
+             "tags": ["boot:p", "fleet:p-hub"]}]
+    e = _setup(client, "hub", devs, hub="SOL", children={"hub": "p-hub"})
+    fleets = client.portal.call(e.fleets) + [{"id": "p-hub", "name": "Pioneer · Hub", "role": "mining", "home": "SOL",
+                                              "station": True, "wants": {"ami_mining_controller": 1, "ami_survey_controller": 1,
+                                                                         "mining_drone": 2}, "family": "p", "parent": "p"}]
+    client.portal.call(e.save_fleets, fleets)
+    client.portal.call(e.bootstrap_pass)
+    job = next(j for j in client.portal.call(e.jobs) if j["title"].endswith("controller directives"))
+    bodies = {s["path"]: s["body"] for s in job["steps"]}
+    assert bodies["/devices/SC"]["directive"] == "belt_search"
+    assert bodies["/devices/MC"]["directive"] == "maintain_ratios" and set(bodies["/devices/MC"]["configuration"]) <= set(bt.RESOURCES)

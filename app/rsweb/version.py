@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.62.0"
+VERSION = "1.63.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.63.0", "2026-10-10", "Bootstrap: the hub and every outpost get an AMI mining controller (maintain_ratios, the mix "
+     "the bootstrap's missing devices cost, refreshed when it shifts) and an AMI survey controller (belt_search)."),
     ("1.62.0", "2026-10-10", "Devices › Lost: devices out of sight (surging, left out of the device list, out of relay "
      "range with no replicant there, or aboard a carrier that is) with their last known location and heading, until "
      "they're seen again; recent finds listed, write-off to stop tracking."),

@@ -37,10 +37,14 @@ LABEL = {"home": "Home: compounding", "survey": "Survey trip", "hub_choice": "Ch
 RELAY_LY = 7.5
 DEFAULTS = {"radius": 10.0, "ward_hours": 6.0, "hold": 10, "hub_miners": 8, "survey_per_miner": 0.5, "survey_max": 12,
             "min_score": 35, "outposts": 3}
-COST_TYPES = ["survey_drone", "mining_drone", "ftl_relay", "system_ward", "autofactory", "ami_transport_controller",
+COST_TYPES = ["survey_drone", "mining_drone", "ftl_relay", "system_ward", "autofactory", "ami_mining_controller",
+              "ami_survey_controller", "ami_transport_controller",
               "transport_hauler", "cargo_freighter", "surge_carrier"]
-OUTPOST_KIT = {"mining_drone": 4, "survey_drone": 2, "ftl_relay": 1, "ami_transport_controller": 1, "cargo_freighter": 1}
-HUB_KIT = {"ftl_relay": 1, "ami_transport_controller": 1, "transport_hauler": 2, "surge_carrier": 1}
+OUTPOST_KIT = {"mining_drone": 4, "survey_drone": 2, "ami_mining_controller": 1, "ami_survey_controller": 1, "ftl_relay": 1,
+               "ami_transport_controller": 1, "cargo_freighter": 1}
+HUB_KIT = {"ami_mining_controller": 1, "ami_survey_controller": 1, "ftl_relay": 1, "ami_transport_controller": 1,
+           "transport_hauler": 2, "surge_carrier": 1}
+RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 
 
 def star_of(loc: str | None) -> str:
@@ -265,6 +269,21 @@ def outpost_candidates(f: dict, w: dict) -> dict:
                                                      "reasons": [f"relay link to {r['star']} ({r['score']})"],
                                                      "distance": round(dist(hub, y, pos), 1)} for y in via[:3]]}
     return {"kind": None, "options": []}
+
+
+def ratios(short_types: dict[str, int], bps: dict) -> dict[str, float]:
+    """maintain_ratios for the mining controllers: the mix of resources the family's missing devices cost (else what
+    an autofactory costs), as decimals summing to 1."""
+    tot: dict[str, float] = {}
+    for t, n in (short_types or {"autofactory": 1}).items():
+        for r, v in cost_of(t, bps).items():
+            tot[r] = tot.get(r, 0.0) + v * n
+    if not tot:
+        for r, v in cost_of("autofactory", bps).items():
+            tot[r] = v
+    s = sum(tot.values()) or 1.0
+    out = {r: round(tot.get(r, 0.0) / s, 2) for r in RESOURCES if tot.get(r)}
+    return out or {"structural": 1.0}
 
 
 def costs(w: dict, stock: dict[str, float]) -> list[dict]:

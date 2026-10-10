@@ -98,7 +98,8 @@ lines or a template).
   warded, like Sol, is skipped). Then a survey of every system within the radius (10 ly), **your OK on the hub**, the move
   there, compounding to an autofactory printed on site, and the hub as a stationed fleet that takes materials in. Outposts
   (**your OK on each**) must keep the relay chain (each within 7.5 ly of the hub or an outpost; else a relay waypoint, also
-  your OK), and send their materials to the hub by cargo freighter. A ward goes up where it costs under 6 hours of the
+  your OK), and send their materials to the hub by cargo freighter. The hub and every outpost get an AMI mining controller
+  (`maintain_ratios`: the mix the bootstrap's missing devices cost) and an AMI survey controller (`belt_search`). A ward goes up where it costs under 6 hours of the
   system's output, or at once when another player's drones mine there. Everything it prints is tagged `boot:<id>`: the
   loadout pass never lends it others' spares, factories or carriers, nor lends its own.
 - Also: owner hand-over (`change_owner`), materials (*send to* / *takes materials in*), *fill from spares*, carrying budget,
