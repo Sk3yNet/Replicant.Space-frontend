@@ -87,6 +87,11 @@ lines or a template).
   own carriers go anywhere. Spares are only gathered to a depot within range. **Supplied from** (Overview): a hub whose
   autofactories print the fleet's shortfalls and whose carriers bring them, at any distance — e.g. a Sol-sector fleet
   supplied from a home-sector printing hub.
+- **Nothing leaves short:** a fleet only sets off with its whole loadout in its home system (aboard, there, or arriving).
+  A launch with gaps is refused (tick *Launch anyway* to send it short); a mission whose devices didn't all make it waits
+  at gather, refilling from spares, until complete or *Launch anyway*; auto-scout and auto-deals wait; a **new home** stays
+  *pending* (the fleet keeps its current home, where the loadout pass fills it) and the fleet moves once complete, or on
+  *Move anyway*.
 - **Missions** run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*,
   *Stop*, *End mission & board* and *Recall*. Mining works the richest belt (or salvage); explore surveys each target and
   leaves a relay and a beacon; trade runs a contract or trade end to end.

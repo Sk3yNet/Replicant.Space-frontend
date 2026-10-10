@@ -877,7 +877,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             for stage in ("run_fleets", "auto_deals_pass", "contract_supply_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass"):
                 self.stage = stage
                 try:   # one stage failing on odd data mustn't stop every stage after it, every tick
                     out = await getattr(self, stage)()
@@ -1348,10 +1348,20 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         Returns what happens, for the log."""
         from . import fleets as fl
         from .shapes import normalize_blueprints
+        devices = devices if devices is not None else await self.devices()
+        if f.get("station") and old != new and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped") \
+                and [d for d in fl.members(f, devices) if star_of(d.get("location")) != new]:
+            ready = fl.readiness(f, devices, at=old)
+            if not ready["ready"] and not f.get("move_partial"):
+                # nothing leaves short (seen live 2026-10-10: a move filled piecemeal at the new home, across ~500 ly): it
+                # stays homed where it is — the loadout pass fills it there — and moves once complete (pending_home_pass)
+                f["home"], f["pending_home"] = old, new
+                return f"{new} is pending: it moves once its {fl.readiness_text(ready)}"
+        f.pop("pending_home", None)
         if f.get("role") not in ("mining", "explore") or not f.get("station") or old == new \
                 or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
+            f.pop("move_partial", None)
             return "the loadout pass moves it"
-        devices = devices if devices is not None else await self.devices()
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         if not [d for d in fl.members(f, devices) if star_of(d.get("location")) != new]:
             return "nothing to move"
@@ -1359,10 +1369,37 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         if short > 0:
             return f"its carriers are {short} seat(s) short of carrying everyone, so the loadout pass moves it piecemeal"
         m = {"status": "running", "phase": None, "idx": 0, "targets": [new], "started_at": now_iso(), "log": [],
-             "opts": {}, "auto": True, "relocate": True}
+             "opts": {"partial": bool(f.pop("move_partial", False))}, "auto": True, "relocate": True, "from": old}
         self._mlog(m, f"relocating {old} → {new}: pack up, everyone aboard, travel together, unload")
         f["mission"] = m
         return "moving together in one relocation mission (everyone aboard before anything leaves)"
+
+    async def pending_home_pass(self) -> list[str]:
+        """Fleets with a new home waiting for a complete loadout (start_relocation): move once it's complete."""
+        from . import fleets as fl
+        items = await self.fleets()
+        waiting = [f for f in items if f.get("pending_home")]
+        if not waiting:
+            return []
+        devices = await self.devices()
+        out = []
+        for f in waiting:
+            new = f["pending_home"]
+            r = fl.readiness(f, devices)
+            if not r["ready"] and not f.get("move_partial"):
+                note = f"{new} pending: {fl.readiness_text(r)}"
+                if f.get("path_note") != note:
+                    f["path_note"] = note
+                continue
+            old = f["home"]
+            f["home"] = new
+            f.pop("pending_home", None)
+            how = await self.start_relocation(f, old, new, devices)
+            f["path_note"] = f"moving home {old} → {new} — {how}"
+            out.append(f"{f['name']}: {old} → {new}")
+            await self.log("fleets", f"{f['name']}: loadout complete — moving home {old} → {new}: {how}", notify=True)
+        await self.save_fleets(items)
+        return out
 
     async def _advance_explorer(self, f: dict, fleets: list[dict], devices: list[dict], pos: dict, out: list[str]) -> bool:
         """Move an advancing explore fleet's home to the farthest star ahead (pathing.advance_target). Without a replicant
@@ -1476,7 +1513,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         """Explore fleets with 'auto-scout' ticked: when one is free and every member is above 50 % capacity, send it
         to the next unsurveyed system (scout_next); each time it finishes a system it takes the next one, until a member
         is down to 50 % — then it finishes that system and returns home for repairs. A run starts only with every member at
-        85 % or more."""
+        85 % or more, and only with its loadout complete at home."""
+        from . import fleets as fl
         items = await self.fleets()
         free = [f for f in items if f.get("role") == "explore" and f.get("auto_scout")
                 and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped")]
@@ -1488,6 +1526,12 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             weak = self.scout_unhealthy(f, devices, self.SCOUT_START_CAPACITY)
             if weak:
                 note = f"waiting for repairs: {', '.join(weak)} below {self.SCOUT_START_CAPACITY:g} % capacity"
+                if f.get("scout_note") != note:
+                    f["scout_note"], changed = note, True
+                continue
+            r = fl.readiness(f, devices)
+            if not r["ready"]:   # nothing leaves short: the loadout pass fills it at home first
+                note = f"waiting: {fl.readiness_text(r)}"
                 if f.get("scout_note") != note:
                     f["scout_note"], changed = note, True
                 continue
@@ -2412,6 +2456,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                   and not (c["kind"] == "trade" and _ts(done.get(c["key"])) and (now - _ts(done[c["key"]])).total_seconds() < 86400)]
             if not ok:
                 continue
+            if not fl.readiness(f, devices)["ready"]:
+                continue   # nothing leaves short: the loadout pass fills it at home first
             c = min(ok, key=lambda c: (c["kind"] != "contract", dist(f.get("home") or "", c["star"]), c["key"]))
             committed = inv.setdefault("__committed__", {})   # what this pass already promised: one stock, one payment
             for r, q in as_amounts(c["price"]).items():
@@ -2994,6 +3040,25 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     self._mlog(m, "mission complete")
                     await self.log("fleets", f"{fleet['name']}: mission complete", notify=True)
                     break
+                if nxt == "travel" and not m.get("departed"):
+                    r = fl.readiness(fleet, devices, at=m.get("from") or fleet.get("home"))
+                    if not r["ready"] and not (m.get("opts") or {}).get("partial"):
+                        note = f"waiting to leave: {fl.readiness_text(r)} — Launch anyway sends it short"
+                        if m.get("watch_note") != note:
+                            m["watch_note"] = note
+                            self._mlog(m, note)
+                            changed = True
+                        # spares can still fill the gaps: gather again (it only takes what's short)
+                        steps, _ = await self.fleet_phase_steps(fleet, m, "gather", devices)
+                        if steps:
+                            m["phase"] = "gather"
+                            job = await self.create_job("fleets", f"{fleet['name']}: gather (filling the loadout)", None, steps,
+                                                        {"devices": [d["device_code"] for d in fl.members(fleet, devices)],
+                                                         "fleet": fleet["id"]}, force=True)
+                            m["job"] = job["id"] if job else None
+                        break
+                    m["departed"] = True
+                    m.pop("watch_note", None)
                 m["phase"], m["phase_at"] = nxt, now_iso()
                 if nxt == "watch":
                     self._mlog(m, "on station — watching until the work is done")

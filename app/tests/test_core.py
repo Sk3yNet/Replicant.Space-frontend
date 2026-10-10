@@ -1789,6 +1789,10 @@ def test_fleet_pages_and_mission_launch(client):
     client.post("/fleets/prospector-1/edit", data={"name": "Prospector 1", "role": "mining", "home": "SOL",
                                                    "want:mining_drone": "4", "want:mobile_fleet": "1"}, headers=HX)
     r = client.post("/fleets/prospector-1/mission", data={"targets": "ABOTEIN", "exhausted_minutes": "30"}, headers=HX)
+    if "loadout not complete" in r.text:   # nothing leaves short unless you say so
+        assert "mission" not in client.portal.call(eng.fleets)[0]
+        r = client.post("/fleets/prospector-1/mission", data={"targets": "ABOTEIN", "exhausted_minutes": "30", "partial": "on"},
+                        headers=HX)
     f = client.portal.call(eng.fleets)[0]
     assert f["mission"]["status"] == "running" and f["mission"]["phase"] == "assemble"
     job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "fleets" and j.get("meta", {}).get("fleet") == "prospector-1"][-1]

@@ -3572,6 +3572,16 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         return HTMLResponse('<div class="result err">Give the mission a target system.</div>')
     if f["role"] == "mining":
         m["targets"] = m["targets"][:1]
+    # nothing leaves short: the whole loadout must be in its home system (aboard, there, or arriving) — or Launch anyway
+    st_r = await load_state(request)
+    ready = fl.readiness(f, st_r["devices"])
+    if not ready["ready"]:
+        if form.get("partial") != "on":
+            return HTMLResponse(f'<div class="result err">{html.escape(fl.readiness_text(ready))}. Use <b>Fill from spares</b> or '
+                                '<b>Print what\'s missing</b> (the loadout pass also fills a stationed fleet), or tick '
+                                '<b>Launch anyway</b> to send it short.</div>')
+        m["opts"]["partial"] = True
+        eng._mlog(m, f"launched short on purpose: {fl.readiness_text(ready)}")
     # seen live 2026-10-06: a typo (LORALEL for LORALAEL) stalled a mission with "Unknown star designation"
     known = await known_stars(request)
     bad = [t for t in m["targets"] if f["role"] != "trade" and star_of(t) not in known]
@@ -3658,6 +3668,16 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
 async def fleets_control(request: Request, fid: str, action: str = Form(...), user: str = Depends(current_user)):
     eng, items = await _fleets(request)
     f = next((x for x in items if x["id"] == fid), None)
+    if f and action == "partial":   # Launch anyway: a mission waiting to leave goes short; a pending move goes now
+        m = f.get("mission") or {}
+        if m.get("status") == "running" and not m.get("departed"):
+            m.setdefault("opts", {})["partial"] = True
+            eng._mlog(m, f"sent short on purpose by {user}")
+        if f.get("pending_home"):
+            f["move_partial"] = True
+        await eng.save_fleets(items)
+        await eng.log("fleets", f"{f['name']}: sent short on purpose by {user}")
+        return HTMLResponse("", headers={"HX-Refresh": "true"})
     if f and action == "end" and not f.get("mission"):
         f["mission"] = {"status": "ended", "targets": [], "log": []}   # no mission yet: just gather everyone aboard
     m = (f or {}).get("mission") or {}

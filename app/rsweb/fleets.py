@@ -1104,6 +1104,38 @@ def migrate(cfg: dict, fleets: list[dict], pos: dict[str, dict] | None = None) -
     return cfg, fleets, True
 
 
+def readiness(fleet: dict, devices: list[dict], at: str | None = None) -> dict:
+    """Is the fleet's whole loadout ready to leave from `at` (default: its home)? Every line of its loadout must be met by
+    members in that system — aboard a carrier there, deployed there, or on their way there; members anywhere else don't
+    count. {"ready": bool, "short": {type: n}, "elsewhere": {type: [codes]}, "at": star}."""
+    at = at or fleet.get("home") or ""
+    by = {d.get("device_code"): d for d in devices}
+
+    def where(d: dict) -> str:
+        host = by.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code") or "")
+        if host and host is not d:
+            return where(host)
+        trip = in_flight(d)
+        return star_of(trip["destination"]) if trip else star_of(d.get("location"))
+    have: dict[str, int] = {}
+    elsewhere: dict[str, list[str]] = {}
+    for d in members(fleet, devices):
+        t = d.get("device_type") or "device"
+        if where(d) == at:
+            have[t] = have.get(t, 0) + 1
+        else:
+            elsewhere.setdefault(t, []).append(d.get("device_code"))
+    wants = station_wants(fleet) if fleet.get("station") else {t: int(n) for t, n in (fleet.get("wants") or {}).items()}
+    short = {t: n - have.get(t, 0) for t, n in wants.items() if n > have.get(t, 0)}
+    return {"ready": not short, "short": short, "elsewhere": {t: c for t, c in elsewhere.items() if t in short}, "at": at}
+
+
+def readiness_text(r: dict) -> str:
+    parts = [f"{n}× {t.replace('_', ' ')}" + (f" ({len(r['elsewhere'][t])} elsewhere)" if r["elsewhere"].get(t) else "")
+             for t, n in sorted(r["short"].items())]
+    return f"loadout not complete in {r['at']}: short " + ", ".join(parts)
+
+
 def short_list(fleet: dict, devices: list[dict]) -> dict[str, int]:
     return {r["type"]: r["short"] for r in roster(fleet, devices)["rows"] if r["short"]}
 

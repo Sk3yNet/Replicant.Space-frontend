@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.65.0"
+VERSION = "1.66.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.66.0", "2026-10-10", "Fleets never leave with a partial loadout: a launch with gaps is refused (Launch anyway "
+     "overrides), a mission waits at gather (refilling from spares) until everything is aboard, auto-scout and "
+     "auto-deals wait, and a new home stays pending — the fleet keeps its current home, where it's filled — until the "
+     "loadout is complete (Move anyway overrides)."),
     ("1.65.0", "2026-10-10", "Loadouts: a borrowed carrier only comes from within the supply range of the pick-up (seen "
      "live: five carriers flew ~500 ly empty to move one drone each) — a fleet's own carriers, and a new home across the "
      "gap, still go any distance; spares are only gathered to a depot in range. Fleets: Supplied from — a hub whose "

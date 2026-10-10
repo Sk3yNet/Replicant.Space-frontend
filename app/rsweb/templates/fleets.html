@@ -70,7 +70,9 @@
 {% if f.role == 'bootstrap' and f.boot %}{% include "partials/bootstrap_card.html" %}{% else %}
 <div class="card" id="fleet-{{ f.id }}" style="margin-bottom:14px">
   <div class="row between">
-    <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }}{% if f.station %} · stationed{% endif %} · <code>fleet:{{ f.id }}</code></span></h2>
+    <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }}{% if f.pending_home %} → <b>{{ f.pending_home }}</b> pending{% endif %}{% if f.station %} · stationed{% endif %} · <code>fleet:{{ f.id }}</code></span></h2>
+    {% if f.pending_home %}<div class="small lv-alert">Moving to {{ f.pending_home }} once its loadout is complete in {{ f.home }} — {{ f.path_note or '' }}
+      <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "partial"}' hx-confirm="Move {{ f.name }} to {{ f.pending_home }} now, short?">Move anyway</button></div>{% endif %}
     <span>{% if m.status %}<span class="pill {{ {'running': 'st-work', 'done': 'lv-done', 'stalled': 'lv-alert', 'ended': 'lv-done'}.get(m.status, '') }}">{{ m.status }}{% if m.status == 'running' %}: {{ m.phase }}{% endif %}</span>{% endif %}</span>
   </div>
   <div class="grid g2">
@@ -186,6 +188,8 @@
         <div class="small">{% set ph = phases[f.role] %}{% for p in ph %}<span class="pill small {{ 'st-work' if p == m.phase else ('lv-done' if m.phase in ph and loop.index0 < ph.index(m.phase) else '') }}">{{ p }}</span> {% endfor %}
           {% if f.role == 'explore' %}<span class="muted">· target {{ (m.idx or 0) + 1 }}/{{ (m.targets or []) | length }}</span>{% endif %}</div>
         {% if m.watch_note and m.phase in ('watch', 'wait') %}<div class="small">watching: {{ m.watch_note }}</div>{% endif %}
+        {% if m.status == 'running' and not m.departed and m.watch_note and m.watch_note.startswith('waiting to leave') %}<div class="small lv-alert">{{ m.watch_note }}
+          <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "partial"}' hx-confirm="Send {{ f.name }} with a partial loadout?">Launch anyway</button></div>{% endif %}
         {% if f.outposts %}<div class="small muted">aboard: {{ f.outposts.have.relay }} FTL relay(s), {{ f.outposts.have.beacon }} FTL beacon(s)
           for the systems still ahead</div>{% for w in f.outposts.warnings %}<div class="small lv-alert">⚠ {{ w }}</div>{% endfor %}{% endif %}
         {% if f.job %}<div class="small muted">job: {{ f.job.title }} · step {{ f.job.idx + 1 }}/{{ f.job.steps | length }}{% if f.job.steps[f.job.idx] is defined %} — {{ f.job.steps[f.job.idx].desc }}{% endif %}</div>{% endif %}
@@ -304,7 +308,8 @@
             <label style="text-transform:none;display:block"><input type="checkbox" name="deliver"> Ferry while mining, to {{ (f.sends_to.name ~ ' (' ~ f.sends_to.home ~ ')') if f.sends_to else 'the nearest fleet that takes materials in' }} (otherwise freighters haul it home on recall)</label>
             <label style="text-transform:none">Recall after exhausted for <input type="number" name="exhausted_minutes" value="30" style="width:56px"> min with no site being searched</label>
           {% endif %}
-          <div><button style="margin-top:6px">Launch mission</button></div>
+          <div><button style="margin-top:6px">Launch mission</button>
+            <label class="small" style="text-transform:none" title="Normally a fleet only leaves with its whole loadout in its home system"><input type="checkbox" name="partial"> Launch anyway (even if its loadout isn't complete)</label></div>
         </form>
         {% if m.status %}<div class="small muted">last mission: {{ m.status }} → {{ (m.targets or []) | join(', ') }}</div>{% endif %}
       {% endif %}
