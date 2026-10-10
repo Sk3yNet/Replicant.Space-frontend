@@ -3060,7 +3060,11 @@ async def fleets_ctx(request: Request) -> dict:
     # vessels hosting a replicant can join too (a replicant riding with the fleet keeps it commandable where no relay
     # reaches); they're marked so it's clear the replicant goes wherever the fleet goes
     hosted = {r.get("hosted_device_code"): (r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")}
-    free = [{**d, "_hosts": hosted.get(d.get("device_code"))} for d in st["devices"] if not fl.fleet_of(d)]
+    # every device that could join a fleet, marked with the fleet it's in now (joining moves it out of that one);
+    # fleetless first, then by fleet, system and type
+    names = {x["id"]: x.get("name") or x["id"] for x in items}
+    free = [{**d, "_hosts": hosted.get(d.get("device_code")), "_fleet": fl.fleet_of(d),
+             "_fleet_name": names.get(fl.fleet_of(d) or "", fl.fleet_of(d))} for d in st["devices"]]
     stars_seen = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")})
     traders = await request.app.state.db.kv_get("traders_cache", {}) or {}
     profiles = {t: fl.type_profile(t, bp_by, st["devices"]) for t in types}
@@ -3146,7 +3150,8 @@ async def fleets_ctx(request: Request) -> dict:
     obs_fleets |= {f["id"] for f in items if (fl.station_wants(f) or {}).get("galactic_observatory")}   # or its loadout wants one
     from . import bootstrap as _bt
     return {**lctx, "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
-            "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
+            "types": types, "free": sorted(free, key=lambda d: (bool(d["_fleet"]), (d["_fleet_name"] or "").lower(), star_of(d.get("location")),
+                                                 d.get("device_type") or "", d.get("device_code") or "")),
             "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders,
             "boot_reps": [(c, r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")],
             "stages": _bt.STAGES, "labels": _bt.LABEL}

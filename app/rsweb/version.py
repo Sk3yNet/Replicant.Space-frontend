@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.66.0"
+VERSION = "1.66.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.66.1", "2026-10-10", "Fleets › Add / remove devices: devices in other fleets are offered too, marked with their "
+     "fleet (adding one moves it over), grouped and sorted — fleetless first, then by fleet, system and type."),
     ("1.66.0", "2026-10-10", "Fleets never leave with a partial loadout: a launch with gaps is refused (Launch anyway "
      "overrides), a mission waits at gather (refilling from spares) until everything is aboard, auto-scout and "
      "auto-deals wait, and a new home stays pending — the fleet keeps its current home, where it's filled — until the "

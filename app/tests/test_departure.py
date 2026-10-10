@@ -65,3 +65,17 @@ def test_mission_waits_at_the_gate_until_complete_or_sent_anyway(client):
     client.portal.call(e.run_fleets)
     m = client.portal.call(e.fleets)[0]["mission"]
     assert m.get("departed") and m["phase"] != "gather"
+
+
+def test_add_devices_lists_other_fleets_members_grouped(client):
+    e = eng(client)
+    devs = [dev("M1", "mining_drone", "SOL-BELT-1", tags=["fleet:other"]), dev("M2", "mining_drone", "SOL-BELT-1", tags=[]),
+            dev("M3", "mining_drone", "SOL-BELT-1", tags=["fleet:f"])]
+    client.portal.call(client.app.state.db.kv_set, "devices", devs)
+    client.portal.call(e.save_fleets, [{"id": "f", "name": "F", "role": "mining", "home": "SOL", "wants": {}},
+                                       {"id": "other", "name": "Other", "role": "mining", "home": "SOL", "wants": {}}])
+    page = client.get("/fleets", headers=H).text
+    card = page[page.index('id="fleet-f"'):page.index('id="fleet-other"')]
+    assert "in no fleet" in card and "in Other" in card
+    assert card.index("in no fleet") < card.index("in Other")          # fleetless first
+    assert 'name="add" value="M3"' not in card                        # its own members aren't offered
