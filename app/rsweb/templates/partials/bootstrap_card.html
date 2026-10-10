@@ -1,0 +1,61 @@
+{# A bootstrap fleet's card on the Fleets page (bootstrap.py). f.bview: evaluate() on a copy — what it does next. #}
+{% set b = f.boot %}{% set v = f.bview %}{% set s = f.bsettings %}
+<div class="card" id="fleet-{{ f.id }}" style="margin-bottom:14px">
+  <div class="row between">
+    <h2 style="margin:0">{{ f.name }} <span class="muted small">bootstrap · home {{ b.home }}{% if b.hub %} · hub {{ b.hub }}{% endif %} · vessel <a class="mono" href="/devices/{{ b.vessel }}">{{ b.vessel }}</a> · <code>boot:{{ f.id }}</code></span></h2>
+    <span>{% if b.paused %}<span class="pill lv-alert">paused</span>{% elif v.blocked %}<span class="pill lv-alert">blocked</span>{% elif b.decision %}<span class="pill st-move">waiting for your OK</span>{% else %}<span class="pill st-work">{{ v.label }}</span>{% endif %}</span>
+  </div>
+  <div class="small" style="margin:6px 0">{% for st in stages %}<span class="pill small {{ 'st-work' if st == b.stage else ('lv-done' if loop.index0 < stages.index(b.stage) else '') }}">{{ labels[st] }}</span> {% endfor %}</div>
+  <div class="grid g2">
+    <div>
+      <div><b>Gate:</b> {{ v.gate }}</div>
+      <div><b>Next:</b> {{ v.next }}</div>
+      {% if b.status and b.status.at %}<div class="muted small">last pass {{ b.status.at | ago }}</div>{% endif %}
+      {% set dec = b.decision or v.decision %}
+      {% if dec %}<div class="card" style="margin-top:8px">
+        <h3 style="margin-top:0">{{ {'hub': 'Choose the hub', 'outpost': 'Next outpost', 'waypoint': 'Relay waypoint (keeps the chain)', 'replace': 'Replace ' ~ (dec.for or '') ~ ' (warded by another player)'}.get(dec.kind, dec.kind) }}</h3>
+        <table class="small"><tr><th>System</th><th class="num">Score</th><th class="num">ly</th><th>Why</th><th></th></tr>
+          {% for o in dec.options %}<tr><td><a href="/systems/{{ o.star }}">{{ o.star }}</a></td>
+            <td class="num">{{ o.value if o.value is defined else o.score }}{% if o.value is defined %} <span class="muted">({{ o.score }})</span>{% endif %}</td>
+            <td class="num">{{ o.distance if o.distance is not none else '?' }}</td>
+            <td class="muted">{{ (o.reasons or []) | join(' · ') }}{% if o.good_near %} · good near: {{ o.good_near | join(', ') }}{% endif %}{% if o.chain_ly is defined %} · {{ o.chain_ly }} ly from the chain{% endif %}</td>
+            <td><button class="small" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{{ {"action": "decide", "kind": dec.kind, "pick": o.star} | tojson }}'
+                  hx-target="#bt-{{ f.id }}" hx-confirm="{{ o.star }}: OK?">OK</button></td></tr>{% endfor %}
+        </table>
+        <form class="inline small" hx-post="/fleets/{{ f.id }}/bootstrap" hx-target="#bt-{{ f.id }}">
+          <input type="hidden" name="action" value="decide"><input type="hidden" name="kind" value="{{ dec.kind }}">
+          or another: <input name="pick" size="12" placeholder="system"> <button class="small ghost">OK</button></form>
+      </div>{% endif %}
+      <div id="bt-{{ f.id }}"></div>
+      {% if f.bkids %}<h3>Systems</h3>
+        {% for g in f.bkids %}<div class="small"><a href="#fleet-{{ g.id }}">{{ g.name }}</a> · {{ g.home }}{% if g.materials == 'self' %} · takes materials in{% elif g.materials %} · sends to the hub{% endif %}{% if (g.wants or {}).system_ward %} · ward{% endif %}</div>{% endfor %}{% endif %}
+      {% if v.chain %}<div class="small" style="margin-top:6px"><b>Relay chain:</b> {{ v.chain | join(' — ') }} <span class="muted">(a relay reaches 7.5 ly)</span></div>{% endif %}
+      <h3>Log</h3>
+      {% for l in (b.log or [])[-8:] | reverse %}<div class="small"><span class="muted">{{ l.at | ago }}</span> {{ l.text }}</div>{% else %}<p class="muted small">Nothing yet.</p>{% endfor %}
+    </div>
+    <div>
+      <h3>Costs <span class="muted small">and how much of each the stock where the vessel is covers</span></h3>
+      <table class="small"><tr><th>Device</th><th>Cost</th><th class="num">Print</th><th class="num">Covered</th></tr>
+        {% for c in v.costs %}<tr><td>{{ c.type | human }}</td><td class="muted">{% for r, q in c.cost.items() %}{{ q | num }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}</td>
+          <td class="num">{{ c.print_min }}m</td><td class="num {{ 'lv-done' if c.cover >= 100 }}">{{ c.cover }}%</td></tr>{% endfor %}
+      </table>
+      <form class="small" hx-post="/fleets/{{ f.id }}/bootstrap" hx-target="#bt-{{ f.id }}" style="margin-top:8px">
+        <input type="hidden" name="action" value="settings">
+        Radius <input name="radius" value="{{ s.radius }}" size="4"> ly ·
+        ward when it costs under <input name="ward_hours" value="{{ s.ward_hours }}" size="3"> h of output ·
+        min score <input name="min_score" value="{{ s.min_score }}" size="3"> ·
+        hub miners <input name="hub_miners" value="{{ s.hub_miners }}" size="3">
+        <button class="small ghost">Save</button></form>
+      <div class="row" style="margin-top:8px">
+        <button class="small" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{"action": "run"}' hx-target="#bt-{{ f.id }}">Run a pass now</button>
+        {% if b.paused %}<button class="small" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{"action": "resume"}' hx-target="#bt-{{ f.id }}">Resume</button>
+        {% else %}<button class="small ghost" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{"action": "pause"}' hx-target="#bt-{{ f.id }}">Pause</button>{% endif %}
+        <button class="small ghost" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{"action": "end"}' hx-target="#bt-{{ f.id }}"
+          hx-confirm="End this bootstrap? Its hub and outposts stay as normal stationed fleets (still using only their own devices).">End bootstrap</button>
+      </div>
+      <p class="muted small">It only uses the vessel, what was aboard and what it prints (tagged <code>boot:{{ f.id }}</code>). It stops for your OK on the
+        hub, each outpost, relay waypoints and replacing a system another player wards. Materials move only on transport devices
+        (haulers in a system, cargo freighters between systems): the vessel carries devices, not materials.</p>
+    </div>
+  </div>
+</div>

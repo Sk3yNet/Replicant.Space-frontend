@@ -251,6 +251,15 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
 
     groups = stationed_fleets(cfg)           # fleets kept at their loadout in their home system, by (home, id)
     by_tag = {fl.fleet_tag(f["id"]): f for f in groups}
+
+    def fam(d: dict | None) -> str | None:
+        """A bootstrap's devices carry boot:<id> (bootstrap.py): they're only ever used by that bootstrap's fleets, and
+        its fleets use nothing else — no spares, factories or carriers lent either way."""
+        return next((t for t in (d or {}).get("tags") or [] if t.startswith("boot:")), None)
+
+    def fleet_fam(tag: str | None) -> str | None:
+        f = by_tag.get(tag or "")
+        return f"boot:{f['family']}" if f and f.get("family") else None
     homes_of = defaultdict(list)             # star -> its stationed fleets
     for f in groups:
         homes_of[f["home"]].append(f)
@@ -406,7 +415,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     for f in groups:
         star, fid, tag = f["home"], f["id"], fl.fleet_tag(f["id"])
         mine = members(f)
-        free = [d for d in unassigned.get(star, []) if d["device_code"] not in taken]
+        free = [d for d in unassigned.get(star, []) if d["device_code"] not in taken and fam(d) == fleet_fam(tag)]
         rows = []
         wants = fl.station_wants(f)
         for t in sorted(wants):  # types the loadout doesn't mention are "don't care": never spare, never filled
@@ -525,7 +534,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     def usable(tag: str | None) -> list[dict]:
         """Factories with queue room a fleet may print on: fleetless ones and its own; another fleet's only when there's
         nothing else (e.g. every autofactory belongs to the printing hub)."""
-        open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0]
+        open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0 and fam(f) == fleet_fam(tag)]
         mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) == tag]
         return mine or open_f
 
@@ -571,9 +580,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                               "why": "waiting — no open mining sites in its belts right now (survey drones must open some first)"})
                 continue
             cands = sorted((d for d in donors.get(row["type"], []) if (star_of(d.get("location")) == star or not working(d))
-                            and near(d, star)),
+                            and near(d, star) and fam(d) == fleet_fam(tag)),
                            key=lambda d: (_dist(star_of(d.get("location")), star, pos), not _idle(d), -_cap(d), d["device_code"]))
-            held = [d for d in donors.get(row["type"], []) if d not in cands and near(d, star)]
+            held = [d for d in donors.get(row["type"], []) if d not in cands and near(d, star) and fam(d) == fleet_fam(tag)]
             for d in cands[:need]:
                 donors[row["type"]].remove(d)
                 code = d["device_code"]
@@ -712,7 +721,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 code = d["device_code"]
                 if (code in moves or code in busy or star_of(d.get("location")) == depot or not d.get("location")
                         or d.get("controller_device_code") or working(d) or pinned_at(d) or d.get("location_stale")
-                        or d.get("taxi_mode") == "taxi" or "taxi" in (d.get("tags") or [])
+                        or d.get("taxi_mode") == "taxi" or "taxi" in (d.get("tags") or []) or fam(d)
                         or not str(d.get("status") or "").startswith(("idle", "stowed", "inactive", "monitoring", "deployed"))):
                     continue
                 moves[code] = depot
@@ -844,6 +853,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         different account'). Since 1.26.0 the job hands each device to the carrier's owner as it boards
         (modular.with_owner_handoff), so any carrier will do — except for a batch whose owner is unknown-mixed or that
         holds a device hosting a replicant (never handed over)."""
+        if codes and fam(c) != fam(by_code.get(codes[0])):
+            return False   # a bootstrap's carriers carry only its own devices, and its devices only ride them
         if not owner or not c.get("replicant_code") or c["replicant_code"] == owner:
             return True
         return not any((by_code.get(x) or {}).get("hosting_replicant") for x in codes)

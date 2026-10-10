@@ -10,6 +10,11 @@
     <select name="template"><option value="">custom loadout</option>{% for ph in templates %}<option value="{{ ph.id }}">{{ ph.name }}</option>{% endfor %}</select>
     <label style="text-transform:none" title="Kept at its loadout in its home system by the loadout pass"><input type="checkbox" name="station" checked> stationed</label>
     <button>New fleet</button></form></div>
+<form class="inline small" hx-post="/fleets/bootstrap" hx-target="#bt-new" style="margin:4px 0">
+  <b>Bootstrap</b> from a bare heaven vessel to an autofactory hub with three mining outposts:
+  <input name="name" placeholder="name, e.g. Pioneer" required size="14">
+  <select name="replicant">{% for code, name in boot_reps %}<option value="{{ code }}">{{ name }}</option>{% endfor %}</select>
+  <button class="small">New bootstrap</button> <span id="bt-new"></span></form>
 <p class="muted small">A fleet is a named group of devices, tagged <code>fleet:&lt;id&gt;</code>, with a home system and a loadout (its own lines,
   or a template). A <b>stationed</b> fleet is kept at its loadout in its home system: fleetless devices there join it, extras become
   <code>spare</code>, spares are sent to it and what's still missing is printed. Its devices at home are that system's own, so the
@@ -58,6 +63,7 @@
 </div>
 
 {% for f in fleets %}{% set r = f.roster %}{% set m = f.mission or {} %}
+{% if f.role == 'bootstrap' and f.boot %}{% include "partials/bootstrap_card.html" %}{% else %}
 <div class="card" id="fleet-{{ f.id }}" style="margin-bottom:14px">
   <div class="row between">
     <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }}{% if f.station %} · stationed{% endif %} · <code>fleet:{{ f.id }}</code></span></h2>
@@ -300,6 +306,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 {% else %}<div class="card"><p class="muted">No fleets yet. Create one above, add its devices, set its loadout, then station it at home or launch a mission.</p></div>{% endfor %}
 <div class="grid g2" style="margin-top:14px">
 <div>

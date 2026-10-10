@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.60.0"
+VERSION = "1.61.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.61.0", "2026-10-10", "Bootstrap fleets (Fleets page): a heaven vessel with three mining drones compounds at home "
+     "(drones mine the belt, the vessel mines rares and volatiles, the replicant prints survey and mining drones), surveys "
+     "every system within 10 ly, waits for your OK on the hub, moves there, prints an autofactory, then builds three "
+     "outposts (your OK on each) that keep the relay chain and ferry materials to the hub; wards when they cost under 6 h "
+     "of output. Self-reliant: only its own devices (boot:<id>). Mining prospect scores now weigh yield (scarce 1 to "
+     "rich 10) × density × rarity, so rares-rich belts rate high."),
     ("1.60.0", "2026-10-10", "Contracts with several options: a Fulfill with picker per contract (default: whichever is "
      "ready first). The chosen option drives readiness, material deliveries and trade runs, device supply, auto-fulfill "
      "and the Fulfill button."),

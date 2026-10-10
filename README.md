@@ -59,7 +59,8 @@ rule with an on/off switch, plus the jobs and the log.
 - **Systems / System page**: a top-down map with your devices, stockpiles, sites and salvage. Three cards: **Resources** (per
   resource: richness, open sites, % left, ≈ units left — learned from what past sites gave — salvage, stockpiled),
   **Belts** (richness, a viability line, open sites) and **Bodies** (planets, moons, L-points with their salvage and stock).
-  *Mining prospects* scores every scanned system out of 100. Surveyed checkboxes per body. *Other players here*: their
+  *Mining prospects* scores every scanned system out of 100 (each resource's yield, scarce 1 to rich 10, × belt density,
+  weighted by rarity: rares 3, volatiles 2.5 … structural 1). Surveyed checkboxes per body. *Other players here*: their
   fixed devices (beacons, relays, wards, hubs, factories, observatories, controllers) from the latest scan, also drawn on the
   map; a replicant arriving in a system scans it, or use *Scan for other devices*. Snapshots older than 7 days are dropped.
 - **Traffic**: civilization contact (a beacon must sit at the body of the civilization's event), visitors, each beacon's audit log,
@@ -87,6 +88,15 @@ lines or a template).
 - **Auto-scout** (explore fleets): surveys the nearest unsurveyed systems within 100 ly of home, ring by ring (only inside relay
   coverage without a replicant aboard); sets out at 85 % capacity, comes home for repairs at 50 %.
 - **Auto-fulfil** (trade fleets): contracts and trades your stockpiles can pay for, nearest first.
+- **Bootstrap** fleets: from a bare heaven vessel (three mining drones and a replicant aboard) to an autofactory hub with three
+  mining outposts. Home: the drones mine the best belt, the vessel mines onboard what they get little of (usually rares and
+  volatiles), and the replicant prints survey drones and miners until the hold-sized kit is built (a home another player has
+  warded, like Sol, is skipped). Then a survey of every system within the radius (10 ly), **your OK on the hub**, the move
+  there, compounding to an autofactory printed on site, and the hub as a stationed fleet that takes materials in. Outposts
+  (**your OK on each**) must keep the relay chain (each within 7.5 ly of the hub or an outpost; else a relay waypoint, also
+  your OK), and send their materials to the hub by cargo freighter. A ward goes up where it costs under 6 hours of the
+  system's output, or at once when another player's drones mine there. Everything it prints is tagged `boot:<id>`: the
+  loadout pass never lends it others' spares, factories or carriers, nor lends its own.
 - Also: owner hand-over (`change_owner`), materials (*send to* / *takes materials in*), *fill from spares*, carrying budget,
   *Reset & reform* for messy tags.
 
@@ -306,6 +316,7 @@ app/rsweb/
   loadouts.py              the loadout pass: spares, prints, deliveries, placement
   fleets.py                fleets, missions, deals; reform.py rebuilds tags
   pathing.py, prospects.py, prospecting.py, observatory.py   path forward, system scores, observatory prospecting
+  bootstrap.py, boot_engine.py   bootstrap fleets: stages and decisions; the engine pass that runs them
   others.py                other players' fixed devices, beacon traffic arrows and the trail for the maps
   gameevents.py, contractsupply.py   contracts and their device delivery
   targets.py, sites.py, salvage.py, viability.py   locations, sites, salvage, belt viability

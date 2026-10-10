@@ -24,6 +24,7 @@ from .api import ApiError
 from .db import now_iso
 from .shapes import as_amounts  # noqa: F401  (kept for rule authors)
 from .ops_rules import OpsRules
+from .boot_engine import BootstrapMixin
 
 log = logging.getLogger("rsweb.auto")
 
@@ -403,7 +404,7 @@ def survey_targets(scan: dict, surveyed: dict, include_moons: bool, include_belt
     return out[:max(0, max_targets)]
 
 
-class AutomationEngine(OpsRules):
+class AutomationEngine(OpsRules, BootstrapMixin):
     def __init__(self, db, api, hub, worker):
         self.db, self.api, self.hub, self.worker = db, api, hub, worker
         self.lock = EngineLock()
@@ -876,7 +877,7 @@ class AutomationEngine(OpsRules):
             for stage in ("run_fleets", "auto_deals_pass", "contract_supply_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass"):
                 self.stage = stage
                 try:   # one stage failing on odd data mustn't stop every stage after it, every tick
                     out = await getattr(self, stage)()

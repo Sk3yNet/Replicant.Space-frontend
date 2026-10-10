@@ -3099,6 +3099,15 @@ async def fleets_ctx(request: Request) -> dict:
         own = fl.ownership(f, st["devices"])
         f["owner_move"], f["owner_hosts"] = own["move"], own["hosts"]
         f["owners"] = Counter(reps.get(d.get("replicant_code"), d.get("replicant_code") or "?") for d in fl.members(f, st["devices"]))
+    boots = [f for f in items if f.get("role") == "bootstrap" and f.get("boot")]
+    if boots:
+        import copy
+        from . import bootstrap as bt
+        w = await eng.bootstrap_world(st["devices"], items)
+        for f in boots:
+            f["bview"] = bt.evaluate(copy.deepcopy(f), w)
+            f["bsettings"] = bt.settings(f["boot"])
+            f["bkids"] = [g for g in items if g.get("parent") == f["id"]]
     for f in items:
         f["report"] = lctx["plan"]["report"].get(f["id"])
         f["orders"] = [o for o in lctx.get("orders") or [] if o.get("fleet") == f["id"] and not o.get("device_code")]
@@ -3135,9 +3144,12 @@ async def fleets_ctx(request: Request) -> dict:
                 f"{d['device_code']}: {_pr.summary(r)}" + (f" — {r['note']}" if r.get("note") else ""))
     obs_fleets = {fl.fleet_of(d) for d in st["devices"] if d.get("device_type") == "galactic_observatory" and fl.fleet_of(d)}
     obs_fleets |= {f["id"] for f in items if (fl.station_wants(f) or {}).get("galactic_observatory")}   # or its loadout wants one
+    from . import bootstrap as _bt
     return {**lctx, "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
             "types": types, "free": sorted(free, key=lambda d: (star_of(d.get("location")), d.get("device_type") or "")),
-            "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders}
+            "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders,
+            "boot_reps": [(c, r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")],
+            "stages": _bt.STAGES, "labels": _bt.LABEL}
 
 
 @router.get("/fleets", response_class=HTMLResponse)
@@ -3171,6 +3183,78 @@ async def fleets_create(request: Request, name: str = Form(...), role: str = For
     items.append({"id": fid, "name": name.strip(), "role": role if role in fl.ROLES else "mining", "home": home.strip().upper(),
                   "wants": {}, "station": station == "on", "materials": "", "template": template or None})
     await eng.save_fleets(items)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/bootstrap", response_class=HTMLResponse)
+@_fleet_locked
+async def fleets_bootstrap_new(request: Request, name: str = Form(...), replicant: str = Form(...),
+                               user: str = Depends(current_user)):
+    """A bootstrap fleet (bootstrap.py): the replicant's heaven vessel and what's aboard it, from its home system to an
+    autofactory hub with mining outposts. Only uses what it starts with and prints."""
+    from . import bootstrap as bt
+    eng, items = await _fleets(request)
+    st = await load_state(request)
+    r = st["replicants"].get(replicant) or {}
+    vessel = r.get("hosted_device_code")
+    if not vessel:
+        return HTMLResponse('<div class="result err">That replicant isn\'t in a vessel.</div>')
+    if any((x.get("boot") or {}).get("vessel") == vessel for x in items):
+        return HTMLResponse('<div class="result err">That vessel already runs a bootstrap.</div>')
+    by = {d.get("device_code"): d for d in st["devices"]}
+    v = by.get(vessel) or {}
+    home = star_of(v.get("location") or r.get("location") or r.get("current_location"))
+    fid = fl.fleet_id_for(name, items)
+    items.append({"id": fid, "name": name.strip(), "role": "bootstrap", "home": home, "wants": {}, "station": False,
+                  "materials": "", "template": None, "boot": bt.new_state(vessel, replicant, home)})
+    await eng.save_fleets(items)
+    stowed = (await request.app.state.db.kv_get("stowed_map", {}) or {}).get(vessel) or []
+    aboard = sorted(set(stowed) | {d["device_code"] for d in st["devices"] if d.get("stowed_in_device_code") == vessel})
+    steps = [eng._tag_step(c, [bt.family_tag(fid), fl.fleet_tag(fid)]) for c in [vessel] + aboard]
+    await eng.create_job("fleets", f"{name}: bootstrap starts in {home}", vessel, steps,
+                         {"devices": [vessel] + aboard, "bootstrap": fid}, force=True)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/bootstrap", response_class=HTMLResponse)
+async def fleets_bootstrap_control(request: Request, fid: str, user: str = Depends(current_user)):
+    """Bootstrap controls: decide (your OK on the hub, an outpost, a waypoint, a replacement), pause / resume,
+    settings, run a pass now, end."""
+    form = await request.form()
+    eng = request.app.state.worker.automations
+    action = form.get("action") or ""
+    if action == "decide":
+        async with eng.lock:
+            msg = await eng.bootstrap_decide(fid, form.get("pick") or "", form.get("kind") or "")
+        return HTMLResponse(f'<div class="result ok">{html.escape(msg)}</div>', headers={"HX-Refresh": "true"})
+    async with eng.lock:
+        items = await eng.fleets()
+        f = next((x for x in items if x["id"] == fid and x.get("role") == "bootstrap"), None)
+        if not f:
+            return HTMLResponse("", status_code=404)
+        b = f["boot"]
+        if action in ("pause", "resume"):
+            b["paused"] = action == "pause"
+        elif action == "settings":
+            st = b.setdefault("settings", {})
+            for k in ("radius", "ward_hours", "min_score", "hub_miners"):
+                v = (form.get(k) or "").strip()
+                if v:
+                    try:
+                        st[k] = max(0.0, float(v))
+                    except ValueError:
+                        return HTMLResponse(f'<div class="result err">{k} must be a number</div>')
+        elif action == "end":
+            items = [x for x in items if x["id"] != fid]
+            for x in items:
+                if x.get("parent") == fid:
+                    x.pop("parent", None)
+        await eng.save_fleets(items)
+    if action == "run":
+        async with eng.lock:
+            lines = await eng.bootstrap_pass(only=fid)
+        return HTMLResponse(f'<div class="result ok small">{html.escape("; ".join(lines) or "nothing to do right now")}</div>',
+                            headers={"HX-Refresh": "true"})
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
