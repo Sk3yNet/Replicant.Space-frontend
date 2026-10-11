@@ -411,3 +411,13 @@ def test_resumed_recall_does_not_wait_on_a_cleared_survey_controller(client):
     client.post("/fleets/f/control", data={"action": "resume"}, headers=HX)
     m = client.portal.call(e.fleets)[0]["mission"]
     assert m["phase"] != "watch" and m["status"] in ("running", "done")
+
+
+def test_a_wait_for_an_arrival_ends_when_the_device_is_already_there(client):
+    """Seen live 2026-10-11: Surveyors' assemble waited half an hour for its controller to land at SOLARES-BELT-1,
+    where it had landed before the job began."""
+    e = eng(client)
+    client.portal.call(client.app.state.db.kv_set, "devices", [dev("SC", "ami_survey_controller", "SOL-BELT-1")])
+    w = fl._wait_arrive("SC", "SOL-BELT-1")
+    job = client.portal.call(e.create_job, "fleets", "F: assemble", None, [w], {"devices": ["SC"]}, True)
+    assert client.portal.call(e._get, job["id"])["status"] == "done"

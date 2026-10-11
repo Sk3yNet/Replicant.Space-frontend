@@ -752,7 +752,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 continue
             if st["wait"]:
                 wait_dev = st.get("wait_device") or job.get("device")
-                if await self._already_happened(st, wait_dev):
+                if await self._already_happened(st, wait_dev) or (st["method"] == "WAIT" and await self._arrived_now(st, job)):
                     st["status"] = "done"
                     job["idx"] += 1
                 else:
@@ -766,6 +766,22 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             job["status"] = "running"
             await self._update(job)
             job = await self._get(job_id)
+
+    async def _arrived_now(self, st: dict, job: dict) -> bool:
+        """A wait for an arrival whose device is already standing at the destination (seen live 2026-10-11: Surveyors'
+        assemble waited for its survey controller to land at SOLARES-BELT-1 when it already had, before the job began —
+        the event was older than the wait, and nothing moved for half an hour)."""
+        if "travel.arrived" not in (st.get("wait") or []):
+            return False
+        code = st.get("wait_device") or job.get("device")
+        dest = str((st.get("match") or {}).get("destination") or "").upper()
+        d = next((x for x in await self.devices() if x.get("device_code") == code), None)
+        if not d or not dest or not d.get("location") or d.get("location_stale"):
+            return False
+        if str(d.get("status") or "").lower().startswith(("travel", "cruis", "surg", "moving", "recalling", "returning")):
+            return False
+        loc = str(d["location"]).upper()
+        return loc == dest or ("-" not in dest and star_of(loc) == dest)
 
     async def _not_arrived(self, st: dict, job: dict) -> str | None:
         """A wait for an arrival that's over: is the device in the system it was sent to? None = yes (or unknown)."""
@@ -964,6 +980,13 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                         await self._advance(job["id"])
                     continue
                 started = _ts(st.get("started_at")) or now
+                if st.get("method") == "WAIT" and (now - started).total_seconds() > 60 and await self._arrived_now(st, job):
+                    st["status"], st["note"] = "done", "already there"
+                    job["idx"] += 1
+                    job["status"] = "running"
+                    await self._update(job)
+                    await self._advance(job["id"])
+                    continue
                 if (now - started).total_seconds() > st.get("timeout", STEP_TIMEOUT) \
                         and "travel.arrived" in (st.get("wait") or []) and await self._still_travelling(st, job, now):
                     continue   # still on its way (or out of sight mid-surge): keep waiting
