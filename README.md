@@ -97,7 +97,8 @@ lines or a template).
   *Move anyway*.
 - **Missions** run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*,
   *Stop*, *End mission & board* and *Recall*. Mining works the richest belt (or salvage); explore surveys each target and
-  leaves a relay and a beacon; trade runs a contract or trade end to end.
+  leaves a relay and a beacon; trade runs a contract or trade end to end. A recall withdraws a launched AMI controller (its
+  drones come back) before it boards.
 - **Path forward** (stationed mining fleets): a heading; when the home runs dry the fleet picks the best system ahead and moves.
 - **Observatories** prospect wherever they're deployed — the heading (else outward from Sol), then 13 other directions — and
   compact when every direction is used up or the fleet is leaving.

@@ -6488,3 +6488,22 @@ def test_contract_option_picked_on_the_contracts_page(client):
     assert "Fulfill with" in page and 'value="nutrient_synthesis" selected' in page
     client.post("/game-events/AEM-2-EVT-006/option", data={"option": ""}, headers=HX)
     assert gev.progress(client.portal.call(gev.load, db)["AEM-2-EVT-006"], {}, devices, {})["best"]["name"] == "orbital_farms"
+
+
+def test_recall_withdraws_a_launched_controller_first():
+    """Seen live 2026-10-11: the Surveyors recall cleared the launched survey controller's directive, then its travel to
+    board failed with "Device is not deployed"."""
+    from rsweb import fleets as fl
+    fleet = {"id": "surveyors", "name": "Surveyors", "role": "explore", "home": "LOR", "wants": {}}
+    devices = [
+        {"device_code": "HV", "device_type": "cargo_vessel", "location": "LOR-6-L4", "status": "idle", "features": ["surge"],
+         "stow_capacity": 20, "tags": ["fleet:surveyors"]},
+        {"device_code": "SC", "device_type": "ami_survey_controller", "location": "LOR-6", "status": "launched",
+         "features": ["stow"], "ami_directive": {"name": "survey_system"}, "tags": ["fleet:surveyors"]},
+    ]
+    steps = fl.recall_steps(fleet, devices, {}, None)
+    descs = [s["desc"] for s in steps]
+    assert descs.index("SC: clear directive") < descs.index("SC: withdraw (call its drones back)") < descs.index("SC → LOR-6-L4 (board)")
+    w = steps[descs.index("SC: withdraw (call its drones back)")]
+    assert w["body"] == {"command": "withdraw"} and w["wait"] == ["ami.withdrawn"]
+    assert "not deployed" in steps[descs.index("SC → LOR-6-L4 (board)")]["hint"]

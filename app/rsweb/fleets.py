@@ -863,9 +863,18 @@ def recall_steps(fleet: dict, devices: list[dict], inventory: dict[str, dict], h
     r = roster(fleet, devices)
     ms = r["members"]
     steps = []
+    withdrawn = set()
     for d in ms:
         if "controller" in (d.get("device_type") or "") and (d.get("ami_directive") or {}).get("name"):
             steps.append(step(f"{d['device_code']}: clear directive", f"/devices/{d['device_code']}", {"command": "clear_directive"}))
+        if "controller" in (d.get("device_type") or "") and str(d.get("status") or "").startswith("launched"):
+            # a launched controller isn't deployed and can't travel ("Device is not deployed", seen live 2026-10-11:
+            # Surveyors recall after its survey_system launch): withdraw first, which calls its drones back
+            st = step(f"{d['device_code']}: withdraw (call its drones back)", f"/devices/{d['device_code']}",
+                      {"command": "withdraw"}, wait=["ami.withdrawn"], timeout=1800)
+            st["wait_device"] = d["device_code"]
+            steps.append(st)
+            withdrawn.add(d["device_code"])
     if haul_from:
         stock = dict(as_amounts(inventory.get(haul_from) or {}))
         for d in ms:
@@ -885,6 +894,11 @@ def recall_steps(fleet: dict, devices: list[dict], inventory: dict[str, dict], h
                     steps.append(step(f"{d['device_code']}: load {sum(take.values())}", f"/devices/{d['device_code']}",
                                       {"command": "collect_resources", "resources": take}))
     board, _ = assemble_steps(fleet, devices, radii, limit)
+    for st in board:
+        code = str(st.get("path") or "").split("/")[2] if str(st.get("path") or "").startswith("/devices/") else ""
+        if code in withdrawn and (st.get("body") or {}).get("command") == "travel":
+            st["hint"] = {"not deployed": f"{code} is still not deployed after its withdraw: check its status in the game, "
+                                          "then launch the recall again"}
     return steps + board
 
 

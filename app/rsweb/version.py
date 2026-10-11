@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.69.0"
+VERSION = "1.70.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.70.0", "2026-10-11", "Fleet recall: a launched AMI controller is withdrawn first (its drones called back, waiting "
+               "for ami.withdrawn) before it travels to board; if it's still not deployed, the job stops saying so."),
     ("1.69.0", "2026-10-11", "Ward prints go to the autofactory with the shortest queue (counting wards already ordered), then the "
                "nearest; compacted or carried factories are skipped. A ward print still queued gives way to a spare ward that "
                "turns up in range, and removing a ward order drops its queued print. A to: tag naming a fleet means that "

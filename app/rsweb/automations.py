@@ -721,7 +721,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 ok, st["note"] = True, err
                 st["wait"] = []
             if not ok:
-                st["error"] = err
+                hint = next((h for k, h in (st.get("hint") or {}).items() if k in (err or "").lower()), None)
+                st["error"] = err = f"{err} — {hint}" if hint else err
                 if st["tries"] < 2 and re.search(r"\brate.?limit|too many requests", (err or "").lower()):
                     await self._update(job)
                     return  # retry on next tick
