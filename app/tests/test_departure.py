@@ -484,3 +484,61 @@ def test_manual_long_cruise_doesnt_ask_for_a_surge_capable_device(client):
     client.portal.call(db.kv_set, "devices", devs)
     r = client.post("/devices/V9/command", data={"command": "travel", "f.destination": "SOL-3"}, headers=HX)
     assert "would cruise" not in r.text
+
+
+def test_shops_from_a_system_scan_are_offered_as_trades(client):
+    """Seen live 2026-10-11: Bill's Skunkworks at NOSOXA-OORT was in the system scan but not in Fleets' trade list."""
+    import json
+    from rsweb.db import now_iso
+    db = client.app.state.db
+    scan = {"shops": [{"controller_code": "3BF0ED09", "location": "NOSOXA-OORT", "owner_name": "Bill", "shop_name": "The Skunkworks",
+                       "trades": [{"trade_code": "TRD-023B34", "name": "Service Bot Upgrade", "current_stock": 5,
+                                   "criteria": {"devices": {"maintenance_drone": 1}}, "rewards": {"devices": {"service_bot": 1}}}]}]}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("NOSOXA", json.dumps(scan), now_iso()))
+    e = eng(client)
+    client.portal.call(e.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
+    page = client.get("/fleets", headers=H).text
+    assert "The Skunkworks @ NOSOXA-OORT — Service Bot Upgrade: pay 1× maintenance_drone" in page
+
+
+def test_trade_paid_in_devices_gets_them_delivered(client):
+    e = eng(client)
+    db = client.app.state.db
+    spare = dev("MD1", "maintenance_drone", "SOL-BELT-1", tags=["spare"])
+    client.portal.call(db.kv_set, "devices", [spare])
+    trade = {"controller": "3BF0ED09", "trade_code": "TRD-023B34", "name": "Service Bot Upgrade", "star": "SOL",
+             "location": "SOL-OORT", "price": {}, "rewards": {}, "devices": {"maintenance_drone": 1}}
+    m = {"status": "running", "phase": "wait", "idx": 0, "targets": ["SOL"], "log": [], "opts": {}, "trade": trade}
+    client.portal.call(e.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}, "mission": m}])
+    client.portal.call(e.contract_supply_pass, True)
+    job = next(j for j in client.portal.call(e.jobs) if "send MD1" in j["title"])
+    tags = job["steps"][0]["body"]["configuration"]["add_tags"]
+    assert "at:sol-oort" in tags and any(t.startswith("contract:trade:") for t in tags)
+    assert client.portal.call(e._deal_devices_short, m, [spare]) == "1× maintenance drone"
+    assert client.portal.call(e._deal_devices_short, m, [{**spare, "location": "SOL-OORT"}]) == ""
+
+
+def test_bills_trail_can_be_picked_up_at_sol(client):
+    """Bill always passes through SOL: with nothing to follow (or on request) the trail starts there."""
+    from rsweb import trail as tl
+    db = client.app.state.db
+    client.portal.call(db.kv_set, tl.KV, {"target_name": "Bill", "target_code": tl.BILL_CODE, "beacons": {}, "audit": {}})
+    assert "restart from SOL" in client.get("/trail", headers=H).text
+    r = client.post("/trail/follow", data={"action": "start"}, headers=HX)
+    assert "first stop SOL" in r.text
+    fo = client.portal.call(db.kv_get, tl.KV)["follow"]
+    assert fo["star"] == "SOL" and fo["active"] and fo["sol_tried"]
+
+
+def test_newest_sighting_of_a_shop_wins_and_a_failed_trade_sets_it_aside(client):
+    import json
+    from rsweb import shop
+    db = client.app.state.db
+    for star, at in (("LERNA", "2026-10-10T00:00:00+00:00"), ("ABOTEIN", "2026-10-11T00:00:00+00:00")):
+        scan = {"shops": [{"controller_code": "SK1", "location": f"{star}-OORT", "trades": []}]}
+        client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                           (star, json.dumps(scan), at))
+    assert client.portal.call(shop.known_traders, db)["SK1"]["location"] == "ABOTEIN-OORT"   # an old scan stays usable
+    client.portal.call(shop.mark_gone, db, "SK1", "ABOTEIN-OORT", "2026-10-11T12:00:00+00:00")
+    assert "SK1" not in client.portal.call(shop.known_traders, db)                            # until seen again

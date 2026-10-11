@@ -1133,6 +1133,11 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     nxt, fo["alts"] = fo["alts"][0], fo["alts"][1:]
                     fo.update(state="travel", star=nxt, job=None)
                     note(f"at {star}: {h['cold']} — trying the next candidate, {nxt}")
+                elif tl.is_bill(s) and not fo.get("sol_tried") and star != tl.BILL_HOME:
+                    # Bill always passes through SOL: a cold trail (his location may have reset) is picked up there
+                    fo.update(state="travel", star=tl.BILL_HOME, job=None, sol_tried=True)
+                    note(f"at {star}: {h['cold']} — {s['target_name']} always passes through {tl.BILL_HOME}: picking "
+                         "the trail up there")
                 else:
                     await finish(f"the trail goes cold at {star}: {h['cold']}", "warning")
         s["follow"] = fo
@@ -2544,12 +2549,15 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             cands.append({"kind": "contract", "key": des, "star": star_of(e["location"]),
                           "contract": {"designation": des, "location": e["location"], "title": e.get("title"),
                                        "price": price, "rewards": rewards}, "price": price})
-        for ctrl, t in (await self.db.kv_get("traders_cache", {}) or {}).items():
+        from .shop import known_traders
+        for ctrl, t in (await known_traders(self.db)).items():
             for tr in t.get("trades") or []:
                 key = f"{ctrl}:{tr.get('trade_code')}"
                 star = t.get("star") or star_of(t.get("location"))
                 if key in taken or not t.get("location") or star in locked:
                     continue
+                if (tr.get("criteria") or {}).get("devices"):
+                    continue   # paid in devices: start that run yourself (Fleets), its devices are delivered for it
                 price = (tr.get("criteria") or {}).get("resources") or {}
                 cands.append({"kind": "trade", "key": key, "star": star, "price": price,
                               "trade": {"controller": ctrl, "trade_code": tr.get("trade_code"), "name": tr.get("name"),
@@ -2603,15 +2611,26 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         supply = await self.db.kv_get(cs.KV, {}) or {}
         evs = await gev.load(self.db)
         devices = await self.devices()
-        running = {fl.deal(f["mission"]).get("designation") for f in await self.fleets()
+        fleets_now = await self.fleets()
+        running = {fl.deal(f["mission"]).get("designation") for f in fleets_now
                    if (f.get("mission") or {}).get("status") in ("running", "stalled") and (f["mission"].get("contract"))}
+        # trade runs paid in devices: supplied like a contract, keyed trade:<controller>:<trade code>
+        trade_runs: dict[str, dict] = {}
+        for f in fleets_now:
+            m_ = f.get("mission") or {}
+            if m_.get("status") in ("running", "stalled") and m_.get("trade"):
+                dl = fl.deal(m_)
+                if dl["devices"] and dl["location"]:
+                    trade_runs[dl["supply_key"]] = {
+                        "designation": dl["supply_key"], "location": dl["location"], "star": dl["star"], "status": "open",
+                        "title": dl["label"], "_need": dl["devices"]}
         out: list[str] = []
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
         # closed (or no longer wanted) contracts: their leftover devices go spare, the entry goes
         for des in list(supply):
-            e = evs.get(des)
-            if e and e.get("status") == "open" and (supply[des].get("active") or des in running):
+            e = evs.get(des) or trade_runs.get(des)
+            if des in trade_runs or (e and e.get("status") == "open" and (supply[des].get("active") or des in running)):
                 continue
             tag = cs.contract_tag(des)
             left = [d for d in devices if tag in (d.get("tags") or []) and d.get("device_code") not in busy]
@@ -2638,14 +2657,15 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         from .traffic import beacons as _beacons
         civ_locs = {r["location"] for r in await self.civ_coverage() if r.get("completed") or r.get("open")}
         protect = {b["device_code"] for b in _beacons(devices) if b.get("location") in civ_locs}   # as the loadouts pass
-        for des, e in evs.items():
+        for des, e in [*evs.items(), *trade_runs.items()]:
             if e.get("status") != "open" or not e.get("location"):
                 continue
-            prog = gev.progress(e, inv, devices, reps)
+            prog = ({"best": {"devices": [{"device_type": t, "need": n} for t, n in e["_need"].items()]}} if "_need" in e
+                    else gev.progress(e, inv, devices, reps))
             if not cs.need_of(prog):
                 continue
             entry = supply.get(des) or {}
-            active = bool(entry.get("active")) or des in running
+            active = bool(entry.get("active")) or des in running or des in trade_runs
             if not active and des not in supply:
                 continue
             p = cs.plan(e, prog, entry, devices, hosts=hosts, busy=busy, protect=protect, ignore=ignore,
@@ -2694,7 +2714,13 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         """A contract run whose contract also asks for devices at its location: what's still missing there."""
         from . import fleets as fl
         from . import gameevents as gev
-        des = fl.deal(m).get("designation")
+        dl = fl.deal(m)
+        if dl["kind"] == "trade":   # a trade paid in devices: they must be at the shop's location
+            have = {t: sum(1 for d in devices if d.get("device_type") == t and d.get("location") == dl["location"])
+                    for t in dl["devices"]}
+            short = {t: n - have[t] for t, n in dl["devices"].items() if n > have[t]}
+            return ", ".join(f"{n}× {t.replace('_', ' ')}" for t, n in sorted(short.items()))
+        des = dl.get("designation")
         if not m.get("contract") or not des:
             return ""
         e = (await gev.load(self.db)).get(des)
@@ -2714,6 +2740,17 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         dl = fl.deal(m)
         site = dl["location"]
+        if dl["kind"] == "trade" and dl.get("controller"):
+            from .shop import known_traders
+            t = (await known_traders(self.db)).get(dl["controller"]) or {}
+            if t.get("location") and t["location"] != site:
+                # a newer scan or directory read has the shop elsewhere (Bill's moves about daily)
+                why = (f"the shop has moved: last seen at {t['location']} ({t.get('seen_at')}), not {site} — stop this run "
+                       "and start the trade again there")
+                if m.get("watch_note") != why:
+                    self._mlog(m, why)
+                    await self.log("fleets", f"{fleet['name']}: {why}", "alert", notify=True)
+                return "wait", why
         state, short = fl.deal_check(m, inv, devices)
         if state != "ok" and m.get("contract") and await self._contract_option_ready(m, inv, devices):
             # contracts offer alternative options (seen live 2026-10-08: Famine Assistance at AEMEROTH-2 — 3 orbital farms,
@@ -2735,8 +2772,9 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         if dev_short:   # devices come by the contract's own delivery (contract_supply_pass), not in the fleet's holds
             if arriving:
                 self._mlog(m, f"resources at {site}: waiting for devices there ({dev_short}) — Contracts page")
-            return "wait", (f"{site} still needs {dev_short}: they're delivered separately (Contracts page — printing "
-                            "them needs your authorization)")
+            return "wait", (f"{site} still needs {dev_short}: they're delivered separately ("
+                            + ("spare ones are sent there; " if m.get("trade") else "Contracts page — ")
+                            + "printing them needs your authorization)")
         reps = await self.db.kv_get("replicants", {}) or {}
         own = fl.fleet_replicant(fleet, devices, reps)
         by = {d.get("device_code"): d for d in devices}
@@ -3058,6 +3096,18 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 m["phase"], m["job"] = "wait", None
                 self._mlog(m, f"the game says the contract's criteria aren't met yet ({err}) — waiting at the site "
                               f"until they are (try {m['criteria_misses']} of 3)")
+                changed = True
+                continue
+            if j and j["status"] == "failed" and m.get("trade") and m.get("phase") == "trade":
+                # shops move (Bill's about daily): a failed trade may mean it isn't where we last saw it
+                from .shop import mark_gone
+                dl = fl.deal(m)
+                await mark_gone(self.db, dl.get("controller") or "", dl.get("location"), now_iso())
+                m["status"] = "stalled"
+                self._mlog(m, f"stalled in trade: {err or 'the trade failed'} — the shop may have moved from "
+                              f"{dl.get('location')}: scan the system it's in now, or Fleets › Refresh traders, then Retry")
+                await self.log("fleets", f"{fleet['name']}: trade at {dl.get('location')} failed ({err}) — the shop may "
+                                         "have moved", "alert", notify=True)
                 changed = True
                 continue
             if j and j["status"] == "failed":

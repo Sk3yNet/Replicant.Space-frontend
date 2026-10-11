@@ -40,7 +40,7 @@ async def trail_page(request: Request, user: str = Depends(current_user)):
             for c, r in st["replicants"].items()]
     scanner = next((r for r in reps if r["code"] == s.get("scanner")), None)
     return await page(request, user, "trail.html", "trail", s=s, legs=legs, last=last, reps=reps, n_pos=len(pos),
-                      known_stars=sorted(pos), scanner=scanner)
+                      known_stars=sorted(pos), scanner=scanner, bill=tl.is_bill(s))
 
 
 @router.post("/trail/target", response_class=HTMLResponse)
@@ -175,20 +175,26 @@ async def trail_follow(request: Request, action: str = Form("start"), user: str 
             await db.kv_set(tl.KV, s)
         return _msg("Stopped following.")
     rep = s.get("scanner")
+    if not rep and tl.is_bill(s):   # Bill's trail can start at SOL with any replicant
+        rep = next(iter(await db.kv_get("replicants", {}) or {}), None)
     if not rep:
         return _msg("Scan for beacons with a replicant first: that's the one that follows the trail.", ok=False)
     pos = _positions(await db.kv_get("stars", {}) or {})
     last = tl.last_seen(s["audit"], s["beacons"], s.get("target_code"))
     legs = tl.legs(s["audit"], s["beacons"], s.get("target_code"), pos)
-    if last and last.get("travel_type") == "arrival":
+    if action == "sol" or (tl.is_bill(s) and not last and not (legs and legs[0]["candidates"])):
+        first, alts = tl.BILL_HOME, []
+        why = f"{s['target_name']} always passes through {tl.BILL_HOME}: picking the trail up there"
+    elif last and last.get("travel_type") == "arrival":
         first, alts, why = last["star"], [], f"{s['target_name']}'s latest move is an arrival at {last['star']}"
     elif legs and legs[0]["candidates"]:
         first, alts = legs[0]["candidates"][0]["star"], [c["star"] for c in legs[0]["candidates"][1:4]]
         why = f"the latest departure (from {legs[0]['from']}) points at {first}"
     else:
         return _msg("Nothing to follow yet: read a beacon with a departure of theirs first (and load the stars around it).", ok=False)
+    s["scanner"] = rep
     s["follow"] = {"active": True, "replicant": rep, "state": "travel", "star": first, "alts": alts, "job": None,
-                   "visited": [], "started_at": now_iso(), "by": user,
+                   "visited": [], "started_at": now_iso(), "by": user, "sol_tried": first == tl.BILL_HOME,
                    "log": [{"at": now_iso(), "text": f"following {s['target_name']}: {why}"}]}
     await db.kv_set(tl.KV, s)
     return _msg(f"Following {s['target_name']}: first stop {first}.")

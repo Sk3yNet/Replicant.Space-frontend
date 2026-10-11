@@ -107,3 +107,48 @@ def describe_side(side: dict | None) -> str:
     elif isinstance(devs, list):
         parts += [str(x.get("device_type") if isinstance(x, dict) else x).replace("_", " ") for x in devs]
     return ", ".join(parts) or "nothing"
+
+
+def star_of(loc: str | None) -> str:
+    return (loc or "").split("-")[0]
+
+
+GONE_KV = "shops_gone"   # {controller: {"at": iso, "location": where a trade there failed}}
+
+
+async def mark_gone(db, controller: str, location: str | None, at: str) -> None:
+    """A trade at this shop failed (it may have moved, as Bill's does about daily): its known location isn't offered
+    again until a newer system scan or directory read shows the shop."""
+    gone = await db.kv_get(GONE_KV, {}) or {}
+    gone[controller] = {"at": at, "location": location}
+    await db.kv_set(GONE_KV, gone)
+
+
+async def known_traders(db) -> dict[str, dict]:
+    """Every shop you know of: the trader directory (kv "traders_cache", Fleets › Refresh traders) and every shop a
+    stored system scan lists (scan "shops") — the newest sighting of each shop wins, so a re-scan or a refresh moves it
+    (seen live 2026-10-11: Bill's Skunkworks at NOSOXA-OORT, which moves about daily; other shops may stay put). A shop
+    whose trade failed (mark_gone) is left out until it's seen again after that."""
+    import json
+    seen: dict[str, dict] = {}
+
+    def offer(code: str, entry: dict, at: str) -> None:
+        if code and at >= (seen.get(code) or {}).get("seen_at", ""):
+            seen[code] = {**entry, "seen_at": at}
+    for r in await db.fetchall("SELECT star, data, updated_at FROM systems"):
+        try:
+            scan = json.loads(r["data"] or "{}")
+        except ValueError:
+            continue
+        for s in scan.get("shops") or []:
+            if isinstance(s, dict):
+                offer(s.get("controller_code"), {
+                    "controller_code": s.get("controller_code"), "location": s.get("location"),
+                    "star": star_of(s.get("location")) or r["star"], "shop_name": s.get("shop_name"),
+                    "owner_name": s.get("owner_name"), "owner_replicant_code": s.get("owner_replicant_code"),
+                    "trades": s.get("trades") or [], "from_scan": True}, r["updated_at"] or "")
+    read = await db.kv_updated("traders_cache") or ""
+    for code, t in (await db.kv_get("traders_cache", {}) or {}).items():
+        offer(code, t, t.get("read_at") or read)
+    gone = await db.kv_get(GONE_KV, {}) or {}
+    return {c: t for c, t in seen.items() if t["seen_at"] > (gone.get(c) or {}).get("at", "")}

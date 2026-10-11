@@ -3146,7 +3146,8 @@ async def fleets_ctx(request: Request) -> dict:
     free = [{**d, "_hosts": hosted.get(d.get("device_code")), "_fleet": fl.fleet_of(d),
              "_fleet_name": names.get(fl.fleet_of(d) or "", fl.fleet_of(d))} for d in st["devices"]]
     stars_seen = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")})
-    traders = await request.app.state.db.kv_get("traders_cache", {}) or {}
+    from .shop import known_traders
+    traders = await known_traders(request.app.state.db)
     profiles = {t: fl.type_profile(t, bp_by, st["devices"]) for t in types}
     lctx = await loadout_ctx(request)
     homes = sorted(fl.worked_systems(items))
@@ -3898,24 +3899,30 @@ async def fleets_auto_scout(request: Request, fid: str, user: str = Depends(curr
 
 @router.post("/fleets/traders", response_class=HTMLResponse)
 async def fleets_traders(request: Request, user: str = Depends(current_user)):
-    """Refresh the trader directory and each trader's trades (one request per trader, at most 10)."""
+    """Refresh the trader directory (every replicant's) and each trader's trades (one request per trader, at most 20)."""
     st = await load_state(request)
     api = request.app.state.api
-    rep = next(iter(st["replicants"]), None)
-    if not rep:
+    if not st["replicants"]:
         return HTMLResponse('<span class="lv-alert small">No replicant to ask.</span>')
-    try:
-        traders = ((await api.get(f"/replicants/{rep}/traders")) or {}).get("traders") or []
-    except ApiError as e:
-        return HTMLResponse(f'<span class="lv-alert small">{html.escape(e.message)}</span>')
+    # every replicant's directory (each lists the traders near it), not only the first one's
+    traders, err = {}, None
+    for rep in st["replicants"]:
+        try:
+            for t in ((await api.get(f"/replicants/{rep}/traders")) or {}).get("traders") or []:
+                if t.get("controller_code"):
+                    traders.setdefault(t["controller_code"], t)
+        except ApiError as e:
+            err = e.message
+    if not traders and err:
+        return HTMLResponse(f'<span class="lv-alert small">{html.escape(err)}</span>')
     out = {}
-    for t in traders[:10]:
+    for t in list(traders.values())[:20]:
         code = t.get("controller_code")
         try:
             trades = ((await api.get(f"/devices/{code}/trades")) or {}).get("trades") or []
         except ApiError:
             trades = []
-        out[code] = {**t, "trades": trades}
+        out[code] = {**t, "trades": trades, "read_at": now_iso()}
     await request.app.state.db.kv_set("traders_cache", out)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 

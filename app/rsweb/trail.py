@@ -25,6 +25,15 @@ GOOD_COS = 0.995          # within ~5.7°: a convincing match
 MAX_ANGLE_DEG = 25.0      # candidates shown at all
 
 
+# Bill (Skunkworks) always passes through SOL: when his trail is lost — a reset location, a cleared trail, a cold end —
+# it can be picked up again at SOL (seen live 2026-10-11: his shop at NOSOXA-OORT; it moves, about daily)
+BILL_CODE, BILL_HOME = "A8F48B26", "SOL"
+
+
+def is_bill(s: dict) -> bool:
+    return s.get("target_code") == BILL_CODE or str(s.get("target_name") or "").strip().lower() == "bill"
+
+
 def star_of(loc: str | None) -> str:
     return (loc or "").split("-")[0]
 

@@ -189,7 +189,7 @@ async def _read_trades(request: Request, code: str) -> None:
 @router.get("/shop", response_class=HTMLResponse)
 async def shop_page(request: Request, user: str = Depends(current_user)):
     from . import shop as sh
-    traders = await request.app.state.db.kv_get("traders_cache", {}) or {}
+    traders = await sh.known_traders(request.app.state.db)
     st = await load_state(request)
     types = sorted({d.get("device_type") for d in st["devices"] if d.get("device_type")})
     from datetime import datetime, timezone

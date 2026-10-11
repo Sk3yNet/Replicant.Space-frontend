@@ -1201,7 +1201,19 @@ def deal(m: dict) -> dict:
     return {"kind": "trade", "location": t.get("location") or "", "star": star_of(t.get("location")) or t.get("star") or "",
             "price": as_amounts(t.get("price") or {}), "rewards": as_amounts(t.get("rewards") or {}),
             "label": f"trade {t.get('name') or t.get('trade_code')}", "controller": t.get("controller"),
-            "trade_code": t.get("trade_code")}
+            "trade_code": t.get("trade_code"), "devices": device_counts(t.get("devices")),
+            "supply_key": f"trade:{t.get('controller')}:{t.get('trade_code')}"}
+
+
+def device_counts(x) -> dict[str, int]:
+    """A trade's device criteria as {type: n} (the game sends {type: n}; a list of {device_type, quantity} too)."""
+    if isinstance(x, dict):
+        return {str(k): int(v or 0) for k, v in x.items() if int(v or 0) > 0}
+    out: dict[str, int] = {}
+    for d in x or []:
+        if isinstance(d, dict) and d.get("device_type"):
+            out[d["device_type"]] = out.get(d["device_type"], 0) + int(d.get("quantity") or d.get("count") or 1)
+    return out
 
 
 def freighters(fleet: dict, devices: list[dict]) -> list[dict]:

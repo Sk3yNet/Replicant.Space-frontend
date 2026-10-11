@@ -798,7 +798,12 @@ Legacy `event_type` names seen (webhook / replicant events / device logs): `devi
 ## 8. Trading
 - `GET /v1/replicants/{code}/traders` → `{"traders": [{controller_code, description, is_local, location, owner_name, owner_replicant_code, shop_name, star, total_stock, trade_count}]}`
 - `GET /v1/devices/{controller_code}/trades` → `{"trades": [{name, trade_code: "TRD-E400B1", current_stock, initial_stock, criteria: {resources:{}, devices:{}}, rewards: {resources:{}, devices:{}}, created_at}]}`
-- `POST /v1/devices/{controller_code}/trades/{trade_code}` — execute (no body) → 200
+- `POST /v1/devices/{controller_code}/trades/{trade_code}` — execute (no body) → 200. Confirmed live 2026-10-11 (Bill's
+  Skunkworks, Service Bot Upgrade): devices the criteria ask for must be **deployed** at the shop's location (a stowed one
+  didn't count), with your replicant there. Answer:
+  `{"status": "trade_fulfilled", "trade_code", "buyer_replicant_code", "criteria_paid": {"devices": {"maintenance_drone": 1}},
+  "given_devices": [{device_code, device_type}], "received_devices": [{"device_code": "B2AB6BFE", "device_type": "service_bot"}],
+  "rewards_received": {"devices": {"service_bot": 1}}, "remaining_stock": 4}`
 - `POST /v1/devices/{code}/trades` — create (201) `{"name", "stock", "criteria": {"resources": {}, "devices": {}}, "rewards": {"resources": {}, "devices": {"point_defence_array": 5}}}`; rewards escrowed.
 - `DELETE /v1/devices/{code}/trades/{trade_id}` — 204.
 - Shop setup: `ami_trade_controller` + `set_directive` `trade`. Directory listing requires an active FTL relay in-system.

@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.77.0"
+VERSION = "1.78.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.78.0", "2026-10-11", "Trades: shops from system scans and every replicant's directory are offered (newest sighting "
+               "wins); trades paid in devices get spare ones delivered and deployed at the shop; a failed trade stalls the run "
+               "and sets that shop aside until it's seen again, and a run notices when a newer scan has the shop elsewhere. "
+               "Trail: Bill is picked up at SOL when there's nothing to follow or the trail goes cold (restart from SOL)."),
     ("1.77.0", "2026-10-11", "Long-cruise checks skip surge-capable devices: no warning on their manual Travel, and "
                "automations aren't held back for them."),
     ("1.76.0", "2026-10-11", "Long cruises: no automation sends a drone or AMI controller on an in-system cruise longer than "
