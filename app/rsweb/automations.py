@@ -400,6 +400,7 @@ def chain_step(device: str, command: str, arg: str | None, replicant: str | None
     st["wait_device"] = device
     if command == "travel":
         st["match"] = {"destination": arg.upper()}
+        st["allow_far"] = True   # you asked for this trip yourself
     return st
 
 
@@ -657,7 +658,11 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     st["timeout"] = max(st.get("timeout", STEP_TIMEOUT), (eta - _now()).total_seconds() + 1800)
                 ok, resp, err = True, None, None
             else:
-                ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
+                far = await self._too_far(st)
+                if far:
+                    ok, resp, err = False, None, far
+                else:
+                    ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
             st["response"] = resp if isinstance(resp, (dict, list)) else None
             if ok and isinstance(resp, dict):
                 # long trips: wait at least until the game's own ETA (+30 min) before giving up — this step, and the
@@ -766,6 +771,28 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             job["status"] = "running"
             await self._update(job)
             job = await self._get(job_id)
+
+    async def _too_far(self, st: dict) -> str | None:
+        """The one check every automated trip goes through: a drone or AMI controller isn't sent on a long cruise inside
+        a system (seen live 2026-10-11: a survey drone at an Oort cloud sent ~320 min to the inner system). Over the
+        loadout settings' max cruise (AU) the step isn't sent; fleets fetch such devices with a carrier instead. A step
+        marked allow_far (a follow-up you asked for yourself) is sent as is. Returns why not, or None."""
+        body = st.get("body") or {}
+        path = str(st.get("path") or "")
+        if body.get("command") != "travel" or st.get("allow_far") or not path.startswith("/devices/"):
+            return None
+        code = path.split("/")[2]
+        d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
+        t = str(d.get("device_type") or "")
+        dest, here = str(body.get("destination") or ""), d.get("location")
+        if not ("drone" in t or "controller" in t) or not here or star_of(here) != star_of(dest):
+            return None
+        from .fleets import cruise_au
+        au, limit = cruise_au(here, dest, await self.cruise_radii()), await self.max_cruise_au()
+        if au <= limit:
+            return None
+        return (f"not sent: {code} would cruise ≈{au:.0f} AU from {here} to {dest} (over the {limit:g} AU limit in "
+                "Fleets › settings) — a carrier should fetch it")
 
     async def _arrived_now(self, st: dict, job: dict) -> bool:
         """A wait for an arrival whose device is already standing at the destination (seen live 2026-10-11: Surveyors'

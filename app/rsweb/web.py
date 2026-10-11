@@ -857,6 +857,15 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
         if trip:
             return bad(f"{carrier} is traveling to {trip['destination']} — {command} once it has arrived, or the device "
                        "comes out between systems with no location")
+    if command in MOVE_COMMANDS and not form.get("confirm_far"):
+        warn = await long_cruise_warning(request, code, str(body.get("destination") or extra.get("destination") or ""))
+        if warn:   # a long cruise inside a system: say so, and send only once confirmed
+            hidden = "".join(f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(str(v))}">'
+                             for k, v in form.multi_items() if k != "confirm_far")
+            return HTMLResponse(
+                f'<form class="result small lv-alert" hx-post="/devices/{html.escape(code)}/command" hx-target="this" '
+                f'hx-swap="outerHTML">{hidden}<input type="hidden" name="confirm_far" value="1">⚠ {html.escape(warn)} '
+                f'<button class="small">Send anyway</button></form>')
     if command in MOVE_COMMANDS:
         try:
             followups = parse_chain(form, code, None)
@@ -870,6 +879,20 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
             return await start_chain(request, user, f"{code} → {dest}, then {len(followups)} step(s)", first, followups, code)
     return await run_action(request, user, "POST", f"/devices/{code}", {"command": command, **body, **extra},
                             f"{command} on {code}")
+
+
+async def long_cruise_warning(request: Request, code: str, dest: str) -> str | None:
+    """A manual trip inside one system longer than the max cruise (Fleets › settings): the warning to show, else None."""
+    dev = await _device(request, code) or {}
+    here = dev.get("location")
+    if not here or not dest or star_of(here) != star_of(dest.upper()):
+        return None
+    eng = request.app.state.worker.automations
+    au, limit = fl.cruise_au(here, dest.upper(), await eng.cruise_radii()), await eng.max_cruise_au()
+    if au <= limit:
+        return None
+    return (f"{code} would cruise ≈{au:.0f} AU from {here} to {dest.upper()} — over the {limit:g} AU limit "
+            "(Fleets › settings), likely hours. A carrier can fetch it instead.")
 
 
 async def carrier_context(request: Request, dev: dict) -> dict | None:

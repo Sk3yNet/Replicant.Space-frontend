@@ -451,3 +451,27 @@ def test_survey_crew_skips_a_surveyed_target_and_stays_aboard_at_home(client):
     devs[0]["location"] = "SOL-4-L4"
     steps, _ = client.portal.call(e.fleet_phase_steps, fleet, m, "unload", devs)
     assert not any(s["desc"].startswith("deploy D1") for s in steps)
+
+
+def test_no_automated_long_cruise_for_a_drone(client):
+    """Seen live 2026-10-11: a survey drone at an Oort cloud was sent on a ~320 min cruise to the inner system."""
+    from rsweb.automations import step, chain_step
+    e = eng(client)
+    client.portal.call(client.app.state.db.kv_set, "devices", [dev("D1", "survey_drone", "SOL-OORT")])
+    st = step("D1 → SOL-3", "/devices/D1", {"command": "travel", "destination": "SOL-3"})
+    job = client.portal.call(e.create_job, "reopen_sites", "send D1", None, [st], {"devices": ["D1"]}, True)
+    s0 = client.portal.call(e._get, job["id"])["steps"][0]
+    assert s0["status"] in ("skipped", "failed") and "would cruise" in s0["error"]
+    assert chain_step("D1", "travel", "SOL-3")["allow_far"]     # one you ask for yourself still goes
+
+
+def test_manual_long_cruise_asks_first(client):
+    db = client.app.state.db
+    devs = client.portal.call(db.kv_get, "devices") + [dev("D9", "survey_drone", "SOL-OORT", available_commands=["travel"])]
+    client.portal.call(db.kv_set, "devices", devs)
+    r = client.post("/devices/D9/command", data={"command": "travel", "f.destination": "SOL-3"}, headers=HX)
+    assert "would cruise" in r.text and "Send anyway" in r.text and 'name="confirm_far"' in r.text
+    r = client.post("/devices/D9/command", data={"command": "travel", "f.destination": "SOL-3", "confirm_far": "1"}, headers=HX)
+    assert "would cruise" not in r.text
+    r = client.post("/devices/D9/command", data={"command": "travel", "f.destination": "SOL-OORT"}, headers=HX)
+    assert "would cruise" not in r.text

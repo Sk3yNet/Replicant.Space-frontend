@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.75.0"
+VERSION = "1.76.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.76.0", "2026-10-11", "Long cruises: no automation sends a drone or AMI controller on an in-system cruise longer than "
+               "the max cruise (Fleets › settings) — the step says why instead; a manual Travel that long asks first "
+               "(Send anyway)."),
     ("1.75.0", "2026-10-11", "Survey crews stay aboard when they get home and don't deploy in a system that's already "
                "surveyed. A fleet member riding in another fleet's vessel that's on its way somewhere is left out of "
                "boarding and recall instead of failing them; 'in transit' refusals are retried."),
