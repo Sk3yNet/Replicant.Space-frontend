@@ -9,7 +9,7 @@ score (0–100) = richness (≤40)  the best belt's mining rate: each resource's
               + access (≤20)    distance from where the fleet starts; −5 without a relay of yours there (a replicant
                                  has to ride with the fleet)
 Not scored (with a reason instead): another player's ward or hub there (nothing of ours can mine it), a stationed fleet's home
-(only that fleet works it), and systems with no scan yet ("survey first").
+(only that fleet works it; its score goes in review_score for the Prospects page), and systems with no scan yet ("survey first").
 """
 from __future__ import annotations
 
@@ -45,7 +45,10 @@ def score(star: str, scan: dict | None, res: dict | None, viability: list[dict],
         out.update(status="warded", reasons=["another player's ward or hub — nothing of ours can mine here"])
         return out
     if stationed:
-        out.update(status="stationed", reasons=[f"home of {stationed} — only that fleet works it"])
+        # scored for review only (Prospects page: review_score); score stays None so no mission or path picks it
+        r = score(star, scan, res, viability, distance, relay, wanted)
+        out.update(status="stationed", review_score=r["score"], parts=r["parts"], best=r["best"],
+                   reasons=[f"home of {stationed} — only that fleet works it"] + r["reasons"])
         return out
     belts = ((scan or {}).get("asteroid_belt") or {}).get("belts") or []
     if not scan:

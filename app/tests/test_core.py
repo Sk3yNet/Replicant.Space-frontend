@@ -4934,6 +4934,8 @@ def test_mining_prospects_score():
     # not scored: warded, a stationed fleet's home, unscanned
     assert pr.score("A", rich, {}, [], 3.0, True, warded=True)["status"] == "warded"
     assert pr.score("A", rich, {}, [], 3.0, True, stationed="Home")["score"] is None
+    home = pr.score("A", rich, {}, [], 3.0, True, stationed="Home")
+    assert home["status"] == "stationed" and home["review_score"] == pr.score("A", rich, {}, [], 3.0, True)["score"]
     assert pr.score("C", None, None, [], 3.0, False)["status"] == "unscanned"
     # wanted: a waiting print's shortfall counts most; a falling or low stockpile a little
     w = pr.wanted_from({"carbon": 10, "structural": 500, "silicates": 400, "volatiles": 300, "conductive": 450, "rares": 5},
@@ -4951,6 +4953,17 @@ def test_prospects_page_and_mining_targets(client):
     client.portal.call(eng.save_fleets, [{"id": "m", "name": "M", "role": "mining", "home": "ABOTEIN", "wants": {}}])
     f = client.get("/fleets", headers=H).text
     assert "prospect " in f
+
+
+def test_prospects_page_scores_stationed_homes_for_review(client):
+    eng = client.app.state.worker.automations
+    client.portal.call(eng.save_fleets, [{"id": "h", "name": "Homers", "role": "mining", "home": "SOL", "station": True,
+                                          "wants": {}}])
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.get("/systems/SOL", headers=H)
+    page = client.get("/systems/prospects", headers=H).text
+    row = page[page.index('href="/systems/SOL"'):].split("</tr>")[0]
+    assert "your fleet here: Homers" in row and "⚑" in row and ">home<" in row
 
 
 def test_another_players_hub_counts_as_a_ward():

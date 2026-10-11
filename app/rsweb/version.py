@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.70.0"
+VERSION = "1.71.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.71.0", "2026-10-11", "Prospects: a stationed fleet's home is scored for review (marked home, sorted among the open "
+               "systems, still never a mission target), and a flag marks every system where a fleet of yours is homed."),
     ("1.70.0", "2026-10-11", "Fleet recall: a launched AMI controller is withdrawn first (its drones called back, waiting "
                "for ami.withdrawn) before it travels to board; if it's still not deployed, the job stops saying so."),
     ("1.69.0", "2026-10-11", "Ward prints go to the autofactory with the shortest queue (counting wards already ordered), then the "

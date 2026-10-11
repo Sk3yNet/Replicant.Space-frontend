@@ -1207,7 +1207,17 @@ async def systems_prospects(request: Request, origin: str = "", user: str = Depe
     count = Counter(star_of(d.get("location")) for d in st["devices"] if d.get("location"))
     origin = (origin or (count.most_common(1)[0][0] if count else "")).upper()
     p = await prospects.rank(request.app.state.db, request.app.state.worker.automations, st["devices"], origin)
-    homes = sorted({f["home"] for f in await request.app.state.worker.automations.fleets() if f.get("home")} | set(count))
+    fleets = await request.app.state.worker.automations.fleets()
+    homes = sorted({f["home"] for f in fleets if f.get("home")} | set(count))
+    fleets_at: dict[str, list[str]] = defaultdict(list)   # your fleets homed in each system (the ⚑ mark)
+    for f in fleets:
+        if f.get("home"):
+            fleets_at[f["home"]].append(f.get("name") or f["id"])
+    # stationed homes are scored for review: listed among the open systems by that score (still never a mission target)
+    rank_of = {"ok": 0, "stationed": 0, "unscanned": 1, "warded": 3}
+    p["rows"] = sorted(p["rows"], key=lambda r: (rank_of.get(r["status"], 2), -((r["score"] if r["score"] is not None
+                                                 else r.get("review_score")) or 0),
+                                                 r["distance"] if r["distance"] is not None else 1e9))
     from . import ward_orders as wo
     from . import wardhub as wh
     from . import wards as wds
@@ -1220,7 +1230,7 @@ async def systems_prospects(request: Request, origin: str = "", user: str = Depe
         here = wo.ward_here(st["devices"], x)
         ward[x] = {"foreign": x in foreign, "hub": x in hubs, "order": orders.get(x),
                    "mine": here["device_code"] if here else None, "active": bool(here and wh.active(here))}
-    return await page(request, user, "prospects.html", "prospects", p=p, origin=origin, origins=homes, ward=ward,
+    return await page(request, user, "prospects.html", "prospects", p=p, origin=origin, origins=homes, ward=ward, fleets_at=fleets_at,
                       w=wh.wards(st["devices"]))
 
 

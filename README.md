@@ -64,7 +64,8 @@ rule with an on/off switch, plus the jobs and the log.
   resource: richness, open sites, % left, ≈ units left — learned from what past sites gave — salvage, stockpiled),
   **Belts** (richness, a viability line, open sites) and **Bodies** (planets, moons, L-points with their salvage and stock).
   **Prospects** (Map tab) scores every scanned system out of 100 (each resource's yield, scarce 1 to rich 10, × belt density,
-  weighted by rarity: rares 3, volatiles 2.5 … structural 1), with a **Ward** column — ⛨ yours / ⛨ theirs — and *add ward*
+  weighted by rarity: rares 3, volatiles 2.5 … structural 1; a stationed fleet's home is scored for review only, marked
+  *home*, and ⚑ marks systems where a fleet of yours is homed), with a **Ward** column — ⛨ yours / ⛨ theirs — and *add ward*
   (activates an idle ward of yours there, else sends a spare, else prints one in range on the autofactory with the shortest
   queue, then switches it on once deployed; a queued print gives way to a spare that turns up; 25-ward cap) / *remove*
   (deactivates yours, it stays deployed, and drops a print not yet started). Surveyed checkboxes per body. *Other players here*: their
