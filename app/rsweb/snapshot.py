@@ -126,8 +126,12 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
     from .ami_schedule import managed_by
     settings = await eng.settings()
     jobs = await eng.jobs()
-    mine_rules = ("restart_idle_miners", "ami_schedules", "reopen_sites", "salvage_when_depleted", "loadouts", "fleets", "engine")
+    mine_rules = ("restart_idle_miners", "ami_schedules", "reopen_sites", "salvage_when_depleted", "loadouts", "fleets", "engine",
+                  "wards")
     app = {
+        # every device in one list: the /devices pages above merged (or the app's cached list when those came back empty)
+        "devices": devices,
+        "ward_orders": await db.kv_get("ward_orders", {}) or {},
         "rules": {k: v for k, v in (settings.get("rules") or {}).items()},
         "dry_run": settings.get("dry_run"),
         "schedules": await eng.schedules(),

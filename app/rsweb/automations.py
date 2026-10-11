@@ -1403,7 +1403,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     run.setdefault("used", []).append(run.get("idx") or 0)
                 run.pop("job", None)
             moving = (lmoves.get("moves") or {}).get(code)
-            leaving = (bool(f.get("next_home")) or (bound_for(o, set(pos)) not in (None, here))
+            leaving = (bool(f.get("next_home")) or (bound_for(o, set(pos), {x["id"]: x.get("home") for x in fleet_list}) not in (None, here))
                        or bool(moving and moving != here and lfresh))
             nxt = pr.next_index(run)
             run["done"] = nxt is None

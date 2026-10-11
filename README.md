@@ -65,8 +65,9 @@ rule with an on/off switch, plus the jobs and the log.
   **Belts** (richness, a viability line, open sites) and **Bodies** (planets, moons, L-points with their salvage and stock).
   **Prospects** (Map tab) scores every scanned system out of 100 (each resource's yield, scarce 1 to rich 10, × belt density,
   weighted by rarity: rares 3, volatiles 2.5 … structural 1), with a **Ward** column — ⛨ yours / ⛨ theirs — and *add ward*
-  (activates an idle ward of yours there, else sends a spare, else prints one in range, then switches it on once deployed;
-  25-ward cap) / *remove* (deactivates yours; it stays deployed). Surveyed checkboxes per body. *Other players here*: their
+  (activates an idle ward of yours there, else sends a spare, else prints one in range on the autofactory with the shortest
+  queue, then switches it on once deployed; a queued print gives way to a spare that turns up; 25-ward cap) / *remove*
+  (deactivates yours, it stays deployed, and drops a print not yet started). Surveyed checkboxes per body. *Other players here*: their
   fixed devices (beacons, relays, wards, hubs, factories, observatories, controllers) from the latest scan, also drawn on the
   map; a replicant arriving in a system scans it, or use *Scan for other devices*. Snapshots older than 7 days are dropped.
 - **Traffic**: civilization contact (a beacon must sit at the body of the civilization's event), visitors, each beacon's audit log,

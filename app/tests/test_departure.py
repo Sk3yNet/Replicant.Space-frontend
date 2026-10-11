@@ -259,3 +259,60 @@ def test_add_ward_sends_a_spare_or_prints(client):
     client.portal.call(db.kv_set, "devices", devs)
     msg = client.portal.call(e.order_ward, "LERNA", "joe")
     assert "print" in msg or "no spare ward and no autofactory" in msg
+
+
+def test_ward_prints_spread_over_factories_and_skip_compacted_ones():
+    from rsweb import ward_orders as wo
+    pos = {"A": {"x": 0, "y": 0, "z": 0}, "B": {"x": 1, "y": 0, "z": 0}}
+    f1 = {"device_code": "F1", "device_type": "autofactory", "location": "A-1", "tags": ["fleet:hub"],
+          "print_queue": [{"device_type": "system_ward", "tags": ["to:b"]}]}
+    f2 = {"device_code": "F2", "device_type": "autofactory", "location": "A-2", "tags": ["fleet:hub"]}
+    f3 = {"device_code": "F3", "device_type": "autofactory", "location": "A-3", "status": "compacted"}
+    assert wo.factory_near([f1, f2, f3], "B", set(), pos, 100)["device_code"] == "F2"
+    assert wo.factory_near([f1, f2, f3], "B", set(), pos, 100, {"F2": 2})["device_code"] == "F1"
+    f4 = {"device_code": "F4", "device_type": "autofactory", "location": "B-4", "print_queue": [{}, {}]}
+    assert wo.factory_near([f1, f2, f4], "B", set(), pos, 100)["device_code"] == "F2"   # queue before distance
+    assert wo.queued_at(f1, "B") == 0 and wo.queued_at(f2, "B") is None
+
+
+def test_queued_ward_print_gives_way_to_a_spare(client):
+    e = eng(client)
+    db = client.app.state.db
+    devs = [d for d in client.portal.call(db.kv_get, "devices") if d.get("device_type") not in ("system_ward", "autofactory")]
+    fac = {"device_code": "FX1", "device_type": "autofactory", "location": "SOL-1", "status": "printing (system_ward)",
+           "printing": {"device_type": "system_ward", "tags": ["to:lerna"]},
+           "print_queue": [{"device_type": "system_ward", "tags": ["to:abotein"]}]}
+    spare = {"device_code": "WD9", "device_type": "system_ward", "location": "SOL-BELT-1", "status": "inactive", "tags": []}
+    client.portal.call(db.kv_set, "devices", devs + [fac, spare])
+    client.portal.call(db.kv_set, "ward_orders", {"ABOTEIN": {"at": "2099-01-01T00:00:00+00:00", "how": "print", "factory": "FX1"},
+                                                  "LERNA": {"at": "2099-01-01T00:00:00+00:00", "how": "print", "factory": "FX1"}})
+    client.portal.call(e.ward_orders_pass)
+    orders = client.portal.call(db.kv_get, "ward_orders")
+    assert orders["ABOTEIN"]["how"] == "send" and orders["ABOTEIN"]["device"] == "WD9"
+    assert orders["LERNA"]["how"] == "print"          # already printing: left alone
+    job = next(j for j in client.portal.call(e.jobs) if "WD9 → ABOTEIN" in j["title"])
+    assert job["steps"][0]["body"] == {"command": "dequeue_print", "index": 0}
+    assert job["steps"][1]["body"]["configuration"]["add_tags"] == ["to:abotein"]
+
+
+def test_to_tag_naming_a_fleet_means_its_home():
+    from rsweb import loadouts as lo
+    d = {"tags": ["to:sol-printing-hub"]}
+    assert lo.bound_for(d, {"SOLARES"}, {"sol-printing-hub": "SOLARES"}) == "SOLARES"
+    assert lo.bound_for({"tags": ["to:solares"]}, {"SOLARES"}) == "SOLARES"
+    steps = lo.arrived_steps("X1", {"device_code": "X1", "location": "SOLARES-2", "tags": ["to:sol-printing-hub"]}, {})
+    assert "to:sol-printing-hub" in steps[-1]["body"]["configuration"]["remove_tags"]
+
+
+def test_removing_a_ward_order_drops_its_queued_print(client):
+    e = eng(client)
+    db = client.app.state.db
+    devs = [d for d in client.portal.call(db.kv_get, "devices") if d.get("device_type") not in ("system_ward", "autofactory")]
+    fac = {"device_code": "FX2", "device_type": "autofactory", "location": "SOL-1",
+           "print_queue": [{"device_type": "system_ward", "tags": ["to:lerna"]}, {"device_type": "system_ward", "tags": ["to:abotein"]}]}
+    client.portal.call(db.kv_set, "devices", devs + [fac])
+    client.portal.call(db.kv_set, "ward_orders", {"ABOTEIN": {"at": "2099-01-01T00:00:00+00:00", "how": "print", "factory": "FX2"}})
+    msg = client.portal.call(e.remove_ward, "ABOTEIN", "joe")
+    assert "queued print on FX2 dropped" in msg
+    job = next(j for j in client.portal.call(e.jobs) if "drop the queued ward for ABOTEIN" in j["title"])
+    assert job["steps"][0]["body"] == {"command": "dequeue_print", "index": 1}

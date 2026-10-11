@@ -64,7 +64,11 @@ class OpsRules:
                 order.update(how="send", device=spare["device_code"])
                 msg = f"sending spare ward {spare['device_code']} to {star} (the loadout pass carries it)"
             else:
-                f = wo.factory_near(devices, star, busy, pos, reach)
+                ordered: dict[str, int] = {}
+                for o in orders.values():
+                    if o.get("how") == "print" and o.get("factory"):
+                        ordered[o["factory"]] = ordered.get(o["factory"], 0) + 1
+                f = wo.factory_near(devices, star, busy, pos, reach, ordered)
                 if not f:
                     return f"no spare ward and no autofactory within {reach:g} ly of {star}"
                 await self.create_job("wards", f"print a ward on {f['device_code']} for {star}", f["device_code"],
@@ -102,6 +106,12 @@ class OpsRules:
                 changed = True
                 await self.log("wards", f"{star}: ward order dropped — no ward got there in {wo.EXPIRE_DAYS} days", "alert", notify=True)
                 continue
+            if not here and o.get("how") == "print" and o.get("factory"):
+                swap = await self._ward_print_to_spare(star, o, devices, busy)
+                if swap:
+                    changed = True
+                    out.append(swap)
+                    continue
             if here and here["device_code"] not in busy and "activate" in (here.get("available_commands") or ["activate"]) \
                     and wh.wards(devices)["active"] < wh.WARD_CAP:
                 from .automations import step
@@ -113,6 +123,34 @@ class OpsRules:
             await self.db.kv_set(wo.KV, orders)
         return out
 
+    async def _ward_print_to_spare(self, star: str, o: dict, devices: list[dict], busy: set[str]) -> str | None:
+        """A ward print still waiting in its factory's queue gives way to a spare ward in reach: dequeue the print, send
+        the spare. Updates the order in place."""
+        from . import loadouts as lo
+        from . import ward_orders as wo
+        from .automations import step
+        f = next((d for d in devices if d.get("device_code") == o["factory"]), None)
+        idx = wo.queued_at(f, star) if f and f["device_code"] not in busy else None
+        if idx is None:
+            return None
+        cat = await self.db.kv_get("stars", {}) or {}
+        pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict)}
+        reach = float(((await self.loadout_cfg()).get("settings") or {}).get("max_supply_ly") or 100)
+        spare = wo.spare_ward(devices, star, busy, pos, reach)
+        if not spare:
+            return None
+        rem = [t for t in spare.get("tags") or [] if t == lo.SPARE or t.startswith(("home:", "at:"))]
+        await self.create_job("wards", f"ward {spare['device_code']} → {star} (instead of the print on {f['device_code']})",
+                              spare["device_code"],
+                              [step(f"{f['device_code']}: drop the queued ward for {star}", f"/devices/{f['device_code']}",
+                                    {"command": "dequeue_print", "index": idx}),
+                               lo.tag_step(spare["device_code"], [lo.to_tag(star)], rem or None)],
+                              {"devices": [spare["device_code"], f["device_code"]]}, force=True)
+        busy.update({spare["device_code"], f["device_code"]})
+        o.update(how="send", device=spare["device_code"], factory=None)
+        await self.log("wards", f"{star}: spare ward {spare['device_code']} goes instead of the print queued on {f['device_code']}")
+        return f"{star}: sending spare {spare['device_code']} instead of printing"
+
     async def remove_ward(self, star: str, user: str = "") -> str:
         """Remove the ward from `star`: deactivate yours there (it stays deployed; activate it again any time)."""
         from . import ward_orders as wo
@@ -120,11 +158,21 @@ class OpsRules:
         from .automations import step
         star = star.upper()
         orders = await self.db.kv_get(wo.KV, {}) or {}
-        if orders.pop(star, None) is not None:
+        order = orders.pop(star, None)
+        if order is not None:
             await self.db.kv_set(wo.KV, orders)
-        here = wo.ward_here(await self.devices(), star)
+        devices = await self.devices()
+        dropped = ""
+        f = next((d for d in devices if d.get("device_code") == (order or {}).get("factory")), None)
+        idx = wo.queued_at(f, star) if f and (order or {}).get("how") == "print" else None
+        if idx is not None:   # a print not started yet goes too
+            await self.create_job("wards", f"{f['device_code']}: drop the queued ward for {star}", f["device_code"],
+                                  [step(f"{f['device_code']}: drop the queued ward for {star}", f"/devices/{f['device_code']}",
+                                        {"command": "dequeue_print", "index": idx})], {"devices": [f["device_code"]]}, force=True)
+            dropped = f", queued print on {f['device_code']} dropped"
+        here = wo.ward_here(devices, star)
         if not here or not wh.active(here):
-            return f"no active ward of yours in {star}" + (" (order canceled)" if here is None else "")
+            return f"no active ward of yours in {star}" + (f" (order canceled{dropped})" if order is not None else "")
         await self.create_job("wards", f"deactivate ward {here['device_code']} in {star}", here["device_code"],
                               [step(f"deactivate ward {here['device_code']}", f"/devices/{here['device_code']}",
                                     {"command": "deactivate"})], {"devices": [here["device_code"]]}, force=True)

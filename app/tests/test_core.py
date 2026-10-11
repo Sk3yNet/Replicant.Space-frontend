@@ -2223,6 +2223,7 @@ def test_diagnostics_snapshot_and_mining_diagnosis(client):
     paths = [c["path"] for c in snap["calls"]]
     assert "/devices" in paths and "/inventory" in paths and any(p.startswith("/locations/") for p in paths)
     assert snap["requests"] <= 60 and "diagnosis" in snap and "rules" in snap["app"]
+    assert snap["app"]["devices"] and "ward_orders" in snap["app"]   # every device in one list
     page = client.get("/diagnostics", headers=H).text
     assert "Mining diagnosis" in page and "Mining drones" in page
     dl = client.get("/diagnostics/snapshot.json", headers=H)

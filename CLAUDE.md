@@ -40,6 +40,13 @@ Portainer, which follows `main`: **a push to `main` is a deploy.**
   Use Playwright with `executable_path="/opt/pw-browsers/chromium"`. Stop the servers by PID, never `pkill -f`,
   which matches your own shell.
 
+## Reading a diagnostics snapshot
+
+Read uploads with `python3 -I` from a scratch script. Use `app.devices` for the device list (every page merged).
+`calls` holds the raw GETs, and `/devices` is split over several pages there, so never judge from one page. Under
+`app` you also find jobs, log, actions (last 60 commands), fleets, loadouts, loadouts_last and ward_orders. A snapshot
+from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
+
 ## Game facts learned live (keep them in mind)
 
 - A new start, or a teleport to Sol, gives a heaven vessel with three mining drones and a replicant matrix. There's no
