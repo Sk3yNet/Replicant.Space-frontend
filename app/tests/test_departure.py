@@ -421,3 +421,33 @@ def test_a_wait_for_an_arrival_ends_when_the_device_is_already_there(client):
     w = fl._wait_arrive("SC", "SOL-BELT-1")
     job = client.portal.call(e.create_job, "fleets", "F: assemble", None, [w], {"devices": ["SC"]}, True)
     assert client.portal.call(e._get, job["id"])["status"] == "done"
+
+
+def test_member_aboard_another_fleets_vessel_in_flight_is_left_out_not_fatal():
+    """Seen live 2026-10-11: a Surveyors drone rode off in Surveyor 2's vessel; assemble and recall kept failing
+    'Cannot deploy while container is in transit'."""
+    fleet = {"id": "f", "role": "explore", "home": "SOL", "wants": {}}
+    devs = [dev("V", "cargo_vessel", "SOL-4-L4", features=["surge"], stow_capacity=20),
+            dev("D1", "survey_drone", "SOL-4-L4", features=["stow"]),
+            dev("D2", "survey_drone", None, status="stowed", stowed_in_device_code="H", features=["stow"]),
+            dev("H", "heaven_vessel", None, status="travelling", tags=["fleet:other"],
+                travel={"destination": "NOSOXA-OORT", "arrives_at": "2099-01-01T00:00:00+00:00"})]
+    steps, problems = fl.assemble_steps(fleet, devs)
+    assert not any("deploy out of H" in s["desc"] for s in steps) and any("D2 is aboard H" in p for p in problems)
+    assert any(s["desc"] == "stow D1 in V" for s in steps)
+
+
+def test_survey_crew_skips_a_surveyed_target_and_stays_aboard_at_home(client):
+    e = eng(client)
+    client.portal.call(client.app.state.db.kv_set, "ami_surveyed", {"LERNA": "2026-10-11T00:00:00+00:00"})
+    devs = [dev("V", "cargo_vessel", "LERNA-4-L4", features=["surge"], stow_capacity=20),
+            dev("D1", "survey_drone", None, status="stowed", stowed_in_device_code="V")]
+    fleet = {"id": "f", "name": "F", "role": "explore", "home": "SOL", "station": True, "wants": {}}
+    m = {"status": "running", "phase": "travel", "idx": 0, "targets": ["LERNA"], "log": [], "opts": {}}
+    steps, _ = client.portal.call(e.fleet_phase_steps, fleet, m, "deploy", devs)
+    assert steps == [] and "already surveyed" in m["log"][-1]["text"]
+    steps, _ = client.portal.call(e.fleet_phase_steps, fleet, m, "work", devs)
+    assert steps == []
+    devs[0]["location"] = "SOL-4-L4"
+    steps, _ = client.portal.call(e.fleet_phase_steps, fleet, m, "unload", devs)
+    assert not any(s["desc"].startswith("deploy D1") for s in steps)

@@ -206,7 +206,7 @@ STEP_TIMEOUT = 3600          # waiting for travel/scan to finish
 MAX_TRIP_WAIT_H = 48         # a wait for an arrival is extended while the device is still moving, up to this long
 BUSY_RE = re.compile(r"while (the )?(replicant|device|carrier|vessel)? ?is (still )?(travel|cruis|surg|in motion)|"
                      r"already in motion|is (currently )?(travel|surg|cruis)|"
-                     r"not in a star system", re.I)   # mid-trip between systems (seen live 2026-10-11, Surveyor 3's gather)
+                     r"not in a star system|in transit", re.I)   # mid-trip between systems (seen live 2026-10-11, Surveyor 3's gather)
 BUSY_RETRY_S, BUSY_TRIES = 300, 36   # retry such a refusal every 5 min, for up to 3 h
 SHORT_TIMEOUT = 120          # waiting for deploy/stow confirmation
 MAX_LOG = 300
@@ -1635,6 +1635,20 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                           + ("" if riding else "inside relay coverage ") + "is surveyed or taken")
         return min(cands)[2], ""
 
+    async def system_surveyed(self, star: str) -> bool:
+        """Every body but the belts surveyed (scout_next's test), or an AMI survey_system reported nothing left."""
+        star = star_of(star)
+        if star in (await self.db.kv_get("ami_surveyed", {}) or {}):
+            return True
+        row = await self.db.fetchone("SELECT data FROM systems WHERE star=?", (star,))
+        if not row:
+            return False
+        try:
+            scan = json.loads(row["data"] or "{}")
+        except ValueError:
+            return False
+        return not survey_targets(scan, await self.db.kv_get("surveyed", {}) or {}, False, False, 1)
+
     def scout_unhealthy(self, f: dict, devices: list[dict], start_at: float | None = None) -> list[str]:
         """Members at or below the in-run limit (50 %), or — to start a run — below `start_at` (85 %)."""
         from . import fleets as fl
@@ -2761,6 +2775,11 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         if phase == "travel":
             return fl.travel_steps(fleet, devices, target, stars), []
         if phase == "deploy":
+            if fleet["role"] == "explore" and target and await self.system_surveyed(target):
+                # nothing left to survey there: don't unload, move on (the survey phase is skipped too)
+                m["skip_survey"] = star_of(target)
+                self._mlog(m, f"{star_of(target)} is already surveyed — not deploying, moving on")
+                return [], []
             from . import placement as pl
             geo = pl.geography(target or "", devices, await self.system_scan(target) if target else None,
                                (stars.get(target) or {}).get("entry_point"))
@@ -2770,6 +2789,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             # survey crews no longer drop relays or beacons (2026-10-11): ask for one on the Systems page instead
             return fl.unload_steps(fleet, devices, spot), []
         if phase == "work":
+            if fleet["role"] == "explore" and m.get("skip_survey") and m["skip_survey"] == star_of(target or ""):
+                return [], []
             if fleet["role"] == "explore":
                 from . import placement as pl
                 geo = pl.geography(target or "", devices, await self.system_scan(target) if target else None,
@@ -2829,7 +2850,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             # ready for its next mission: only cargo is deposited (a cargo carrier riding a carrier hops off for it and
             # boards again).
             pile = lo.drop_point(m.get("drop_star") or fleet["home"], devices, inv, stars)
-            if fleet.get("station"):
+            if fleet.get("station") and fleet.get("role") != "explore":   # a survey crew stays aboard, ready to go again
                 steps = fl.unload_steps(fleet, devices)
                 self._mlog(m, "home: devices come off the carriers to work the home system (stationed fleet)")
             else:

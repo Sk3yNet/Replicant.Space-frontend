@@ -189,6 +189,11 @@ def unhosted(d: dict, carriers: set[str], by: dict[str, dict]) -> dict:
     controller and drones stowed in Trader_1's heaven vessel in another system — the mission left without them) is
     planned as if it stood where that vessel is, marked `_from_host`: it's deployed out of it first, then boards."""
     host = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
+    if host and host not in carriers and (in_flight(by.get(host) or {}) or str((by.get(host) or {}).get("status") or "")
+                                          .lower().startswith(("travel", "cruis", "surg"))):
+        # that vessel is on its way somewhere (seen live 2026-10-11: a Surveyors drone aboard Surveyor 2's heaven vessel
+        # bound for NOSOXA — every assemble and recall failed "Cannot deploy while container is in transit")
+        return {**d, "_away_in": host}
     if not host or host in carriers or not (by.get(host) or {}).get("location"):
         return d
     return {**d, "location": by[host]["location"], "stowed_in_device_code": None, "attached_to_device_code": None,
@@ -462,6 +467,10 @@ def assemble_steps(fleet: dict, devices: list[dict], radii: dict[str, float] | N
     for d in sorted((unhosted(x, codes, by) for x in r["passengers"]), key=lambda d: (stowable(d), d["device_code"])):
         code = d["device_code"]
         if aboard(d, codes):
+            continue
+        if d.get("_away_in"):
+            problems.append(f"{code} is aboard {d['_away_in']} (not this fleet's), which is on its way somewhere — it's left "
+                            "out until that vessel lands; bring it back or take it out of the fleet")
             continue
         trip = in_flight(d)
         here = star_of(d.get("location") or (trip or {}).get("destination"))
