@@ -3743,6 +3743,8 @@ async def fleets_control(request: Request, fid: str, action: str = Form(...), us
             ph = fl.PHASES[f["role"]]
             cur = m.get("phase")
             m["phase"] = ph[ph.index(cur) - 1] if cur in ph and ph.index(cur) > 0 else None
+            if m["phase"] == "watch":
+                m["recall_now"] = True   # re-run the recall itself, not the wait before it (seen live 2026-10-11: Surveyors)
             eng._mlog(m, "resumed")
         elif action == "stop":
             m["status"] = "stopped"

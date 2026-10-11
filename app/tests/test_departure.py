@@ -85,6 +85,19 @@ def test_mission_waits_at_the_gate_until_complete_or_sent_anyway(client):
     assert m.get("departed") and m["phase"] != "gather"
 
 
+def test_mission_boards_everyone_before_it_leaves(client):
+    """Seen live 2026-10-11: Surveyor 3's gather failed, a retry flew the empty vessel off — in the system isn't aboard."""
+    e = eng(client)
+    devs = [dev("C", "surge_carrier", "SOL-OORT", features=["surge"], attach_capacity=9),
+            dev("M1", "mining_drone", None, attached_to_device_code="C"), dev("M2", "mining_drone", "SOL-BELT-1")]
+    m = {"status": "running", "phase": "gather", "idx": 0, "targets": ["ABOTEIN"], "log": [], "opts": {}}
+    _fleet(e, client, devs, mission=m)
+    client.portal.call(e.run_fleets)
+    m = client.portal.call(e.fleets)[0]["mission"]
+    assert not m.get("departed") and "not aboard yet (M2)" in m["watch_note"] and m["phase"] == "assemble"
+    assert any(j["title"] == "F: board before leaving" for j in client.portal.call(e.jobs))
+
+
 def test_add_devices_lists_other_fleets_members_grouped(client):
     e = eng(client)
     devs = [dev("M1", "mining_drone", "SOL-BELT-1", tags=["fleet:other"]), dev("M2", "mining_drone", "SOL-BELT-1", tags=[]),
@@ -383,3 +396,18 @@ def test_requested_beacon_goes_to_the_local_civilization(client):
     client.portal.call(db.kv_set, "devices", devs + [beacon, vessel])
     client.portal.call(e.ward_orders_pass)
     assert "LOR" not in client.portal.call(db.kv_get, "beacon_requests")
+
+
+def test_resumed_recall_does_not_wait_on_a_cleared_survey_controller(client):
+    """Seen live 2026-10-11: Surveyors stalled in recall, was resumed, and sat in watch for hours — its controller was
+    aboard with the directive cleared, so it never reported no_targets."""
+    e = eng(client)
+    devs = [dev("V", "cargo_vessel", "SOL-6-L4", features=["surge"], stow_capacity=20),
+            dev("SC", "ami_survey_controller", None, status="stowed", stowed_in_device_code="V"),
+            dev("D1", "survey_drone", None, status="stowed", stowed_in_device_code="V")]
+    assert fl.watch_done({"role": "explore", "id": "f"}, {}, devs, "2026-10-11T00:00:00+00:00")[0]
+    m = {"status": "stalled", "phase": "recall", "idx": 0, "targets": ["SOL"], "log": [], "opts": {}, "departed": True}
+    _fleet(e, client, devs, role="explore", wants={"ami_survey_controller": 1, "cargo_vessel": 1, "survey_drone": 1}, mission=m)
+    client.post("/fleets/f/control", data={"action": "resume"}, headers=HX)
+    m = client.portal.call(e.fleets)[0]["mission"]
+    assert m["phase"] != "watch" and m["status"] in ("running", "done")

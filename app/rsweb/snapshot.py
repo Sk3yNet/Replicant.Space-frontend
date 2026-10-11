@@ -153,7 +153,13 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "engine": {**eng.engine_status(), **(await db.kv_get("engine_tick", {}) or {})},   # is the tick loop alive?
         "fleets": [{"id": f.get("id"), "name": f.get("name"), "role": f.get("role"), "home": f.get("home"),
                     "station": bool(f.get("station")), "template": f.get("template"), "wants": f.get("wants") or {},
-                    "materials": f.get("materials") or "", "mission": (f.get("mission") or {}).get("status")}
+                    "materials": f.get("materials") or "", "mission": (f.get("mission") or {}).get("status"),
+                    # where a mission is and its latest log lines (e.g. "stuck in recall")
+                    "mission_detail": {k: (f.get("mission") or {}).get(k) for k in
+                                       ("phase", "phase_at", "idx", "targets", "job", "watch_note", "stall", "departed",
+                                        "relocate", "from", "opts")}
+                                      | {"log": ((f.get("mission") or {}).get("log") or [])[-20:]} if f.get("mission") else None,
+                    "pending_home": f.get("pending_home"), "path_note": f.get("path_note")}
                    for f in await eng.fleets()],
         # the last commands sent (by you or the automations) and what the game answered — e.g. "did my cancel work?"
         "actions": [{"at": r["at"], "by": "automation" if r["user"] == "automation" else "you", "method": r["method"],

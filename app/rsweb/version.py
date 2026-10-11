@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.72.0"
+VERSION = "1.73.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.73.0", "2026-10-11", "Missions: nobody leaves until every passenger is aboard a carrier (a boarding step runs first; "
+               "Launch anyway still overrides). Resuming a stalled recall re-runs the recall, not the wait before it, and an "
+               "explore fleet's watch ends when its survey controller has no directive. 'Device is not in a star system' is "
+               "retried like other in-transit refusals. Snapshots carry each mission's phase, note and recent log."),
     ("1.72.0", "2026-10-11", "Systems list: a Fleets column (homed here / on a mission here) instead of replicants; add, "
                "remove or cancel your ward, FTL relay and FTL beacon per system (activate one there, else send a spare, else "
                "print one); a civilization mark, and a requested beacon goes on to the civilization's body. Survey crews no "

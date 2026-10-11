@@ -205,7 +205,8 @@ RULES_BY_ID = {r.id: r for r in RULES}
 STEP_TIMEOUT = 3600          # waiting for travel/scan to finish
 MAX_TRIP_WAIT_H = 48         # a wait for an arrival is extended while the device is still moving, up to this long
 BUSY_RE = re.compile(r"while (the )?(replicant|device|carrier|vessel)? ?is (still )?(travel|cruis|surg|in motion)|"
-                     r"already in motion|is (currently )?(travel|surg|cruis)", re.I)
+                     r"already in motion|is (currently )?(travel|surg|cruis)|"
+                     r"not in a star system", re.I)   # mid-trip between systems (seen live 2026-10-11, Surveyor 3's gather)
 BUSY_RETRY_S, BUSY_TRIES = 300, 36   # retry such a refusal every 5 min, for up to 3 h
 SHORT_TIMEOUT = 120          # waiting for deploy/stow confirmation
 MAX_LOG = 300
@@ -3079,6 +3080,25 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                         if steps:
                             m["phase"] = "gather"
                             job = await self.create_job("fleets", f"{fleet['name']}: gather (filling the loadout)", None, steps,
+                                                        {"devices": [d["device_code"] for d in fl.members(fleet, devices)],
+                                                         "fleet": fleet["id"]}, force=True)
+                            m["job"] = job["id"] if job else None
+                        break
+                    loose = [d["device_code"] for d in fl.roster(fleet, devices)["loose"]]
+                    if loose and not (m.get("opts") or {}).get("partial"):
+                        # together in one system isn't aboard (seen live 2026-10-11: Surveyor 3's gather failed while its
+                        # vessel was still cruising in, a retry then flew the empty vessel to SARKARUS): board them first
+                        note = f"waiting to leave: {len(loose)} not aboard yet ({', '.join(loose[:6])}) — boarding them"
+                        if m.get("watch_note") != note:
+                            m["watch_note"] = note
+                            self._mlog(m, note)
+                            changed = True
+                        steps, problems = await self.fleet_phase_steps(fleet, m, "assemble", devices)
+                        for p_ in problems:
+                            self._mlog(m, p_)
+                        if steps:
+                            m["phase"] = "assemble"
+                            job = await self.create_job("fleets", f"{fleet['name']}: board before leaving", None, steps,
                                                         {"devices": [d["device_code"] for d in fl.members(fleet, devices)],
                                                          "fleet": fleet["id"]}, force=True)
                             m["job"] = job["id"] if job else None

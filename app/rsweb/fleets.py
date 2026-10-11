@@ -968,6 +968,11 @@ def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str,
             if mins < IDLE_SURVEY_MINUTES:
                 return False, f"drones idle for {mins:.0f} min — making sure they're finished", {"idle_since": since}
             return True, "drones finished", {"idle_since": since}
+        if not (ctrl.get("ami_directive") or {}).get("name") and not str(ctrl.get("status") or "").startswith(
+                ("surveying", "scanning", "searching", "launched", "coordinating")):
+            # its directive is gone (cleared by a recall, or stowed): nothing is surveying (seen live 2026-10-11:
+            # Surveyors resumed after a stalled recall and waited here for hours, everyone already aboard)
+            return True, "survey controller has no directive", {}
         return st.startswith(("no_targets", "done", "idle")), (st or "surveying"), {}
     ctrl = next((d for d in ms if kind(d) == "mining_controller"), None)
     st = str(((ctrl or {}).get("ami_directive") or {}).get("_eval_state") or "")
