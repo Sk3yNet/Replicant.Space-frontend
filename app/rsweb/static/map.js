@@ -509,8 +509,20 @@ renderer.domElement.addEventListener("pointermove", ev => {
   if (s) { tip.style.display = "block"; tip.style.left = ev.offsetX + 12 + "px"; tip.style.top = ev.offsetY + 12 + "px"; tip.textContent = `${esc(s.designation)} ${s.spectral_type || ""}`; }
   else tip.style.display = "none";
 });
-let downAt = null;
-renderer.domElement.addEventListener("pointerdown", ev => downAt = [ev.clientX, ev.clientY]);
+let downAt = null, pressTimer = null, pressed = false;
+Object.assign(renderer.domElement.style, { webkitTouchCallout: "none", userSelect: "none", webkitUserSelect: "none" });   // iOS: no callout on hold
+// touch screens have no right button: a long press (half a second, holding still) measures instead
+renderer.domElement.addEventListener("pointerdown", ev => {
+  downAt = [ev.clientX, ev.clientY]; pressed = false; clearTimeout(pressTimer);
+  if (ev.pointerType === "touch" && ev.isPrimary) {
+    const at = { clientX: ev.clientX, clientY: ev.clientY };
+    pressTimer = setTimeout(() => { pressed = true; navigator.vibrate?.(15); rightClick(at); }, 500);
+  }
+});
+renderer.domElement.addEventListener("pointermove", ev => {
+  if (pressTimer && downAt && Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 8) { clearTimeout(pressTimer); pressTimer = null; }
+});
+renderer.domElement.addEventListener("pointercancel", () => { clearTimeout(pressTimer); pressTimer = null; });
 // measuring is right-click only (a right-drag still pans): 1st sets the first point, 2nd the second, 3rd clears both
 renderer.domElement.addEventListener("contextmenu", ev => ev.preventDefault());
 function measureMark(s) {
@@ -520,23 +532,25 @@ function measureMark(s) {
 function rightClick(ev) {
   if (measure.length >= 2) {            // third right-click: clear
     measure = []; measureGroup.clear();
-    info.innerHTML = `<p class="muted">Measurement cleared. Right-click a star to start another.</p>`;
+    info.innerHTML = `<p class="muted">Measurement cleared. Right-click (or long-press) a star to start another.</p>`;
     return;
   }
   const s = pick(ev); if (!s) return;
   if (measure.length === 1 && measure[0] === s) return;
   measure.push(s); measureMark(s);
   if (measure.length === 1) {
-    info.innerHTML = `<h2>Measure</h2><p>From <b>${esc(s.designation)}</b> — right-click a second star.</p>`;
+    info.innerHTML = `<h2>Measure</h2><p>From <b>${esc(s.designation)}</b> — right-click (or long-press) a second star.</p>`;
     return;
   }
   const [a, b] = measure;
   measureGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos(a), pos(b)]),
                                   new THREE.LineBasicMaterial({ color: 0x4fd18b })));
   info.innerHTML = `<h2>Measure</h2><p>${esc(a.designation)} ↔ ${esc(b.designation)}: <b>${pos(a).distanceTo(pos(b)).toFixed(2)} ly</b></p>
-    <p class="muted small">Right-click again to clear.</p>`;
+    <p class="muted small">Right-click (or long-press) again to clear.</p>`;
 }
 renderer.domElement.addEventListener("pointerup", ev => {
+  clearTimeout(pressTimer); pressTimer = null;
+  if (pressed) { pressed = false; return; }   // the long press already measured: not a tap too
   if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 4) return;
   if (ev.button === 2) { rightClick(ev); return; }
   if (ev.button !== 0) return;
@@ -609,15 +623,17 @@ function animate(t = 0) {
   }
 }
 
-// Progressive: the stars first (part=core: a quick, small answer), then what's on them (part=overlay: drones, mining,
-// ships in transit, fleets, supply lines) — the map is usable while the second part is still coming.
-function partUrl(part) {
+// Progressive: your systems first (part=core, scope=mine: devices, replicants, fleet homes, scans), then what's on
+// them (part=overlay: drones, mining, ships in transit, fleets, supply lines) alongside the rest of the catalog
+// (scope=rest) — the map is usable while the later parts are still coming. A refresh takes the whole core at once.
+function partUrl(part, scope) {
   const u = new URL(OPTS.dataUrl || "/api/map.json", location.href);
   u.searchParams.set("part", part);
+  if (scope) u.searchParams.set("scope", scope);
   return u.href;
 }
-function fetchPart(part) {
-  return fetch(partUrl(part), { credentials: "same-origin", headers: OPTS.headers || {} })
+function fetchPart(part, scope) {
+  return fetch(partUrl(part, scope), { credentials: "same-origin", headers: OPTS.headers || {} })
     .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); });
 }
 function infoText(d, loadingOverlay) {
@@ -647,8 +663,23 @@ function applyOverlay(o, first) {
   buildSupply();
   if (first && data.stars.length) infoText(data, false);
 }
+let focused = false;
+function addRest(r) {
+  const fresh = (r.stars || []).filter(s => !byName[s.designation]);
+  fresh.forEach(s => { byName[s.designation] = s; data.stars.push(s); });
+  if (!data.stars.length) {
+    info.innerHTML = `<p class="muted">No star catalog cached yet. It syncs every 30 minutes, or use “refresh catalog”.</p>`;
+    return;
+  }
+  if (fresh.length) {
+    if ($("star-list")) $("star-list").innerHTML = data.stars.map(s => `<option value="${esc(s.designation)}">`).join("");
+    build();
+    infoText(data, false);
+    if (!focused) { const s = (OPTS.focus && byName[OPTS.focus]) || repStar(); if (s) { focus(s); focused = true; } }
+  }
+}
 function load(first) {
-  return fetchPart("core").then(d => {
+  return fetchPart("core", first ? "mine" : null).then(d => {
     const keep = { moving: data.moving, fleets: data.fleets, supply: data.supply, prospects: data.prospects,
                    others: data.others, traffic: data.traffic, trail: data.trail };   // until the new overlay lands
     data = { ...keep, ...d };
@@ -657,14 +688,17 @@ function load(first) {
     build();
     if (first) {
       if (!d.stars.length) {
-        info.innerHTML = `<p class="muted">No star catalog cached yet. It syncs every 30 minutes, or use “refresh catalog”.</p>`;
+        info.innerHTML = `<p class="muted">Loading the star catalog…</p>`;
       } else {
         infoText(data, true);
-        const s = (OPTS.focus && byName[OPTS.focus]) || repStar(); if (s) focus(s);
+        const s = (OPTS.focus && byName[OPTS.focus]) || repStar(); if (s) { focus(s); focused = true; }
       }
       animate();
     }
-    return fetchPart("overlay").then(o => applyOverlay(o, first));
+    const overlay = fetchPart("overlay").then(o => applyOverlay(o, first));
+    if (!first) return overlay;
+    const rest = fetchPart("core", "rest").then(addRest);
+    return Promise.all([overlay, rest]);
   });
 }
 load(true).catch(e => { info.innerHTML = `<p class="muted">Could not load the map: ${esc(e.message)}</p>`; OPTS.onError?.(e); });

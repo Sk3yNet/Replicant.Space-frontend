@@ -1235,11 +1235,13 @@ async def systems_prospects(request: Request, origin: str = "", user: str = Depe
 
 
 @router.post("/systems/{star}/ward", response_class=HTMLResponse)
-async def systems_ward(request: Request, star: str, action: str = Form(...), user: str = Depends(current_user)):
-    """Prospects: add a ward in a system (activate / send a spare / print one) or remove yours (deactivate)."""
+async def systems_ward(request: Request, star: str, action: str = Form(...), kind: str = Form("ward"),
+                       user: str = Depends(current_user)):
+    """Prospects / Systems: add a ward, relay or beacon in a system (activate / send a spare / print one) or remove
+    yours (deactivate)."""
     eng = request.app.state.worker.automations
     async with eng.lock:
-        msg = await (eng.order_ward(star, user) if action == "add" else eng.remove_ward(star, user))
+        msg = await (eng.order_outpost(kind, star, user) if action == "add" else eng.remove_outpost(kind, star, user))
     return HTMLResponse(f'<div class="result small">{html.escape(msg)}</div>', headers={"HX-Refresh": "true"})
 
 
@@ -1247,11 +1249,18 @@ async def systems_ward(request: Request, star: str, action: str = Form(...), use
 async def systems(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     known = {r["star"]: r for r in await request.app.state.db.fetchall("SELECT star, updated_at FROM systems")}
-    presence: dict[str, dict] = defaultdict(lambda: {"devices": 0, "replicants": [], "locations": 0, "resources": 0})
+    presence: dict[str, dict] = defaultdict(lambda: {"devices": 0, "homes": [], "targets": [], "locations": 0, "resources": 0})
     for d in st["devices"]:
         presence[star_of(d.get("location"))]["devices"] += 1
-    for code, r in st["replicants"].items():
-        presence[star_of(r.get("location") or r.get("current_location"))]["replicants"].append(r.get("name") or code)
+    for f in await request.app.state.worker.automations.fleets():   # fleets homed here, and missions headed here
+        name = f.get("name") or f["id"]
+        if f.get("home"):
+            presence[f["home"]]["homes"].append(name)
+        m = f.get("mission") or {}
+        if m.get("status") in ("running", "stalled"):
+            for t in dict.fromkeys(star_of(x) for x in m.get("targets") or [] if x):
+                if name not in presence[t]["targets"]:
+                    presence[t]["targets"].append(name)
     for loc, info in (st["locations"] or {}).items():
         p = presence[star_of(loc)]
         p["locations"] += 1
@@ -1273,6 +1282,15 @@ async def systems(request: Request, user: str = Depends(current_user)):
     for s, p in rows:
         p["outposts"] = pres.get(s) or {k: [] for k in outposts.KINDS}
     out_rows = [(s, p) for s, p in rows if s and not (missing and all(p["outposts"][k] for k in outposts.KINDS))]
+    from . import ward_orders as wo
+    from . import wardhub as wh
+    orders = {k: await db.kv_get(wo.kv_key(k), {}) or {} for k in wo.KINDS}
+    cov = await request.app.state.worker.automations.civ_coverage()
+    beacon_at = {d.get("location") for d in st["devices"] if d.get("device_type") == "ftl_beacon" and wh.active(d)}
+    for s, p in out_rows:
+        p["civ"] = [{"location": x, "beacon": x in beacon_at} for x in wo.civ_places(cov, s)]   # local civilization bodies
+        p["orders"] = {k: orders[k].get(s) for k in wo.KINDS}
+        p["working"] = {k: any(wh.active(d) for d in p["outposts"][k]) for k in wo.KINDS}
     return await page(request, user, "systems.html", "systems", rows=out_rows, known=known, show_outposts=show or missing,
                       missing=missing, outpost_kinds=outposts.LABELS)
 
@@ -1706,7 +1724,9 @@ STAR_FIELDS = ("designation", "name", "position", "color", "spectral_type", "reg
 async def map_payload(request: Request, part: str = "all") -> dict:
     """The galaxy map's data (the Galaxy page and the desktop wallpaper), in two parts so the map can draw the stars
     first: part="core" — the stars (only the fields the map uses), where your devices are, replicants; part="overlay"
-    — per-star drones and mining, ships in transit, fleets, supply lines; "all" — both."""
+    — per-star drones and mining, ships in transit, fleets, supply lines; "all" — both. The core comes in two goes when asked
+    (`scope`): "mine" — the systems with your devices, replicants, fleet homes, scans or observatory finds, so the map
+    can draw them first; "rest" — every other star in the catalog."""
     db = request.app.state.db
     cat = await db.kv_get("stars", {}) or {}
     st = await load_state(request)
@@ -1721,9 +1741,15 @@ async def map_payload(request: Request, part: str = "all") -> dict:
         scanned = {r["star"] for r in await db.fetchall("SELECT star FROM systems")}
         from .census import observatory_stars
         prospected, _ = await observatory_stars(db)   # stars our observatories found: highlighted until scanned
+        scope = request.query_params.get("scope") or "all"
+        mine = set(presence) | set(infra) | scanned | set(prospected) \
+            | {star_of(r.get("location") or r.get("current_location")) for r in st["replicants"].values()} \
+            | {f.get("home") for f in await request.app.state.worker.automations.fleets() if f.get("home")}
         stars = []
         for s in cat.get("stars") or []:
             d = s.get("designation")
+            if scope != "all" and (d in mine) != (scope == "mine"):
+                continue
             stars.append({**{k: s[k] for k in STAR_FIELDS if k in s}, "devices": presence.get(d, 0), "infra": infra.get(d, []),
                           "scanned": d in scanned,
                           **({"prospected": prospected[d].get("found_at"), "found_by": prospected[d].get("found_by")}
@@ -2528,7 +2554,6 @@ async def live(request: Request, user: str = Depends(current_user)):
 # Where each rule's settings live: the page it works on (it loads them from /automations/rules-panel).
 RULE_HOME = {
     "census_on_arrival": ("Map › Stars", "/stars"), "scan_on_arrival": ("Map › Systems", "/systems"), "auto_survey": ("Map › Systems", "/systems"),
-    "deploy_beacon": ("Map › Systems", "/systems"),
     "restart_idle_miners": ("Map › Systems", "/systems"), "reopen_sites": ("Map › Systems", "/systems"),
     "salvage_when_depleted": ("Map › Systems", "/systems"), "belt_viability": ("Map › Systems", "/systems"),
     "visitor_alerts": ("Map › Traffic", "/traffic"), "civ_beacons": ("Map › Traffic", "/traffic"),
@@ -3147,13 +3172,6 @@ async def fleets_ctx(request: Request) -> dict:
     for f in items:
         f["report"] = lctx["plan"]["report"].get(f["id"])
         f["orders"] = [o for o in lctx.get("orders") or [] if o.get("fleet") == f["id"] and not o.get("device_code")]
-        if f.get("role") == "explore":
-            from . import outposts
-            stowed_map = await request.app.state.db.kv_get("stowed_map", {}) or {}
-            m = f.get("mission") or {}
-            left = (m.get("targets") or [])[m.get("idx", 0):] if m.get("status") in ("running", "stalled") else []
-            carriers = {c["device_code"] for c in fl.roster(f, st["devices"])["carriers"]}
-            f["outposts"] = outposts.shortfall(carriers, st["devices"], left, stowed_map, fl.members(f, st["devices"]))
         f["route"] = next((r for r in lctx["plan"].get("routes") or [] if r.get("fleet_id") == f["id"]), None)
         f["sends_to"] = fl.materials_target(f, items)
         f["takes_from"] = [x for x in items if x.get("materials") == f["id"]]
@@ -3669,12 +3687,6 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
     member_codes = {d["device_code"] for d in fl.members(f, st0["devices"])}
     aboard = [r.get("name") or c for c, r in st0["replicants"].items() if r.get("hosted_device_code") in member_codes]
     dark = [t for t in dict.fromkeys(star_of(x) for x in m["targets"] if x) if not _op.deployed_in(st0["devices"], t, "relay")]
-    if dark and f["role"] == "explore":   # a survey crew drops a relay in each: fine if it has enough of them
-        crew = fl.members(f, st0["devices"])
-        own_relays = [d for d in crew if d.get("device_type") == _op.KINDS["relay"]
-                      and not str(d.get("status") or "").startswith(("relaying", "active"))]
-        if len(own_relays) >= len(dark):
-            dark = []
     if dark and not aboard:
         w = (f"no relay of yours in {', '.join(dark)} and no replicant rides with the fleet — devices there may be out of "
              "control range; add a vessel hosting a replicant to the fleet")
@@ -3682,17 +3694,6 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         await eng.log("fleets", f"{f['name']}: {w}", "alert", notify=True)
     elif aboard:
         eng._mlog(m, f"replicant aboard: {', '.join(aboard)}")
-    if f["role"] == "explore":
-        from . import outposts
-        st = await load_state(request)
-        carriers = {c["device_code"] for c in fl.roster(f, st["devices"])["carriers"]}
-        sf = outposts.shortfall(carriers, st["devices"], m["targets"], await request.app.state.db.kv_get("stowed_map", {}) or {},
-                                fl.members(f, st["devices"]))
-        eng._mlog(m, "in the fleet: " + ", ".join(f"{sf['have'][k]} {outposts.LABELS[k]}(s) for {len(sf['need'][k])} system(s) "
-                                            "without one" for k in outposts.DROPS))
-        for w in sf["warnings"]:
-            eng._mlog(m, "warning: " + w)
-            await eng.log("fleets", f"{f['name']}: {w}", "alert", notify=True)
     f["mission"] = m
     await eng.save_fleets(items)
     async with eng.lock:

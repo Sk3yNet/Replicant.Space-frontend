@@ -1,9 +1,14 @@
-"""Ward orders (Map › Prospects: Add ward): get one of your system wards working in a system — activate one that's
-already there, else send a spare one (tagged to:<star>, the loadout pass carries it within the supply range), else
-print one on an autofactory in range (the shortest queue, then the nearest; tagged the same way). A print still
-waiting in the queue is dropped for a spare that turns up meanwhile (e.g. a ward you removed elsewhere). The engine stage ward_orders_pass activates it
-once it's deployed there, within the 25-ward cap and never alongside a hub of yours. kv "ward_orders":
-{star: {how: activate|send|print, device, factory, at, note}}; an order not done in 3 days is dropped.
+"""Ward, relay and beacon orders (Map › Prospects: Add ward; Systems: add / remove ward, relay, beacon): get one of your
+devices of that kind working in a system — activate one that's already there, else send a spare one (tagged to:<star>,
+the loadout pass carries it within the supply range; placement takes a relay to an L4/L5 point), else print one on an
+autofactory in range (the shortest queue, then the nearest; tagged the same way). A print still waiting in the queue is
+dropped for a spare that turns up meanwhile (e.g. one you removed elsewhere). The engine stage ward_orders_pass switches
+it on once it's deployed there (a ward within the 25-ward cap and never alongside a hub of yours; a relay only at an
+L4/L5 point). A beacon for a system with a local civilization goes on to that body (its event location, else a body
+with intelligent / spacefaring life: civilizations only send requests to a beacon AT their planet or moon); the order is
+done once one of yours works there. kv "ward_orders" / "relay_requests" / "beacon_requests" ("beacon_orders" is the civilization
+beacons' own): {star: {how: activate|send|print, device, factory,
+at, note}}; an order not done in 3 days is dropped.
 """
 from __future__ import annotations
 
@@ -14,24 +19,31 @@ from . import wardhub as wh
 
 KV = "ward_orders"
 EXPIRE_DAYS = 3
+KINDS = {"ward": "system_ward", "relay": "ftl_relay", "beacon": "ftl_beacon"}
+LABELS = {"ward": "ward", "relay": "FTL relay", "beacon": "FTL beacon"}
+
+
+def kv_key(kind: str) -> str:
+    return KV if kind == "ward" else f"{kind}_requests"
 
 
 def star_of(loc: str | None) -> str:
     return (loc or "").split("-")[0]
 
 
-def ward_here(devices: list[dict], star: str) -> dict | None:
-    """One of your wards deployed in `star` (warding first)."""
-    ws = [d for d in devices if wh.is_ward(d) and wh.deployed(d) and star_of(d.get("location")) == star]
+def ward_here(devices: list[dict], star: str, dtype: str = "system_ward") -> dict | None:
+    """One of your devices of this type deployed in `star` (working first)."""
+    ws = [d for d in devices if d.get("device_type") == dtype and wh.deployed(d) and star_of(d.get("location")) == star]
     return sorted(ws, key=lambda d: (not wh.active(d), d.get("device_code") or ""))[0] if ws else None
 
 
-def spare_ward(devices: list[dict], star: str, busy: set[str], pos: dict, reach: float) -> dict | None:
-    """A ward of yours that isn't working and belongs to no fleet or contract, nearest first, within reach."""
+def spare_ward(devices: list[dict], star: str, busy: set[str], pos: dict, reach: float,
+               dtype: str = "system_ward") -> dict | None:
+    """A device of this type that isn't working and belongs to no fleet or contract, nearest first, within reach."""
     out = []
     for d in devices:
         tags = d.get("tags") or []
-        if (not wh.is_ward(d) or wh.active(d) or d.get("device_code") in busy or d.get("location_stale")
+        if (d.get("device_type") != dtype or wh.active(d) or d.get("device_code") in busy or d.get("location_stale")
                 or any(t.startswith(("fleet:", "contract:", "to:", "boot:")) for t in tags)):
             continue
         here = star_of(d.get("location"))
@@ -43,6 +55,16 @@ def spare_ward(devices: list[dict], star: str, busy: set[str], pos: dict, reach:
             continue
         out.append((dist, d.get("device_code"), d))
     return min(out, key=lambda x: x[:2])[2] if out else None
+
+
+def civ_places(rows: list[dict], star: str) -> list[str]:
+    """Civilization bodies in a system (traffic.coverage rows): event locations first, then bodies with intelligent /
+    spacefaring life."""
+    from .traffic import CIV_STAGES
+    ev = [r["location"] for r in rows if r["star"] == star and (r.get("open") or r.get("completed"))]
+    life = [r["location"] for r in rows if r["star"] == star and r["location"] not in ev
+            and (r.get("life") or {}).get("life_stage") in CIV_STAGES]
+    return ev + life
 
 
 def load(f: dict) -> int:
@@ -70,11 +92,11 @@ def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reac
     return min(out, key=lambda x: x[:3])[3] if out else None
 
 
-def queued_at(factory: dict, star: str) -> int | None:
-    """Index in the factory's print queue of the ward waiting for `star` (not yet printing), or None."""
+def queued_at(factory: dict, star: str, dtype: str = "system_ward") -> int | None:
+    """Index in the factory's print queue of the device waiting for `star` (not yet printing), or None."""
     tag = lo.to_tag(star)
     for i, q in enumerate(factory.get("print_queue") or []):
-        if q.get("device_type") == "system_ward" and tag in (q.get("tags") or []):
+        if q.get("device_type") == dtype and tag in (q.get("tags") or []):
             return i
     return None
 

@@ -480,7 +480,6 @@ def test_dry_run_sends_nothing(client):
     eng = client.app.state.worker.automations
     client.post("/automations/dry-run", data={"dry_run": "on"}, headers=HX)
     client.post("/automations/rules/auto_survey", data={"enabled": "on", "max_targets": "2"}, headers=HX)
-    client.post("/automations/rules/deploy_beacon", data={"enabled": "on"}, headers=HX)
     before = client.portal.call(client.app.state.db.fetchone, "SELECT COUNT(*) n FROM actions WHERE user='automation'")
     r = client.post("/automations/survey-now", data={"vessel": "11ADA230"}, headers=HX)
     assert r.status_code == 200
@@ -491,7 +490,7 @@ def test_dry_run_sends_nothing(client):
     assert after["n"] == before["n"] == 0
     assert client.portal.call(eng.jobs) == []
     page = client.get("/automations", headers=H).text
-    assert "[dry run] survey SOL" in page and "[dry run] deploy FTL beacon FB000001" in page
+    assert "[dry run] survey SOL" in page
 
 
 def test_restart_idle_miners(client):
@@ -781,42 +780,6 @@ def _arrive(client, n):
     client.portal.call(client.app.state.worker.handle_event, {
         "id": f"66666666666{n:02d}-0", "event": "travel.arrived", "device_code": "11ADA230", "device_type": "heaven_vessel",
         "location": "SOL-BELT-1", "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"}, "created_at": iso(datetime.now(timezone.utc))})
-
-
-def _beacon_jobs(client):
-    return [j for j in client.portal.call(client.app.state.worker.automations.jobs) if j["rule"] == "deploy_beacon"]
-
-
-def test_beacon_deployed_once_per_system(client):
-    client.post("/automations/rules/deploy_beacon", data={"enabled": "on", "count_others": "on"}, headers=HX)
-    _arrive(client, 1)
-    assert len(_beacon_jobs(client)) == 1
-    # the device list hasn't caught up yet, and the vessel keeps arriving at places in the system
-    _arrive(client, 2)
-    _arrive(client, 3)
-    assert len(_beacon_jobs(client)) == 1
-
-
-def test_beacon_skipped_when_one_is_already_there(client):
-    world = client.app.state.api.http._transport.app.state.world
-    world.devices.append({"device_code": "FB999999", "device_type": "ftl_beacon", "location": "SOL-5", "status": "monitoring",
-                          "replicant_code": "77F75255", "features": ["monitor"], "available_commands": []})
-    client.post("/automations/rules/deploy_beacon", data={"enabled": "on", "count_others": "on"}, headers=HX)
-    _arrive(client, 4)
-    assert _beacon_jobs(client) == []
-
-
-def test_beacon_skipped_for_another_players_beacon(client):
-    world = client.app.state.api.http._transport.app.state.world
-    world.foreign_devices.append({"device_code": "OTHER001", "device_type": "ftl_beacon", "location": "SOL-2",
-                                  "owner_replicant_code": "4A1F0B22", "owner_name": "helga-3"})
-    client.post("/automations/rules/deploy_beacon", data={"enabled": "on", "count_others": "on"}, headers=HX)
-    _arrive(client, 5)
-    assert _beacon_jobs(client) == []
-    # with the option off, someone else's beacon doesn't count
-    client.post("/automations/rules/deploy_beacon", data={"enabled": "on"}, headers=HX)
-    _arrive(client, 6)
-    assert len(_beacon_jobs(client)) == 1
 
 
 def test_ami_schedule_add_run_and_idle_check(client):
@@ -3768,6 +3731,14 @@ def test_drone_indicators_on_the_maps(client):
     assert any(d["kind"] == "mining" and d["n"] >= 1 for d in sol["drones"])
 
 
+def test_map_core_loads_your_systems_first(client):
+    client.portal.call(client.app.state.worker.sync_devices)
+    whole = {s["designation"] for s in client.get("/api/map.json?part=core", headers=H).json()["stars"]}
+    mine = {s["designation"] for s in client.get("/api/map.json?part=core&scope=mine", headers=H).json()["stars"]}
+    rest = {s["designation"] for s in client.get("/api/map.json?part=core&scope=rest", headers=H).json()["stars"]}
+    assert "SOL" in mine and mine | rest == whole and not mine & rest and rest
+
+
 def test_snapshot_2026_10_06_fixes(client):
     """Live 2026-10-06 (19:54): a mission to LORALEL (typo), a fleet controller given a production gather order, and
     to:/at: tags naming a fleet."""
@@ -4115,77 +4086,14 @@ def _survey_world():
     return fleet, devices
 
 
-def test_survey_crew_drops_relays_and_beacons():
-    from rsweb import outposts as op
-    fleet, devices = _survey_world()
-    sf = op.shortfall({"HV"}, devices, ["LOR", "OTH", "FAL", "LOR"])
-    assert sf["need"] == {"relay": ["LOR", "OTH"], "beacon": ["LOR", "OTH"]} and sf["have"] == {"relay": 1, "beacon": 1}
-    assert len(sf["warnings"]) == 2 and "only 1 in the fleet — 1 will be left without one" in sf["warnings"][0]
-    assert op.shortfall({"HV"}, devices, ["LOR"])["warnings"] == []
-    # the fleet's own relay / beacon not aboard yet (loaded when it assembles) counts; one at work elsewhere doesn't
-    loose = [{"device_code": "R9", "device_type": "ftl_relay", "location": "FAL-1", "status": "idle", "tags": ["fleet:s"]},
-             {"device_code": "B9", "device_type": "ftl_beacon", "location": "FAL-1", "status": "idle", "tags": ["fleet:s"]}]
-    members = [d for d in devices if d["device_code"] in ("R1", "B1", "R0")] + loose
-    sf = op.shortfall({"HV"}, devices + loose, ["LOR", "OTH"], None, members)
-    assert sf["have"] == {"relay": 2, "beacon": 2} and sf["warnings"] == []
-    steps, notes = op.drop_steps({"HV"}, devices, "LOR", "LOR-1-L4")
-    assert [s["desc"] for s in steps] == ["deploy relay R1 at LOR-1-L4", "R1: activate relay", "deploy beacon B1 at LOR-1-L4"]
-    # a relay only works at an L4/L5 point: on a planet it stays aboard (the beacon doesn't care)
-    steps, notes = op.drop_steps({"HV"}, devices, "LOR", "LOR-2")
-    assert [s["desc"] for s in steps] == ["deploy beacon B1 at LOR-2"] and "stays aboard" in notes[0]
-    # a system that already has yours gets nothing
-    assert op.drop_steps({"HV"}, devices, "FAL", "FAL-1-L4") == ([], [])
-    # one that's a fleet member (fetched by the gather phase) leaves the fleet as it's dropped, and unloading skips it
-    from rsweb import fleets as fl
-    devices[2]["tags"] = ["fleet:s"]
-    steps, _ = op.drop_steps({"HV"}, devices, "LOR", "LOR-1-L4", fleet_tag="fleet:s")
-    assert "R1: stays in LOR (leaves the fleet)" in [s["desc"] for s in steps]
-    assert [s["desc"] for s in fl.unload_steps(fleet, devices)] == ["deploy SC from HV"]
-
-
-def test_survey_crew_moves_the_beacon_to_a_civilisation():
-    from rsweb import outposts as op
-    fleet, devices = _survey_world()
-    devices[3].update({"location": "LOR-1-L4", "stowed_in_device_code": None, "status": "monitoring"})   # dropped on arrival
-    rows = [{"location": "LOR-3", "star": "LOR", "open": [{"designation": "E1"}], "completed": [], "life": None},
-            {"location": "LOR-4-1", "star": "LOR", "open": [], "completed": [], "life": {"life_stage": "intelligent"}},
-            {"location": "OTH-2", "star": "OTH", "open": [{"designation": "E2"}], "completed": [], "life": None}]
-    assert op.civ_places(rows, "LOR") == ["LOR-3", "LOR-4-1"]
-    steps, notes = op.civ_move_steps(devices[0], devices, "LOR", ["LOR-3"])
-    assert [s["desc"] for s in steps] == ["stow beacon B1 into HV", "HV → LOR-3 (civilization)", "deploy beacon B1 at LOR-3"]
-    assert "moving beacon B1" in notes[0]
-    devices[3]["location"] = "LOR-3"                                   # already there: nothing to do
-    assert op.civ_move_steps(devices[0], devices, "LOR", ["LOR-3"]) == ([], [])
-
-
-def test_explore_mission_drops_outposts_and_warns(client):
-    from rsweb import fleets as fl
+def test_explore_mission_leaves_no_relays_or_beacons(client):
+    """Survey crews no longer drop relays or beacons (2026-10-11): the Systems page asks for one instead."""
     eng = client.app.state.worker.automations
     fleet, devices = _survey_world()
     m = {"status": "running", "phase": "travel", "idx": 0, "targets": ["LOR"], "opts": {}, "log": []}
     steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, m, "deploy", devices)
     descs = [s["desc"] for s in steps]
-    assert "deploy SC from HV" in descs and descs[-3:] == ["deploy relay R1 at LOR-1-L4", "R1: activate relay",
-                                                           "deploy beacon B1 at LOR-1-L4"]
-    assert any("dropping relay R1" in x["text"] for x in m["log"])
-    # starting a mission over more systems than the carriers can serve warns
-    client.portal.call(eng.save_fleets, [{**fleet, "materials": "", "mission": None, "station": False}])
-    world = client.app.state.api.http._transport.app.state.world
-    client.post("/fleets/s/mission", data={"targets": "SOL"}, headers=HX)
-    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "s")
-    texts = [x["text"] for x in (f.get("mission") or {}).get("log") or []]
-    assert any("FTL relay(s)" in t for t in texts)
-    # recall: once everyone is aboard, the beacon goes to the civilization the survey found
-    devices[3].update({"location": "LOR-1-L4", "stowed_in_device_code": None, "status": "monitoring"})
-    devices[1].update({"location": None, "stowed_in_device_code": "HV"})
-
-    async def cov():
-        return [{"location": "LOR-3", "star": "LOR", "open": [{"designation": "E1"}], "completed": [], "life": None}]
-    eng.civ_coverage = cov
-    m = {"status": "running", "phase": "watch", "idx": 0, "targets": ["LOR"], "opts": {}, "log": []}
-    steps, _ = client.portal.call(eng.fleet_phase_steps, fleet, m, "recall", devices)
-    assert [s["desc"] for s in steps][-3:] == ["stow beacon B1 into HV", "HV → LOR-3 (civilization)", "deploy beacon B1 at LOR-3"]
-    assert any("civilization at LOR-3" in x["text"] for x in m["log"])
+    assert "deploy SC from HV" in descs and not any("relay" in d or "beacon" in d for d in descs)
 
 
 def test_deal_pickup_plan_uses_the_nearest_stockpiles():
@@ -4403,8 +4311,6 @@ def test_a_fleets_ward_goes_with_it_and_systems_list_shows_wards(client):
     fleet, devices = _survey_world()
     devices.append({"device_code": "W1", "device_type": "system_ward", "location": None, "stowed_in_device_code": "HV",
                     "status": "stowed", "features": ["cruise", "ward", "stow"], "tags": ["fleet:s"]})
-    steps, _ = op.drop_steps({"HV"}, devices, "LOR", "LOR-1-L4")
-    assert not any("W1" in s["desc"] for s in steps)                          # never left behind
     descs = [s["desc"] for s in fl.unload_steps(fleet, devices)]
     assert descs.index("deploy W1 from HV") + 1 == descs.index("W1: activate ward")
     # leaving: the active ward is switched off right before it flies to the carrier, and on again where it's unloaded

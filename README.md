@@ -53,14 +53,20 @@ rule with an on/off switch, plus the jobs and the log.
   again (then listed under *Seen again*). Write one off to stop tracking it.
 
 ### Maps
-- **Galaxy**: 3D map of the star catalog (plus stars from censuses and your observatories), live: ships in transit, fleets,
+- **Galaxy**: 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
+  rest of the catalog after), live: ships in transit, fleets,
   supply lines, mining sparkles and **prospecting cones** (each observatory scan, darker as it progresses) redraw as events
-  arrive. Relay/hub range, search, distances, route preview; right-click two stars to measure. **Other players** (coral):
+  arrive. Relay/hub range, search, distances, route preview; right-click (on touch: long-press) two stars to measure. **Other players** (coral):
   their fixed devices from the latest scans, a shield where someone else's ward or hub is, and an arrow for each arrival or
   departure your beacons logged in the last hour (with the likely other end of the trip), all fading with distance from the
   point the view is centered on. The **trail** of the replicant you follow is drawn in gold.
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
-- **Systems / System page**: a top-down map with your devices, stockpiles, sites and salvage. Three cards: **Resources** (per
+- **Systems list**: per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &
+  relays* ticked) your ward, FTL relay and FTL beacon with *add* (activate an idle one there, else send a spare, else print
+  one in range; a relay is placed at an L4/L5 point) and *remove* (deactivate; it stays deployed) or *cancel* an order.
+  ✦ marks a local civilization (green: your beacon is at its body). A beacon requested for such a system goes on to the
+  civilization's body, carried by a vessel in the system.
+- **System page**: a top-down map with your devices, stockpiles, sites and salvage. Three cards: **Resources** (per
   resource: richness, open sites, % left, ≈ units left — learned from what past sites gave — salvage, stockpiled),
   **Belts** (richness, a viability line, open sites) and **Bodies** (planets, moons, L-points with their salvage and stock).
   **Prospects** (Map tab) scores every scanned system out of 100 (each resource's yield, scarce 1 to rich 10, × belt density,
@@ -97,8 +103,8 @@ lines or a template).
   *pending* (the fleet keeps its current home, where the loadout pass fills it) and the fleet moves once complete, or on
   *Move anyway*.
 - **Missions** run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*,
-  *Stop*, *End mission & board* and *Recall*. Mining works the richest belt (or salvage); explore surveys each target and
-  leaves a relay and a beacon; trade runs a contract or trade end to end. A recall withdraws a launched AMI controller (its
+  *Stop*, *End mission & board* and *Recall*. Mining works the richest belt (or salvage); explore surveys each target (it no
+  longer leaves relays or beacons: ask for those on the Systems list); trade runs a contract or trade end to end. A recall withdraws a launched AMI controller (its
   drones come back) before it boards.
 - **Path forward** (stationed mining fleets): a heading; when the home runs dry the fleet picks the best system ahead and moves.
 - **Observatories** prospect wherever they're deployed — the heading (else outward from Sol), then 13 other directions — and

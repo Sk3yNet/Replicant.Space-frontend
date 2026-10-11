@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.71.0"
+VERSION = "1.72.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.72.0", "2026-10-11", "Systems list: a Fleets column (homed here / on a mission here) instead of replicants; add, "
+               "remove or cancel your ward, FTL relay and FTL beacon per system (activate one there, else send a spare, else "
+               "print one); a civilization mark, and a requested beacon goes on to the civilization's body. Survey crews no "
+               "longer drop relays or beacons, and the deploy-beacon rule is gone. Galaxy map: your systems load first, the "
+               "rest of the catalog after; long-press measures on touch screens. A fleet with a new home moves once its "
+               "loadout is together in any one system, not only the old home."),
     ("1.71.0", "2026-10-11", "Prospects: a stationed fleet's home is scored for review (marked home, sorted among the open "
                "systems, still never a mission target), and a flag marks every system where a fleet of yours is homed."),
     ("1.70.0", "2026-10-11", "Fleet recall: a launched AMI controller is withdrawn first (its drones called back, waiting "

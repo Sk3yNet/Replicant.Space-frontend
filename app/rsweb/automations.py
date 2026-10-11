@@ -148,12 +148,6 @@ RULES: list[Rule] = [
           Option("include_belts", "bool", "Search asteroid belts", True),
           Option("max_targets", "int", "Max bodies per system", 20),
           Option("return_and_stow", "bool", "Return to the vessel and stow when finished", True)]),
-    Rule("deploy_beacon", "Deploy an FTL beacon in new systems",
-         "When a vessel arrives in a system with no FTL beacon and it carries one, deploy it (beacons log traffic "
-         "through the system). Before deploying it asks the game which beacons are in the system, and it never "
-         "deploys twice in the same system.",
-         [Option("count_others", "bool", "Also skip systems where another player already has a beacon", True,
-                 help="Uses a replicant's view of the system when one is there")]),
     Rule("visitor_alerts", "Visitor alerts (beacon traffic)",
          "Every few minutes the app reads each deployed FTL beacon's traffic log (who arrived and left the system). "
          "When another replicant's devices arrive in one of your systems you get a notification. The full log is on "
@@ -739,10 +733,6 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 if st["critical"]:
                     st["status"] = "failed"
                     job["status"] = "failed"
-                    if job["rule"] == "deploy_beacon" and job.get("meta", {}).get("star"):
-                        done = await self.db.kv_get("beacon_systems", {}) or {}
-                        done.pop(job["meta"]["star"], None)  # it didn't happen: allow a later retry
-                        await self.db.kv_set("beacon_systems", done)
                     await self._update(job)
                     await self.log(job["rule"], f"stopped: {job['title']} — {st['desc']} failed: {err}{ownership_hint(err)}", "alert", notify=True)
                     return
@@ -1468,13 +1458,15 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         devices = devices if devices is not None else await self.devices()
         if f.get("station") and old != new and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped") \
                 and [d for d in fl.members(f, devices) if star_of(d.get("location")) != new]:
-            ready = fl.readiness(f, devices, at=old)
+            ready = fl.readiness_anywhere(f, devices, prefer=old)
             if not ready["ready"] and not f.get("move_partial"):
                 # nothing leaves short (seen live 2026-10-10: a move filled piecemeal at the new home, across ~500 ly): it
                 # stays homed where it is — the loadout pass fills it there — and moves once complete (pending_home_pass)
                 f["home"], f["pending_home"] = old, new
                 return f"{new} is pending: it moves once its {fl.readiness_text(ready)}"
         f.pop("pending_home", None)
+        here = fl.readiness_anywhere(f, devices, prefer=old)
+        start = here["at"] if here["ready"] else old   # where it's gathered: it leaves from there
         if f.get("role") not in ("mining", "explore") or not f.get("station") or old == new \
                 or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
             f.pop("move_partial", None)
@@ -1486,8 +1478,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         if short > 0:
             return f"its carriers are {short} seat(s) short of carrying everyone, so the loadout pass moves it piecemeal"
         m = {"status": "running", "phase": None, "idx": 0, "targets": [new], "started_at": now_iso(), "log": [],
-             "opts": {"partial": bool(f.pop("move_partial", False))}, "auto": True, "relocate": True, "from": old}
-        self._mlog(m, f"relocating {old} → {new}: pack up, everyone aboard, travel together, unload")
+             "opts": {"partial": bool(f.pop("move_partial", False))}, "auto": True, "relocate": True, "from": start}
+        self._mlog(m, f"relocating {start} → {new}: pack up, everyone aboard, travel together, unload")
         f["mission"] = m
         return "moving together in one relocation mission (everyone aboard before anything leaves)"
 
@@ -1502,7 +1494,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         out = []
         for f in waiting:
             new = f["pending_home"]
-            r = fl.readiness(f, devices)
+            r = fl.readiness_anywhere(f, devices, prefer=f.get("home"))
             if not r["ready"] and not f.get("move_partial"):
                 note = f"{new} pending: {fl.readiness_text(r)}"
                 if f.get("path_note") != note:
@@ -2220,12 +2212,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             await self.rule_scan_on_arrival(vessel, star)
         if "census_on_arrival" in enabled:
             await self.rule_census_on_arrival(vessel, star)
-        stowed = None
-        if "deploy_beacon" in enabled:
-            stowed = await self.stowed_in(vessel)
-            await self.rule_deploy_beacon(vessel, star, stowed, s["rules"]["deploy_beacon"])
         if "auto_survey" in enabled:
-            stowed = stowed if stowed is not None else await self.stowed_in(vessel)
+            stowed = await self.stowed_in(vessel)
             await self.rule_auto_survey(vessel, dest, star, stowed, s["rules"]["auto_survey"])
 
     async def rule_scan_on_arrival(self, vessel: str, star: str) -> None:
@@ -2280,63 +2268,6 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         await self.log("census_on_arrival", f"stellar census in {star}: {len(found)} stars"
                        + (f", unexplored: {', '.join(new)}" if new else ", all explored"), notify=bool(new))
         return found, err
-
-    async def beacon_in_system(self, star: str, count_others: bool) -> str | None:
-        """Why we should NOT deploy a beacon in `star` (None = go ahead)."""
-        # 1. one we deployed (or started deploying) ourselves — the device list can lag behind
-        done = await self.db.kv_get("beacon_systems", {}) or {}
-        if star in done:
-            return f"already deployed one there ({done[star]})"
-        for j in await self.jobs():
-            if j["rule"] == "deploy_beacon" and j.get("meta", {}).get("star") == star and j["status"] in ("running", "waiting"):
-                return "a deploy job for this system already ran"
-        # 2. ask the game: your own devices filtered to beacons in this system
-        try:
-            body = await self.api.request("GET", "/devices", params={"device_type": "ftl_beacon", "location": star, "limit": 50},
-                                          background=True)
-            mine = [d for d in (body or {}).get("devices") or []
-                    if "beacon" in (d.get("device_type") or "") and not str(d.get("status", "")).startswith("stowed")
-                    and star_of(d.get("location")) == star]
-        except ApiError:
-            mine = [d for d in await self.devices()
-                    if "beacon" in (d.get("device_type") or "") and not str(d.get("status", "")).startswith("stowed")
-                    and star_of(d.get("location")) == star]
-        if mine:
-            return f"your beacon {mine[0].get('device_code')} is there"
-        # 3. other players' beacons, seen by a replicant in the system
-        if count_others:
-            reps = await self.db.kv_get("replicants", {}) or {}
-            rep = next((c for c, r in reps.items() if star_of(r.get("location") or r.get("current_location")) == star), None)
-            if rep:
-                try:
-                    body = await self.api.request("GET", f"/replicants/{rep}/scan/devices",
-                                                  params={"device_type": "ftl_beacon", "limit": 50}, background=True)
-                    theirs = [d for d in (body or {}).get("devices") or [] if "beacon" in (d.get("device_type") or "")]
-                    if theirs:
-                        return f"{theirs[0].get('owner_name') or 'another player'}'s beacon {theirs[0].get('device_code')} is there"
-                except ApiError:
-                    pass
-        return None
-
-    async def rule_deploy_beacon(self, vessel: str, star: str, stowed: list[dict], cfg: dict | None = None) -> None:
-        cfg = cfg or {}
-        from .ami_schedule import on_mission
-        if on_mission(next((d for d in await self.devices() if d.get("device_code") == vessel), {})):
-            return   # a fleet on a mission: a survey crew drops its beacon itself, inside the system (outposts.py)
-        beacon = next((i for i in stowed if "beacon" in (i.get("device_type") or "")), None)
-        if not beacon:
-            return
-        why = await self.beacon_in_system(star, bool(cfg.get("count_others", True)))
-        if why:
-            log.info("deploy_beacon: skipping %s — %s", star, why)
-            return
-        job = await self.create_job("deploy_beacon", f"deploy FTL beacon {beacon['device_code']} at {star}", beacon["device_code"],
-                                    [step(f"deploy beacon {beacon['device_code']}", f"/devices/{beacon['device_code']}",
-                                          {"command": "deploy"}, critical=True)], {"star": star})
-        if job:  # remember straight away, so the next arrival in this system doesn't deploy another
-            done = await self.db.kv_get("beacon_systems", {}) or {}
-            done[star] = beacon["device_code"]
-            await self.db.kv_set("beacon_systems", done)
 
     async def rule_auto_survey(self, vessel: str, vessel_loc: str, star: str, stowed: list[dict], cfg: dict) -> None:
         jobs = await self.jobs()
@@ -2812,17 +2743,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             spot = fl.deploy_spot(geo)
             if not spot:
                 self._mlog(m, f"nothing known inside {target} yet (no scan): unloading where the carrier is")
-            steps = fl.unload_steps(fleet, devices, spot)
-            if fleet["role"] == "explore":
-                # a survey crew leaves a relay (at an L4/L5 point) and a beacon in each system that has none of yours
-                from . import outposts
-                carriers = {c["device_code"] for c in fl.roster(fleet, devices)["carriers"]}
-                drop, notes = outposts.drop_steps(carriers, devices, target or "", spot,
-                                                  await self.db.kv_get("stowed_map", {}) or {}, fl.fleet_tag(fleet["id"]))
-                steps += drop
-                for n in notes:
-                    self._mlog(m, n)
-            return steps, []
+            # survey crews no longer drop relays or beacons (2026-10-11): ask for one on the Systems page instead
+            return fl.unload_steps(fleet, devices, spot), []
         if phase == "work":
             if fleet["role"] == "explore":
                 from . import placement as pl
@@ -2875,20 +2797,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             for c in fl.outside_controllers(fleet, devices):
                 self._mlog(m, f"{c['device_code']} ({c.get('device_type')}) runs this fleet's drones but isn't in the fleet "
                               "(no fleet tag): it won't be recalled or taken home — add it under Add / remove devices")
-            steps = fl.recall_steps(fleet, devices, inv, haul, radii, far_au)
-            if fleet["role"] == "explore" and target:
-                # the survey found a civilization: once everyone is aboard, the beacon goes to that body (civilizations
-                # only send follow-up requests to a beacon AT their planet or moon)
-                from . import outposts
-                carrier = next(iter(fl.roster(fleet, devices)["carriers"]), None)
-                civ = outposts.civ_places(await self.civ_coverage(), target)
-                if carrier and civ:
-                    more, notes = outposts.civ_move_steps(carrier, devices, target, civ,
-                                                          await self.db.kv_get("stowed_map", {}) or {})
-                    steps += more
-                    for n in notes:
-                        self._mlog(m, n)
-            return steps, []
+            return fl.recall_steps(fleet, devices, inv, haul, radii, far_au), []
         if phase == "return":
             return fl.travel_steps(fleet, devices, m.get("drop_star") or fleet["home"], stars), []
         if phase == "unload":
@@ -3158,7 +3067,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     await self.log("fleets", f"{fleet['name']}: mission complete", notify=True)
                     break
                 if nxt == "travel" and not m.get("departed"):
-                    r = fl.readiness(fleet, devices, at=m.get("from") or fleet.get("home"))
+                    r = fl.readiness_anywhere(fleet, devices, prefer=m.get("from") or fleet.get("home"))   # all in one place
                     if not r["ready"] and not (m.get("opts") or {}).get("partial"):
                         note = f"waiting to leave: {fl.readiness_text(r)} — Launch anyway sends it short"
                         if m.get("watch_note") != note:

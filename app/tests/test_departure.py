@@ -52,6 +52,24 @@ def test_new_home_waits_for_a_complete_loadout(client):
     assert client.portal.call(e.fleets)[0]["home"] == "ABOTEIN"
 
 
+def test_new_home_moves_from_wherever_the_fleet_is_gathered(client):
+    """Seen live 2026-10-11: a fleet back from a mission in LYRHYRAN's direction got a new home and waited for its
+    loadout in FALQUORYX, its old home — all in one place anywhere is enough."""
+    e = eng(client)
+    devs = [dev("C", "surge_carrier", "LERNA-OORT", features=["surge"], attach_capacity=9),
+            dev("M1", "mining_drone", None, attached_to_device_code="C"), dev("M2", "mining_drone", "LERNA-BELT-1")]
+    r = fl.readiness_anywhere({"id": "f", "home": "SOL", "station": True, "wants": {"mining_drone": 2, "surge_carrier": 1}},
+                              devs, prefer="SOL")
+    assert r["ready"] and r["at"] == "LERNA"
+    _fleet(e, client, devs)
+    items = client.portal.call(e.fleets)
+    f = items[0]
+    f["home"] = "ABOTEIN"
+    how = client.portal.call(e.start_relocation, f, "SOL", "ABOTEIN", devs)
+    assert "pending" not in how and f["home"] == "ABOTEIN" and not f.get("pending_home")
+    assert f["mission"]["from"] == "LERNA"
+
+
 def test_mission_waits_at_the_gate_until_complete_or_sent_anyway(client):
     e = eng(client)
     devs = [dev("C", "surge_carrier", "SOL-OORT"), dev("M1", "mining_drone", None, attached_to_device_code="C")]
@@ -316,3 +334,52 @@ def test_removing_a_ward_order_drops_its_queued_print(client):
     assert "queued print on FX2 dropped" in msg
     job = next(j for j in client.portal.call(e.jobs) if "drop the queued ward for ABOTEIN" in j["title"])
     assert job["steps"][0]["body"] == {"command": "dequeue_print", "index": 1}
+
+
+def test_systems_page_requests_relays_and_beacons_and_lists_fleets(client):
+    e = eng(client)
+    db = client.app.state.db
+    devs = [d for d in client.portal.call(db.kv_get, "devices") if d.get("device_type") not in ("ftl_relay", "ftl_beacon")]
+    client.portal.call(db.kv_set, "devices", devs + [
+        {"device_code": "RL1", "device_type": "ftl_relay", "location": "SOL-BELT-1", "status": "stowed", "tags": ["spare"]},
+        {"device_code": "BC1", "device_type": "ftl_beacon", "location": "SOL-2", "status": "monitoring", "tags": []}])
+    client.portal.call(e.save_fleets, [{"id": "h", "name": "Homers", "role": "mining", "home": "SOL", "station": True, "wants": {}},
+                                       {"id": "x", "name": "Scouts", "role": "explore", "home": "LERNA", "wants": {},
+                                        "mission": {"status": "running", "targets": ["SOL-3"]}}])
+    page = client.get("/systems?outposts=1", headers=H).text
+    row = page[page.index('href="/systems/SOL"'):].split("</tr>")[0]
+    assert "⌂ Homers" in row and "→ Scouts" in row
+    assert '"kind": "relay"' in row and '"kind": "beacon"' in row
+    r = client.post("/systems/ABOTEIN/ward", data={"action": "add", "kind": "relay"}, headers=HX)
+    assert "sending spare FTL relay RL1 to ABOTEIN" in r.text
+    assert client.portal.call(db.kv_get, "relay_requests")["ABOTEIN"]["device"] == "RL1"
+    r = client.post("/systems/SOL/ward", data={"action": "remove", "kind": "beacon"}, headers=HX)
+    assert "deactivating BC1 in SOL" in r.text
+    r = client.post("/systems/ABOTEIN/ward", data={"action": "remove", "kind": "relay"}, headers=HX)
+    assert "order canceled" in r.text and "ABOTEIN" not in client.portal.call(db.kv_get, "relay_requests")
+
+
+def test_requested_beacon_goes_to_the_local_civilization(client):
+    e = eng(client)
+    db = client.app.state.db
+    devs = [d for d in client.portal.call(db.kv_get, "devices") if d.get("device_type") != "ftl_beacon"]
+    beacon = {"device_code": "BC7", "device_type": "ftl_beacon", "location": "LOR-1", "status": "monitoring", "tags": [],
+              "available_commands": ["stow", "deploy"]}
+    vessel = {"device_code": "CV7", "device_type": "cargo_vessel", "location": "LOR-1", "status": "idle", "features": ["cruise", "stow"],
+              "stow_capacity": 4, "tags": []}
+    client.portal.call(db.kv_set, "devices", devs + [beacon, vessel])
+    client.portal.call(db.kv_set, "beacon_requests", {"LOR": {"at": "2099-01-01T00:00:00+00:00", "how": "send", "device": "BC7"}})
+
+    async def cov():
+        return [{"location": "LOR-3", "star": "LOR", "open": [{"designation": "E1"}], "completed": [], "life": None}]
+    e.civ_coverage = cov
+    client.portal.call(e.ward_orders_pass)
+    job = next(j for j in client.portal.call(e.jobs) if j["title"].startswith("beacon to the civilization at LOR-3"))
+    assert [s["desc"] for s in job["steps"]][-2:] == ["CV7: travel LOR-1 → LOR-3", "deploy beacon BC7 at LOR-3"]
+    assert "LOR" in client.portal.call(db.kv_get, "beacon_requests")         # not done until it works at LOR-3
+    page = client.get("/systems", headers=H).text
+    assert "local civilization at LOR-3" in page
+    beacon.update(location="LOR-3")
+    client.portal.call(db.kv_set, "devices", devs + [beacon, vessel])
+    client.portal.call(e.ward_orders_pass)
+    assert "LOR" not in client.portal.call(db.kv_get, "beacon_requests")

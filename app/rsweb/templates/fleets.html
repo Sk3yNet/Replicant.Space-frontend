@@ -71,7 +71,7 @@
 <div class="card" id="fleet-{{ f.id }}" style="margin-bottom:14px">
   <div class="row between">
     <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }}{% if f.pending_home %} → <b>{{ f.pending_home }}</b> pending{% endif %}{% if f.station %} · stationed{% endif %} · <code>fleet:{{ f.id }}</code></span></h2>
-    {% if f.pending_home %}<div class="small lv-alert">Moving to {{ f.pending_home }} once its loadout is complete in {{ f.home }} — {{ f.path_note or '' }}
+    {% if f.pending_home %}<div class="small lv-alert">Moving to {{ f.pending_home }} once its whole loadout is together in one system — {{ f.path_note or '' }}
       <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "partial"}' hx-confirm="Move {{ f.name }} to {{ f.pending_home }} now, short?">Move anyway</button></div>{% endif %}
     <span>{% if m.status %}<span class="pill {{ {'running': 'st-work', 'done': 'lv-done', 'stalled': 'lv-alert', 'ended': 'lv-done'}.get(m.status, '') }}">{{ m.status }}{% if m.status == 'running' %}: {{ m.phase }}{% endif %}</span>{% endif %}</span>
   </div>
@@ -193,8 +193,6 @@
         {% if m.watch_note and m.phase in ('watch', 'wait') %}<div class="small">watching: {{ m.watch_note }}</div>{% endif %}
         {% if m.status == 'running' and not m.departed and m.watch_note and m.watch_note.startswith('waiting to leave') %}<div class="small lv-alert">{{ m.watch_note }}
           <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "partial"}' hx-confirm="Send {{ f.name }} with a partial loadout?">Launch anyway</button></div>{% endif %}
-        {% if f.outposts %}<div class="small muted">aboard: {{ f.outposts.have.relay }} FTL relay(s), {{ f.outposts.have.beacon }} FTL beacon(s)
-          for the systems still ahead</div>{% for w in f.outposts.warnings %}<div class="small lv-alert">⚠ {{ w }}</div>{% endfor %}{% endif %}
         {% if f.job %}<div class="small muted">job: {{ f.job.title }} · step {{ f.job.idx + 1 }}/{{ f.job.steps | length }}{% if f.job.steps[f.job.idx] is defined %} — {{ f.job.steps[f.job.idx].desc }}{% endif %}</div>{% endif %}
         <div class="row" style="margin-top:6px">
           <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "end"}' hx-swap="none"
@@ -299,11 +297,9 @@
           {% else %}
             <input name="targets" placeholder="{{ 'systems to explore, in order: KELMONENT, LORSELAN' if f.role == 'explore' else 'target system, e.g. KELMONENT' }}" style="width:100%" list="fl-stars-{{ f.id }}">
             <datalist id="fl-stars-{{ f.id }}">{% for o in f.target_options %}<option value="{{ o.value }}">{{ o.group }}{% if o.label %} · {{ o.label }}{% endif %}</option>{% endfor %}</datalist>
-            {% if f.role == 'explore' and f.outposts %}<div class="muted small">Aboard: {{ f.outposts.have.relay }} FTL relay(s),
-              {{ f.outposts.have.beacon }} FTL beacon(s). Each system without one of yours gets one of each (the relay at an L4/L5
-              point); a civilization found by the survey gets the beacon at its body. Starting warns if there aren't enough.
-              A system ward in the loadout goes with the fleet: deployed and activated where it works, taken back aboard
-              when it leaves.</div>{% endif %}
+            {% if f.role == 'explore' %}<div class="muted small">Survey crews don't leave relays or beacons: ask for one on the
+              Systems page. A system ward in the loadout goes with the fleet: deployed and activated where it works, taken back
+              aboard when it leaves.</div>{% endif %}
             {% if home_systems %}<div class="muted small">Not available as targets (a stationed fleet works them):
               {{ home_systems | join(', ') }}</div>{% endif %}
           {% endif %}

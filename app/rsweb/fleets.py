@@ -740,7 +740,7 @@ def unload_steps(fleet: dict, devices: list[dict], spot: str | None = None) -> l
             out.append(w)
     for d in r["members"]:
         if d.get("device_type") in ("ftl_relay", "ftl_beacon"):
-            continue   # dropped one per system by a survey crew (outposts.py), not all at once
+            continue   # relays and beacons stay aboard: ask for one on the Systems page (ward_orders.py)
         c = d.get("attached_to_device_code")
         if c in carriers:
             out.append(step(f"{c}: detach {d['device_code']}", f"/devices/{c}", {"command": "detach", "device": d["device_code"]}))
@@ -1142,6 +1142,23 @@ def readiness(fleet: dict, devices: list[dict], at: str | None = None) -> dict:
     wants = station_wants(fleet) if fleet.get("station") else {t: int(n) for t, n in (fleet.get("wants") or {}).items()}
     short = {t: n - have.get(t, 0) for t, n in wants.items() if n > have.get(t, 0)}
     return {"ready": not short, "short": short, "elsewhere": {t: c for t, c in elsewhere.items() if t in short}, "at": at}
+
+
+def readiness_anywhere(fleet: dict, devices: list[dict], prefer: str | None = None) -> dict:
+    """readiness() in whichever system the fleet is gathered: it needn't be home to leave, only all in one place (seen
+    live 2026-10-11: a fleet back from a mission elsewhere got a new home and waited for its loadout in its old one).
+    Complete somewhere: that system (`prefer` first, e.g. the old home). Else the system where it's closest."""
+    by = {d.get("device_code"): d for d in devices}
+
+    def where(d: dict) -> str:
+        host = by.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code") or "")
+        if host and host is not d:
+            return where(host)
+        trip = in_flight(d)
+        return star_of(trip["destination"]) if trip else star_of(d.get("location"))
+    stars = list(dict.fromkeys([x for x in [prefer] + [where(d) for d in members(fleet, devices)] if x]))
+    rs = [readiness(fleet, devices, at=x) for x in stars] or [readiness(fleet, devices, at=prefer)]
+    return min(rs, key=lambda r: (not r["ready"], sum(r["short"].values())))
 
 
 def readiness_text(r: dict) -> str:
