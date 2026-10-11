@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Fleet{% endblock %}
+{% block title %}Device list{% endblock %}
 {% block content %}
-<div class="row between"><h1>Fleet</h1>
+<div class="row between"><h1>Device list</h1>
   <span class="row"><span id="refresh-msg"></span>
   <button class="small" hx-post="/fleet/refresh" hx-target="#refresh-msg">Refresh from game</button></span></div>
 <form class="inline card" hx-get="/fleet" hx-target="#fleet-table" hx-trigger="input changed delay:300ms, change, fleet-refreshed from:body" hx-push-url="true" style="margin-bottom:12px">

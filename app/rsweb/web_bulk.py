@@ -1,4 +1,4 @@
-"""Devices › List: tick several devices and send them all the same command.
+"""Devices › Device list: tick several devices and send them all the same command.
 
 Before sending, each ticked device is checked (bulk_check) and the ones that can't take it are listed and skipped:
 the command isn't in its available commands, the device isn't in the list any more, an automation job is using it
@@ -7,6 +7,7 @@ per device (set_directive, prospect) or that shouldn't go out many times (messag
 from __future__ import annotations
 
 import html
+import re
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
@@ -19,6 +20,7 @@ from .web import (DANGEROUS, call_action, current_user, load_state, order_comman
 router = APIRouter()
 
 MAX_DEVICES = 100
+TAG_CMDS = {"add_tags": "add tags", "remove_tags": "remove tags"}   # not game commands: a PATCH of the device's tags
 NOT_BULK = {"set_directive": "pick the directive per device on its page",
             "prospect": "aim each observatory on its page",
             "message": "send BobNet messages from one relay on its page"}
@@ -30,7 +32,18 @@ def bulk_commands(devices: list[dict]) -> list[tuple[str, int]]:
     for d in devices:
         for c in d.get("available_commands") or []:
             n[c] = n.get(c, 0) + 1
-    return [(c, n[c]) for c in order_commands(sorted(n, key=lambda c: (-n[c], c))) if c not in NOT_BULK]
+    return [(c, len(devices)) for c in TAG_CMDS] + \
+        [(c, n[c]) for c in order_commands(sorted(n, key=lambda c: (-n[c], c))) if c not in NOT_BULK]
+
+
+def clean_tags(raw: str) -> list[str]:
+    """'Spare, to:SOL  x' → ['spare', 'to:sol', 'x']: the game's tags are lower case, [a-z0-9-_:.], at most 32 long."""
+    out = []
+    for t in re.split(r"[,\s]+", raw or ""):
+        t = re.sub(r"[^a-z0-9\-_:.]", "", t.lower())[:32]
+        if t and t not in out:
+            out.append(t)
+    return out
 
 
 def bulk_check(codes: list[str], command: str, devices: list[dict], busy: set[str], stowed: dict[str, list[str]],
@@ -46,6 +59,12 @@ def bulk_check(codes: list[str], command: str, devices: list[dict], busy: set[st
             skip.append((code, "no longer in the device list"))
             continue
         cmds = d.get("available_commands")
+        if command in TAG_CMDS:
+            if code in busy and not include_busy:
+                skip.append((code, "an automation job is using it (tick 'include devices automations are using' to send anyway)"))
+            else:
+                ok.append(code)
+            continue
         if cmds is not None and command not in cmds:
             skip.append((code, f"{(d.get('device_type') or 'device').replace('_', ' ')} doesn't take {command} "
                                f"right now ({d.get('status') or 'status unknown'})"))
@@ -98,6 +117,14 @@ def _warnings(ctx: dict) -> str:
 async def bulk_form(request: Request, command: str = "", user: str = Depends(current_user)):
     if not command:
         return HTMLResponse("")
+    if command in TAG_CMDS:
+        st = await load_state(request)
+        known = sorted({t for d in st["devices"] for t in d.get("tags") or []})
+        opts = "".join(f'<option value="{html.escape(t)}">' for t in known)
+        return HTMLResponse(f'<label class="small" style="text-transform:none">Tags to {"add" if command == "add_tags" else "remove"} '
+                            f'<input name="tags" list="bulk-tags" size="30" placeholder="e.g. spare, keep" required></label>'
+                            f'<datalist id="bulk-tags">{opts}</datalist> <span class="muted small">comma or space separated; '
+                            'lower case, letters, digits and - _ : . (fleet membership: use the Fleets page)</span>')
     fields = cmdspec.COMMANDS.get(command)
     return partial(request, "partials/command_form.html", code="", command=command, fields=fields or [],
                    description=cmdspec.DESCRIPTIONS.get(command, ""), known=fields is not None,
@@ -117,6 +144,8 @@ async def bulk_run(request: Request, user: str = Depends(current_user)):
         return HTMLResponse('<div class="result err">Tick at least one device and pick a command.</div>')
     if len(ctx["ok"]) > MAX_DEVICES:
         return HTMLResponse(f'<div class="result err">At most {MAX_DEVICES} devices at a time.</div>')
+    if ctx["command"] in TAG_CMDS:
+        return await _bulk_tags(request, user, ctx, clean_tags(form.get("tags") or ""))
     body, extra = {}, {}
     try:
         if ctx["ok"]:   # with nothing to send, only the skipped list is shown
@@ -141,6 +170,44 @@ async def bulk_run(request: Request, user: str = Depends(current_user)):
     cls = "ok" if sent == len(ctx["ok"]) and not ctx["skip"] else "err" if not sent else ""
     return HTMLResponse(f'<div class="result {cls}"><strong>{html.escape(ctx["command"])}: {sent} of {len(ctx["codes"])} '
                         f'sent</strong><ul class="small">{"".join(rows)}</ul></div>',
+                        headers={"HX-Trigger": "fleet-refreshed"} if sent else {})
+
+
+async def _bulk_tags(request: Request, user: str, ctx: dict, tags: list[str]) -> HTMLResponse:
+    """Add or remove tags on the ticked devices (PATCH configuration add_tags / remove_tags); the cached device list
+    shows the change at once."""
+    if not tags:
+        return HTMLResponse('<div class="result err">Give at least one tag.</div>')
+    add = ctx["command"] == "add_tags"
+    db = request.app.state.db
+    devices = await db.kv_get("devices", []) or []
+    by = {d.get("device_code"): d for d in devices}
+    rows, sent = [], 0
+    for code in ctx["ok"]:
+        have = set((by.get(code) or {}).get("tags") or [])
+        todo = [t for t in tags if (t not in have) == add]
+        if not todo:
+            rows.append(f'<li><span class="mono">{html.escape(code)}</span> <span class="muted">already '
+                        f'{"has" if add else "lacks"} {", ".join(tags)}</span></li>')
+            continue
+        out = await call_action(request, user, "PATCH", f"/devices/{code}",
+                                {"configuration": {("add_tags" if add else "remove_tags"): todo}},
+                                f"{'add' if add else 'remove'} tags {', '.join(todo)} on {code} (bulk)")
+        if out["ok"]:
+            sent += 1
+            d = by.get(code)
+            if d is not None:
+                d["tags"] = sorted(have | set(todo)) if add else [t for t in d.get("tags") or [] if t not in todo]
+        rows.append(f'<li><a class="mono" href="/devices/{code}">{code}</a> '
+                    + ('<span class="lv-done">✓</span>' if out["ok"] else
+                       f'<span class="lv-alert">✗ {out["status"]}: {html.escape(str(out["error"] or ""))}</span>') + "</li>")
+    if sent:
+        await db.kv_set("devices", devices)
+    rows += [f'<li><span class="mono">{html.escape(c)}</span> <span class="muted">skipped: {html.escape(w)}</span></li>'
+             for c, w in ctx["skip"]]
+    verb = "added" if add else "removed"
+    return HTMLResponse(f'<div class="result {"ok" if sent else ""}"><strong>{", ".join(tags)} {verb}: {sent} of '
+                        f'{len(ctx["codes"])} device(s)</strong><ul class="small">{"".join(rows)}</ul></div>',
                         headers={"HX-Trigger": "fleet-refreshed"} if sent else {})
 
 

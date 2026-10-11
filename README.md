@@ -23,8 +23,8 @@ Per-release detail is in the app's version history (Account › Server, or `app/
 | Tab | Pages |
 |---|---|
 | Dashboard | — |
-| Devices | Tree · List · AMI |
-| Map | Galaxy · Stars · Systems · Traffic · Trail · Wards & hubs · Defense · Upkeep |
+| Devices | Tree · Device list · AMI · Lost |
+| Map | Galaxy · Stars · Systems · Prospects · Traffic · Trail · Wards & hubs · Defense · Upkeep |
 | Fleets | Fleets · Reset & reform |
 | Economy | Blueprints · Contracts · Reputation · Shop |
 | Activity | Automations · Events · Messages · Notifications |
@@ -36,9 +36,9 @@ rule with an on/off switch, plus the jobs and the log.
 - **Dashboard**: a *while you were away* digest (a gap of 30 min starts a new visit; `/digest?hours=N` for any window), open
   alerts, replicants, live countdowns, fleet summary, stockpiles with a 48 h trend, live event feed.
 - **Tree**: system → device type → device, with stowed devices nested in their carrier; each device opens its command panel.
-- **List** (`/fleet`): every device, filterable by type, status, system, tag or text. Tick devices (or all listed) to send them
-  one command; the ones that can't take it — command not available, in use by an automation, a deploy/detach while the carrier
-  is between systems — are listed and skipped.
+- **Device list** (`/fleet`): every device, filterable by type, status, system, tag or text. Tick devices (or all listed) to send
+  them one command, or to **add tags** / **remove tags**; the ones that can't take it — command not available, in use by an
+  automation, a deploy/detach while the carrier is between systems — are listed and skipped.
 - **Device page**: live detail, any available command with its fields (destructive ones ask first), tags, history and game log,
   cancel travel. Autofactories get a **print queue** card (add with an optional *deliver to*, remove, clear); carrier vessels
   a **carrier** card (launch / stow / recall); *Decommission at an autofactory* takes a device there so the autofactory learns
@@ -63,8 +63,10 @@ rule with an on/off switch, plus the jobs and the log.
 - **Systems / System page**: a top-down map with your devices, stockpiles, sites and salvage. Three cards: **Resources** (per
   resource: richness, open sites, % left, ≈ units left — learned from what past sites gave — salvage, stockpiled),
   **Belts** (richness, a viability line, open sites) and **Bodies** (planets, moons, L-points with their salvage and stock).
-  *Mining prospects* scores every scanned system out of 100 (each resource's yield, scarce 1 to rich 10, × belt density,
-  weighted by rarity: rares 3, volatiles 2.5 … structural 1). Surveyed checkboxes per body. *Other players here*: their
+  **Prospects** (Map tab) scores every scanned system out of 100 (each resource's yield, scarce 1 to rich 10, × belt density,
+  weighted by rarity: rares 3, volatiles 2.5 … structural 1), with a **Ward** column — ⛨ yours / ⛨ theirs — and *add ward*
+  (activates an idle ward of yours there, else sends a spare, else prints one in range, then switches it on once deployed;
+  25-ward cap) / *remove* (deactivates yours; it stays deployed). Surveyed checkboxes per body. *Other players here*: their
   fixed devices (beacons, relays, wards, hubs, factories, observatories, controllers) from the latest scan, also drawn on the
   map; a replicant arriving in a system scans it, or use *Scan for other devices*. Snapshots older than 7 days are dropped.
 - **Traffic**: civilization contact (a beacon must sit at the body of the civilization's event), visitors, each beacon's audit log,
@@ -341,6 +343,7 @@ app/rsweb/
   pathing.py, prospects.py, prospecting.py, observatory.py   path forward, system scores, observatory prospecting
   bootstrap.py, boot_engine.py   bootstrap fleets: stages and decisions; the engine pass that runs them
   lost.py                  lost equipment: last known locations of devices out of sight
+  ward_orders.py           Prospects › add ward: activate / send a spare / print, then switch it on
   others.py                other players' fixed devices, beacon traffic arrows and the trail for the maps
   gameevents.py, contractsupply.py   contracts and their device delivery
   targets.py, sites.py, salvage.py, viability.py   locations, sites, salvage, belt viability

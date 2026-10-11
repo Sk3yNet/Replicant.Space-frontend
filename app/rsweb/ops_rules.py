@@ -16,12 +16,121 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def star_of_(loc) -> str:
+    return (loc or "").split("-")[0]
+
+
 def _ts(v):
     from .automations import _ts as ts
     return ts(v)
 
 
 class OpsRules:
+    # --- ward orders (Map › Prospects) ----------------------------------------------------------------------------
+    async def order_ward(self, star: str, user: str = "") -> str:
+        """Add a ward in `star`: activate one there, else send a spare, else print one (ward_orders.py)."""
+        from . import loadouts as lo
+        from . import ward_orders as wo
+        from . import wardhub as wh
+        from . import wards
+        star = star.upper()
+        devices = await self.devices()
+        cat = await self.db.kv_get("stars", {}) or {}
+        if star in wards.foreign(cat, devices):
+            return f"{star} is already warded by another player"
+        if star in {star_of_(x.get("location")) for x in devices if wh.is_hub(x) and wh.deployed(x)}:
+            return f"you have a system hub in {star}: wards and hubs don't go together"
+        orders = await self.db.kv_get(wo.KV, {}) or {}
+        w = wh.wards(devices)
+        if w["active"] + len([o for s_, o in orders.items() if s_ != star]) >= wh.WARD_CAP:
+            return f"{w['active']} wards active and {len(orders)} on order — the game allows {wh.WARD_CAP}"
+        here = wo.ward_here(devices, star)
+        if here and wh.active(here):
+            return f"{here['device_code']} already wards {star}"
+        busy = self.busy_devices(await self.jobs())
+        pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict)}
+        reach = float(((await self.loadout_cfg()).get("settings") or {}).get("max_supply_ly") or 100)
+        order = {"at": now_iso(), "by": user}
+        if here:
+            order.update(how="activate", device=here["device_code"])
+            msg = f"activating {here['device_code']} in {star}"
+        else:
+            spare = wo.spare_ward(devices, star, busy, pos, reach)
+            if spare:
+                rem = [t for t in spare.get("tags") or [] if t == lo.SPARE or t.startswith(("home:", "at:"))]
+                await self.create_job("wards", f"ward {spare['device_code']} → {star}", spare["device_code"],
+                                      [lo.tag_step(spare["device_code"], [lo.to_tag(star)], rem or None)],
+                                      {"devices": [spare["device_code"]]}, force=True)
+                order.update(how="send", device=spare["device_code"])
+                msg = f"sending spare ward {spare['device_code']} to {star} (the loadout pass carries it)"
+            else:
+                f = wo.factory_near(devices, star, busy, pos, reach)
+                if not f:
+                    return f"no spare ward and no autofactory within {reach:g} ly of {star}"
+                await self.create_job("wards", f"print a ward on {f['device_code']} for {star}", f["device_code"],
+                                      lo.print_steps({"factory": f["device_code"], "factory_star": star_of_(f.get("location")),
+                                                      "device_type": "system_ward", "n": 1, "star": star,
+                                                      "tags": [lo.to_tag(star)]}), {"devices": []}, force=True)
+                order.update(how="print", factory=f["device_code"])
+                msg = f"printing a ward on {f['device_code']} for {star} (the loadout pass then carries it there)"
+        orders[star] = order
+        await self.db.kv_set(wo.KV, orders)
+        await self.log("wards", f"{star}: {msg}" + (f" (by {user})" if user else ""))
+        await self.ward_orders_pass()
+        return msg
+
+    async def ward_orders_pass(self) -> list[str]:
+        """Ward orders: a ward of yours deployed and idle in the ordered system is switched on (cap and hub permitting)."""
+        from . import ward_orders as wo
+        from . import wardhub as wh
+        orders = await self.db.kv_get(wo.KV, {}) or {}
+        if not orders:
+            return []
+        devices = await self.devices()
+        busy = self.busy_devices(await self.jobs())
+        out, changed = [], False
+        for star, o in list(orders.items()):
+            here = wo.ward_here(devices, star)
+            if here and wh.active(here):
+                orders.pop(star)
+                changed = True
+                out.append(f"{star}: warded by {here['device_code']}")
+                await self.log("wards", f"{star}: ward {here['device_code']} is up", notify=True)
+                continue
+            if wo.expired(o):
+                orders.pop(star)
+                changed = True
+                await self.log("wards", f"{star}: ward order dropped — no ward got there in {wo.EXPIRE_DAYS} days", "alert", notify=True)
+                continue
+            if here and here["device_code"] not in busy and "activate" in (here.get("available_commands") or ["activate"]) \
+                    and wh.wards(devices)["active"] < wh.WARD_CAP:
+                from .automations import step
+                await self.create_job("wards", f"activate ward {here['device_code']} in {star}", here["device_code"],
+                                      [step(f"activate ward {here['device_code']}", f"/devices/{here['device_code']}",
+                                            {"command": "activate"})], {"devices": [here["device_code"]]}, force=True)
+                out.append(f"{star}: activating {here['device_code']}")
+        if changed:
+            await self.db.kv_set(wo.KV, orders)
+        return out
+
+    async def remove_ward(self, star: str, user: str = "") -> str:
+        """Remove the ward from `star`: deactivate yours there (it stays deployed; activate it again any time)."""
+        from . import ward_orders as wo
+        from . import wardhub as wh
+        from .automations import step
+        star = star.upper()
+        orders = await self.db.kv_get(wo.KV, {}) or {}
+        if orders.pop(star, None) is not None:
+            await self.db.kv_set(wo.KV, orders)
+        here = wo.ward_here(await self.devices(), star)
+        if not here or not wh.active(here):
+            return f"no active ward of yours in {star}" + (" (order canceled)" if here is None else "")
+        await self.create_job("wards", f"deactivate ward {here['device_code']} in {star}", here["device_code"],
+                              [step(f"deactivate ward {here['device_code']}", f"/devices/{here['device_code']}",
+                                    {"command": "deactivate"})], {"devices": [here["device_code"]]}, force=True)
+        await self.log("wards", f"{star}: ward {here['device_code']} deactivated" + (f" (by {user})" if user else ""))
+        return f"deactivating {here['device_code']} in {star} (it stays deployed)"
+
     # --- civilization beacons -------------------------------------------------------------------------------------
     async def civ_coverage(self) -> list[dict]:
         from . import gameevents as ge

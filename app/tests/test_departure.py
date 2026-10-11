@@ -198,3 +198,64 @@ def test_busy_retry_stops_when_the_carrier_turned_back(client):
     client.portal.call(e.tick)
     j = next(x for x in client.portal.call(e.jobs) if x["id"] == jid)
     assert j["status"] == "failed" and "heading to HOME, not FAR" in j["steps"][2]["error"]
+
+
+def test_bulk_add_and_remove_tags(client):
+    from rsweb import web_bulk as wb
+    assert wb.clean_tags("Spare, to:SOL  bad*tag") == ["spare", "to:sol", "badtag"]
+    db = client.app.state.db
+    devs = client.portal.call(db.kv_get, "devices")
+    codes = [d["device_code"] for d in devs[:2]]
+    page = client.get("/fleet", headers=H).text
+    assert "Device list" in page and 'value="add_tags"' in page
+    assert "Tags to add" in client.get("/fleet/bulk-form?command=add_tags", headers=HX).text
+    r = client.post("/fleet/bulk", data={"command": "add_tags", "tags": "keep, Spare", "codes": codes}, headers=HX)
+    assert "added: 2 of 2" in r.text
+    by = {d["device_code"]: d for d in client.portal.call(db.kv_get, "devices")}
+    assert all({"keep", "spare"} <= set(by[c].get("tags") or []) for c in codes)
+    r = client.post("/fleet/bulk", data={"command": "remove_tags", "tags": "keep", "codes": codes}, headers=HX)
+    assert "removed: 2 of 2" in r.text
+    by = {d["device_code"]: d for d in client.portal.call(db.kv_get, "devices")}
+    assert all("keep" not in (by[c].get("tags") or []) and "spare" in by[c]["tags"] for c in codes)
+
+
+def test_prospects_ward_column_add_and_remove(client):
+    e = eng(client)
+    db = client.app.state.db
+    client.get("/systems/SOL", headers=H)   # a scanned system on the prospects list
+    devs = client.portal.call(db.kv_get, "devices")
+    devs.append({"device_code": "WD1", "device_type": "system_ward", "location": "SOL-3", "status": "inactive",
+                 "available_commands": ["activate"], "tags": []})
+    client.portal.call(db.kv_set, "devices", devs)
+    page = client.get("/systems/prospects", headers=H).text
+    assert "Prospects" in page and "add ward" in page and "WD1 idle" in page
+    r = client.post("/systems/SOL/ward", data={"action": "add"}, headers=HX)
+    assert "activating WD1" in r.text
+    jobs = client.portal.call(e.jobs)
+    assert any("activate ward WD1" in j["title"] for j in jobs)
+    # once active: shown as yours, and remove deactivates it
+    for d in devs:
+        if d["device_code"] == "WD1":
+            d["status"] = "warding"
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(e.ward_orders_pass)
+    assert "SOL" not in (client.portal.call(db.kv_get, "ward_orders") or {})
+    assert "⛨ yours" in client.get("/systems/prospects", headers=H).text
+    r = client.post("/systems/SOL/ward", data={"action": "remove"}, headers=HX)
+    assert "deactivating WD1" in r.text
+
+
+def test_add_ward_sends_a_spare_or_prints(client):
+    e = eng(client)
+    db = client.app.state.db
+    client.get("/systems/SOL", headers=H)
+    devs = [d for d in client.portal.call(db.kv_get, "devices") if d.get("device_type") != "system_ward"]
+    client.portal.call(db.kv_set, "devices", devs + [{"device_code": "WD2", "device_type": "system_ward", "location": "SOL-BELT-1",
+                                                     "status": "stowed", "tags": ["spare"]}])
+    msg = client.portal.call(e.order_ward, "ABOTEIN", "joe")
+    assert "sending spare ward WD2" in msg
+    job = next(j for j in client.portal.call(e.jobs) if "WD2 → ABOTEIN" in j["title"])
+    assert job["steps"][0]["body"]["configuration"]["add_tags"] == ["to:abotein"]
+    client.portal.call(db.kv_set, "devices", devs)
+    msg = client.portal.call(e.order_ward, "LERNA", "joe")
+    assert "print" in msg or "no spare ward and no autofactory" in msg

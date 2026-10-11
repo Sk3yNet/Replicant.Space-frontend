@@ -5,7 +5,7 @@
   <label class="small" style="text-transform:none">Ticked devices:
     <select name="command" id="bulk-cmd" hx-get="/fleet/bulk-form" hx-target="#bulk-fields" hx-trigger="change">
       <option value="">— command —</option>
-      {% for c, n in bulk_cmds %}<option value="{{ c }}" title="{{ command_help.get(c, '') }}">{{ c | human }} ({{ n }} here){{ ' ⚠' if c in dangerous }}</option>{% endfor %}
+      {% for c, n in bulk_cmds %}<option value="{{ c }}" title="{{ command_help.get(c, '') }}">{{ c | human }}{% if c not in ('add_tags', 'remove_tags') %} ({{ n }} here){% endif %}{{ ' ⚠' if c in dangerous }}</option>{% endfor %}
     </select></label>
   <label class="small" style="text-transform:none"><input type="checkbox" name="include_busy"> include devices automations are using</label>
   <button class="small">Send to ticked</button>

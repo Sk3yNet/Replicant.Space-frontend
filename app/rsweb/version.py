@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.67.0"
+VERSION = "1.68.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.68.0", "2026-10-11", "Prospects is a Map tab, with a Ward column (yours / theirs / your hub / on its way) and add "
+     "ward (activate an idle one there, else send a spare, else print one in range; switched on once deployed, 25 cap) / "
+     "remove (deactivate). Device list (renamed from Fleet): bulk add tags / remove tags on ticked devices."),
     ("1.67.0", "2026-10-10", "Long trips: waits for an arrival last until the game's ETA (+30 min) and are extended while "
      "the device is still moving (up to 48 h) — seen live: Surveyors' wait timed out mid-surge to the Sol zone and its "
      "deploys failed; 'Cannot … while travelling' refusals are retried every 5 min while still on course. A canceled "

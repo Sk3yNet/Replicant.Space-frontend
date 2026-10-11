@@ -1208,7 +1208,29 @@ async def systems_prospects(request: Request, origin: str = "", user: str = Depe
     origin = (origin or (count.most_common(1)[0][0] if count else "")).upper()
     p = await prospects.rank(request.app.state.db, request.app.state.worker.automations, st["devices"], origin)
     homes = sorted({f["home"] for f in await request.app.state.worker.automations.fleets() if f.get("home")} | set(count))
-    return await page(request, user, "prospects.html", "systems", p=p, origin=origin, origins=homes)
+    from . import ward_orders as wo
+    from . import wardhub as wh
+    from . import wards as wds
+    foreign = wds.foreign(await request.app.state.db.kv_get("stars", {}) or {}, st["devices"])
+    hubs = {star_of(d.get("location")) for d in st["devices"] if wh.is_hub(d) and wh.deployed(d)}
+    orders = await request.app.state.db.kv_get(wo.KV, {}) or {}
+    ward = {}
+    for r in p["rows"]:
+        x = r["star"]
+        here = wo.ward_here(st["devices"], x)
+        ward[x] = {"foreign": x in foreign, "hub": x in hubs, "order": orders.get(x),
+                   "mine": here["device_code"] if here else None, "active": bool(here and wh.active(here))}
+    return await page(request, user, "prospects.html", "prospects", p=p, origin=origin, origins=homes, ward=ward,
+                      w=wh.wards(st["devices"]))
+
+
+@router.post("/systems/{star}/ward", response_class=HTMLResponse)
+async def systems_ward(request: Request, star: str, action: str = Form(...), user: str = Depends(current_user)):
+    """Prospects: add a ward in a system (activate / send a spare / print one) or remove yours (deactivate)."""
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        msg = await (eng.order_ward(star, user) if action == "add" else eng.remove_ward(star, user))
+    return HTMLResponse(f'<div class="result small">{html.escape(msg)}</div>', headers={"HX-Refresh": "true"})
 
 
 @router.get("/systems", response_class=HTMLResponse)
