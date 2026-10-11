@@ -107,7 +107,7 @@ lines or a template).
   longer leaves relays or beacons: ask for those on the Systems list; an already-surveyed target is skipped, and the
   crew stays aboard at home); trade runs a contract or trade end to end. A recall withdraws a launched AMI controller (its
   drones come back) before it boards. No automation sends a drone or AMI controller on an in-system cruise longer than the
-  max cruise (Fleets › settings); a manual Travel that long asks first.
+  max cruise (Fleets › settings); a manual Travel that long asks first (surge-capable devices excepted).
 - **Path forward** (stationed mining fleets): a heading; when the home runs dry the fleet picks the best system ahead and moves.
 - **Observatories** prospect wherever they're deployed — the heading (else outward from Sol), then 13 other directions — and
   compact when every direction is used up or the fleet is leaving.

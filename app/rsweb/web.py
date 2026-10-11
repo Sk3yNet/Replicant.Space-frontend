@@ -885,8 +885,8 @@ async def long_cruise_warning(request: Request, code: str, dest: str) -> str | N
     """A manual trip inside one system longer than the max cruise (Fleets › settings): the warning to show, else None."""
     dev = await _device(request, code) or {}
     here = dev.get("location")
-    if not here or not dest or star_of(here) != star_of(dest.upper()):
-        return None
+    if not here or not dest or star_of(here) != star_of(dest.upper()) or "surge" in (dev.get("features") or []):
+        return None   # a surge-capable device isn't held to it
     eng = request.app.state.worker.automations
     au, limit = fl.cruise_au(here, dest.upper(), await eng.cruise_radii()), await eng.max_cruise_au()
     if au <= limit:

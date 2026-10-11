@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.76.0"
+VERSION = "1.77.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.77.0", "2026-10-11", "Long-cruise checks skip surge-capable devices: no warning on their manual Travel, and "
+               "automations aren't held back for them."),
     ("1.76.0", "2026-10-11", "Long cruises: no automation sends a drone or AMI controller on an in-system cruise longer than "
                "the max cruise (Fleets › settings) — the step says why instead; a manual Travel that long asks first "
                "(Send anyway)."),

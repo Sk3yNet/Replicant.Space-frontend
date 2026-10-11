@@ -475,3 +475,12 @@ def test_manual_long_cruise_asks_first(client):
     assert "would cruise" not in r.text
     r = client.post("/devices/D9/command", data={"command": "travel", "f.destination": "SOL-OORT"}, headers=HX)
     assert "would cruise" not in r.text
+
+
+def test_manual_long_cruise_doesnt_ask_for_a_surge_capable_device(client):
+    db = client.app.state.db
+    devs = client.portal.call(db.kv_get, "devices") + [dev("V9", "cargo_vessel", "SOL-OORT", features=["surge", "stow"],
+                                                            available_commands=["travel"])]
+    client.portal.call(db.kv_set, "devices", devs)
+    r = client.post("/devices/V9/command", data={"command": "travel", "f.destination": "SOL-3"}, headers=HX)
+    assert "would cruise" not in r.text

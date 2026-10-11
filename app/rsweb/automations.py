@@ -785,9 +785,9 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
         t = str(d.get("device_type") or "")
         dest, here = str(body.get("destination") or ""), d.get("location")
-        if not ("drone" in t or "controller" in t) or not here or star_of(here) != star_of(dest):
-            return None
         from .fleets import cruise_au
+        if not ("drone" in t or "controller" in t) or not here or star_of(here) != star_of(dest) or "surge" in (d.get("features") or []):
+            return None
         au, limit = cruise_au(here, dest, await self.cruise_radii()), await self.max_cruise_au()
         if au <= limit:
             return None
