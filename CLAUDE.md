@@ -58,8 +58,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
 - The home sector (FALQUORYX, OTHILETH …) is about 500 ly from the Sol zone (SOLARES, FRANZAN …). A surge across that
   gap takes hours, and borrowed carriers must not fly it empty (loadout supply range: 100 ly).
 - Trades and contracts paid in devices need them deployed at the exact location, with a replicant there. Bill
-  (A8F48B26) runs The Skunkworks shop; it moves, probably about daily (NOSOXA-OORT on 2026-10-11), and his route always
-  passes through SOL.
+  (A8F48B26) runs The Skunkworks shop; it moves, probably about daily (NOSOXA-OORT on 2026-10-11), his route always
+  passes through SOL, and he announces moves on BobNet #general ("NOSOXA is in the rear-view mirror").
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the
   job.
 

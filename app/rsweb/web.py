@@ -3015,7 +3015,9 @@ async def game_events_ctx(request: Request) -> dict:
         key, label = gev.species_key(q, life)
         q["approval"] = {"key": key, "label": label, "on": key in approvals}
     quiet_rows = sorted(quiet.values(), key=lambda q: (q["approval"]["on"], q["location"]))
-    return {"open": open_, "closed": closed[:30], "replicants": st["replicants"], "settings": settings, "quiet": quiet_rows}
+    from . import shop as sh
+    return {"open": open_, "closed": closed[:30], "replicants": st["replicants"], "settings": settings, "quiet": quiet_rows,
+            "traders": await sh.known_traders(db), "mine": set(st["replicants"]), "trade_side": sh.describe_side}
 
 
 @router.get("/game-events", response_class=HTMLResponse)
@@ -3946,26 +3948,10 @@ async def fleets_traders(request: Request, user: str = Depends(current_user)):
     api = request.app.state.api
     if not st["replicants"]:
         return HTMLResponse('<span class="lv-alert small">No replicant to ask.</span>')
-    # every replicant's directory (each lists the traders near it), not only the first one's
-    traders, err = {}, None
-    for rep in st["replicants"]:
-        try:
-            for t in ((await api.get(f"/replicants/{rep}/traders")) or {}).get("traders") or []:
-                if t.get("controller_code"):
-                    traders.setdefault(t["controller_code"], t)
-        except ApiError as e:
-            err = e.message
-    if not traders and err:
+    from .shop import refresh_directory
+    n, err = await refresh_directory(request.app.state.db, api, list(st["replicants"]))
+    if not n and err:
         return HTMLResponse(f'<span class="lv-alert small">{html.escape(err)}</span>')
-    out = {}
-    for t in list(traders.values())[:20]:
-        code = t.get("controller_code")
-        try:
-            trades = ((await api.get(f"/devices/{code}/trades")) or {}).get("trades") or []
-        except ApiError:
-            trades = []
-        out[code] = {**t, "trades": trades, "read_at": now_iso()}
-    await request.app.state.db.kv_set("traders_cache", out)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 

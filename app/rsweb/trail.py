@@ -17,6 +17,7 @@ audit: {beacon: [rows, newest first]}, read_at: {beacon: iso}, seen: [audit ids 
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 KV = "trail"
@@ -28,6 +29,22 @@ MAX_ANGLE_DEG = 25.0      # candidates shown at all
 # Bill (Skunkworks) always passes through SOL: when his trail is lost — a reset location, a cleared trail, a cold end —
 # it can be picked up again at SOL (seen live 2026-10-11: his shop at NOSOXA-OORT; it moves, about daily)
 BILL_CODE, BILL_HOME = "A8F48B26", "SOL"
+
+
+MOVE_RE = re.compile(r"on the move|rear.?view|moved|moving|relocat|packed up|left\b|leaving", re.I)
+
+
+def bill_move_post(payload: dict, stars: set[str]) -> dict | None:
+    """Bill announces his moves on BobNet (seen 2026-10-12, #general: "Skunkworks is on the move. NOSOXA is in the
+    rear-view mirror."): {"from": the system he left (a known star the post names, else None), "text"} for such a post
+    of his, else None."""
+    if payload.get("replicant_code") != BILL_CODE and str(payload.get("replicant_name") or "").lower() != "bill":
+        return None
+    text = str(payload.get("message") or "")
+    if not MOVE_RE.search(text):
+        return None
+    named = [w for w in re.findall(r"[A-Z][A-Z0-9]{2,}", text) if w in stars]
+    return {"from": named[0] if named else None, "text": text}
 
 
 def is_bill(s: dict) -> bool:

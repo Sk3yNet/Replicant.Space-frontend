@@ -152,3 +152,30 @@ async def known_traders(db) -> dict[str, dict]:
         offer(code, t, t.get("read_at") or read)
     gone = await db.kv_get(GONE_KV, {}) or {}
     return {c: t for c, t in seen.items() if t["seen_at"] > (gone.get(c) or {}).get("at", "")}
+
+
+async def refresh_directory(db, api, replicants: list[str]) -> tuple[int, str | None]:
+    """Every replicant's trader directory (each lists the traders near it) and each trader's trades, at most 20 traders,
+    into kv "traders_cache". Returns (traders read, the last error)."""
+    from datetime import datetime, timezone
+    from .api import ApiError
+    traders, err = {}, None
+    for rep in replicants:
+        try:
+            for t in ((await api.get(f"/replicants/{rep}/traders")) or {}).get("traders") or []:
+                if t.get("controller_code"):
+                    traders.setdefault(t["controller_code"], t)
+        except ApiError as e:
+            err = e.message
+    if not traders:
+        return 0, err
+    out, now = {}, datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for t in list(traders.values())[:20]:
+        code = t.get("controller_code")
+        try:
+            trades = ((await api.get(f"/devices/{code}/trades")) or {}).get("trades") or []
+        except ApiError:
+            trades = []
+        out[code] = {**t, "trades": trades, "read_at": now}
+    await db.kv_set("traders_cache", out)
+    return len(out), err

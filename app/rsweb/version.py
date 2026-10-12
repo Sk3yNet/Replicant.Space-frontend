@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.83.0"
+VERSION = "1.84.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.84.0", "2026-10-12", "Bill's BobNet move posts ('NOSOXA is in the rear-view mirror') reset the trail: his old shop "
+               "location is set aside, the trader directory is re-read, and a follow picks him up where he left. The "
+               "Contracts page has a Trades section: every shop you know of, where it was last seen, and its trades."),
     ("1.83.0", "2026-10-12", "The Carrier card is on every carrier: attach carriers (surge plates, platforms, surge carriers, "
                "mobile fleets) list what's attached and what they can attach, with detach / attach; a cargo vessel stows "
                "what fits the hold and attaches the rest. Hold and attach points are counted separately."),

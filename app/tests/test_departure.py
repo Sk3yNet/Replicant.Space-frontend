@@ -661,3 +661,39 @@ def test_carrier_card_on_an_attach_carrier():
     steps = cm.plan("MF", "SOL-4-L4", list(rows.values()), {"A1"}, {"D1"}, set(), "/devices/MF")
     assert [(s["path"], s["body"]) for s in steps] == [("/devices/MF", {"command": "detach", "device": "A1"}),
                                                        ("/devices/MF", {"command": "attach", "device": "D1"})]
+
+
+def test_bills_move_post_restarts_the_trail_where_he_left(client):
+    from rsweb import shop, trail as tl
+    e = eng(client)
+    db = client.app.state.db
+    cat = client.portal.call(db.kv_get, "stars") or {}
+    cat.setdefault("stars", []).append({"designation": "NOSOXA", "position": {"x": 7, "y": -39, "z": 15}})
+    client.portal.call(db.kv_set, "stars", cat)
+    client.portal.call(db.kv_set, tl.KV, {"target_name": "Bill", "target_code": tl.BILL_CODE, "scanner": "REP1",
+                                          "beacons": {}, "audit": {}, "follow": {"active": False}})
+    client.portal.call(db.kv_set, "traders_cache", {"3BF0ED09": {"location": "NOSOXA-OORT", "owner_name": "Bill",
+                                                                 "owner_replicant_code": tl.BILL_CODE, "trades": []}})
+    post = {"replicant_code": tl.BILL_CODE, "replicant_name": "Bill", "channel": "#general",
+            "message": "Skunkworks is on the move. NOSOXA is in the rear-view mirror. Tell no one."}
+    text = client.portal.call(e.bill_moved, post)
+    assert "left NOSOXA" in text and "following him again from NOSOXA" in text
+    s = client.portal.call(db.kv_get, tl.KV)
+    assert s["follow"]["active"] and s["follow"]["star"] == "NOSOXA" and s["moved"]["from"] == "NOSOXA"
+    assert "3BF0ED09" not in client.portal.call(shop.known_traders, db)        # set aside until seen again
+    assert client.portal.call(e.bill_moved, {**post, "message": "o7 all"}) is None
+    assert client.portal.call(e.bill_moved, {**post, "replicant_code": "X", "replicant_name": "Ann"}) is None
+
+
+def test_contracts_page_lists_known_shops_and_trades(client):
+    import json
+    from rsweb.db import now_iso
+    db = client.app.state.db
+    scan = {"shops": [{"controller_code": "3BF0ED09", "location": "NOSOXA-OORT", "owner_name": "Bill", "shop_name": "The Skunkworks",
+                       "trades": [{"trade_code": "TRD-023B34", "name": "Service Bot Upgrade", "current_stock": 4,
+                                   "criteria": {"devices": {"maintenance_drone": 1}}, "rewards": {"devices": {"service_bot": 1}}}]}]}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("NOSOXA", json.dumps(scan), now_iso()))
+    page = client.get("/game-events", headers=H).text
+    assert "Trades" in page and "The Skunkworks" in page and "Service Bot Upgrade" in page and "NOSOXA-OORT" in page
+    assert "The Skunkworks" in client.get("/shop", headers=H).text

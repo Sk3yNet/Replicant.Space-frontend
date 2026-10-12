@@ -83,7 +83,8 @@ rule with an on/off switch, plus the jobs and the log.
 - **Trail**: follow a replicant through the audit logs of public FTL beacons; candidate systems with travel time and a travel
   button; *follow to the end* keeps going until the target stops moving. *Reset trail* clears the beacons and logs when the
   target relocates. Bill (A8F48B26) always passes through SOL: with nothing to follow, or a cold trail, the follow picks
-  him up there, and *restart from SOL* starts over.
+  him up there, and *restart from SOL* starts over. His BobNet posts about moving ("NOSOXA is in the rear-view
+  mirror") restart the follow where he left and set his old shop location aside.
 - **Wards & hubs**: your wards (against the 25 cap), hub shield and upkeep with warnings, `evicted_miners` log. Other players'
   warded systems are left alone by every mining rule and mission.
 - **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Upkeep**: wear per system and maintenance
@@ -139,7 +140,7 @@ lines or a template).
 - **Contracts**: in-game events with criteria (any one option completes it), rewards and progress; *send replicant*, *deliver
   materials*, *fulfill*. **Deliver devices** sends spare devices to a contract's location; printing what no spare covers waits
   for **Authorize printing**.
-- **Reputation**: account and per-replicant reputation, known species. **Shop**: your trade controllers, trades, other traders —
+- **Reputation**: account and per-replicant reputation, known species. **Shop** (and a Trades section on **Contracts**): your trade controllers, trades, other traders —
   every replicant's trader directory plus every shop a system scan lists, the newest sighting of each winning (shops can
   move). A trade run paid in devices gets spare ones delivered and deployed at the shop; a failed trade sets that shop
   aside until it's seen again.

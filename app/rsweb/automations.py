@@ -1033,6 +1033,12 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             if name == "system.object_detected":
                 asyncio.create_task(self._locked_sync_objects())
             # rules triggered by arrivals
+            if name == "bobnet.new" and not late:
+                try:
+                    await self.bill_moved(p)
+                except Exception as e:
+                    log.exception("bill move check failed")
+                    await self.log("trail", f"checking Bill's post failed: {e}", "alert")
             if name == "travel.arrived" and not late:
                 try:
                     await self.on_arrival(ev)
@@ -1201,6 +1207,48 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         s["follow"] = fo
         await self.db.kv_set(tl.KV, s)
         return out
+
+    async def bill_moved(self, payload: dict) -> str | None:
+        """Bill posted that his Skunkworks moved: set his shop aside where it was, and when you follow him, pick the trail
+        up again where he left (his beacon there logs the departure; a cold trail falls back to SOL)."""
+        from . import trail as tl
+        from .shop import known_traders, mark_gone
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {x.get("designation") for x in cat.get("stars") or [] if isinstance(x, dict)}
+        mv = tl.bill_move_post(payload, stars)
+        if not mv:
+            return None
+        s = tl.normalize(await self.db.kv_get(tl.KV, {}) or {})
+        last = tl.last_seen(s["audit"], s["beacons"], s.get("target_code")) if tl.is_bill(s) else None
+        frm = mv["from"] or (last or {}).get("star")
+        now = now_iso()
+        try:   # where the shop is now, if the directory already lists it there
+            from .shop import refresh_directory
+            await refresh_directory(self.db, self.api, list(await self.db.kv_get("replicants", {}) or {}))
+        except Exception:
+            log.exception("trader directory refresh after Bill's post failed")
+        for code, t in (await known_traders(self.db)).items():   # his shop isn't where we last saw it any more
+            if (t.get("owner_replicant_code") == tl.BILL_CODE or str(t.get("owner_name") or "").lower() == "bill") \
+                    and (not frm or tl.star_of(t.get("location")) == frm):
+                await mark_gone(self.db, code, t.get("location"), now)
+        text = f"Bill is on the move" + (f" — left {frm}" if frm else "") + f": “{mv['text'][:160]}”"
+        if tl.is_bill(s):
+            fo = s.get("follow") or {}
+            if fo.get("job"):
+                await self.cancel(fo["job"])
+            s["moved"] = {"at": now, "from": frm, "text": mv["text"]}
+            rep = fo.get("replicant") or s.get("scanner")
+            if rep and (fo or s.get("scanner")):   # you've been following him: pick the trail up where he left
+                start = frm or tl.BILL_HOME
+                s["follow"] = {"active": True, "replicant": rep, "state": "travel", "star": start, "alts": [], "job": None,
+                               "visited": [], "started_at": now, "by": "Bill's post", "sol_tried": start == tl.BILL_HOME,
+                               "log": [{"at": now, "text": f"{text} — picking the trail up at {start}"}]}
+                text += f" — following him again from {start}"
+            s.pop("polled_at", None)   # re-read his beacons on the next pass
+            await self.db.kv_set(tl.KV, s)
+        await self.log("trail", text, notify=True)
+        await self._notify("mention", f"Trail: {text}", "/trail")
+        return text
 
     async def trail_pass(self) -> list[str]:
         """Map › Trail: every 15 minutes re-read the followed replicant's beacons (trail.py); each new departure or

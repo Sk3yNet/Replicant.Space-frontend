@@ -112,4 +112,12 @@
     </form>
   </div>
 </div>
+<div class="card" style="margin-top:14px">
+  <div class="row between"><h2 style="margin:0">Trades</h2>
+    <button class="small ghost" hx-post="/fleets/traders" hx-swap="none">Refresh traders</button></div>
+  <p class="muted small">Shops you know of — every replicant's trader directory and every shop a system scan lists, the newest
+    sighting of each. Shops move (Bill's about daily): a refresh or a scan where it is now updates it. Run one with a trade
+    fleet (Fleets), or Buy here with a replicant at the shop.</p>
+  {% include "partials/traders_table.html" %}
+</div>
 {% endblock %}

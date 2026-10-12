@@ -61,15 +61,6 @@
 <div class="card">
   <div class="row between"><h2 style="margin:0">Other traders</h2>
     <button class="small ghost" hx-post="/fleets/traders" hx-swap="none">Refresh traders</button></div>
-  {% if traders %}
-  <table class="small"><tr><th>Shop</th><th>Where</th><th>Trade</th><th>You pay</th><th>You get</th><th class="num">Stock</th><th></th></tr>
-    {% for code, t in traders.items() %}{% for tr in t.trades %}<tr>
-      <td>{{ t.shop_name or '—' }} <span class="muted">{{ t.owner_name }}</span>{% if t.owner_replicant_code in mine %} <span class="pill small">yours</span>{% endif %}</td>
-      <td>{{ t.location }}</td><td>{{ tr.name }}</td><td>{{ describe(tr.criteria) }}</td><td>{{ describe(tr.rewards) }}</td>
-      <td class="num">{{ tr.current_stock }}</td>
-      <td><button class="small" hx-post="/shop/buy" hx-vals='{{ {"controller": (code) | string, "trade_code": (tr.trade_code) | string} | tojson }}' hx-target="next .sh-b"
-        hx-confirm="Buy {{ tr.name }} at {{ t.location }}: pay {{ describe(tr.criteria) }}, get {{ describe(tr.rewards) }}?">Buy</button><span class="sh-b"></span></td></tr>{% endfor %}{% endfor %}
-  </table>
-  {% else %}<p class="muted small">No traders read yet.</p>{% endif %}
+  {% include "partials/traders_table.html" %}
 </div>
 {% endblock %}
