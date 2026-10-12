@@ -37,6 +37,7 @@ class Field:
     help: str = ""
     options: list = field(default_factory=list)
     filter: dict = field(default_factory=dict)  # e.g. {"device_type": "empty_replicant_matrix"} or {"feature": "ami"}
+    side: str = ""   # shown only on a device that fits: has_hold / no_hold / has_attach / no_attach (field_applies)
 
     @property
     def title(self) -> str:
@@ -48,15 +49,23 @@ F = Field
 # --- device commands --------------------------------------------------------------------------
 COMMANDS: dict[str, list[Field]] = {
     "travel": [F("destination", "location", required=True, help="Location code (planet, belt, L4/L5, star …)")],
-    "stow": [F("target", "device", help="Device to stow into (leave blank to stow on the default carrier)")],
-    "deploy": [],
+    "stow": [F("target", "device", label="stow into (a carrier here)", filter={"here": True, "carrier": "hold"},
+               help="Leave blank to stow on the default carrier", side="no_hold"),
+             F("cargo", "device", label="device to take into my hold", filter={"here": True, "cargo": True},
+               side="has_hold")],
+    "deploy": [F("cargo", "device", label="device to deploy from my hold", filter={"stowed_in_self": True},
+                 help="Leave blank to deploy this device itself", side="has_hold")],
     "recall": [],
     "start_mining": [F("resource_type", "resource", required=True)],
     "retarget": [F("resource_type", "resource", required=True)],
     "collect_resources": [F("resources", "resources", help="Amounts to load from the stock here")],
     "deposit_resources": [F("resources", "resources", help="Leave blank to empty the whole hold")],
-    "attach": [F("device", "device", required=True, label="device to attach to")],
-    "detach": [],
+    "attach": [F("device", "device", label="device to attach (cargo here)", filter={"here": True, "cargo": True},
+                 side="has_attach"),
+               F("carrier", "device", label="attach me to (a carrier here)", filter={"here": True, "carrier": "attach"},
+                 side="no_attach")],
+    "detach": [F("device", "device", label="attached device to let go of", filter={"attached_to_self": True},
+                 side="has_attach")],
     "system_scan": [],
     "scan": [],
     "search": [],
@@ -100,8 +109,9 @@ COMMANDS: dict[str, list[Field]] = {
 DESCRIPTIONS: dict[str, str] = {
     "travel": "Fly to a location. Inside a system this is a cruise; to another system the game plans surge legs (needs the "
               "surge feature, else ride a carrier). A drone tracking a site must be deactivated first.",
-    "stow": "Board a carrier's hold (vessels, mobile fleets). The device must be at the carrier's location; it then rides "
-            "along and doesn't show a location of its own.",
+    "stow": "Board a carrier's hold (vessels, mobile fleets). Pick from either side: on the device, the carrier; on the "
+            "carrier, the device — the command goes to the device either way. It must be at the carrier's location; it "
+            "then rides along and doesn't show a location of its own.",
     "deploy": "Leave the carrier it's stowed in, at the carrier's location. Beacons, relays and slingshots start working "
               "once deployed (a relay also needs activate).",
     "recall": "Return to the AMI controller (or carrier) that runs it.",
@@ -110,8 +120,8 @@ DESCRIPTIONS: dict[str, str] = {
     "collect_resources": "Load resources from your stockpile at this location into the hold (up to its cargo capacity).",
     "deposit_resources": "Unload the hold into your stockpile at this location (leave blank to empty it).",
     "attach": "A carrier (surge plate, platform, carrier, mobile fleet, cargo vessel) takes a device on its attach "
-              "points. Sent to the carrier, naming the cargo; both must be at the same location. Large (modular) devices "
-              "must be compacted first.",
+              "points. Pick from either side: on the carrier, the cargo; on the cargo, the carrier — the command goes to "
+              "the carrier either way. Both must be at the same location; large (modular) devices must be compacted first.",
     "detach": "A carrier lets go of an attached device at its current location.",
     "system_scan": "Scan the whole system: planets, moons, belts and the entry point.",
     "scan": "A survey drone scans the body it's at (life, resources, salvage, events).",
@@ -275,6 +285,20 @@ def build_suggestions(state: dict, blueprints: list[dict], systems: list[dict], 
             "channels": channels, "devices": devices, "here": here, "systems": star_opts}
 
 
+def field_applies(sugg: dict, f: Field, self_code: str | None) -> bool:
+    """Show a field only on a device it fits: the carrier's side of stow / deploy on a device with a hold, of attach /
+    detach on one with attach points; the cargo's side on the others."""
+    if not f.side:
+        return True
+    from .fleets import capacity, hold
+    me = next((d for d in sugg.get("devices") or [] if d.get("device_code") == self_code), None)
+    if not me:
+        return True
+    has = {"hold": hold(me) > 0, "attach": capacity(me) > 0}
+    want, _, kind = f.side.partition("_")
+    return has.get(kind, False) == (want == "has")
+
+
 def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
     """Devices for a device/devices field: same location first, filtered by the field's filter."""
     here = sugg.get("here")
@@ -290,6 +314,19 @@ def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
             continue
         if flt.get("not_feature") and flt["not_feature"] in feats:
             continue
+        if flt.get("attached_to_self") and d.get("attached_to_device_code") != self_code:
+            continue
+        if flt.get("stowed_in_self") and d.get("stowed_in_device_code") != self_code:
+            continue
+        if flt.get("here") and (not here or d.get("location") != here or d.get("stowed_in_device_code")
+                                or d.get("attached_to_device_code")):
+            continue
+        if flt.get("carrier"):
+            from .fleets import capacity, hold
+            if (hold(d) if flt["carrier"] == "hold" else capacity(d)) <= 0:
+                continue
+        if flt.get("cargo") and "vessel" in (d.get("device_type") or "") and "drone" not in (d.get("device_type") or ""):
+            continue   # a vessel isn't cargo
         out.append({"value": d["device_code"], "label": f"{(d.get('device_type') or '').replace('_', ' ')} · "
                     f"{d.get('location')} · {d.get('status')}", "near": d.get("location") == here})
     out.sort(key=lambda o: (not o["near"], o["label"]))

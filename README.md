@@ -41,7 +41,8 @@ rule with an on/off switch, plus the jobs and the log.
   automation, a deploy/detach while the carrier is between systems — are listed and skipped.
 - **Device page**: live detail, any available command with its fields (destructive ones ask first), tags, history and game log,
   cancel travel. Autofactories get a **print queue** card (add with an optional *deliver to*, remove, clear); carrier vessels
-  a **carrier** card (launch / stow / recall); *Decommission at an autofactory* takes a device there so the autofactory learns
+  a **carrier** card (launch / stow / recall); stow, deploy, attach and detach work from either side (the carrier's
+  page lists its hold / attachments, the cargo's page lists carriers here — only the side the device fits); *Decommission at an autofactory* takes a device there so the autofactory learns
   its blueprint. `enqueue_print` on a replicant's vessel is sent as the replicant's own print (one at a time).
 - **Replicant page**: route preview and travel (with *then, on arrival…* follow-ups), nearest stars, scan, mining, vessel
   printing, profile editing, FTL slingshot.

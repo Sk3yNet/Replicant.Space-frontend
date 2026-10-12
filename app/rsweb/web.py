@@ -201,7 +201,8 @@ def f_duration(secs: Any) -> str:
 templates.env.filters.update(local=f_local, ago=f_ago, pretty=f_pretty, human=f_human, num=f_num,
                              status_class=status_class, star_of=star_of, capacity=capacity, duration=f_duration)
 templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, level_of=notify.level_of,
-                             device_options=cmdspec.device_options, target_options=options_for)
+                             device_options=cmdspec.device_options, field_applies=cmdspec.field_applies,
+                             target_options=options_for)
 
 
 async def base_ctx(request: Request, user: str, active: str, **kw) -> dict:
@@ -844,6 +845,39 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
         if out["ok"]:
             await bobnet_note_sent(request.app.state.db, body.get("channel") or "", body.get("text") or "")
         return render_action(request, out)
+    # stow / attach / detach from either side: the command goes to the device the game expects it on
+    if command == "stow" and body.get("cargo"):
+        cargo = body.pop("cargo")
+        return await run_action(request, user, "POST", f"/devices/{cargo}", {"command": "stow", "target": code},
+                                f"stow {cargo} in {code}")
+    if command == "stow":
+        body.pop("cargo", None)
+    if command == "attach":
+        carrier, cargo = (body.get("carrier"), code) if body.get("carrier") else (code, body.get("device"))
+        if not cargo:
+            return bad("Pick the device to attach, or the carrier to attach this one to")
+        return await run_action(request, user, "POST", f"/devices/{carrier}", {"command": "attach", "device": cargo},
+                                f"{carrier}: attach {cargo}")
+    if command == "deploy" and body.get("cargo"):   # on the carrier's page: a device from its hold
+        cargo = body.pop("cargo")
+        trip = fl.in_flight(await _device(request, code))
+        if trip:
+            return bad(f"{code} is traveling to {trip['destination']} — deploy once it has arrived, or the device "
+                       "comes out between systems with no location")
+        return await run_action(request, user, "POST", f"/devices/{cargo}", {"command": "deploy"}, f"deploy {cargo} from {code}")
+    if command == "deploy":
+        body.pop("cargo", None)
+    if command == "detach" and not body.get("device"):
+        me = await _device(request, code)
+        host = me.get("attached_to_device_code")
+        if host:   # on the attached device's own page: its carrier lets go of it
+            dev_h = await _device(request, host)
+            trip = fl.in_flight(dev_h)
+            if trip:
+                return bad(f"{host} is traveling to {trip['destination']} — detach once it has arrived, or the device "
+                           "comes out between systems with no location")
+            return await run_action(request, user, "POST", f"/devices/{host}", {"command": "detach", "device": code},
+                                    f"{host}: detach {code}")
     if command in ("deploy", "detach"):
         # Seen live 2026-10-06: slingshot E28DBE58 deployed while its carrier was mid-surge came out between systems,
         # with no location, and can't be reached since. Refuse while the carrier is moving.

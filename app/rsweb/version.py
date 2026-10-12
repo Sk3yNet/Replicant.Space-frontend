@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.81.0"
+VERSION = "1.82.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.82.0", "2026-10-12", "Device commands from either side: stow, deploy, attach and detach list the devices that fit "
+               "(a carrier's hold or attachments, or carriers here) and go to whichever device the game expects. Only the "
+               "side a device is capable of is shown."),
     ("1.81.0", "2026-10-12", "Waits on a trip follow its ETA: a refused step or an arrival wait keeps going until the ETA "
                "+30 min (one extra hour when no ETA is known), no longer up to 48 h."),
     ("1.80.0", "2026-10-12", "Trips log their expected arrival (UTC, and how long); a step refused while something is still "

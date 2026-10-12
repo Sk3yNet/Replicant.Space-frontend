@@ -595,3 +595,52 @@ def test_a_refusal_while_the_carrier_travels_waits_for_its_eta(client):
         dev("C", "surge_carrier", "SOL-4-L4", status="travelling", travel={"destination": "SOL-4-L4", "arrives_at": eta})])
     st = au.step("C: detach X", "/devices/C", {"command": "detach", "device": "X"})
     assert client.portal.call(e._moving_eta, st).isoformat(timespec="seconds") == eta
+
+
+def test_detach_lists_the_carriers_attached_devices():
+    from rsweb import commands as cmdspec
+    f = cmdspec.COMMANDS["detach"][0]
+    devs = [dev("MF", "mobile_fleet", "SOL-4-L4"), dev("A1", "autofactory", "SOL-4-L4", attached_to_device_code="MF"),
+            dev("X1", "mining_drone", "SOL-4-L4")]
+    opts = cmdspec.device_options({"devices": devs, "here": "SOL-4-L4"}, f, "MF")
+    assert [o["value"] for o in opts] == ["A1"]
+
+
+def test_stow_attach_and_detach_work_from_either_side(client):
+    from rsweb import commands as cmdspec
+    db = client.app.state.db
+    devs = client.portal.call(db.kv_get, "devices") + [
+        dev("CV", "cargo_vessel", "SOL-4-L4", stow_capacity=10, available_commands=["stow", "attach", "detach", "travel"]),
+        dev("MF", "mobile_fleet", "SOL-4-L4", available_commands=["attach", "detach"]),
+        dev("D7", "survey_drone", "SOL-4-L4", available_commands=["stow", "attach", "detach"]),
+        dev("D8", "survey_drone", "SOL-4-L4", attached_to_device_code="MF", available_commands=["detach"])]
+    client.portal.call(db.kv_set, "devices", devs)
+    sugg = {"devices": devs, "here": "SOL-4-L4"}
+    into, cargo = cmdspec.COMMANDS["stow"]
+    assert "CV" in [o["value"] for o in cmdspec.device_options(sugg, into, "D7")]
+    assert "D7" in [o["value"] for o in cmdspec.device_options(sugg, cargo, "CV")]
+    sent = lambda: [(r["path"], r["body"]) for r in client.portal.call(db.fetchall, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")]  # noqa: E731
+    client.post("/devices/CV/command", data={"command": "stow", "f.cargo": "D7"}, headers=HX)
+    assert sent()[0][0] == "/devices/D7" and '"target": "CV"' in sent()[0][1]
+    client.post("/devices/D7/command", data={"command": "attach", "f.carrier": "MF"}, headers=HX)
+    assert sent()[0][0] == "/devices/MF" and '"device": "D7"' in sent()[0][1]
+    client.post("/devices/D8/command", data={"command": "detach"}, headers=HX)
+    assert sent()[0][0] == "/devices/MF" and '"device": "D8"' in sent()[0][1]
+
+
+def test_only_the_side_a_device_fits_is_shown_and_deploy_works_from_the_carrier(client):
+    from rsweb import commands as cmdspec
+    db = client.app.state.db
+    devs = client.portal.call(db.kv_get, "devices") + [
+        dev("CV", "cargo_vessel", "SOL-4-L4", stow_capacity=10, available_commands=["stow", "deploy", "travel"]),
+        dev("D7", "survey_drone", "SOL-4-L4"), dev("D9", "survey_drone", None, status="stowed", stowed_in_device_code="CV")]
+    client.portal.call(db.kv_set, "devices", devs)
+    sugg = {"devices": devs, "here": "SOL-4-L4"}
+    shown = lambda cmd, me: [f.name for f in cmdspec.COMMANDS[cmd] if cmdspec.field_applies(sugg, f, me)]  # noqa: E731
+    assert shown("stow", "D7") == ["target"] and shown("stow", "CV") == ["cargo"]
+    assert shown("deploy", "D7") == [] and shown("deploy", "CV") == ["cargo"]
+    assert shown("attach", "D7") == ["carrier"] and shown("detach", "D7") == []
+    assert [o["value"] for o in cmdspec.device_options(sugg, cmdspec.COMMANDS["deploy"][0], "CV")] == ["D9"]
+    client.post("/devices/CV/command", data={"command": "deploy", "f.cargo": "D9"}, headers=HX)
+    row = client.portal.call(db.fetchall, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")[0]
+    assert row["path"] == "/devices/D9" and '"deploy"' in row["body"]

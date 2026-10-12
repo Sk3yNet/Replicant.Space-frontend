@@ -2,7 +2,7 @@
 {% set used = namespace(loc=false, dtype=false, tags=false, rep=false, chan=false) %}
 {% if not fields %}<p class="muted small">No arguments needed.</p>{% endif %}
 <div class="fields">
-{% for f in fields %}
+{% for f in fields if field_applies(sugg, f, self_code) %}
   {% set key = "f." ~ f.name %}
   <div class="field">
     <label>{{ f.title }}{% if f.required %} <span class="lv-alert">*</span>{% endif %}</label>
