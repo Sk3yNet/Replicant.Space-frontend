@@ -161,7 +161,7 @@ def test_a_fleet_carrier_with_a_nested_matrix_escorts_and_counts_its_replicant()
                 hosts={"MC": "R1"}, busy=set(), reach=100, contracts=[c], trades=[], incoming={}, replicants={},
                 drop=lambda s: f"{s}-1")
     run = next(r for r in p["runs"] if r["req"] == "contract:EV1")
-    assert cargo(run) == ["F1"] and run["ride"] == "FC" and not run["escort"] and run["replicant"] == "R1" and run["fulfil"]
+    assert cargo(run) == ["F1"] and not run["ride"] and run["escort"] == "FC" and run["replicant"] == "R1" and run["fulfil"]
     steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
     assert any(s["path"] == "/devices/FC" and (s["body"] or {}).get("command") == "travel" for s in steps)   # flies itself
 
@@ -201,19 +201,21 @@ def test_a_big_load_goes_as_one_convoy_with_one_escort_smallest_fitting_ship_fir
     assert any("HV → A-1" in x for x in sends) and any("F9 → A-1" in x for x in sends)   # and back to wait in the network
 
 
-def test_freighters_ride_a_free_fleet_carrier_on_a_long_trip():
-    devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE),
-            dev("F2", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE),
+def test_haulers_ride_a_free_carrier_freighters_fly_themselves_and_loaded_holds_go_first():
+    hl = dict(cargo_capacity=80, available_commands=["travel", "collect_resources"])
+    devs = [dev("H1", "transport_hauler", "A-1", **hl), dev("H2", "transport_hauler", "A-1", **hl),
+            dev("F1", "cargo_freighter", "A-2", cargo_capacity=60, cargo={"carbon": 60}, cargo_used=60, **SURGE),
             dev("FC", "mobile_fleet", "A-2", **SURGE)]
     c = {"designation": "EV1", "location": "B-3", "title": "Near", "price": {"carbon": 150}}
     p = run_plan(devs, {"A-1": {"carbon": 1000}}, [c])
     run = next(r for r in p["runs"] if r["req"] == "contract:EV1")
-    assert run["ride"] == "FC" and all(x["rides"] for x in run["cargos"]) and len(run["cargos"]) == 2
+    by = {x["code"]: x for x in run["cargos"]}
+    assert list(by)[0] == "F1" and by["F1"]["carry"] == {"carbon": 60} and not by["F1"]["legs"] and not by["F1"]["rides"]
+    assert run["ride"] == "FC" and by["H1"]["rides"] and run["carry"] == {"carbon": 150}   # freighters can't be attached
     cmds = [(s["path"].split("/")[-1], s["body"].get("command")) for s in lg.run_steps(run, {d["device_code"]: d for d in devs})
             if s["body"]]
-    assert ("FC", "attach") in cmds and cmds.count(("FC", "detach")) == 2 and ("FC", "travel") in cmds
-    assert cmds.index(("FC", "attach")) < cmds.index(("FC", "detach"))
-
+    assert ("FC", "attach") in cmds and ("FC", "detach") in cmds and ("F1", "travel") in cmds
+    assert ("F1", "collect_resources") not in cmds and ("F1", "deposit_resources") in cmds
 
 def test_a_moved_fleets_old_stockpile_follows_it_to_the_new_home():
     devs = world()

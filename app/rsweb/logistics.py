@@ -230,6 +230,9 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         cap = cg.capacity_of(d, bpl, None) or 0.0
         return max(0.0, float(cap) - float(d.get("cargo_used") or 0))
 
+    def held(d: dict) -> dict[str, float]:
+        return cg.used_of(d, None)[1]
+
     def attach_free(d: dict) -> int:
         from . import fleets as fl
         return fl.capacity(d) - sum(1 for x in devices if x.get("attached_to_device_code") == d["device_code"])
@@ -325,18 +328,28 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 left = sum(min(q, sum(spare[l].get(x, 0.0) for l in piles if star_of(l) == fstar)) for x, q in need.items())
                 if left < 1:
                     break
-                cands = [d for c, d in free.items() if c not in used and c != (ride or {}).get("device_code") and room(d) >= 1
+                cands = [d for c, d in free.items() if c not in used and c != (ride or {}).get("device_code")
+                         and (room(d) >= 1 or any(held(d).get(x, 0.0) >= 1 for x in need))
                          and (can_surge(d) or (star_of(d.get("location")) == fstar and fstar in commandable
                                                and (same or (ride and seats >= 1))))
                          and (star_of(d.get("location")) in commandable or c in hosts)
                          and (star_of(d.get("location")) == fstar or _dist(star_of(d.get("location")), fstar, pos) <= reach)]
                 if not cands:
                     break
-                # nearest first (by relay hop), then the smallest that takes the rest in one go, else the biggest
-                cargo = min(cands, key=lambda d: (round(_dist(star_of(d.get("location")), fstar, pos) / RELAY_HOP),
+                # one already holding what's needed first (e.g. loaded on a trip that failed), then nearest (by relay hop),
+                # then the smallest that takes the rest in one go, else the biggest
+                cargo = min(cands, key=lambda d: (-sum(min(q, held(d).get(x, 0.0)) for x, q in need.items()),
+                                                  round(_dist(star_of(d.get("location")), fstar, pos) / RELAY_HOP),
                                                   room(d) < left, room(d) if room(d) >= left else -room(d), d["device_code"]))
                 code = cargo["device_code"]
                 cap, legs, carry = room(cargo), [], {}
+                for x, h in held(cargo).items():   # what it already carries counts first: nothing to pick up for that
+                    q = math.floor(min(need.get(x, 0.0), h))
+                    if q >= 1:
+                        need[x] -= q
+                        carry[x] = carry.get(x, 0) + q
+                        taken[x] = taken.get(x, 0) + q
+                need = {x: q for x, q in need.items() if q >= 1}
                 for l in piles:
                     if star_of(l) != fstar or cap < 1:
                         continue
@@ -354,10 +367,11 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                             carry[x] = carry.get(x, 0) + q
                             taken[x] = taken.get(x, 0) + q
                         need = {x: q for x, q in need.items() if q >= 1}
-                if not legs:
+                if not carry:
                     break
                 used.add(code)
-                rides_it = bool(ride) and seats >= 1 and (not can_surge(cargo) or not same)
+                # haulers and drones ride; freighters fly themselves ("Cannot attach a large device", live 2026-10-12)
+                rides_it = bool(ride) and seats >= 1 and not can_surge(cargo)
                 if rides_it:
                     seats -= 1
                 group.append({"code": code, "legs": legs, "carry": carry, "rides": rides_it, "dev": cargo})
@@ -368,7 +382,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 break
             if ride and not any(g["rides"] for g in group):
                 ride = None
-            stops = sorted({g2["pile"] for g in group for g2 in g["legs"]}) + [dest]
+            stops = sorted({g2["pile"] for g in group for g2 in g["legs"]} | {g["dev"].get("location") for g in group if not g["legs"]}) + [dest]
             locs = [g["dev"].get("location") for g in group] + [(ride or {}).get("location")]
             outside = [x for x in stops + locs if x and star_of(x) not in commandable]
             esc = None
@@ -503,7 +517,7 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
                               f"/devices/{c['code']}", {"command": "collect_resources", "resources": g["take"]}, critical=True))
     go(run["to"])
     for c in cargos:
-        if c["legs"]:
+        if c.get("carry"):
             steps.append(step(f"{c['code']}: deposit at {run['to']}", f"/devices/{c['code']}", {"command": "deposit_resources"},
                               critical=True))
     if run.get("fulfil"):

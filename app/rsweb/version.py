@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.85.0"
+VERSION = "1.85.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.85.1", "2026-10-12", "Logistics: cargo freighters fly themselves (the game won't attach a large device); only "
+               "haulers and drones ride a carrier. A ship still holding what a request needs (e.g. from a failed trip) is "
+               "used first and delivers without loading again."),
     ("1.85.0", "2026-10-12", "Logistics fleets (Fleets › Logistics) replace trade fleets (each becomes a logistics fleet once "
                "its run ends): materials for queued prints, approved contracts (or a pre-approved civilization's) and "
                "approved trades are delivered on demand by priority, home systems keep their print reserve, stray stockpiles "

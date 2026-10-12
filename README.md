@@ -131,8 +131,9 @@ lines or a template).
   page. Home systems keep what their own prints need. Inside one system a free AMI transport controller (drones / haulers)
   gets the delivery as a `delivery` directive; logistics covers what it can't. Ships are picked nearest first, then the
   smallest that takes the rest in one go (else the biggest), and as many as the load needs go at once, as one convoy:
-  freighters and cargo vessels fly themselves, haulers and drones stay in their system unless towed; on a trip between
-  systems they attach to a free logistics carrier (plate, platform, carrier, fleet carrier) when there is one. Outside an
+  freighters and cargo vessels fly themselves (a freighter is too large to attach); haulers and drones stay in their
+  system unless they ride (attached) on a free logistics carrier (plate, platform, carrier, fleet carrier). A ship still
+  holding what's needed (say, from a trip that failed) is used first, and delivers without picking up again. Outside an
   active relay network one device hosting a replicant goes with the whole convoy — a carrier with a replicant's matrix
   aboard (a fleet carrier holding a matrix container) counts — or nothing goes; when a delivery completes a contract or
   trade, that replicant fulfills it. Afterwards everyone waits inside the network. Device deliveries (and fleet moves done
