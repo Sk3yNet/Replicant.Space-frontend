@@ -87,6 +87,28 @@ def is_place(code: str) -> bool:
     return bool(re.fullmatch(r"[a-z0-9][a-z0-9\-_.]*", code.lower())) and ":" not in code
 
 
+def place_tag_fix(d: dict, stars: set[str], fleet_ids: set[str]) -> tuple[list[str], list[str]] | None:
+    """`to:` naming a location rather than a system (`to:sol-3`, as typed by hand) reads as a star that doesn't exist:
+    it becomes `to:sol` + `at:sol-3` (go to the system, then to that spot). A fleet's id (`to:sol-printing-hub`) stays.
+    Returns (add, remove), or None when nothing needs fixing."""
+    slugs = {to_tag(s)[3:]: s for s in stars}
+    tags = d.get("tags") or []
+    for t in tags:
+        if not t.startswith("to:"):
+            continue
+        want = t[3:]
+        if want in slugs or want in fleet_ids or "-" not in want or not is_place(want):
+            continue
+        star = slugs.get(want.split("-")[0])
+        if not star:
+            continue
+        add = [x for x in (to_tag(star), at_tag(want)) if x not in tags]
+        if any(x.startswith("at:") for x in tags if x != at_tag(want)):
+            add = [x for x in add if not x.startswith("at:")]   # an existing pin wins
+        return add, [t]
+    return None
+
+
 def pinned_at(d: dict) -> str | None:
     """The location a device is pinned to (`at:` tag), upper-case like the game's codes."""
     return next((t[3:].upper() for t in d.get("tags") or [] if t.startswith("at:") and len(t) > 3 and is_place(t[3:])), None)

@@ -709,7 +709,7 @@ Query `cursor` (int), `limit` (20), `latest`, `event_type`, `device_type`, `devi
 | Category | Event | Payload fields |
 |---|---|---|
 | ami | `ami.adopted` | `devices[{device_code, device_type}]` |
-| ami | `ami.assembled` | `destination`, `assembled_count` |
+| ami | `ami.assembling` (was `ami.assembled` until 2026-10-12) | `destination`, `assembled_count` |
 | ami | `ami.launched` | `directive_status`, `evaluated`, `devices_deployed` |
 | ami | `ami.released` | `devices[{device_code, device_type}]` |
 | ami | `ami.withdrawn` | `directive_paused`, `devices_recalled` |
@@ -931,3 +931,25 @@ and the loadout pass. Tag `at:<location>` = the client's pin (lower-case locatio
 - **Asteroids** (`/docs/api/locations/asteroids/`): bring propulsors to the asteroid's location, deploy and activate them. Thrust accumulates per running propulsor. At 0 % impact likelihood it's diverted, giving every participant a permanent mining bonus in the system. Required strength scales with mass and with proximity to impact time. Vector charges and trajectory deflectors exist for deliberate launches.
 - **Fleet controller** (`/docs/ami/fleet-controller/`): adopts surge-capable devices and other fleet controllers. One travel command is relayed and cascades down the levels. It needs no co-location, only relay-network reachability. It's an NPC reward near SOL-3 and isn't printable.
 - **Trading** (`/docs/trading/`): `set_directive trade {name, description?, announcement?}`; re-send it to update. The shop is listed in the directory only with an active FTL relay in the system. Rewards are escrowed at creation, and must be held at the shop's location. Stock 0 hides the trade until you top it up. Deleting a trade returns the escrow.
+
+## API updates 2026-10-12
+
+- Blueprints carry a relay range (field name not yet seen live; `relaynet.own_range` tries `relay_range_ly`,
+  `relay_range`, `range_ly`, `comm_range_ly`). Relay networks and suggested bridges use it.
+- A device can no longer be attached to itself.
+- `ami.assembled` is renamed `ami.assembling`.
+- Repairs stop if the target device moves away.
+- Warded activity messages include the warding replicant's name.
+- Event logs have `previous_cursor` (backwards paging); the log limit is now applied after device-code filtering.
+- Setting an AMI directive re-evaluates drone status at once.
+- The mining rig blueprint has a `fracture` feature (details to come).
+
+## Game v3.5.0 "Alteration" (2026-10-13)
+
+- Devices and resources at an asteroid's location are destroyed on impact (`device.destroyed`) or flung into space on
+  diversion (`device.lost`). Vessels hosting a replicant evacuate to the planet's orbit by themselves.
+- `system.impact_warning`: one hour ahead, to accounts with a device at the asteroid.
+- `system.object_diverted` / `system.object_impacted` (to all nearby accounts; the impact carries terraforming effects)
+  replace the deprecated `diversion.diverted` / `diversion.impacted`.
+- Gravity well: close to stars, diversion effects from devices are countered.
+- Travel to an impacted (or diverted) object's location is refused. Survey drones can scan system objects.

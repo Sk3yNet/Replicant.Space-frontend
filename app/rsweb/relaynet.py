@@ -30,13 +30,29 @@ def _xyz(p: Any) -> tuple[float, float, float] | None:
     return None
 
 
-def reach(d: dict) -> float | None:
-    """How far a working relay / hub of yours links, else None."""
+RANGE_KEYS = ("relay_range_ly", "relay_range", "range_ly", "comm_range_ly")   # blueprints carry it since 2026-10-12
+
+
+def own_range(x: dict | None) -> float | None:
+    """A relay range a device or blueprint reports (the field name isn't confirmed yet: the likely ones are tried)."""
+    for k in RANGE_KEYS:
+        try:
+            v = float((x or {}).get(k) or 0)
+        except (TypeError, ValueError):
+            continue
+        if v > 0:
+            return v
+    return None
+
+
+def reach(d: dict, bps: dict[str, dict] | None = None) -> float | None:
+    """How far a working relay / hub of yours links, else None: its own reported range, else its blueprint's, else the
+    known default."""
     t = d.get("device_type") or ""
     st = str(d.get("status") or "")
     if not d.get("location") or d.get("location_stale") or d.get("stowed_in_device_code") or d.get("attached_to_device_code"):
         return None
-    own = d.get("range_ly") or d.get("relay_range_ly")
+    own = own_range(d) or own_range((bps or {}).get(t))
     if "relay" in t and st.startswith("relaying"):
         return float(own or RELAY_LY)
     if "hub" in t and st and not st.startswith(("inactive", "idle", "stowed", "compact", "travel", "cruis", "surg", "unfurl")):
@@ -44,11 +60,11 @@ def reach(d: dict) -> float | None:
     return None
 
 
-def nodes(devices: list[dict], pos: dict[str, Any]) -> dict[str, dict]:
+def nodes(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | None = None) -> dict[str, dict]:
     """{star: {star, xyz, range, devices: [codes], kinds}} — one node per system with a working relay / hub of yours."""
     out: dict[str, dict] = {}
     for d in devices:
-        r = reach(d)
+        r = reach(d, bps)
         s = star_of(d.get("location"))
         xyz = _xyz(pos.get(s))
         if r is None or not xyz:
@@ -62,9 +78,9 @@ def nodes(devices: list[dict], pos: dict[str, Any]) -> dict[str, dict]:
     return out
 
 
-def networks(devices: list[dict], pos: dict[str, Any]) -> dict:
+def networks(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | None = None) -> dict:
     """{"networks": [{id, color, stars, relays, hubs}], "links": [{a, b, ly, net}], "of": {star: net id}} — biggest first."""
-    ns = nodes(devices, pos)
+    ns = nodes(devices, pos, bps)
     stars = sorted(ns)
     parent = {s: s for s in stars}
 
@@ -94,7 +110,8 @@ def networks(devices: list[dict], pos: dict[str, Any]) -> dict:
                     "devices": sorted(c for s in g for c in ns[s]["devices"])})
     for l in links:
         l["net"] = of[l["a"]]
-    return {"networks": out, "links": links, "of": of, "nodes": ns}
+    hop = own_range((bps or {}).get("ftl_relay")) or RELAY_LY   # a new relay's reach (bridges)
+    return {"networks": out, "links": links, "of": of, "nodes": ns, "hop": hop}
 
 
 def _grid(pos: dict[str, Any]) -> tuple[dict, dict]:
@@ -163,10 +180,12 @@ def bridges(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE) -> list[d
     def near(x: tuple, r: float) -> list[str]:
         return _near(cells, x, r)
 
+    hop = net.get("hop") or RELAY_LY
+
     def links_to(s: str, x: tuple) -> set[int]:
-        """Networks a new relay at s would join: any node within its 7.5 ly or within the node's own reach."""
-        return {of[o] for o in near(x, max([RELAY_LY] + [n["range"] for n in ns.values()])) if o in ns
-                and math.dist(x, ns[o]["xyz"]) <= max(RELAY_LY, ns[o]["range"]) + 1e-9}
+        """Networks a new relay at s would join: any node within its reach or within the node's own reach."""
+        return {of[o] for o in near(x, max([hop] + [n["range"] for n in ns.values()])) if o in ns
+                and math.dist(x, ns[o]["xyz"]) <= max(hop, ns[o]["range"]) + 1e-9}
     best: dict[tuple[int, int], dict] = {}
     for g in net["networks"]:
         start = g["id"]
@@ -174,7 +193,7 @@ def bridges(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE) -> list[d
         depth: dict[str, int] = {}
         q: deque[str] = deque()
         for s in g["stars"]:   # first hop: systems a new relay could link this network from
-            for t in near(ns[s]["xyz"], max(RELAY_LY, ns[s]["range"])):
+            for t in near(ns[s]["xyz"], max(hop, ns[s]["range"])):
                 if t not in ns and t not in depth:
                     depth[t], prev[t] = 1, None
                     q.append(t)
@@ -191,7 +210,7 @@ def bridges(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE) -> list[d
                     best[key] = {"a": key[0], "b": key[1], "stars": list(reversed(path)), "n": depth[s]}
             if joined or depth[s] >= max_new:
                 continue
-            for t in near(xyz_all[s], RELAY_LY):
+            for t in near(xyz_all[s], hop):
                 if t not in ns and t not in depth:
                     depth[t], prev[t] = depth[s] + 1, s
                     q.append(t)

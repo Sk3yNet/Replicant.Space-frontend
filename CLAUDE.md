@@ -53,7 +53,7 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   autofactory and no stock. Sol is warded.
 - Mining feeds the location's stockpile. Only transport-feature devices move materials (haulers in a system, cargo
   freighters between systems); a heaven vessel carries devices only.
-- An FTL relay reaches 7.5 ly and a system hub 15 ly. Devices out of range of a relay, with no replicant in their system,
+- An FTL relay reaches 7.5 ly and a system hub 15 ly (blueprints report the relay range since 2026-10-12). Devices out of range of a relay, with no replicant in their system,
   can't be commanded. The game allows 25 wards per account, and wards and hubs don't share a system.
 - The home sector (FALQUORYX, OTHILETH …) is about 500 ly from the Sol zone (SOLARES, FRANZAN …). A surge across that
   gap takes hours, and borrowed carriers must not fly it empty (loadout supply range: 100 ly).
@@ -65,6 +65,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   fleet carrier holds a matrix container with the replicant's matrix inside, so the carrier brings that replicant along.
 - Contracts are approved one by one, or pre-approved for a whole civilization. Shop listings are never fulfilled unless
   you approve that one trade.
+- Since v3.5.0 (2026-10-13) anything left at an asteroid's location is destroyed on impact or lost on diversion; the
+  game warns an hour ahead (`system.impact_warning`). Evacuate before the ETA.
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the
   job.
 

@@ -388,7 +388,7 @@ class OpsRules:
         from . import defence as dfn
         objs = await self.db.kv_get("objects", {}) or {}
         rows = await self.db.fetchall("SELECT event, payload, location, created_at FROM events WHERE event='system.object_detected' "
-                                      "OR event LIKE 'diversion.%' ORDER BY seq")
+                                      "OR event LIKE 'diversion.%' OR event IN ('system.object_diverted', 'system.object_impacted') ORDER BY seq")
         for r in rows:
             p = _json.loads(r["payload"] or "{}")
             des = p.get("object_designation") or p.get("designation")
@@ -398,7 +398,7 @@ class OpsRules:
                 if des not in objs:
                     objs[des] = {**dfn.from_detected(p), "detected_at": r["created_at"]}
             elif r["event"] in dfn.CLOSED_EVENTS and des in objs:
-                objs[des]["closed"] = r["event"].split(".")[1]
+                objs[des]["closed"] = dfn.closed_as(r["event"])
                 objs[des].setdefault("closed_at", r["created_at"])
         return objs
 

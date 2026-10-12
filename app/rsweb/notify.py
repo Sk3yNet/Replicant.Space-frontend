@@ -11,7 +11,8 @@ from .shapes import as_amounts
 # Event feed level: alert = needs attention, done = something was accomplished, info = everything else.
 ALERT_EVENTS = {
     "hub.warning", "hub.destroyed", "system.object_detected", "system.devices_halted",
-    "diversion.impacted", "teleport.failed", "triangulation.failed", "directive.paused", "simulation.expired",
+    "diversion.impacted", "system.impact_warning", "system.object_impacted", "device.destroyed", "device.lost",
+    "teleport.failed", "triangulation.failed", "directive.paused", "simulation.expired",
 }
 # Notification level: error (needs you — the only kind the bell's badge counts), warning, info (incl. accomplishments).
 ERROR_EVENTS = ALERT_EVENTS - {"hub.warning"}
@@ -22,7 +23,7 @@ DONE_EVENTS = {
     "print.completed", "travel.arrived", "scan.completed", "search.completed", "directive.completed",
     "event.completed", "trade.completed", "prospect.completed", "teleport.completed",
     "story.awakened", "megastructure.contributed", "relay.activated", "hub.activated",
-    "diversion.diverted", "salvage.discovered", "event.discovered", "triangulation.complete",
+    "diversion.diverted", "system.object_diverted", "salvage.discovered", "event.discovered", "triangulation.complete",
     "simulation.completed", "device.decommissioned", "ward.activated",
 }
 # Done-events that also raise a notification (the rest just go in the digest/feed).

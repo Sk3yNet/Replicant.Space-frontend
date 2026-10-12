@@ -225,3 +225,98 @@ def test_a_moved_fleets_old_stockpile_follows_it_to_the_new_home():
                 drop=lambda s: f"{s}-1", moved={"B": "Z"})
     r = next(x for x in p["requests"] if x["id"] == "return:B-BELT")
     assert r["to"] == "Z-1" and "new home" in r["label"]
+
+
+def test_relay_range_comes_from_the_blueprint():
+    from rsweb import relaynet
+    pos = {"A": {"x": 0, "y": 0, "z": 0}, "B": {"x": 12, "y": 0, "z": 0}}
+    devs = [dev("R1", "ftl_relay", "A-4-L4", status="relaying"), dev("R2", "ftl_relay", "B-4-L4", status="relaying")]
+    assert len(relaynet.networks(devs, pos)["networks"]) == 2
+    net = relaynet.networks(devs, pos, {"ftl_relay": {"relay_range_ly": 15}})
+    assert len(net["networks"]) == 1 and net["hop"] == 15
+
+
+def _rescue_plan(devs, dark=None, away=frozenset(), hosts=None):
+    pos = {**POS, "Y": {"x": 40, "y": 0, "z": 0}}
+    return lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=pos, commandable={"A", "B"},
+                   hosts=hosts if hosts is not None else {"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[],
+                   incoming={}, replicants={}, drop=lambda s: f"{s}-1", dark_nets=dark or [], away_fleets=set(away))
+
+
+def test_a_stranded_device_that_can_surge_is_commanded_home_from_its_dark_network():
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("SV", "surge_platform", "Z-5", tags=["fleet:home"], **SURGE),
+            dev("RL", "ftl_relay", "Z-4-L4", tags=[], status="relaying"),             # placed: stays
+            dev("MX", "mining_drone", "Y-2", tags=["fleet:mission"])]                    # its fleet is out on purpose
+    p = _rescue_plan(devs, dark=[{"Z", "Y"}], away={"fleet:mission"})
+    run = next(r for r in p["runs"] if r["req"] == "rescue:SV")
+    assert run["mode"] == "self" and run["escort"] == "HV" and run["point"] == "Y-1" and run["to"] == "A-1"   # nearest dark spot
+    assert not any(r["req"] in ("rescue:RL", "rescue:MX") for r in p["runs"])
+    steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
+    sends = [x["desc"] for x in steps if x["body"]]
+    assert sends[0].startswith("HV → Y-1") and sends[1].startswith("SV → A-1") and sends[-1].startswith("HV → A-1")
+
+
+def test_a_stranded_drone_is_picked_up_by_a_carrier_with_a_replicant_along():
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("PL", "surge_platform", "A-1", **SURGE),
+            dev("TD", "transport_drone", "Z-5", tags=[], in_control_range=False, available_commands=["travel"])]
+    p = _rescue_plan(devs)
+    run = next(r for r in p["runs"] if r["req"] == "rescue:TD")
+    assert run["mode"] == "attach" and run["ride"] == "PL" and run["escort"] == "HV" and run["to"] == "A-1"
+    cmds = [(x["path"].split("/")[-1], x["body"].get("command")) for x in lg.run_steps(run, {d["device_code"]: d for d in devs})
+            if x["body"]]
+    assert cmds == [("PL", "travel"), ("travel", None), ("PL", "attach"), ("PL", "travel"), ("travel", None), ("PL", "detach")]   # HV goes by its replicant
+
+
+def test_home_piles_are_consolidated_at_the_drop_point_unless_the_consolidate_rule_has_the_system():
+    devs = world()
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    inv = {"A-1": {"carbon": 10}, "A-BELT": {"carbon": 70}}
+    kw = dict(fleets=FLEETS, devices=devs, bps=BPS, inventory=inv, pos=POS, commandable={"A", "B"}, hosts={"HV": "R1"},
+              busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    p = lg.plan(**kw)
+    run = next(r for r in p["runs"] if r["req"] == "consolidate:A-BELT")
+    assert cargo(run) == ["F1"] and run["to"] == "A-1" and run["carry"] == {"carbon": 70}
+    p = lg.plan(**kw, ami=[dev("TC", "ami_transport_controller", "A-2", tags=[])])
+    assert next(r for r in p["runs"] if r["req"] == "consolidate:A-BELT")["ami"] == "TC"
+    p = lg.plan(**kw, no_consolidate={"A"})
+    assert not any(r["id"].startswith("consolidate:") for r in p["requests"])
+
+
+def test_piles_beyond_the_network_are_used_with_an_escort_and_unreturnable_piles_are_shown():
+    devs = world()
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    c = {"designation": "EV3", "location": "B-3", "title": "Far stock", "price": {"carbon": 50}}
+    fleets = [f for f in FLEETS if f["id"] == "cab"]   # no gather point
+    kw = dict(fleets=fleets, devices=devs, bps=BPS, inventory={"Z-BELT": {"carbon": 90}}, pos=POS, commandable={"A", "B"},
+              hosts={"HV": "R1"}, incoming={}, replicants={}, drop=lambda s: f"{s}-1", contracts=[c], trades=[], reach=100)
+    p = lg.plan(**kw, busy=set())
+    run = next(r for r in p["runs"] if r["req"] == "contract:EV3")
+    assert cargo(run) == ["F1"] and run["escort"] == "HV" and run["escort_pickup"]
+    descs = [x["desc"] for x in lg.run_steps(run, {d["device_code"]: d for d in devs}) if x["body"]]
+    assert descs.index("HV → Z-BELT (pick up)") < next(i for i, d in enumerate(descs) if "load" in d)
+    p = lg.plan(**kw, busy={"HV"})                       # no replicant free: the far pile isn't touched
+    assert not any(r["req"] == "contract:EV3" for r in p["runs"])
+    p = lg.plan(**{**kw, "contracts": []}, busy=set())
+    assert any(u["req"] == "return:Z-BELT" and "no gather point" in u["why"] for u in p["unmet"])
+
+
+def test_a_to_tag_naming_a_location_becomes_system_plus_pin():
+    from rsweb import loadouts as lo
+    stars = {"SOL", "FALQUORYX"}
+    assert lo.place_tag_fix({"tags": ["to:sol-3"]}, stars, set()) == (["to:sol", "at:sol-3"], ["to:sol-3"])
+    assert lo.place_tag_fix({"tags": ["to:sol"]}, stars, set()) is None
+    assert lo.place_tag_fix({"tags": ["to:sol-printing-hub"]}, stars, {"sol-printing-hub"}) is None   # a fleet id
+    assert lo.place_tag_fix({"tags": ["to:sol-3", "at:sol-4"]}, stars, set()) == (["to:sol"], ["to:sol-3"])   # its pin wins
+
+
+def test_engine_rewrites_location_to_tags(client):  # noqa: F811
+    db, e = client.app.state.db, client.app.state.worker.automations
+    devs = client.portal.call(db.kv_get, "devices") + [dev("TT", "mining_drone", "SOL-BELT-1", tags=["to:sol-3"])]
+    client.portal.call(db.kv_set, "devices", devs)
+    out = client.portal.call(e.place_tag_pass)
+    assert out == ["TT: to:sol-3 read as to:sol + at:sol-3"]
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "tags")
+    conf = job["steps"][0]["body"]["configuration"]
+    assert conf["add_tags"] == ["to:sol", "at:sol-3"] and conf["remove_tags"] == ["to:sol-3"]

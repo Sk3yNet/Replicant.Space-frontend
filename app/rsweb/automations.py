@@ -1032,6 +1032,12 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 await self.civ_on_event(ev)
             if name == "system.object_detected":
                 asyncio.create_task(self._locked_sync_objects())
+            if name == "system.impact_warning" and not late:
+                try:
+                    await self.evacuate_pass(True)
+                except Exception as e:
+                    log.exception("evacuation failed")
+                    await self.log("evacuate", f"evacuation failed: {e}", "alert", notify=True)
             # rules triggered by arrivals
             if name == "bobnet.new" and not late:
                 try:
@@ -1096,10 +1102,10 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
-            for stage in ("run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass"):
                 self.stage = stage
                 try:   # one stage failing on odd data mustn't stop every stage after it, every tick
                     out = await getattr(self, stage)()
@@ -1317,6 +1323,28 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             if not left or (_now() - (_ts(p.get("at")) or _now())).total_seconds() > 48 * 3600:
                 pending.pop(fid)   # everyone's there (or it's been two days: give up quietly)
         await self.db.kv_set("rider_moves", pending)
+        return out
+
+    async def place_tag_pass(self) -> list[str]:
+        """`to:<location>` tags typed by hand (e.g. to:sol-3) become to:<system> + at:<location> (loadouts.place_tag_fix),
+        so the loadout pass delivers them to the system and then to the spot."""
+        from . import loadouts as lo
+        devices = await self.devices()
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {x.get("designation") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("designation")}
+        stars |= {star_of(d.get("location")) for d in devices if d.get("location")}
+        fleet_ids = {f.get("id") for f in await self.fleets() if f.get("id")}
+        busy = self.busy_devices(await self.jobs())
+        out = []
+        for d in devices:
+            fix = lo.place_tag_fix(d, stars, fleet_ids)
+            if not fix or d["device_code"] in busy:
+                continue
+            add, rem = fix
+            job = await self.create_job("tags", f"{d['device_code']}: {rem[0]} → {' + '.join(add) or 'its pin'}", d["device_code"],
+                                        [lo.tag_step(d["device_code"], add or None, rem)], {"devices": [d["device_code"]]})
+            if job:
+                out.append(f"{d['device_code']}: {rem[0]} read as {' + '.join(add)}")
         return out
 
     async def fleet_rename_pass(self) -> list[str]:
@@ -1939,8 +1967,87 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             pos = {k: (v or {}).get("position") for k, v in stars.items()}
         reps = await self.db.kv_get("replicants", {}) or {}
         rstars = relaynet.replicant_stars(reps, devices)
-        net = relaynet.networks(devices, {k: v for k, v in pos.items() if v})
+        from .shapes import normalize_blueprints
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        net = relaynet.networks(devices, {k: v for k, v in pos.items() if v}, bps)
         return relaynet.coverage(net, {k: v for k, v in pos.items() if v}, rstars)["commandable"]
+
+    async def evacuation_inputs(self) -> tuple[dict, set[str], dict]:
+        """(tracked objects, objects the game warned us about in the last two hours, system scans by star)."""
+        import json as _json
+        objs = await self.defence_objects()
+        warned = set()
+        for r in await self.db.fetchall("SELECT payload, location, created_at FROM events WHERE event='system.impact_warning' "
+                                        "ORDER BY seq DESC LIMIT 50"):
+            if _ts(r["created_at"]) and (_now() - _ts(r["created_at"])).total_seconds() < 7200:
+                p = _json.loads(r["payload"] or "{}")
+                des = p.get("object_designation") or p.get("designation") or p.get("location") or r["location"]
+                if des:
+                    warned.add(des)
+        scans = {}
+        for r in await self.db.fetchall("SELECT star, data FROM systems"):
+            try:
+                scans[r["star"]] = _json.loads(r["data"] or "{}")
+            except ValueError:
+                pass
+        return objs, warned, scans
+
+    async def evacuation_targets(self, devices: list[dict], stars: dict) -> dict[str, str]:
+        """{object location: where its stockpile goes} for every object due within the evacuation window."""
+        from . import evacuate as ev
+        objs, warned, scans = await self.evacuation_inputs()
+        return {loc: ev.safe_spot(star_of(loc), (objs.get(loc) or {}).get("impact_target"), stars, scans.get(star_of(loc)))
+                for loc in ev.due(objs, warned=warned)}
+
+    async def evacuate_pass(self, force: bool = False) -> list[str]:
+        """Evacuation before impact (evacuate.py): devices at an object due within the hour leave for a safe spot in
+        the system (propulsors still pushing at 30 minutes), grounded ones board a carrier there; piles go via logistics."""
+        from . import evacuate as ev
+        from . import loadouts as lo
+        objs, warned, scans = await self.evacuation_inputs()
+        if not ev.due(objs, warned=warned):
+            return []
+        devices = await self.devices()
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
+        reps = await self.db.kv_get("replicants", {}) or {}
+        hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
+        busy = self.busy_devices(await self.jobs())
+        p = ev.plan(objs, devices, stars, busy, hosts, scans, warned=warned)
+        from . import fleets as fl
+        out = []
+        boards: dict[str, list[dict]] = {}
+        for b in p["boards"]:
+            boards.setdefault(b["carrier"], []).append(b)
+        for m in p["moves"]:
+            code = m["code"]
+            steps = [fl.board_step(code, b["code"], b["mode"]) for b in boards.get(code, [])]
+            steps.append(step(f"{code} → {m['to']} (evacuate {m['from']}: {m['why']})", f"/devices/{code}",
+                              {"command": "travel", "destination": m["to"]}, critical=True))
+            codes = [code] + [b["code"] for b in boards.get(code, [])]
+            by = {d["device_code"]: d for d in devices}
+            for c in codes:   # an at: pin to the object would send it straight back (loadouts pins)
+                pin = lo.at_tag(m["from"])
+                if pin in ((by.get(c) or {}).get("tags") or []):
+                    steps.append(lo.tag_step(c, remove=[pin]))
+            if await self.create_job("evacuate", f"evacuate {code} from {m['from']} → {m['to']}", code, steps, {"devices": codes}):
+                out.append(f"{code}: leaving {m['from']} for {m['to']} ({m['why']})")
+        for s_ in p["stuck"]:
+            key = f"evac-stuck:{s_['code']}"
+            if self.stage_errors.get(key) != s_["why"]:
+                self.stage_errors[key] = s_["why"]
+                await self.log("evacuate", f"{s_['code']} at {s_['location']} can't be evacuated: {s_['why']}", "alert", notify=True)
+        for line in out:
+            await self.log("evacuate", line, "alert", notify=True)
+        return out
+
+    async def dark_networks(self, devices: list[dict], pos: dict, bps: dict, reps: dict) -> list[set[str]]:
+        """What each relay network without a replicant in reach covers: a replicant anywhere in one makes everything it
+        covers commandable (logistics rescues)."""
+        from . import relaynet
+        net = relaynet.networks(devices, pos, bps)
+        cov = relaynet.coverage(net, pos, relaynet.replicant_stars(reps, devices))
+        return [stars for i, stars in cov["covered"].items() if i not in cov["active"]]
 
     async def supply_reach(self) -> float:
         """The loadout supply range (ly, Fleets › settings): nothing is fetched from farther."""
@@ -2698,10 +2805,12 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             t = (j.get("meta") or {}).get("logistics")
             if t and j["status"] in ("running", "waiting") and t.get("to"):
                 incoming[t["to"]] = {r: incoming.get(t["to"], {}).get(r, 0) + q for r, q in (t.get("carry") or {}).items()}
-        taken, mission_stars = set(), set()
+        taken, mission_stars, away_fleets = set(), set(), set()
+        from .fleets import fleet_tag
         for f in items:
             m = f.get("mission") or {}
             if m.get("status") in ("running", "stalled", "stopped"):
+                away_fleets.add(fleet_tag(f["id"]))   # out there on purpose: not stranded
                 mission_stars |= {star_of(x) for x in m.get("targets") or []}
                 if m.get("contract") or m.get("trade"):
                     from .fleets import deal as _deal
@@ -2741,6 +2850,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                                    "location": t["location"], "price": price, "once": once,
                                    "devices_short": any(there[k] < n for k, n in dneed.items())})
         commandable = await self.commandable(devices, stars)
+        evac = await self.evacuation_targets(devices, stars)   # piles where an asteroid is due: {location: safe spot}
+        drop_raw = lambda s_: lo.drop_point(s_, devices, inv, stars)  # noqa: E731
         homes_now = {f.get("home") for f in items if f.get("home") and f.get("station")}
         moves = await self.db.kv_get(lg.KV_MOVES, {}) or {}
         left = {star_of(l) for l, i in inv.items() if sum(as_amounts(i).values()) >= 1}
@@ -2757,10 +2868,18 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             elif e.get("to"):
                 incoming[e["to"]] = {r: incoming.get(e["to"], {}).get(r, 0) + q for r, q in (e.get("carry") or {}).items()}
         ami = [c for c in devices if co.free_controller(c, devices, busy) and c["device_code"] not in sent]
+        # systems the Consolidate rule looks after (it's on, and they have an AMI transport controller): logistics leaves
+        # their piles to it
+        no_consolidate = ({star_of(c.get("location")) for c in devices if "transport" in (c.get("device_type") or "")
+                           and "controller" in (c.get("device_type") or "") and c.get("location")}
+                          if await self.rule_cfg("consolidate") else set())
         p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
                     busy=busy, reach=await self.supply_reach(), contracts=contracts, trades=trades, incoming=incoming,
-                    replicants=reps, drop=lambda s: lo.drop_point(s, devices, inv, stars), busy_stars=mission_stars,
-                    prefs=await self.db.kv_get(lg.KV_PREFS, {}) or {}, ami=ami, moved=moved)
+                    replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),
+                    busy_stars=mission_stars,
+                    prefs=await self.db.kv_get(lg.KV_PREFS, {}) or {}, ami=ami, moved=moved,
+                    dark_nets=await self.dark_networks(devices, pos, bps, reps), away_fleets=away_fleets,
+                    no_consolidate=no_consolidate, evacuate=evac)
         by_code = by_code0
         template = ((await self.db.kv_get("event_settings", {}) or {}).get("fulfil") or "").strip() or None
         out = []

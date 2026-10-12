@@ -21,7 +21,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 DEFAULT_THRUST = 4.0
-CLOSED_EVENTS = ("diversion.diverted", "diversion.impacted")
+CLOSED_EVENTS = ("diversion.diverted", "diversion.impacted", "system.object_diverted", "system.object_impacted")
+# v3.5.0 (2026-10-13): diversion.diverted / .impacted are deprecated for system.object_diverted / .object_impacted
+
+
+def closed_as(event: str) -> str:
+    return "diverted" if event.endswith("diverted") else "impacted"
 DIVERTING = ("divert", "active", "thrust", "propel")
 
 
@@ -158,6 +163,9 @@ def plan(a: dict, devices: list[dict], bps: dict[str, dict], busy: set[str], cfg
     short = a["short"] or 0
     if a["needed"] is None and a["verdict"].startswith("unknown"):
         short = 0
+    eta = _ts(a.get("eta"))
+    if eta and (eta - datetime.now(timezone.utc)).total_seconds() < 3600:
+        short = 0   # within the hour devices there must evacuate (evacuate.py): nothing more is sent or printed
     if short and cfg.get("send_idle", True):
         spare = [d for d in devices if is_diverter(d, types) and star_of(d.get("location")) == a["star"]
                  and d.get("location") != a["designation"] and d["device_code"] not in busy

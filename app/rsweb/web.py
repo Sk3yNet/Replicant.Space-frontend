@@ -1761,12 +1761,17 @@ async def location_detail(request: Request, code: str, user: str = Depends(curre
 
 
 # --- galaxy map ---------------------------------------------------------------------------
+async def _bp_map(request: Request) -> dict[str, dict]:
+    from .shapes import normalize_blueprints
+    return {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
+
+
 async def relay_overlay(request: Request, st: dict, positions: dict) -> dict:
     """The galaxy map's relay layer: links and nodes per network (active = a replicant inside its coverage: solid;
     inactive: dashed), relays on order (planned) and the suggested bridges."""
     from . import relaynet
     from . import ward_orders as wo
-    rn = relaynet.networks(st["devices"], positions)
+    rn = relaynet.networks(st["devices"], positions, await _bp_map(request))
     rstars = relaynet.replicant_stars(st["replicants"], st["devices"])
     relaynet.coverage(rn, positions, rstars)
     nets = rn["networks"]
@@ -1791,7 +1796,7 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     cat = await request.app.state.db.kv_get("stars", {}) or {}
     pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict) and s.get("position")}
-    rn = relaynet.networks(st["devices"], pos)
+    rn = relaynet.networks(st["devices"], pos, await _bp_map(request))
     rstars = relaynet.replicant_stars(st["replicants"], st["devices"])
     relaynet.coverage(rn, pos, rstars)
     br = relaynet.bridges(rn, pos)

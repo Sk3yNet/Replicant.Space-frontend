@@ -92,7 +92,11 @@ rule with an on/off switch, plus the jobs and the log.
   mirror") restart the follow where he left and set his old shop location aside.
 - **Wards & hubs**: your wards (against the 25 cap), hub shield and upkeep with warnings, `evicted_miners` log. Other players'
   warded systems are left alone by every mining rule and mission.
-- **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Upkeep**: wear per system and maintenance
+- **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Evacuation** (game v3.5.0: what's left at an
+  asteroid is destroyed on impact or lost on diversion): within the hour before impact, or at the game's
+  `system.impact_warning`, your devices there leave for the system's entry point (propulsors still pushing stay until 30
+  minutes out; one that can't fly boards a carrier there), their `at:` pin to the asteroid is dropped, and a stockpile there
+  is logistics' top priority. Nothing more is sent or printed for an asteroid due within the hour. **Upkeep**: wear per system and maintenance
   coverage.
 
 ### Fleets
@@ -125,9 +129,11 @@ lines or a template).
   coverage without a replicant aboard); sets out at 85 % capacity, comes home for repairs at 50 %.
 - **Logistics** fleets (Fleets › Logistics): no missions; their devices deliver materials and devices on demand.
   Requests: queued prints (their cost minus what's stocked), contracts you approved or whose civilization you pre-approved
-  (Contracts), trades you approved (Shop: *approve*, used once; plain shop listings are never fulfilled), and stray
-  stockpiles brought back to a gather point (a fleet that takes materials in) — or, where a fleet moved away, to its new
-  home. Priority: queued prints (waiting ones first), local, long-range, returns; bump or skip a request on the Logistics
+  (Contracts), trades you approved (Shop: *approve*, used once; plain shop listings are never fulfilled), a home system's
+  piles consolidated at its drop point (its autofactory, else its biggest pile; systems the Consolidate rule covers with an
+  AMI transport controller are left to it), and stray stockpiles brought back to a gather point (a fleet that takes
+  materials in) — or, where a fleet moved away, to its new home; with no gather point, the page says so. Deliveries draw on
+  stockpiles beyond the network too while a replicant is free to go along. Priority: queued prints (waiting ones first), local, long-range, returns; bump or skip a request on the Logistics
   page. Home systems keep what their own prints need. Inside one system a free AMI transport controller (drones / haulers)
   gets the delivery as a `delivery` directive; logistics covers what it can't. Ships are picked nearest first, then the
   smallest that takes the rest in one go (else the biggest), and as many as the load needs go at once, as one convoy:
@@ -137,7 +143,10 @@ lines or a template).
   active relay network one device hosting a replicant goes with the whole convoy — a carrier with a replicant's matrix
   aboard (a fleet carrier holding a matrix container) counts — or nothing goes; when a delivery completes a contract or
   trade, that replicant fulfills it. Afterwards everyone waits inside the network. Device deliveries (and fleet moves done
-  piecemeal) take logistics carriers first.
+  piecemeal) take logistics carriers first. **Rescues** (last priority): a device out of command range (placed relays and
+  beacons, wards, hubs and fleets on a mission excepted) is brought home — its fleet's home, else the nearest covered home.
+  One that can surge is reached by a replicant in its system or anywhere its dark relay network covers, and commanded
+  home; one that can't is picked up from its last known location by a carrier with a free seat, a replicant along.
 - **Bootstrap** fleets: from a bare heaven vessel (three mining drones and a replicant aboard) to an autofactory hub with three
   mining outposts. Home: the drones mine the best belt, the vessel mines onboard what they get little of (usually rares and
   volatiles), and the replicant prints survey drones and miners until the hold-sized kit is built (a home another player has
@@ -152,7 +161,8 @@ lines or a template).
   system's output, or at once when another player's drones mine there. Everything it prints is tagged `boot:<id>`: the
   loadout pass never lends it others' spares, factories or carriers, nor lends its own.
 - Also: owner hand-over (`change_owner`), materials (*send to* / *takes materials in*), *fill from spares*, carrying budget,
-  *Reset & reform* for messy tags.
+  *Reset & reform* for messy tags. Hand tags: `to:<system>` sends a device there (its carrier is found for it),
+  `at:<location>` pins it to a spot; `to:<location>` (e.g. `to:sol-3`) is rewritten as `to:sol` + `at:sol-3`.
 
 ### Economy
 - **Blueprints**: costs and print times, what each printer can afford, a production planner that queues prints (spread over
