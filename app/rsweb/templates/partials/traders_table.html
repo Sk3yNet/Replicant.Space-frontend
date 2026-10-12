@@ -1,10 +1,14 @@
 {# Shops and their trades. Needs: traders (shop.known_traders), mine (your replicant codes), trade_side() #}
   {% if traders %}
-  <table class="small"><tr><th>Shop</th><th>Where</th><th>Trade</th><th>You pay</th><th>You get</th><th class="num">Stock</th><th></th></tr>
+  <table class="small"><tr><th>Shop</th><th>Where</th><th>Trade</th><th>You pay</th><th>You get</th><th class="num">Stock</th><th title="approved: the logistics service delivers the price and executes the trade, once">Logistics</th><th></th></tr>
     {% for code, t in traders.items() %}{% for tr in t.trades %}<tr>
       <td>{{ t.shop_name or '—' }} <span class="muted">{{ t.owner_name }}</span>{% if t.owner_replicant_code in mine %} <span class="pill small">yours</span>{% endif %}</td>
       <td>{{ t.location }}{% if t.seen_at %}<div class="muted">seen {{ t.seen_at | ago }}{% if t.from_scan %} (scan){% endif %}</div>{% endif %}</td><td>{{ tr.name }}</td><td>{{ trade_side(tr.criteria) }}</td><td>{{ trade_side(tr.rewards) }}</td>
       <td class="num">{{ tr.current_stock }}</td>
+      {% set tk = (code ~ ':' ~ tr.trade_code) %}{% set apv = trade_ok or {} %}
+      <td class="small"><label><input type="checkbox" name="on" hx-post="/shop/approve" hx-target="next .tx-a" hx-trigger="change"
+        hx-vals='{{ {"controller": (code) | string, "trade_code": (tr.trade_code) | string} | tojson }}' {{ 'checked' if tk in (apv.trades or {}) }}> approve</label>
+<span class="tx-a"></span></td>
       <td><button class="small" hx-post="/shop/buy" hx-vals='{{ {"controller": (code) | string, "trade_code": (tr.trade_code) | string} | tojson }}' hx-target="next .sh-b"
         hx-confirm="Buy {{ tr.name }} at {{ t.location }}: pay {{ trade_side(tr.criteria) }}, get {{ trade_side(tr.rewards) }}?">Buy</button><span class="sh-b"></span></td></tr>{% endfor %}{% endfor %}
   </table>

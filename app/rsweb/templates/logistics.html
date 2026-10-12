@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Logistics{% endblock %}
+{% block content %}
+<h1>Logistics</h1>
+<p class="muted small">Your logistics fleets (Fleets: role <i>logistics</i>, filled to their loadout like any fleet) carry materials on
+  demand: what queued prints need, contracts you approved or whose civilization you pre-approved (Contracts page), and
+  trades you approved (Shop page; once each — plain shop listings are never fulfilled). Priority: queued prints (waiting ones first), local deliveries,
+  long-range transfers, then stray stockpiles back to a gather point. Home systems keep what their own prints need.
+  Outside an active relay network a logistics device hosting a replicant flies alongside, or nothing goes; afterwards the logistics devices wait
+  inside the network. Devices go the same way: deliveries take logistics carriers first.</p>
+<div class="card">
+  <h2>Requests <button class="small" hx-post="/fleets/logistics/run" hx-target="#tx-run">Run now</button><span id="tx-run"></span></h2>
+  {% if st.note %}<p class="muted">{{ st.note }}</p>{% endif %}
+  <p class="muted small">Last pass {{ st.at | ago if st.at else 'not yet' }}.</p>
+  {% if st.requests %}
+  <table class="small"><tr><th>Priority</th><th>Request</th><th>To</th><th>Still needed</th><th>Status</th><th></th></tr>
+    {% for r in st.requests %}<tr{% if r.skipped %} class="muted"{% endif %}>
+      <td>{{ r.tier }} · {{ tiers[r.tier] }}{% if r.tier != r.base_tier %} <span class="pill small">bumped</span>{% endif %}{% if r.waiting %} <span class="lv-alert">waiting</span>{% endif %}</td>
+      <td>{{ r.label }}</td><td>{{ r.to }}</td>
+      <td>{% for k, q in r.need.items() %}{{ q | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% else %}<span class="muted">stocked</span>{% endfor %}</td>
+      <td>{% if r.skipped %}skipped{% elif on_way.get(r.id) %}<span class="lv-done">on its way</span> <span class="muted">{{ on_way[r.id].title }}</span>{% elif why.get(r.id) %}<span class="lv-alert">{{ why[r.id] }}</span>{% elif r.need %}queued{% else %}—{% endif %}</td>
+      <td><form hx-post="/fleets/logistics/prefs" hx-target="next .tx-r" style="display:inline"><input type="hidden" name="req" value="{{ r.id }}">
+        <select name="tier" onchange="this.form.requestSubmit()"><option value="">priority…</option>{% for t, n in tiers.items() %}<option value="{{ t }}">{{ t }} {{ n }}</option>{% endfor %}<option value="reset">its own</option></select>
+        <button class="small" name="skip" value="{{ 'off' if r.skipped else 'on' }}">{{ 'Resume' if r.skipped else 'Skip' }}</button></form><span class="tx-r"></span></td></tr>{% endfor %}
+  </table>{% else %}<p class="muted">Nothing requested right now.</p>{% endif %}
+  {% for u in st.unmet or [] %}{% if not u.req %}<p class="lv-alert small">{{ u.why }}</p>{% endif %}{% endfor %}
+</div>
+<div class="card">
+  <h2>Devices</h2>
+  {% if not fleets %}<p class="muted">No logistics fleet yet: on the Fleets page create one with role <i>logistics</i> and give it a loadout
+    (cargo freighters, a cargo vessel or heaven vessel hosting a replicant for trips beyond the relay network, plates or
+    carriers for devices).</p>{% endif %}
+  {% if st.fleet_devices %}<table class="small"><tr><th>Device</th><th>Type</th><th>Fleet</th><th>Where</th><th>Status</th></tr>
+    {% for t in st.fleet_devices %}<tr><td><a href="/devices/{{ t.code }}">{{ t.code }}</a>{% if t.replicant %} <span class="pill small">replicant</span>{% endif %}</td>
+      <td>{{ (t.type or '') | replace('_', ' ') }}</td><td>{{ t.fleet }}</td>
+      <td>{{ t.location or '—' }}{% if not t.covered %} <span class="lv-alert small">outside the network</span>{% endif %}</td>
+      <td>{{ 'free' if t.free else (t.status or 'busy') }}</td></tr>{% endfor %}</table>{% endif %}
+</div>
+{% if st.reserve %}<div class="card"><h2>Kept for home prints</h2>
+  <table class="small">{% for s, r in st.reserve.items() %}<tr><td>{{ s }}</td><td>{% for k, q in r.items() %}{{ q | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}</td></tr>{% endfor %}</table></div>{% endif %}
+<div class="card"><h2>Recent trips</h2>
+  {% if jobs %}<table class="small">{% for j in jobs %}<tr><td>{{ j.created_at | ago }}</td><td>{{ j.status }}</td><td>{{ j.title }}</td></tr>{% endfor %}</table>
+  {% else %}<p class="muted">None yet.</p>{% endif %}</div>
+{% endblock %}

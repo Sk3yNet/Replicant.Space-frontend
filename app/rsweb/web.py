@@ -1761,6 +1761,64 @@ async def location_detail(request: Request, code: str, user: str = Depends(curre
 
 
 # --- galaxy map ---------------------------------------------------------------------------
+async def relay_overlay(request: Request, st: dict, positions: dict) -> dict:
+    """The galaxy map's relay layer: links and nodes per network (active = a replicant inside its coverage: solid;
+    inactive: dashed), relays on order (planned) and the suggested bridges."""
+    from . import relaynet
+    from . import ward_orders as wo
+    rn = relaynet.networks(st["devices"], positions)
+    rstars = relaynet.replicant_stars(st["replicants"], st["devices"])
+    relaynet.coverage(rn, positions, rstars)
+    nets = rn["networks"]
+    ends = lambda net_id, star: min(nets[net_id]["stars"], key=lambda x: math.dist(  # noqa: E731
+        rn["nodes"][x]["xyz"], relaynet._xyz(positions.get(star)) or (0, 0, 0)))
+    suggested = []
+    for b in relaynet.bridges(rn, positions):
+        suggested.append({"stars": b["stars"], "from": ends(b["a"], b["stars"][0]), "to": ends(b["b"], b["stars"][-1]),
+                          "n": b["n"]})
+    orders = await request.app.state.db.kv_get(wo.kv_key("relay"), {}) or {}
+    return {"links": [{"a": l["a"], "b": l["b"], "color": nets[l["net"]]["color"], "active": nets[l["net"]]["active"]}
+                      for l in rn["links"]],
+            "nodes": [{"star": s, "color": nets[i]["color"], "net": i, "active": nets[i]["active"]} for s, i in rn["of"].items()],
+            "planned": sorted(orders), "suggested": suggested}
+
+
+@router.get("/map/relays", response_class=HTMLResponse)
+async def map_relays(request: Request, user: str = Depends(current_user)):
+    """Map › Relays: your relay networks (relaynet.py), relay requests on their way, and bridges between networks."""
+    from . import relaynet
+    from . import ward_orders as wo
+    st = await load_state(request)
+    cat = await request.app.state.db.kv_get("stars", {}) or {}
+    pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict) and s.get("position")}
+    rn = relaynet.networks(st["devices"], pos)
+    rstars = relaynet.replicant_stars(st["replicants"], st["devices"])
+    relaynet.coverage(rn, pos, rstars)
+    br = relaynet.bridges(rn, pos)
+    orders = await request.app.state.db.kv_get(wo.kv_key("relay"), {}) or {}
+    for b in br:
+        b["ordered"] = [s for s in b["stars"] if s in orders]
+    return await page(request, user, "relays.html", "relays", nets=rn["networks"], nodes=rn["nodes"], bridges=br,
+                      orders=orders, max_new=relaynet.MAX_BRIDGE)
+
+
+@router.post("/map/relays/route", response_class=HTMLResponse)
+async def map_relays_route(request: Request, stars: str = Form(...), user: str = Depends(current_user)):
+    """Add route: a relay request for every system on a bridge (as the Systems list's add relay)."""
+    eng = request.app.state.worker.automations
+    out = []
+    async with eng.lock:
+        for s in [x.strip().upper() for x in stars.split(",") if x.strip()][:relaynet_max()]:
+            out.append(f"{s}: {await eng.order_outpost('relay', s, user)}")
+    return HTMLResponse('<div class="result small">' + "<br>".join(html.escape(x) for x in out) + "</div>",
+                        headers={"HX-Refresh": "true"})
+
+
+def relaynet_max() -> int:
+    from .relaynet import MAX_BRIDGE
+    return MAX_BRIDGE
+
+
 @router.get("/map", response_class=HTMLResponse)
 async def galaxy_map(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
@@ -1865,6 +1923,7 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                                        oth.warded_by_others(cat, st["devices"]), profiles)
         out["traffic"] = oth.map_traffic(traffic.get("entries") or [], mine, positions, profiles)
         out["trail"] = oth.map_trail(await db.kv_get("trail", {}) or {}, positions)
+        out["relay_net"] = await relay_overlay(request, st, positions)
         out.update({"per_star": per_star, "moving": transit.galaxy_movers(transit.trips(st["devices"]), positions),
                     "fleets": [f for f in fleets if f["members"]], "supply": fl.supply_links(items, st["devices"])})
         if part == "all":   # the old shape too: drones / mining on each star
@@ -2087,8 +2146,25 @@ controller_kind = cmdspec.controller_kind
 
 
 async def device_directives(request: Request, dev: dict) -> list[str]:
-    bps = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
-    return cmdspec.directives_for(dev, bps)
+    """What the device can be told (cmdspec.directives_for). A type we know nothing of (seen live 2026-10-12: a service
+    bot from a trade, no blueprint of ours) is asked about once — the device's detail lists its available_directives —
+    and remembered per type in kv "known_directives"."""
+    db = request.app.state.db
+    bps = normalize_blueprints(await db.kv_get("blueprints", []))
+    learned = await db.kv_get("known_directives", {}) or {}
+    dtype = dev.get("device_type") or ""
+    own = [x for x in (dev.get("available_directives") or []) if isinstance(x, str)]
+    if not own and dtype and dtype not in learned and dev.get("device_code"):
+        try:
+            detail = await request.app.state.api.get(f"/devices/{dev['device_code']}") or {}
+            own = [x.get("name") if isinstance(x, dict) else x for x in detail.get("available_directives") or []]
+            own = [x for x in own if isinstance(x, str) and x]
+        except ApiError:
+            own = []
+    if own and learned.get(dtype) != own:
+        learned[dtype] = own
+        await db.kv_set("known_directives", learned)
+    return cmdspec.directives_for({**dev, "available_directives": own or dev.get("available_directives")}, bps, learned)
 
 
 @router.get("/ami", response_class=HTMLResponse)
@@ -2997,6 +3073,8 @@ async def game_events_ctx(request: Request) -> dict:
             e["supply"] = supply.get(e["designation"])
             key, label = gev.species_key(e, life)
             e["approval"] = {"key": key, "label": label, "on": key in approvals}
+            ck = gev.contract_key(e)
+            e["approval_one"] = {"key": ck, "on": ck in approvals}
             open_.append(e)
         else:
             closed.append(e)
@@ -3017,7 +3095,8 @@ async def game_events_ctx(request: Request) -> dict:
     quiet_rows = sorted(quiet.values(), key=lambda q: (q["approval"]["on"], q["location"]))
     from . import shop as sh
     return {"open": open_, "closed": closed[:30], "replicants": st["replicants"], "settings": settings, "quiet": quiet_rows,
-            "traders": await sh.known_traders(db), "mine": set(st["replicants"]), "trade_side": sh.describe_side}
+            "traders": await sh.known_traders(db), "mine": set(st["replicants"]), "trade_side": sh.describe_side,
+            "trade_ok": await db.kv_get("trade_approvals", {}) or {}}
 
 
 @router.get("/game-events", response_class=HTMLResponse)
@@ -3089,7 +3168,8 @@ async def game_event_fulfil(request: Request, des: str, replicant: str = Form(""
 
 @router.post("/game-events/approve", response_class=HTMLResponse)
 async def game_event_approve(request: Request, key: str = Form(...), on: str = Form(""), user: str = Depends(current_user)):
-    """Approve (or withdraw approval for) a species' contracts: auto-fulfil only takes approved ones."""
+    """Approve (or withdraw approval for) one contract, or pre-approve a civilization's (its species'): auto-fulfil only
+    takes approved or pre-approved ones."""
     db = request.app.state.db
     approvals = await db.kv_get(gev.APPROVALS_KV, {}) or {}
     if on:
@@ -3676,6 +3756,8 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         return HTMLResponse("", status_code=404)
     if (f.get("mission") or {}).get("status") == "running":
         return HTMLResponse('<div class="result err">This fleet is already on a mission — recall or stop it first.</div>')
+    if f.get("role") == "logistics":
+        return HTMLResponse('<div class="result err">A logistics fleet takes no missions: it runs the logistics service (Fleets › Logistics).</div>')
     targets = [t.strip().upper() for t in re.split(r"[,\s]+", form.get("targets") or "") if t.strip()]
     m = {"status": "running", "phase": None, "idx": 0, "targets": targets, "started_at": now_iso(), "log": [],
          "opts": {"deliver": form.get("deliver") == "on", "exhausted_minutes": _int(form.get("exhausted_minutes"), 30, 1, 24 * 60)}}

@@ -199,6 +199,7 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
         if age is None or age > 600:
             await _read_trades(request, s["code"])
     return await page(request, user, "shop.html", "shop", shops=await _shops(request), traders=traders,
+                      trade_ok=await request.app.state.db.kv_get("trade_approvals", {}) or {},
                       resources=sh.RESOURCES, describe=sh.describe_side, trade_side=sh.describe_side, device_types=types,
                       mine=set(st["replicants"]))
 

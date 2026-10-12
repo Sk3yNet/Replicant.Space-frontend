@@ -697,3 +697,78 @@ def test_contracts_page_lists_known_shops_and_trades(client):
     page = client.get("/game-events", headers=H).text
     assert "Trades" in page and "The Skunkworks" in page and "Service Bot Upgrade" in page and "NOSOXA-OORT" in page
     assert "The Skunkworks" in client.get("/shop", headers=H).text
+
+
+def test_a_new_device_types_directives_come_from_the_game_and_are_remembered(client):
+    db = client.app.state.db
+    world = client.app.state.api.http._transport.app.state.world
+    bot = {"device_code": "SB0001", "device_type": "service_bot", "location": "SOL-4-L4", "status": "idle",
+           "features": ["ami"], "available_commands": ["set_directive", "clear_directive"],
+           "available_directives": ["repair_nearby", "escort"], "replicant_code": "77F75255"}
+    world.devices.append(bot)
+    devs = client.portal.call(db.kv_get, "devices") + [{k: v for k, v in bot.items() if k != "available_directives"}]
+    client.portal.call(db.kv_set, "devices", devs)
+    r = client.get("/devices/SB0001/command-form?command=set_directive", headers=HX)
+    assert "repair_nearby" in r.text and "escort" in r.text
+    assert client.portal.call(db.kv_get, "known_directives")["service_bot"] == ["repair_nearby", "escort"]
+
+
+def test_relay_networks_links_and_bridges():
+    from rsweb import relaynet as rn
+    P = lambda x: {"x": x, "y": 0, "z": 0}  # noqa: E731
+    pos = {"A": P(0), "B": P(7), "C": P(28), "D": P(37), "E": P(14), "F": P(21), "H": P(80), "FAR": P(500)}
+    devs = [dev("R1", "ftl_relay", "A-4-L4", status="relaying"), dev("R2", "ftl_relay", "B-4-L4", status="relaying"),
+            dev("R3", "ftl_relay", "C-4-L4", status="relaying"), dev("H1", "system_hub", "D-4-L4", status="active"),
+            dev("R4", "ftl_relay", "FAR-4-L4", status="relaying"), dev("R5", "ftl_relay", "H-4-L4", status="inactive")]
+    net = rn.networks(devs, pos)
+    assert [n["stars"] for n in net["networks"]] == [["A", "B"], ["C", "D"], ["FAR"]]
+    assert {(l["a"], l["b"]) for l in net["links"]} == {("A", "B"), ("C", "D")}
+    br = rn.bridges(net, pos)
+    # A–B and C–D (C–D 9 ly apart: the hub's 15 ly links them) are joined by new relays at E (14) and F (21)
+    assert br and (br[0]["a"], br[0]["b"]) == (0, 1) and br[0]["stars"] in (["E", "F"], ["E"]) and br[0]["n"] <= 2
+    assert not any(1 in (b["a"], b["b"]) and 2 in (b["a"], b["b"]) for b in br)   # FAR is beyond 10 relays
+
+
+def test_relays_page_and_route(client):
+    db = client.app.state.db
+    cat = client.portal.call(db.kv_get, "stars") or {"stars": []}
+    cat["stars"] += [{"designation": d, "position": {"x": x, "y": 0, "z": 0}} for d, x in
+                     (("RA", 1000), ("RB", 1007), ("RE", 1014), ("RF", 1021), ("RC", 1028))]
+    client.portal.call(db.kv_set, "stars", cat)
+    devs = client.portal.call(db.kv_get, "devices") + [
+        dev("Q1", "ftl_relay", "RA-4-L4", status="relaying"), dev("Q2", "ftl_relay", "RC-4-L4", status="relaying")]
+    client.portal.call(db.kv_set, "devices", devs)
+    page = client.get("/map/relays", headers=H).text
+    assert "Relay network" in page and "Add route" in page
+    data = client.get("/api/map.json?part=overlay", headers=H).json()
+    rl = data["relay_net"]
+    assert {n["star"] for n in rl["nodes"]} >= {"RA", "RC"}
+    assert not any(n["active"] for n in rl["nodes"] if n["star"] in ("RA", "RC"))   # no replicant there: inactive
+    assert any(b["stars"] and {b["from"], b["to"]} == {"RA", "RC"} for b in rl["suggested"])
+    assert "no replicant" in page
+    reps = client.portal.call(db.kv_get, "replicants") or {}
+    reps["RQ"] = {"location": "RA-4-L4"}
+    client.portal.call(db.kv_set, "replicants", reps)
+    client.portal.call(db.kv_set, "relay_requests", {"RE": {"star": "RE"}})
+    rl = client.get("/api/map.json?part=overlay", headers=H).json()["relay_net"]
+    assert next(n for n in rl["nodes"] if n["star"] == "RA")["active"]
+    assert not next(n for n in rl["nodes"] if n["star"] == "RC")["active"]
+    assert "RE" in rl["planned"]
+    assert 'id="opt-relaynet" checked' not in client.get("/map", headers=H).text
+
+
+def test_deliveries_outside_an_active_network_ride_a_replicant_vessel():
+    from rsweb import loadouts as lo, relaynet as rn
+    pos = {"A": {"x": 0, "y": 0, "z": 0}, "B": {"x": 5, "y": 0, "z": 0}, "Z": {"x": 50, "y": 0, "z": 0}}
+    devs = [dev("R1", "ftl_relay", "A-4-L4", status="relaying")]
+    net = rn.networks(devs, pos)
+    assert rn.coverage(net, pos, set())["commandable"] == set() and not net["networks"][0]["active"]   # no replicant: inactive
+    cov = rn.coverage(net, pos, {"A"})
+    assert {"A", "B"} <= cov["commandable"] and "Z" not in cov["commandable"] and net["networks"][0]["active"]
+    from test_core import _lo_world
+    cfg, devices, bps, inv, stars = _lo_world()
+    p_open = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    p_shut = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {}, commandable=set())
+    carried = lambda p: {c for dl in p["deliveries"] for c in dl["devices"]}  # noqa: E731
+    assert all(dl["carrier"] == "HV" for dl in p_shut["deliveries"])   # only the replicant's vessel may go
+    assert carried(p_shut) <= carried(p_open)

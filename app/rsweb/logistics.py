@@ -1,0 +1,528 @@
+"""The logistics service: materials delivered on demand by your logistics fleets (Fleets: role logistics; Fleets › Logistics).
+
+Demand, tracked every pass (engine stage logistics_pass), one request per destination:
+  print     an autofactory's queue (the print waiting for resources and every print queued behind it): their blueprint
+            cost minus what's stocked at the factory and on its way
+  contract  an open contract you approved, or one from a civilization you pre-approved (Contracts page): its price minus
+            what's at its location
+  trade     a trade you approved (Shop: approve; fulfilled once): its price minus what's at the shop's location. Shop
+            listings nobody approved are never fulfilled.
+  return    a stray stockpile (not in a home system, not where something is printed or asked for): brought back to the
+            nearest gather point (a fleet that takes materials in) when a logistics device has nothing better to do; in a
+            system a fleet moved away from, it follows that fleet to its new home instead
+
+Priority (owner's order, 2026-10-12): 1 queued prints (the ones waiting for resources first), 2 local deliveries (the
+stock is in the same system), 3 long-range transfers, 4 stockpile returns. A request can be bumped or skipped on the
+Logistics page. Each home system keeps what its own prints need (a reserve): only the surplus is taken.
+
+The logistics devices: every member of a logistics fleet. Materials ride in cargo devices: freighters and cargo vessels fly anywhere;
+transport drones and haulers work inside their system, or are towed (attached) to another by a logistics carrier (plate,
+platform, carrier, cargo vessel). Anywhere outside an active relay network (relaynet.coverage)
+a logistics device hosting a replicant flies alongside — a cargo vessel hosting one carries its own escort — or nothing goes.
+After a delivery outside the network the logistics devices come back to wait in it: their fleet's home when that's covered, else
+the nearest covered system. When a delivery completes a contract's or trade's price, the escort's replicant (or one
+already there) fulfills it at once; a request already stocked waits for a replicant logistics device to come and fulfill it.
+
+Inside one system the system's own free AMI transport controller (drones / haulers) takes the delivery when there is
+one (a `delivery` directive); the logistics devices cover the rest. A replicant counts wherever its matrix rides: a fleet carrier
+holding a matrix container with the replicant's matrix in it is that replicant's escort.
+
+Devices go the same way: deliveries of devices (loadouts.plan) take logistics-fleet carriers first.
+"""
+from __future__ import annotations
+
+import math
+from collections import defaultdict
+from typing import Any
+
+from .automations import STEP_TIMEOUT, step
+from .shapes import as_amounts
+
+KV_STATE = "logistics_state"        # the last pass: requests, runs, unmet
+KV_PREFS = "logistics_prefs"        # {"bump": {request id: tier}, "skip": [request ids]}
+KV_MOVES = "logistics_moves"   # {old home star: {"to": new home star, "fleet", "at"}} — its stock follows the fleet
+KV_TRADES = "trade_approvals"  # {"trades": {controller:trade_code: iso}, "done": {key: iso}}
+ROLE = "logistics"
+MIN_RETURN = 25.0              # a stray pile smaller than this isn't worth a trip
+TIERS = {1: "queued prints", 2: "local delivery", 3: "long-range transfer", 4: "stockpile return"}
+RELAY_HOP = 7.5                # distances compared in relay hops: anything in the same hop counts as equally near
+MOVING = ("travel", "cruis", "surg", "moving", "recall", "returning", "collecting", "depositing", "mining", "printing")
+
+
+def star_of(loc: str | None) -> str:
+    return (loc or "").split("-")[0]
+
+
+def logistics_fleets(fleets: list[dict]) -> list[dict]:
+    return [f for f in fleets or [] if f.get("role") == ROLE]
+
+
+def _dist(a: str, b: str, pos: dict[str, Any]) -> float:
+    if a == b:
+        return 0.0
+    pa, pb = pos.get(a) or {}, pos.get(b) or {}
+    if not pa or not pb:
+        return 1e9
+    return math.dist([float(pa.get(k) or 0) for k in "xyz"], [float(pb.get(k) or 0) for k in "xyz"])
+
+
+def _short(price: dict, have: dict) -> dict[str, float]:
+    return {r: n - have.get(r, 0.0) for r, n in as_amounts(price).items() if n - have.get(r, 0.0) >= 1}
+
+
+def _add(a: dict, b: dict, sign: float = 1.0) -> dict:
+    out = dict(a)
+    for r, q in (b or {}).items():
+        out[r] = out.get(r, 0.0) + sign * float(q)
+    return out
+
+
+def print_costs(devices: list[dict], bps: dict[str, dict]) -> dict[str, dict]:
+    """{factory location: {"cost": {res: n}, "waiting": bool, "types": {type: n}}} — every print still to be paid for: the
+    one waiting for resources and those queued behind it (a print already running has been paid)."""
+    from .loadouts import is_factory, queued_counts
+    out: dict[str, dict] = {}
+    for d in devices:
+        loc = d.get("location")
+        if not loc or not is_factory(d):
+            continue
+        counts, _ = queued_counts(d)
+        st = str(d.get("status") or "")
+        running = (d.get("printing") or {}).get("device_type") if isinstance(d.get("printing"), dict) else None
+        if st.startswith("printing"):
+            running = running or (st[st.find("(") + 1:st.rfind(")")] if "(" in st else None)
+            if running and counts.get(running):
+                counts[running] -= 1
+        e = out.setdefault(loc, {"cost": {}, "waiting": False, "types": defaultdict(int), "factories": []})
+        e["waiting"] |= st.startswith("waiting_for_resources")
+        e["factories"].append(d.get("device_code"))
+        for t, n in counts.items():
+            if n <= 0:
+                continue
+            e["types"][t] += n
+            e["cost"] = _add(e["cost"], {r: q * n for r, q in as_amounts((bps.get(t) or {}).get("resources") or {}).items()})
+    for e in out.values():
+        e["types"] = dict(e["types"])
+    return {k: v for k, v in out.items() if v["cost"]}
+
+
+def surplus(inventory: dict[str, dict], costs: dict[str, dict]) -> tuple[dict[str, dict], dict[str, dict]]:
+    """(what each pile can spare, reserve per system). A system keeps what its own prints need: the reserve is taken
+    from the factory's own pile first, then the system's biggest piles."""
+    reserve: dict[str, dict] = defaultdict(dict)
+    for loc, e in costs.items():
+        reserve[star_of(loc)] = _add(reserve[star_of(loc)], e["cost"])
+    spare = {loc: dict(as_amounts(items)) for loc, items in inventory.items()}
+    for star, res in reserve.items():
+        piles = sorted((l for l in spare if star_of(l) == star),
+                       key=lambda l: (l not in costs, -sum(spare[l].values()), l))
+        left = dict(res)
+        for l in piles:
+            for r in list(left):
+                take = min(left[r], spare[l].get(r, 0.0))
+                if take > 0:
+                    spare[l][r] -= take
+                    left[r] -= take
+    return {l: {r: q for r, q in s.items() if q >= 1} for l, s in spare.items()}, dict(reserve)
+
+
+def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, dict], pos: dict[str, Any],
+             contracts: list[dict], trades: list[dict], incoming: dict[str, dict], fleets: list[dict],
+             gather: dict[str, str], busy_stars: set[str], prefs: dict | None = None,
+             moved: dict[str, tuple[str, str]] | None = None) -> tuple[list[dict], dict, dict]:
+    """(requests by priority, spare per pile, reserve per system). `gather`: gather star → its drop point. `moved`: a
+    fleet's old home → (its new home, the drop point there): what's left there follows the fleet."""
+    moved = moved or {}
+    prefs = prefs or {}
+    costs = print_costs(devices, bps)
+    spare, reserve = surplus(inventory, costs)
+    stock = {l: as_amounts(i) for l, i in inventory.items()}
+    out: list[dict] = []
+
+    def have(loc: str) -> dict:
+        return _add(stock.get(loc) or {}, incoming.get(loc) or {})
+    for loc, e in sorted(costs.items()):
+        need = _short(e["cost"], have(loc))
+        types = ", ".join(f"{n}× {t.replace('_', ' ')}" for t, n in sorted(e["types"].items()))
+        out.append({"id": f"print:{loc}", "kind": "print", "to": loc, "need": need, "price": e["cost"], "tier": 1,
+                    "waiting": e["waiting"], "label": f"prints at {loc}: {types}"})
+    for c in contracts:
+        out.append({"id": f"contract:{c['designation']}", "kind": "contract", "to": c["location"], "price": c["price"],
+                    "need": _short(c["price"], have(c["location"])), "label": f"contract {c.get('title') or c['designation']}",
+                    "designation": c["designation"], "devices_short": c.get("devices_short", False)})
+    for t in trades:
+        out.append({"id": f"trade:{t['key']}", "kind": "trade", "to": t["location"], "price": t["price"],
+                    "need": _short(t["price"], have(t["location"])), "label": f"trade {t.get('name') or t['trade_code']}",
+                    "controller": t["controller"], "trade_code": t["trade_code"], "once": t.get("once", False),
+                    "devices_short": t.get("devices_short", False)})
+    for r in out:
+        if r["kind"] != "print":   # local when the system itself can spare a needed resource
+            here = star_of(r["to"])
+            local = any(spare.get(l, {}).get(x, 0) >= 1 for l in spare if star_of(l) == here and l != r["to"] for x in r["need"])
+            r["tier"] = 2 if local else 3
+    asked = {r["to"] for r in out} | set(costs)
+    homes = {f.get("home") for f in fleets if f.get("home") and (f.get("station") or f.get("materials") == "self")}
+    for loc, items in sorted(stock.items()):
+        total = sum(items.values())
+        star = star_of(loc)
+        if total < MIN_RETURN or loc in asked or star in homes or star in busy_stars:
+            continue
+        if star in moved:   # a fleet moved away from here: its stock follows it to the new home
+            to_star, to = moved[star]
+            label = f"move the {loc} stockpile to {to_star} (its fleet's new home)"
+        elif gather and star not in gather:
+            to_star = min(gather, key=lambda g: (_dist(star, g, pos), g))
+            to, label = gather[to_star], f"return the {loc} stockpile to {to_star}"
+        else:
+            continue
+        out.append({"id": f"return:{loc}", "kind": "return", "to": to, "from": loc,
+                    "need": {r: q for r, q in items.items() if q >= 1}, "tier": 4, "label": label})
+    for r in out:
+        r["base_tier"] = r["tier"]
+        if r["id"] in (prefs.get("bump") or {}):
+            r["tier"] = int(prefs["bump"][r["id"]])
+        r["skipped"] = r["id"] in set(prefs.get("skip") or [])
+    out.sort(key=lambda r: (r["tier"], not r.get("waiting"), r["id"]))
+    return out, spare, reserve
+
+
+def _free(d: dict) -> bool:
+    st = str(d.get("status") or "").lower()
+    return (bool(d.get("location")) and not d.get("location_stale") and not d.get("stowed_in_device_code")
+            and not d.get("attached_to_device_code") and not st.startswith(MOVING))
+
+
+def fleet_devices(fleets: list[dict], devices: list[dict]) -> list[dict]:
+    from . import fleets as fl
+    out = []
+    for f in logistics_fleets(fleets):
+        for d in fl.members(f, devices):
+            out.append({**d, "_fleet": f})
+    return out
+
+
+def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inventory: dict[str, dict],
+         pos: dict[str, Any], commandable: set[str], hosts: dict[str, str], busy: set[str], reach: float,
+         contracts: list[dict], trades: list[dict], incoming: dict[str, dict], replicants: dict[str, dict],
+         drop: Any, busy_stars: set[str] | frozenset = frozenset(), prefs: dict | None = None,
+         ami: list[dict] | None = None, moved: dict[str, str] | None = None) -> dict:
+    """What the logistics devices do this pass. `hosts`: device → the replicant it hosts. `drop(star)`: where materials land in a
+    system. Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices"}."""
+    from . import cargo as cg
+    from .loadouts import can_surge
+    gather = {f["home"]: drop(f["home"]) for f in fleets or [] if f.get("materials") == "self" and f.get("home")}
+    reqs, spare, reserve = requests(devices=devices, bps=bps, inventory=inventory, pos=pos, contracts=contracts,
+                                    trades=trades, incoming=incoming, fleets=fleets, gather=gather,
+                                    busy_stars=set(busy_stars), prefs=prefs,
+                                    moved={o: (n, drop(n)) for o, n in (moved or {}).items()})
+    direct = dict(hosts)                   # the vessel the replicant's matrix is in: it travels as the replicant
+    hosts = riding_hosts(devices, hosts)   # a carrier with a replicant's matrix aboard escorts like its host
+    ami_free = {c["device_code"]: c for c in ami or []}
+    pool = fleet_devices(fleets, devices)
+    bpl = list(bps.values())
+    free = {d["device_code"]: d for d in pool if d["device_code"] not in busy and _free(d)}
+    runs, unmet, used = [], [], set()
+    rep_at = defaultdict(list)
+    for code, r in (replicants or {}).items():
+        rep_at[r.get("location") or r.get("current_location")].append(code)
+
+    def room(d: dict) -> float:
+        cap = cg.capacity_of(d, bpl, None) or 0.0
+        return max(0.0, float(cap) - float(d.get("cargo_used") or 0))
+
+    def attach_free(d: dict) -> int:
+        from . import fleets as fl
+        return fl.capacity(d) - sum(1 for x in devices if x.get("attached_to_device_code") == d["device_code"])
+
+    def wait_point(d: dict, near: str) -> str | None:
+        """Where a logistics device waits after a trip that ended outside the network: its fleet's home if covered, else the
+        nearest covered system."""
+        home = (d.get("_fleet") or {}).get("home")
+        if home and home in commandable:
+            return drop(home)
+        cands = [s for s in commandable if pos.get(s)]
+        return drop(min(cands, key=lambda s: (_dist(near, s, pos), s))) if cands else None
+
+    def escort_for(stops: list[str], exclude: set[str]) -> dict | None:
+        first = star_of(stops[0])
+        one_system = len({star_of(s) for s in stops}) == 1
+        cands = [d for c, d in free.items() if c not in used and c not in exclude and c in hosts
+                 and (can_surge(d) or (one_system and star_of(d.get("location")) == first))
+                 and (_dist(star_of(d.get("location")), first, pos) <= reach or star_of(d.get("location")) == first)]
+        return min(cands, key=lambda d: (_dist(star_of(d.get("location")), first, pos), d["device_code"]), default=None)
+
+    def ready_replicant(r: dict, escort: dict | None, cargo: dict | None) -> str | None:
+        for d in (escort, cargo):
+            if d and d["device_code"] in hosts:
+                return hosts[d["device_code"]]
+        mine = rep_at.get(r["to"]) or []
+        return mine[0] if mine else None
+
+    for r in reqs:
+        if r["skipped"]:
+            continue
+        need = {x: q for x, q in r["need"].items() if q >= 1}
+        dest, dstar = r["to"], star_of(r["to"])
+        if not need:
+            if r["kind"] in ("contract", "trade") and r.get("devices_short"):
+                unmet.append({"req": r["id"], "why": f"materials are there; waiting for the devices it asks for at {dest} "
+                                                     "(delivered by the contract's device supply)"})
+            elif r["kind"] in ("contract", "trade"):   # stocked: a replicant fulfills it
+                rep = ready_replicant(r, None, None)
+                esc = None
+                if not rep:
+                    esc = escort_for([dest], set())
+                    if not esc:
+                        unmet.append({"req": r["id"], "why": f"{dest} holds the price; waiting for a free logistics device hosting a replicant to fulfill it"})
+                        continue
+                    used.add(esc["device_code"])
+                    rep = hosts[esc["device_code"]]
+                runs.append({"req": r["id"], "kind": r["kind"], "cargos": [], "escort": esc and esc["device_code"],
+                             "legs": [], "to": dest, "carry": {}, "fulfil": _deal(r), "replicant": rep,
+                             "back": wait_point(esc, dstar) if esc and dstar not in commandable else None, "label": r["label"]})
+            continue
+        sources_ok = (lambda l: l == r.get("from")) if r["kind"] == "return" else (lambda l: star_of(l) in commandable and l != dest)
+        assigned = False
+        while need:
+            piles = sorted((l for l, s in spare.items() if sources_ok(l) and any(s.get(x, 0) >= 1 for x in need)),
+                           key=lambda l: (_dist(star_of(l), dstar, pos), -sum(spare[l].get(x, 0) for x in need), l))
+            if not piles:
+                if not assigned:
+                    unmet.append({"req": r["id"], "why": "no stockpile can spare " + ", ".join(f"{q:g} {x}" for x, q in sorted(need.items()))
+                                  + " (home systems keep what their own prints need)"})
+                break
+            first = piles[0]
+            fstar = star_of(first)
+            same = fstar == dstar
+            ctrl = next((c for c in sorted(ami_free) if star_of(ami_free[c].get("location")) == dstar), None) \
+                if same and dstar in commandable else None
+            if ctrl:   # in-system: the system's free AMI transport controller takes it (one pile per controller)
+                take = {x: math.floor(min(q, spare[first].get(x, 0.0))) for x, q in need.items()}
+                take = {x: q for x, q in take.items() if q >= 1}
+                if take:
+                    ami_free.pop(ctrl)
+                    for x, q in take.items():
+                        spare[first][x] -= q
+                        need[x] -= q
+                    need = {x: q for x, q in need.items() if q >= 1}
+                    assigned = True
+                    runs.append({"req": r["id"], "kind": r["kind"], "ami": ctrl, "cargos": [], "escort": None,
+                                 "legs": [{"pile": first, "take": take}], "to": dest, "carry": take, "fulfil": None,
+                                 "replicant": None, "back": None, "label": r["label"]})
+                    continue
+            # one run per source system: cargo devices load there, travel together (riding a carrier when one is free
+            # for a long trip) and share one escort
+            ride = None
+            if not same:
+                rides = [d for c, d in free.items() if c not in used and can_surge(d) and attach_free(d) >= 1
+                         and (star_of(d.get("location")) in commandable or c in hosts)
+                         and (star_of(d.get("location")) == fstar or _dist(star_of(d.get("location")), fstar, pos) <= reach)]
+                ride = min(rides, key=lambda d: (_dist(star_of(d.get("location")), fstar, pos) > 0, -attach_free(d),
+                                                 _dist(star_of(d.get("location")), fstar, pos), d["device_code"]), default=None)
+            seats = attach_free(ride) if ride else 0
+            group, taken = [], {}
+            while need:
+                left = sum(min(q, sum(spare[l].get(x, 0.0) for l in piles if star_of(l) == fstar)) for x, q in need.items())
+                if left < 1:
+                    break
+                cands = [d for c, d in free.items() if c not in used and c != (ride or {}).get("device_code") and room(d) >= 1
+                         and (can_surge(d) or (star_of(d.get("location")) == fstar and fstar in commandable
+                                               and (same or (ride and seats >= 1))))
+                         and (star_of(d.get("location")) in commandable or c in hosts)
+                         and (star_of(d.get("location")) == fstar or _dist(star_of(d.get("location")), fstar, pos) <= reach)]
+                if not cands:
+                    break
+                # nearest first (by relay hop), then the smallest that takes the rest in one go, else the biggest
+                cargo = min(cands, key=lambda d: (round(_dist(star_of(d.get("location")), fstar, pos) / RELAY_HOP),
+                                                  room(d) < left, room(d) if room(d) >= left else -room(d), d["device_code"]))
+                code = cargo["device_code"]
+                cap, legs, carry = room(cargo), [], {}
+                for l in piles:
+                    if star_of(l) != fstar or cap < 1:
+                        continue
+                    take = {}
+                    for x in sorted(need, key=lambda x: -need[x]):
+                        q = math.floor(min(need[x], spare[l].get(x, 0.0), cap))
+                        if q >= 1:
+                            take[x] = q
+                            cap -= q
+                    if take:
+                        legs.append({"pile": l, "take": take})
+                        for x, q in take.items():
+                            spare[l][x] -= q
+                            need[x] -= q
+                            carry[x] = carry.get(x, 0) + q
+                            taken[x] = taken.get(x, 0) + q
+                        need = {x: q for x, q in need.items() if q >= 1}
+                if not legs:
+                    break
+                used.add(code)
+                rides_it = bool(ride) and seats >= 1 and (not can_surge(cargo) or not same)
+                if rides_it:
+                    seats -= 1
+                group.append({"code": code, "legs": legs, "carry": carry, "rides": rides_it, "dev": cargo})
+            if not group:
+                if not assigned:
+                    unmet.append({"req": r["id"], "why": f"no free logistics cargo device (freighter, cargo vessel, or a hauler in {fstar} "
+                                                         f"with a logistics carrier to tow it) within {reach:g} ly of {first}"})
+                break
+            if ride and not any(g["rides"] for g in group):
+                ride = None
+            stops = sorted({g2["pile"] for g in group for g2 in g["legs"]}) + [dest]
+            locs = [g["dev"].get("location") for g in group] + [(ride or {}).get("location")]
+            outside = [x for x in stops + locs if x and star_of(x) not in commandable]
+            esc = None
+            members = [g["code"] for g in group] + ([ride["device_code"]] if ride else [])
+            if outside and not any(c in hosts for c in members):
+                esc = escort_for(stops, set(members))
+                if not esc:
+                    for g in group:   # undo: nothing goes unaccompanied
+                        used.discard(g["code"])
+                        for g2 in g["legs"]:
+                            for x, q in g2["take"].items():
+                                spare[g2["pile"]][x] += q
+                    unmet.append({"req": r["id"], "why": f"{', '.join(sorted({star_of(x) for x in outside}))} is outside an active "
+                                                         "relay network: it needs a logistics device hosting a replicant alongside (none free)"})
+                    break
+                used.add(esc["device_code"])
+            if ride:
+                used.add(ride["device_code"])
+            assigned = True
+            done = not need
+            host = next((by_c for by_c in [esc, ride] + [g["dev"] for g in group] if by_c and by_c["device_code"] in hosts), None)
+            rep = ready_replicant(r, host, None) if done and r["kind"] in ("contract", "trade") and not r.get("devices_short") else None
+            back = wait_point(ride or group[0]["dev"], dstar) if dstar not in commandable else None
+            runs.append({"req": r["id"], "kind": r["kind"], "cargos": [{k: g[k] for k in ("code", "legs", "carry", "rides")} for g in group],
+                         "ride": ride and ride["device_code"], "escort": esc and esc["device_code"], "to": dest,
+                         "carry": taken, "fulfil": _deal(r) if rep else None, "replicant": rep, "back": back, "label": r["label"],
+                         "escort_pickup": any(star_of(x) not in commandable for x in stops[:-1])})
+    # logistics devices hosting a replicant idle outside the network come back to wait in it (the rest can't be commanded there)
+    for c, d in free.items():
+        if c in used or star_of(d.get("location")) in commandable or c not in hosts or not can_surge(d):
+            continue
+        w = wait_point(d, star_of(d.get("location")))
+        if w:
+            runs.append({"req": None, "kind": "reposition", "cargos": [], "escort": c, "legs": [], "to": w, "carry": {},
+                         "fulfil": None, "replicant": None, "back": None, "label": f"{c} back to wait in the relay network"})
+    for run in runs:
+        run["direct"] = {c: direct[c] for c in run_devices(run) if c in direct}
+    return {"requests": reqs, "runs": runs, "unmet": unmet, "reserve": reserve,
+            "fleet_devices": [{"code": d["device_code"], "type": d.get("device_type"), "fleet": d["_fleet"].get("name"),
+                       "location": d.get("location"), "status": d.get("status"), "free": d["device_code"] in free,
+                       "replicant": hosts.get(d["device_code"]), "covered": star_of(d.get("location")) in commandable}
+                      for d in pool]}
+
+
+def _deal(r: dict) -> dict | None:
+    if r["kind"] == "contract":
+        return {"kind": "contract", "designation": r["designation"], "location": r["to"], "label": r["label"]}
+    if r["kind"] == "trade":
+        return {"kind": "trade", "controller": r["controller"], "trade_code": r["trade_code"], "location": r["to"],
+                "label": r["label"]}
+    return None
+
+
+def riding_hosts(devices: list[dict], hosts: dict[str, str]) -> dict[str, str]:
+    """Replicant hosts plus the carriers they ride in: a fleet carrier with a matrix container aboard, itself holding the
+    replicant's matrix, brings that replicant wherever it flies (each level up the attach / stow chain counts)."""
+    by = {d.get("device_code"): d for d in devices}
+    out = dict(hosts)
+    for code, rep in hosts.items():
+        seen, c = {code}, code
+        while True:
+            up = (by.get(c) or {}).get("attached_to_device_code") or (by.get(c) or {}).get("stowed_in_device_code")
+            if not up or up in seen:
+                break
+            out.setdefault(up, rep)
+            seen.add(up)
+            c = up
+    return out
+
+
+def ami_steps(run: dict) -> list[dict]:
+    g = run["legs"][0]
+    c = run["ami"]
+    return [step(f"{c}: delivery {g['pile']} → {run['to']} (logistics request)", f"/devices/{c}",
+                 {"command": "set_directive", "directive": "delivery",
+                  "configuration": {"route": {"collect": g["pile"], "deliver": run["to"]}, "requirement": g["take"]}},
+                 critical=True),
+            step(f"{c}: launch", f"/devices/{c}", {"command": "launch"})]
+
+
+def run_devices(run: dict) -> list[str]:
+    return [c["code"] for c in run.get("cargos") or []] + [c for c in (run.get("ride"), run.get("escort")) if c]
+
+
+def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) -> list[dict]:
+    """A convoy: each cargo device loads at its stockpiles; those riding attach to the carrier (`ride`), which flies them
+    with the others flying alongside; one escort for all. At every hop the trips are sent cargo first, the escort last
+    (so everyone is still in its company when theirs goes out), and every arrival is awaited, the escort's first, before
+    anyone loads, unloads or detaches there."""
+    from . import fleets as fl
+    if run.get("ami"):
+        return ami_steps(run)
+    steps: list[dict] = []
+    cargos, ride, esc = run.get("cargos") or [], run.get("ride"), run.get("escort")
+    at = {c: (by_code.get(c) or {}).get("location") for c in run_devices(run)}
+
+    def hop(loc: str, who: list[str], why: str = "") -> None:
+        sent = []
+        for c in who:
+            if c and at.get(c) != loc:
+                rep = (run.get("direct") or {}).get(c)   # a replicant's own vessel moves by the replicant's travel
+                steps.append(step(f"{c} → {loc}{why}", f"/replicants/{rep}/travel" if rep else f"/devices/{c}",
+                                  {"destination": loc} if rep else {"command": "travel", "destination": loc}))
+                sent.append((c, len(steps) - 1))
+                at[c] = loc
+        for c, i in sorted(sent, key=lambda x: x[0] != esc):   # the escort's arrival first
+            w = step(f"wait for {c} at {loc}", "", None, method="WAIT", wait=["travel.arrived"], match={"destination": loc},
+                     timeout=STEP_TIMEOUT)
+            w["wait_device"], w["seq0_from"] = c, i
+            steps.append(w)
+    riders = [c["code"] for c in cargos if c.get("rides")]
+    flyers = [c["code"] for c in cargos if not c.get("rides")]
+
+    def go(loc: str, why: str = "") -> None:
+        """Everyone to `loc`: riders attach at one meeting point first, then the carrier, the flyers and the escort go."""
+        if ride and riders:
+            meet = at[riders[0]]
+            hop(meet, riders)
+            hop(meet, [ride])
+            for c in riders:
+                steps.append(fl.board_step(ride, c, "attach"))
+        hop(loc, flyers + ([ride] if ride else []) + ([esc] if esc else []), why)
+        if ride and riders:
+            for c in riders:
+                steps.append(step(f"{ride}: detach {c}", f"/devices/{ride}", {"command": "detach", "device": c}))
+                at[c] = loc
+    outside_pickup = bool(esc and run.get("escort_pickup"))   # stockpiles beyond the network: the escort is there first
+    for c in cargos:
+        for g in c["legs"]:
+            hop(g["pile"], [c["code"]] + ([esc] if esc and outside_pickup else []), " (pick up)")
+            steps.append(step(f"{c['code']}: load {', '.join(f'{q:g} {r}' for r, q in g['take'].items())} at {g['pile']}",
+                              f"/devices/{c['code']}", {"command": "collect_resources", "resources": g["take"]}, critical=True))
+    go(run["to"])
+    for c in cargos:
+        if c["legs"]:
+            steps.append(step(f"{c['code']}: deposit at {run['to']}", f"/devices/{c['code']}", {"command": "deposit_resources"},
+                              critical=True))
+    if run.get("fulfil"):
+        steps.append(fl.fulfil_step(run["fulfil"], run.get("replicant"), template))
+    if run.get("back"):
+        go(run["back"], " (waits in the relay network)")
+    return steps
+
+
+def describe(run: dict) -> str:
+    what = ", ".join(f"{q:g} {r}" for r, q in sorted((run.get("carry") or {}).items()))
+    codes = [c["code"] for c in run.get("cargos") or []]
+    who = ", ".join(codes) or run.get("escort") or (f"AMI transport {run['ami']}" if run.get("ami") else "?")
+    s = f"{run['label']}: {who}" + (f" carry {what}" if what and len(codes) > 1 else f" carries {what}" if what else "") + f" → {run['to']}"
+    riders = [c["code"] for c in run.get("cargos") or [] if c.get("rides")]
+    if run.get("ride") and riders:
+        s += f", {', '.join(riders)} riding {run['ride']}"
+    if run.get("escort") and codes:
+        s += f", {run['escort']} alongside"
+    if run.get("fulfil"):
+        s += ", then fulfills"
+    return s

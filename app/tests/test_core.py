@@ -1598,7 +1598,7 @@ def test_contracts_rule_fulfils_when_ready(client):
     client.portal.call(client.app.state.db.kv_set, "replicants", {"77F75255": {"name": "bob-1", "location": "SOL-BELT-1"}})
     assert client.portal.call(eng.rule_contracts, True) == []                  # not approved yet: left to you
     page = client.get("/game-events", headers=H).text
-    assert "Approve fulfilling contracts from <b>the inhabitants of SOL-BELT-1</b>" in page
+    assert "Pre-approve contracts from <b>the inhabitants of SOL-BELT-1</b>" in page
     client.post("/game-events/approve", data={"key": "body:SOL-BELT-1", "on": "1"}, headers=HX)
     client.portal.call(client.app.state.db.kv_set, "contracts_state", {})
     done = client.portal.call(eng.rule_contracts, True)
@@ -2878,8 +2878,12 @@ def test_new_print_bound_elsewhere_is_dispatched_at_once(client):
          "tags": ["home:fal", "taxi"]},
         {"device_code": "NEW1", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "idle",
          "available_commands": ["travel", "stow", "deploy"], "tags": ["to:ith"]},
+        # ITH is commandable: a relay in FAL (1 ly away) with a replicant there makes an active network
+        {"device_code": "RLF", "device_type": "ftl_relay", "location": "FAL-1-L4", "status": "relaying", "tags": []},
     ]
     client.portal.call(db.kv_set, "devices", devices)
+    reps = client.portal.call(db.kv_get, "replicants") or {}
+    client.portal.call(db.kv_set, "replicants", {**reps, "RX": {"name": "rx", "location": "FAL-1-L4"}})
     cat = {"stars": [{"designation": "FAL", "position": {"x": 0, "y": 0, "z": 0}, "entry_point": "FAL-1-L4"},
                      {"designation": "ITH", "position": {"x": 1, "y": 0, "z": 0}, "entry_point": "ITH-2-L4"}]}
     client.portal.call(db.kv_set, "stars", cat)
@@ -5122,32 +5126,6 @@ def test_trade_run_only_waits_once_everything_is_at_the_site():
     assert st["path"] == "/locations/SOL-4/events/E" and st["body"] == {"replicant_code": "R1"}
 
 
-def test_trade_fleet_auto_picks_contracts_and_trades(client):
-    eng = client.app.state.worker.automations
-    db = client.app.state.db
-    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": [{"resource_type": "carbon", "quantity": 900}]}])
-    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}},
-                                                       {"designation": "KEL", "position": {"x": 3, "y": 0, "z": 0}}]})
-    client.portal.call(db.kv_set, "traders_cache", {"TC1": {"location": "KEL-2", "star": "KEL", "trades": [
-        {"trade_code": "T1", "name": "carbon for rares", "criteria": {"resources": {"carbon": 100}}, "rewards": {"resources": {"rares": 5}}},
-        {"trade_code": "T2", "name": "too dear", "criteria": {"resources": {"carbon": 5000}}, "rewards": {"resources": {"rares": 99}}}]}})
-    client.portal.call(eng.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
-    client.post("/fleets/t/auto-deals", data={"auto_trades": "on"}, headers=HX)
-    f = client.portal.call(eng.fleets)[0]
-    assert f["auto_trades"] and not f["auto_contracts"]
-    assert client.portal.call(eng.auto_deals_pass) == ["T: trade carbon for rares"]    # T2 isn't affordable
-    m = client.portal.call(eng.fleets)[0]["mission"]
-    assert m["trade"]["trade_code"] == "T1" and m["targets"] == ["KEL"] and m["auto"]
-    assert client.portal.call(eng.auto_deals_pass) == []                               # busy now
-    # done: not the same trade again within a day
-    fl_ = client.portal.call(eng.fleets)
-    fl_[0]["mission"]["status"] = "done"
-    client.portal.call(eng.save_fleets, fl_)
-    assert client.portal.call(eng.auto_deals_pass) == []
-    page = client.get("/fleets", headers=H).text
-    assert "auto-fulfil contracts" in page and "auto-fulfil trades" in page
-
-
 def test_trail_matches_departure_vectors_to_stars():
     from rsweb import trail as tl
     pos = {"HOME": {"x": 0, "y": 0, "z": 0}, "A": {"x": 4, "y": 2, "z": -3}, "B": {"x": -4, "y": 2, "z": 3},
@@ -5851,25 +5829,6 @@ def test_survey_without_controller_isnt_done_between_bodies():
     assert done and why == "drones finished"                                                    # idle 3 min: really done
 
 
-def test_auto_contracts_skip_contracts_that_need_devices(client):
-    eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
-    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": [{"resource_type": "carbon", "quantity": 900}]}])
-    client.portal.call(w.handle_event, {**_ev(997, "event.discovered", designation="AEM-2-EVT-001", location="AEM-2",
-                                                title="Relay Network", criteria=[{"name": "default", "resources": {"carbon": 50},
-                                                                                  "devices": [{"device_type": "ftl_relay", "quantity": 2}]}]),
-                                        "location": "AEM-2"})
-    client.post("/game-events/approve", data={"key": "body:AEM-2", "on": "1"}, headers=HX)   # its species approved
-    client.portal.call(eng.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
-    client.post("/fleets/t/auto-deals", data={"auto_contracts": "on"}, headers=HX)
-    assert client.portal.call(eng.auto_deals_pass) == []                    # 2 relays wanted at AEM-2: not carried
-    page = client.get("/fleets", headers=H).text
-    assert "also needs devices there: 2× ftl relay" in page
-    devices = client.portal.call(db.kv_get, "devices")
-    devices += [{"device_code": f"R{i}", "device_type": "ftl_relay", "location": "AEM-2", "status": "idle", "tags": []} for i in (1, 2)]
-    client.portal.call(db.kv_set, "devices", devices)
-    assert client.portal.call(eng.auto_deals_pass) == ["T: contract Relay Network"]   # the devices are there now
-
-
 def test_loadouts_leave_contract_devices_alone():
     from rsweb import loadouts as lo
     cfg, devices, bps, inv, stars = _lo_world()
@@ -5925,14 +5884,6 @@ def test_contract_device_delivery_waits_for_print_authorization(client):
     assert len(jobs) == 2                                              # the print counts as coming: nothing more
     row = client.portal.call(db.kv_get, "contract_supply")["AEM-2-EVT-001"]["rows"][0]
     assert (row["coming"], row["printing"], row["short"]) == (["S1"], 1, 0)
-    # a trade run on it waits at the site until the relays are there
-    client.portal.call(eng.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
-    client.post("/fleets/t/auto-deals", data={"auto_contracts": "on"}, headers=HX)
-    assert client.portal.call(eng.auto_deals_pass) == ["T: contract Relay Network"]   # delivering: auto-fulfil may take it
-    f = client.portal.call(eng.fleets)[0]
-    client.portal.call(db.kv_set, "inventory", [{"location": "AEM-2", "items": [{"resource_type": "carbon", "quantity": 60}]}])
-    state, why = client.portal.call(eng._deal_gate, f, f["mission"], devices)   # the carbon is there, the relays aren't
-    assert state == "wait" and "2× ftl relay" in why
     # the contract closes: the leftover relay goes back to spare
     client.portal.call(w.handle_event, {**_ev(998, "event.completed", designation="AEM-2-EVT-001", location="AEM-2"),
                                         "location": "AEM-2"})

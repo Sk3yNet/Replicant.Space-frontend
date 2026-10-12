@@ -96,7 +96,8 @@ let starPoints, mineGroup = new THREE.Group(), coverGroup = new THREE.Group(), l
 const moveGroup = new THREE.Group(), fleetGroup = new THREE.Group(), supplyGroup = new THREE.Group();
 const prospectGroup = new THREE.Group();
 const othersGroup = new THREE.Group(), trafficGroup = new THREE.Group(), trailGroup = new THREE.Group();
-scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup, prospectGroup, othersGroup, trafficGroup, trailGroup);
+const relayGroup = new THREE.Group();   // your relay networks: one color per network, curved links
+scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup, prospectGroup, othersGroup, trafficGroup, trailGroup, relayGroup);
 const supplyLines = [];   // {curve, dots: [sprite], el, v}
 const sparkGroup = new THREE.Group(); scene.add(sparkGroup);
 const measureGroup = new THREE.Group(); scene.add(measureGroup);   // right-click measuring: its points and line
@@ -218,6 +219,38 @@ function buildFleets() {
 // something is traveling along it, dots flow from source to destination.
 const SUPPLY = { materials: 0xffb74d, trade: 0x6cb6ff };
 const SUPPLY_TEXT = { materials: "#ffd59a", trade: "#a9d3ff" };
+function buildRelayNet() {
+  relayGroup.clear();
+  const rn = data.relay_net || { links: [], nodes: [], planned: [], suggested: [] };
+  const arc = (a, b, mat) => {
+    const pa = pos(a), pb = pos(b);
+    const mid = pa.clone().lerp(pb, .5); mid.z += Math.max(1, pa.distanceTo(pb) * .3);
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(new THREE.QuadraticBezierCurve3(pa, mid, pb).getPoints(40)), mat);
+    if (mat.isLineDashedMaterial) line.computeLineDistances();
+    relayGroup.add(line);
+  };
+  const ring = (s, color, size, opacity = 1) => {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: new THREE.Color(color), transparent: true, opacity, depthWrite: false }));
+    sp.scale.set(size, size, 1); sp.position.copy(pos(s)); relayGroup.add(sp);
+  };
+  // active networks solid, ones without a replicant in reach dashed and dimmer
+  for (const l of rn.links) {
+    const a = byName[l.a], b = byName[l.b]; if (!a || !b) continue;
+    arc(a, b, l.active ? new THREE.LineBasicMaterial({ color: new THREE.Color(l.color), transparent: true, opacity: .9 })
+                       : new THREE.LineDashedMaterial({ color: new THREE.Color(l.color), dashSize: .5, gapSize: .4, transparent: true, opacity: .55 }));
+  }
+  for (const n of rn.nodes) { const s = byName[n.star]; if (s) ring(s, n.color, 2.2, n.active ? 1 : .5); }
+  // suggested bridges: dashed gray through the new relay systems; relays on order: white rings
+  for (const b of rn.suggested || []) {
+    const chain = [b.from, ...b.stars, b.to].map(x => byName[x]);
+    if (chain.some(x => !x)) continue;
+    for (let i = 0; i < chain.length - 1; i++)
+      arc(chain[i], chain[i + 1], new THREE.LineDashedMaterial({ color: 0x9aa4b2, dashSize: .3, gapSize: .5, transparent: true, opacity: .6 }));
+    for (const x of b.stars) ring(byName[x], 0x9aa4b2, 1.8, .7);
+  }
+  for (const x of rn.planned || []) { const s = byName[x]; if (s) ring(s, 0xffffff, 2.6, .95); }
+  relayGroup.visible = checked("opt-relaynet", OPTS.relayNet === true);
+}
 function buildSupply() {
   supplyGroup.clear();
   supplyLines.forEach(x => x.el.remove()); supplyLines.length = 0;
@@ -563,6 +596,7 @@ $("map-search")?.addEventListener("change", e => {
 });
 ["opt-mine"].forEach(id => $(id)?.addEventListener("change", build));
 $("opt-cover")?.addEventListener("change", e => coverGroup.visible = e.target.checked);
+$("opt-relaynet")?.addEventListener("change", e => relayGroup.visible = e.target.checked);
 $("btn-top")?.addEventListener("click", () => { camera.position.set(controls.target.x, controls.target.y - 0.01, controls.target.z + 160); });
 $("btn-home")?.addEventListener("click", () => { const s = repStar(); if (s) { focus(s); show(s); } });
 
@@ -653,7 +687,8 @@ function applyOverlay(o, first) {
   const per = o.per_star || {};
   for (const s of data.stars) Object.assign(s, per[s.designation] || { drones: [], mining: {} });
   Object.assign(data, { moving: o.moving || [], fleets: o.fleets || [], supply: o.supply || [], prospects: o.prospects || [],
-                        others: o.others || [], traffic: o.traffic || [], trail: o.trail || null });
+                        others: o.others || [], traffic: o.traffic || [], trail: o.trail || null,
+                        relay_net: o.relay_net || { links: [], nodes: [] } });
   build();
   buildMovers();
   buildProspects();
@@ -661,6 +696,7 @@ function applyOverlay(o, first) {
   buildTrail();
   buildFleets();
   buildSupply();
+  buildRelayNet();
   if (first && data.stars.length) infoText(data, false);
 }
 let focused = false;

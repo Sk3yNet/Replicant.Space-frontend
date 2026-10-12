@@ -1096,7 +1096,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
-            for stage in ("run_fleets", "auto_deals_pass", "contract_supply_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass"):
@@ -1627,6 +1627,11 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 f["home"], f["pending_home"] = old, new
                 return f"{new} is pending: it moves once its {fl.readiness_text(ready)}"
         f.pop("pending_home", None)
+        if old and new and old != new:   # what's stockpiled at the old home follows the fleet (logistics.py)
+            from .logistics import KV_MOVES
+            moves = await self.db.kv_get(KV_MOVES, {}) or {}
+            moves[old] = {"to": new, "fleet": f.get("id"), "at": now_iso()}
+            await self.db.kv_set(KV_MOVES, moves)
         here = fl.readiness_anywhere(f, devices, prefer=old)
         start = here["at"] if here["ready"] else old   # where it's gathered: it leaves from there
         if f.get("role") not in ("mining", "explore") or not f.get("station") or old == new \
@@ -1923,6 +1928,20 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 pass
         return out
 
+    async def commandable(self, devices: list[dict], stars: dict | None = None) -> set[str]:
+        """Systems you can give commands in: an active relay network's coverage (relaynet.coverage), or where one of your
+        replicants is."""
+        from . import relaynet
+        if stars is None:
+            cat = await self.db.kv_get("stars", {}) or {}
+            pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+        else:
+            pos = {k: (v or {}).get("position") for k, v in stars.items()}
+        reps = await self.db.kv_get("replicants", {}) or {}
+        rstars = relaynet.replicant_stars(reps, devices)
+        net = relaynet.networks(devices, {k: v for k, v in pos.items() if v})
+        return relaynet.coverage(net, {k: v for k, v in pos.items() if v}, rstars)["commandable"]
+
     async def supply_reach(self) -> float:
         """The loadout supply range (ly, Fleets › settings): nothing is fetched from farther."""
         from .loadouts import DEFAULT_SETTINGS
@@ -1986,7 +2005,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         protect = {b["device_code"] for b in _beacons(devices) if b.get("location") in civ_locs}
         p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
                  await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites(), protect,
-                 await self.geography(devices, stars))
+                 await self.geography(devices, stars), await self.commandable(devices, stars))
         current = {}
         live: set[str] = set()
         for d in devices:
@@ -2018,7 +2037,10 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         cfg_only = {**cfg, "fleets": [f for f in cfg["fleets"] if not only or f.get("id") in only or f.get("home") in only
                                       or not f.get("materials") or f.get("materials") == "self"]}
         from .ami_schedule import managed_by
-        routes, unmet = material_routes(cfg_only, devices, inv, stars, busy, current, await managed_by(self.db))
+        from .fleets import fleet_tag
+        logistics_tags = {fleet_tag(f["id"]) for f in cfg["fleets"] if f.get("role") == "logistics" and f.get("id")}   # the ferry never adopts a logistics
+        busy_f = busy | {d["device_code"] for d in devices if logistics_tags & set(d.get("tags") or [])}
+        routes, unmet = material_routes(cfg_only, devices, inv, stars, busy_f, current, await managed_by(self.db))
         p["routes"], p["unmet"] = routes, p["unmet"] + unmet
         return p
 
@@ -2622,92 +2644,148 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         m["log"] = m["log"][-60:]
 
     async def auto_deals_pass(self) -> list[str]:
-        """Trade fleets with 'auto-fulfil contracts' / 'auto-fulfil trades' ticked: when one has no mission running,
-        start one on the best deal — contracts first, then trades — that your stockpiles can pay for, nearest to the
-        fleet's home, not in a system another player's ward or hub locks, not already taken by another fleet, and not a
-        trade it did in the last 24 h."""
-        from . import fleets as fl
-        from . import gameevents as gev
-        from . import wards
-        from .shapes import normalize_inventory
+        """Trade fleets are retired (2026-10-12): the logistics service (logistics_pass) loads, delivers and fulfills approved
+        contracts and trades. A trade fleet becomes a logistics fleet — same members and loadout — once no mission of its own
+        is under way (a run already going finishes first)."""
         items = await self.fleets()
-        auto = [f for f in items if f.get("role") == "trade" and (f.get("auto_contracts") or f.get("auto_trades"))
-                and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped")]   # stopped: you paused it
-        if not auto:
+        out = []
+        for f in items:
+            if f.get("role") != "trade" or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
+                continue
+            f["role"] = "logistics"
+            for k in ("auto_contracts", "auto_trades", "deals_done"):
+                f.pop(k, None)
+            if (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped"):
+                f.pop("mission", None)
+            out.append(f"{f.get('name')}: trade fleet is now a logistics fleet (trade fleets are retired)")
+        if out:
+            await self.save_fleets(items)
+            for line in out:
+                await self.log("fleets", line)
+        return out
+
+    async def logistics_pass(self, force: bool = False) -> list[str]:
+        """The logistics service (logistics.py): every couple of minutes, track what prints, approved contracts and approved trades
+        need, and send free logistics-fleet devices with it — priority: queued prints, local, long-range, stockpile returns."""
+        from . import gameevents as gev
+        from . import loadouts as lo
+        from . import logistics as lg
+        from . import wards
+        from .shapes import normalize_blueprints, normalize_inventory
+        last = _ts(await self.db.kv_get("logistics_last", None))
+        if not force and last and (_now() - last).total_seconds() < 110:
+            return []
+        await self.db.kv_set("logistics_last", now_iso())
+        items = await self.fleets()
+        if not lg.logistics_fleets(items):
+            await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": [], "runs": [], "unmet": [], "fleet_devices": [],
+                                               "note": "no logistics fleet yet (Fleets: a fleet with role logistics)"})
             return []
         devices = await self.devices()
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
-        reps = await self.db.kv_get("replicants", {}) or {}
         cat = await self.db.kv_get("stars", {}) or {}
-        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
-        locked = wards.foreign(cat, devices)
-        taken = set()
+        stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
+        pos = {k: v.get("position") for k, v in stars.items() if v.get("position")}
+        reps = await self.db.kv_get("replicants", {}) or {}
+        hosts = {r.get("hosted_device_code"): c for c, r in reps.items() if r.get("hosted_device_code")}
+        jobs = await self.jobs()
+        busy = self.busy_devices(jobs)
+        by_code0 = {d["device_code"]: d for d in devices}
+        hosts = lg.riding_hosts(devices, hosts)
+        incoming: dict[str, dict] = {}
+        for j in jobs:
+            t = (j.get("meta") or {}).get("logistics")
+            if t and j["status"] in ("running", "waiting") and t.get("to"):
+                incoming[t["to"]] = {r: incoming.get(t["to"], {}).get(r, 0) + q for r, q in (t.get("carry") or {}).items()}
+        taken, mission_stars = set(), set()
         for f in items:
             m = f.get("mission") or {}
-            if m.get("status") in ("running", "stalled", "stopped"):   # a paused run still holds its deal
-                d = fl.deal(m)
-                taken.add(d.get("designation") or f"{d.get('controller')}:{d.get('trade_code')}")
-        cands: list[dict] = []
-        supply = await self.db.kv_get("contract_supply", {}) or {}
+            if m.get("status") in ("running", "stalled", "stopped"):
+                mission_stars |= {star_of(x) for x in m.get("targets") or []}
+                if m.get("contract") or m.get("trade"):
+                    from .fleets import deal as _deal
+                    d = _deal(m)
+                    taken.add(d.get("designation") or f"{d.get('controller')}:{d.get('trade_code')}")
+        locked = wards.foreign(cat, devices)
+        contracts = []
         life, approvals = await gev.life_map(self.db), await self.db.kv_get(gev.APPROVALS_KV, {}) or {}
         for des, e in (await gev.load(self.db)).items():
             if e.get("status") != "open" or not e.get("location") or des in taken or star_of(e["location"]) in locked:
                 continue
             if not await gev.approved(self.db, e, life, approvals):
-                continue   # its species isn't approved yet (Contracts page)
-            prog = gev.progress(e, inv, devices, reps)
-            if any(x["short_here"] for x in (prog.get("best") or {}).get("devices") or []) \
-                    and not (supply.get(des) or {}).get("active"):
-                continue   # it asks for devices that aren't there: only once you've set it delivering (Contracts page)
-            price = {x["resource"]: x["need"] for x in (prog.get("best") or {}).get("resources") or []}
-            rewards = (e.get("rewards") or {}).get("resources") or {} if isinstance(e.get("rewards"), dict) else {}
-            cands.append({"kind": "contract", "key": des, "star": star_of(e["location"]),
-                          "contract": {"designation": des, "location": e["location"], "title": e.get("title"),
-                                       "price": price, "rewards": rewards}, "price": price})
+                continue
+            best = gev.progress(e, inv, devices, reps).get("best") or {}
+            price = {x["resource"]: x["need"] for x in best.get("resources") or []}
+            dshort = any(x["short_here"] for x in best.get("devices") or [])
+            if price or best.get("devices"):
+                contracts.append({"designation": des, "location": e["location"], "title": e.get("title"), "price": price,
+                                  "devices_short": dshort})
+        from collections import Counter
+        from .fleets import device_counts as fl_counts
+        ok = await self.db.kv_get(lg.KV_TRADES, {}) or {}
+        trades = []
         from .shop import known_traders
         for ctrl, t in (await known_traders(self.db)).items():
             for tr in t.get("trades") or []:
                 key = f"{ctrl}:{tr.get('trade_code')}"
-                star = t.get("star") or star_of(t.get("location"))
-                if key in taken or not t.get("location") or star in locked:
+                once = key in (ok.get("trades") or {})   # only a trade you approved: shop listings are never fulfilled
+                if not once or key in taken or not t.get("location") \
+                        or star_of(t["location"]) in locked or tr.get("current_stock") == 0:
                     continue
-                if (tr.get("criteria") or {}).get("devices"):
-                    continue   # paid in devices: start that run yourself (Fleets), its devices are delivered for it
-                price = (tr.get("criteria") or {}).get("resources") or {}
-                cands.append({"kind": "trade", "key": key, "star": star, "price": price,
-                              "trade": {"controller": ctrl, "trade_code": tr.get("trade_code"), "name": tr.get("name"),
-                                        "star": star, "location": t.get("location"), "price": price,
-                                        "rewards": (tr.get("rewards") or {}).get("resources") or {}}})
-        now, out = _now(), []
-
-        def dist(a: str, b: str) -> float:
-            pa, pb = pos.get(a), pos.get(b)
-            if not pa or not pb:
-                return 1e9
-            return sum((float(pa.get(k) or 0) - float(pb.get(k) or 0)) ** 2 for k in "xyz") ** 0.5
-        for f in auto:
-            done = f.setdefault("deals_done", {})
-            ok = [c for c in cands if c["key"] not in taken and fl.deal_affordable(c["price"], inv)
-                  and ((c["kind"] == "contract" and f.get("auto_contracts")) or (c["kind"] == "trade" and f.get("auto_trades")))
-                  and not (c["kind"] == "trade" and _ts(done.get(c["key"])) and (now - _ts(done[c["key"]])).total_seconds() < 86400)]
-            if not ok:
+                price = as_amounts((tr.get("criteria") or {}).get("resources") or {})
+                dneed = fl_counts((tr.get("criteria") or {}).get("devices"))
+                there = Counter(d.get("device_type") for d in devices if d.get("location") == t["location"])
+                if price or dneed:
+                    trades.append({"key": key, "controller": ctrl, "trade_code": tr.get("trade_code"), "name": tr.get("name"),
+                                   "location": t["location"], "price": price, "once": once,
+                                   "devices_short": any(there[k] < n for k, n in dneed.items())})
+        commandable = await self.commandable(devices, stars)
+        homes_now = {f.get("home") for f in items if f.get("home") and f.get("station")}
+        moves = await self.db.kv_get(lg.KV_MOVES, {}) or {}
+        left = {star_of(l) for l, i in inv.items() if sum(as_amounts(i).values()) >= 1}
+        moved = {o: e["to"] for o, e in moves.items() if o in left and o not in homes_now and e.get("to")}
+        if moved != {o: e.get("to") for o, e in moves.items()}:
+            await self.db.kv_set(lg.KV_MOVES, {o: moves[o] for o in moved})   # emptied, or a home again: done
+        from . import consolidate as co
+        sent = await self.db.kv_get("logistics_ami", {}) or {}   # AMI deliveries the logistics handed off: on their way until done
+        for c, e in list(sent.items()):
+            d = by_code0.get(c) or {}
+            age = (_now() - (_ts(e.get("at")) or _now())).total_seconds()
+            if age > 600 and (co.free_controller(d, devices, set()) or age > 3 * 3600):
+                sent.pop(c)
+            elif e.get("to"):
+                incoming[e["to"]] = {r: incoming.get(e["to"], {}).get(r, 0) + q for r, q in (e.get("carry") or {}).items()}
+        ami = [c for c in devices if co.free_controller(c, devices, busy) and c["device_code"] not in sent]
+        p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
+                    busy=busy, reach=await self.supply_reach(), contracts=contracts, trades=trades, incoming=incoming,
+                    replicants=reps, drop=lambda s: lo.drop_point(s, devices, inv, stars), busy_stars=mission_stars,
+                    prefs=await self.db.kv_get(lg.KV_PREFS, {}) or {}, ami=ami, moved=moved)
+        by_code = by_code0
+        template = ((await self.db.kv_get("event_settings", {}) or {}).get("fulfil") or "").strip() or None
+        out = []
+        for run in p["runs"]:
+            steps = lg.run_steps(run, by_code, template)
+            if not steps:
                 continue
-            if not fl.readiness(f, devices)["ready"]:
-                continue   # nothing leaves short: the loadout pass fills it at home first
-            c = min(ok, key=lambda c: (c["kind"] != "contract", dist(f.get("home") or "", c["star"]), c["key"]))
-            committed = inv.setdefault("__committed__", {})   # what this pass already promised: one stock, one payment
-            for r, q in as_amounts(c["price"]).items():
-                committed[r] = committed.get(r, 0.0) - q
-            m = {"status": "running", "phase": None, "idx": 0, "targets": [c["star"]], "started_at": now_iso(), "log": [],
-                 "opts": {}, "auto": True, c["kind"]: c[c["kind"]]}
-            self._mlog(m, f"started automatically: {fl.deal(m)['label']} at {fl.deal(m)['location']}")
-            f["mission"] = m
-            done[c["key"]] = now_iso()
-            taken.add(c["key"])
-            out.append(f"{f['name']}: {fl.deal(m)['label']}")
-            await self.log("fleets", f"{f['name']}: started {fl.deal(m)['label']} at {fl.deal(m)['location']} (auto)")
-        if out:
-            await self.save_fleets(items)
+            codes = lg.run_devices(run)
+            job = await self.create_job("logistics", f"logistics: {lg.describe(run)}", codes[0] if codes else run.get("ami"), steps,
+                                        {"devices": codes, "logistics": {"req": run.get("req"), "to": run["to"], "carry": run["carry"]}})
+            if job:
+                run["job"] = job["id"]
+                if run.get("ami"):
+                    sent[run["ami"]] = {"to": run["to"], "carry": run["carry"], "at": now_iso(), "req": run.get("req")}
+                out.append(lg.describe(run))
+                if run.get("fulfil") and run["kind"] == "trade":   # an approval counts once
+                    key = run["req"].split(":", 1)[1]
+                    ok.setdefault("trades", {}).pop(key, None)
+                    ok.setdefault("done", {})[key] = now_iso()
+                    await self.db.kv_set(lg.KV_TRADES, ok)
+        await self.db.kv_set("logistics_ami", sent)
+        await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": p["requests"], "runs": p["runs"], "unmet": p["unmet"],
+                                           "fleet_devices": p["fleet_devices"], "reserve": p["reserve"]})
+        for line in out:
+            await self.log("logistics", line)
         return out
 
     async def contract_supply_pass(self, force: bool = False) -> list[str]:
@@ -2739,6 +2817,19 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     trade_runs[dl["supply_key"]] = {
                         "designation": dl["supply_key"], "location": dl["location"], "star": dl["star"], "status": "open",
                         "title": dl["label"], "_need": dl["devices"]}
+        # trades you approved for the logistics service (Shop: approve) that are paid in devices: supplied the same way
+        from . import logistics as lg
+        from .shop import known_traders
+        ok = await self.db.kv_get(lg.KV_TRADES, {}) or {}
+        if ok.get("trades"):
+            for ctrl, t in (await known_traders(self.db)).items():
+                for tr in t.get("trades") or []:
+                    key = f"{ctrl}:{tr.get('trade_code')}"
+                    need = fl.device_counts((tr.get("criteria") or {}).get("devices"))
+                    if need and t.get("location") and key in (ok.get("trades") or {}):
+                        trade_runs.setdefault(f"trade:{key}", {
+                            "designation": f"trade:{key}", "location": t["location"], "star": star_of(t["location"]),
+                            "status": "open", "title": f"trade {tr.get('name') or tr.get('trade_code')}", "_need": need})
         out: list[str] = []
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
@@ -3580,7 +3671,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         protected = {e.get("location") for e in (await gev.load(self.db)).values() if e.get("status") == "open" and e.get("location")}
-        return co.plan(devices, inv, bps, self.busy_devices(await self.jobs()), protected, float(cfg.get("min_amount") or 100))
+        handed = set(await self.db.kv_get("logistics_ami", {}) or {})   # given a delivery by the logistics service: busy
+        return co.plan(devices, inv, bps, self.busy_devices(await self.jobs()) | handed, protected, float(cfg.get("min_amount") or 100))
 
     async def rule_consolidate(self, force: bool = False) -> list[str]:
         from . import consolidate as co

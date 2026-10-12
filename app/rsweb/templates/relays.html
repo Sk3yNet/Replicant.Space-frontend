@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Relays{% endblock %}
+{% block content %}
+<h1>Relay network</h1>
+<p class="muted small">Your working FTL relays (7.5 ly, or the range a relay reports) and active system hubs (15 ly) link
+  when they're within reach of each other; linked ones form a network, each in its own color here and on the galaxy map
+  (<i>relay network</i> option). Other players' relays don't join yours. A relay must sit at an L4/L5 point; it may go in a
+  warded system. A network is <b>active</b> when one of your replicants is within its reach: only then can devices it
+  covers be commanded. Anything delivered beyond an active network rides a vessel hosting a replicant, or isn't sent.</p>
+<div class="card">
+  <h2>Networks</h2>
+  {% if not nets %}<p class="muted">No working relay or hub of yours yet.</p>{% else %}
+  <table class="small"><tr><th>Network</th><th>Commands</th><th class="num">Relays</th><th class="num">Hubs</th><th>Systems</th></tr>
+    {% for n in nets %}<tr><td><span style="display:inline-block;width:12px;height:12px;border-radius:6px;background:{{ n.color }}"></span> {{ n.id + 1 }}</td>
+      <td>{% if n.active %}<span class="lv-done" title="a replicant of yours is within its reach: devices it covers take commands">active</span>{% else %}<span class="lv-alert" title="no replicant within its reach: it relays, but nothing it covers can be commanded through it">no replicant</span>{% endif %}</td>
+      <td class="num">{{ n.relays }}</td><td class="num">{{ n.hubs }}</td>
+      <td>{% for s in n.stars %}<a href="/systems/{{ s }}">{{ s }}</a>{{ ', ' if not loop.last }}{% endfor %}</td></tr>{% endfor %}
+  </table>{% endif %}
+</div>
+<div class="card">
+  <h2>Bridges</h2>
+  <p class="muted small">The fewest new relays (7.5 ly a hop) that join two of your networks — only when it takes {{ max_new }} or fewer.
+    <i>Add route</i> asks for a relay in each system on it, like <i>add</i> on the Systems list: an idle one there is switched
+    on, else a spare is sent, else one is printed in range; placement takes it to an L4/L5 point.</p>
+  {% if not bridges %}<p class="muted">{{ 'Nothing to join: one network.' if nets | length < 2 else 'No two networks are within ' ~ max_new ~ ' relays of each other.' }}</p>{% else %}
+  <table class="small"><tr><th>Joins</th><th class="num">New relays</th><th>Route</th><th></th></tr>
+    {% for b in bridges %}<tr>
+      <td><span style="color:{{ nets[b.a].color }}">●</span> {{ b.a + 1 }} ↔ <span style="color:{{ nets[b.b].color }}">●</span> {{ b.b + 1 }}</td>
+      <td class="num">{{ b.n }}</td>
+      <td>{% for s in b.stars %}<a href="/systems/{{ s }}">{{ s }}</a>{% if s in b.ordered %} <span class="pill small st-move">on its way</span>{% endif %}{{ ' → ' if not loop.last }}{% endfor %}</td>
+      <td>{% if b.ordered | length < b.stars | length %}<button class="small" hx-post="/map/relays/route" hx-vals='{{ {"stars": b.stars | join(",")} | tojson }}'
+          hx-target="next .rl-out" hx-confirm="Ask for a relay in {{ b.stars | join(', ') }}?">Add route</button>{% endif %}<span class="rl-out"></span></td></tr>{% endfor %}
+  </table>{% endif %}
+</div>
+{% endblock %}

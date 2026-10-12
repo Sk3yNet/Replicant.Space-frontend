@@ -16,8 +16,12 @@
   <label class="small" style="text-transform:none;display:block;margin-top:4px">
     <input type="checkbox" name="on" value="1" {{ 'checked' if e.approval.on }} hx-post="/game-events/approve"
            hx-vals='{{ {"key": e.approval.key} | tojson }}' hx-trigger="change">
-    Approve fulfilling contracts from <b>{{ e.approval.label }}</b> automatically
-    {% if not e.approval.on %}<span class="muted">— off: auto-fulfil leaves this contract to you (Fulfill still works)</span>{% endif %}</label>
+    Pre-approve contracts from <b>{{ e.approval.label }}</b> (fulfilled automatically, by the logistics service)</label>
+  <label class="small" style="text-transform:none;display:block">
+    <input type="checkbox" name="on" value="1" {{ 'checked' if e.approval_one.on or e.approval.on }} {{ 'disabled' if e.approval.on }} hx-post="/game-events/approve"
+           hx-vals='{{ {"key": e.approval_one.key} | tojson }}' hx-trigger="change">
+    Approve this contract
+    {% if not e.approval.on and not e.approval_one.on %}<span class="muted">— off: auto-fulfil leaves it to you (Fulfill still works)</span>{% endif %}</label>
   {% if e.description %}<p class="muted small">{{ e.description }}</p>{% endif %}
   <div class="grid g2">
     <div>

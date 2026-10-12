@@ -16,11 +16,19 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.84.0"
+VERSION = "1.85.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.85.0", "2026-10-12", "Logistics fleets (Fleets › Logistics) replace trade fleets (each becomes a logistics fleet once "
+               "its run ends): materials for queued prints, approved contracts (or a pre-approved civilization's) and "
+               "approved trades are delivered on demand by priority, home systems keep their print reserve, stray stockpiles "
+               "go to a gather point or follow a moved fleet; convoys share one escort and ride a free carrier; in-system "
+               "work goes to a free AMI transport controller. Outside an active relay network nothing goes without a "
+               "replicant (a fleet carrier with a matrix aboard counts). Map › Relays: relay networks by color, active or "
+               "not, suggested bridges and Add route; galaxy map relay layer (off by default). A new device type's "
+               "directives are read from the game and remembered."),
     ("1.84.0", "2026-10-12", "Bill's BobNet move posts ('NOSOXA is in the rear-view mirror') reset the trail: his old shop "
                "location is set aside, the trader directory is re-read, and a follow picks him up where he left. The "
                "Contracts page has a Trades section: every shop you know of, where it was last seen, and its trades."),

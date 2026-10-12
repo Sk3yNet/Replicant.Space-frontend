@@ -174,7 +174,13 @@ def species_key(e: dict, life: dict[str, dict]) -> tuple[str, str]:
     return f"body:{e.get('location')}", f"the inhabitants of {e.get('location')}"
 
 
+def contract_key(e: dict) -> str:
+    """The approval key of one contract (approved on its own, not its whole civilization)."""
+    return f"contract:{e.get('designation')}"
+
+
 async def approved(db, e: dict, life: dict[str, dict] | None = None, approvals: dict | None = None) -> bool:
+    """Approved (this contract) or pre-approved (its civilization: the species, else the body)."""
     life = life if life is not None else await life_map(db)
     approvals = approvals if approvals is not None else (await db.kv_get(APPROVALS_KV, {}) or {})
-    return species_key(e, life)[0] in approvals
+    return contract_key(e) in approvals or species_key(e, life)[0] in approvals

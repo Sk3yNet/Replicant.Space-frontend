@@ -60,6 +60,11 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
 - Trades and contracts paid in devices need them deployed at the exact location, with a replicant there. Bill
   (A8F48B26) runs The Skunkworks shop; it moves, probably about daily (NOSOXA-OORT on 2026-10-11), his route always
   passes through SOL, and he announces moves on BobNet #general ("NOSOXA is in the rear-view mirror").
+- Devices travel stowed (in a hold), attached (towed: the same thing), or compacted and then attached. Freighters can be
+  attached too. Among replicant vessels only the cargo vessel can attach devices; the others fly alongside. A typical
+  fleet carrier holds a matrix container with the replicant's matrix inside, so the carrier brings that replicant along.
+- Contracts are approved one by one, or pre-approved for a whole civilization. Shop listings are never fulfilled unless
+  you approve that one trade.
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the
   job.
 

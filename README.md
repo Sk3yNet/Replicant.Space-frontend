@@ -61,6 +61,11 @@ rule with an on/off switch, plus the jobs and the log.
   their fixed devices from the latest scans, a shield where someone else's ward or hub is, and an arrow for each arrival or
   departure your beacons logged in the last hour (with the likely other end of the trip), all fading with distance from the
   point the view is centered on. The **trail** of the replicant you follow is drawn in gold.
+- **Relays** (Map › Relays): your relay networks — working relays (7.5 ly, or the range a relay reports) and active hubs
+  (15 ly) that reach each other — each in its own color, **active** when one of your replicants is within reach (only then
+  can what it covers be commanded), with suggested bridges (the fewest new relays, at most 10, joining two networks) and
+  *Add route* to order them. On the galaxy map (*relay network* option, off by default) links are curves, solid for active
+  networks and dashed for ones without a replicant; relays on order are white rings, suggested bridges dashed gray.
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
 - **Systems list**: per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &
   relays* ticked) your ward, FTL relay and FTL beacon with *add* (activate an idle one there, else send a spare, else print
@@ -91,7 +96,7 @@ rule with an on/off switch, plus the jobs and the log.
   coverage.
 
 ### Fleets
-A fleet is a named group of devices tagged `fleet:<id>`, with a role (mining / explore / trade), a home and a loadout (its own
+A fleet is a named group of devices tagged `fleet:<id>`, with a role (mining / explore / logistics), a home and a loadout (its own
 lines or a template).
 - **Stationed** fleets are kept at their loadout in their home system by the **loadout pass**: extras become `spare`, spares
   are sent where they're short (within the supply range, default 100 ly), what's still missing is printed and carried there
@@ -108,7 +113,8 @@ lines or a template).
 - **Missions** run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*,
   *Stop*, *End mission & board* and *Recall*. Mining works the richest belt (or salvage); explore surveys each target (it no
   longer leaves relays or beacons: ask for those on the Systems list; an already-surveyed target is skipped, and the
-  crew stays aboard at home); trade runs a contract or trade end to end. A recall withdraws a launched AMI controller (its
+  crew stays aboard at home). Trade fleets are retired: the logistics service does their work, and each one becomes a logistics
+  fleet (same members and loadout) once its last run ends. A recall withdraws a launched AMI controller (its
   drones come back) before it boards. No automation sends a drone or AMI controller on an in-system cruise longer than the
   max cruise (Fleets › settings); a manual Travel that long asks first (surge-capable devices excepted). Every
   automated trip logs its expected arrival; a step refused while something is still on its way waits for that ETA.
@@ -117,7 +123,20 @@ lines or a template).
   compact when every direction is used up or the fleet is leaving.
 - **Auto-scout** (explore fleets): surveys the nearest unsurveyed systems within 100 ly of home, ring by ring (only inside relay
   coverage without a replicant aboard); sets out at 85 % capacity, comes home for repairs at 50 %.
-- **Auto-fulfil** (trade fleets): contracts and trades your stockpiles can pay for, nearest first.
+- **Logistics** fleets (Fleets › Logistics): no missions; their devices deliver materials and devices on demand.
+  Requests: queued prints (their cost minus what's stocked), contracts you approved or whose civilization you pre-approved
+  (Contracts), trades you approved (Shop: *approve*, used once; plain shop listings are never fulfilled), and stray
+  stockpiles brought back to a gather point (a fleet that takes materials in) — or, where a fleet moved away, to its new
+  home. Priority: queued prints (waiting ones first), local, long-range, returns; bump or skip a request on the Logistics
+  page. Home systems keep what their own prints need. Inside one system a free AMI transport controller (drones / haulers)
+  gets the delivery as a `delivery` directive; logistics covers what it can't. Ships are picked nearest first, then the
+  smallest that takes the rest in one go (else the biggest), and as many as the load needs go at once, as one convoy:
+  freighters and cargo vessels fly themselves, haulers and drones stay in their system unless towed; on a trip between
+  systems they attach to a free logistics carrier (plate, platform, carrier, fleet carrier) when there is one. Outside an
+  active relay network one device hosting a replicant goes with the whole convoy — a carrier with a replicant's matrix
+  aboard (a fleet carrier holding a matrix container) counts — or nothing goes; when a delivery completes a contract or
+  trade, that replicant fulfills it. Afterwards everyone waits inside the network. Device deliveries (and fleet moves done
+  piecemeal) take logistics carriers first.
 - **Bootstrap** fleets: from a bare heaven vessel (three mining drones and a replicant aboard) to an autofactory hub with three
   mining outposts. Home: the drones mine the best belt, the vessel mines onboard what they get little of (usually rares and
   volatiles), and the replicant prints survey drones and miners until the hold-sized kit is built (a home another player has
