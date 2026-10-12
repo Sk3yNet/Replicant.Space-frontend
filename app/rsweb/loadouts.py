@@ -843,6 +843,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                               "why": f"{code} can't leave {star_of(d.get('location')) or '?'} yet: {why_busy(d)}"})
             continue
         here = star_of(d.get("location"))
+        if here == dest and in_transit(d, by_code, stowed_in):
+            continue   # its carrier is still on the way (seen live 2026-10-11: "arrived" mid-surge, detach refused for 3 h)
         if here == dest:
             arrived.append(code)
         elif can_surge(d) and code not in stowed_in:
@@ -851,7 +853,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             batches[(here, dest, d.get("replicant_code"))].append(code)
     for d in pool:  # tagged earlier and already there
         dest = bound_for(d, known_stars, fleet_homes)
-        if dest and star_of(d.get("location")) == dest and d["device_code"] not in busy and d["device_code"] not in arrived:
+        if dest and star_of(d.get("location")) == dest and d["device_code"] not in busy and d["device_code"] not in arrived \
+                and not in_transit(d, by_code, stowed_in):
             arrived.append(d["device_code"])
 
     carriers = [d for d in devices if d["device_code"] not in busy and can_surge(d) and _carrier_cap(d, bps) > 0
@@ -1200,6 +1203,17 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
     if carriers_return and back and not dl.get("stay"):
         steps.append(move(back, "return", star_of(back)))
     return steps
+
+
+def in_transit(d: dict, by_code: dict, stowed_in: dict | None = None) -> bool:
+    """The device, or the carrier it rides in, is still traveling (a carried device can report the destination's
+    location while its carrier is mid-surge)."""
+    host = by_code.get(d.get("attached_to_device_code") or d.get("stowed_in_device_code")
+                       or (stowed_in or {}).get(d.get("device_code")) or "")
+    for x in (d, host or {}):
+        if fl.in_flight(x) or str(x.get("status") or "").lower().startswith(("travel", "cruis", "surg")):
+            return True
+    return False
 
 
 def arrived_steps(code: str, d: dict, stowed_in: dict, join: str | None = None) -> list[dict]:

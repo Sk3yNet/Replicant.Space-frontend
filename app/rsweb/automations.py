@@ -328,6 +328,14 @@ def _trip_eta(resp: dict) -> datetime | None:
     return _now() + timedelta(seconds=secs) if secs > 0 else None
 
 
+def eta_text(t: datetime) -> str:
+    """'21:36 UTC (in 4 h 12 min)' — an expected completion for the logs."""
+    mins = max(0, int((t - _now()).total_seconds() // 60))
+    span = f"{mins // 60} h {mins % 60} min" if mins >= 60 else f"{mins} min"
+    day = "" if t.date() == _now().date() else t.strftime(" %b %d")
+    return f"{t.strftime('%H:%M')}{day} UTC (in {span})"
+
+
 def star_of(loc: str | None) -> str:
     return (loc or "").split("-")[0]
 
@@ -672,6 +680,9 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     st["timeout"] = max(st.get("timeout", STEP_TIMEOUT), (eta - _now()).total_seconds() + 1800)
                     if (st.get("body") or {}).get("command") == "travel" and str(st.get("path") or "").startswith("/devices/"):
                         job.setdefault("etas", {})[st["path"].split("/")[2]] = eta.isoformat(timespec="seconds")
+                    if (st.get("body") or {}).get("command") == "travel" or "/travel" in str(st.get("path") or ""):
+                        st["eta"] = eta.isoformat(timespec="seconds")
+                        await self.log(job["rule"], f"{job['title']}: {st['desc']} — expected {eta_text(eta)}")
             if ok and (st.get("body") or {}).get("command") == "travel" and str(st.get("path") or "").startswith("/devices/"):
                 job.setdefault("trips", {})[st["path"].split("/")[2]] = st["body"].get("destination")
             if (not ok and (st.get("body") or {}).get("command") == "deploy"
@@ -726,13 +737,21 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 if st["tries"] < 2 and re.search(r"\brate.?limit|too many requests", (err or "").lower()):
                     await self._update(job)
                     return  # retry on next tick
-                if st["tries"] < BUSY_TRIES and BUSY_RE.search(err or "") and not await self._off_course(st, job):
+                if BUSY_RE.search(err or "") and (st["tries"] < BUSY_TRIES or await self._still_moving(st)) \
+                        and not await self._off_course(st, job):
                     # the game refuses while something is still on its way ("Cannot deploy while replicant is
                     # travelling"): try again in a few minutes instead of skipping it
-                    st["status"], st["retry_at"] = "retrying", (_now() + timedelta(seconds=BUSY_RETRY_S)).isoformat(timespec="seconds")
+                    eta = await self._moving_eta(st)
+                    when = max(eta + timedelta(seconds=60), _now() + timedelta(seconds=60)) if eta \
+                        else _now() + timedelta(seconds=BUSY_RETRY_S)
+                    st["status"], st["retry_at"] = "retrying", when.isoformat(timespec="seconds")
                     job["status"] = "waiting"
                     await self._update(job)
-                    if st["tries"] == 1:
+                    if eta and st.get("logged_eta") != eta.isoformat(timespec="minutes"):
+                        st["logged_eta"] = eta.isoformat(timespec="minutes")
+                        await self.log(job["rule"], f"{job['title']}: '{st['desc']}' — {err}; still on its way, expected "
+                                                    f"{eta_text(eta)} — trying again then")
+                    elif not eta and st["tries"] == 1:
                         await self.log(job["rule"], f"{job['title']}: '{st['desc']}' — {err}; trying again every "
                                                     f"{BUSY_RETRY_S // 60} min")
                     return
@@ -771,6 +790,40 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             job["status"] = "running"
             await self._update(job)
             job = await self._get(job_id)
+
+    async def _moving_eta(self, st: dict) -> datetime | None:
+        """When the device a refused step names (or the carrier it rides in, or the device a detach / stow names) is due
+        to arrive, from the device list's travel info."""
+        path = str(st.get("path") or "")
+        if not path.startswith("/devices/"):
+            return None
+        by = {x.get("device_code"): x for x in await self.devices()}
+        cands = [by.get(path.split("/")[2]), by.get(str((st.get("body") or {}).get("device") or "")),
+                 by.get(str((st.get("body") or {}).get("target") or ""))]
+        etas = []
+        for d in [c for c in cands if c]:
+            host = by.get(d.get("attached_to_device_code") or d.get("stowed_in_device_code") or "")
+            for x in (d, host):
+                tr = (x or {}).get("travel") or {}
+                t = _ts(tr.get("final_arrives_at") or tr.get("arrives_at"))
+                if t and t > _now():
+                    etas.append(t)
+        return max(etas) if etas else None
+
+    async def _still_moving(self, st: dict) -> bool:
+        """A refused step whose device (or the carrier it rides in) is still on a long trip: keep retrying past the usual
+        3 h, up to 48 h from the first try (seen live 2026-10-11: a detach after a ~500 ly carry gave up mid-surge)."""
+        from .loadouts import in_transit
+        first = _ts(st.setdefault("first_try_at", st.get("started_at") or now_iso()))
+        if first and (_now() - first).total_seconds() > 48 * 3600:
+            return False
+        path = str(st.get("path") or "")
+        if not path.startswith("/devices/"):
+            return False
+        by = {x.get("device_code"): x for x in await self.devices()}
+        d = by.get(path.split("/")[2])
+        target = (st.get("body") or {}).get("device")   # detach / attach name the carried device
+        return any(x and in_transit(x, by) for x in (d, by.get(target or "")))
 
     async def _too_far(self, st: dict) -> str | None:
         """The one check every automated trip goes through: a drone or AMI controller isn't sent on a long cruise inside

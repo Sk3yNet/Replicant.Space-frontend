@@ -566,3 +566,32 @@ def test_launch_anyway_still_boards_members_standing_by(client):
     client.portal.call(e.run_fleets)
     m = client.portal.call(e.fleets)[0]["mission"]
     assert not m.get("departed") and m["phase"] == "assemble"
+
+
+def test_a_carried_device_hasnt_arrived_while_its_carrier_travels():
+    """Seen live 2026-10-11: 9E13498F counted as arrived in SOLARES mid-surge; the detach was refused for 3 h."""
+    from rsweb import loadouts as lo
+    car = dev("C", "surge_carrier", "SOLARES-4-L4", status="travelling",
+              travel={"destination": "SOLARES-4-L4", "arrives_at": "2099-01-01T00:00:00+00:00"})
+    af = dev("AF", "autofactory", "SOLARES-4-L4", attached_to_device_code="C")
+    assert lo.in_transit(af, {"C": car, "AF": af})
+    car.update(status="idle", travel=None)
+    assert not lo.in_transit(af, {"C": car, "AF": af})
+
+
+def test_trips_log_their_expected_arrival():
+    from datetime import timedelta
+    from rsweb import automations as au
+    t = au._now() + timedelta(hours=4, minutes=12, seconds=30)
+    assert "UTC (in 4 h 12 min)" in au.eta_text(t)
+
+
+def test_a_refusal_while_the_carrier_travels_waits_for_its_eta(client):
+    from datetime import timedelta
+    from rsweb import automations as au
+    e = eng(client)
+    eta = (au._now() + timedelta(hours=3)).isoformat(timespec="seconds")
+    client.portal.call(client.app.state.db.kv_set, "devices", [
+        dev("C", "surge_carrier", "SOL-4-L4", status="travelling", travel={"destination": "SOL-4-L4", "arrives_at": eta})])
+    st = au.step("C: detach X", "/devices/C", {"command": "detach", "device": "X"})
+    assert client.portal.call(e._moving_eta, st).isoformat(timespec="seconds") == eta
