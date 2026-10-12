@@ -24,8 +24,13 @@ def _num(v: Any) -> float | None:
         return None
 
 
+def attach_points(dev: dict) -> int:
+    from .fleets import capacity
+    return capacity(dev)
+
+
 def is_carrier(dev: dict, blueprints: list[dict]) -> bool:
-    if _num(dev.get("stow_capacity")):
+    if _num(dev.get("stow_capacity")) or attach_points(dev) > 0:
         return True
     bp = next((b for b in blueprints if b.get("device_type") == dev.get("device_type")), {})
     if _num(bp.get("stow_capacity")):
@@ -53,32 +58,50 @@ def can_be_stowed(d: dict) -> bool:
     return "stow" in (d.get("features") or [])
 
 
-def carrier_rows(vessel: dict, stowed: list[dict], devices: list[dict]) -> list[dict]:
-    """One row per device in the vessel's system that it could carry (plus what it already carries)."""
+def can_be_attached(d: dict) -> bool:
+    """Something a carrier can take on its attach points: not a carrier or vessel itself."""
+    from .fleets import capacity, hold
+    t = d.get("device_type") or ""
+    return not ("vessel" in t or capacity(d) > 0 or hold(d) > 0 or "replicant" in t)
+
+
+def carrier_rows(vessel: dict, stowed: list[dict], devices: list[dict], can_hold: bool = True,
+                 can_attach: bool = False) -> list[dict]:
+    """One row per device in the carrier's system that it could carry (plus what it already carries). `mode`: "stow"
+    into its hold, or "attach" to its attach points (a device that can stow goes in the hold when there is one)."""
+    from .modular import compacted, is_modular
     vcode, vloc = vessel.get("device_code"), vessel.get("location")
     star = star_of(vloc)
-    carried = {s.get("device_code") for s in stowed if isinstance(s, dict)}
     by_code = {d.get("device_code"): d for d in devices}
+    carried = {s.get("device_code"): "stow" for s in stowed if isinstance(s, dict)} if can_hold else {}
+    carried.update({d.get("device_code"): "attach" for d in devices if can_attach and d.get("attached_to_device_code") == vcode})
     rows = []
-    for code in carried:
+    for code, mode in carried.items():
         d = by_code.get(code) or next((s for s in stowed if s.get("device_code") == code), {})
-        rows.append({"code": code, "type": d.get("device_type"), "location": vloc, "status": d.get("status") or "stowed",
+        rows.append({"code": code, "type": d.get("device_type"), "location": vloc,
+                     "status": d.get("status") or ("stowed" if mode == "stow" else "attached"), "mode": mode,
                      "carried": True, "can_launch": True, "can_stow": False, "can_recall": False,
-                     "same_loc": True, "mobile": can_travel(d), "note": "in this vessel"})
+                     "same_loc": True, "mobile": can_travel(d), "note": "in the hold" if mode == "stow" else "attached"})
     for d in devices:
         code = d.get("device_code")
-        if code in carried or code == vcode or star_of(d.get("location")) != star or not can_be_stowed(d):
+        if code in carried or code == vcode or star_of(d.get("location")) != star:
             continue
-        stowed_elsewhere = str(d.get("status", "")).startswith("stowed")
+        mode = "stow" if can_hold and can_be_stowed(d) else "attach" if can_attach and can_be_attached(d) else None
+        if not mode:
+            continue
+        aboard = str(d.get("status", "")).startswith(("stowed", "attached")) or d.get("stowed_in_device_code") \
+            or d.get("attached_to_device_code")
+        unfolded = mode == "attach" and is_modular(d) and not compacted(d)
         same = d.get("location") == vloc
         mobile = can_travel(d)
-        note = ("stowed in another carrier" if stowed_elsewhere else
+        note = ("aboard another carrier" if aboard else
+                "compact it first (large device)" if unfolded else
                 "here" if same else
                 f"at {d.get('location')} — will fly here" if mobile else
-                f"at {d.get('location')} — vessel will go and pick it up")
+                f"at {d.get('location')} — the {'vessel' if mode == 'stow' else 'carrier'} will go and pick it up")
         rows.append({"code": code, "type": d.get("device_type"), "location": d.get("location"), "status": d.get("status"),
-                     "carried": False, "can_launch": False, "can_stow": not stowed_elsewhere,
-                     "can_recall": "recall" in (d.get("available_commands") or []) and not stowed_elsewhere,
+                     "mode": mode, "carried": False, "can_launch": False, "can_stow": not aboard and not unfolded,
+                     "can_recall": "recall" in (d.get("available_commands") or []) and not aboard,
                      "same_loc": same, "mobile": mobile, "note": note})
     rows.sort(key=lambda r: (not r["carried"], not r["same_loc"], r["location"] or "", r["type"] or "", r["code"]))
     return rows
@@ -101,14 +124,22 @@ def plan(vessel_code: str, vessel_loc: str, rows: list[dict], launch: set[str], 
         return st
 
     def stow_step(code: str) -> dict:
+        if (by.get(code) or {}).get("mode") == "attach":   # the carrier takes it on its attach points
+            st = step(f"{vessel_code}: attach {code}", f"/devices/{vessel_code}", {"command": "attach", "device": code},
+                      wait=["device.attached"], timeout=SHORT_TIMEOUT)
+            st["wait_device"] = vessel_code
+            return st
         st = step(f"stow {code} in {vessel_code}", f"/devices/{code}", {"command": "stow", "target": vessel_code},
                   wait=["device.stowed"], timeout=SHORT_TIMEOUT)
         st["wait_device"] = code
         return st
 
-    # 1. launches, before the vessel goes anywhere
+    # 1. launches (out of the hold) / detaches, before the vessel goes anywhere
     for code in sorted(launch):
         if by.get(code, {}).get("carried"):
+            if by[code].get("mode") == "attach":
+                steps.append(step(f"{vessel_code}: detach {code}", f"/devices/{vessel_code}", {"command": "detach", "device": code}))
+                continue
             st = step(f"launch {code}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT)
             st["wait_device"] = code
             steps.append(st)

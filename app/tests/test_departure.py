@@ -644,3 +644,20 @@ def test_only_the_side_a_device_fits_is_shown_and_deploy_works_from_the_carrier(
     client.post("/devices/CV/command", data={"command": "deploy", "f.cargo": "D9"}, headers=HX)
     row = client.portal.call(db.fetchall, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")[0]
     assert row["path"] == "/devices/D9" and '"deploy"' in row["body"]
+
+
+def test_carrier_card_on_an_attach_carrier():
+    from rsweb import carrier as cm
+    mf = dev("MF", "mobile_fleet", "SOL-4-L4", features=["surge"])
+    devs = [mf, dev("A1", "autofactory", "SOL-4-L4", attached_to_device_code="MF", status="attached"),
+            dev("D1", "mining_drone", "SOL-4-L4"), dev("AF2", "autofactory", "SOL-4-L4", features=["modular"]),
+            dev("V", "cargo_vessel", "SOL-4-L4")]
+    assert cm.is_carrier(mf, [])
+    rows = {r["code"]: r for r in cm.carrier_rows(mf, [], devs, can_hold=False, can_attach=True)}
+    assert rows["A1"]["carried"] and rows["A1"]["mode"] == "attach"
+    assert rows["D1"]["can_stow"] and rows["D1"]["mode"] == "attach"
+    assert not rows["AF2"]["can_stow"] and "compact" in rows["AF2"]["note"]
+    assert "V" not in rows                                         # a vessel isn't cargo
+    steps = cm.plan("MF", "SOL-4-L4", list(rows.values()), {"A1"}, {"D1"}, set(), "/devices/MF")
+    assert [(s["path"], s["body"]) for s in steps] == [("/devices/MF", {"command": "detach", "device": "A1"}),
+                                                       ("/devices/MF", {"command": "attach", "device": "D1"})]

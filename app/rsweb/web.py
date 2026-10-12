@@ -940,15 +940,19 @@ async def carrier_context(request: Request, dev: dict) -> dict | None:
     stowed = [s for s in (dev.get("stowed_devices") or []) if isinstance(s, dict) and s.get("device_code")]
     if not stowed and rep:
         stowed = [s for s in (rep[1].get("stowed_devices") or []) if isinstance(s, dict) and s.get("device_code")]
-    rows = carrier_mod.carrier_rows(dev, stowed, st["devices"])
     cap = carrier_mod.stow_capacity(dev, bps)
+    points = carrier_mod.attach_points(dev)
+    can_hold = bool(cap) or (not points and carrier_mod.is_carrier(dev, bps))
+    rows = carrier_mod.carrier_rows(dev, stowed, st["devices"], can_hold=can_hold, can_attach=points > 0)
     if "travel" in (dev.get("available_commands") or []):
         travel_path = f"/devices/{code}"
     elif rep:
         travel_path = f"/replicants/{rep[0]}/travel"
     else:
         travel_path = None
-    return {"rows": rows, "capacity": cap, "carried": sum(1 for r in rows if r["carried"]),
+    return {"rows": rows, "capacity": cap if can_hold else None, "carried": sum(1 for r in rows if r["carried"] and r["mode"] == "stow"),
+            "points": points or None, "attached": sum(1 for r in rows if r["carried"] and r["mode"] == "attach"),
+            "can_hold": can_hold, "can_attach": points > 0,
             "travel_path": travel_path, "replicant": rep[0] if rep else None, "star": carrier_mod.star_of(dev.get("location"))}
 
 
@@ -968,10 +972,14 @@ async def device_carrier(request: Request, code: str, user: str = Depends(curren
     needs_move = any(r["code"] in stow and not r["same_loc"] and not r["mobile"] for r in ctx["rows"])
     if needs_move and not ctx["travel_path"]:
         return HTMLResponse('<div class="result err">Some picked devices can\'t travel, and this vessel has no travel command to go and get them.</div>')
-    if ctx["capacity"] is not None:
-        after = ctx["carried"] - len(launch) + len([c for c in stow if c not in launch])
-        if after > ctx["capacity"]:
-            return HTMLResponse(f'<div class="result err">That would put {after} devices in a vessel that holds {int(ctx["capacity"])}.</div>')
+    mode = {r["code"]: r["mode"] for r in ctx["rows"]}
+    for m, have, room, what in (("stow", ctx["carried"], ctx["capacity"], "in a vessel that holds"),
+                                ("attach", ctx["attached"], ctx["points"], "on a carrier with attach points for")):
+        if room is None:
+            continue
+        after = have - len([c for c in launch if mode.get(c) == m]) + len([c for c in stow if c not in launch and mode.get(c) == m])
+        if after > room:
+            return HTMLResponse(f'<div class="result err">That would put {after} devices {what} {int(room)}.</div>')
     steps = carrier_mod.plan(code, dev.get("location"), ctx["rows"], launch, stow, recall,
                              ctx["travel_path"] or f"/devices/{code}", return_after=form.get("return_after") == "on")
     if not steps:

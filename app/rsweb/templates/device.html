@@ -70,12 +70,13 @@
 <div class="card" style="margin-top:14px">
   <div class="row between">
     <h2>Carrier · devices in {{ carrier.star }}</h2>
-    <span class="small muted">{{ carrier.carried }}{% if carrier.capacity is not none %} / {{ carrier.capacity | int }}{% endif %} slots used</span>
+    <span class="small muted">{% if carrier.can_hold %}hold {{ carrier.carried }}{% if carrier.capacity is not none %} / {{ carrier.capacity | int }}{% endif %}{% endif %}{% if carrier.can_hold and carrier.can_attach %} · {% endif %}{% if carrier.can_attach %}attached {{ carrier.attached }} / {{ carrier.points }}{% endif %}</span>
   </div>
   {% if not carrier.rows %}<p class="muted">Nothing in this system that it can carry.</p>{% else %}
   <form hx-post="/devices/{{ code }}/carrier" hx-target="#carrier-result">
     <table class="small">
-      <tr><th>Device</th><th>Where</th><th>Status</th><th>Launch</th><th>Stow</th><th>Recall</th><th></th></tr>
+      <tr><th>Device</th><th>Where</th><th>Status</th><th>{{ 'Launch' if carrier.can_hold else '' }}{{ ' / ' if carrier.can_hold and carrier.can_attach else '' }}{{ 'Detach' if carrier.can_attach else '' }}</th>
+        <th>{{ 'Stow' if carrier.can_hold else '' }}{{ ' / ' if carrier.can_hold and carrier.can_attach else '' }}{{ 'Attach' if carrier.can_attach else '' }}</th><th>Recall</th><th></th></tr>
       {% for r in carrier.rows %}
       <tr class="{{ 'muted' if not (r.can_launch or r.can_stow or r.can_recall) }}">
         <td><a class="mono" href="/devices/{{ r.code }}">{{ r.code }}</a> {{ r.type | human }}</td>
@@ -92,8 +93,8 @@
       <label style="text-transform:none"><input type="checkbox" name="return_after" checked> return here after collecting devices that can't travel</label>
       <button>Run selected</button>
     </div>
-    <p class="muted small">Launches go first. Devices elsewhere that can travel fly here and are stowed as they arrive; for ones that can't,
-      the vessel {{ 'travels' if carrier.travel_path else '(no travel command — not possible)' }} to each location in turn and picks them up. Progress shows on the Automations page.</p>
+    <p class="muted small">Launches and detaches go first. Devices elsewhere that can travel fly here and are {{ 'stowed' if carrier.can_hold else 'attached' }} as they arrive; for ones that can't,
+      the carrier {{ 'travels' if carrier.travel_path else '(no travel command — not possible)' }} to each location in turn and picks them up. Progress shows on the Automations page.</p>
   </form>
   {% endif %}
   <div id="carrier-result"></div>
