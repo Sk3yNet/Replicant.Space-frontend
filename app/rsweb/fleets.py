@@ -549,10 +549,12 @@ def _dist(a: str, b: str, pos: dict) -> float:
     return math.dist([pa.get(k, 0) for k in "xyz"], [pb.get(k, 0) for k in "xyz"])
 
 
-def gather_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str]) -> dict:
+def gather_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str], reach: float = 0.0) -> dict:
     """Who the fleet picks up on its way out: its own members stranded in other systems (where it has no
     carrier), plus spare devices that fill gaps in its loadout (nearest first). One carrier — the one with
-    the most room — tours those systems, collecting as it goes; the travel phase then flies everyone on."""
+    the most room — tours those systems, collecting as it goes; the travel phase then flies everyone on.
+    Nothing farther than `reach` ly (the loadout supply range) is fetched (seen live 2026-10-11: Surveyors' cargo vessel
+    sent from SOLARES across the ~500 ly gap to FALQUORYX for one spare survey drone)."""
     pos = {k: (v or {}).get("position") or {} for k, v in stars.items()}
     r = roster(fleet, devices)
     carriers = r["carriers"]
@@ -575,9 +577,16 @@ def gather_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str]) -
     #    that isn't one of the fleet's carriers, counted where that vessel is
     by = {x.get("device_code"): x for x in devices}
     ccodes = {c["device_code"] for c in carriers}
+    def too_far(star: str) -> bool:
+        dist = _dist(base, star, pos)
+        return bool(reach) and reach < dist < 1e9
+
     for d in (unhosted(x, ccodes, by) for x in r["passengers"]):
         here = star_of(d.get("location"))
         if here and here not in carrier_stars and not d.get("attached_to_device_code"):
+            if too_far(here):
+                problems.append(f"{d['device_code']} is in {here}, beyond the {reach:g} ly supply range — not fetched")
+                continue
             picks.append(d)
     # 2. spares that fill gaps in the loadout
     recruit = []
@@ -585,7 +594,8 @@ def gather_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str]) -
     if short:
         cands = [d for d in devices if "spare" in (d.get("tags") or []) and not fleet_of(d) and d["device_code"] not in busy
                  and not d.get("controller_device_code") and d.get("location")
-                 and str(d.get("status") or "").startswith(("idle", "stowed")) and short.get(d.get("device_type"), 0) > 0]
+                 and str(d.get("status") or "").startswith(("idle", "stowed")) and short.get(d.get("device_type"), 0) > 0
+                 and not too_far(star_of(d.get("location")))]
         cands.sort(key=lambda d: (_dist(base, star_of(d.get("location")), pos), d["device_code"]))
         for d in cands:
             t = d.get("device_type")
@@ -661,12 +671,12 @@ def gather_steps(fleet: dict, plan: dict, stars: dict, radii: dict[str, float] |
 
 
 def fill_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str], radii: dict[str, float] | None = None,
-              limit: float | None = None) -> tuple[list[dict], list[dict], list[str]]:
+              limit: float | None = None, reach: float = 0.0) -> tuple[list[dict], list[dict], list[str]]:
     """Between missions: fill the fleet's gaps from spares. (steps, recruits, notes)
     With a carrier, it's the mission's gather tour (nearest spares first), then the carrier flies back to where it
     started. Without one, only spares that can fly themselves, or are already where the fleet is, can join."""
     r = roster(fleet, devices)
-    plan = gather_plan(fleet, devices, stars, busy)
+    plan = gather_plan(fleet, devices, stars, busy, reach)
     if plan["carrier"]:
         recruits = plan["recruit"]
         steps = gather_steps(fleet, plan, stars, radii, limit) if recruits else []

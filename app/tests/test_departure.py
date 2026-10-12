@@ -542,3 +542,27 @@ def test_newest_sighting_of_a_shop_wins_and_a_failed_trade_sets_it_aside(client)
     assert client.portal.call(shop.known_traders, db)["SK1"]["location"] == "ABOTEIN-OORT"   # an old scan stays usable
     client.portal.call(shop.mark_gone, db, "SK1", "ABOTEIN-OORT", "2026-10-11T12:00:00+00:00")
     assert "SK1" not in client.portal.call(shop.known_traders, db)                            # until seen again
+
+
+def test_gather_doesnt_fetch_spares_beyond_the_supply_range():
+    """Seen live 2026-10-11: Surveyors' cargo vessel was sent from SOLARES across ~500 ly to FALQUORYX for one spare drone."""
+    stars = {"SOL": {"position": {"x": 0, "y": 0, "z": 0}}, "FAR": {"position": {"x": 500, "y": 0, "z": 0}},
+             "NEAR": {"position": {"x": 5, "y": 0, "z": 0}}}
+    fleet = {"id": "f", "role": "explore", "home": "SOL", "station": True, "wants": {"survey_drone": 2, "cargo_vessel": 1}}
+    devs = [dev("V", "cargo_vessel", "SOL-4-L4", features=["surge"], stow_capacity=20),
+            dev("D1", "survey_drone", None, status="stowed", stowed_in_device_code="V"),
+            dev("S1", "survey_drone", "FAR-BELT-1", tags=["spare"])]
+    assert fl.gather_plan(fleet, devs, stars, set(), 100)["recruit"] == []
+    devs.append(dev("S2", "survey_drone", "NEAR-BELT-1", tags=["spare"]))
+    assert [d["device_code"] for d in fl.gather_plan(fleet, devs, stars, set(), 100)["recruit"]] == ["S2"]
+
+
+def test_launch_anyway_still_boards_members_standing_by(client):
+    e = eng(client)
+    devs = [dev("C", "surge_carrier", "SOL-OORT", features=["surge"], attach_capacity=9),
+            dev("M1", "mining_drone", None, attached_to_device_code="C"), dev("M2", "mining_drone", "SOL-OORT")]
+    m = {"status": "running", "phase": "gather", "idx": 0, "targets": ["ABOTEIN"], "log": [], "opts": {"partial": True}}
+    _fleet(e, client, devs, mission=m, wants={"mining_drone": 3, "surge_carrier": 1})
+    client.portal.call(e.run_fleets)
+    m = client.portal.call(e.fleets)[0]["mission"]
+    assert not m.get("departed") and m["phase"] == "assemble"

@@ -1817,6 +1817,15 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 pass
         return out
 
+    async def supply_reach(self) -> float:
+        """The loadout supply range (ly, Fleets › settings): nothing is fetched from farther."""
+        from .loadouts import DEFAULT_SETTINGS
+        try:
+            v = ((await self.loadout_cfg()).get("settings") or {}).get("max_supply_ly")
+            return float(v if v is not None else DEFAULT_SETTINGS["max_supply_ly"])
+        except (TypeError, ValueError):
+            return float(DEFAULT_SETTINGS["max_supply_ly"])
+
     async def max_cruise_au(self) -> float:
         from .fleets import MAX_CRUISE_AU
         try:
@@ -2831,7 +2840,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         if phase == "assemble":
             return fl.assemble_steps(fleet, devices, radii, far_au)
         if phase == "gather":
-            plan = fl.gather_plan(fleet, devices, stars, self.busy_devices(await self.jobs()))
+            plan = fl.gather_plan(fleet, devices, stars, self.busy_devices(await self.jobs()), await self.supply_reach())
             if plan["recruit"]:
                 self._mlog(m, "recruiting spares: " + ", ".join(f"{d['device_code']} ({d.get('device_type')})" for d in plan["recruit"]))
             if plan["tour"]:
@@ -3023,7 +3032,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 continue   # the loadout pass keeps a stationed fleet filled, at its home
             if not fl.short_list(f, devices):
                 continue
-            steps, recruits, notes = fl.fill_plan(f, devices, stars, busy, radii, far_au)
+            steps, recruits, notes = fl.fill_plan(f, devices, stars, busy, radii, far_au, await self.supply_reach())
             for n in notes:
                 out.append(f"{f['name']}: {n}")
             if not recruits:
@@ -3206,7 +3215,11 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                             m["job"] = job["id"] if job else None
                         break
                     loose = [d["device_code"] for d in fl.roster(fleet, devices)["loose"]]
-                    if loose and not (m.get("opts") or {}).get("partial"):
+                    partial = (m.get("opts") or {}).get("partial")
+                    board_steps, board_problems = (await self.fleet_phase_steps(fleet, m, "assemble", devices)
+                                                   if loose else ([], []))
+                    if loose and (board_steps or not partial):
+                        # Launch anyway sends it short, but still takes along members standing right there
                         # together in one system isn't aboard (seen live 2026-10-11: Surveyor 3's gather failed while its
                         # vessel was still cruising in, a retry then flew the empty vessel to SARKARUS): board them first
                         note = f"waiting to leave: {len(loose)} not aboard yet ({', '.join(loose[:6])}) — boarding them"
@@ -3214,7 +3227,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                             m["watch_note"] = note
                             self._mlog(m, note)
                             changed = True
-                        steps, problems = await self.fleet_phase_steps(fleet, m, "assemble", devices)
+                        steps, problems = board_steps, board_problems
                         for p_ in problems:
                             self._mlog(m, p_)
                         if steps:
