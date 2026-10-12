@@ -203,7 +203,8 @@ RULES: list[Rule] = [
 RULES_BY_ID = {r.id: r for r in RULES}
 
 STEP_TIMEOUT = 3600          # waiting for travel/scan to finish
-MAX_TRIP_WAIT_H = 48         # a wait for an arrival is extended while the device is still moving, up to this long
+TRIP_GRACE_S = 1800          # past a trip's ETA, a wait (or a refused step) keeps going this long before giving up
+NO_ETA_EXTRA_S = 3600        # still moving and no ETA known: this much longer, once
 BUSY_RE = re.compile(r"while (the )?(replicant|device|carrier|vessel)? ?is (still )?(travel|cruis|surg|in motion)|"
                      r"already in motion|is (currently )?(travel|surg|cruis)|"
                      r"not in a star system|in transit", re.I)   # mid-trip between systems (seen live 2026-10-11, Surveyor 3's gather)
@@ -806,16 +807,16 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             for x in (d, host):
                 tr = (x or {}).get("travel") or {}
                 t = _ts(tr.get("final_arrives_at") or tr.get("arrives_at"))
-                if t and t > _now():
+                if t and t > _now() - timedelta(seconds=TRIP_GRACE_S):   # due, or only just overdue
                     etas.append(t)
         return max(etas) if etas else None
 
     async def _still_moving(self, st: dict) -> bool:
         """A refused step whose device (or the carrier it rides in) is still on a long trip: keep retrying past the usual
-        3 h, up to 48 h from the first try (seen live 2026-10-11: a detach after a ~500 ly carry gave up mid-surge)."""
+        3 h until that trip's ETA (+30 min) (seen live 2026-10-11: a detach after a ~500 ly carry gave up mid-surge)."""
         from .loadouts import in_transit
-        first = _ts(st.setdefault("first_try_at", st.get("started_at") or now_iso()))
-        if first and (_now() - first).total_seconds() > 48 * 3600:
+        eta = await self._moving_eta(st)
+        if not eta or _now() > eta + timedelta(seconds=TRIP_GRACE_S):
             return False
         path = str(st.get("path") or "")
         if not path.startswith("/devices/"):
@@ -899,11 +900,15 @@ class AutomationEngine(OpsRules, BootstrapMixin):
 
     async def _still_travelling(self, st: dict, job: dict, now) -> bool:
         """A wait for an arrival that timed out while the device is evidently still on its way (moving, or left out of
-        the device list mid-surge): extend it, up to MAX_TRIP_WAIT_H in all."""
+        the device list mid-surge): extend it until the trip's ETA (+30 min); with no ETA known, one more hour."""
         code = st.get("wait_device") or job.get("device")
         d = next((x for x in await self.devices() if x.get("device_code") == code), None)
         first = _ts(st.setdefault("first_started_at", st.get("started_at") or now.isoformat(timespec="seconds"))) or now
-        if not d or (now - first).total_seconds() > MAX_TRIP_WAIT_H * 3600:
+        tr = (d or {}).get("travel") or {}
+        eta = _ts(tr.get("final_arrives_at") or tr.get("arrives_at")) or _ts((job.get("etas") or {}).get(code or ""))
+        limit = (eta + timedelta(seconds=TRIP_GRACE_S)) if eta else (first + timedelta(seconds=st.get("timeout", STEP_TIMEOUT)
+                                                                                    + NO_ETA_EXTRA_S))
+        if not d or now > limit:
             return False
         st_ = str(d.get("status") or "")
         moving = st_.startswith(("travel", "cruis", "surg")) or (d.get("unlisted") and not d.get("location"))
