@@ -6377,3 +6377,46 @@ def test_recall_withdraws_a_launched_controller_first():
     w = steps[descs.index("SC: withdraw (call its drones back)")]
     assert w["body"] == {"command": "withdraw"} and w["wait"] == ["ami.withdrawn"]
     assert "not deployed" in steps[descs.index("SC → LOR-6-L4 (board)")]["hint"]
+
+
+def test_trail_sightings_newest_wins_and_his_trade_controller_ends_the_follow(client):
+    from rsweb import trail as tl
+    s = tl.normalize({"target_name": "Bill", "target_code": "B1LL0001"})
+    bill = {"owner_replicant_code": "B1LL0001", "owner_name": "Bill"}
+    tl.record_sightings(s, [{**bill, "device_code": "RV1", "device_type": "racing_vessel", "location": "ALG-OORT"},
+                            {**bill, "device_code": "BB9", "device_type": "ftl_beacon", "location": "ALG-2"},
+                            {**bill, "device_code": "X", "device_type": "ftl_relay", "location": "ELSE-1"}],
+                        at="2026-10-13T10:00:00+00:00", star="ALG")
+    assert set(s["sightings"]) == {"RV1"}                       # beacons are the trail, not a sighting; other systems ignored
+    s["audit"] = {"B": [{"replicant_code": "B1LL0001", "travel_type": "arrival", "location": "OLD-1",
+                         "logged_at": "2026-10-12T10:00:00+00:00"}]}
+    s["beacons"] = {"B": {"star": "OLD"}}
+    assert tl.latest_sighting(s)["star"] == "ALG"               # the newer sighting beats the older beacon log
+    # following: arriving where his trade controller is ends the trail and lists his shop there
+    world = client.app.state.api.http._transport.app.state.world
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    rep, r = next(iter(client.portal.call(db.kv_get, "replicants").items()))
+    here = tl.star_of(r.get("location") or r.get("current_location"))
+    world.foreign_devices = [{**bill, "device_code": "3BF0ED09", "device_type": "ami_trade_controller", "location": f"{here}-OORT"}]
+    client.portal.call(db.kv_set, tl.KV, {"target_name": "Bill", "target_code": "B1LL0001", "beacons": {}, "audit": {},
+                                          "follow": {"active": True, "replicant": rep, "state": "arrived", "star": here,
+                                                     "visited": [], "alts": [], "log": []}})
+    client.portal.call(eng.trail_follow_pass)
+    fo = client.portal.call(db.kv_get, tl.KV)["follow"]
+    assert not fo["active"] and "shop" in fo["result"] and "3BF0ED09" in fo["result"]
+    assert client.portal.call(db.kv_get, "traders_cache")["3BF0ED09"]["location"] == f"{here}-OORT"
+
+
+def test_devices_paid_away_in_a_deal_are_not_lost(client):
+    import json
+    from rsweb import lost
+    db = client.app.state.db
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    client.portal.call(db.execute, "INSERT INTO events(id, seq, event, device_code, location, payload, created_at, received_at) VALUES(?,?,?,?,?,?,?,?)",
+                       ("ev-99901", 99901, "trade.completed", "REP1", "NOSOXA-OORT",
+                        json.dumps({"role": "buyer", "criteria_paid": {"devices": {"ftl_relay": 1}}}), now, now))
+    missing = {"R1": ("NOSOXA-OORT", "ftl_relay"), "R2": ("NOSOXA-OORT", "ftl_relay"), "F1": ("NOSOXA-OORT", "cargo_freighter"),
+               "R3": ("SOL-3", "ftl_relay")}
+    got = client.portal.call(lost.given_away, db, missing)
+    assert got == {"R1"}                        # one relay paid there: one taken; the freighter that left isn't

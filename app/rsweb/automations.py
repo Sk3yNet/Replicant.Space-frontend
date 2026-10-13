@@ -1177,7 +1177,13 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         if fo.get("active") and fo.get("state") == "arrived":
             star = fo["star"]
             try:
-                await tl.scan_for_beacons(self.api, rep, s)
+                # everything of his in the system: any device is a sighting, his trade controller ends the trail
+                from . import others as oth
+                snap = await oth.scan_into(self.db, self.api, rep, set(reps))
+                s = {**s, **{k: v for k, v in tl.normalize(await self.db.kv_get(tl.KV, {}) or {}).items() if k == "sightings"}}
+                tl.record_sightings(s, snap.get("raw") or [], star=snap.get("star") or star)
+                for b in tl.beacons_in({"devices": snap.get("raw") or []}, s.get("target_code"), s.get("target_name")):
+                    s["beacons"].setdefault(b["code"], {**b, "found_at": now_iso()})
                 for code, b in list(s["beacons"].items()):
                     if b.get("star") == star or not b.get("star"):
                         await tl.read_beacons(self.api, s, code)
@@ -1192,7 +1198,21 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 cat = await self.db.kv_get("stars", {}) or {}
                 pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
                 h = tl.next_hop(s, star, pos, fo["visited"])
-                if "end" in h:
+                shop = tl.shop_at(s, star)
+                seen = tl.latest_sighting(s)
+                newest_here = (tl.at_star(s, star) or [{}])[0].get("logged_at") or ""
+                if shop:   # his trade controller is here: that's the shop, the end of the trail
+                    await self.shop_found(s, shop)
+                    await finish(f"found {s['target_name']}'s shop: trade controller {shop['code']} at {shop['location']} — "
+                                 f"{name} is there too")
+                    h = {}
+                elif seen and seen.get("star") and seen["star"] != star and seen["star"] not in fo["visited"] \
+                        and seen["at"] > str(newest_here) and "end" not in h:
+                    # a newer sighting elsewhere beats where the beacons here point
+                    h = {"go": seen["star"], "alts": [], "why": f"{seen['via']} was seen there {seen['at']}"}
+                if not fo.get("active"):
+                    pass
+                elif "end" in h:
                     await finish(f"found {s['target_name']}: {h['end']} — {name} is there too")
                 elif "go" in h and len(fo["visited"]) < tl.MAX_HOPS:
                     fo.update(state="travel", star=h["go"], alts=h["alts"], job=None)
@@ -1214,6 +1234,17 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         await self.db.kv_set(tl.KV, s)
         return out
 
+    async def shop_found(self, s: dict, shop: dict) -> None:
+        """The followed replicant's trade controller was seen: its shop is listed there (and no longer set aside)."""
+        cache = await self.db.kv_get("traders_cache", {}) or {}
+        e = dict(cache.get(shop["code"]) or {})
+        e.update({"controller_code": shop["code"], "location": shop["location"], "star": shop["star"],
+                  "owner_name": e.get("owner_name") or s.get("target_name"),
+                  "owner_replicant_code": e.get("owner_replicant_code") or s.get("target_code"), "read_at": now_iso()})
+        e.setdefault("trades", [])
+        cache[shop["code"]] = e
+        await self.db.kv_set("traders_cache", cache)
+
     async def bill_moved(self, payload: dict) -> str | None:
         """Bill posted that his Skunkworks moved: set his shop aside where it was, and when you follow him, pick the trail
         up again where he left (his beacon there logs the departure; a cold trail falls back to SOL)."""
@@ -1225,7 +1256,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         if not mv:
             return None
         s = tl.normalize(await self.db.kv_get(tl.KV, {}) or {})
-        last = tl.last_seen(s["audit"], s["beacons"], s.get("target_code")) if tl.is_bill(s) else None
+        last = tl.latest_sighting(s) if tl.is_bill(s) else None
         frm = mv["from"] or (last or {}).get("star")
         now = now_iso()
         try:   # where the shop is now, if the directory already lists it there

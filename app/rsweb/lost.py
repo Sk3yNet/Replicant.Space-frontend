@@ -90,7 +90,8 @@ def update(s: dict, devices: list[dict], replicants: dict, pos: dict[str, Any], 
     newly, back = [], []
     for code in [c for c in s["lost"] if c in gone]:
         rec = s["lost"].pop(code)
-        s["found"].append({**rec, "found_at": now, "found_location": None, "outcome": "gone"})
+        s["found"].append({**rec, "found_at": now, "found_location": None,
+                           "outcome": "given away in a deal" if rec.get("given_away") else "gone"})
     for d in devices:
         code = d.get("device_code")
         if not code:
@@ -122,6 +123,47 @@ def update(s: dict, devices: list[dict], replicants: dict, pos: dict[str, Any], 
     return {"lost": newly, "found": back}
 
 
+DEAL_EVENTS = ("trade.completed", "event.completed", "contract.completed")
+
+
+async def given_away(db, missing: dict[str, tuple[str | None, str | None]], hours: float = 24) -> set[str]:
+    """Devices that left your list because a trade or contract took them as payment. `missing`: {code: (last location,
+    device type)}. A deal that completed in the last day counts when its payload names the device, or when it paid
+    devices of that type (trade.completed criteria_paid, event.completed consumed) where the device last was — one
+    device per unit paid, so a ship that merely left the same spot isn't taken for payment."""
+    if not missing:
+        return set()
+    import json as _json
+    from datetime import timedelta
+    from .fleets import device_counts
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    rows = await db.fetchall(f"SELECT payload, location, created_at FROM events WHERE event IN ({','.join('?' * len(DEAL_EVENTS))}) "
+                             "AND created_at >= ?", (*DEAL_EVENTS, since))
+    out: set[str] = set()
+    for r in rows:
+        text = r["payload"] or ""
+        try:
+            p = _json.loads(text) or {}
+        except ValueError:
+            p = {}
+        out |= {c for c in missing if c in text}
+        paid = p.get("criteria_paid") or p.get("consumed") or {}
+        try:
+            counts = dict(device_counts(paid.get("devices") if isinstance(paid, dict) else None))
+        except (TypeError, ValueError):
+            counts = {}
+        loc = r["location"] or p.get("location")
+        if not counts or not loc:
+            continue
+        for code, (last, dtype) in sorted(missing.items()):
+            if code in out or not last or not counts.get(dtype):
+                continue
+            if last == loc or ("-" not in loc and star_of(last) == loc):
+                out.add(code)
+                counts[dtype] -= 1
+    return out
+
+
 async def track(db, devices: list[dict]) -> dict:
     """The device sync's hook: update the record from the list it just stored."""
     s = normalize(await db.kv_get(KV, {}))
@@ -137,6 +179,12 @@ async def track(db, devices: list[dict]) -> dict:
             f"SELECT DISTINCT device_code FROM events WHERE event IN ({','.join('?' * len(GONE_EVENTS))}) "
             f"AND device_code IN ({','.join('?' * len(candidates))})", (*GONE_EVENTS, *candidates))
         gone = {r["device_code"] for r in rows}
+        # paid away in a trade or contract: not lost, just no longer yours
+        traded = await given_away(db, {c: (s["lost"][c].get("last_location"), s["lost"][c].get("type")) for c in candidates
+                                       if c not in gone})
+        for c in traded:
+            s["lost"][c]["given_away"] = True
+        gone |= traded
     out = update(s, devices, reps, pos, gone)
     await db.kv_set(KV, s)
     return out

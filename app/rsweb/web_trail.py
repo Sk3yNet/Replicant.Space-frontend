@@ -35,7 +35,7 @@ async def trail_page(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     pos = _positions(await db.kv_get("stars", {}) or {})
     legs = tl.legs(s["audit"], s["beacons"], s.get("target_code"), pos)
-    last = tl.last_seen(s["audit"], s["beacons"], s.get("target_code"))
+    last = tl.latest_sighting(s)
     reps = [{"code": c, "name": r.get("name") or c, "star": star_of(r.get("location") or r.get("current_location"))}
             for c, r in st["replicants"].items()]
     scanner = next((r for r in reps if r["code"] == s.get("scanner")), None)

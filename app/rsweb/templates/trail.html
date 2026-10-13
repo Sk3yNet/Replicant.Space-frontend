@@ -50,9 +50,13 @@
 
   <div class="card">
     <h2>Where {{ s.target_name }} is</h2>
-    {% if last %}<p>Latest logged: <b>{{ last.travel_type }}</b> at <a href="/systems/{{ last.star }}">{{ last.star }}</a>
-      <span class="muted small">{{ last.at | local }} · {{ last.at | ago }} · beacon {{ last.beacon }}</span></p>
-      {% if last.travel_type == 'arrival' %}<p class="small">An arrival with nothing after it: as far as these beacons know,
+    {% if last %}<p>Latest sighting: {% if last.travel_type %}<b>{{ last.travel_type }}</b>{% else %}<b>{{ last.via }}</b>{% endif %}
+      at <a href="/systems/{{ last.star }}">{{ last.location or last.star }}</a>
+      <span class="muted small">{{ last.at | local }} · {{ last.at | ago }}{% if last.travel_type %} · {{ last.via }}{% endif %}</span></p>
+      {% if last.type and 'trade_controller' in last.type %}<p class="small">That's his shop's controller: {{ s.target_name }}'s
+        shop is at <b>{{ last.location }}</b>.</p>
+      {% elif not last.travel_type %}<p class="small">One of {{ s.target_name }}'s devices was there; the newest sighting wins.</p>
+      {% elif last.travel_type == 'arrival' %}<p class="small">An arrival with nothing after it: as far as these beacons know,
         {{ s.target_name }} is in <b>{{ last.star }}</b>.</p>
       {% elif legs %}<p class="small">Left {{ last.star }}{% if legs[0].best %} — heading for <b>{{ legs[0].best.star }}</b> most likely
         ({{ legs[0].best.angle }}° off, {{ legs[0].best.distance }} ly{% if scanner %}; {{ scanner.name }} would take

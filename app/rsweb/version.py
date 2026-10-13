@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.88.0"
+VERSION = "1.89.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.89.0", "2026-10-13", "Trail: any of the followed replicant's devices a scan sees is a sighting (not his beacons), "
+               "the newest sighting wins, and finding his AMI trade controller ends the follow and lists his shop there. "
+               "Devices paid away in a trade or contract are no longer counted as lost."),
     ("1.88.0", "2026-10-13", "Logistics brings a deal's payout home: right after a contract or trade is fulfilled, the "
                "delivering ships load the materials it pays out and the convoy takes them to the nearest gather point; "
                "devices it pays out are sent there as deliveries once they show up at the site."),

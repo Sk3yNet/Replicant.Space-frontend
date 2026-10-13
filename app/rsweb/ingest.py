@@ -518,6 +518,11 @@ class Worker:
                 f"SELECT DISTINCT device_code FROM events WHERE event IN ({marks}) AND device_code IN ({','.join('?' * len(missing))})",
                 (*GONE_EVENTS, *missing))
             gone = {r["device_code"] for r in rows}
+            # paid away in a trade or contract: gone at once, not kept as an unlisted (lost) device for 12 h
+            from .lost import given_away
+            by_prev = {d.get("device_code"): d for d in prev}
+            gone |= await given_away(self.db, {c: ((by_prev.get(c) or {}).get("location"), (by_prev.get(c) or {}).get("device_type"))
+                                               for c in missing if c not in gone})
         # the same short list three syncs running is the truth (devices really lost), not a glitch
         short = None if partial else len(devices)
         streak = getattr(self, "_short_streak", (None, 0))

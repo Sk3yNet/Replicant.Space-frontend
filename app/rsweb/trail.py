@@ -144,6 +144,54 @@ def last_seen(audit: dict[str, list[dict]], beacons: dict[str, dict], target_cod
     return best
 
 
+def owned_by_target(d: dict, target_code: str | None, target_name: str | None) -> bool:
+    return bool((target_code and d.get("owner_replicant_code") == target_code) or (
+        not target_code and target_name and str(d.get("owner_name") or "").lower().startswith(target_name.lower())))
+
+
+SHOP_TYPE = "trade_controller"   # an AMI trade controller of the target's: where the shop is — the trail ends there
+
+
+def record_sightings(s: dict, devices: list[dict], at: str | None = None, star: str | None = None) -> list[dict]:
+    """Any of the target's devices a scan saw (his vessels, relays, his trade controller …; their codes may change):
+    s["sightings"][code] = {type, location, star, at}. His FTL beacons don't count: he leaves them behind on purpose (they
+    are the trail itself). `star`: the scanned system — devices reported elsewhere are ignored. Returns the new ones."""
+    at = at or _now()
+    out = []
+    for d in devices or []:
+        if not isinstance(d, dict) or not d.get("location") or not owned_by_target(d, s.get("target_code"), s.get("target_name")):
+            continue
+        if "beacon" in str(d.get("device_type") or "") or (star and star_of(d.get("location")) != star):
+            continue
+        row = {"code": d.get("device_code"), "type": d.get("device_type"), "location": d.get("location"),
+               "star": star_of(d.get("location")), "at": at}
+        s.setdefault("sightings", {})[row["code"]] = row
+        out.append(row)
+    return out
+
+
+def latest_sighting(s: dict) -> dict | None:
+    """Where the target was seen last, from anything: a device of his a scan saw, or a beacon logging his arrival or
+    departure (a departure says where he left from). The newest wins: {at, star, location, via}."""
+    best = None
+    for r in (s.get("sightings") or {}).values():
+        if best is None or str(r.get("at") or "") > best["at"]:
+            best = {"at": str(r.get("at") or ""), "star": r.get("star"), "location": r.get("location"),
+                    "via": f"his {str(r.get('type') or 'device').replace('_', ' ')} {r.get('code')}", "type": r.get("type")}
+    b = last_seen(s.get("audit") or {}, s.get("beacons") or {}, s.get("target_code"))
+    if b and (best is None or b["at"] > best["at"]):
+        best = {"at": b["at"], "star": b["star"], "location": None, "via": f"beacon {b.get('beacon')} ({b.get('travel_type')})",
+                "travel_type": b.get("travel_type")}
+    return best
+
+
+def shop_at(s: dict, star: str | None = None) -> dict | None:
+    """The newest sighting of the target's trade controller (in `star`, if given)."""
+    rows = [r for r in (s.get("sightings") or {}).values() if SHOP_TYPE in str(r.get("type") or "")
+            and (star is None or r.get("star") == star)]
+    return max(rows, key=lambda r: str(r.get("at") or ""), default=None)
+
+
 def beacons_in(scan: dict | None, target_code: str | None, target_name: str | None) -> list[dict]:
     """FTL beacons in a /scan/devices answer that belong to the target (by code, else by owner name)."""
     out = []
@@ -161,7 +209,7 @@ def beacons_in(scan: dict | None, target_code: str | None, target_name: str | No
 def normalize(s: dict) -> dict:
     s = dict(s or {})
     s.setdefault("target_name", "Bill")
-    for k in ("beacons", "audit", "read_at"):
+    for k in ("beacons", "audit", "read_at", "sightings"):
         s.setdefault(k, {})
     s.setdefault("seen", [])
     return s

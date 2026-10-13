@@ -228,6 +228,9 @@ async def scan_into(db, api, replicant: str, mine: set[str], s: dict | None = No
     s["rep_at"][replicant] = star
     if own:
         await db.kv_set(KV, s)
+    t = tl.normalize(await db.kv_get(tl.KV, {}) or {})   # any of the followed replicant's devices seen: a sighting
+    if tl.record_sightings(t, devs, star=star):
+        await db.kv_set(tl.KV, t)
     return {**snap, "star": star}
 
 
