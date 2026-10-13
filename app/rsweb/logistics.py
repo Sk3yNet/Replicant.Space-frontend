@@ -46,6 +46,7 @@ from .shapes import as_amounts
 
 KV_STATE = "logistics_state"        # the last pass: requests, runs, unmet
 KV_PREFS = "logistics_prefs"        # {"bump": {request id: tier}, "skip": [request ids]}
+KV_PICKUPS = "logistics_pickups"   # {deal location: {"types": {type: n}, "to": gather star, "at"}} — devices paid out
 KV_MOVES = "logistics_moves"   # {old home star: {"to": new home star, "fleet", "at"}} — a destination fleet's stock follows it
 KV_TRADES = "trade_approvals"  # {"trades": {controller:trade_code: iso}, "done": {key: iso}}
 ROLE = "logistics"
@@ -278,12 +279,14 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
     for c in contracts:
         out.append({"id": f"contract:{c['designation']}", "kind": "contract", "to": c["location"], "price": c["price"],
                     "need": _short(c["price"], have(c["location"])), "label": f"contract {c.get('title') or c['designation']}",
-                    "designation": c["designation"], "devices_short": c.get("devices_short", False)})
+                    "designation": c["designation"], "devices_short": c.get("devices_short", False),
+                    "rewards": as_amounts(c.get("rewards") or {}), "reward_devices": c.get("reward_devices") or {}})
     for t in trades:
         out.append({"id": f"trade:{t['key']}", "kind": "trade", "to": t["location"], "price": t["price"],
                     "need": _short(t["price"], have(t["location"])), "label": f"trade {t.get('name') or t['trade_code']}",
                     "controller": t["controller"], "trade_code": t["trade_code"], "once": t.get("once", False),
-                    "devices_short": t.get("devices_short", False)})
+                    "devices_short": t.get("devices_short", False),
+                    "rewards": as_amounts(t.get("rewards") or {}), "reward_devices": t.get("reward_devices") or {}})
     for r in out:
         if r["kind"] != "print":   # local when the system itself can spare a needed resource
             here = star_of(r["to"])
@@ -567,7 +570,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 rides_it = bool(ride) and seats >= 1 and not can_surge(cargo)
                 if rides_it:
                     seats -= 1
-                group.append({"code": code, "legs": legs, "carry": carry, "rides": rides_it, "dev": cargo})
+                group.append({"code": code, "legs": legs, "carry": carry, "rides": rides_it, "dev": cargo, "room": room(cargo)})
             if not group:
                 if not assigned:
                     unmet.append({"req": r["id"], "why": f"no free logistics cargo device (freighter, cargo vessel, or a hauler in {fstar} "
@@ -599,10 +602,19 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             host = next((by_c for by_c in [esc, ride] + [g["dev"] for g in group] if by_c and by_c["device_code"] in hosts), None)
             rep = ready_replicant(r, host, None) if done and r["kind"] in ("contract", "trade") and not r.get("devices_short") else None
             back = wait_point(ride or group[0]["dev"], dstar) if dstar not in commandable else None
-            runs.append({"req": r["id"], "kind": r["kind"], "cargos": [{k: g[k] for k in ("code", "legs", "carry", "rides")} for g in group],
+            # what the deal pays out: the convoy loads it there and then and takes it to the nearest gather point
+            rewards = {x: q for x, q in (r.get("rewards") or {}).items() if q >= 1} if rep else {}
+            home = None
+            if rewards and gather:
+                gstar = min(gather, key=lambda g_: (_dist(dstar, g_, pos), g_))
+                home = gather[gstar] if gather[gstar] != dest else None
+            runs.append({"req": r["id"], "kind": r["kind"],
+                         "cargos": [{k: g[k] for k in ("code", "legs", "carry", "rides", "room")} for g in group],
                          "ride": ride and ride["device_code"], "escort": esc and esc["device_code"], "to": dest,
                          "carry": taken, "fulfil": _deal(r) if rep else None, "replicant": rep, "back": back, "label": r["label"],
-                         "escort_pickup": any(star_of(x) not in commandable for x in stops[:-1])})
+                         "escort_pickup": any(star_of(x) not in commandable for x in stops[:-1]),
+                         "rewards": rewards if home else {}, "home": home,
+                         "reward_devices": (r.get("reward_devices") or {}) if rep else {}})
     give_back()
     # rescues: your devices out of command range (beyond an active relay network, no replicant with them), last tier.
     # A device that can surge home is reached by a replicant (in its system, or anywhere its own dark relay network
@@ -821,6 +833,27 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
                               critical=True))
     if run.get("fulfil"):
         steps.append(fl.fulfil_step(run["fulfil"], run.get("replicant"), template))
+    if run.get("rewards") and run.get("home") and cargos:
+        # load what the deal paid out (each ship up to its hold; not critical: the payout can differ from what was listed)
+        left, loaded = dict(run["rewards"]), []
+        for c in cargos:
+            room_ = float(c.get("room") or 0)
+            take = {}
+            for r_, q in sorted(left.items(), key=lambda kv: -kv[1]):
+                n = math.floor(min(q, room_))
+                if n >= 1:
+                    take[r_] = n
+                    room_ -= n
+                    left[r_] -= n
+            left = {r_: q for r_, q in left.items() if q >= 1}
+            if take:
+                steps.append(step(f"{c['code']}: load {', '.join(f'{q:g} {r_}' for r_, q in take.items())} (the payout) at {run['to']}",
+                                  f"/devices/{c['code']}", {"command": "collect_resources", "resources": take}))
+                loaded.append(c["code"])
+        go(run["home"], " (with the payout)")
+        for c in loaded:
+            steps.append(step(f"{c}: deposit the payout at {run['home']}", f"/devices/{c}", {"command": "deposit_resources"}))
+        return steps
     if run.get("back"):
         go(run["back"], " (waits in the relay network)")
     return steps
@@ -843,4 +876,6 @@ def describe(run: dict) -> str:
         s += f", {run['escort']} alongside"
     if run.get("fulfil"):
         s += ", then fulfills"
+    if run.get("rewards") and run.get("home"):
+        s += f" and brings the payout to {run['home']}"
     return s

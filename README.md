@@ -144,7 +144,8 @@ lines or a template).
   holding what's needed (say, from a trip that failed) is used first, and delivers without picking up again. Outside an
   active relay network one device hosting a replicant goes with the whole convoy — a carrier with a replicant's matrix
   aboard (a fleet carrier holding a matrix container) counts — or nothing goes; when a delivery completes a contract or
-  trade, that replicant fulfills it. Afterwards everyone waits inside the network. Device deliveries (and fleet moves done
+  trade, that replicant fulfills it, and the convoy loads the payout there and brings it to the nearest gather point
+  (devices paid out are sent there as deliveries). Afterwards everyone waits inside the network. Device deliveries (and fleet moves done
   piecemeal) take logistics carriers first. **Rescues** (last priority): a device out of command range (placed relays and
   beacons, wards, hubs and fleets on a mission excepted) is brought home — its fleet's home, else the nearest covered home.
   One that can surge is reached by a replicant in its system or anywhere its dark relay network covers, and commanded

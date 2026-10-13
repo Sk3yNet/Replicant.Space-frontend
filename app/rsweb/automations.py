@@ -2837,6 +2837,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     taken.add(d.get("designation") or f"{d.get('controller')}:{d.get('trade_code')}")
         locked = wards.foreign(cat, devices)
         contracts = []
+        from .fleets import device_counts as fl_counts
         life, approvals = await gev.life_map(self.db), await self.db.kv_get(gev.APPROVALS_KV, {}) or {}
         for des, e in (await gev.load(self.db)).items():
             if e.get("status") != "open" or not e.get("location") or des in taken or star_of(e["location"]) in locked:
@@ -2847,8 +2848,10 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             price = {x["resource"]: x["need"] for x in best.get("resources") or []}
             dshort = any(x["short_here"] for x in best.get("devices") or [])
             if price or best.get("devices"):
+                rw = e.get("rewards") if isinstance(e.get("rewards"), dict) else {}
                 contracts.append({"designation": des, "location": e["location"], "title": e.get("title"), "price": price,
-                                  "devices_short": dshort})
+                                  "devices_short": dshort, "rewards": rw.get("resources") or {},
+                                  "reward_devices": fl_counts(rw.get("devices"))})
         from collections import Counter
         from .fleets import device_counts as fl_counts
         ok = await self.db.kv_get(lg.KV_TRADES, {}) or {}
@@ -2867,7 +2870,9 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 if price or dneed:
                     trades.append({"key": key, "controller": ctrl, "trade_code": tr.get("trade_code"), "name": tr.get("name"),
                                    "location": t["location"], "price": price, "once": once,
-                                   "devices_short": any(there[k] < n for k, n in dneed.items())})
+                                   "devices_short": any(there[k] < n for k, n in dneed.items()),
+                                   "rewards": (tr.get("rewards") or {}).get("resources") or {},
+                                   "reward_devices": fl_counts((tr.get("rewards") or {}).get("devices"))})
         commandable = await self.commandable(devices, stars)
         evac = await self.evacuation_targets(devices, stars)   # piles where an asteroid is due: {location: safe spot}
         drop_raw = lambda s_: lo.drop_point(s_, devices, inv, stars)  # noqa: E731
@@ -2912,6 +2917,26 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     dark_nets=await self.dark_networks(devices, pos, bps, reps), away_fleets=away_fleets,
                     no_consolidate=no_consolidate, evacuate=evac)
         by_code = by_code0
+        pickups = await self.db.kv_get(lg.KV_PICKUPS, {}) or {}
+        # devices a deal paid out: once they're at the site (fleetless, going nowhere), they're sent to the gather point,
+        # carried like any delivery (logistics carriers first, a replicant along beyond the network)
+        for loc, pk in list(pickups.items()):
+            left = dict(pk.get("types") or {})
+            for d in devices:
+                t = d.get("device_type")
+                tags = d.get("tags") or []
+                if d.get("location") != loc or not left.get(t) or any(x.startswith(("fleet:", "to:")) for x in tags) \
+                        or d["device_code"] in busy:
+                    continue
+                if await self.create_job("logistics", f"logistics: {d['device_code']} (payout at {loc}) → {pk['to']}",
+                                         d["device_code"], [lo.tag_step(d["device_code"], [lo.to_tag(pk["to"])])],
+                                         {"devices": [d["device_code"]]}):
+                    left[t] -= 1
+            left = {t: n for t, n in left.items() if n > 0}
+            if not left or (_now() - (_ts(pk.get("at")) or _now())).total_seconds() > 86400:
+                pickups.pop(loc)
+            else:
+                pk["types"] = left
         template = ((await self.db.kv_get("event_settings", {}) or {}).get("fulfil") or "").strip() or None
         out = []
         for run in p["runs"]:
@@ -2928,6 +2953,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 if run.get("ami"):
                     sent[run["ami"]] = {"to": run["to"], "carry": run["carry"], "at": now_iso(), "req": run.get("req"),
                                         "legs": legs}
+                if run.get("fulfil") and run.get("reward_devices") and run.get("home"):
+                    pickups[run["to"]] = {"types": run["reward_devices"], "to": star_of(run["home"]), "at": now_iso()}
                 out.append(lg.describe(run))
                 if run.get("fulfil") and run["kind"] == "trade":   # an approval counts once
                     key = run["req"].split(":", 1)[1]
@@ -2935,6 +2962,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     ok.setdefault("done", {})[key] = now_iso()
                     await self.db.kv_set(lg.KV_TRADES, ok)
         await self.db.kv_set("logistics_ami", sent)
+        await self.db.kv_set(lg.KV_PICKUPS, pickups)
         await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": p["requests"], "runs": p["runs"], "unmet": p["unmet"],
                                            "fleet_devices": p["fleet_devices"], "reserve": p["reserve"]})
         for line in out:

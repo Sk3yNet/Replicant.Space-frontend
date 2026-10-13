@@ -421,3 +421,39 @@ def test_a_pile_already_being_fetched_is_not_planned_again(client):  # noqa: F81
     client.portal.call(db.kv_set, "automation_jobs", jobs)
     client.portal.call(e.logistics_pass, True)
     assert not [j for j in client.portal.call(e.jobs) if j["rule"] == "logistics" and j["id"] != "lg-1"]   # nothing sent twice
+
+
+def test_a_deals_payout_is_loaded_and_brought_to_the_gather_point():
+    devs = world()
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    t = {"key": "C1:T1", "controller": "C1", "trade_code": "T1", "name": "Ore swap", "location": "Z-3", "price": {"carbon": 50},
+         "rewards": {"rares": 30}, "reward_devices": {"surge_plate": 1}}
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 500}}, pos=POS, commandable={"A", "B"},
+                hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[t], incoming={}, replicants={},
+                drop=lambda s: f"{s}-1")
+    run = next(r for r in p["runs"] if r["req"] == "trade:C1:T1")
+    assert run["fulfil"] and run["rewards"] == {"rares": 30} and run["home"] == "A-1" and run["reward_devices"] == {"surge_plate": 1}
+    descs = [x["desc"] for x in lg.run_steps(run, {d["device_code"]: d for d in devs}) if x["body"] or x["method"] == "POST"]
+    i = next(i for i, d in enumerate(descs) if d.startswith("execute"))
+    after = descs[i + 1:]
+    assert after[0] == "F1: load 30 rares (the payout) at Z-3"
+    assert any(d.startswith("F1 → A-1 (with the payout)") for d in after) and any(d.startswith("HV → A-1") for d in after)
+    assert after[-1] == "F1: deposit the payout at A-1"
+
+
+def test_devices_a_deal_paid_out_are_sent_to_the_gather_point(client):  # noqa: F811
+    db, e = client.app.state.db, eng(client)
+    cat = client.portal.call(db.kv_get, "stars") or {"stars": []}
+    cat["stars"] += [{"designation": d, "position": p} for d, p in POS.items()]
+    client.portal.call(db.kv_set, "stars", cat)
+    from datetime import datetime, timezone
+    client.portal.call(db.kv_set, "devices", [dev("SP", "surge_plate", "Z-3", tags=[]), dev("SQ", "surge_plate", "Z-3", tags=["fleet:x"])])
+    client.portal.call(db.kv_set, lg.KV_PICKUPS, {"Z-3": {"types": {"surge_plate": 1}, "to": "A",
+                                                          "at": datetime.now(timezone.utc).isoformat()}})
+    items = client.portal.call(e.fleets)
+    client.portal.call(e.save_fleets, items + [{"id": "cab", "name": "Cab", "role": "logistics", "home": "A", "wants": {}}])
+    client.portal.call(e.logistics_pass, True)
+    jobs = [j for j in client.portal.call(e.jobs) if "payout" in j["title"]]
+    assert len(jobs) == 1 and jobs[0]["device"] == "SP"
+    assert jobs[0]["steps"][0]["body"]["configuration"]["add_tags"] == ["to:a"]
+    assert client.portal.call(db.kv_get, lg.KV_PICKUPS) == {}
