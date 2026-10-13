@@ -2064,7 +2064,9 @@ async def read_plan(request: Request, form) -> dict:
     # several autofactories at the printer's stockpile: spread the lines over them evenly by print time
     peers = [d for d in st["devices"] if printer and printer.get("autofactory") and d.get("location") == location
              and "autofactory" in (d.get("device_type") or "") and "enqueue_print" in (d.get("available_commands") or [])]
-    split_on = (form.get("split") == "on") if planned else True
+    # spread by default: only ticking "keep it on one autofactory" stops it (an unticked box isn't sent, so a "split" box
+    # that hadn't been drawn yet read as off — seen live 2026-10-13: 3 matrices queued on one of two autofactories)
+    split_on = form.get("nosplit") != "on"
     parts, split_time = [], None
     if len(peers) > 1 and lines:
         load = {d["device_code"]: printqueue.load_seconds(d, bps) for d in peers}
@@ -2099,7 +2101,7 @@ async def blueprint_queue_plan(request: Request, user: str = Depends(current_use
         return HTMLResponse('<div class="result err">Vessel printers have no queue and print one device at a time. '
                             'Plan 1 device, or pick an autofactory.</div>')
     gather = form.get("gather") == "on"
-    assign = p["parts"] if p["parts"] and form.get("split") == "on" else None
+    assign = p["parts"] if p["parts"] and p["split_on"] else None
     steps = production.production_steps(printer["device"], printer["name"], p["lines"], p["short"],
                                         p["mining"] if gather else None,
                                         p["transport"] if form.get("deliver") == "on" else None,
@@ -2140,8 +2142,20 @@ async def queue_print(request: Request, user: str, kind: str, code: str, device_
 @router.post("/blueprints/print", response_class=HTMLResponse)
 async def blueprint_print(request: Request, printer: str = Form(...), device_type: str = Form(...),
                           quantity: int = Form(1), user: str = Depends(current_user)):
+    """Queue a print. Several autofactories at the chosen one's location share it, evenly by print time."""
     kind, _, code = printer.partition(":")
-    return await queue_print(request, user, kind, code, device_type, quantity)
+    st = await load_state(request)
+    me = next((d for d in st["devices"] if d.get("device_code") == code), None)
+    peers = [d for d in st["devices"] if me and d.get("location") == me.get("location")
+             and "autofactory" in (d.get("device_type") or "") and "enqueue_print" in (d.get("available_commands") or [])]
+    if kind == "replicant" or quantity <= 1 or len(peers) < 2:
+        return await queue_print(request, user, kind, code, device_type, quantity)
+    bps = {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
+    load = {d["device_code"]: printqueue.load_seconds(d, bps) for d in peers}
+    resp = None
+    for f, k in printqueue.split(peers, device_type, quantity, bps, load):
+        resp = await queue_print(request, user, kind, f["device_code"], device_type, k)
+    return resp
 
 
 # --- AMI ---------------------------------------------------------------------------------------

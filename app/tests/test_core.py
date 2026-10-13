@@ -3195,17 +3195,22 @@ def test_planner_spreads_over_autofactories_at_the_same_stockpile(client):
     client.portal.call(client.app.state.worker.sync_devices)
     data = {"printer": "device:AF00BEEF", "qty:mining_drone": "3", "qty:survey_drone": "1"}
     r = client.post("/blueprints/plan", data=data, headers=HX)
-    assert "Spread over the 2 autofactories at SOL-3-L4" in r.text and 'name="split" checked' in r.text
+    assert "Spread over the 2 autofactories at SOL-3-L4" in r.text and 'name="nosplit" checked' not in r.text
     assert "Queue on 2 autofactories" in r.text
-    r = client.post("/blueprints/queue-plan", data={**data, "_planned": "1", "split": "on"}, headers=HX)
+    r = client.post("/blueprints/queue-plan", data={**data, "_planned": "1"}, headers=HX)   # spread unless told not to
     job = client.portal.call(client.app.state.worker.automations.jobs)[-1]
     queued = [(s["path"], s["body"]["device_type"], s["body"]["quantity"]) for s in job["steps"]
               if s["body"].get("command") == "enqueue_print"]
     assert sum(q for _, _, q in queued) == 4 and {p for p, _, _ in queued} == {"/devices/AF00BEEF", "/devices/AF00CAFE"}
-    # unticked: everything on the chosen printer, as before
-    r = client.post("/blueprints/queue-plan", data={**data, "_planned": "1"}, headers=HX)
+    # "keep it on one": everything on the chosen printer
+    r = client.post("/blueprints/queue-plan", data={**data, "_planned": "1", "nosplit": "on"}, headers=HX)
     job = client.portal.call(client.app.state.worker.automations.jobs)[-1]
     assert {s["path"] for s in job["steps"] if s["body"].get("command") == "enqueue_print"} == {"/devices/AF00BEEF"}
+    # Queue a print (Blueprints): 3 of one type are shared too
+    world.queues["AF00BEEF"], world.queues["AF00CAFE"] = [], []
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.post("/blueprints/print", data={"printer": "device:AF00BEEF", "device_type": "mining_drone", "quantity": "3"}, headers=HX)
+    assert world.queues["AF00BEEF"] and world.queues["AF00CAFE"]
 
 
 def test_missions_cannot_target_a_system_with_a_home_fleet(client):

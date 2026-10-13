@@ -30,9 +30,9 @@
     {% endif %}
   {% endif %}
   {% if parts %}
-    <label style="text-transform:none;display:block;margin-top:6px"><input type="checkbox" name="split" {{ 'checked' if split_on }}>
-      Spread over the {{ peers | length }} autofactories at {{ location }}, evenly by print time
-      (≈ {{ (split_time / 60) | round(1) }} min instead of {{ (total_time / 60) | round(1) }} min)</label>
+    <div class="small" style="margin-top:6px">{% if split_on %}Spread over the {{ peers | length }} autofactories at {{ location }},
+      evenly by print time (≈ {{ (split_time / 60) | round(1) }} min instead of {{ (total_time / 60) | round(1) }} min).{% endif %}
+      <label style="text-transform:none"><input type="checkbox" name="nosplit" {{ 'checked' if not split_on }}> keep it on {{ printer.name }}</label></div>
     <div class="muted small">{% for c, t, n in parts %}{{ c }}: {{ n }}× {{ t | human }}{{ ' · ' if not loop.last }}{% endfor %}</div>
   {% endif %}
   <button type="button" style="margin-top:8px" hx-post="/blueprints/queue-plan" hx-target="#plan-result" hx-include="closest form">

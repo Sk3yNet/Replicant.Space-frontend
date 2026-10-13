@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.89.0"
+VERSION = "1.89.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.89.1", "2026-10-13", "Prints spread over the autofactories at the same stockpile by default: the Blueprints planner "
+               "(only \"keep it on one\" stops it — an unticked box that hadn't been drawn yet put 3 matrices on one of two "
+               "autofactories) and Queue a print."),
     ("1.89.0", "2026-10-13", "Trail: any of the followed replicant's devices a scan sees is a sighting (not his beacons), "
                "the newest sighting wins, and finding his AMI trade controller ends the follow and lists his shop there. "
                "Devices paid away in a trade or contract are no longer counted as lost."),
