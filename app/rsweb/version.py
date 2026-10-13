@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.93.0"
+VERSION = "1.93.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.93.1", "2026-10-13", "Galaxy map: labels next to arrows (ships in transit, other players' arrivals and departures) "
+               "that land on each other are stacked a line apart; all map text hides when zoomed out so far that a "
+               "light-year is under 1.5 px on screen."),
     ("1.93.0", "2026-10-13", "Fleet moves: surge-capable members that aren't needed as carriers (e.g. cargo freighters) no "
                "longer hold a relocation up; each flies straight to the new home from wherever it is once its current "
                "task is done. A move already waiting picks its solo flyers on the next pass."),

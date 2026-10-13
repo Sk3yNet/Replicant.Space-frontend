@@ -421,7 +421,8 @@ function placeOthers(now, showLabels, w, h) {
     if (vis) {
       if (x.text) x.el.textContent = x.text();
       x.el.style.opacity = f;
-      x.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px";
+      if (x.born) stackLabel(x.el, (tmp.x + 1) / 2 * w + 8, (1 - tmp.y) / 2 * h + x.dy);   // an arrow's label
+      else { x.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px"; }
     }
   }
 }
@@ -618,6 +619,17 @@ $("btn-top")?.addEventListener("click", () => { camera.position.set(controls.tar
 $("btn-home")?.addEventListener("click", () => { const s = repStar(); if (s) { focus(s); show(s); } });
 
 const tmp = new THREE.Vector3();
+// Text is hidden when zoomed out so far that a light-year is under TEXT_MIN_PX pixels on screen (unreadable anyway).
+const TEXT_MIN_PX = 1.5, HALF_FOV = Math.tan(55 * Math.PI / 360);
+// Labels next to arrows (ships in transit, other players' arrivals / departures) that land on top of each other are
+// stacked: each placed below the ones already there, one line apart.
+let stacked = [];
+function stackLabel(e, x, y) {
+  const wd = e.offsetWidth || 150;
+  while (stacked.some(p => x < p.x + p.w && p.x < x + wd && Math.abs(p.y - y) < 13)) y += 13;
+  stacked.push({ x, y, w: wd });
+  e.style.left = x + "px"; e.style.top = y + "px";
+}
 // the wallpaper runs all day: cap it at 30 fps (the Galaxy page renders at full rate)
 const minFrame = OPTS.dataUrl || TOUCH ? 1000 / 30 : 0;   // phones too: 30 fps is smooth enough and keeps them cool
 let lastFrame = 0;
@@ -627,8 +639,10 @@ function animate(t = 0) {
   lastFrame = t;
   controls.update();
   renderer.render(scene, camera);
-  const showLabels = checked("opt-labels", OPTS.labels !== false);
   const w = el.clientWidth, h = el.clientHeight;
+  const readable = h / (2 * camera.position.distanceTo(controls.target) * HALF_FOV) >= TEXT_MIN_PX;
+  const showLabels = checked("opt-labels", OPTS.labels !== false) && readable;
+  stacked = [];
   // star labels only move with the camera: skip them on frames where it stood still (dozens of DOM writes a frame
   // otherwise, which a phone feels)
   const camKey = camera.matrixWorld.elements.join(",") + w + "x" + h + showLabels + labels.length;
@@ -644,7 +658,7 @@ function animate(t = 0) {
   fleetGroup.visible = checked("opt-fleets", OPTS.fleets !== false);
   for (const l of fleetLabels) {
     tmp.copy(l.v).project(camera);
-    const vis = fleetGroup.visible && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
+    const vis = fleetGroup.visible && readable && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
     l.el.style.display = vis ? "block" : "none";
     if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6 + l.dy) + "px"; }
   }
@@ -674,9 +688,9 @@ function animate(t = 0) {
   moveGroup.visible = checked("opt-moving", OPTS.moving !== false);
   for (const x of movers) {
     tmp.copy(x.v).project(camera);
-    const vis = moveGroup.visible && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
+    const vis = moveGroup.visible && readable && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
     x.el.style.display = vis ? "block" : "none";
-    if (vis) { x.el.style.left = ((tmp.x + 1) / 2 * w + 10) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + 6) + "px"; }
+    if (vis) stackLabel(x.el, (tmp.x + 1) / 2 * w + 10, (1 - tmp.y) / 2 * h + 6);
   }
 }
 
