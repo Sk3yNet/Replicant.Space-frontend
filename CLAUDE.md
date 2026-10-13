@@ -59,7 +59,7 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   gap takes hours, and borrowed carriers must not fly it empty (loadout supply range: 100 ly).
 - Trades and contracts paid in devices need them deployed at the exact location, with a replicant there. Bill
   (A8F48B26) runs The Skunkworks shop; it moves, probably about daily (NOSOXA-OORT on 2026-10-11), his route always
-  passes through SOL, and he announces moves on BobNet #general ("NOSOXA is in the rear-view mirror"). His shop is his AMI trade controller
+  passes through SOL (leaving his shop he can't be followed: he resets to SOL), and he announces moves on BobNet #general ("NOSOXA is in the rear-view mirror"). His shop is his AMI trade controller
   (3BF0ED09 on 2026-10-13, codes may change); a racing vessel and an FTL relay travel with it (all at ALGENIBUS-OORT then).
 - Devices travel stowed (in a hold), attached (towed: the same thing), or compacted and then attached. Cargo freighters
   can't be: "Cannot attach a large device" (live 2026-10-12), so they fly themselves. Among replicant vessels only the cargo vessel can attach devices; the others fly alongside. A typical

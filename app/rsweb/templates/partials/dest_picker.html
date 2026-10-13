@@ -1,14 +1,18 @@
-{# Travel destination: pick a system (yours, explored, unexplored — nearest first), then a spot in it; or type a code.
-   Sends {{ key }}__star (the system), {{ key }} (the spot; blank = the system / its entry point) and {{ key }}__custom (typed). #}
+{# Travel destination: one field — type any code (a system, or a spot such as FALQUORYX-3-2), or pick from its list:
+   your systems first, then the nearest explored ones (the 150 nearest explored, so the page stays light; any other
+   code can still be typed). Then optionally a spot in that system.
+   Sends {{ key }}__star (what's typed or picked) and {{ key }} (the spot; blank = the system / its entry point). #}
+{% set sys_id = (list_id or key) ~ "-sys" %}
+{% set mine = systems | selectattr("group", "equalto", "Your systems") | list %}
+{% set explored = (systems | selectattr("group", "equalto", "Explored") | list)[:150] %}
 <div class="row">
-  <select name="{{ key }}__star" hx-get="/print-queue/locations" hx-trigger="change" hx-target="next select" hx-swap="innerHTML"
-          hx-vals='js:{dest_star: event.target.value}' title="system">
-    <option value="">— system —</option>
-    {% for g in ["Your systems", "Explored", "Unexplored"] %}{% set opts = systems | selectattr("group", "equalto", g) | list %}
-      {% if opts %}<optgroup label="{{ g }}">{% for o in opts %}<option value="{{ o.value }}">{{ o.value }}{% if o.label %} · {{ o.label }}{% endif %}</option>{% endfor %}</optgroup>{% endif %}
-    {% endfor %}
-  </select>
+  <input name="{{ key }}__star" list="{{ sys_id }}" autocomplete="off" size="22" placeholder="system or location code"
+         title="type a system or a location code, or pick: your systems first, then the nearest explored ones"
+         hx-get="/print-queue/locations" hx-trigger="change" hx-target="next select" hx-swap="innerHTML"
+         hx-vals='js:{dest_star: event.target.value}'>
   <select name="{{ key }}" title="where in that system"><option value="">— system first —</option></select>
-  <input name="{{ key }}__custom" placeholder="or type a code" size="16" {% if list_id %}list="{{ list_id }}"{% endif %} autocomplete="off"
-         title="overrides the lists, e.g. FALQUORYX-3-2 or ITHVALAI-BELT-1">
 </div>
+<datalist id="{{ sys_id }}">
+  {% for o in mine %}<option value="{{ o.value }}">yours{% if o.label %} · {{ o.label }}{% endif %}</option>{% endfor %}
+  {% for o in explored %}<option value="{{ o.value }}">explored{% if o.label %} · {{ o.label }}{% endif %}</option>{% endfor %}
+</datalist>

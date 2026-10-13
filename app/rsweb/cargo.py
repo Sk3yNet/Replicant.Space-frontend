@@ -94,3 +94,42 @@ async def cargo_context(db, api, device: dict, blueprints: list[dict]) -> dict:
     plan = fill_plan(available, free) if free is not None else {}
     return {"location": loc, "available": available, "capacity": cap, "used": used, "hold": hold,
             "free": free, "plan": plan, "stale": stale}
+
+
+async def in_transit(db, devices: list[dict], jobs: list[dict]) -> dict:
+    """Materials in holds right now: {"rows": [{code, type, location, dest, eta_s, hold, used, run}], "totals": {res: q}}.
+    A hold's contents come from the device itself (cargo / hold fields) or its latest transport.collected /
+    transport.delivered event (cargo_after); `run` is the logistics job carrying it ({to, req, carry}), if any."""
+    from .fleets import in_flight
+    codes = [d.get("device_code") for d in devices if d.get("device_code")]
+    last: dict[str, dict] = {}
+    if codes:
+        rows = await db.fetchall(
+            "SELECT e.device_code, e.payload FROM events e JOIN (SELECT device_code, MAX(seq) AS s FROM events "
+            "WHERE event IN ('transport.collected', 'transport.delivered') GROUP BY device_code) m "
+            "ON e.device_code = m.device_code AND e.seq = m.s")
+        for r in rows:
+            try:
+                last[r["device_code"]] = json.loads(r["payload"] or "{}")
+            except ValueError:
+                pass
+    runs = {}
+    for j in jobs:
+        lg = (j.get("meta") or {}).get("logistics")
+        if lg and j.get("status") in ("running", "waiting"):
+            for c in (j.get("meta") or {}).get("devices") or []:
+                runs[c] = {"to": lg.get("to"), "req": lg.get("req"), "carry": lg.get("carry") or {}, "job": j.get("id")}
+    out, totals = [], {}
+    for d in devices:
+        code = d.get("device_code")
+        used, hold = used_of(d, last.get(code))
+        if used <= 0:
+            continue
+        trip = in_flight(d)
+        out.append({"code": code, "type": d.get("device_type"), "location": d.get("location"),
+                    "dest": (trip or {}).get("destination"), "eta_s": (trip or {}).get("seconds_left"),
+                    "hold": hold, "used": used, "run": runs.get(code)})
+        for k, v in hold.items():
+            totals[k] = totals.get(k, 0) + v
+    out.sort(key=lambda r: (r["dest"] is None, -(r["used"] or 0)))
+    return {"rows": out, "totals": totals}

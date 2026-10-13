@@ -261,7 +261,7 @@ def test_parse_fields_builds_nested_bodies():
 
 def test_command_forms_render_with_suggestions(client):
     r = client.get("/devices/2AC61212/command-form?command=travel", headers=HX)
-    assert r.status_code == 200 and 'list="c-2AC61212-loc"' in r.text and "SOL-BELT-1" in r.text and "SOL-3-L4" in r.text
+    assert r.status_code == 200 and 'list="c-2AC61212-loc-sys"' in r.text and "SOL-BELT-1" in r.text and "SOL-3-L4" in r.text
     r = client.get("/devices/AF00BEEF/command-form?command=enqueue_print", headers=HX)
     assert "mining_drone" in r.text and "MC91FF22" in r.text  # device types + AMI controller choices
     r = client.get("/devices/MC91FF22/command-form?command=adopt", headers=HX)
@@ -3588,7 +3588,9 @@ def test_travel_destination_picker(client):
                        {"ZALDANAL": {"designation": "ZALDANAL", "explored": False, "position": {"x": 5, "y": 3, "z": 0}}})
     client.portal.call(client.app.state.worker.sync_catalogue)
     page = client.get("/replicants/77F75255", headers=H).text
-    assert 'name="destination__star"' in page and '<optgroup label="Unexplored">' in page and 'value="ZALDANAL"' in page
+    # one field: type anything; its list suggests your systems, then the nearest explored (unexplored only typed)
+    assert 'name="destination__star"' in page and 'list="nearby-stars-sys"' in page and 'value="SOL">yours' in page
+    assert 'value="ZALDANAL"' not in page
     assert "page 1" in page
     r = client.get("/print-queue/locations?dest_star=SOL", headers=H)   # the second list: spots in the system
     assert "anywhere in SOL" in r.text
@@ -3606,7 +3608,7 @@ def test_travel_destination_picker(client):
     assert commands.parse_fields(travel, FormData({"f.destination__star": "SOL", "f.destination": "SOL-3"})) == {"destination": "SOL-3"}
     # the device page's command box offers the same picker
     form = client.get("/devices/11ADA230/command-form?command=travel", headers=H).text
-    assert 'name="f.destination__star"' in form and 'value="ZALDANAL"' in form
+    assert 'name="f.destination__star"' in form and 'value="SOL">yours' in form
 
 
 # --- devices in transit on the maps (1.20.0) ---------------------------------------------------------------------
@@ -6589,3 +6591,18 @@ def test_ami_digest_scans_are_stored_and_naive_times_use_the_account_zone(client
         assert shapes.game_time("2026-08-26T09:30:00Z").utcoffset().total_seconds() == 0
     finally:
         shapes.ACCOUNT_TZ[0] = old
+
+
+def test_materials_in_transit_on_logistics_and_dashboard(client):
+    """What's in holds: per device (from its last transport.collected), its trip, and totals on the dashboard."""
+    from rsweb import cargo
+    db = client.app.state.db
+    client.portal.call(db.insert_event, {"id": "tc-1", "event": "transport.collected", "device_code": "FR1",
+                                          "payload": {"cargo_after": {"structural": 120, "carbon": 30}}})
+    devs = [{"device_code": "FR1", "device_type": "cargo_freighter", "location": "SOL-3", "status": "travelling",
+             "travel": {"destination": "FALQUORYX-3", "eta_seconds": 3600}},
+            {"device_code": "FR2", "device_type": "cargo_freighter", "location": "SOL-3", "status": "idle"}]
+    out = client.portal.call(cargo.in_transit, db, devs, [])
+    assert [r["code"] for r in out["rows"]] == ["FR1"] and out["rows"][0]["dest"] == "FALQUORYX-3"
+    assert out["totals"] == {"structural": 120, "carbon": 30}
+    assert "In transit" in client.get("/fleets/logistics", headers=H).text

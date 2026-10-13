@@ -206,7 +206,8 @@ async def trail_follow(request: Request, action: str = Form("start"), user: str 
     pos = _positions(await db.kv_get("stars", {}) or {})
     last = tl.last_seen(s["audit"], s["beacons"], s.get("target_code"))
     legs = tl.legs(s["audit"], s["beacons"], s.get("target_code"), pos)
-    if action == "sol" or (tl.is_bill(s) and not last and not (legs and legs[0]["candidates"])):
+    bill_reset = bool(last) and last.get("travel_type") == "departure" and tl.resets_from(s, last.get("star"))
+    if action == "sol" or bill_reset or (tl.is_bill(s) and not last and not (legs and legs[0]["candidates"])):
         first, alts = tl.BILL_HOME, []
         why = f"{s['target_name']} always passes through {tl.BILL_HOME}: picking the trail up there"
     elif last and last.get("travel_type") == "arrival":

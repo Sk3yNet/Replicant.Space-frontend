@@ -1233,7 +1233,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                                  f"{name} is there too")
                     h = {}
                 elif seen and seen.get("star") and seen["star"] != star and seen["star"] not in fo["visited"] \
-                        and seen["at"] > str(newest_here) and "end" not in h:
+                        and seen["at"] > str(newest_here) and "end" not in h \
+                        and not (seen.get("travel_type") == "departure" and tl.resets_from(s, seen["star"])):   # → SOL
                     # a newer sighting elsewhere beats where the beacons here point
                     h = {"go": seen["star"], "alts": [], "why": f"{seen['via']} was seen there {seen['at']}"}
                 if not fo.get("active"):
@@ -1270,11 +1271,13 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                   "owner_replicant_code": e.get("owner_replicant_code") or s.get("target_code"), "read_at": now_iso()})
         e.setdefault("trades", [])
         cache[shop["code"]] = e
+        if shop.get("star"):   # remembered: leaving it, he resets to SOL (trail.resets_from)
+            s["shop_stars"] = sorted(set(s.get("shop_stars") or []) | {shop["star"]})
         await self.db.kv_set("traders_cache", cache)
 
     async def bill_moved(self, payload: dict) -> str | None:
-        """Bill posted that his Skunkworks moved: set his shop aside where it was, and when you follow him, pick the trail
-        up again where he left (his beacon there logs the departure; a cold trail falls back to SOL)."""
+        """Bill posted that his Skunkworks moved: set his shop aside where it was, clear the beacon logs, and when you
+        follow him, pick the trail up at SOL (leaving his shop he can't be followed: he resets to SOL)."""
         from . import trail as tl
         from .shop import known_traders, mark_gone
         cat = await self.db.kv_get("stars", {}) or {}
@@ -1301,14 +1304,13 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             if fo.get("job"):
                 await self.cancel(fo["job"])
             s["moved"] = {"at": now, "from": frm, "text": mv["text"]}
-            # the old route is history: drop beacon log entries from before the move (keeping the last 3 hours, which hold
-            # his departure from the old spot); the beacons stay known and are read again for the new route
-            cutoff = (_now() - timedelta(hours=3)).isoformat(timespec="seconds")
-            s["audit"] = {b: [r for r in rows or [] if str(r.get("logged_at") or "") >= cutoff] for b, rows in s["audit"].items()}
+            # the old route is history, and leaving his shop he can't be followed anyway — he resets to SOL (owner,
+            # 2026-10-13): drop the beacon logs; the beacons stay known and are read again for the new route
+            s["audit"] = {b: [] for b in s["audit"]}
             s["trail_reset_at"] = now
             rep = fo.get("replicant") or s.get("scanner")
-            if rep and (fo or s.get("scanner")):   # you've been following him: pick the trail up where he left
-                start = frm or tl.BILL_HOME
+            if rep and (fo or s.get("scanner")):   # you've been following him: pick the trail up at SOL
+                start = tl.BILL_HOME
                 s["follow"] = {"active": True, "replicant": rep, "state": "travel", "star": start, "alts": [], "job": None,
                                "visited": [], "started_at": now, "by": "Bill's post", "sol_tried": start == tl.BILL_HOME,
                                "log": [{"at": now, "text": f"{text} — picking the trail up at {start}"}]}

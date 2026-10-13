@@ -38,6 +38,18 @@
 </div>
 {% if st.reserve %}<div class="card"><h2>Kept for home prints</h2>
   <table class="small">{% for s, r in st.reserve.items() %}<tr><td>{{ s }}</td><td>{% for k, q in r.items() %}{{ q | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}</td></tr>{% endfor %}</table></div>{% endif %}
+<div class="card" id="in-transit"><h2>In transit <span class="muted small">materials in holds right now{% if transit.totals %} ·
+  {% for r, q in transit.totals | dictsort %}{{ q | num }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</span></h2>
+  {% if transit.rows %}
+  <table class="small"><tr><th>Device</th><th>Hold</th><th>Where</th><th>Heading for</th><th>Run</th></tr>
+    {% for r in transit.rows %}<tr><td class="mono"><a href="/devices/{{ r.code }}">{{ r.code }}</a> <span class="muted">{{ r.type | human }}</span></td>
+      <td>{% if r.hold %}{% for k, q in r.hold | dictsort %}{{ q | num }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}{% else %}{{ r.used | num }} units{% endif %}</td>
+      <td>{{ r.location or '—' }}</td>
+      <td>{% if r.dest %}{{ r.dest }}{% if r.eta_s %} <span class="muted">in {{ r.eta_s | duration }}</span>{% endif %}{% else %}<span class="muted">not moving</span>{% endif %}</td>
+      <td>{% if r.run %}to {{ r.run.to }}{% if r.run.req %} <span class="muted">({{ r.run.req }})</span>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted small">Nothing in any hold right now.</p>{% endif %}
+</div>
 <div class="card"><h2>Recent trips</h2>
   {% if jobs %}<table class="small">{% for j in jobs %}<tr><td>{{ j.created_at | ago }}</td><td>{{ j.status }}</td><td>{{ j.title }}</td></tr>{% endfor %}</table>
   {% else %}<p class="muted">None yet.</p>{% endif %}</div>

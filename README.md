@@ -88,8 +88,9 @@ rule with an on/off switch, plus the jobs and the log.
 - **Trail**: follow a replicant through the audit logs of public FTL beacons; candidate systems with travel time and a travel
   button; *follow to the end* keeps going until the target stops moving (for Bill, until it finds his AMI trade controller). *Reset trail* clears the beacons and logs when the
   target relocates. Bill (A8F48B26) always passes through SOL: with nothing to follow, or a cold trail, the follow picks
-  him up there, and *restart from SOL* clears the trail and starts over. His BobNet posts about moving ("NOSOXA is in the rear-view
-  mirror") restart the follow where he left and set his old shop location aside.
+  him up there, and *restart from SOL* clears the trail and starts over. Leaving his shop he can't be followed (he resets to SOL), so a departure
+  from his shop's system sends the follow to SOL. His BobNet posts about moving ("NOSOXA is in the rear-view mirror")
+  clear the beacon logs, restart the follow at SOL and set his old shop location aside.
 - **Wards & hubs**: your wards (against the 25 cap), hub shield and upkeep with warnings, `evicted_miners` log. Other players'
   warded systems are left alone by every mining rule and mission.
 - **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Evacuation** (game v3.5.0: what's left at an
@@ -128,7 +129,7 @@ lines or a template).
   compact when every direction is used up or the fleet is leaving.
 - **Auto-scout** (explore fleets): surveys the nearest unsurveyed systems within 100 ly of home, ring by ring (only inside relay
   coverage without a replicant aboard); sets out at 85 % capacity, comes home for repairs at 50 %.
-- **Logistics** fleets (Fleets › Logistics): no missions; their devices deliver materials and devices on demand.
+- **Logistics** fleets (Fleets › Logistics): no missions; their devices deliver materials and devices on demand. The page's **In transit** card lists every hold with materials in it (what, where, heading for, which run), with totals; the dashboard's stockpiles show "+ N in transit".
   Requests: queued prints (their cost minus what's stocked), contracts you approved or whose civilization you pre-approved
   (Contracts), trades you approved (Shop: *approve*, used once; plain shop listings are never fulfilled), a home system's
   piles consolidated at its drop point (its autofactory, else its biggest pile; systems the Consolidate rule covers with an

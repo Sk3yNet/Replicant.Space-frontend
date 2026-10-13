@@ -673,7 +673,7 @@ def test_carrier_card_on_an_attach_carrier():
                                                        ("/devices/MF", {"command": "attach", "device": "D1"})]
 
 
-def test_bills_move_post_restarts_the_trail_where_he_left(client):
+def test_bills_move_post_restarts_the_trail_at_sol(client):
     from rsweb import shop, trail as tl
     e = eng(client)
     db = client.app.state.db
@@ -692,10 +692,10 @@ def test_bills_move_post_restarts_the_trail_where_he_left(client):
     post = {"replicant_code": tl.BILL_CODE, "replicant_name": "Bill", "channel": "#general",
             "message": "Skunkworks is on the move. NOSOXA is in the rear-view mirror. Tell no one."}
     text = client.portal.call(e.bill_moved, post)
-    assert "left NOSOXA" in text and "following him again from NOSOXA" in text
+    assert "left NOSOXA" in text and "following him again from SOL" in text   # leaving his shop he resets to SOL
     s = client.portal.call(db.kv_get, tl.KV)
-    assert s["follow"]["active"] and s["follow"]["star"] == "NOSOXA" and s["moved"]["from"] == "NOSOXA"
-    assert s["audit"]["B1"] == [new_row] and "B1" in s["beacons"]           # the old route is dropped, the beacon kept
+    assert s["follow"]["active"] and s["follow"]["star"] == "SOL" and s["moved"]["from"] == "NOSOXA"
+    assert s["audit"]["B1"] == [] and "B1" in s["beacons"]   # his logs are dropped (leaving the shop he resets to SOL), the beacon kept
     assert "3BF0ED09" not in client.portal.call(shop.known_traders, db)        # set aside until seen again
     assert client.portal.call(e.bill_moved, {**post, "message": "o7 all"}) is None
     assert client.portal.call(e.bill_moved, {**post, "replicant_code": "X", "replicant_name": "Ann"}) is None
@@ -816,3 +816,16 @@ def test_solo_flyers_leave_after_their_current_task(client):
     assert m["solo_sent"] == ["F2"]                      # F1 is still collecting: it goes once that's done
     job = [j for j in client.portal.call(eng.jobs) if j.get("device") == "F2"][-1]
     assert job["steps"][0]["body"]["command"] == "travel" and job["steps"][0]["body"]["destination"].startswith("B")
+
+
+def test_bill_leaving_his_shop_resets_to_sol():
+    """Owner 2026-10-13: when Bill leaves his trade beacon he can't be followed — he resets to SOL."""
+    from rsweb import trail as tl
+    s = tl.normalize({"target_name": "Bill", "target_code": tl.BILL_CODE, "beacons": {"B": {"star": "NOSOXA"}},
+                      "audit": {"B": [{"replicant_code": tl.BILL_CODE, "travel_type": "departure", "location": "NOSOXA-OORT",
+                                       "logged_at": "2026-10-13T10:00:00+00:00", "vector": "1,0,0"}]},
+                      "shop_stars": ["NOSOXA"]})
+    pos = {"NOSOXA": {"x": 0, "y": 0, "z": 0}, "EAST": {"x": 5, "y": 0, "z": 0}, "SOL": {"x": -50, "y": 0, "z": 0}}
+    assert tl.next_hop(s, "NOSOXA", pos, [])["go"] == "SOL"
+    s["shop_stars"] = []                               # not his shop: an ordinary departure is followed
+    assert tl.next_hop(s, "NOSOXA", pos, [])["go"] == "EAST"

@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.93.1"
+VERSION = "1.94.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.94.0", "2026-10-13", "Travel destination: one field to type any system or location code, suggesting your systems "
+               "then the 150 nearest explored ones; the spot list follows. Trail: Bill leaving his shop resets to SOL, "
+               "so a departure from his shop's system sends the follow to SOL, and his move posts clear the beacon logs "
+               "and restart at SOL. Logistics: an In transit card (every hold with materials: what, where, heading for, "
+               "which run, with totals); the dashboard's stockpiles show + N in transit."),
     ("1.93.1", "2026-10-13", "Galaxy map: labels next to arrows (ships in transit, other players' arrivals and departures) "
                "that land on each other are stacked a line apart; all map text hides when zoomed out so far that a "
                "light-year is under 1.5 px on screen."),

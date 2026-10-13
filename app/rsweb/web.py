@@ -375,7 +375,9 @@ async def dashboard(request: Request, user: str = Depends(current_user)):
     sync = {k: await request.app.state.db.kv_get(f"sync:{k}") for k in ("account", "devices", "inventory")}
     ctx = await base_ctx(request, user, "dashboard", visit=visit, digest=digest, alerts=alerts, recent=recent,
                          fleet=fleet_summary(st["devices"]), timers=await active_timers(request),
-                         spark={k: sparkline(v) for k, v in series.items()}, sync=sync, **st)
+                         spark={k: sparkline(v) for k, v in series.items()}, sync=sync,
+                         transit=await cargo_mod.in_transit(request.app.state.db, st["devices"],
+                                                            await request.app.state.worker.automations.jobs()), **st)
     return templates.TemplateResponse(request, "dashboard.html", ctx)
 
 
@@ -383,6 +385,9 @@ async def dashboard(request: Request, user: str = Depends(current_user)):
 async def digest_dismiss(request: Request, user: str = Depends(current_user)):
     await request.app.state.db.execute("UPDATE visitors SET digest_dismissed=1 WHERE email=?", (user,))
     return HTMLResponse("")
+
+
+from . import cargo as cargo_mod   # noqa: E402  (materials in holds: dashboard + logistics)
 
 
 @router.get("/digest", response_class=HTMLResponse)
@@ -613,7 +618,7 @@ async def print_tags(request: Request, code: str, device_type: str = Form(...), 
 @router.get("/print-queue/locations", response_class=HTMLResponse)
 async def print_queue_locations(request: Request, dest_star: str = "", user: str = Depends(current_user)):
     """<option>s for the 'deliver to' location list of a system: planets, moons, belts, Lagrange points, entry point, outer."""
-    star = dest_star.upper()
+    star = dest_star.strip().upper().split("-")[0]   # a typed location code (FALQUORYX-3-2) lists its system's spots
     if not star:
         return HTMLResponse('<option value="">— system first —</option>')
     t = await system_targets(request.app.state.db, star)

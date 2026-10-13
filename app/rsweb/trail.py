@@ -192,6 +192,18 @@ def shop_at(s: dict, star: str | None = None) -> dict | None:
     return max(rows, key=lambda r: str(r.get("at") or ""), default=None)
 
 
+def shop_stars(s: dict) -> set[str]:
+    """Systems where the target's shop (trade controller) was seen or that a move post said he left."""
+    out = {r.get("star") for r in (s.get("sightings") or {}).values() if SHOP_TYPE in str(r.get("type") or "")}
+    out |= set(s.get("shop_stars") or []) | {(s.get("moved") or {}).get("from")}
+    return {x for x in out if x}
+
+
+def resets_from(s: dict, star: str | None) -> bool:
+    """Bill leaving his shop can't be followed: he resets to SOL (owner, 2026-10-13)."""
+    return bool(star) and is_bill(s) and star != BILL_HOME and star in shop_stars(s)
+
+
 def beacons_in(scan: dict | None, target_code: str | None, target_name: str | None) -> list[dict]:
     """FTL beacons in a /scan/devices answer that belong to the target (by code, else by owner name)."""
     out = []
@@ -260,6 +272,14 @@ def next_hop(s: dict, star: str, positions: dict, visited: list[str]) -> dict:
     last = rows[0]
     if last.get("travel_type") == "arrival":
         return {"end": f"{s['target_name']} arrived at {last.get('location') or star} ({last.get('logged_at')}) and hasn't left"}
+    if last.get("travel_type") == "departure" and resets_from(s, star):
+        # owner, 2026-10-13: when Bill leaves his shop he can't be followed — he resets to SOL (and his route always
+        # passes through it), so the trail goes on from there
+        if BILL_HOME in visited:
+            return {"cold": f"{s['target_name']} left {star} ({last.get('logged_at')}) and resets to {BILL_HOME}, "
+                            f"already visited on this follow"}
+        return {"go": BILL_HOME, "alts": [], "why": f"{s['target_name']} left {star} {last.get('logged_at')} — from his "
+                                                    f"shop he resets to {BILL_HOME}"}
     if last.get("travel_type") != "departure" or not last.get("vector"):
         return {"cold": f"{s['target_name']}'s latest move at {star} isn't a departure with a direction"}
     cands = [c for c in candidates(star, last["vector"], positions) if c["star"] not in visited]
