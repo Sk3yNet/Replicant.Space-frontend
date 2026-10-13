@@ -2817,6 +2817,13 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             t = (j.get("meta") or {}).get("logistics")
             if t and j["status"] in ("running", "waiting") and t.get("to"):
                 incoming[t["to"]] = {r: incoming.get(t["to"], {}).get(r, 0) + q for r, q in (t.get("carry") or {}).items()}
+                # and what it's still going to pick up is spoken for: the stockpile list only drops once it's loaded (seen
+                # live 2026-10-13: four haulers sent to KELMORNEA-3 for what an earlier trip was already fetching)
+                loaded = {(st.get("body") or {}).get("resources") and st["desc"].split(" at ")[-1] for st in j["steps"]
+                          if (st.get("body") or {}).get("command") == "collect_resources" and st.get("status") == "done"}
+                for g in t.get("legs") or []:
+                    if g["pile"] not in loaded:
+                        lg.take_from(inv, g["pile"], g["take"])
         taken, mission_stars, away_fleets = set(), set(), set()
         from .fleets import fleet_tag
         for f in items:
@@ -2879,6 +2886,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 sent.pop(c)
             elif e.get("to"):
                 incoming[e["to"]] = {r: incoming.get(e["to"], {}).get(r, 0) + q for r, q in (e.get("carry") or {}).items()}
+                for g in e.get("legs") or []:   # the controller hasn't finished: its pick-up is spoken for too
+                    lg.take_from(inv, g["pile"], g["take"])
         ami = [c for c in devices if co.free_controller(c, devices, busy) and c["device_code"] not in sent]
         # systems the Consolidate rule looks after (it's on, and they have an AMI transport controller): logistics leaves
         # their piles to it
@@ -2910,12 +2919,15 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             if not steps:
                 continue
             codes = lg.run_devices(run)
+            legs = [g for c in run.get("cargos") or [] for g in c.get("legs") or []] + (run.get("legs") or [])
             job = await self.create_job("logistics", f"logistics: {lg.describe(run)}", codes[0] if codes else run.get("ami"), steps,
-                                        {"devices": codes, "logistics": {"req": run.get("req"), "to": run["to"], "carry": run["carry"]}})
+                                        {"devices": codes, "logistics": {"req": run.get("req"), "to": run["to"], "carry": run["carry"],
+                                                                         "legs": legs}})
             if job:
                 run["job"] = job["id"]
                 if run.get("ami"):
-                    sent[run["ami"]] = {"to": run["to"], "carry": run["carry"], "at": now_iso(), "req": run.get("req")}
+                    sent[run["ami"]] = {"to": run["to"], "carry": run["carry"], "at": now_iso(), "req": run.get("req"),
+                                        "legs": legs}
                 out.append(lg.describe(run))
                 if run.get("fulfil") and run["kind"] == "trade":   # an approval counts once
                     key = run["req"].split(":", 1)[1]

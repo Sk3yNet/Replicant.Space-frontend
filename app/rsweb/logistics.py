@@ -113,6 +113,14 @@ def print_costs(devices: list[dict], bps: dict[str, dict]) -> dict[str, dict]:
     return {k: v for k, v in out.items() if v["cost"]}
 
 
+def take_from(inventory: dict[str, Any], pile: str, take: dict[str, float]) -> None:
+    """Count `take` as gone from a stockpile (a trip already on its way to pick it up)."""
+    have = dict(as_amounts(inventory.get(pile) or {}))
+    for r, q in (take or {}).items():
+        have[r] = max(0.0, have.get(r, 0.0) - float(q))
+    inventory[pile] = {r: q for r, q in have.items() if q > 0}
+
+
 def queue_items(devices: list[dict], bps: dict[str, dict]) -> dict[str, dict]:
     """{star: {"items": [(seconds, cost)], "factories": n, "dest": factory location}} — each system's prints still to pay
     for, in the order they'll run (factories interleaved by when each item starts; a print already running is paid)."""

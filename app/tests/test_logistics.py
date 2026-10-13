@@ -394,3 +394,30 @@ def test_hubs_share_reserves_to_stay_equally_busy():
     assert sent(30, 5, 1000) == 240        # FAL keeps 19 prints' worth (3.2 h), more than SOL's whole queue (6 prints, 1 h)
     assert sent(30, 30, 1000) == 480       # both queues long: 12 prints each (2 h), the odd one stays home
     assert sent(10, 30, 400) == 200        # FAL's own queue takes all 400; even split: 5 prints (50 min) each
+
+
+def test_a_pile_already_being_fetched_is_not_planned_again(client):  # noqa: F811
+    db, e = client.app.state.db, eng(client)
+    cat = client.portal.call(db.kv_get, "stars") or {"stars": []}
+    cat["stars"] += [{"designation": d, "position": p} for d, p in POS.items()]
+    client.portal.call(db.kv_set, "stars", cat)
+    client.portal.call(db.kv_set, "blueprints", list(BPS.values()))
+    devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=500, **SURGE), dev("F2", "cargo_freighter", "A-1", cargo_capacity=500, **SURGE),
+            dev("RL", "ftl_relay", "A-4-L4", tags=[], status="relaying"), dev("RB", "ftl_relay", "B-4-L4", tags=[], status="relaying")]
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(db.kv_set, "inventory", [{"location": "B-BELT", "items": {"carbon": 200}}])
+    client.portal.call(db.kv_set, "replicants", {"R1": {"location": "A-1"}})
+    items = client.portal.call(e.fleets)
+    client.portal.call(e.save_fleets, items + [{"id": "cab", "name": "Cab", "role": "logistics", "home": "A", "wants": {}},
+                                               {"id": "hub", "name": "Hub", "role": "mining", "home": "A", "station": True,
+                                                "materials": "self", "wants": {}}])
+    jobs = client.portal.call(e.jobs)
+    jobs.append({"id": "lg-1", "rule": "logistics", "title": "earlier trip", "device": "F2", "status": "running", "idx": 0,
+                 "created_at": "2026-10-13T12:00:00+00:00",
+                 "steps": [{"desc": "F2: load 200 carbon at B-BELT", "body": {"command": "collect_resources", "resources": {"carbon": 200}},
+                            "status": "pending", "path": "/devices/F2", "method": "POST", "wait": []}],
+                 "meta": {"devices": ["F2"], "logistics": {"req": "return:B-BELT", "to": "A-1", "carry": {"carbon": 200},
+                                                           "legs": [{"pile": "B-BELT", "take": {"carbon": 200}}]}}})
+    client.portal.call(db.kv_set, "automation_jobs", jobs)
+    client.portal.call(e.logistics_pass, True)
+    assert not [j for j in client.portal.call(e.jobs) if j["rule"] == "logistics" and j["id"] != "lg-1"]   # nothing sent twice

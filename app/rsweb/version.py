@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.87.1"
+VERSION = "1.87.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.87.2", "2026-10-13", "Logistics counts what a trip on its way is going to pick up as gone from that stockpile "
+               "(and what an AMI controller was handed), so later passes don't send more ships to a pile that's about to "
+               "be empty (four haulers found KELMORNEA-3 bare)."),
     ("1.87.1", "2026-10-13", "Galaxy map on phones: lower resolution and 30 fps, one resize after the keyboard closes "
                "(picking a system could freeze it), a reload if the browser drops the graphics, labels moved only when "
                "the camera moves. Bill's move post clears the old beacon trail (keeps the last 3 hours and his beacons)."),
