@@ -174,6 +174,14 @@ Example response: `{"replicant_cooperation": "shared", "name": "Bob", "email": "
 - `GET /v1/achievements/{achievement_key}` — same fields + `players: [{account_name, achieved_at}]`.
 - `GET /v1/accounts/achievements` — yours (auth). **Response not shown** (INFERRED: same `achievements[]` items, probably with `achieved_at`).
 
+### Tutorials (owner-supplied docs, 2026-10-13)
+- `GET /v1/tutorials` → `{tutorials: [{slug, name, description, order, completed, current_step, total_steps}]}`.
+- `GET /v1/tutorials/{slug}` → `{slug, name, description, current_step, completed, steps: [{key, description, hint
+  (the endpoint to call), completed, current}]}`.
+- The seven, in order: Bootstrap; Exploring the Belt; Exploring the System (scan planets and moons, discover salvage);
+  Mining Salvage; Moving Resources (transport drone, consolidate); Helping Civilisation (a location event); Returning
+  to Society (deploy the FTL slingshot, teleport to SOL).
+
 ### Other account endpoints
 - `GET /v1/accounts/reputation` — species standing; response shape not documented. (Docs' curl has typo `/v1/account/reputation`.)
 - `GET /v1/replicants/{code}/reputation` and `GET /v1/species` — appear only in the Postman collection; shapes undocumented.

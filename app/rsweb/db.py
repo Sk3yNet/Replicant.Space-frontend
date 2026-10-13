@@ -110,10 +110,24 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# Saved values decoded once and kept in memory until the next kv_set (the star catalog is ~13 MB of JSON and read
+# several times per page and per tick). Each read gets its own copy of the top level and of each list item, so a
+# caller annotating star dicts (the map does) doesn't change the cached catalog.
+CACHED = {"stars"}
+
+
+def _copy(v: Any) -> Any:
+    if isinstance(v, dict):
+        return {k: ([dict(x) if isinstance(x, dict) else x for x in w] if isinstance(w, list) else
+                    dict(w) if isinstance(w, dict) else w) for k, w in v.items()}
+    return v
+
+
 class DB:
     def __init__(self, path: str):
         self.path = path
         self.conn: aiosqlite.Connection | None = None
+        self._cache: dict[str, Any] = {}
 
     async def open(self) -> None:
         self.conn = await aiosqlite.connect(self.path)
@@ -149,6 +163,7 @@ class DB:
 
     # --- key/value snapshots ---------------------------------------------
     async def kv_set(self, key: str, value: Any) -> None:
+        self._cache.pop(key, None)
         await self.execute(
             "INSERT INTO kv(key, value, updated_at) VALUES(?,?,?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
@@ -157,10 +172,17 @@ class DB:
 
     async def kv_get(self, key: str, default: Any = None) -> Any:
         t0 = time.perf_counter()
+        if key in self._cache:
+            value = _copy(self._cache[key])
+            perf.note_kv(key, 0, (time.perf_counter() - t0) * 1000)
+            return value
         row = await self.fetchone("SELECT value FROM kv WHERE key=?", (key,))
         if not row:
             return default
         value = json.loads(row["value"])
+        if key in CACHED:
+            self._cache[key] = value
+            value = _copy(value)
         perf.note_kv(key, len(row["value"]), (time.perf_counter() - t0) * 1000)   # read + decode
         return value
 

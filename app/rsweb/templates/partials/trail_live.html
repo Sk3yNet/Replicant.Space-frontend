@@ -1,0 +1,49 @@
+    <h2>Where {{ s.target_name }} is</h2>
+    {% if last %}<p>Latest sighting: {% if last.travel_type %}<b>{{ last.travel_type }}</b>{% else %}<b>{{ last.via }}</b>{% endif %}
+      at <a href="/systems/{{ last.star }}">{{ last.location or last.star }}</a>
+      <span class="muted small">{{ last.at | local }} · {{ last.at | ago }}{% if last.travel_type %} · {{ last.via }}{% endif %}</span></p>
+      {% if last.type and 'trade_controller' in last.type %}<p class="small">That's his shop's controller: {{ s.target_name }}'s
+        shop is at <b>{{ last.location }}</b>.</p>
+      {% elif not last.travel_type %}<p class="small">One of {{ s.target_name }}'s devices was there; the newest sighting wins.</p>
+      {% elif last.travel_type == 'arrival' %}<p class="small">An arrival with nothing after it: as far as these beacons know,
+        {{ s.target_name }} is in <b>{{ last.star }}</b>.</p>
+      {% elif legs %}<p class="small">Left {{ last.star }}{% if legs[0].best %} — heading for <b>{{ legs[0].best.star }}</b> most likely
+        ({{ legs[0].best.angle }}° off, {{ legs[0].best.distance }} ly{% if scanner %}; {{ scanner.name }} would take
+        <span hx-get="/trail/eta?star={{ legs[0].best.star | urlencode }}" hx-trigger="load" hx-swap="outerHTML">…</span>{% endif %}){% endif %}. Find the beacon there and read it.</p>{% endif %}
+    {% else %}<p class="muted small">Nothing logged yet.</p>{% endif %}
+
+    {% set fo = s.follow or {} %}
+    <div class="small" style="margin-top:10px;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
+      <div class="row between"><b>Follow to the end</b>
+        {% if fo.active %}<button class="small ghost" hx-post="/trail/follow" hx-vals='{"action": "stop"}' hx-target="#trail-result">stop</button>
+        {% elif scanner and (legs or last) %}<button class="small" hx-post="/trail/follow" hx-target="#trail-result"
+          hx-confirm="Send {{ scanner.name }} after {{ s.target_name }}, system by system, until {{ 'it finds his AMI trade controller (his shop)' if bill else 'an arrival has no departure after it' }}?">follow {{ s.target_name }} with {{ scanner.name }}</button>{% endif %}
+        {% if not fo.active and bill %}<button class="small ghost" hx-post="/trail/follow" hx-vals='{"action": "sol"}' hx-target="#trail-result"
+          hx-confirm="Start over at SOL? This clears the beacon trail. {{ s.target_name }} always passes through SOL, so the trail can be picked up there."
+          title="He always passes through SOL">restart from SOL</button>{% endif %}</div>
+      {% if fo.active %}<div>{{ fo.state == 'travel' and 'heading for' or 'reading the beacons at' }} <b><a href="/systems/{{ fo.star }}">{{ fo.star }}</a></b>
+        {% if fo.state == 'travel' and scanner %}<span hx-get="/trail/eta?star={{ fo.star | urlencode }}" hx-trigger="load" hx-swap="outerHTML"></span>{% endif %}
+        {% if fo.visited %}<span class="muted"> · visited {{ fo.visited | join(' → ') }}</span>{% endif %}</div>
+      {% elif fo.result %}<div><b>{{ fo.result }}</b></div>
+      {% else %}<div class="muted">{{ scanner.name if scanner else 'The replicant that scanned' }} flies to where the latest departure
+        points, looks for {{ s.target_name }}'s beacons there and reads them, and keeps going until {% if bill %}it finds
+        {{ s.target_name }}'s AMI trade controller (his shop) in the system it reaches{% else %}one shows {{ s.target_name }}
+        arriving and not leaving{% endif %}.</div>{% endif %}
+      {% if fo.log %}<details{{ ' open' if fo.active }}><summary class="muted">log</summary>{% for l in fo.log[-12:] | reverse %}<div class="muted">{{ l.at | local }} · {{ l.text }}</div>{% endfor %}</details>{% endif %}
+    </div>
+
+    <h2 style="margin-top:14px">Departures <span class="muted small">newest first{% if scanner %} · travel sends {{ scanner.name }} (@ {{ scanner.star }}), the replicant that scanned{% endif %}</span></h2>
+    {% for l in legs %}
+      <div style="border-bottom:1px solid var(--line);padding:6px 0">
+        <div class="small"><b>{{ l.from }}</b> → ? <span class="muted">{{ l.at | local }} · {{ l.device }} {{ l.device_type | human }} ·
+          vector {{ l.vector | map('round', 2) | join(', ') }}</span></div>
+        {% if l.candidates %}<table class="small"><tr><th>Candidate</th><th class="num">off by</th><th class="num">ly</th><th></th>{% if scanner %}<th class="num" title="how long {{ scanner.name }} would take to get there">travel</th>{% endif %}<th></th></tr>
+          {% for c in l.candidates %}<tr{% if not loop.first %} class="muted"{% endif %}>
+            <td><a href="/systems/{{ c.star }}">{{ c.star }}</a></td><td class="num">{{ c.angle }}°</td><td class="num">{{ c.distance }}</td>
+            <td>{% if c.good %}<span class="pill small st-work">lines up</span>{% endif %}{% if not c.in_relay %} <span class="pill small">beyond relay range</span>{% endif %}</td>
+            {% if scanner %}<td class="num"><span hx-get="/trail/eta?star={{ c.star | urlencode }}" hx-trigger="revealed" hx-swap="outerHTML" class="muted small">…</span></td>{% endif %}
+            <td>{% if scanner %}<button class="small ghost" hx-post="/trail/travel" hx-vals='{{ {"star": (c.star) | string} | tojson }}' hx-target="#trail-result"
+              hx-confirm="Send {{ scanner.name }} (from {{ scanner.star }}) to {{ c.star }}?" title="Send {{ scanner.name }} there">travel</button>{% endif %}</td></tr>{% endfor %}</table>
+        {% else %}<p class="muted small">No known star lies that way{% if not l.from %} (unknown origin){% endif %} — load the stars around {{ l.from or 'there' }} (left).</p>{% endif %}
+      </div>
+    {% else %}<p class="muted small">No departures by {{ s.target_name }} read yet.</p>{% endfor %}

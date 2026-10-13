@@ -535,6 +535,10 @@ def test_bills_trail_can_be_picked_up_at_sol(client):
     assert "first stop SOL" in client.post("/trail/follow", data={"action": "sol"}, headers=HX).text
     s = client.portal.call(db.kv_get, tl.KV)
     assert s["beacons"] == {} and s["audit"] == {} and "last_beacon" not in s and s["follow"]["star"] == "SOL"
+    page = client.get("/trail", headers=H).text                # the follow and departures redraw live
+    assert 'hx-get="/trail/live"' in page and "sse:state" in page
+    live = client.get("/trail/live", headers=HX).text
+    assert "Follow to the end" in live and "Departures" in live and "SOL" in live
 
 
 def test_newest_sighting_of_a_shop_wins_and_a_failed_trade_sets_it_aside(client):

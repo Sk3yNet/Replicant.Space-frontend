@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 
 from .api import ApiError
 from .db import now_iso
-from .web import current_user, f_duration, load_state, page, run_action, star_of
+from .web import current_user, f_duration, load_state, page, partial, run_action, star_of
 from . import trail as tl
 
 router = APIRouter()
@@ -28,8 +28,7 @@ def _msg(text: str, ok: bool = True) -> HTMLResponse:
                         headers={"HX-Refresh": "true"} if ok else {})
 
 
-@router.get("/trail", response_class=HTMLResponse)
-async def trail_page(request: Request, user: str = Depends(current_user)):
+async def _view(request: Request) -> dict:
     db = request.app.state.db
     s = await _state(db)
     st = await load_state(request)
@@ -39,8 +38,19 @@ async def trail_page(request: Request, user: str = Depends(current_user)):
     reps = [{"code": c, "name": r.get("name") or c, "star": star_of(r.get("location") or r.get("current_location"))}
             for c, r in st["replicants"].items()]
     scanner = next((r for r in reps if r["code"] == s.get("scanner")), None)
-    return await page(request, user, "trail.html", "trail", s=s, legs=legs, last=last, reps=reps, n_pos=len(pos),
-                      known_stars=sorted(pos), scanner=scanner, bill=tl.is_bill(s))
+    return dict(s=s, legs=legs, last=last, reps=reps, n_pos=len(pos), known_stars=sorted(pos), scanner=scanner,
+                bill=tl.is_bill(s))
+
+
+@router.get("/trail", response_class=HTMLResponse)
+async def trail_page(request: Request, user: str = Depends(current_user)):
+    return await page(request, user, "trail.html", "trail", **await _view(request))
+
+
+@router.get("/trail/live", response_class=HTMLResponse)
+async def trail_live(request: Request, user: str = Depends(current_user)):
+    """The sighting, the follow (state and log) and the departures, redrawn as the trail changes (sse state)."""
+    return partial(request, "partials/trail_live.html", **await _view(request))
 
 
 @router.post("/trail/target", response_class=HTMLResponse)
@@ -63,6 +73,7 @@ async def trail_target(request: Request, name: str = Form(...), user: str = Depe
               "target_last_location": pick.get("last_location"), "target_npc": pick.get("is_npc")})
     s["matches"] = [{"name": r.get("name"), "code": r.get("replicant_code"), "last": r.get("last_location")} for r in found[:10]]
     await db.kv_set(tl.KV, s)
+    request.app.state.hub.publish("state", "trail")
     return _msg(f"Following {s['target_name']} ({s['target_code']}).")
 
 
@@ -77,6 +88,7 @@ async def trail_scan(request: Request, replicant: str = Form(...), user: str = D
     except ApiError as e:
         return _msg(f"Scan failed: {e.message}", ok=False)
     await db.kv_set(tl.KV, s)
+    request.app.state.hub.publish("state", "trail")
     if not found:
         return _msg(f"No beacon of {s['target_name']} in that replicant's system.", ok=False)
     return _msg(f"Found {len(found)} beacon(s): " + ", ".join(f"{b['code']} at {b['location']}" for b in found))
@@ -92,11 +104,13 @@ async def trail_beacon(request: Request, code: str = Form(...), star: str = Form
         s["beacons"].pop(code, None)
         s["audit"].pop(code, None)
         await db.kv_set(tl.KV, s)
+        request.app.state.hub.publish("state", "trail")
         return _msg(f"Removed {code}.")
     s["last_beacon"] = {"code": code, "star": star.strip().upper()}
     s["beacons"][code] = {**s["beacons"].get(code, {}), "code": code, "star": star.strip().upper() or None,
                           "found_at": now_iso()}
     await db.kv_set(tl.KV, s)
+    request.app.state.hub.publish("state", "trail")
     return await trail_read(request, beacon=code, user=user)
 
 
@@ -108,6 +122,7 @@ async def trail_read(request: Request, beacon: str = Form(""), user: str = Depen
         return _msg("No beacons to read yet — scan a system or add a beacon code.", ok=False)
     new, errs = await tl.read_beacons(api, s, beacon or None)
     await db.kv_set(tl.KV, tl.merge_read(await db.kv_get(tl.KV, {}) or {}, s))
+    request.app.state.hub.publish("state", "trail")
     if errs and not new:
         return _msg("; ".join(errs), ok=False)
     n = sum(len(s["audit"].get(c) or []) for c in ([beacon] if beacon else s["beacons"]))
@@ -125,6 +140,7 @@ async def trail_stars(request: Request, replicant: str = Form(...), user: str = 
     s = await _state(db)
     s["stars_replicant"] = replicant
     await db.kv_set(tl.KV, s)
+    request.app.state.hub.publish("state", "trail")
     pages = []
     try:
         for n in range(1, 9):
@@ -178,6 +194,7 @@ async def trail_follow(request: Request, action: str = Form("start"), user: str 
                 await request.app.state.worker.automations.cancel(fo["job"])
             s["follow"] = fo
             await db.kv_set(tl.KV, s)
+            request.app.state.hub.publish("state", "trail")
         return _msg("Stopped following.")
     rep = s.get("scanner")
     if not rep and tl.is_bill(s):   # Bill's trail can start at SOL with any replicant
@@ -204,6 +221,7 @@ async def trail_follow(request: Request, action: str = Form("start"), user: str 
                    "visited": [], "started_at": now_iso(), "by": user, "sol_tried": first == tl.BILL_HOME,
                    "log": [{"at": now_iso(), "text": f"following {s['target_name']}: {why}"}]}
     await db.kv_set(tl.KV, s)
+    request.app.state.hub.publish("state", "trail")
     return _msg(f"Following {s['target_name']}: first stop {first}.")
 
 

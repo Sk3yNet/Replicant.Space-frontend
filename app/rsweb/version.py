@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.90.0"
+VERSION = "1.91.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.91.0", "2026-10-13", "Speed: the to:-tag pass no longer rebuilds the star catalog lookup per device (it took ~37 s "
+               "a tick and froze the server); the star catalog is decoded once per change; per-system resources are "
+               "memoized until that system's events, details, scan or the stockpiles change; pages get served between "
+               "engine stages. Dashboard: tutorial progress (GET /tutorials). Trail page: the sighting, follow log and "
+               "departures update live. Follow-to-the-end text for Bill says it stops at his AMI trade controller."),
     ("1.90.0", "2026-10-13", "Diagnostics: a Performance panel (slowest pages and requests with database, game API, engine "
                "lock and saved-value costs; engine stage timings and lock holds; storage sizes), also in snapshots; a "
                "Server-Timing header on every page and slow requests logged. Large modular devices can be printed "

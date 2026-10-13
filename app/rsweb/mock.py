@@ -243,6 +243,38 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             return JSONResponse({"error": "missing bearer token"}, status_code=401)
         return await call_next(request)
 
+    TUTORIALS = [("bootstrap", "Bootstrap", "Learn the basics of commanding your replicant.",
+                  [("check_messages", "Check your messages", "GET /messages to view your inbox."),
+                   ("check_events", "Check your events feed", "GET /events to see your game activity."),
+                   ("scan_system", "Scan your new star system.", "POST /replicants/:code/scan to scan the system."),
+                   ("check_vessel", "Check your vessel and list of stowed devices.", "GET /replicants/:code to see your replicant information.")]),
+                 ("exploring_belt", "Exploring the Belt", "Search for more mining sites and scan the belt.",
+                  [("scan_belt", "Scan the belt.", "POST /devices/:code scan at the belt."),
+                   ("search_sites", "Search for more sites.", "POST /devices/:code search."),
+                   ("mine_site", "Mine a new site.", "POST /devices/:code mine.")])]
+    tut_done = {"bootstrap": 3, "exploring_belt": 0}   # steps completed
+
+    def _tut(i, slug, name, desc, steps):
+        n = tut_done[slug]
+        return {"slug": slug, "name": name, "description": desc, "order": i + 1, "completed": n >= len(steps),
+                "current_step": n, "total_steps": len(steps)}
+
+    @app.get("/v1/tutorials")
+    async def tutorials():
+        return ok({"tutorials": [_tut(i, *t_) for i, t_ in enumerate(TUTORIALS)]})
+
+    @app.get("/v1/tutorials/{slug}")
+    async def tutorial(slug: str):
+        i, t_ = next(((i, t_) for i, t_ in enumerate(TUTORIALS) if t_[0] == slug), (None, None))
+        if t_ is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        n = tut_done[slug]
+        d = _tut(i, *t_)
+        d.pop("order"), d.pop("total_steps")
+        d["steps"] = [{"key": k, "description": ds, "hint": h, "completed": j < n, "current": j == n}
+                      for j, (k, ds, h) in enumerate(t_[3])]
+        return ok(d)
+
     @app.get("/v1/accounts/me")
     async def me():
         return ok({"name": "bob", "email": "bob@example.com", "email_verified": True, "created_at": iso(),

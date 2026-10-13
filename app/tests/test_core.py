@@ -6481,3 +6481,11 @@ def test_performance_diagnostics(client):
     assert "Engine stages" in body and "logistics_pass" in body and "Largest saved values" in body and "events:" in body
     rep = client.portal.call(perf.report, client.app.state.db)
     assert rep["storage"]["tables"]["kv"] > 0 and rep["by_path"]
+
+
+def test_dashboard_shows_tutorial_progress(client):
+    """GET /tutorials lists progress; the first unfinished one's steps show with the current step's hint."""
+    assert 'hx-get="/partials/tutorials"' in client.get("/", headers=H).text
+    body = client.get("/partials/tutorials", headers=HX).text
+    assert "0 of 2 done" in body and "Exploring the Belt" in body and "3 / 4" in body
+    assert "Check your vessel and list of stowed devices." in body and "GET /replicants/:code" in body

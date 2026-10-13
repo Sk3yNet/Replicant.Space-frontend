@@ -34,7 +34,7 @@ rule with an on/off switch, plus the jobs and the log.
 
 ### Dashboard and devices
 - **Dashboard**: a *while you were away* digest (a gap of 30 min starts a new visit; `/digest?hours=N` for any window), open
-  alerts, replicants, live countdowns, fleet summary, stockpiles with a 48 h trend, live event feed.
+  alerts, replicants, tutorial progress (the current tutorial's steps and the next step's hint), live countdowns, fleet summary, stockpiles with a 48 h trend, live event feed.
 - **Tree**: system → device type → device, with stowed devices nested in their carrier; each device opens its command panel.
 - **Device list** (`/fleet`): every device, filterable by type, status, system, tag or text. Tick devices (or all listed) to send
   them one command, or to **add tags** / **remove tags**; the ones that can't take it — command not available, in use by an
@@ -86,7 +86,7 @@ rule with an on/off switch, plus the jobs and the log.
 - **Traffic**: civilization contact (a beacon must sit at the body of the civilization's event), visitors, each beacon's audit log,
   redundant beacons. How often beacons are read (default 10 minutes).
 - **Trail**: follow a replicant through the audit logs of public FTL beacons; candidate systems with travel time and a travel
-  button; *follow to the end* keeps going until the target stops moving. *Reset trail* clears the beacons and logs when the
+  button; *follow to the end* keeps going until the target stops moving (for Bill, until it finds his AMI trade controller). *Reset trail* clears the beacons and logs when the
   target relocates. Bill (A8F48B26) always passes through SOL: with nothing to follow, or a cold trail, the follow picks
   him up there, and *restart from SOL* clears the trail and starts over. His BobNet posts about moving ("NOSOXA is in the rear-view
   mirror") restart the follow where he left and set his old shop location aside.

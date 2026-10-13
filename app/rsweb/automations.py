@@ -1117,6 +1117,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass"):
                 self.stage = stage
+                await asyncio.sleep(0)   # let waiting page requests run between stages
                 t_stage = time.perf_counter()
                 try:   # one stage failing on odd data mustn't stop every stage after it, every tick
                     out = await getattr(self, stage)()
@@ -1245,6 +1246,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     await finish(f"the trail goes cold at {star}: {h['cold']}", "warning")
         s["follow"] = fo
         await self.db.kv_set(tl.KV, s)
+        self.hub.publish("state", "trail")
         return out
 
     async def shop_found(self, s: dict, shop: dict) -> None:
@@ -1301,6 +1303,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 text += f" — following him again from {start}"
             s.pop("polled_at", None)   # re-read his beacons on the next pass
             await self.db.kv_set(tl.KV, s)
+            self.hub.publish("state", "trail")
         await self.log("trail", text, notify=True)
         await self._notify("mention", f"Trail: {text}", "/trail")
         return text
@@ -1316,6 +1319,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         s["polled_at"] = now_iso()
         new, _errs = await tl.read_beacons(self.api, s)   # a beacon's first read returns nothing new
         await self.db.kv_set(tl.KV, tl.merge_read(await self.db.kv_get(tl.KV, {}) or {}, s))
+        self.hub.publish("state", "trail")
         out = []
         for r in new:
             if s.get("target_code") and r.get("replicant_code") != s["target_code"]:
@@ -1385,8 +1389,9 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         fleet_ids = {f.get("id") for f in await self.fleets() if f.get("id")}
         busy = self.busy_devices(await self.jobs())
         out = []
+        slugs = lo.star_slugs(stars)
         for d in devices:
-            fix = lo.place_tag_fix(d, stars, fleet_ids)
+            fix = lo.place_tag_fix(d, slugs, fleet_ids)
             if not fix or d["device_code"] in busy:
                 continue
             add, rem = fix

@@ -399,6 +399,34 @@ async def timers_json(request: Request, user: str = Depends(current_user)):
     return JSONResponse(await request.app.state.db.fetchall("SELECT * FROM timers ORDER BY ends_at"))
 
 
+TUTORIALS_KV, TUTORIALS_TTL = "tutorials", 600   # seconds the list (and the current tutorial's steps) is reused
+
+
+async def tutorials_status(request: Request, force: bool = False) -> dict:
+    """GET /tutorials (each one's progress) and GET /tutorials/{slug} for the first unfinished one (its steps, the
+    current one and its hint), cached for ten minutes on the background budget."""
+    db = request.app.state.db
+    c = await db.kv_get(TUTORIALS_KV, {}) or {}
+    now = datetime.now(timezone.utc).timestamp()
+    if force or now - float(c.get("t") or 0) > TUTORIALS_TTL:
+        api = request.app.state.api
+        try:
+            body = await api.get("/tutorials", background=True) or {}
+            tuts = sorted(body.get("tutorials") or [], key=lambda x: x.get("order") or 0)
+            cur = next((x for x in tuts if not x.get("completed")), None)
+            detail = (await api.get(f"/tutorials/{cur['slug']}", background=True) or {}) if cur else None
+            c = {"t": now, "at": now_iso(), "tutorials": tuts, "detail": detail}
+        except ApiError as e:
+            c = {**c, "t": now, "error": str(e)}
+        await db.kv_set(TUTORIALS_KV, c)
+    return c
+
+
+@router.get("/partials/tutorials", response_class=HTMLResponse)
+async def p_tutorials(request: Request, refresh: str = "", user: str = Depends(current_user)):
+    return partial(request, "partials/tutorials.html", tut=await tutorials_status(request, force=bool(refresh)))
+
+
 @router.get("/partials/timers", response_class=HTMLResponse)
 async def p_timers(request: Request, user: str = Depends(current_user)):
     return partial(request, "partials/timers.html", timers=await active_timers(request))

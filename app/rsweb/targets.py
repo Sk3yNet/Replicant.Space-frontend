@@ -13,6 +13,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
+from .db import now_iso
 from .shapes import as_amounts
 
 LEVELS = ["scarce", "low", "moderate", "high", "rich"]
@@ -234,7 +235,44 @@ def _site_code(site: dict) -> str | None:
     return site.get("designation") or site.get("site") or site.get("code") or site.get("location")
 
 
+_res_memo: dict[str, tuple[tuple, dict]] = {}
+_inv_memo: list = [None, []]
+
+
+async def _token(db, star: str) -> tuple:
+    """What system_resources(star) depends on: the star's newest event, its cached location details, its scan and the
+    stockpiles. Unchanged → the memoized answer is still right."""
+    lo, hi = _loc_range(star)
+    r = await db.fetchone(
+        "SELECT (SELECT MAX(seq) FROM events WHERE star=? OR (location >= ? AND location < ?)) AS e, "
+        "(SELECT MAX(updated_at) || ' ' || COUNT(*) || ' ' || SUM(length(value)) FROM kv WHERE key >= ? AND key < ?) AS l, "
+        "(SELECT updated_at || ' ' || length(data) FROM systems WHERE star=?) AS s, "
+        "(SELECT updated_at || ' ' || length(value) FROM kv WHERE key='inventory') AS i",
+        (star, lo, hi, f"loc:{star}-", f"loc:{star}.", star))
+    return (r["e"], r["l"], r["s"], r["i"]) if r else None
+
+
+async def _inventory(db, stamp) -> list:
+    """The stockpiles, decoded once per change (system_resources runs for every system on /fleets and prospects)."""
+    if _inv_memo[0] != stamp or stamp is None:
+        _inv_memo[0], _inv_memo[1] = stamp, await db.kv_get("inventory", []) or []
+    return _inv_memo[1]
+
+
 async def system_resources(db, star: str) -> dict:
+    """Memoized _system_resources (see _token); the answer is shared, so callers only read it."""
+    star = (star or "").upper()
+    tok = await _token(db, star)
+    hit = _res_memo.get(star)
+    if tok and hit and hit[0] == tok:
+        return hit[1]
+    out = await _system_resources(db, star, await _inventory(db, tok and tok[3]))
+    if tok and now_iso() not in (tok[1] or "") + (tok[3] or ""):   # not written this very second (timestamps are to the second)
+        _res_memo[star] = (tok, out)
+    return out
+
+
+async def _system_resources(db, star: str, inventory: list) -> dict:
     """Mining sites and salvage in a system with the quantities we know, plus stockpiles.
 
     {"sites": [...], "salvage": [...], "totals": {res: {sites, salvage, stock, level}}, "known_at": iso,
@@ -334,7 +372,7 @@ async def system_resources(db, star: str) -> dict:
         if not s["depleted"]:
             for res, q in s["amounts"].items():
                 totals[res]["salvage"] += q
-    for inv in await db.kv_get("inventory", []) or []:
+    for inv in inventory:
         loc = inv.get("location") or ""
         if loc == star or loc.startswith(star + "-"):
             for res, q in as_amounts(inv.get("items")).items():

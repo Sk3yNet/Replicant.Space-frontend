@@ -87,12 +87,19 @@ def is_place(code: str) -> bool:
     return bool(re.fullmatch(r"[a-z0-9][a-z0-9\-_.]*", code.lower())) and ":" not in code
 
 
-def place_tag_fix(d: dict, stars: set[str], fleet_ids: set[str]) -> tuple[list[str], list[str]] | None:
+def star_slugs(stars) -> dict[str, str]:
+    """Tag slug → star, for place_tag_fix (build it once per pass: the catalog has tens of thousands of stars)."""
+    return {to_tag(s)[3:]: s for s in stars}
+
+
+def place_tag_fix(d: dict, stars, fleet_ids: set[str]) -> tuple[list[str], list[str]] | None:
     """`to:` naming a location rather than a system (`to:sol-3`, as typed by hand) reads as a star that doesn't exist:
     it becomes `to:sol` + `at:sol-3` (go to the system, then to that spot). A fleet's id (`to:sol-printing-hub`) stays.
-    Returns (add, remove), or None when nothing needs fixing."""
-    slugs = {to_tag(s)[3:]: s for s in stars}
+    `stars` is star_slugs(...) (or a set of stars). Returns (add, remove), or None when nothing needs fixing."""
     tags = d.get("tags") or []
+    if not any(t.startswith("to:") for t in tags):
+        return None
+    slugs = stars if isinstance(stars, dict) else star_slugs(stars)
     for t in tags:
         if not t.startswith("to:"):
             continue

@@ -1,0 +1,17 @@
+{% set tuts = tut.tutorials or [] %}
+{% set left = tuts | rejectattr('completed') | list %}
+<div class="row between"><h2>Tutorials <span class="muted small">{{ tuts | length - left | length }} of {{ tuts | length }} done</span></h2>
+  <button class="small ghost" hx-get="/partials/tutorials?refresh=1" hx-target="#tutorials" title="Ask the game again{% if tut.at %} (checked {{ tut.at | ago }}){% endif %}">refresh</button></div>
+{% if tut.error %}<p class="small lv-alert">Couldn't read the tutorials: {{ tut.error }}</p>{% endif %}
+{% if not tuts %}<p class="muted small">No tutorials reported.</p>
+{% elif not left %}<p class="muted small">All tutorials completed.</p>
+{% else %}
+{% set d = tut.detail or {} %}
+{% if d.steps %}<div class="small" style="margin-bottom:8px"><b>{{ d.name }}</b> <span class="muted">{{ d.description }}</span>
+  <ol class="small" style="margin:4px 0 0 18px;padding:0">{% for st in d.steps %}
+    <li{% if st.completed %} class="muted" style="text-decoration:line-through"{% endif %}>{% if st.current %}<b>{{ st.description }}</b>
+      <div class="muted mono">{{ st.hint }}</div>{% else %}{{ st.description }}{% endif %}</li>{% endfor %}</ol></div>{% endif %}
+<table class="small">{% for t in tuts %}<tr{% if t.completed %} class="muted"{% endif %}>
+  <td>{{ t.name }}</td><td class="muted">{{ t.description }}</td>
+  <td class="num" style="white-space:nowrap">{% if t.completed %}done{% else %}{{ t.current_step or 0 }} / {{ t.total_steps or '?' }}{% endif %}</td></tr>{% endfor %}</table>
+{% endif %}
