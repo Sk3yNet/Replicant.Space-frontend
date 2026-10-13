@@ -717,7 +717,7 @@ Query `cursor` (int), `limit` (20), `latest`, `event_type`, `device_type`, `devi
 | Category | Event | Payload fields |
 |---|---|---|
 | ami | `ami.adopted` | `devices[{device_code, device_type}]` |
-| ami | `ami.assembling` (was `ami.assembled` until 2026-10-12) | `destination`, `assembled_count` |
+| ami | `ami.assembling` (was `ami.assembled` until 2026-10-12) | `destination`, `assembling_count` |
 | ami | `ami.launched` | `directive_status`, `evaluated`, `devices_deployed` |
 | ami | `ami.released` | `devices[{device_code, device_type}]` |
 | ami | `ami.withdrawn` | `directive_paused`, `devices_recalled` |
@@ -923,7 +923,7 @@ Four mining drones used up four fresh sites (all resources 100%) in roughly 80 m
 `{"locations": [{location, items: [{quantity, resource_type}]}], "next_cursor"}`.
 
 **Moving a working drone (live 2026-10-03):** `travel` on a mining drone that is `mining (…)` fails with "Cannot cruise while
-mining" — even after its controller released it. Wait until it's idle (its site used up) before sending it elsewhere.
+mining" — even after its controller released it. Since 2026-10-13 the app sends `deactivate` first (live: `{"deactivated": "mining", "status": "mining_stopped"}`), then moves it.
 
 **Print with a destination:** `enqueue_print` keeps `tags` on queue items and accepts `oncomplete: {"command": "travel", "destination": "<loc>"}`
 (shown on the queue item). The client uses oncomplete only within the autofactory's own system; other systems go through `to:`/`at:` tags
@@ -961,3 +961,43 @@ and the loadout pass. Tag `at:<location>` = the client's pin (lower-case locatio
   replace the deprecated `diversion.diverted` / `diversion.impacted`.
 - Gravity well: close to stars, diversion effects from devices are countered.
 - Travel to an impacted (or diverted) object's location is refused. Survey drones can scan system objects.
+
+## Checked against the published docs (2026-10-13)
+
+The docs site (replicant.space/docs, changelog, blog) was read in full and compared with these notes and the code.
+Settled by the docs:
+- **Device commands**: `start_mining` / `retarget` take an optional `target` (a specific site). `travel` takes `via`
+  (waypoints, or `"direct"` to skip the nav chip) and `dry_run: true`. An autofactory cancels its current print with
+  `deactivate` (`cancel` exists only on `POST /replicants/{code}/print`). `deactivate` stops whatever a device is
+  doing (mining, printing, travel). `dequeue_print` positions count from 0. `repair` needs `target` and is refused
+  while the drone runs a directive. `recall` = come home and stow in the owner's vessel. `prospect` discovers new
+  stars beyond the catalog. `assemble` is a command of every AMI controller: bring the fleet to the controller,
+  directive kept. `withdraw` recalls the fleet and pauses the directive (`activate` resumes; no need to clear it).
+- **Argument names differ between doc pages**: devices/command says `targets: [...]` for adopt/release/attach/detach;
+  the AMI and moving-devices pages use `devices` / `device`. Live use confirms `devices` / `device`.
+- **Docs vs live**: the devices page says cargo freighters attach to a carrier; live (2026-10-12) says "Cannot attach a
+  large device". Live wins.
+- **Events (catalogue)**: `system.impact_warning {destination, impact_eta, device_codes}` fires once per object, to
+  accounts with devices at it; `system.object_diverted {outcome: diverted|partial, impact_target, mass_class}`;
+  `system.object_impacted {impact_target, mass_class, terraform_effects}`; none carries the object's designation:
+  the envelope `location` is the object. `diversion.diverted / .impacted / .partial` are deprecated. `device.lost`
+  (empty payload) = flung off by a diversion. `device.changed_owner {from_replicant, to_replicant, direction:
+  sent|received}`. `travel.arrived` carries `recalling`. `ami.assembling {destination, assembling_count}`.
+  Adopted devices stop emitting their own events: the AMI digests carry them (survey `report.scans[]`).
+- **Event logs**: no cursor = the most recent `limit` events, oldest first; `previous_cursor` pages back (null at the
+  start); naive `after` / `before` use the account time zone. The stream keeps ~10,000 events; an older cursor starts
+  from the earliest available.
+- **Rate limits** of their own: star catalog 1/min, feedback 10/h, webhook changes 12/h (besides 120 GET / 60
+  commands a minute). Feedback `body` up to 2000 characters.
+- **Wards**: `evicted_miners` is a count. Max 25 active wards; no ward in a system with anyone's System Hub.
+- **Hubs**: printed with a 7-day shield; unmaintained 17 days after printing they degrade to 0 %; upkeep wants a
+  stockpile at the hub's location and a maintenance drone patrolling the system. All of an account's hubs form one
+  FTL mesh across the galaxy (the app still links hubs only within 15 ly: to verify with `GET /devices/{hub}/network`).
+- **Relays**: 7.5 ly; `GET /devices/{relay}/network` → `connections`, `range_ly`, `status`.
+- **Catalog**: regenerated every 5 minutes; `has_hub` / `has_ward` omitted when false; covers ~70 ly (observatory
+  page) or ~88 ly (locations page).
+- **Accounts**: `/accounts/me` nests `events` and `messages` objects; `cohort_permission` is set per replicant via
+  PATCH (default "private"); replicant `project` up to 2000 characters; `GET /v1/species` is documented
+  (`{species: [{species_key, name, description, government, greeting, homeworld_type, tech_affinity, trait}]}`).
+- **Tutorials**: `GET /v1/tutorials`, `GET /v1/tutorials/{slug}` (see Tutorials above).
+- **Blueprints**: starter mining_drone prints in 10 min (600 s); maintenance_drone isn't a starter type.

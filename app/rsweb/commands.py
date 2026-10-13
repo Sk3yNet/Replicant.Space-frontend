@@ -21,6 +21,7 @@ Field `name` may be a dotted path ("route.collect", "oncomplete.destination") to
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -48,7 +49,10 @@ F = Field
 
 # --- device commands --------------------------------------------------------------------------
 COMMANDS: dict[str, list[Field]] = {
-    "travel": [F("destination", "location", required=True, help="Location code (planet, belt, L4/L5, star …)")],
+    "travel": [F("destination", "location", required=True, help="Location code (planet, belt, L4/L5, star …)"),
+               F("via", "via", label="via", help="Optional: locations to route through (comma-separated), or 'direct' "
+                                                  "to skip the nav chip"),
+               F("dry_run", "bool", default=False, help="Preview the route and ETA without leaving")],
     "stow": [F("target", "device", label="stow into (a carrier here)", filter={"here": True, "carrier": "hold"},
                help="Leave blank to stow on the default carrier", side="no_hold"),
              F("cargo", "device", label="device to take into my hold", filter={"here": True, "cargo": True},
@@ -56,8 +60,10 @@ COMMANDS: dict[str, list[Field]] = {
     "deploy": [F("cargo", "device", label="device to deploy from my hold", filter={"stowed_in_self": True},
                  help="Leave blank to deploy this device itself", side="has_hold")],
     "recall": [],
-    "start_mining": [F("resource_type", "resource", required=True)],
-    "retarget": [F("resource_type", "resource", required=True)],
+    "start_mining": [F("resource_type", "resource", required=True),
+                     F("target", "location", help="Optional: a specific resource site to mine")],
+    "retarget": [F("resource_type", "resource", required=True),
+                 F("target", "location", help="Optional: a specific resource site to mine")],
     "collect_resources": [F("resources", "resources", help="Amounts to load from the stock here")],
     "deposit_resources": [F("resources", "resources", help="Leave blank to empty the whole hold")],
     "attach": [F("device", "device", label="device to attach (cargo here)", filter={"here": True, "cargo": True},
@@ -83,7 +89,7 @@ COMMANDS: dict[str, list[Field]] = {
     ],
     "dequeue_print": [F("index", "int", required=True, default=0, help="Queue position, counted from 0 (0 = first waiting)")],
     "clear_queue": [],
-    "repair": [F("target", "device", help="Device to repair (if the drone needs a target)")],
+    "repair": [F("target", "device", required=True, help="Device to repair (not while the drone runs a patrol directive)")],
     "replicate": [F("target", "device", required=True, label="empty matrix",
                     filter={"device_type": "empty_replicant_matrix"})],
     "adopt": [F("devices", "devices", required=True, filter={"not_feature": "ami"})],
@@ -92,7 +98,7 @@ COMMANDS: dict[str, list[Field]] = {
     "clear_directive": [],
     "launch": [],
     "withdraw": [],
-    "assemble": [F("destination", "location", help="Where to assemble the fleet (if required)")],
+    "assemble": [],   # docs (AMI): brings the fleet to the controller's own location; no arguments
     "activate": [],
     "deactivate": [],
     "compact": [],
@@ -109,12 +115,12 @@ COMMANDS: dict[str, list[Field]] = {
 DESCRIPTIONS: dict[str, str] = {
     "travel": "Fly to a location. Inside a system this is a cruise; to another system the game plans surge legs (needs the "
               "surge feature, else ride a carrier). A drone tracking a site must be deactivated first.",
-    "stow": "Board a carrier's hold (vessels, mobile fleets). Pick from either side: on the device, the carrier; on the "
+    "stow": "Board a carrier's hold (vessels). Pick from either side: on the device, the carrier; on the "
             "carrier, the device — the command goes to the device either way. It must be at the carrier's location; it "
             "then rides along and doesn't show a location of its own.",
     "deploy": "Leave the carrier it's stowed in, at the carrier's location. Beacons, relays and slingshots start working "
               "once deployed (a relay also needs activate).",
-    "recall": "Return to the AMI controller (or carrier) that runs it.",
+    "recall": "Come home and stow itself in its owner's vessel.",
     "start_mining": "Mine one resource at the belt site or salvage it's at. Mined resources pile up at that location.",
     "retarget": "Switch a mining drone to another resource without moving it.",
     "collect_resources": "Load resources from your stockpile at this location into the hold (up to its cargo capacity).",
@@ -129,12 +135,12 @@ DESCRIPTIONS: dict[str, str] = {
               "deactivating it closes the site).",
     "stellar_census": "List the stars around this vessel: positions, entry points and whether they're explored. Adds "
                       "them to the star catalog (Map › Stars).",
-    "prospect": "A galactic observatory looks for resources and events in a direction (optional).",
+    "prospect": "A galactic observatory discovers new stars beyond the catalog, in a direction (optional).",
     "enqueue_print": "Add a print to this autofactory's queue. It waits for materials at the factory's location; tags "
                      "and an on-complete command apply to the new device.",
-    "dequeue_print": "Remove one waiting print from the queue (1 = first waiting item).",
+    "dequeue_print": "Remove one waiting print from the queue (0 = first waiting item).",
     "clear_queue": "Remove every waiting print (the one already printing carries on).",
-    "repair": "A maintenance drone repairs a device at its location.",
+    "repair": "A maintenance drone repairs a device at its location (not while it runs a directive such as patrol).",
     "replicate": "Copy this replicant matrix into an empty matrix at the same location (a new replicant).",
     "adopt": "An AMI controller takes these drones under its control; its directive then drives them.",
     "release": "An AMI controller lets these drones go; they stop where they are, idle.",
@@ -142,7 +148,7 @@ DESCRIPTIONS: dict[str, str] = {
     "clear_directive": "Stop an AMI controller's directive; its drones stay adopted.",
     "launch": "Start the controller's directive: it deploys and sends out its drones.",
     "withdraw": "The AMI controller calls its drones back in.",
-    "assemble": "A fleet controller gathers its adopted devices (at a destination, if given).",
+    "assemble": "An AMI controller brings its fleet home to the controller's location without ending the directive (uses taxi plates when it can).",
     "activate": "Switch a device on: relays (at an L4/L5 point), hubs, wards, AMI controllers, propulsors, or a drone "
                 "that was deactivated.",
     "deactivate": "Switch a device off. A survey drone tracking a site must be deactivated before it can move "
@@ -406,6 +412,8 @@ def parse_fields(fields: list[Field], form) -> dict:
             val = raw.lower() in ("true", "1", "yes", "on")
         elif f.kind == "tags":
             val = [t.strip() for t in raw.split(",") if t.strip()]
+        elif f.kind == "via":   # docs (drives): a list of waypoints, or "direct" to skip the nav chip
+            val = "direct" if raw.lower() == "direct" else [x.strip().upper() for x in re.split(r"[,\s]+", raw) if x.strip()]
         elif f.kind in ("device", "replicant", "location"):
             val = raw.upper()
         else:

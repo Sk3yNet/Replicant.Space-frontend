@@ -123,7 +123,10 @@ def update(s: dict, devices: list[dict], replicants: dict, pos: dict[str, Any], 
     return {"lost": newly, "found": back}
 
 
-DEAL_EVENTS = ("trade.completed", "event.completed", "contract.completed")
+# + devices used up otherwise (docs catalogue): print.completed consumed_device_codes, megastructure.contributed
+# contributed_devices, trade.created escrowed.devices — matched by their codes in the payload
+DEAL_EVENTS = ("trade.completed", "event.completed", "contract.completed", "print.completed", "megastructure.contributed",
+               "trade.created")
 
 
 async def given_away(db, missing: dict[str, tuple[str | None, str | None]], hours: float = 24) -> set[str]:
@@ -174,9 +177,9 @@ async def track(db, devices: list[dict]) -> dict:
     candidates = [c for c in s["lost"] if c not in listed]
     gone: set[str] = set()
     if candidates:
-        from .ingest import GONE_EVENTS
+        from .ingest import GONE_EVENTS, GONE_SQL
         rows = await db.fetchall(
-            f"SELECT DISTINCT device_code FROM events WHERE event IN ({','.join('?' * len(GONE_EVENTS))}) "
+            f"SELECT DISTINCT device_code FROM events WHERE {GONE_SQL} "
             f"AND device_code IN ({','.join('?' * len(candidates))})", (*GONE_EVENTS, *candidates))
         gone = {r["device_code"] for r in rows}
         # paid away in a trade or contract: not lost, just no longer yours

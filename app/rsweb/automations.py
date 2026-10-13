@@ -362,6 +362,10 @@ def event_matches(st: dict, ev: dict, device: str | None) -> bool:
     if device and ev.get("device_code") != device:
         return False
     p = ev.get("payload") or {}
+    if ev.get("event") == "travel.arrived" and p.get("recalling"):
+        return False   # a recalled device coming home, not the trip this step waits for
+    if p.get("from_digest") and st.get("match"):
+        return False   # an AMI digest only names the event, not where: a step that needs a place waits (or times out)
     for k, v in (st.get("match") or {}).items():
         have = p.get(k, ev.get("location") if k in ("destination", "scan_target", "search_target") else None)
         if have is None:
@@ -567,6 +571,14 @@ class AutomationEngine(OpsRules, BootstrapMixin):
              json.dumps(resp, default=str)[:20000] if resp is not None else None))
         if err is None and method == "PATCH" and isinstance(resp, dict) and isinstance(resp.get("tags"), list):
             await self.remember_tags(path.rstrip("/").split("/")[-1], resp["tags"])
+        cmd = (body or {}).get("command") if isinstance(body, dict) else None
+        if err is None and cmd in ("launch", "withdraw") and isinstance(resp, dict):
+            # docs (AMI): launch answers assigned_devices {already_deployed, deployed, failed, skipped}; withdraw failed
+            ad = resp.get("assigned_devices") if isinstance(resp.get("assigned_devices"), dict) else resp
+            failed, skipped = ad.get("failed") or [], ad.get("skipped") or []
+            if failed or skipped:
+                await self.log("ami", f"{label}: {cmd} left out {len(failed)} failed / {len(skipped)} skipped device(s): "
+                                      f"{json.dumps(failed or skipped, default=str)[:300]}", "warning")
         return err is None, resp, err
 
     async def remember_tags(self, code: str, tags: list[str]) -> None:
@@ -1115,7 +1127,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             for stage in ("evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "news_pass"):
                 self.stage = stage
                 await asyncio.sleep(0)   # let waiting page requests run between stages
                 t_stage = time.perf_counter()
@@ -1427,6 +1439,50 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         await self.db.kv_set("retag_at", now_iso())
         await self.create_job("fleets", f"renamed fleet: retag {len(steps)} device(s)", None, steps, {"devices": []}, force=True)
         return [f"retag {len(steps)}"]
+
+    async def news_pass(self, force: bool = False) -> list[str]:
+        """The game's changelog and blog, every 6 hours (news.py): new versions and posts go to the bell."""
+        from . import news
+        s = await self.db.kv_get(news.KV, {}) or {}
+        last = _ts(s.get("tried_at"))
+        if not force and last and (_now() - last).total_seconds() < news.EVERY:
+            return []
+        if not force and "replicant.space" not in str(getattr(self.api.http, "base_url", "")):
+            return []   # a dev / test setup against the mock server: don't reach out to the real site
+        s["tried_at"] = now_iso()
+        try:
+            changelog = news.parse_changelog(await news.fetch("/changelog/"))
+            blog = news.parse_blog(await news.fetch("/blog/"))
+        except Exception as e:
+            s["error"] = f"{type(e).__name__}: {e}"[:300]
+            await self.db.kv_set(news.KV, s)
+            return []
+        if not changelog and not blog:
+            s["error"] = "the changelog and blog pages had no entries the parser recognizes (layout changed?)"
+            await self.db.kv_set(news.KV, s)
+            return []
+        new_c, new_b = news.new_items(s, changelog, blog)
+        s.update({"checked_at": now_iso(), "error": None, "changelog": changelog[:news.KEEP] or s.get("changelog") or [],
+                  "blog": blog[:news.KEEP] or s.get("blog") or [],
+                  "known_versions": sorted(set(s.get("known_versions") or []) | {c["version"] for c in changelog}),
+                  "known_posts": sorted(set(s.get("known_posts") or []) | {p["id"] for p in blog})})
+        s["new"] = {"changelog": [c["version"] for c in new_c] + [v for v in (s.get("new") or {}).get("changelog") or []
+                                                                  if v not in {c["version"] for c in new_c}][:10],
+                    "blog": [p["id"] for p in new_b]}
+        await self.db.kv_set(news.KV, s)
+        out = []
+        for c in reversed(new_c):
+            await self._notify("mention", news.headline(c), c["url"])
+            await self.log("news", news.headline(c))
+            out.append(c["version"])
+        for p in reversed(new_b):
+            text = f"New blog post by {p['author']}: {p['title']}"
+            await self._notify("mention", text, p["url"])
+            await self.log("news", text)
+            out.append(p["id"])
+        if out:
+            self.hub.publish("state", "news")
+        return out
 
     async def _notify(self, level: str, text: str, link: str = "/fleets") -> None:
         cur = await self.db.execute("INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
@@ -2037,7 +2093,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                                         "ORDER BY seq DESC LIMIT 50"):
             if _ts(r["created_at"]) and (_now() - _ts(r["created_at"])).total_seconds() < 7200:
                 p = _json.loads(r["payload"] or "{}")
-                des = p.get("object_designation") or p.get("designation") or p.get("location") or r["location"]
+                des = p.get("object_designation") or p.get("designation") or r["location"]   # envelope location = the object
                 if des:
                     warned.add(des)
         scans = {}
@@ -2570,7 +2626,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         p = ev.get("payload") or {}
         dest = p.get("destination") or ev.get("location")
         star = star_of(dest) or ev.get("star")
-        if not vessel or not star:
+        if not vessel or not star or p.get("recalling"):
             return
         if not await self.arrived_from_elsewhere(ev, star):
             return  # moving around inside a system never re-triggers the arrival rules

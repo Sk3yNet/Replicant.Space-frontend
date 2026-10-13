@@ -34,7 +34,7 @@ rule with an on/off switch, plus the jobs and the log.
 
 ### Dashboard and devices
 - **Dashboard**: a *while you were away* digest (a gap of 30 min starts a new visit; `/digest?hours=N` for any window), open
-  alerts, replicants, tutorial progress (the current tutorial's steps and the next step's hint), live countdowns, fleet summary, stockpiles with a 48 h trend, live event feed.
+  alerts, replicants, tutorial progress (the current tutorial's steps and the next step's hint), game news (the official changelog and blog, read every 6 hours; new versions and posts ring the bell), live countdowns, fleet summary, stockpiles with a 48 h trend, live event feed.
 - **Tree**: system → device type → device, with stowed devices nested in their carrier; each device opens its command panel.
 - **Device list** (`/fleet`): every device, filterable by type, status, system, tag or text. Tick devices (or all listed) to send
   them one command, or to **add tags** / **remove tags**; the ones that can't take it — command not available, in use by an
@@ -385,6 +385,7 @@ docker-compose.yml         the Portainer stack (multi-user: one server per Googl
 docker-compose.single.yml  the original single-user stack
 nginx/                     nginx image with the auth_request config (default.conf; multi.conf for multi-user mode)
 tools/replay_snapshot.py   run one automation tick against a Diagnostics snapshot
+tools/fetch_docs.py        save the game's docs pages and changelog as text (to check the app against them)
 API_REFERENCE.md           API notes compiled from the official docs
 app/rsweb/
   main.py, config.py       app start-up and settings

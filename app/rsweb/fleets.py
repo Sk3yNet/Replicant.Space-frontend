@@ -886,7 +886,10 @@ def recall_steps(fleet: dict, devices: list[dict], inventory: dict[str, dict], h
     steps = []
     withdrawn = set()
     for d in ms:
-        if "controller" in (d.get("device_type") or "") and (d.get("ami_directive") or {}).get("name"):
+        launched = str(d.get("status") or "").startswith("launched")
+        if "controller" in (d.get("device_type") or "") and (d.get("ami_directive") or {}).get("name") and not launched:
+            # a launched one is withdrawn below instead: docs (AMI) — withdraw recalls the fleet and pauses the
+            # directive, keeping its configuration (activate resumes it)
             steps.append(step(f"{d['device_code']}: clear directive", f"/devices/{d['device_code']}", {"command": "clear_directive"}))
         if "controller" in (d.get("device_type") or "") and str(d.get("status") or "").startswith("launched"):
             # a launched controller isn't deployed and can't travel ("Device is not deployed", seen live 2026-10-11:

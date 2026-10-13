@@ -181,7 +181,7 @@ def test_maintenance_sets_patrol_and_reports(client):
     sol = next(r for r in up.report(client.portal.call(eng(client).devices)) if r["star"] == "SOL")
     assert sol["verdict"] == "covered"
     page = client.get("/maintenance", headers=H).text
-    assert "Repair now" in page and "patrolling" in page
+    assert "its patrolling drone repairs it" in page and "patrolling" in page   # docs: repair is refused while patrolling
     r = client.post("/maintenance/repair", data={"target": "2AC61213", "drone": "MD000001"}, headers=HX)
     assert "result ok" in r.text
 

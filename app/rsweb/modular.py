@@ -124,16 +124,28 @@ def activate_step(code: str) -> dict:
     return step(f"{code}: activate", f"/devices/{code}", {"command": "activate"})
 
 
+def mining(d: dict) -> bool:
+    """A drone mining in place: `deactivate` stops it (live 2026-10-13: {"deactivated": "mining", "status":
+    "mining_stopped"}), so a move doesn't have to wait for it to go idle ('Cannot cruise while mining')."""
+    return str(d.get("status") or "").startswith("mining") and not str(d.get("status") or "").startswith("mining_stopped")
+
+
 def with_untracking(steps: list[dict], devices: list[dict]) -> list[dict]:
     """A survey drone tracking (or searching) a site can't move: deactivate it right before its first move — so the
-    miners keep their site until the carrier is there — and activate it again once it has landed."""
+    miners keep their site until the carrier is there — and activate it again once it has landed. A mining drone is
+    deactivated (stops mining) right before its first move too; it isn't switched back on (it mines where it lands
+    when told to)."""
     by = {d.get("device_code"): d for d in devices}
-    held = {c for c, d in by.items() if c and tracking(d)}
-    if not held or any((s.get("body") or {}).get("command") == "deactivate" for s in steps):
-        return steps
-    return _wrap(steps, held, lambda code: deactivate_step(
-        code, "stop warding" if str(by[code].get("status") or "").startswith("warding") else "stop tracking its site"),
-        activate_step)
+    done = {s.get("path", "").rsplit("/", 1)[-1] for s in steps if (s.get("body") or {}).get("command") == "deactivate"}
+    held = {c for c, d in by.items() if c and tracking(d) and c not in done}
+    miners = {c for c, d in by.items() if c and mining(d) and c not in done}
+    if held:
+        steps = _wrap(steps, held, lambda code: deactivate_step(
+            code, "stop warding" if str(by[code].get("status") or "").startswith("warding") else "stop tracking its site"),
+            activate_step)
+    if miners:
+        steps = _wrap(steps, miners, lambda code: deactivate_step(code, "stop mining"), lambda code: None)
+    return steps
 
 
 def with_compaction(steps: list[dict], devices: list[dict], bps: dict[str, dict] | None = None) -> list[dict]:
@@ -237,8 +249,8 @@ def _wrap(steps: list[dict], codes: set[str], before_move, after_land) -> list[d
         if pre:
             before.setdefault(first_move, []).append(pre)
         for i, k in mine:
-            if k == "land":
-                after.setdefault(i, []).append(after_land(code))
+            if k == "land" and (a := after_land(code)):
+                after.setdefault(i, []).append(a)
         last_i, last_k = mine[-1]
         if last_k == "move" and (steps[last_i].get("body") or {}).get("command") == "travel":
             # a trip it flew itself, not boarding anything afterwards: once it's there (after its arrival wait)
@@ -246,7 +258,8 @@ def _wrap(steps: list[dict], codes: set[str], before_move, after_land) -> list[d
             for j in range(last_i + 1, len(steps)):
                 if steps[j].get("method") == "WAIT" and steps[j].get("wait_device") == code:
                     end = j
-            after.setdefault(end, []).append(after_land(code))
+            if a := after_land(code):
+                after.setdefault(end, []).append(a)
     out, where = [], {}
     for i, s in enumerate(steps):
         out += before.get(i, [])

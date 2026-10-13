@@ -26,10 +26,12 @@ def is_shop(d: dict) -> bool:
 
 
 def relay_in(star: str, devices: list[dict]) -> dict | None:
+    """An *active* FTL relay or working hub in the system (docs: "If the system has an active FTL relay, the controller
+    broadcasts a directory entry")."""
+    from . import relaynet
     for d in devices:
         t = d.get("device_type") or ""
-        if star_of(d.get("location")) == star and ("relay" in t or "system_hub" in t) \
-                and not str(d.get("status") or "").startswith(("stowed", "inactive", "compact")):
+        if star_of(d.get("location")) == star and ("relay" in t or "system_hub" in t) and relaynet.reach(d):
             return d
     return None
 

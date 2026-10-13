@@ -33,8 +33,10 @@
     {% for d in r.damaged %}<tr><td class="mono"><a href="/devices/{{ d.code }}">{{ d.code }}</a></td><td>{{ d.type | human }}</td><td>{{ d.location }}</td>
       <td class="num {{ 'lv-alert' if d.capacity < (cfg.critical or 60) }}">{{ d.capacity }} %</td>
       <td>{% if d.self_repairs %}<span class="muted">self-repairing</span>{% endif %}
-        {% set ds = r.drones | selectattr('placed') | list %}{% if ds %}
-        <button class="small ghost" hx-post="/maintenance/repair" hx-vals='{{ {"target": (d.code) | string, "drone": (ds[0].code) | string} | tojson }}' hx-target="next .mt-r">Repair now</button><span class="mt-r"></span>{% endif %}</td></tr>{% endfor %}
+        {# docs: repair is refused while the drone runs a directive — a patrolling drone repairs on its own #}
+        {% set ds = r.drones | selectattr('placed') | rejectattr('patrol') | list %}{% if ds %}
+        <button class="small ghost" hx-post="/maintenance/repair" hx-vals='{{ {"target": (d.code) | string, "drone": (ds[0].code) | string} | tojson }}' hx-target="next .mt-r">Repair now</button><span class="mt-r"></span>
+        {% elif r.drones | selectattr('patrol') | list %}<span class="muted">its patrolling drone repairs it</span>{% endif %}</td></tr>{% endfor %}
   </table>
   {% endif %}
 </div>

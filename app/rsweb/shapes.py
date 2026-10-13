@@ -62,3 +62,30 @@ def normalize_blueprints(bps: Any) -> list[dict]:
                     "device_type": str(b.get("device_type") or b.get("name") or "?"),
                     "print_time": _num(b.get("print_time")) or 0})
     return out
+
+
+# The account's time zone (GET /accounts/me "timezone", set by ingest.sync_account). Docs (event logs): naive
+# timestamps are in the account's time zone — e.g. an asteroid's impact_eta "2026-08-26T09:30:00".
+ACCOUNT_TZ: list[str | None] = [None]
+
+
+def game_time(v):
+    """A game timestamp as an aware datetime: offsets and Z as given; naive ones in the account's time zone (UTC when
+    it isn't known yet). None for empty or unreadable values."""
+    from datetime import datetime, timezone
+    if not v:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo:
+        return dt
+    tz = timezone.utc
+    if ACCOUNT_TZ[0]:
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(ACCOUNT_TZ[0])
+        except Exception:
+            pass
+    return dt.replace(tzinfo=tz)

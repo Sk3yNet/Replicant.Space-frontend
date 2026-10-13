@@ -32,6 +32,12 @@ BLOCKED = [
 ]
 
 
+def own_limit(path: str) -> bool:
+    """Endpoints with a rate limit separate from the global read / command buckets."""
+    p = path.split("?")[0].rstrip("/")
+    return p in ("/stars", "/feedback") or p.startswith("/accounts/webhook")
+
+
 class ApiError(Exception):
     def __init__(self, status: int, message: str, body: Any = None):
         super().__init__(f"{status}: {message}")
@@ -168,6 +174,11 @@ class RSClient:
                 await asyncio.sleep(2 ** attempt)
                 continue
             self._note_headers(resp)
+            if resp.status_code == 429 and own_limit(path):
+                # docs (rate-limits): the catalog (1/min), feedback (10/h) and webhook changes (12/h) have limits of
+                # their own — a refusal there mustn't stall every other request in the bucket
+                self.last_error = f"{path}: rate limited (its own limit)"
+                raise ApiError(429, "rate limited", _safe_json(resp))
             if resp.status_code == 429:
                 retry = retry_after(resp.headers.get("Retry-After"), 10.0)
                 bucket = self.get_bucket if method in READ_METHODS else self.act_bucket

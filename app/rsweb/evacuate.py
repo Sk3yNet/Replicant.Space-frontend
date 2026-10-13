@@ -26,10 +26,9 @@ def star_of(loc: str | None) -> str:
 
 
 def _ts(v: Any) -> float | None:
-    try:
-        return datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp()
-    except (TypeError, ValueError):
-        return None
+    from .shapes import game_time
+    dt = game_time(v)   # naive = the account's time zone (docs), not the server's
+    return dt.timestamp() if dt else None
 
 
 def due(objects: dict[str, dict], now: float | None = None, minutes: float = EVAC_MINUTES,

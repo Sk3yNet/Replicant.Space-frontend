@@ -1,13 +1,15 @@
 """Our system hubs and system wards: Map › Wards & hubs.
 
 From the game's docs (API_REFERENCE.md §9):
-  • System hub — `activate`; a 7-day shield after activation, then −10 % capacity a day without maintenance.
+  • System hub — `activate`; printed with a 7-day shield (from its first activation; reactivating after a move doesn't
+    renew it), then −10 % capacity a day without maintenance.
     Events: hub.activated {star, location}, hub.maintained {resources_consumed, capacity},
     hub.warning {capacity, warning_type}, hub.destroyed {star, location}.
-  • System ward — `activate` (the response may include `evicted_miners`) / `deactivate`; at most 25 per account;
+  • System ward — `activate` (the response's `evicted_miners` is a count) / `deactivate`; at most 25 per account;
     incompatible with hubs (one system doesn't take both).
-How a hub's maintenance draws its resources isn't documented. `hub.maintained` says what it consumed, so the tracker
-shows that next to the stockpile in the hub's system, and warns when the system holds less than one maintenance's worth.
+Docs (system hubs): upkeep wants "a stockpile at the location and a maintenance drone patrolling in the system".
+`hub.maintained` says what it consumed, so the tracker shows that next to the stockpile at the hub's own location, and
+warns when that holds less than one maintenance's worth.
 """
 from __future__ import annotations
 
@@ -75,7 +77,7 @@ def hubs(devices: list[dict], hub_events: list[dict], stock: dict[str, dict[str,
          now: datetime | None = None) -> list[dict]:
     """One row per hub of ours: its shield and upkeep state.
     `hub_events`: stored hub.* events ({event, device_code, star, location, payload, created_at}), oldest first.
-    `stock`: {star: {resource: qty}} — the stockpile in each system."""
+    `stock`: {star or location: {resource: qty}} (stock_by_star) — the hub's own location counts."""
     now = now or datetime.now(timezone.utc)
     by_dev: dict[str, list[dict]] = {}
     for e in hub_events:
@@ -87,7 +89,7 @@ def hubs(devices: list[dict], hub_events: list[dict], stock: dict[str, dict[str,
         code, star = d.get("device_code"), star_of(d.get("location"))
         evs = by_dev.get(code, []) + [e for e in by_dev.get("", []) if star and star_of(e.get("location")) == star]
         evs.sort(key=lambda e: str(e.get("created_at") or ""))
-        act = next((e for e in reversed(evs) if e.get("event") == "hub.activated"), None)
+        act = next((e for e in evs if e.get("event") == "hub.activated"), None)   # the first: the shield isn't renewed
         maint = next((e for e in reversed(evs) if e.get("event") == "hub.maintained"), None)
         warn = next((e for e in reversed(evs) if e.get("event") == "hub.warning"), None)
         activated_at = _ts(act.get("created_at")) if act else None
@@ -108,7 +110,7 @@ def hubs(devices: list[dict], hub_events: list[dict], stock: dict[str, dict[str,
             since = max(last_cap_at, shield_until) if shield_until else last_cap_at
             projected = max(0.0, last_cap - DECAY_PER_DAY * max(0.0, (now - since).total_seconds() / 86400))
         days_left = (projected / DECAY_PER_DAY) if (projected is not None and not shielded) else None
-        here = stock.get(star) or {}
+        here = stock.get(d.get("location") or "") or {}   # docs: the stockpile at the hub's location
         short = {k: round(v - float(here.get(k) or 0), 1) for k, v in consumed.items() if float(here.get(k) or 0) < v}
         level = "ok"
         if not shielded and projected is not None and projected < 50:
@@ -156,11 +158,13 @@ def wards(devices: list[dict]) -> dict:
 
 
 def evicted(resp: Any) -> list[dict]:
-    """`evicted_miners` from a ward's activate answer, as [{replicant/owner, device, ...}] (shape undocumented: a list
-    of codes or of objects)."""
+    """`evicted_miners` from a ward's activate answer. The docs (system-wards) make it a count ("evicted_miners": 3):
+    that many rows without a device; a list of codes or objects is still read as such."""
     ev = (resp or {}).get("evicted_miners") if isinstance(resp, dict) else None
     if not ev:
         return []
+    if isinstance(ev, (int, float)) and not isinstance(ev, bool):
+        return [{"device_code": None} for _ in range(int(ev))]
     out = []
     for x in ev if isinstance(ev, list) else [ev]:
         out.append(x if isinstance(x, dict) else {"device_code": str(x)})
@@ -171,9 +175,12 @@ def eviction_text(rows: list[dict]) -> str:
     bits = []
     for r in rows:
         who = r.get("owner_name") or r.get("replicant_name") or r.get("owner_replicant_code") or r.get("replicant_code")
-        what = r.get("device_code") or r.get("code") or "?"
+        what = r.get("device_code") or r.get("code")
+        if not what and not who:
+            continue
+        what = what or "?"
         bits.append(f"{what}" + (f" ({who})" if who else ""))
-    return ", ".join(bits)
+    return ", ".join(bits) or "other players' miners (the game gives only a count)"
 
 
 def stock_by_star(inventory: list[dict]) -> dict[str, dict[str, float]]:
@@ -182,6 +189,8 @@ def stock_by_star(inventory: list[dict]) -> dict[str, dict[str, float]]:
         for k, v in (loc.get("items") or {}).items():
             try:
                 out[star_of(loc.get("location"))][k] += float(v or 0)
+                if "-" in (loc.get("location") or ""):   # and per location (a hub's upkeep draws on its own spot)
+                    out[loc["location"]][k] += float(v or 0)
             except (TypeError, ValueError):
                 pass
     return {s: dict(v) for s, v in out.items()}

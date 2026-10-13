@@ -31,13 +31,8 @@ DIVERTING = ("divert", "active", "thrust", "propel")
 
 
 def _ts(v: Any) -> datetime | None:
-    if not v:
-        return None
-    try:
-        dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    from .shapes import game_time
+    return game_time(v)   # naive = the account's time zone (docs), not UTC
 
 
 def star_of(loc: str | None) -> str:

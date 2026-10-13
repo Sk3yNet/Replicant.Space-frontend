@@ -1,0 +1,16 @@
+{% set newc = (n.new or {}).changelog or [] %}
+<div class="row between"><h2>Game news <span class="muted small">{% if n.checked_at %}checked {{ n.checked_at | ago }}{% else %}not read yet{% endif %}</span></h2>
+  <span><a class="small" href="https://replicant.space/changelog/" target="_blank" rel="noopener">changelog</a> ·
+  <a class="small" href="https://replicant.space/blog/" target="_blank" rel="noopener">blog</a>
+  <button class="small ghost" hx-get="/partials/news?refresh=1" hx-target="#news" title="Read the changelog and blog now (otherwise every 6 hours)">check now</button></span></div>
+{% if n.error %}<p class="small lv-alert">Last check failed: {{ n.error }}</p>{% endif %}
+{% for c in (n.changelog or [])[:3] %}
+<details class="small"{% if loop.first %} open{% endif %}><summary><b>v{{ c.version }}</b> {{ c.codename }} <span class="muted">{{ c.date }}</span>
+  {% if c.version in newc %}<span class="pill small">new</span>{% endif %}</summary>
+  {% if c.summary %}<p>{{ c.summary }}</p>{% endif %}
+  {% for h, items in c.sections.items() %}<div class="muted" style="margin-top:4px">{{ h }}</div>
+    <ul style="margin:2px 0 0 18px;padding:0">{% for i in items %}<li>{{ i }}</li>{% endfor %}</ul>{% endfor %}
+  <a href="{{ c.url }}" target="_blank" rel="noopener">open</a></details>
+{% endfor %}
+{% if n.blog %}<div class="small" style="margin-top:6px"><span class="muted">Blog:</span>
+  {% for p in n.blog[:3] %}<a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.title }}</a> <span class="muted">({{ p.author }}, {{ p.date }})</span>{{ ' · ' if not loop.last }}{% endfor %}</div>{% endif %}

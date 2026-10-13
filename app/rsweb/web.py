@@ -422,6 +422,14 @@ async def tutorials_status(request: Request, force: bool = False) -> dict:
     return c
 
 
+@router.get("/partials/news", response_class=HTMLResponse)
+async def p_news(request: Request, refresh: str = "", user: str = Depends(current_user)):
+    from . import news
+    if refresh:
+        await request.app.state.worker.automations.news_pass(force=True)
+    return partial(request, "partials/news.html", n=await request.app.state.db.kv_get(news.KV, {}) or {})
+
+
 @router.get("/partials/tutorials", response_class=HTMLResponse)
 async def p_tutorials(request: Request, refresh: str = "", user: str = Depends(current_user)):
     return partial(request, "partials/tutorials.html", tut=await tutorials_status(request, force=bool(refresh)))
@@ -549,7 +557,8 @@ async def print_queue_ctx(request: Request, code: str, dev: dict, outcome: dict 
     cur = await printqueue.current(db, dev)
     remaining, exact = printqueue.remaining_seconds(cur, queue, bps)
     cmds = dev.get("available_commands") or []
-    cancel_cmd = next((c for c in ("cancel_print", "cancel") if c in cmds), None)
+    # docs (autofactories): cancel the current print with {"command": "deactivate"}
+    cancel_cmd = next((c for c in ("deactivate", "cancel_print", "cancel") if c in cmds), None)
     cat = await db.kv_get("stars", {}) or {}
     st = await load_state(request)
     known = {star_of(d.get("location")) for d in st["devices"] if d.get("location")}
@@ -643,7 +652,7 @@ async def print_queue_action(request: Request, code: str, action: str = Form(...
     elif action == "clear":
         body, label = {"command": "clear_queue"}, f"clear {code}'s print queue"
     elif action == "cancel":
-        cmd = next((c for c in ("cancel_print", "cancel") if c in cmds), "cancel")
+        cmd = next((c for c in ("deactivate", "cancel_print", "cancel") if c in cmds), "deactivate")
         body, label = {"command": cmd}, f"cancel {code}'s current print"
     elif action == "add" and device_type:
         q = max(1, quantity)
@@ -1152,9 +1161,9 @@ async def replicant_slingshot(request: Request, code: str, slingshot: str = Form
     if sl and here and sl.get("location") != here:
         return refuse(f"{slingshot} is at {sl.get('location') or sl.get('status')}, the replicant is at {here} — "
                       "go to the slingshot first")
-    cap = sl.get("operational_capacity")
-    if cap is not None and float(cap) < SLINGSHOT_MIN_CAPACITY:
-        return refuse(f"{slingshot} is at {float(cap):.0f}% — it needs at least {SLINGSHOT_MIN_CAPACITY:.0f}% "
+    cap = capacity(sl.get("operational_capacity"))   # sometimes a 0–1 fraction
+    if cap is not None and cap < SLINGSHOT_MIN_CAPACITY:
+        return refuse(f"{slingshot} is at {cap:.0f}% — it needs at least {SLINGSHOT_MIN_CAPACITY:.0f}% "
                       "(a maintenance drone recharges it)")
     if sl and not sl.get("linked_device"):
         return refuse(f"{slingshot} isn't linked to a matrix yet")
@@ -2635,7 +2644,7 @@ async def diagnostics_feedback(request: Request, kind: str = Form("bug"), body: 
         snap = await db.kv_get("snapshot_last", None) or {}
         text += f"\n\n— sent from the Replicant Space web client {appver.VERSION}" + (
             f"; latest snapshot {snap.get('captured_at')}" if snap.get("captured_at") else "")
-    text = text[:4000]
+    text = text[:2000]   # docs: body up to 2000 characters
     sent = await db.kv_get("feedback_sent", []) or []
     hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(timespec="seconds")
     if len([x for x in sent if x.get("at", "") >= hour_ago]) >= 10:

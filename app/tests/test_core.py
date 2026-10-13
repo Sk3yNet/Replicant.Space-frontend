@@ -5215,7 +5215,7 @@ def test_wardhub_hub_shield_projection_and_ward_cap():
            {"event": "hub.maintained", "device_code": "HUB1", "location": "SOL-5-L4",
             "payload": json.dumps({"resources_consumed": {"structural": 50}, "capacity": 80}),
             "created_at": "2026-10-18T00:00:00+00:00"}]
-    h = wh.hubs([hub], evs, {"SOL": {"structural": 20}}, now=now)[0]
+    h = wh.hubs([hub], evs, {"SOL": {"structural": 99}, "SOL-5-L4": {"structural": 20}}, now=now)[0]   # the hub's own spot counts
     assert not h["shielded"] and h["shield_until"].startswith("2026-10-08")
     assert h["capacity"] == 80 and h["projected"] == 60.0 and h["days_left"] == 6.0     # 2 days at −10 %/day
     assert h["short"] == {"structural": 30.0} and h["level"] == "warn"
@@ -6378,7 +6378,9 @@ def test_recall_withdraws_a_launched_controller_first():
     ]
     steps = fl.recall_steps(fleet, devices, {}, None)
     descs = [s["desc"] for s in steps]
-    assert descs.index("SC: clear directive") < descs.index("SC: withdraw (call its drones back)") < descs.index("SC → LOR-6-L4 (board)")
+    # docs: withdraw pauses the directive (activate resumes): a launched controller isn't cleared first
+    assert "SC: clear directive" not in descs
+    assert descs.index("SC: withdraw (call its drones back)") < descs.index("SC → LOR-6-L4 (board)")
     w = steps[descs.index("SC: withdraw (call its drones back)")]
     assert w["body"] == {"command": "withdraw"} and w["wait"] == ["ami.withdrawn"]
     assert "not deployed" in steps[descs.index("SC → LOR-6-L4 (board)")]["hint"]
@@ -6489,3 +6491,101 @@ def test_dashboard_shows_tutorial_progress(client):
     body = client.get("/partials/tutorials", headers=HX).text
     assert "0 of 2 done" in body and "Exploring the Belt" in body and "3 / 4" in body
     assert "Check your vessel and list of stowed devices." in body and "GET /replicants/:code" in body
+
+
+def test_game_news_from_the_changelog_and_blog(client, monkeypatch):
+    """The changelog and blog are read every 6 hours; the first read is the baseline, later new entries ring the bell."""
+    from rsweb import news
+    page = {"/changelog/": """<ol class="changelog-list"><li class="changelog-entry" id="v3.5.0"><details>
+      <span class="entry-version">v3.5.0</span> <span class="entry-codename">alteration</span>
+      <time class="entry-date" datetime="2026-10-13">13 October 2026</time></summary><article class="entry-body">
+      <p>Asteroids got busier. Evacuate before the ETA.</p><h3 id="api">API updates</h3><ul><li>New <code>system.impact_warning</code> event.</li></ul>
+      </article></details></li></ol>""",
+            "/blog/": """<article class="featured"><h2><a href="/blog/7/">Crystal Growth</a></h2>
+      <p>Written by <span class="byline-author">Kepler</span>, on <time datetime="2026-09-25">25 September</time></p></article>"""}
+
+    async def fetch(path):
+        return page[path]
+    monkeypatch.setattr(news, "fetch", fetch)
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+    assert client.portal.call(eng.news_pass, True) == []            # baseline: no bell for history
+    s = client.portal.call(db.kv_get, news.KV)
+    assert s["changelog"][0]["sections"]["API updates"] == ["New system.impact_warning event."] and s["blog"][0]["author"] == "Kepler"
+    page["/changelog/"] = page["/changelog/"].replace('<ol class="changelog-list">', """<ol class="changelog-list">
+      <li class="changelog-entry" id="v3.5.1"><span class="entry-codename">alteration</span><time datetime="2026-10-14"></time>
+      <article class="entry-body"><p>A patch.</p></article></li>""")
+    assert client.portal.call(eng.news_pass, True) == ["3.5.1"]
+    bell = client.portal.call(db.fetchall, "SELECT title, link FROM notifications ORDER BY id DESC LIMIT 1")[0]
+    assert bell["title"].startswith("Game update v3.5.1 (alteration): A patch.") and bell["link"].endswith("#v3.5.1")
+    body = client.get("/partials/news", headers=HX).text
+    assert "v3.5.1" in body and "new" in body and "Crystal Growth" in body
+
+
+def test_docs_review_2026_10_13_fixes(client):
+    """From reading the published docs: v3.5.0 impact events key on the envelope location, a partial diversion keeps
+    the object open, recalled arrivals don't satisfy waits, evicted_miners is a count, a device sent to another
+    replicant is gone (received isn't), and per-endpoint 429s don't block the whole bucket."""
+    from rsweb import api, notify, wardhub as wh
+    from rsweb.automations import event_matches
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.insert_event, {"id": "w1", "event": "system.impact_warning", "location": "KELM-OBJ-1",
+                                          "created_at": "2026-10-13T10:00:00+00:00",
+                                          "payload": {"destination": "KELM-3", "impact_eta": "2026-10-13T11:00:00Z",
+                                                      "device_codes": ["D1"]}})
+    o = client.portal.call(eng.defence_objects)["KELM-OBJ-1"]
+    assert o["impact_target"] == "KELM-3" and o["impact_eta"] == "2026-10-13T11:00:00Z" and not o.get("closed")
+    client.portal.call(db.insert_event, {"id": "w2", "event": "system.object_diverted", "location": "KELM-OBJ-1",
+                                          "payload": {"outcome": "partial", "impact_target": "KELM-3"}})
+    assert not client.portal.call(eng.defence_objects)["KELM-OBJ-1"].get("closed")
+    client.portal.call(db.insert_event, {"id": "w3", "event": "system.object_impacted", "location": "KELM-OBJ-1",
+                                          "payload": {"impact_target": "KELM-3", "terraform_effects": "craters"}})
+    assert client.portal.call(eng.defence_objects)["KELM-OBJ-1"]["closed"] == "impacted"
+    assert "hits KELM-3" in notify.describe({"event": "system.impact_warning", "location": "KELM-OBJ-1",
+                                             "payload": {"destination": "KELM-3", "impact_eta": "x", "device_codes": ["D1"]}})
+    st = {"wait": ["travel.arrived"], "match": {"destination": "SOL"}}
+    ev = {"event": "travel.arrived", "device_code": "V", "payload": {"destination": "SOL-3", "recalling": False}}
+    assert event_matches(st, ev, "V")
+    assert not event_matches(st, {**ev, "payload": {"destination": "SOL-3", "recalling": True}}, "V")
+    assert len(wh.evicted({"evicted_miners": 3})) == 3 and "count" in wh.eviction_text(wh.evicted({"evicted_miners": 3}))
+    assert api.own_limit("/stars") and api.own_limit("/feedback") and not api.own_limit("/stars/SOL")
+    from rsweb.ingest import GONE_SQL, GONE_EVENTS
+    for i, (code, direction) in enumerate((("G1", "sent"), ("G2", "received"))):
+        client.portal.call(db.insert_event, {"id": f"co{i}", "event": "device.changed_owner", "device_code": code,
+                                              "payload": {"direction": direction}})
+    rows = client.portal.call(db.fetchall, f"SELECT DISTINCT device_code FROM events WHERE {GONE_SQL} AND device_code IN ('G1','G2')",
+                              GONE_EVENTS)
+    assert {r["device_code"] for r in rows} == {"G1"}
+
+
+def test_a_mining_drone_is_deactivated_before_it_moves():
+    """Live 2026-10-13: deactivate stops mining ("mining_stopped"), so a move needn't wait for the drone to go idle."""
+    from rsweb import modular
+    from rsweb.automations import step
+    devs = [{"device_code": "M1", "device_type": "mining_drone", "status": "mining", "location": "SOL-BELT-1"}]
+    steps = modular.with_untracking([step("M1 to SOL-3", "/devices/M1", {"command": "travel", "destination": "SOL-3"},
+                                          wait=["travel.arrived"])], devs)
+    assert [s["body"]["command"] for s in steps] == ["deactivate", "travel"]
+    devs[0]["status"] = "idle"
+    assert len(modular.with_untracking([step("M1 to SOL-3", "/devices/M1", {"command": "travel"})], devs)) == 1
+
+
+def test_ami_digest_scans_are_stored_and_naive_times_use_the_account_zone(client):
+    """Docs: adopted devices report through their controller's digest — its scans become scan.completed rows; a naive
+    impact_eta is in the account's time zone."""
+    from rsweb import shapes
+    db = client.app.state.db
+    client.portal.call(client.app.state.worker.handle_event, {
+        "id": "dg-1", "event": "ami.survey.digest", "device_code": "SC", "location": "NUNKA-3", "created_at": "2026-10-13T12:00:00+00:00",
+        "payload": {"directive": "survey_system", "devices": [{"device_code": "S1", "events": 2, "last_event": "scan.completed"}],
+                    "report": {"scans": [{"device_code": "S1", "scan_target": "NUNKA-3", "scan_type": "planet", "report": {}}]}}})
+    row = client.portal.call(db.fetchone, "SELECT device_code, location FROM events WHERE id='dg-1#scan0'")
+    assert row == {"device_code": "S1", "location": "NUNKA-3"}
+    assert "NUNKA-3" in client.portal.call(db.kv_get, "surveyed")
+    old = shapes.ACCOUNT_TZ[0]
+    try:
+        shapes.ACCOUNT_TZ[0] = "Europe/London"
+        assert shapes.game_time("2026-08-26T09:30:00").isoformat() == "2026-08-26T09:30:00+01:00"
+        assert shapes.game_time("2026-08-26T09:30:00Z").utcoffset().total_seconds() == 0
+    finally:
+        shapes.ACCOUNT_TZ[0] = old

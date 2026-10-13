@@ -16,11 +16,24 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.91.0"
+VERSION = "1.92.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.92.0", "2026-10-13", "Checked against the published docs. Game news on the dashboard (changelog and blog every 6 h, "
+               "new versions and posts ring the bell). Asteroids: an impact warning starts evacuation even for an "
+               "object never seen detected; v3.5.0 diverted/impacted events close objects (a partial diversion keeps "
+               "it open); naive ETAs read in the account's time zone. Devices lost to a diversion or sent to another "
+               "replicant count as gone; devices used up by prints, megastructures or trade escrow aren't lost. AMI "
+               "digests: survey scans are stored and wake jobs on adopted devices. Missed events are backfilled "
+               "before the stream reconnects. Busy miners are deactivated before a move. Recalled arrivals don't "
+               "complete waits. Per-endpoint 429s (catalog, feedback, webhook) no longer stall every request. "
+               "Autofactory cancel uses deactivate; Repair now skips patrolling drones; withdraw keeps the "
+               "directive; launch failures are logged; hub shield from the first activation and upkeep stock at the "
+               "hub's location; shop listing needs an active relay; the catalog is re-read 5 min after a prospect; "
+               "mining.relocated tracked; evicted_miners is a count; feedback up to 2000 characters; command form: "
+               "travel via/dry_run, start_mining target, corrected descriptions."),
     ("1.91.0", "2026-10-13", "Speed: the to:-tag pass no longer rebuilds the star catalog lookup per device (it took ~37 s "
                "a tick and froze the server); the star catalog is decoded once per change; per-system resources are "
                "memoized until that system's events, details, scan or the stockpiles change; pages get served between "

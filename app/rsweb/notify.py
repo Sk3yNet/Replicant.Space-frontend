@@ -13,6 +13,7 @@ ALERT_EVENTS = {
     "hub.warning", "hub.destroyed", "system.object_detected", "system.devices_halted",
     "diversion.impacted", "system.impact_warning", "system.object_impacted", "device.destroyed", "device.lost",
     "teleport.failed", "triangulation.failed", "directive.paused", "simulation.expired",
+    "terraform.device_deactivated", "terraform.deactivated",   # v3.2.0: capacity under 20 % switches them off
 }
 # Notification level: error (needs you — the only kind the bell's badge counts), warning, info (incl. accomplishments).
 ERROR_EVENTS = ALERT_EVENTS - {"hub.warning"}
@@ -95,6 +96,20 @@ def describe(ev: dict) -> str:
             return f"[{p.get('channel', '')}] {p.get('replicant_name', '?')}: {p.get('message', '')}"
         case "hub.warning":
             return f"Hub warning at {loc}: {p.get('warning_type', '')} (capacity {p.get('capacity', '?')})"
+        case "system.impact_warning":
+            n = len(p.get("device_codes") or [])
+            return (f"Impact warning at {loc or '?'}: hits {p.get('destination', '?')} at {p.get('impact_eta', '?')}"
+                    + (f" — {n} of your devices there" if n else "") + "; anything left is destroyed")
+        case "system.object_impacted":
+            fx = p.get("terraform_effects")
+            return f"Object {loc} impacted {p.get('impact_target', '?')}" + (f" ({fx})" if fx else "")
+        case "system.object_diverted":
+            return (f"Object {loc} diverted from {p.get('impact_target', '?')}" if p.get("outcome") != "partial"
+                    else f"Object {loc} only partly diverted: {p.get('impact_target', '?')} is still threatened")
+        case "device.destroyed":
+            return f"{who} was destroyed" + (f" at {loc}" if loc else "")
+        case "device.lost":
+            return f"{who} was lost in space" + (f" from {loc}" if loc else "") + " (flung off by a diversion)"
         case "system.object_detected":
             return f"Object {p.get('object_designation')} detected, impact target {p.get('impact_target')} ETA {p.get('impact_eta')}"
         case "directive.set":
@@ -167,7 +182,7 @@ def notification_for(ev: dict) -> dict | None:
         link = "/messages"
     elif e.startswith("multiplayer."):
         link = "/traffic"
-    elif e.startswith(("diversion.", "system.object_detected")):
+    elif e.startswith(("diversion.", "system.object_", "system.impact_warning")):
         link = "/defence"
     elif e.startswith("trade."):
         link = "/shop"

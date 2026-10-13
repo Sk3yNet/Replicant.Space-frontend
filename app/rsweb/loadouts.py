@@ -542,7 +542,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             donors[d.get("device_type") or "device"].append(d)
 
     def working(d: dict) -> bool:
-        """Busy doing something it can't fly away from (seen live: 'Cannot cruise while mining')."""
+        """Busy in place: not borrowed as a donor from elsewhere (a miner could be stopped with deactivate — modular.
+        with_untracking does that for moves that are planned — but taking it would cost its production)."""
         return str(d.get("status") or "").startswith(WORKING)
 
     # 3: fill shortfalls — spares first, then prints

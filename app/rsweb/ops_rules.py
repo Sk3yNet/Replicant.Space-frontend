@@ -388,18 +388,32 @@ class OpsRules:
         from . import defence as dfn
         objs = await self.db.kv_get("objects", {}) or {}
         rows = await self.db.fetchall("SELECT event, payload, location, created_at FROM events WHERE event='system.object_detected' "
-                                      "OR event LIKE 'diversion.%' OR event IN ('system.object_diverted', 'system.object_impacted') ORDER BY seq")
+                                      "OR event LIKE 'diversion.%' OR event IN ('system.object_diverted', 'system.object_impacted', "
+                                      "'system.impact_warning') ORDER BY seq")
         for r in rows:
             p = _json.loads(r["payload"] or "{}")
-            des = p.get("object_designation") or p.get("designation")
+            # v3.5.0 events carry no designation: the envelope's location is the object (docs catalogue)
+            des = p.get("object_designation") or p.get("designation") or r["location"]
             if not des:
                 continue
             if r["event"] == "system.object_detected":
                 if des not in objs:
                     objs[des] = {**dfn.from_detected(p), "detected_at": r["created_at"]}
-            elif r["event"] in dfn.CLOSED_EVENTS and des in objs:
-                objs[des]["closed"] = dfn.closed_as(r["event"])
-                objs[des].setdefault("closed_at", r["created_at"])
+            elif r["event"] == "system.impact_warning":
+                # {destination, impact_eta, device_codes}: one hour out, to accounts with devices at the object — it
+                # may be the first we hear of it (no hub or beacon in the system saw it detected)
+                o = objs.setdefault(des, {"designation": des, "status": "active", "source": "impact_warning", "history": [],
+                                          "detected_at": r["created_at"]})
+                o["impact_eta"] = p.get("impact_eta") or o.get("impact_eta")
+                o["impact_target"] = o.get("impact_target") or p.get("destination")
+                o["warned_at"] = r["created_at"]
+            elif r["event"] in dfn.CLOSED_EVENTS:
+                if des not in objs:   # matched by its target when the location isn't the object's
+                    des = next((k for k, o in objs.items() if not o.get("closed") and p.get("impact_target")
+                                and o.get("impact_target") == p.get("impact_target")), des)
+                if des in objs and p.get("outcome") != "partial":   # partial: still a threat
+                    objs[des]["closed"] = dfn.closed_as(r["event"])
+                    objs[des].setdefault("closed_at", r["created_at"])
         return objs
 
     async def defence_report(self) -> list[dict]:

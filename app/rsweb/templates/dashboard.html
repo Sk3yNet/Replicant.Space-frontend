@@ -35,6 +35,9 @@
     </table>
   </div>
 
+  <div class="card" id="news" hx-get="/partials/news" hx-trigger="load, every 900s" hx-swap="innerHTML">
+    <h2>Game news</h2><p class="muted small">Loading…</p></div>
+
   <div class="card" id="tutorials" hx-get="/partials/tutorials" hx-trigger="load, every 600s" hx-swap="innerHTML">
     <h2>Tutorials</h2><p class="muted small">Loading…</p></div>
 

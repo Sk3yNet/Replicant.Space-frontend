@@ -102,7 +102,12 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
-GONE_EVENTS = ("device.decommissioned", "device.destroyed", "device.transferred", "device.owner_changed", "hub.destroyed")
+# docs catalogue: device.lost (v3.5.0, flung off by a diversion); device.changed_owner {direction: sent | received} —
+# only "sent" means it left us (device.transferred / device.owner_changed kept from before the catalogue was read)
+GONE_EVENTS = ("device.decommissioned", "device.destroyed", "device.lost", "device.transferred", "device.owner_changed",
+               "hub.destroyed")
+GONE_SQL = (f"(event IN ({','.join('?' * len(GONE_EVENTS))}) OR "
+            "(event='device.changed_owner' AND payload NOT LIKE '%\"received\"%'))")
 UNLISTED_KEEP_HOURS = 12
 
 
@@ -199,6 +204,15 @@ class Worker:
     async def _stream_loop(self) -> None:
         backoff = 2.0
         while True:
+            try:   # the stream keeps ~10,000 events; /events keeps months: fill any gap first
+                if await self.db.kv_get("event_cursor"):
+                    n = await self.backfill()
+                    if n:
+                        log.info("backfilled %d events before (re)connecting the stream", n)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("backfill before connecting failed")
             cursor = await self.db.kv_get("event_cursor")
             try:
                 self.stream_state = "connecting"
@@ -244,6 +258,34 @@ class Worker:
             await self._announce(ev, notify_live)
         except Exception:
             log.exception("notifying %s failed", ev.get("event"))
+
+        if ev["event"].startswith("ami.") and ev["event"].endswith(".digest"):
+            try:
+                await self.expand_digest(ev)
+            except Exception:
+                log.exception("expanding %s failed", ev.get("event"))
+
+    async def expand_digest(self, ev: dict) -> None:
+        """Devices adopted by an AMI controller stop sending their own events: the controller's digest carries them
+        (docs: AMI digests). A survey digest's report.scans[] become stored scan.completed events (the map and the
+        system pages read those), and each device's last_event wakes jobs waiting on that device. Both go to the
+        engine as replays (late): they update what we know and wake jobs, without firing reactive rules."""
+        p = ev.get("payload") or {}
+        for i, sc in enumerate((p.get("report") or {}).get("scans") or []):
+            if not isinstance(sc, dict) or not sc.get("device_code"):
+                continue
+            target = sc.get("scan_target")
+            syn = {"id": f"{ev['id']}#scan{i}", "event": "scan.completed", "category": "scan",
+                   "device_code": sc["device_code"], "location": target, "star": (target or "").split("-")[0] or None,
+                   "created_at": ev.get("created_at"), "payload": {**sc, "from_digest": ev["id"]}}
+            if await self.db.insert_event(syn):
+                await self.automations.on_event(syn, late=True)
+        for d in p.get("devices") or []:
+            if isinstance(d, dict) and d.get("device_code") and d.get("last_event") and d.get("events"):
+                await self.automations.on_event({"id": f"{ev['id']}#{d['device_code']}", "event": d["last_event"],
+                                                 "device_code": d["device_code"], "created_at": ev.get("created_at"),
+                                                 "payload": {"from_digest": ev["id"], "status": d.get("status")}},
+                                                late=True)
 
     async def _announce(self, ev: dict, notify_live: bool) -> None:
         late = is_late(ev) or not notify_live
@@ -317,7 +359,7 @@ class Worker:
         return added
 
     async def backfill(self) -> int:
-        """Pull anything missed from /events (used on demand from the Events page)."""
+        """Pull anything missed from /events: before the stream (re)connects, and on demand from the Events page."""
         cursor = await self.db.kv_get("event_cursor")
         added = 0
         for _ in range(20):
@@ -481,6 +523,8 @@ class Worker:
     async def sync_account(self) -> None:
         me = await self.api.get("/accounts/me", background=True)
         await self.db.kv_set("account", me)
+        from .shapes import ACCOUNT_TZ
+        ACCOUNT_TZ[0] = (me or {}).get("timezone") or ACCOUNT_TZ[0]
         # Replicant details (position, stowed devices, status).
         reps = {}
         for r in (me or {}).get("replicants") or []:
@@ -513,9 +557,8 @@ class Worker:
         missing = [d.get("device_code") for d in prev if d.get("device_code") not in listed]
         gone: set[str] = set()
         if missing and not partial:
-            marks = ",".join("?" * len(GONE_EVENTS))
             rows = await self.db.fetchall(
-                f"SELECT DISTINCT device_code FROM events WHERE event IN ({marks}) AND device_code IN ({','.join('?' * len(missing))})",
+                f"SELECT DISTINCT device_code FROM events WHERE {GONE_SQL} AND device_code IN ({','.join('?' * len(missing))})",
                 (*GONE_EVENTS, *missing))
             gone = {r["device_code"] for r in rows}
             # paid away in a trade or contract: gone at once, not kept as an unlisted (lost) device for 12 h
@@ -619,10 +662,27 @@ class Worker:
     async def on_prospect(self, ev: dict) -> None:
         """An observatory's prospect finished: put the stars it found on the map (merged like census stars) and re-read
         the catalog, which the game regenerates with them."""
-        try:   # the event is stored already: full_catalogue picks its stars up from the events table
-            await self.sync_catalogue()
-        except Exception:   # never let this break event handling
+        # its stars go on the map now, merged into the catalog we have (no request) …
+        try:
+            from .census import full_catalogue
+            cur = await self.db.kv_get("stars", {}) or {}
+            cat = await full_catalogue(self.db, cur)
+            for k in ("catalogue", "catalogue_total", "pages_read"):
+                if k in (cur.get("sources") or {}):
+                    cat["sources"][k] = cur["sources"][k]
+            await self.db.kv_set("stars", cat)
+        except Exception:
             log.exception("merging prospect stars failed")
+
+        # … and the catalog is re-read once the game has regenerated it (docs: every 5 minutes; reading now would
+        # miss them and spend the 1-a-minute catalog allowance)
+        async def later() -> None:
+            await asyncio.sleep(330)
+            try:   # the event is stored already: full_catalogue picks its stars up from the events table
+                await self.sync_catalogue()
+            except Exception:   # never let this break anything
+                log.exception("merging prospect stars failed")
+        asyncio.create_task(later(), name="prospect-catalogue")
 
     async def sync_catalogue(self) -> None:
         try:  # 1/min limit on the catalog; we only ask every 30 minutes.

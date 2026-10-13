@@ -140,6 +140,8 @@ async def system_targets(db, star: str) -> dict:
             add(p.get("designation") or p.get("location"), " · ".join(str(x) for x in [p.get("name"), p.get("salvage_type")] if x) or "salvage")
         elif name in ("mining.started", "mining.retargeted"):
             add(p.get("site"), " · ".join(str(x) for x in [p.get("resource_type") or p.get("new_resource"), p.get("availability")] if x))
+        elif name == "mining.relocated":   # v3.0.0: {location, resource_type, old_site, new_site}
+            add(p.get("new_site"), str(p.get("resource_type") or ""))
         elif name == "system.object_detected":
             add(p.get("object_designation"), f"incoming · {p.get('size_class', '')}".strip(" ·"))
         elif name in ("site.depleted", "salvage.depleted"):
@@ -285,7 +287,7 @@ async def _system_resources(db, star: str, inventory: list) -> dict:
     salvage: dict[str, dict] = {}
     rows = await db.fetchall("SELECT event, payload, created_at FROM events WHERE (star=? OR (location >= ? AND location < ?)) "
                              "AND +event IN ('site.depleted', 'salvage.depleted', 'salvage.discovered', 'mining.started', "
-                             "'mining.retargeted') ORDER BY seq", (star, *_loc_range(star)))   # +event: the star / location indexes, not ix_events_event
+                             "'mining.retargeted', 'mining.relocated') ORDER BY seq", (star, *_loc_range(star)))   # +event: the star / location indexes, not ix_events_event
     for r in rows:
         p = json.loads(r["payload"] or "{}")
         if r["event"] in ("site.depleted", "salvage.depleted"):
@@ -297,7 +299,7 @@ async def _system_resources(db, star: str, inventory: list) -> dict:
                 salvage[code] = {"code": code, "name": p.get("name"), "type": p.get("salvage_type"), "amounts": amounts,
                                  "base": dict(amounts), "total": total, "at": r["created_at"], "source": "discovered"}
         else:
-            code = p.get("site")
+            code = p.get("new_site") if r["event"] == "mining.relocated" else p.get("site")
             if code and in_star(code, star) and code not in sites:
                 sites[code] = {"code": code, "belt": code.rsplit("-SITE-", 1)[0], "resource": p.get("resource_type") or p.get("new_resource"),
                                "level": p.get("availability"), "amounts": {}, "total": None, "at": None, "source": "mining"}

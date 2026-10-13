@@ -73,6 +73,6 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
 
 ## Writing character texts (replicant profiles)
 
-Name ≤ 60 characters with underscores (no spaces or dashes). Description, Plan and Project ≤ 500 characters each. The
+Name ≤ 60 characters with underscores (no spaces or dashes). Description and Plan ≤ 500 characters each, Project ≤ 2000. The
 text is rendered as HTML, so use no quotes, apostrophes, ampersands or angle brackets: spell contractions out and
 introduce speech with "Says:".
