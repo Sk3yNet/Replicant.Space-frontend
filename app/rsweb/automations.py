@@ -1243,6 +1243,11 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             if fo.get("job"):
                 await self.cancel(fo["job"])
             s["moved"] = {"at": now, "from": frm, "text": mv["text"]}
+            # the old route is history: drop beacon log entries from before the move (keeping the last 3 hours, which hold
+            # his departure from the old spot); the beacons stay known and are read again for the new route
+            cutoff = (_now() - timedelta(hours=3)).isoformat(timespec="seconds")
+            s["audit"] = {b: [r for r in rows or [] if str(r.get("logged_at") or "") >= cutoff] for b, rows in s["audit"].items()}
+            s["trail_reset_at"] = now
             rep = fo.get("replicant") or s.get("scanner")
             if rep and (fo or s.get("scanner")):   # you've been following him: pick the trail up where he left
                 start = frm or tl.BILL_HOME

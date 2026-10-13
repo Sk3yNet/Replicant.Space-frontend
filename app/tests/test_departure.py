@@ -670,8 +670,13 @@ def test_bills_move_post_restarts_the_trail_where_he_left(client):
     cat = client.portal.call(db.kv_get, "stars") or {}
     cat.setdefault("stars", []).append({"designation": "NOSOXA", "position": {"x": 7, "y": -39, "z": 15}})
     client.portal.call(db.kv_set, "stars", cat)
+    from datetime import datetime, timedelta, timezone
+    fresh = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(timespec="seconds")
+    old_row = {"replicant_code": tl.BILL_CODE, "travel_type": "departure", "logged_at": "2026-10-10T01:00:00+00:00"}
+    new_row = {**old_row, "logged_at": fresh}
     client.portal.call(db.kv_set, tl.KV, {"target_name": "Bill", "target_code": tl.BILL_CODE, "scanner": "REP1",
-                                          "beacons": {}, "audit": {}, "follow": {"active": False}})
+                                          "beacons": {"B1": {"star": "SOL"}}, "audit": {"B1": [old_row, new_row]},
+                                          "follow": {"active": False}})
     client.portal.call(db.kv_set, "traders_cache", {"3BF0ED09": {"location": "NOSOXA-OORT", "owner_name": "Bill",
                                                                  "owner_replicant_code": tl.BILL_CODE, "trades": []}})
     post = {"replicant_code": tl.BILL_CODE, "replicant_name": "Bill", "channel": "#general",
@@ -680,6 +685,7 @@ def test_bills_move_post_restarts_the_trail_where_he_left(client):
     assert "left NOSOXA" in text and "following him again from NOSOXA" in text
     s = client.portal.call(db.kv_get, tl.KV)
     assert s["follow"]["active"] and s["follow"]["star"] == "NOSOXA" and s["moved"]["from"] == "NOSOXA"
+    assert s["audit"]["B1"] == [new_row] and "B1" in s["beacons"]           # the old route is dropped, the beacon kept
     assert "3BF0ED09" not in client.portal.call(shop.known_traders, db)        # set aside until seen again
     assert client.portal.call(e.bill_moved, {**post, "message": "o7 all"}) is None
     assert client.portal.call(e.bill_moved, {**post, "replicant_code": "X", "replicant_name": "Ann"}) is None

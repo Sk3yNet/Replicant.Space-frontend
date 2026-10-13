@@ -15,8 +15,11 @@ const fromSel = $("map-from");
 const COLORS = { red: 0xff8a65, orange: 0xffb74d, yellow: 0xffe082, white: 0xf5f5f5, blue: 0x90caf9, "blue-white": 0xbbdefb, brown: 0xa1887f };
 const RANGE = { ftl_relay: 7.5, relay: 7.5, system_hub: 15, hub: 15 };
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+// phones report a device pixel ratio of 3: a canvas that size at full frame rate can exhaust a phone's GPU (the map
+// froze a few seconds after focusing a system, as the keyboard closed and the canvas was resized). 2 is plenty.
+const TOUCH = matchMedia("(pointer: coarse)").matches;
+const renderer = new THREE.WebGLRenderer({ antialias: !TOUCH, powerPreference: "low-power" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TOUCH ? 1.5 : 2));
 el.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 5000);
@@ -26,14 +29,28 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 if (OPTS.rotate) { controls.autoRotate = true; controls.autoRotateSpeed = OPTS.rotate; }
 
+let lastSize = "", lastCamKey = "";   // lastCamKey: the camera the star labels were last placed for
 function resize() {
   const w = el.clientWidth, h = el.clientHeight;
+  if (!w || !h || `${w}x${h}` === lastSize) return;   // nothing to do (or hidden): don't reallocate the canvas
+  lastSize = `${w}x${h}`;
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
-window.addEventListener("resize", resize);
+// a phone's keyboard opening or closing fires a burst of resizes: handle the last one only
+let resizeTimer = null;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 200); });
 resize();
+// if the browser drops the GL context anyway, say so and reload the map once it comes back, instead of a frozen canvas
+renderer.domElement.addEventListener("webglcontextlost", ev => {
+  ev.preventDefault();
+  const n = document.createElement("div");
+  n.className = "muted small"; n.textContent = "The map paused (the browser reclaimed graphics memory); it reloads when it can.";
+  Object.assign(n.style, { position: "absolute", top: "8px", left: "8px", zIndex: 5 });
+  el.appendChild(n);
+});
+renderer.domElement.addEventListener("webglcontextrestored", () => location.reload());
 
 // round soft sprite for points
 const dot = (() => {
@@ -121,7 +138,7 @@ function repStar() {
 function build() {
   [starPoints].forEach(o => o && scene.remove(o));
   mineGroup.clear(); coverGroup.clear();
-  labels.forEach(l => l.el.remove()); labels.length = 0;
+  labels.forEach(l => l.el.remove()); labels.length = 0; lastCamKey = "";   // new labels: place them next frame
   const onlyMine = checked("opt-mine", !!OPTS.onlyMine);
   visible = data.stars.filter(s => !onlyMine || s.devices > 0 || data.replicants.some(r => r.star === s.designation));
 
@@ -592,7 +609,7 @@ renderer.domElement.addEventListener("pointerup", ev => {
 });
 
 $("map-search")?.addEventListener("change", e => {
-  const s = byName[e.target.value.trim().toUpperCase()]; if (s) { focus(s); show(s); }
+  const s = byName[e.target.value.trim().toUpperCase()]; if (s) { e.target.blur(); focus(s); show(s); }   // keyboard away first
 });
 ["opt-mine"].forEach(id => $(id)?.addEventListener("change", build));
 $("opt-cover")?.addEventListener("change", e => coverGroup.visible = e.target.checked);
@@ -602,7 +619,7 @@ $("btn-home")?.addEventListener("click", () => { const s = repStar(); if (s) { f
 
 const tmp = new THREE.Vector3();
 // the wallpaper runs all day: cap it at 30 fps (the Galaxy page renders at full rate)
-const minFrame = OPTS.dataUrl ? 1000 / 30 : 0;
+const minFrame = OPTS.dataUrl || TOUCH ? 1000 / 30 : 0;   // phones too: 30 fps is smooth enough and keeps them cool
 let lastFrame = 0;
 function animate(t = 0) {
   requestAnimationFrame(animate);
@@ -612,11 +629,17 @@ function animate(t = 0) {
   renderer.render(scene, camera);
   const showLabels = checked("opt-labels", OPTS.labels !== false);
   const w = el.clientWidth, h = el.clientHeight;
-  for (const l of labels) {
-    tmp.copy(l.v).project(camera);
-    const vis = showLabels && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
-    l.el.style.display = vis ? "block" : "none";
-    if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6) + "px"; }
+  // star labels only move with the camera: skip them on frames where it stood still (dozens of DOM writes a frame
+  // otherwise, which a phone feels)
+  const camKey = camera.matrixWorld.elements.join(",") + w + "x" + h + showLabels + labels.length;
+  if (camKey !== lastCamKey) {
+    lastCamKey = camKey;
+    for (const l of labels) {
+      tmp.copy(l.v).project(camera);
+      const vis = showLabels && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
+      if (vis !== l.vis) { l.el.style.display = vis ? "block" : "none"; l.vis = vis; }
+      if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6) + "px"; }
+    }
   }
   fleetGroup.visible = checked("opt-fleets", OPTS.fleets !== false);
   for (const l of fleetLabels) {
