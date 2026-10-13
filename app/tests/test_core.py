@@ -6425,3 +6425,59 @@ def test_devices_paid_away_in_a_deal_are_not_lost(client):
                "R3": ("SOL-3", "ftl_relay")}
     got = client.portal.call(lost.given_away, db, missing)
     assert got == {"R1"}                        # one relay paid there: one taken; the freighter that left isn't
+
+
+def test_large_devices_can_be_printed_compacted(client):
+    import json as _j
+    db = client.app.state.db
+    bps = client.portal.call(db.kv_get, "blueprints") or []
+    if not any(b.get("device_type") == "galactic_observatory" for b in bps):
+        bps = bps + [{"device_type": "galactic_observatory", "features": ["modular", "prospect"], "resources": {"structural": 10},
+                      "print_time": 60}]
+        client.portal.call(db.kv_set, "blueprints", bps)
+    page = client.get("/blueprints", headers=H).text
+    assert 'value="galactic_observatory" data-large=1' in page and 'name="flatpack"' in page
+    client.post("/blueprints/print", data={"printer": "device:AF00BEEF", "device_type": "galactic_observatory", "quantity": "1",
+                                           "flatpack": "on"}, headers=HX)
+    client.post("/blueprints/print", data={"printer": "device:AF00BEEF", "device_type": "mining_drone", "quantity": "1",
+                                           "flatpack": "on"}, headers=HX)
+    rows = client.portal.call(db.fetchall, "SELECT body FROM actions WHERE path='/devices/AF00BEEF' ORDER BY rowid DESC LIMIT 2")
+    bodies = [_j.loads(r["body"]) for r in rows]
+    assert {b["device_type"]: b.get("flatpack") for b in bodies} == {"galactic_observatory": True, "mining_drone": None}
+    # the planner: large lines go compacted when ticked
+    data = {"printer": "device:AF00BEEF", "qty:galactic_observatory": "1", "qty:mining_drone": "1", "_planned": "1",
+            "flatpack": "on", "nosplit": "on"}
+    assert "print galactic observatory compacted" in client.post("/blueprints/plan", data=data, headers=HX).text
+    client.post("/blueprints/queue-plan", data=data, headers=HX)
+    job = client.portal.call(client.app.state.worker.automations.jobs)[-1]
+    flat = {s["body"]["device_type"]: s["body"].get("flatpack") for s in job["steps"] if s["body"].get("command") == "enqueue_print"}
+    assert flat == {"galactic_observatory": True, "mining_drone": None}
+
+
+def test_deleting_a_fleet_untags_its_devices(client):
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    client.post("/fleets", data={"name": "Gone", "role": "mining", "home": "SOL"}, headers=HX)
+    fid = next(f["id"] for f in client.portal.call(eng.fleets) if f["name"] == "Gone")
+    devs = client.portal.call(db.kv_get, "devices")
+    devs += [{"device_code": "G1", "device_type": "mining_drone", "location": "SOL-BELT-1", "status": "idle", "tags": [f"fleet:{fid}", "keep"]},
+             {"device_code": "G2", "device_type": "survey_drone", "location": "SOL-3", "status": "idle", "tags": [f"to:{fid}"]},
+             {"device_code": "G3", "device_type": "survey_drone", "location": "SOL-3", "status": "idle", "tags": ["fleet:other"]}]
+    client.portal.call(db.kv_set, "devices", devs)
+    client.post(f"/fleets/{fid}/edit", data={"delete": "1"}, headers=HX)
+    assert not any(f["id"] == fid for f in client.portal.call(eng.fleets))
+    job = next(j for j in client.portal.call(eng.jobs) if "deleted" in j["title"])
+    bodies = {s["path"]: s["body"]["configuration"]["remove_tags"] for s in job["steps"]}
+    assert bodies == {"/devices/G1": [f"fleet:{fid}"], "/devices/G2": [f"to:{fid}"]}
+
+
+def test_performance_diagnostics(client):
+    """Each request is timed (Server-Timing header); the diagnostics page lists slow pages, stages and storage."""
+    from rsweb import perf
+    r = client.get("/", headers=H)
+    assert "db;desc=" in r.headers.get("server-timing", "")
+    assert any(x["path"] == "/" and x["db_n"] > 0 and x["kv"] for x in perf.requests)
+    perf.note_stage("logistics_pass", 12.5)
+    body = client.get("/diagnostics?perf=1", headers=HX).text
+    assert "Engine stages" in body and "logistics_pass" in body and "Largest saved values" in body and "events:" in body
+    rep = client.portal.call(perf.report, client.app.state.db)
+    assert rep["storage"]["tables"]["kv"] > 0 and rep["by_path"]

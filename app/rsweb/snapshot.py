@@ -167,6 +167,8 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
                     for r in reversed(await db.fetchall("SELECT at, user, method, path, body, status, response FROM actions "
                                                         "ORDER BY id DESC LIMIT 60"))],
     }
+    from . import perf
+    app["perf"] = await perf.report(db)   # slowest requests, engine stage timings, storage sizes
     from . import version as ver
     app["server"] = {"version": ver.VERSION, "fingerprint": ver.FINGERPRINT, "build": ver.BUILD, "run": ver.RUN_ID,
                      "runs": (await db.kv_get("server_runs", []) or [])[-15:],

@@ -176,3 +176,12 @@ svg.system.nodrones .drone { display: none; }
 .afford > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 700px) { .afford-col { width: auto; } }
 @media (min-width: 1000px) { .g2-wide { grid-template-columns: 2fr 1fr; } }
+
+/* a grid that scrolls both ways inside its box: its header row and first column stay in view (Fleets › Templates) */
+.sticky-grid { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 6px; }
+.sticky-grid table { border-collapse: separate; border-spacing: 0; }
+.sticky-grid tr:first-child th { position: sticky; top: 0; z-index: 2; background: var(--panel2); }
+.sticky-grid td:first-child, .sticky-grid th:first-child { position: sticky; left: 0; z-index: 1; background: var(--panel2);
+  white-space: nowrap; box-shadow: 1px 0 0 var(--line); }
+.sticky-grid tr:first-child th:first-child { z-index: 3; }
+.sticky-grid tr:hover td { background: var(--panel2); }

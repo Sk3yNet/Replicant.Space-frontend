@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
 import aiosqlite
+
+from . import perf
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -124,18 +127,25 @@ class DB:
 
     # --- generic helpers -------------------------------------------------
     async def execute(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Cursor:
+        t0 = time.perf_counter()
         cur = await self.conn.execute(sql, tuple(params))
         await self.conn.commit()
+        perf.note_query((time.perf_counter() - t0) * 1000)
         return cur
 
     async def fetchall(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
+        t0 = time.perf_counter()
         async with self.conn.execute(sql, tuple(params)) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+            rows = [dict(r) for r in await cur.fetchall()]
+        perf.note_query((time.perf_counter() - t0) * 1000)
+        return rows
 
     async def fetchone(self, sql: str, params: Iterable[Any] = ()) -> dict | None:
+        t0 = time.perf_counter()
         async with self.conn.execute(sql, tuple(params)) as cur:
             row = await cur.fetchone()
-            return dict(row) if row else None
+        perf.note_query((time.perf_counter() - t0) * 1000)
+        return dict(row) if row else None
 
     # --- key/value snapshots ---------------------------------------------
     async def kv_set(self, key: str, value: Any) -> None:
@@ -146,8 +156,13 @@ class DB:
         )
 
     async def kv_get(self, key: str, default: Any = None) -> Any:
+        t0 = time.perf_counter()
         row = await self.fetchone("SELECT value FROM kv WHERE key=?", (key,))
-        return json.loads(row["value"]) if row else default
+        if not row:
+            return default
+        value = json.loads(row["value"])
+        perf.note_kv(key, len(row["value"]), (time.perf_counter() - t0) * 1000)   # read + decode
+        return value
 
     async def kv_updated(self, key: str) -> str | None:
         row = await self.fetchone("SELECT updated_at FROM kv WHERE key=?", (key,))

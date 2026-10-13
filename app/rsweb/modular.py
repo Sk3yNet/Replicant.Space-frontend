@@ -23,6 +23,13 @@ from .automations import STEP_TIMEOUT, step
 MODULAR_TYPES = ("autofactory", "galactic_observatory", "system_hub")   # live 2026-10-07 + the docs (system hub)
 
 
+def modular_type(device_type: str | None, bps: dict[str, dict] | None = None) -> bool:
+    """A device type that can be compacted (so printed flat-packed, `"flatpack": true` on enqueue_print)."""
+    bp = (bps or {}).get(device_type or "") or {}
+    return "modular" in (bp.get("features") or []) or "compact" in (bp.get("commands") or []) \
+        or (device_type or "") in MODULAR_TYPES
+
+
 def is_modular(d: dict) -> bool:
     return "modular" in (d.get("features") or []) or "compact" in (d.get("available_commands") or [])
 

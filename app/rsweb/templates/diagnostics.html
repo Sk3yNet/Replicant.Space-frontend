@@ -29,6 +29,11 @@
   {% if feedback_sent %}<details class="small" style="margin-top:6px"><summary>Sent ({{ feedback_sent | length }})</summary>
     <table class="small">{% for f in feedback_sent %}<tr><td>{{ f.at | ago }}</td><td>{{ f.type }}</td><td>{{ f.body }}</td></tr>{% endfor %}</table></details>{% endif %}
 </div>
+<details class="card" id="perf-card">
+  <summary><b>Performance</b> <span class="muted small">where page loads and the engine spend their time, since the server started</span></summary>
+  <div id="perf" hx-get="/diagnostics?perf=1" hx-trigger="toggle from:#perf-card once" hx-swap="innerHTML">
+    <p class="muted small">Loading…</p></div>
+</details>
 <div id="diag">
   {% include "partials/diagnostics_body.html" %}
 </div>

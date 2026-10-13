@@ -53,13 +53,21 @@
   <h2>Queue a print</h2>
   <form class="inline" hx-post="/blueprints/print" hx-target="#print-result">
     <select name="printer">{% for p in printers %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
-    <select name="device_type">{% for b in blueprints %}<option value="{{ b.device_type }}">{{ b.device_type | human }}</option>{% endfor %}</select>
+    <select name="device_type" class="bp-type">{% for b in blueprints %}<option value="{{ b.device_type }}" {{ 'data-large=1' if is_large(b) }}>{{ b.device_type | human }}</option>{% endfor %}</select>
     <input type="number" name="quantity" value="1" min="1" style="width:64px" title="quantity (autofactories only)">
+    <label class="small flat-opt" style="text-transform:none" title="large (modular) devices: printed compacted, ready to be carried without hours of folding up">
+      <input type="checkbox" name="flatpack"> print compacted</label>
     <button>Add to queue</button>
   </form>
   <div id="print-result"></div>
 </div>
 <script>
+// "print compacted" only for large (modular) device types
+document.querySelectorAll("select.bp-type").forEach(sel => {
+  const opt = sel.form.querySelector(".flat-opt");
+  const sync = () => { const on = !!sel.selectedOptions[0]?.dataset.large; opt.style.display = on ? "" : "none"; if (!on) opt.querySelector("input").checked = false; };
+  sel.addEventListener("change", sync); sync();
+});
 (() => {  // filter the blueprint rows by name and feature as you type (kept in the URL, so a link or reload keeps it)
   const q = document.getElementById("bp-q"), f = document.getElementById("bp-f"), n = document.getElementById("bp-count");
   const rows = [...document.querySelectorAll("tr.bp-row")];

@@ -18,6 +18,7 @@ from typing import Any, AsyncIterator
 import httpx
 
 from .config import Settings
+from . import perf
 
 log = logging.getLogger("rsweb.api")
 
@@ -152,7 +153,11 @@ class RSClient:
         while True:
             await self._acquire(method, background)
             try:
-                resp = await self.http.request(method, path, params=params, json=json_body)
+                t0 = time.perf_counter()
+                try:
+                    resp = await self.http.request(method, path, params=params, json=json_body)
+                finally:
+                    perf.note_api((time.perf_counter() - t0) * 1000)
             except httpx.HTTPError as e:
                 self.last_error = f"network: {e}"
                 # a command that timed out may have been carried out: only resend reads, or writes that never left

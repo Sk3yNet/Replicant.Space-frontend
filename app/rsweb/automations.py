@@ -22,6 +22,7 @@ from typing import Any
 
 from .api import ApiError
 from .db import now_iso
+from . import perf
 from .shapes import as_amounts  # noqa: F401  (kept for rule authors)
 from .ops_rules import OpsRules
 from .boot_engine import BootstrapMixin
@@ -257,7 +258,10 @@ class EngineLock:
         if me is not None and self._owner is me:
             self._depth += 1
             return True
+        t0 = time.monotonic()
         await self._lock.acquire()
+        if (waited := (time.monotonic() - t0) * 1000) > 1:
+            perf.note_lock_wait(waited)   # counted only inside a page request
         self._owner, self._depth = me, 1
         self.holder = me.get_name() if me is not None else "?"
         self.since = time.monotonic()
@@ -266,6 +270,8 @@ class EngineLock:
     def release(self) -> None:
         self._depth -= 1
         if self._depth <= 0:
+            if self.since is not None:
+                perf.note_hold(self.holder or "?", (time.monotonic() - self.since) * 1000)
             self._owner, self._depth, self.holder, self.since = None, 0, None, None
             self._lock.release()
 
@@ -504,7 +510,11 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 if self.lock.locked() and self.lock.held_for() > LOCK_ALERT_SECONDS:
                     await asyncio.sleep(60)   # still stuck: don't queue up another tick behind it
                     continue
-                await self.tick()
+                t_tick = time.perf_counter()
+                try:
+                    await self.tick()
+                finally:
+                    perf.note_stage("(whole tick)", (time.perf_counter() - t_tick) * 1000)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -1107,6 +1117,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass"):
                 self.stage = stage
+                t_stage = time.perf_counter()
                 try:   # one stage failing on odd data mustn't stop every stage after it, every tick
                     out = await getattr(self, stage)()
                 except asyncio.CancelledError:
@@ -1118,6 +1129,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                         self.stage_errors[stage] = key
                         await self.log("engine", f"stage {stage} failed: {type(e).__name__}: {e}", "alert", notify=True)
                     continue
+                finally:
+                    perf.note_stage(stage, (time.perf_counter() - t_stage) * 1000)
                 self.stage_errors.pop(stage, None)
                 if stage == "civ_beacon_pass":
                     for line in out or []:

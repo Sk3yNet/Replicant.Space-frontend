@@ -76,6 +76,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     from . import web_logistics
     app.include_router(web_logistics.router)
     app.add_exception_handler(web.AuthError, web.auth_error_handler)
+    from . import perf
+    app.add_middleware(perf.Middleware)
     return app
 
 

@@ -59,8 +59,10 @@
   {% if not compact %}
     <form class="inline" style="margin-top:8px" hx-post="/devices/{{ code }}/print-queue" hx-target="#pq-{{ code }}" hx-swap="outerHTML">
       <input type="hidden" name="action" value="add">
-      <select name="device_type">{% for b in blueprints %}<option value="{{ b.device_type }}">{{ b.device_type | human }} ({{ ((b.print_time or 0) / 60) | round(1) }}m)</option>{% endfor %}</select>
+      <select name="device_type" onchange="const o=this.form.querySelector('.flat-opt');const on=!!this.selectedOptions[0].dataset.large;o.style.display=on?'':'none';if(!on)o.querySelector('input').checked=false">{% for b in blueprints %}<option value="{{ b.device_type }}" {{ 'data-large=1' if is_large(b) }}>{{ b.device_type | human }} ({{ ((b.print_time or 0) / 60) | round(1) }}m)</option>{% endfor %}</select>
       <input type="number" name="quantity" value="1" min="1" style="width:60px" title="quantity">
+      <label class="small flat-opt" style="text-transform:none{{ ';display:none' if not (blueprints and is_large(blueprints[0])) }}"
+             title="large (modular) devices: printed compacted, ready to be carried"><input type="checkbox" name="flatpack"> compacted</label>
       <span class="small muted">deliver to</span>
       <select name="dest_star" title="system to deliver it to (blank: stays where it's printed)"
               hx-get="/print-queue/locations" hx-trigger="change" hx-target="next select" hx-swap="innerHTML" hx-include="this">

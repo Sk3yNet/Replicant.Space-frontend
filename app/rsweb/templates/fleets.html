@@ -124,7 +124,7 @@
               title="Run the loadout pass for this fleet now: take fleetless devices at home, spares, prints, bring members home">Apply loadout now</button>
           {% elif r.rows | selectattr('short') | list %}<button type="button" class="small" hx-post="/fleets/{{ f.id }}/fill" hx-target="#fp-{{ f.id }}" title="Take idle spares of the missing types, nearest first">Fill from spares</button>
             <button type="button" class="small" hx-post="/fleets/{{ f.id }}/print" hx-target="#fp-{{ f.id }}">Print what's missing</button>{% endif %}
-          <button class="small ghost" name="delete" value="1" hx-confirm="Delete fleet {{ f.name }}? Its devices keep their fleet tag until you remove them.">Delete</button>
+          <button class="small ghost" name="delete" value="1" hx-confirm="Delete fleet {{ f.name }}? Its devices lose the fleet's tag and become fleetless.">Delete</button>
           <button type="button" class="small ghost" hx-post="/fleets/{{ f.id }}/to-bootstrap" hx-target="#fp-{{ f.id }}"
             title="Turn this fleet into a bootstrap: its replicant's heaven vessel and every member become the bootstrap's own"
             hx-confirm="Convert {{ f.name }} into a bootstrap fleet? Its members become the bootstrap's own (boot:{{ f.id }}); it stops being stationed and starts from where its vessel is.">Convert to bootstrap</button>
@@ -380,7 +380,7 @@
       visiting. A device marked <code>spare</code> is in no fleet until it's sent to one.
       Leave a box empty for "don't care" (never counted, marked spare or filled); 0 means none wanted, so a stationed fleet makes any spare.</p>
     <form hx-post="/loadouts/phases" hx-swap="none">
-      <div style="overflow-x:auto">
+      <div class="sticky-grid">
       <table class="small">
         <tr><th>Device type</th>{% for ph in cfg.phases %}<th class="num">
           <input name="name:{{ ph.id }}" value="{{ ph.name }}" style="width:150px"><br>
@@ -388,7 +388,8 @@
           <button type="button" class="small ghost" hx-post="/loadouts/phases/{{ ph.id }}/delete" hx-confirm="Delete template {{ ph.name }}? Fleets that follow it keep its loadout as their own." title="delete">✕</button>
         </th>{% endfor %}</tr>
         {% for t in types %}<tr><td>{{ t | human }}</td>
-          {% for ph in cfg.phases %}<td class="num"><input type="number" min="0" name="want:{{ ph.id }}:{{ t }}" value="{{ ph.wants.get(t, '') }}" style="width:56px"></td>{% endfor %}
+          {% for ph in cfg.phases %}<td class="num"><input type="number" min="0" name="want:{{ ph.id }}:{{ t }}" value="{{ ph.wants.get(t, '') }}" style="width:56px"
+            title="{{ ph.name }} · {{ t | human }}"></td>{% endfor %}
         </tr>{% endfor %}
       </table>
       </div>

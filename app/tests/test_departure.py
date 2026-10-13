@@ -529,6 +529,12 @@ def test_bills_trail_can_be_picked_up_at_sol(client):
     assert "first stop SOL" in r.text
     fo = client.portal.call(db.kv_get, tl.KV)["follow"]
     assert fo["star"] == "SOL" and fo["active"] and fo["sol_tried"]
+    s = client.portal.call(db.kv_get, tl.KV)                  # restart from SOL clears the old trail first
+    s.update(beacons={"B1": {"location": "LERNA-OORT"}}, audit={"B1": [{"star": "LERNA"}]}, last_beacon="B1")
+    client.portal.call(db.kv_set, tl.KV, s)
+    assert "first stop SOL" in client.post("/trail/follow", data={"action": "sol"}, headers=HX).text
+    s = client.portal.call(db.kv_get, tl.KV)
+    assert s["beacons"] == {} and s["audit"] == {} and "last_beacon" not in s and s["follow"]["star"] == "SOL"
 
 
 def test_newest_sighting_of_a_shop_wins_and_a_failed_trade_sets_it_aside(client):

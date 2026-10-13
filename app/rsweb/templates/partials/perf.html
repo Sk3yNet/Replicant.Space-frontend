@@ -1,0 +1,27 @@
+<div class="row" style="justify-content:flex-end"><button class="small ghost" hx-get="/diagnostics?perf=1" hx-target="#perf">Refresh</button></div>
+<p class="muted small">{{ perf.requests_seen }} recent requests timed. Every page answer also carries a Server-Timing header (browser dev
+  tools → Network → Timing). Requests over 1 s are written to the server log. Pages waited on the engine lock {{ perf.lock_waits.n }}
+  time(s), {{ perf.lock_waits.avg_ms }} ms on average, {{ perf.lock_waits.max_ms }} ms at most.</p>
+<h3>Pages, slowest on average</h3>
+<table class="small"><tr><th>Request</th><th class="num">Count</th><th class="num">Avg ms</th><th class="num">Max ms</th><th class="num">Avg queries</th><th class="num">Avg KB decoded</th></tr>
+  {% for p in perf.by_path %}<tr><td class="mono">{{ p.path }}</td><td class="num">{{ p.n }}</td><td class="num">{{ p.avg_ms }}</td>
+    <td class="num">{{ p.max_ms }}</td><td class="num">{{ p.avg_db_n }}</td><td class="num">{{ p.avg_kv_kb }}</td></tr>{% endfor %}</table>
+<h3>Slowest requests</h3>
+<table class="small"><tr><th>When</th><th>Request</th><th class="num">ms</th><th class="num">DB</th><th class="num">Game API</th><th class="num">Engine lock</th><th>Saved values read (KB, ms)</th></tr>
+  {% for r in perf.slow_requests %}<tr><td>{{ r.at | ago }}</td><td class="mono">{{ r.method }} {{ r.path }}</td><td class="num">{{ r.ms }}</td>
+    <td class="num">{{ r.db_n }} · {{ r.db_ms }} ms</td><td class="num">{{ r.api_n }} · {{ r.api_ms }} ms</td><td class="num">{{ r.lock_ms }}</td>
+    <td class="small">{% for k in r.kv[:5] %}{{ k.key }} ({{ k.kb }}, {{ k.ms }}){{ ', ' if not loop.last }}{% endfor %}</td></tr>{% endfor %}</table>
+<h3>Engine stages</h3>
+<table class="small"><tr><th>Stage</th><th class="num">Runs</th><th class="num">Avg ms</th><th class="num">Last ms</th><th class="num">Max ms</th></tr>
+  {% for s in perf.stages %}<tr><td class="mono">{{ s.name }}</td><td class="num">{{ s.n }}</td><td class="num">{{ s.avg_ms }}</td>
+    <td class="num">{{ s.last_ms }}</td><td class="num">{{ s.max_ms }}</td></tr>{% endfor %}</table>
+<h3>Engine lock holds</h3>
+<table class="small"><tr><th>Holder</th><th class="num">Times</th><th class="num">Avg ms</th><th class="num">Max ms</th></tr>
+  {% for s in perf.lock_holds %}<tr><td class="mono">{{ s.name }}</td><td class="num">{{ s.n }}</td><td class="num">{{ s.avg_ms }}</td>
+    <td class="num">{{ s.max_ms }}</td></tr>{% endfor %}</table>
+<h3>Storage</h3>
+<p class="small">Database {{ perf.storage.files_mb.db }} MB{% if perf.storage.files_mb['db-wal'] is defined %} (+ {{ perf.storage.files_mb['db-wal'] }} MB write-ahead log){% endif %}.
+  {% for t, n in perf.storage.tables.items() %}{{ t }}: {{ n }} rows{{ ', ' if not loop.last }}{% endfor %}.
+  {% if perf.storage.oldest_event %}Oldest event {{ perf.storage.oldest_event | ago }}.{% endif %}</p>
+<table class="small"><tr><th>Largest saved values</th><th class="num">KB</th><th>Updated</th></tr>
+  {% for k in perf.storage.kv_largest %}<tr><td class="mono">{{ k.key }}</td><td class="num">{{ k.kb }}</td><td>{{ k.updated_at | ago }}</td></tr>{% endfor %}</table>

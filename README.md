@@ -88,7 +88,7 @@ rule with an on/off switch, plus the jobs and the log.
 - **Trail**: follow a replicant through the audit logs of public FTL beacons; candidate systems with travel time and a travel
   button; *follow to the end* keeps going until the target stops moving. *Reset trail* clears the beacons and logs when the
   target relocates. Bill (A8F48B26) always passes through SOL: with nothing to follow, or a cold trail, the follow picks
-  him up there, and *restart from SOL* starts over. His BobNet posts about moving ("NOSOXA is in the rear-view
+  him up there, and *restart from SOL* clears the trail and starts over. His BobNet posts about moving ("NOSOXA is in the rear-view
   mirror") restart the follow where he left and set his old shop location aside.
 - **Wards & hubs**: your wards (against the 25 cap), hub shield and upkeep with warnings, `evicted_miners` log. Other players'
   warded systems are left alone by every mining rule and mission.
@@ -182,6 +182,9 @@ lines or a template).
 - **Automations**: every rule, jobs step by step with Cancel, and the log. **Events**: full local history with filters.
   **Messages**: game messages and BobNet channels. **Notifications**: alerts and accomplishments, with toasts and a badge.
 - **Diagnostics**: a live snapshot (read-only GETs plus the app's state) with a mining diagnosis, downloadable as JSON;
+  a **Performance** panel (pages slowest on average, the slowest requests with their queries, game API calls, engine
+  lock waits and saved values decoded; engine stage timings and lock holds; table sizes and the largest saved values,
+  also in the snapshot). Every page answer carries a Server-Timing header, and requests over 1 s are logged;
   feedback to the game's developers. **Console**: call any API endpoint through the server-side client.
 - **Desktop wallpaper** (optional): the Galaxy and System maps as a live Windows wallpaper with
   [Octos](https://github.com/underpig1/octos) and [sk3ynet/replicant-space-octos](https://github.com/sk3ynet/replicant-space-octos).

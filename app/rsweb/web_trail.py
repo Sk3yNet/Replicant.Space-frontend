@@ -140,11 +140,8 @@ async def trail_stars(request: Request, replicant: str = Form(...), user: str = 
     return _msg(f"{len(found)} stars around {r.get('name') or replicant} ({len(placed)} with positions) added to the map.")
 
 
-@router.post("/trail/reset", response_class=HTMLResponse)
-async def trail_reset(request: Request, user: str = Depends(current_user)):
-    """Clear the beacon trail (the target relocated): beacons, their logs and the follow — keeps who is followed."""
-    db = request.app.state.db
-    s = await _state(db)
+async def _clear(request: Request, s: dict) -> dict:
+    """Drop the beacons, their logs and the follow (cancelling its job); keeps who is followed and the scanner."""
     fo = s.get("follow") or {}
     if fo.get("active") and fo.get("job"):
         await request.app.state.worker.automations.cancel(fo["job"])
@@ -153,6 +150,14 @@ async def trail_reset(request: Request, user: str = Depends(current_user)):
     s["seen"] = []
     for k in ("last_beacon", "follow", "polled_at"):
         s.pop(k, None)
+    return s
+
+
+@router.post("/trail/reset", response_class=HTMLResponse)
+async def trail_reset(request: Request, user: str = Depends(current_user)):
+    """Clear the beacon trail (the target relocated): beacons, their logs and the follow — keeps who is followed."""
+    db = request.app.state.db
+    s = await _clear(request, await _state(db))
     await db.kv_set(tl.KV, s)
     request.app.state.hub.publish("state", "trail")
     return _msg(f"Trail cleared: still following {s['target_name']}. Scan for their beacons again.")
@@ -179,6 +184,8 @@ async def trail_follow(request: Request, action: str = Form("start"), user: str 
         rep = next(iter(await db.kv_get("replicants", {}) or {}), None)
     if not rep:
         return _msg("Scan for beacons with a replicant first: that's the one that follows the trail.", ok=False)
+    if action == "sol":   # starting over at SOL: the old trail is stale, clear it first
+        s = await _clear(request, s)
     pos = _positions(await db.kv_get("stars", {}) or {})
     last = tl.last_seen(s["audit"], s["beacons"], s.get("target_code"))
     legs = tl.legs(s["audit"], s["beacons"], s.get("target_code"), pos)

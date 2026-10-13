@@ -35,6 +35,11 @@
       <label style="text-transform:none"><input type="checkbox" name="nosplit" {{ 'checked' if not split_on }}> keep it on {{ printer.name }}</label></div>
     <div class="muted small">{% for c, t, n in parts %}{{ c }}: {{ n }}× {{ t | human }}{{ ' · ' if not loop.last }}{% endfor %}</div>
   {% endif %}
+  {% if large and printer.autofactory %}
+    <label class="small" style="text-transform:none;display:block;margin-top:6px"
+           title="printed compacted: ready to be carried without hours of folding up">
+      <input type="checkbox" name="flatpack" {{ 'checked' if flatpack_on }}> print {{ large | map('human') | join(', ') }} compacted</label>
+  {% endif %}
   <button type="button" style="margin-top:8px" hx-post="/blueprints/queue-plan" hx-target="#plan-result" hx-include="closest form">
     Queue on {{ (peers | length ~ ' autofactories') if parts and split_on else printer.name }}{% if short and mining %} &amp; gather{% endif %}</button>
   {% endif %}

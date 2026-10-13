@@ -200,6 +200,8 @@ def f_duration(secs: Any) -> str:
 
 templates.env.filters.update(local=f_local, ago=f_ago, pretty=f_pretty, human=f_human, num=f_num,
                              status_class=status_class, star_of=star_of, capacity=capacity, duration=f_duration)
+from .modular import modular_type as _modular_type
+templates.env.globals.update(is_large=lambda b: _modular_type((b or {}).get("device_type"), {(b or {}).get("device_type"): b or {}}))
 templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, level_of=notify.level_of,
                              device_options=cmdspec.device_options, field_applies=cmdspec.field_applies,
                              target_options=options_for)
@@ -603,7 +605,8 @@ async def print_queue_panel(request: Request, code: str, compact: int = 0, user:
 @router.post("/devices/{code}/print-queue", response_class=HTMLResponse)
 async def print_queue_action(request: Request, code: str, action: str = Form(...), index: int = Form(0),
                              device_type: str = Form(""), quantity: int = Form(1), dest_star: str = Form(""),
-                             dest_loc: str = Form(""), dest_text: str = Form(""), user: str = Depends(current_user)):
+                             dest_loc: str = Form(""), dest_text: str = Form(""), flatpack: str = Form(""),
+                             user: str = Depends(current_user)):
     dev = await fetch_device(request, code)
     cmds = dev.get("available_commands") or []
     if action == "remove":
@@ -617,6 +620,10 @@ async def print_queue_action(request: Request, code: str, action: str = Form(...
     elif action == "add" and device_type:
         q = max(1, quantity)
         body, label = {"command": "enqueue_print", "device_type": device_type, "quantity": q}, f"enqueue {q}× {device_type} on {code}"
+        from .modular import modular_type
+        if flatpack == "on" and modular_type(device_type, {b["device_type"]: b for b in normalize_blueprints(
+                await request.app.state.db.kv_get("blueprints", []))}):
+            body["flatpack"], label = True, label + " (compacted)"
         loc = (dest_text or dest_loc or "").strip().upper()
         star = (dest_star or "").strip().upper() or star_of(loc)
         if (loc and not lo.is_place(loc)) or (star and not lo.is_place(star)):
@@ -2074,7 +2081,10 @@ async def read_plan(request: Request, form) -> dict:
         for t, n in sorted(lines, key=lambda tn: -float((bps.get(tn[0]) or {}).get("print_time") or 0)):  # longest first
             parts += [(f["device_code"], t, k) for f, k in printqueue.split(peers, t, n, bps, load)]
         split_time = max(load[c] - start[c] for c in load)
-    return {"rows": rows, "lines": lines, "location": location, "total_time": total_time, "printer": printer,
+    from .modular import modular_type
+    large = [t for t, _ in lines if modular_type(t, bps)]
+    return {"large": large, "flatpack_on": form.get("flatpack") == "on" and bool(large),
+            "rows": rows, "lines": lines, "location": location, "total_time": total_time, "printer": printer,
             "peers": peers, "split_on": split_on, "parts": parts, "split_time": split_time,
             "gather_on": (form.get("gather") == "on") if planned else True,
             "deliver_on": (form.get("deliver") == "on") if planned else True,
@@ -2106,7 +2116,7 @@ async def blueprint_queue_plan(request: Request, user: str = Depends(current_use
                                         p["mining"] if gather else None,
                                         p["transport"] if form.get("deliver") == "on" else None,
                                         p["location"], gather, vessel_replicant=printer["code"] if vessel else None,
-                                        assign=assign)
+                                        assign=assign, flatpack=set(p["large"]) if p["flatpack_on"] and not vessel else None)
     on = f"{len({c for c, _, _ in assign})} autofactories at {p['location']}" if assign else printer["name"]
     title = f"production: {', '.join(f'{n}× {t}' for t, n in p['lines'])} on {on}"
     if gather and p["short"] and p["mining"]:
@@ -2114,7 +2124,8 @@ async def blueprint_queue_plan(request: Request, user: str = Depends(current_use
     return await start_chain(request, user, title, steps[0], steps[1:], printer["device"])
 
 
-async def queue_print(request: Request, user: str, kind: str, code: str, device_type: str, quantity: int) -> HTMLResponse:
+async def queue_print(request: Request, user: str, kind: str, code: str, device_type: str, quantity: int,
+                      flatpack: bool = False) -> HTMLResponse:
     """Add a print to a printer.
 
     Autofactories take `enqueue_print` and hold a queue. Heaven vessels have no queue: one print at a
@@ -2123,7 +2134,10 @@ async def queue_print(request: Request, user: str, kind: str, code: str, device_
     quantity = max(1, quantity)
     if kind != "replicant":
         body = {"command": "enqueue_print", "device_type": device_type, "quantity": quantity}
-        out = await call_action(request, user, "POST", f"/devices/{code}", body, f"enqueue {quantity}× {device_type} on {code}")
+        if flatpack:
+            body["flatpack"] = True   # printed compacted: ready to be carried, no hours of folding up first
+        out = await call_action(request, user, "POST", f"/devices/{code}", body,
+                                f"enqueue {quantity}× {device_type} on {code}" + (" (compacted)" if flatpack else ""))
         resp = render_action(request, out)
         if out["ok"]:
             resp.headers["HX-Trigger"] = "pq-refresh"  # any queue panel on the page re-reads
@@ -2141,20 +2155,24 @@ async def queue_print(request: Request, user: str, kind: str, code: str, device_
 
 @router.post("/blueprints/print", response_class=HTMLResponse)
 async def blueprint_print(request: Request, printer: str = Form(...), device_type: str = Form(...),
-                          quantity: int = Form(1), user: str = Depends(current_user)):
-    """Queue a print. Several autofactories at the chosen one's location share it, evenly by print time."""
+                          quantity: int = Form(1), flatpack: str = Form(""), user: str = Depends(current_user)):
+    """Queue a print. Several autofactories at the chosen one's location share it, evenly by print time. A large
+    (modular) device can be printed compacted."""
+    from .modular import modular_type
     kind, _, code = printer.partition(":")
     st = await load_state(request)
+    bpm = {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
+    flat = flatpack == "on" and kind != "replicant" and modular_type(device_type, bpm)
     me = next((d for d in st["devices"] if d.get("device_code") == code), None)
     peers = [d for d in st["devices"] if me and d.get("location") == me.get("location")
              and "autofactory" in (d.get("device_type") or "") and "enqueue_print" in (d.get("available_commands") or [])]
     if kind == "replicant" or quantity <= 1 or len(peers) < 2:
-        return await queue_print(request, user, kind, code, device_type, quantity)
+        return await queue_print(request, user, kind, code, device_type, quantity, flat)
     bps = {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
     load = {d["device_code"]: printqueue.load_seconds(d, bps) for d in peers}
     resp = None
     for f, k in printqueue.split(peers, device_type, quantity, bps, load):
-        resp = await queue_print(request, user, kind, f["device_code"], device_type, k)
+        resp = await queue_print(request, user, kind, f["device_code"], device_type, k, flat)
     return resp
 
 
@@ -2503,6 +2521,9 @@ async def diagnostics(request: Request, user: str = Depends(current_user)):
     ctx = {"snap": snap, "diag": (snap or {}).get("diagnosis"), "status": status,
            "feedback_sent": await db.kv_get("feedback_sent", []) or [], "feedback_types": FEEDBACK_TYPES,
            "viability": await request.app.state.worker.automations.viability_report()}
+    if request.query_params.get("perf"):
+        from . import perf
+        return partial(request, "partials/perf.html", perf=await perf.report(db))
     if tmpl.startswith("partials"):
         return partial(request, tmpl, **ctx)
     return await page(request, user, tmpl, "diagnostics", **ctx)
@@ -3583,6 +3604,16 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
         return HTMLResponse("", status_code=404)
     if form.get("delete") == "1":
         items = [x for x in items if x["id"] != fid]
+        # its devices drop the fleet's tag (and any to:<fleet> sending one to it): they're fleetless, free to be used again
+        tag, to_fleet = fl.fleet_tag(fid), "to:" + re.sub(r"[^a-z0-9\-_:.]", "", fid.lower())[:29]
+        steps = [auto.step(f"{d['device_code']} leaves {f['name']} (fleet deleted)", f"/devices/{d['device_code']}",
+                           {"configuration": {"remove_tags": [t for t in (tag, to_fleet) if t in (d.get("tags") or [])]}},
+                           method="PATCH")
+                 for d in (await load_state(request))["devices"] if {tag, to_fleet} & set(d.get("tags") or [])]
+        if steps:
+            async with eng.lock:
+                await eng.create_job("fleets", f"fleet {f['name']} deleted: {len(steps)} device(s) untagged", None, steps,
+                                     {"devices": []}, force=True)
     else:
         new_name = (form.get("name") or f["name"]).strip()
         if new_name != f["name"]:

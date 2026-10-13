@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.89.1"
+VERSION = "1.90.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.90.0", "2026-10-13", "Diagnostics: a Performance panel (slowest pages and requests with database, game API, engine "
+               "lock and saved-value costs; engine stage timings and lock holds; storage sizes), also in snapshots; a "
+               "Server-Timing header on every page and slow requests logged. Large modular devices can be printed "
+               "compacted (Blueprints, planner, print queue). The Fleets templates grid keeps its header row and type "
+               "column in view while scrolling. Deleting a fleet takes its tag off its devices. Restart from SOL clears "
+               "the trail first."),
     ("1.89.1", "2026-10-13", "Prints spread over the autofactories at the same stockpile by default: the Blueprints planner "
                "(only \"keep it on one\" stops it — an unticked box that hadn't been drawn yet put 3 matrices on one of two "
                "autofactories) and Queue a print."),
