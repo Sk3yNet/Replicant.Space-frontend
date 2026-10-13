@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.92.0"
+VERSION = "1.93.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.93.0", "2026-10-13", "Fleet moves: surge-capable members that aren't needed as carriers (e.g. cargo freighters) no "
+               "longer hold a relocation up; each flies straight to the new home from wherever it is once its current "
+               "task is done. A move already waiting picks its solo flyers on the next pass."),
     ("1.92.0", "2026-10-13", "Checked against the published docs. Game news on the dashboard (changelog and blog every 6 h, "
                "new versions and posts ring the bell). Asteroids: an impact warning starts evacuation even for an "
                "object never seen detected; v3.5.0 diverted/impacted events close objects (a partial diversion keeps "

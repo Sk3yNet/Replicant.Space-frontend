@@ -113,7 +113,8 @@ lines or a template).
   A launch with gaps is refused (tick *Launch anyway* to send it short); a mission whose devices didn't all make it waits
   at gather, refilling from spares, until complete or *Launch anyway*; auto-scout and auto-deals wait; a **new home** stays
   *pending* (the fleet keeps its current home, where the loadout pass fills it) and the fleet moves once complete, or on
-  *Move anyway*.
+  *Move anyway*. Surge-capable members don't hold a move up unless the fleet needs them as carriers: each flies straight
+  to the new home from wherever it is, once it has finished its current task.
 - **Missions** run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*,
   *Stop*, *End mission & board* and *Recall*. Mining works the richest belt (or salvage); explore surveys each target (it no
   longer leaves relays or beacons: ask for those on the Systems list; an already-surveyed target is skipped, and the

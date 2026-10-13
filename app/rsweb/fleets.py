@@ -1147,7 +1147,27 @@ def migrate(cfg: dict, fleets: list[dict], pos: dict[str, dict] | None = None) -
     return cfg, fleets, True
 
 
-def readiness(fleet: dict, devices: list[dict], at: str | None = None) -> dict:
+def solo_flyers(fleet: dict, devices: list[dict]) -> set[str]:
+    """Surge-capable members that needn't travel with the fleet on a relocation: they fly to the new home on their own
+    after their current task (owner, 2026-10-13) — unless they're needed as a carrier: one holding or towing anything,
+    or one of the carriers (biggest first) the members without a surge drive need seats on."""
+    ms = members(fleet, devices)
+    hosts = {d.get("stowed_in_device_code") or d.get("attached_to_device_code") for d in devices} - {None, ""}
+    solo = {d["device_code"] for d in ms if flies_itself(d)}
+    carriers = [d for d in ms if is_carrier(d)]
+    need = sum(1 for d in ms if not is_carrier(d) and not flies_itself(d)
+               and (d.get("stowed_in_device_code") or d.get("attached_to_device_code")) not in {c["device_code"] for c in carriers})
+    for c in sorted(carriers, key=lambda c: -(capacity(c) + hold(c))):
+        if c["device_code"] in hosts:
+            continue   # carrying something already
+        if need > 0:
+            need -= capacity(c) + hold(c)
+            continue
+        solo.add(c["device_code"])
+    return solo
+
+
+def readiness(fleet: dict, devices: list[dict], at: str | None = None, free: set[str] | None = None) -> dict:
     """Is the fleet's whole loadout ready to leave from `at` (default: its home)? Every line of its loadout must be met by
     members in that system — aboard a carrier there, deployed there, or on their way there; members anywhere else don't
     count. {"ready": bool, "short": {type: n}, "elsewhere": {type: [codes]}, "at": star}."""
@@ -1164,7 +1184,7 @@ def readiness(fleet: dict, devices: list[dict], at: str | None = None) -> dict:
     elsewhere: dict[str, list[str]] = {}
     for d in members(fleet, devices):
         t = d.get("device_type") or "device"
-        if where(d) == at:
+        if where(d) == at or d.get("device_code") in (free or ()):   # `free`: flies to the new home on its own
             have[t] = have.get(t, 0) + 1
         else:
             elsewhere.setdefault(t, []).append(d.get("device_code"))
@@ -1173,7 +1193,7 @@ def readiness(fleet: dict, devices: list[dict], at: str | None = None) -> dict:
     return {"ready": not short, "short": short, "elsewhere": {t: c for t, c in elsewhere.items() if t in short}, "at": at}
 
 
-def readiness_anywhere(fleet: dict, devices: list[dict], prefer: str | None = None) -> dict:
+def readiness_anywhere(fleet: dict, devices: list[dict], prefer: str | None = None, free: set[str] | None = None) -> dict:
     """readiness() in whichever system the fleet is gathered: it needn't be home to leave, only all in one place (seen
     live 2026-10-11: a fleet back from a mission elsewhere got a new home and waited for its loadout in its old one).
     Complete somewhere: that system (`prefer` first, e.g. the old home). Else the system where it's closest."""
@@ -1185,8 +1205,9 @@ def readiness_anywhere(fleet: dict, devices: list[dict], prefer: str | None = No
             return where(host)
         trip = in_flight(d)
         return star_of(trip["destination"]) if trip else star_of(d.get("location"))
-    stars = list(dict.fromkeys([x for x in [prefer] + [where(d) for d in members(fleet, devices)] if x]))
-    rs = [readiness(fleet, devices, at=x) for x in stars] or [readiness(fleet, devices, at=prefer)]
+    stars = list(dict.fromkeys([x for x in [prefer] + [where(d) for d in members(fleet, devices)
+                                                       if d.get("device_code") not in (free or ())] if x]))
+    rs = [readiness(fleet, devices, at=x, free=free) for x in stars] or [readiness(fleet, devices, at=prefer, free=free)]
     return min(rs, key=lambda r: (not r["ready"], sum(r["short"].values())))
 
 

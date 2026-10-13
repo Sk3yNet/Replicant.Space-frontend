@@ -1758,7 +1758,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         devices = devices if devices is not None else await self.devices()
         if f.get("station") and old != new and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped") \
                 and [d for d in fl.members(f, devices) if star_of(d.get("location")) != new]:
-            ready = fl.readiness_anywhere(f, devices, prefer=old)
+            ready = fl.readiness_anywhere(f, devices, prefer=old, free=fl.solo_flyers(f, devices))
             if not ready["ready"] and not f.get("move_partial"):
                 # nothing leaves short (seen live 2026-10-10: a move filled piecemeal at the new home, across ~500 ly): it
                 # stays homed where it is — the loadout pass fills it there — and moves once complete (pending_home_pass)
@@ -1772,7 +1772,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             moves = await self.db.kv_get(KV_MOVES, {}) or {}
             moves[old] = {"to": new, "fleet": f.get("id"), "at": now_iso()}
             await self.db.kv_set(KV_MOVES, moves)
-        here = fl.readiness_anywhere(f, devices, prefer=old)
+        solo = fl.solo_flyers(f, devices)
+        here = fl.readiness_anywhere(f, devices, prefer=old, free=solo)
         start = here["at"] if here["ready"] else old   # where it's gathered: it leaves from there
         if f.get("role") not in ("mining", "explore") or not f.get("station") or old == new \
                 or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
@@ -1785,8 +1786,10 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         if short > 0:
             return f"its carriers are {short} seat(s) short of carrying everyone, so the loadout pass moves it piecemeal"
         m = {"status": "running", "phase": None, "idx": 0, "targets": [new], "started_at": now_iso(), "log": [],
-             "opts": {"partial": bool(f.pop("move_partial", False))}, "auto": True, "relocate": True, "from": start}
-        self._mlog(m, f"relocating {start} → {new}: pack up, everyone aboard, travel together, unload")
+             "opts": {"partial": bool(f.pop("move_partial", False))}, "auto": True, "relocate": True, "from": start,
+             "solo": sorted(solo)}
+        self._mlog(m, f"relocating {start} → {new}: pack up, everyone aboard, travel together, unload"
+                      + (f"; {', '.join(sorted(solo))} fly there on their own after their current task" if solo else ""))
         f["mission"] = m
         return "moving together in one relocation mission (everyone aboard before anything leaves)"
 
@@ -1801,7 +1804,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         out = []
         for f in waiting:
             new = f["pending_home"]
-            r = fl.readiness_anywhere(f, devices, prefer=f.get("home"))
+            r = fl.readiness_anywhere(f, devices, prefer=f.get("home"), free=fl.solo_flyers(f, devices))
             if not r["ready"] and not f.get("move_partial"):
                 note = f"{new} pending: {fl.readiness_text(r)}"
                 if f.get("path_note") != note:
@@ -3319,6 +3322,12 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             m["stall"] = True   # warded since the mission started: nothing of ours can mine there, so don't go / unload
             return [], [f"another player's system ward or hub is in {star_of(target)} — nothing of ours can mine there; "
                         "recall the fleet or pick another system"]
+        if m.get("relocate") and m.get("solo"):
+            # surge-capable members not needed as carriers fly to the new home on their own (solo_pass): the
+            # relocation's packing, gathering and travel leave them out
+            ftag, solo = fl.fleet_tag(fleet["id"]), set(m["solo"])
+            devices = [{**d, "tags": [x for x in d.get("tags") or [] if x != ftag]} if d.get("device_code") in solo else d
+                       for d in devices]
         radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         if phase == "assemble":
             return fl.assemble_steps(fleet, devices, radii, far_au)
@@ -3563,6 +3572,36 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         await self.db.kv_set("owner_sent", sent)
         return out
 
+    async def solo_pass(self, fleet: dict, m: dict, devices: list[dict], jobs: dict) -> bool:
+        """A relocation's solo flyers (fleets.solo_flyers): each goes straight to the new home once it has finished
+        what it's doing (not working, not in a job, not in flight) — from wherever it is."""
+        from . import fleets as fl
+        from .loadouts import WORKING
+        target = (m.get("targets") or [None])[0]
+        if not target:
+            return False
+        by = {d.get("device_code"): d for d in devices}
+        busy = self.busy_devices(list(jobs.values()))
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {x.get("designation"): x for x in (cat.get("stars") or []) if isinstance(x, dict)}
+        sent = m.setdefault("solo_sent", [])
+        changed = False
+        for code in sorted(set(m.get("solo") or []) - set(sent)):
+            d = by.get(code)
+            if not d or star_of(d.get("location")) == star_of(target):
+                sent.append(code)
+                changed = True
+                continue
+            if code in busy or str(d.get("status") or "").startswith(WORKING) or fl.in_flight(d):
+                continue   # still on its current task
+            steps = fl.travel_steps(fleet, [d], star_of(target), stars)
+            if steps and await self.create_job("fleets", f"{code} flies to {fleet['name']}'s new home {star_of(target)} on its own",
+                                               code, steps, {"devices": [code]}):
+                sent.append(code)
+                self._mlog(m, f"{code} ({d.get('device_type')}) flies to {star_of(target)} on its own")
+                changed = True
+        return changed
+
     async def run_fleets(self) -> None:
         from . import fleets as fl
         items = await self.fleets()
@@ -3575,6 +3614,15 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             m = fleet.get("mission") or {}
             if m.get("status") != "running":
                 continue
+            if m.get("relocate") and "solo" not in m and not m.get("departed"):
+                # a relocation started before solo flyers existed (1.93): pick them now, so it stops waiting for
+                # freighters nobody told to come back
+                m["solo"] = sorted(fl.solo_flyers(fleet, devices))
+                if m["solo"]:
+                    self._mlog(m, f"{', '.join(m['solo'])} fly to the new home on their own after their current task")
+                    changed = True
+            if m.get("relocate") and set(m.get("solo") or []) - set(m.get("solo_sent") or []):
+                changed |= await self.solo_pass(fleet, m, devices, jobs)
             j = jobs.get(m.get("job"))
             if j and j["status"] in ("running", "waiting"):
                 continue
@@ -3681,7 +3729,8 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     await self.log("fleets", f"{fleet['name']}: mission complete", notify=True)
                     break
                 if nxt == "travel" and not m.get("departed"):
-                    r = fl.readiness_anywhere(fleet, devices, prefer=m.get("from") or fleet.get("home"))   # all in one place
+                    r = fl.readiness_anywhere(fleet, devices, prefer=m.get("from") or fleet.get("home"),   # all in one place
+                                              free=set(m.get("solo") or []) if m.get("relocate") else None)
                     if not r["ready"] and not (m.get("opts") or {}).get("partial"):
                         note = f"waiting to leave: {fl.readiness_text(r)} — Launch anyway sends it short"
                         if m.get("watch_note") != note:

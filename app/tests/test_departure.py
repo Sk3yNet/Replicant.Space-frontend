@@ -788,3 +788,31 @@ def test_deliveries_outside_an_active_network_ride_a_replicant_vessel():
     carried = lambda p: {c for dl in p["deliveries"] for c in dl["devices"]}  # noqa: E731
     assert all(dl["carrier"] == "HV" for dl in p_shut["deliveries"])   # only the replicant's vessel may go
     assert carried(p_shut) <= carried(p_open)
+
+
+def test_surge_capable_members_fly_to_a_new_home_on_their_own():
+    """Owner 2026-10-13: surge-capable devices don't hold up a relocation (they fly straight to the new home after
+    their current task), unless the fleet needs them as a carrier."""
+    f = {"id": "f", "home": "A", "station": True, "wants": {"mining_drone": 1, "surge_carrier": 2, "cargo_freighter": 1}}
+    devs = [dev("C1", "surge_carrier", "A-OORT", features=["surge"], attach_capacity=4),
+            dev("C2", "surge_carrier", "FAR-OORT", features=["surge"], attach_capacity=4),   # spare carrier elsewhere
+            dev("M1", "mining_drone", "A-BELT-1"),                                         # needs a seat
+            dev("F1", "cargo_freighter", "FAR-3", features=["surge", "transport"], status="mining")]
+    solo = fl.solo_flyers(f, devs)
+    assert solo == {"C2", "F1"}                           # C1 is the seat M1 needs
+    assert not fl.readiness_anywhere(f, devs, prefer="A")["ready"]
+    assert fl.readiness_anywhere(f, devs, prefer="A", free=solo)["ready"]
+    devs[2]["attached_to_device_code"] = "C2"            # M1 already rides C2: C2 is needed, C1 is free
+    assert fl.solo_flyers(f, devs) == {"C1", "F1"}
+
+
+def test_solo_flyers_leave_after_their_current_task(client):
+    eng = client.app.state.worker.automations
+    fleet = {"id": "f", "name": "Miner 1", "home": "B", "station": True}
+    m = {"relocate": True, "targets": ["B"], "solo": ["F1", "F2"], "log": []}
+    devs = [dev("F1", "cargo_freighter", "A-3", features=["surge"], status="collecting"),
+            dev("F2", "cargo_freighter", "A-4", features=["surge"])]
+    assert client.portal.call(eng.solo_pass, fleet, m, devs, {})
+    assert m["solo_sent"] == ["F2"]                      # F1 is still collecting: it goes once that's done
+    job = [j for j in client.portal.call(eng.jobs) if j.get("device") == "F2"][-1]
+    assert job["steps"][0]["body"]["command"] == "travel" and job["steps"][0]["body"]["destination"].startswith("B")
