@@ -134,7 +134,9 @@ lines or a template).
   AMI transport controller are left to it), and stray stockpiles brought back to a gather point (a fleet that takes
   materials in) — or, where such a fleet moved away, to its new home; with no gather point, the page says so. Deliveries draw on
   stockpiles beyond the network too while a replicant is free to go along. Priority: queued prints (waiting ones first), local, long-range, returns; bump or skip a request on the Logistics
-  page. Home systems keep what their own prints need. Inside one system a free AMI transport controller (drones / haulers)
+  page. Home systems keep what their own prints need, but hubs share that reserve so each one's print queue is paid for
+  about as many hours ahead (print time over its autofactories): the one with the fewest hours gets what its next print
+  lacks from the one with the most, while the giver still has at least as many hours left. Inside one system a free AMI transport controller (drones / haulers)
   gets the delivery as a `delivery` directive; logistics covers what it can't. Ships are picked nearest first, then the
   smallest that takes the rest in one go (else the biggest), and as many as the load needs go at once, as one convoy:
   freighters and cargo vessels fly themselves (a freighter is too large to attach); haulers and drones stay in their
@@ -412,6 +414,7 @@ What's still open, from comparing the app with the game's API reference and docs
 3. **Megastructures**: a Contribute button (`POST /locations/<code>/contribute`) and the leaderboard.
 4. **Simulations.**
 5. **Housekeeping**: add comments explaining the code blocks throughout the app.
+6. **GUPPI theming**: an optional theme for the web client in the style of GUPPI (the Bobiverse replicant's interface).
 
 ### Fleet controller — how the app would use it
 

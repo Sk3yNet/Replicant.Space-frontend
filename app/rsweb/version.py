@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.86.1"
+VERSION = "1.87.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.87.0", "2026-10-13", "Hubs share their print reserves so each queue is paid for about as many hours ahead; a "
+               "queued print may draw on its own system's reserve (stock no longer stuck on a belt pile next to its "
+               "factory), and consolidation does the piles holding what prints lack first. Logistics fleets are never "
+               "stationed nor send materials, and members an AMI controller adopted are released. The Blueprints page "
+               "filters live by name and feature. Roadmap: GUPPI theming."),
     ("1.86.1", "2026-10-13", "A device riding in a carrier counts as where the carrier is: no more trips to a blank "
                "destination (a beacon stowed in E1029CB0 at SOLARES failed every pass). The carrier already holding it "
                "delivers it without reloading; one riding another vessel is deployed out of its hold or detached by its "

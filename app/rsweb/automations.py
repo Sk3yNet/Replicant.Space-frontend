@@ -2759,6 +2759,11 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         items = await self.fleets()
         out = []
         for f in items:
+            if f.get("role") == "logistics" and (f.get("station") or f.get("materials")):
+                # a logistics fleet works everywhere: never kept at home by the loadout pass, never a ferry's source (seen
+                # in a snapshot 2026-10-13: a converted fleet still stationed at FALQUORYX, sending materials to printing-hub)
+                f["station"], f["materials"] = False, ""
+                out.append(f"{f.get('name')}: a logistics fleet isn't stationed and sends no materials — cleared")
             if f.get("role") != "trade" or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
                 continue
             f["role"] = "logistics"
@@ -2875,6 +2880,16 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         no_consolidate = ({star_of(c.get("location")) for c in devices if "transport" in (c.get("device_type") or "")
                            and "controller" in (c.get("device_type") or "") and c.get("location")}
                           if await self.rule_cfg("consolidate") else set())
+        from .fleets import members as fl_members
+        for f in lg.logistics_fleets(items):   # a member an AMI controller adopted (a ferry, say) is let go when idle
+            for d in fl_members(f, devices):
+                c = d.get("controller_device_code")
+                if c and d["device_code"] not in busy and c not in busy and str(d.get("status") or "").startswith("idle"):
+                    if await self.create_job("logistics", f"logistics: {c} releases {d['device_code']}", c,
+                                             [step(f"{c}: release {d['device_code']} (it belongs to {f.get('name')})",
+                                                   f"/devices/{c}", {"command": "release", "devices": [d["device_code"]]})],
+                                             {"devices": [d["device_code"], c]}):
+                        busy |= {d["device_code"], c}
         p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
                     busy=busy, reach=await self.supply_reach(), contracts=contracts, trades=trades, incoming=incoming,
                     replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),

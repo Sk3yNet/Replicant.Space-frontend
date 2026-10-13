@@ -4,7 +4,10 @@
 <div class="row between"><h1>Blueprints &amp; production planner <span class="muted small">{{ blueprints | length }} known{% if synced %} · synced {{ synced | ago }}{% endif %}</span></h1>
   <span class="row"><span id="bp-refresh">{% if refresh_msg %}<span class="lv-done">{{ refresh_msg }}</span>{% endif %}</span>
     <button class="small" hx-post="/blueprints/refresh" hx-target="#bp-refresh">Refresh from game</button>
-    <form class="inline" method="get"><input name="q" value="{{ q }}" placeholder="filter…"><button class="small">Filter</button></form></span></div>
+    <form class="inline" method="get" id="bp-filter" onsubmit="return false">
+      <input name="q" id="bp-q" value="{{ q }}" placeholder="name…" autocomplete="off">
+      <select name="feature" id="bp-f"><option value="">any feature</option>{% for f in features %}<option {{ 'selected' if f == feature }}>{{ f }}</option>{% endfor %}</select>
+      <span class="muted small" id="bp-count"></span></form></span></div>
 {% with ids="consolidate" %}{% include "partials/rules_slot.html" %}{% endwith %}
 {% if not blueprints %}<p class="muted">Blueprints sync every 5 minutes and when something may have unlocked one; none cached yet.</p>{% endif %}
 
@@ -14,7 +17,8 @@
     <table>
       <tr><th>Device</th><th class="num">Print</th><th>Cost</th><th class="afford-col">Can afford at</th><th class="num">Plan qty</th></tr>
       {% for b in blueprints %}
-      <tr>
+      <tr class="bp-row" data-name="{{ (b.device_type ~ ' ' ~ (b.device_type | human) ~ ' ' ~ (b.short_description or '')) | lower }}"
+          data-features="{{ (b.features or []) | join(' ') }}">
         <td><strong>{{ b.device_type | human }}</strong>{% if b.device_type in recent %} <span class="pill st-work">new</span>{% endif %}<div class="muted small">{{ b.short_description }}</div>
           <div class="small">{{ (b.features or []) | join(', ') }}{% if b.directives %} · directives: {{ b.directives | join(', ') }}{% endif %}</div></td>
         <td class="num mono">{{ ((b.print_time or 0) / 60) | round(1) }}m</td>
@@ -55,4 +59,25 @@
   </form>
   <div id="print-result"></div>
 </div>
+<script>
+(() => {  // filter the blueprint rows by name and feature as you type (kept in the URL, so a link or reload keeps it)
+  const q = document.getElementById("bp-q"), f = document.getElementById("bp-f"), n = document.getElementById("bp-count");
+  const rows = [...document.querySelectorAll("tr.bp-row")];
+  function apply() {
+    const words = q.value.toLowerCase().split(/\s+/).filter(Boolean), feat = f.value;
+    let shown = 0;
+    for (const r of rows) {
+      const ok = words.every(w => r.dataset.name.includes(w)) && (!feat || r.dataset.features.split(" ").includes(feat));
+      r.style.display = ok ? "" : "none";
+      shown += ok;
+    }
+    n.textContent = (words.length || feat) ? `${shown} of ${rows.length}` : "";
+    const u = new URL(location.href);
+    q.value ? u.searchParams.set("q", q.value) : u.searchParams.delete("q");
+    feat ? u.searchParams.set("feature", feat) : u.searchParams.delete("feature");
+    history.replaceState(null, "", u);
+  }
+  q.addEventListener("input", apply); f.addEventListener("change", apply); apply();
+})();
+</script>
 {% endblock %}

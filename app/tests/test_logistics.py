@@ -41,7 +41,8 @@ def test_prints_come_first_and_home_prints_keep_their_reserve():
     assert p["requests"][0]["id"] == "print:B-2" and p["requests"][0]["tier"] == 1 and p["requests"][0]["waiting"]
     assert p["reserve"]["A"] == {"carbon": 200}
     run = next(r for r in p["runs"] if r["req"] == "print:B-2")
-    assert cargo(run) == ["F1"] and run["carry"] == {"carbon": 30} and not run["escort"]
+    # 30 spare, plus 50 of A's reserve: A still has 3 prints paid (30 min) against B's 2 (20 min) — equally busy
+    assert cargo(run) == ["F1"] and run["carry"] == {"carbon": 80} and not run["escort"]
     steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
     assert [s["body"]["command"] for s in steps if s["body"]] == ["collect_resources", "travel", "deposit_resources"]
 
@@ -351,3 +352,45 @@ def test_a_device_riding_another_carrier_is_released_for_the_one_delivering_it()
     descs = [s["desc"] for s in lo.delivery_steps(dl, by, stars, True)]
     assert descs.index("PL: detach MD (for CAR)") < descs.index("stow MD in CAR")
     assert descs.index("BX: deploy out of HV2") < descs.index("stow BX in CAR")
+
+
+def test_a_print_draws_on_its_own_systems_reserve_but_others_dont():
+    devs = world([dev("AH", "autofactory", "A-1", tags=[], status="waiting_for_resources",
+                      print_queue=[{"device_type": "mining_drone", "quantity": 4}])])
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    c = {"designation": "EVX", "location": "B-3", "title": "Wants carbon", "price": {"carbon": 100}}
+    p = run_plan(devs, {"A-BELT": {"carbon": 200}}, [c])
+    run = next(r for r in p["runs"] if r["req"] == "print:A-1")
+    assert run["carry"] == {"carbon": 100} and run["to"] == "A-1"          # A's prints use A's stock (F1 holds 100)
+    assert not any(r["req"] == "contract:EVX" for r in p["runs"])            # the reserve doesn't leave A
+
+
+def test_blueprints_page_filters_by_name_and_feature(client):  # noqa: F811
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "blueprints", [{"device_type": "cargo_freighter", "features": ["surge", "transport"]},
+                                                 {"device_type": "mining_drone", "features": ["mine", "cruise"]}])
+    page = client.get("/blueprints?feature=mine", headers=H).text
+    assert 'id="bp-q"' in page and "<option selected>mine</option>" in page and 'data-features="surge transport"' in page
+
+
+def test_hubs_share_reserves_to_stay_equally_busy():
+    pos = {"FAL": {"x": 0, "y": 0, "z": 0}, "SOL": {"x": 500, "y": 0, "z": 0}}
+    fleets = [{"id": "cab", "name": "Cab", "role": "logistics", "home": "FAL"},
+              {"id": "hub", "role": "mining", "home": "FAL", "station": True, "materials": "self"},
+              {"id": "sol", "role": "mining", "home": "SOL", "station": True, "materials": "self"}]
+    bps = {"mining_drone": {"device_type": "mining_drone", "resources": {"carbon": 40}, "print_time": 600}}
+
+    def world_(fal_q, sol_q):
+        return [dev("F1", "cargo_freighter", "FAL-1", cargo_capacity=2000, **SURGE), dev("HV", "heaven_vessel", "FAL-1", **SURGE),
+                dev("AF", "autofactory", "FAL-1", tags=[], status="idle", print_queue=[{"device_type": "mining_drone", "quantity": fal_q}]),
+                dev("AS", "autofactory", "SOL-2", tags=[], status="waiting_for_resources",
+                    printing={"device_type": "mining_drone"}, print_queue=[{"device_type": "mining_drone", "quantity": sol_q}])]
+
+    def sent(fal_q, sol_q, carbon):
+        p = lg.plan(fleets=fleets, devices=world_(fal_q, sol_q), bps=bps, inventory={"FAL-1": {"carbon": carbon}}, pos=pos,
+                    commandable={"FAL", "SOL"}, hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[],
+                    incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+        return sum(r["carry"].get("carbon", 0) for r in p["runs"] if r["req"] == "print:SOL-2")
+    assert sent(30, 5, 1000) == 240        # FAL keeps 19 prints' worth (3.2 h), more than SOL's whole queue (6 prints, 1 h)
+    assert sent(30, 30, 1000) == 480       # both queues long: 12 prints each (2 h), the odd one stays home
+    assert sent(10, 30, 400) == 200        # FAL's own queue takes all 400; even split: 5 prints (50 min) each

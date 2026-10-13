@@ -1992,7 +1992,7 @@ def affordable(cost: Any, items: Any) -> int:
 
 
 @router.get("/blueprints", response_class=HTMLResponse)
-async def blueprints(request: Request, q: str = "", user: str = Depends(current_user)):
+async def blueprints(request: Request, q: str = "", feature: str = "", user: str = Depends(current_user)):
     db, worker = request.app.state.db, request.app.state.worker
     refresh_msg = None
     # Opening the page re-reads the list if it is more than a minute old (one cheap GET).
@@ -2008,14 +2008,13 @@ async def blueprints(request: Request, q: str = "", user: str = Depends(current_
     bps = normalize_blueprints(await db.kv_get("blueprints", []))
     recent_cut = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
     recent = {u["device_type"] for u in await db.kv_get("blueprint_unlocks", []) or [] if u.get("at", "") >= recent_cut}
-    if q:
-        bps = [b for b in bps if q.lower() in json.dumps(b).lower()]
+    features = sorted({f for b in bps for f in b.get("features") or []})   # every row stays; the page filters live
     inv = {i.get("location"): i.get("items") or {} for i in st["inventory"]}
     prs = printers(st)
     for b in bps:
         b["_afford"] = {p["code"]: affordable(b["resources"], inv.get(p["location"], {})) for p in prs}
     return await page(request, user, "blueprints.html", "blueprints", blueprints=sorted(bps, key=lambda b: b.get("device_type", "")),
-                      printers=prs, inv=inv, q=q, recent=recent, refresh_msg=refresh_msg,
+                      printers=prs, inv=inv, q=q, feature=feature, features=features, recent=recent, refresh_msg=refresh_msg,
                       synced=await db.kv_updated("blueprints"))
 
 

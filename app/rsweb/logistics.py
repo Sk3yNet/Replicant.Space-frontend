@@ -113,6 +113,119 @@ def print_costs(devices: list[dict], bps: dict[str, dict]) -> dict[str, dict]:
     return {k: v for k, v in out.items() if v["cost"]}
 
 
+def queue_items(devices: list[dict], bps: dict[str, dict]) -> dict[str, dict]:
+    """{star: {"items": [(seconds, cost)], "factories": n, "dest": factory location}} — each system's prints still to pay
+    for, in the order they'll run (factories interleaved by when each item starts; a print already running is paid)."""
+    from .loadouts import is_factory
+    from . import printqueue as pq
+    per: dict[str, list] = defaultdict(list)
+    dests: dict[str, str] = {}
+    nfac: dict[str, int] = defaultdict(int)
+    for d in devices:
+        loc = d.get("location")
+        if not loc or not is_factory(d):
+            continue
+        star = star_of(loc)
+        nfac[star] += 1
+        st = str(d.get("status") or "")
+        types = []
+        cur = (d.get("printing") or {}).get("device_type") if isinstance(d.get("printing"), dict) else None
+        if st.startswith("waiting_for_resources") and cur:
+            types.append(cur)
+        for it in pq.items(d):
+            types += [it["device_type"]] * max(1, int(it.get("quantity") or 1))
+        t0 = 0.0
+        for t in types:
+            secs = float((bps.get(t) or {}).get("print_time") or 600)
+            per[star].append((t0, secs, as_amounts((bps.get(t) or {}).get("resources") or {}), loc))
+            t0 += secs
+        if types:
+            dests.setdefault(star, loc)
+    out = {}
+    for star, items in per.items():
+        items.sort(key=lambda x: (x[0], x[3]))
+        out[star] = {"items": [(secs, cost) for _, secs, cost, _ in items], "factories": max(1, nfac[star]), "dest": dests[star]}
+    return out
+
+
+def funded_hours(q: dict, stock: dict[str, float]) -> tuple[float, int]:
+    """(hours of printing the stock pays for, in queue order, until the first print it can't pay; index of that print)."""
+    left, secs = dict(stock), 0.0
+    for i, (s_, cost) in enumerate(q["items"]):
+        if any(left.get(r, 0.0) + 1e-9 < n for r, n in cost.items()):
+            return secs / 3600 / q["factories"], i
+        for r, n in cost.items():
+            left[r] = left.get(r, 0.0) - n
+        secs += s_
+    return secs / 3600 / q["factories"], len(q["items"])
+
+
+def balance(queues: dict[str, dict], kept: dict[str, dict], spare: dict[str, dict], incoming: dict[str, dict],
+            max_steps: int = 200) -> dict[str, dict[tuple[str, str], float]]:
+    """Share hubs' reserves so every system's queue is paid for about as many hours ahead: while the system with the
+    fewest funded hours can't pay its next print from its own stock (plus everything spare anywhere), the system with
+    the most funded hours gives what that print lacks, as long as it still has at least as many hours left afterwards.
+    Returns {destination factory location: {(donor pile, resource): amount}}."""
+    total_spare: dict[str, float] = defaultdict(float)
+    for l, s_ in spare.items():
+        for r, q in s_.items():
+            total_spare[r] += q
+    own: dict[str, dict[str, float]] = {}
+    for star in queues:
+        st: dict[str, float] = defaultdict(float)
+        for l, k in kept.items():
+            if star_of(l) == star:
+                for r, q in k.items():
+                    st[r] += q
+        for l, inc in incoming.items():
+            if star_of(l) == star:
+                for r, q in inc.items():
+                    st[r] += q
+        own[star] = dict(st)
+    shares: dict[str, dict[tuple[str, str], float]] = defaultdict(lambda: defaultdict(float))
+    kept = {l: dict(k) for l, k in kept.items()}
+    for _ in range(max_steps):
+        hours = {s_: funded_hours(q, {r: own[s_].get(r, 0.0) + total_spare.get(r, 0.0) for r in set(own[s_]) | set(total_spare)})
+                 for s_, q in queues.items()}
+        needy = [s_ for s_, (h, i) in hours.items() if i < len(queues[s_]["items"])]
+        if not needy:
+            break
+        d = min(needy, key=lambda s_: (hours[s_][0], s_))
+        cost = queues[d]["items"][hours[d][1]][1]
+        mine = own[d]
+        # what the next print lacks once the system's own stock has paid for everything before it
+        paid: dict[str, float] = defaultdict(float)
+        for s_, c in queues[d]["items"][:hours[d][1]]:
+            for r, n in c.items():
+                paid[r] += n
+        lack = {r: n - max(0.0, mine.get(r, 0.0) + total_spare.get(r, 0.0) - paid[r]) for r, n in cost.items()}
+        lack = {r: math.ceil(q) for r, q in lack.items() if q > 1e-9}
+        best = None
+        for s_, q in queues.items():
+            if s_ == d or any(own[s_].get(r, 0.0) < n for r, n in lack.items()):
+                continue
+            after = funded_hours(q, {r: own[s_].get(r, 0.0) - lack.get(r, 0.0) for r in own[s_]})[0]
+            d_after = funded_hours(queues[d], {r: mine.get(r, 0.0) + total_spare.get(r, 0.0) + lack.get(r, 0.0)
+                                                for r in set(mine) | set(total_spare) | set(lack)})[0]
+            if after + 1e-9 >= d_after and (best is None or after > best[0]):
+                best = (after, s_)
+        if not best:
+            break
+        donor = best[1]
+        for r, n in lack.items():   # out of the donor's piles, biggest first
+            for l in sorted((l for l in kept if star_of(l) == donor), key=lambda l: -kept[l].get(r, 0.0)):
+                q = min(n, kept[l].get(r, 0.0))
+                if q > 0:
+                    kept[l][r] -= q
+                    shares[queues[d]["dest"]][(l, r)] += q
+                    n -= q
+                if n <= 0:
+                    break
+            own[donor][r] = own[donor].get(r, 0.0) - lack[r]
+            mine[r] = mine.get(r, 0.0) + lack[r]
+    return {k: dict(v) for k, v in shares.items()}
+
+
 def surplus(inventory: dict[str, dict], costs: dict[str, dict]) -> tuple[dict[str, dict], dict[str, dict]]:
     """(what each pile can spare, reserve per system). A system keeps what its own prints need: the reserve is taken
     from the factory's own pile first, then the system's biggest piles."""
@@ -185,8 +298,10 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
             to = (home_drop or {}).get(star)
             if not to or to == loc or star in (no_consolidate or set()):
                 continue   # already there, or the Consolidate rule's AMI controller has this system
+            lacks = {x for r_ in out if r_["kind"] == "print" and star_of(r_["to"]) == star for x in r_["need"]}
             out.append({"id": f"consolidate:{loc}", "kind": "return", "to": to, "from": loc,
                         "need": {r: q for r, q in items.items() if q >= 1}, "tier": 4,
+                        "waiting": bool(lacks & set(items)),   # holds what the system's prints lack: first
                         "label": f"consolidate the {loc} stockpile at {to}"})
             continue
         if star in moved:   # a fleet moved away from here: its stock follows it to the new home
@@ -215,6 +330,7 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
 def _free(d: dict) -> bool:
     st = str(d.get("status") or "").lower()
     return (bool(d.get("location")) and not d.get("location_stale") and not d.get("stowed_in_device_code")
+            and not d.get("controller_device_code")   # run by an AMI controller: released first (logistics_pass)
             and not d.get("attached_to_device_code") and not st.startswith(MOVING))
 
 
@@ -292,11 +408,39 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         mine = rep_at.get(r["to"]) or []
         return mine[0] if mine else None
 
+    # a home system's reserve only keeps its stock from leaving the system: moving it to that system's own printing
+    # factory is what it's for, so a print request may draw on the reserve in its own system (returned afterwards)
+    kept = {l: {x: q - spare.get(l, {}).get(x, 0.0) for x, q in as_amounts(items).items() if q - spare.get(l, {}).get(x, 0.0) >= 1}
+            for l, items in inventory.items()}
+    released: dict[tuple[str, str], float] = {}
+    shares = balance(queue_items(devices, bps), kept, spare, incoming)   # hubs keep their queues equally busy
+
+    def give_back() -> None:
+        for (l, x), q in released.items():
+            back = min(q, spare.get(l, {}).get(x, 0.0))
+            if back > 0:
+                spare[l][x] -= back
+                kept.setdefault(l, {})[x] = kept.get(l, {}).get(x, 0.0) + back
+        released.clear()
     for r in reqs:
+        give_back()
         if r["skipped"]:
             continue
         need = {x: q for x, q in r["need"].items() if q >= 1}
         dest, dstar = r["to"], star_of(r["to"])
+        if r["kind"] == "print" and dest:
+            for l, h in kept.items():
+                if star_of(l) == dstar and l != dest:
+                    for x, q in h.items():
+                        spare.setdefault(l, {})[x] = spare.get(l, {}).get(x, 0.0) + q
+                        released[(l, x)] = released.get((l, x), 0.0) + q
+                    kept[l] = {}
+            for (l, x), q in (shares.get(dest) or {}).items():   # what another hub shares with this one's queue
+                q = min(q, kept.get(l, {}).get(x, 0.0))
+                if q > 0:
+                    kept[l][x] -= q
+                    spare.setdefault(l, {})[x] = spare.get(l, {}).get(x, 0.0) + q
+                    released[(l, x)] = released.get((l, x), 0.0) + q
         if not dest:
             unmet.append({"req": r["id"], "why": "no gather point: give a fleet 'takes materials in' (Fleets) to bring it back"})
             continue
@@ -451,6 +595,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                          "ride": ride and ride["device_code"], "escort": esc and esc["device_code"], "to": dest,
                          "carry": taken, "fulfil": _deal(r) if rep else None, "replicant": rep, "back": back, "label": r["label"],
                          "escort_pickup": any(star_of(x) not in commandable for x in stops[:-1])})
+    give_back()
     # rescues: your devices out of command range (beyond an active relay network, no replicant with them), last tier.
     # A device that can surge home is reached by a replicant (in its system, or anywhere its own dark relay network
     # covers, nearest first) and commanded home; one that can't is picked up by a carrier, with a replicant along.
