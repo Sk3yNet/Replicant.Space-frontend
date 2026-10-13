@@ -1655,7 +1655,9 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 f["home"], f["pending_home"] = old, new
                 return f"{new} is pending: it moves once its {fl.readiness_text(ready)}"
         f.pop("pending_home", None)
-        if old and new and old != new:   # what's stockpiled at the old home follows the fleet (logistics.py)
+        if old and new and old != new and f.get("materials") == "self":
+            # a destination fleet (takes materials in): what's stockpiled at its old home follows it (logistics.py); any
+            # other fleet's old piles are just stray ones, returned to the nearest gather point
             from .logistics import KV_MOVES
             moves = await self.db.kv_get(KV_MOVES, {}) or {}
             moves[old] = {"to": new, "fleet": f.get("id"), "at": now_iso()}

@@ -320,3 +320,34 @@ def test_engine_rewrites_location_to_tags(client):  # noqa: F811
     job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "tags")
     conf = job["steps"][0]["body"]["configuration"]
     assert conf["add_tags"] == ["to:sol", "at:sol-3"] and conf["remove_tags"] == ["to:sol-3"]
+
+
+def test_a_device_stowed_in_a_carrier_is_delivered_by_that_carrier_from_where_it_is():
+    from rsweb import loadouts as lo
+    from test_core import _lo_world
+    cfg, devices, bps, inv, stars = _lo_world()
+    devices.append({"device_code": "BC", "device_type": "ftl_beacon", "location": None, "status": "stowed",
+                    "stowed_in_device_code": "CAR", "tags": ["to:bbb"], "features": ["stow"], "available_commands": ["deploy"]})
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {"CAR": ["BC"]})
+    dl = next(x for x in p["deliveries"] if "BC" in x["devices"])
+    assert dl["carrier"] == "CAR" and dl["from"] == "AAA" and not dl.get("fetch_from")
+    steps = lo.delivery_steps(dl, p["by_code"], stars, True)
+    descs = [x["desc"] for x in steps]
+    assert not any("stow BC" in x for x in descs) and not any(x.startswith("CAR →  ") for x in descs)
+    assert any("CAR → BBB-5-L4" in x for x in descs)
+
+
+def test_a_device_riding_another_carrier_is_released_for_the_one_delivering_it():
+    from rsweb import loadouts as lo
+    by = {"MD": {"device_code": "MD", "device_type": "mining_drone", "location": None, "attached_to_device_code": "PL",
+                 "tags": ["to:bbb"], "available_commands": ["travel", "stow"], "features": ["cruise", "stow"]},
+          "PL": {"device_code": "PL", "device_type": "surge_plate", "location": "AAA-OORT"},
+          "BX": {"device_code": "BX", "device_type": "ftl_beacon", "location": None, "stowed_in_device_code": "HV2",
+                 "tags": ["to:bbb"], "available_commands": ["deploy"]},
+          "HV2": {"device_code": "HV2", "device_type": "cargo_vessel", "location": "AAA-OORT"},
+          "CAR": {"device_code": "CAR", "device_type": "surge_carrier", "location": "AAA-OORT"}}
+    stars = {"BBB": {"entry_point": "BBB-5-L4"}}
+    dl = {"carrier": "CAR", "carrier_loc": "AAA-OORT", "from": "AAA", "to": "BBB", "devices": ["MD", "BX"], "mode": "stow"}
+    descs = [s["desc"] for s in lo.delivery_steps(dl, by, stars, True)]
+    assert descs.index("PL: detach MD (for CAR)") < descs.index("stow MD in CAR")
+    assert descs.index("BX: deploy out of HV2") < descs.index("stow BX in CAR")

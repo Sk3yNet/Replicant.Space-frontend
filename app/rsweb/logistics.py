@@ -9,7 +9,7 @@ Demand, tracked every pass (engine stage logistics_pass), one request per destin
             listings nobody approved are never fulfilled.
   return    a stray stockpile (not in a home system, not where something is printed or asked for): brought back to the
             nearest gather point (a fleet that takes materials in) when a logistics device has nothing better to do; in a
-            system a fleet moved away from, it follows that fleet to its new home instead
+            system a destination fleet (one that takes materials in) moved away from, it follows that fleet instead
 
 Priority (owner's order, 2026-10-12): 1 queued prints (the ones waiting for resources first), 2 local deliveries (the
 stock is in the same system), 3 long-range transfers, 4 stockpile returns. A request can be bumped or skipped on the
@@ -46,7 +46,7 @@ from .shapes import as_amounts
 
 KV_STATE = "logistics_state"        # the last pass: requests, runs, unmet
 KV_PREFS = "logistics_prefs"        # {"bump": {request id: tier}, "skip": [request ids]}
-KV_MOVES = "logistics_moves"   # {old home star: {"to": new home star, "fleet", "at"}} — its stock follows the fleet
+KV_MOVES = "logistics_moves"   # {old home star: {"to": new home star, "fleet", "at"}} — a destination fleet's stock follows it
 KV_TRADES = "trade_approvals"  # {"trades": {controller:trade_code: iso}, "done": {key: iso}}
 ROLE = "logistics"
 MIN_RETURN = 25.0              # a stray pile smaller than this isn't worth a trip

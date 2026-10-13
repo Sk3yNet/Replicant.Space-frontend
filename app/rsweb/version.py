@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.86.0"
+VERSION = "1.86.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.86.1", "2026-10-13", "A device riding in a carrier counts as where the carrier is: no more trips to a blank "
+               "destination (a beacon stowed in E1029CB0 at SOLARES failed every pass). The carrier already holding it "
+               "delivers it without reloading; one riding another vessel is deployed out of its hold or detached by its "
+               "carrier first. Only a destination fleet's old stockpiles follow it to a new home."),
     ("1.86.0", "2026-10-13", "Asteroid evacuation (game v3.5.0): devices leave an asteroid due within the hour or on the "
                "impact warning (propulsors at 30 minutes; grounded ones board a carrier), their pins to it are dropped, "
                "and its stockpile is logistics' top priority; system.object_diverted / object_impacted close tracked "

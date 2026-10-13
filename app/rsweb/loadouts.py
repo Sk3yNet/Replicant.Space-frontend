@@ -869,6 +869,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                               "why": f"{code} can't leave {star_of(d.get('location')) or '?'} yet: {why_busy(d)}"})
             continue
         here = star_of(d.get("location"))
+        host = stowed_in.get(code)
+        if not here and host:   # aboard a carrier (seen live 2026-10-13: a beacon stowed in E1029CB0 at SOLARES reported
+            if in_transit(d, by_code, stowed_in):   # no location, and the carrier was sent to fly in from "")
+                continue
+            here = star_of((by_code.get(host) or {}).get("location"))
+        if not here:
+            continue   # nowhere known to fetch it from
         if here == dest and in_transit(d, by_code, stowed_in):
             continue   # its carrier is still on the way (seen live 2026-10-11: "arrived" mid-surge, detach refused for 3 h)
         if here == dest:
@@ -906,6 +913,25 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             return True
         return not any((by_code.get(x) or {}).get("hosting_replicant") for x in codes)
 
+    carrying: dict[str, set[str]] = defaultdict(set)   # carrier -> devices aboard it that are on their way somewhere
+    for codes_ in batches.values():
+        for x in codes_:
+            if stowed_in.get(x):
+                carrying[stowed_in[x]].add(x)
+
+    def fits(c: dict, codes_: list[str]) -> bool:
+        """It can take them all: ones already aboard it count as taken; the rest must stow (or it attaches), and a device
+        that can't fly needs a hold."""
+        rest = [x for x in codes_ if stowed_in.get(x) != c["device_code"]]
+        attach_ = carry_mode(c, bps) == "attach"
+        stow_ok = all("stow" in (by_code[x].get("available_commands") or ["stow"]) for x in rest)
+        grounded_ = any(not can_travel(by_code[x]) for x in rest)
+        return (stow_ok or attach_) and not (grounded_ and attach_)
+
+    def keeps(c: dict, codes_: list[str]) -> bool:
+        """A carrier with passengers bound somewhere only takes on a batch that includes them."""
+        mine = carrying.get(c["device_code"])
+        return not mine or bool(mine & set(codes_))
     for (here, dest, owner), codes in sorted(batches.items(), key=lambda kv: (-len(kv[1]), kv[0][0], kv[0][1], kv[0][2] or "")):
         codes = sorted(codes)
         outside = commandable is not None and dest not in commandable   # beyond an active relay network
@@ -915,16 +941,16 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             cpool = [c for c in carriers if (c["device_code"] in escorts if outside else
                                              (c["device_code"] not in replicant_hosts or s["use_replicant_vessels"]))] \
                 if commandable is not None else carriers
-            options = [c for c in cpool if star_of(c.get("location")) == here and c["device_code"] not in used
-                       and same_owner(c, owner) and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")
-                       and not (grounded and carry_mode(c, bps) == "attach")]
+            options = [c for c in cpool if star_of(c.get("location")) == here and c["device_code"] not in used and keeps(c, codes)
+                       and same_owner(c, owner) and c["device_code"] not in codes and fits(c, codes)
+                       ]
             fetched_from = None
             if not options:
                 # none in this system: send the nearest free carrier from another system to pick them up
                 btag = fleet_tag_of(by_code.get(codes[0]) or {}) or assign.get(codes[0])
-                remote = [c for c in cpool if star_of(c.get("location")) not in (here, "") and c["device_code"] not in used
-                          and same_owner(c, owner) and c["device_code"] not in codes and (stowable or carry_mode(c, bps) == "attach")
-                          and not (grounded and carry_mode(c, bps) == "attach") and _free(c, bps, stowed_map) > 0
+                remote = [c for c in cpool if star_of(c.get("location")) not in (here, "") and c["device_code"] not in used and keeps(c, codes)
+                          and same_owner(c, owner) and c["device_code"] not in codes and fits(c, codes)
+                          and _free(c, bps, stowed_map) > 0
                           # a borrowed carrier only comes from within the supply range of the pick-up (seen live 2026-10-10:
                           # five carriers flew ~500 ly empty to move one drone each); the fleet's own, or its supplier's, may come from anywhere
                           and (not reach or not (reach < _dist(star_of(c.get("location")), here, pos) < 1e9)
@@ -947,7 +973,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                               "n": len(codes), "why": f"waiting for a surge-capable carrier{whose} in {here} (or a free one "
                                                       + (f"within {reach:g} ly" if reach else "elsewhere") + f") to {what}" + (" — a device hosting a replicant only rides its own replicant's carrier" if whose else "")})
                 break
-            c = max(options, key=lambda c: (not owner or c.get("replicant_code") == owner, fleet_tag_of(c) in logistics_tags,
+            c = max(options, key=lambda c: (any(stowed_in.get(x) == c["device_code"] for x in codes),   # already aboard
+                                            not owner or c.get("replicant_code") == owner, fleet_tag_of(c) in logistics_tags,
                                             _free(c, bps, stowed_map),
                                             c["device_code"]))   # a carrier of the devices' own replicant first
             room = int(_free(c, bps, stowed_map))
@@ -1187,10 +1214,30 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         return st
 
     steps: list[dict] = []
+    by_code = dict(by_code)
+    aboard, unload = set(), []
+    for code in dl["devices"]:   # already riding: in this carrier (nothing to board), or in another one (out first)
+        d = by_code.get(code) or {}
+        host = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
+        if d.get("location") or not host:
+            continue
+        if host == carrier:
+            aboard.add(code)
+        elif (by_code.get(host) or {}).get("location"):
+            if d.get("attached_to_device_code"):   # the carrier it hangs on lets go of it
+                st = step(f"{host}: detach {code} (for {carrier})", f"/devices/{host}", {"command": "detach", "device": code},
+                          wait=["device.detached"], timeout=SHORT_TIMEOUT, critical=True)
+                st["wait_device"] = host
+                unload.append(st)
+            else:                                   # it deploys out of the hold it's in
+                unload.append(fl.deploy_out_step({**d, "_from_host": host}))
+            by_code[code] = {**d, "location": by_code[host]["location"], "stowed_in_device_code": None,
+                             "attached_to_device_code": None}
     if dl.get("fetch_from"):   # the carrier comes over from another system first
         steps.append(move(destination(dl["from"], stars), f"fly in from {star_of(dl['fetch_from'])} to pick up", dl["from"]))
         if cloc and cloc != destination(dl["from"], stars):
             steps.append(move(cloc, "pick-up point", cloc))
+    steps += unload
     for code in dl["devices"]:
         steps += leave_steps(by_code.get(code, {}) or {"device_code": code}, managed, set(dl["devices"]))
     for code in dl["devices"]:  # mark them as on their way (and not spare any more, unless just being gathered)
@@ -1202,10 +1249,11 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         if add or rem:
             steps.append(tag_step(code, add, rem))
     first = len(steps)
-    grounded = [c for c in dl["devices"] if not can_travel(by_code.get(c, {}) or {}) and by_code.get(c, {}).get("location") != cloc]
-    far = [c for c in dl["devices"] if c not in grounded and by_code.get(c, {}).get("location") != cloc
+    todo = [c for c in dl["devices"] if c not in aboard]
+    grounded = [c for c in todo if not can_travel(by_code.get(c, {}) or {}) and by_code.get(c, {}).get("location") != cloc]
+    far = [c for c in todo if c not in grounded and by_code.get(c, {}).get("location") != cloc
            and fl.far_apart(by_code.get(c, {}).get("location"), cloc, radii, max_cruise_au)]
-    fly = [c for c in dl["devices"] if by_code.get(c, {}).get("location") != cloc and c not in grounded and c not in far]
+    fly = [c for c in todo if by_code.get(c, {}).get("location") != cloc and c not in grounded and c not in far]
     for code in fly:
         steps.append(step(f"{code} → {cloc} (to board {carrier})", f"/devices/{code}", {"command": "travel", "destination": cloc}))
     for i, code in enumerate(fly):
@@ -1218,7 +1266,7 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
     # Boarding and unloading are critical: if a device doesn't get on, the carrier must not fly off without it
     # (and it must not be re-homed to a system it never reached); if it can't get off, it must not ride back.
     # First everyone at (or flown to) the pick-up point, before the carrier goes anywhere …
-    for code in [c for c in dl["devices"] if c not in grounded and c not in far]:
+    for code in [c for c in todo if c not in grounded and c not in far]:
         steps.append(fl.board_step(carrier, code, "attach" if attach else "stow"))
     # … then the carrier fetches the rest, nearest first: devices that can't fly (beacons: into its hold) and far ones
     stops: dict[str, list[str]] = {}
