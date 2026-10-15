@@ -172,7 +172,7 @@ Example response: `{"replicant_cooperation": "shared", "name": "Bob", "email": "
 }
 ```
 - `GET /v1/achievements/{achievement_key}` — same fields + `players: [{account_name, achieved_at}]`.
-- `GET /v1/accounts/achievements` — yours (auth). **Response not shown** (INFERRED: same `achievements[]` items, probably with `achieved_at`).
+- `GET /v1/accounts/achievements` — yours (auth), newest first (live 2026-10-15): `{achievements: [{achievement_key, title, description, category, xp_reward, achieved_at}]}` (`achieved_at` with tz offset; no `player_count`). Categories seen: progression, exploration, infrastructure, travel, location_events, community.
 
 ### Tutorials (owner-supplied docs, 2026-10-13)
 - `GET /v1/tutorials` → `{tutorials: [{slug, name, description, order, completed, current_step, total_steps}]}`.
