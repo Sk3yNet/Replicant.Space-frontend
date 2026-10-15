@@ -743,22 +743,32 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                             s2["status"], s2["note"] = "skipped", "already aboard"
             if (not ok and (st.get("body") or {}).get("command") == "attach" and "already attached" in (err or "").lower()
                     and str(st.get("path") or "").startswith("/devices/")):
-                # seen live (2026-10-15, Prospector 4): "Target device is already attached to a carrier". Attached to
-                # this carrier: that's what the step wanted. Attached to another: detach it there, then attach again
+                # seen live (2026-10-15, Prospector 4, Miner_3): "Target device is already attached to a carrier".
+                # Attached to this carrier or another of its fleet: that's what the step wanted. Attached to a carrier
+                # outside the fleet (or one the device list doesn't name): deploy it there, then attach it again
                 carrier, code = st["path"].split("/")[2], st["body"].get("device")
-                cur = next((d for d in await self.devices() if d.get("device_code") == code), {})
-                other = cur.get("attached_to_device_code")
-                if other == carrier:
-                    ok, st["note"] = True, f"{err} — already attached to {carrier}"
+                devs_now = await self.devices()
+                by_now = {d.get("device_code"): d for d in devs_now}
+                other = (by_now.get(code) or {}).get("attached_to_device_code")
+                fleet_tags = {x for x in (by_now.get(carrier) or {}).get("tags") or [] if x.startswith("fleet:")}
+                if other and (other == carrier or fleet_tags & set((by_now.get(other) or {}).get("tags") or [])):
+                    ok, st["note"] = True, f"{err} — already attached to {other}, a carrier of this fleet"
                     st["wait"] = []
-                elif other:
-                    dok, _r, derr = await self.send("POST", f"/devices/{other}", {"command": "detach", "device": code},
-                                                    f"auto: {other}: detach {code} (to attach it to {carrier})")
-                    if dok:
-                        ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']} (retry)")
-                        st["note"] = f"detached from {other} first"
-                    else:
-                        err = f"{err}; detaching it from {other} failed: {derr}"
+                else:
+                    dep = step(f"deploy {code} out of {other or 'the carrier it is on'} (for {carrier} to attach it)",
+                               f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT,
+                               critical=True)
+                    dep["wait_device"] = code
+                    again = step(st["desc"], st["path"], dict(st["body"]), wait=list(st.get("wait") or []),
+                                 timeout=st.get("timeout", STEP_TIMEOUT), critical=st.get("critical", False))
+                    again["wait_device"], again["no_retry_attach"] = st.get("wait_device"), True
+                    if not st.get("no_retry_attach"):
+                        job["steps"][job["idx"] + 1:job["idx"] + 1] = [dep, again]
+                        for s2 in job["steps"][job["idx"] + 3:]:
+                            if isinstance(s2.get("seq0_from"), int) and s2["seq0_from"] > job["idx"]:
+                                s2["seq0_from"] += 2
+                        ok, st["note"] = True, f"{err} — on {other or 'a carrier outside the fleet'}: deploying it first"
+                        st["wait"] = []
             if not ok and "already at destination" in (err or "").lower():
                 ok, st["note"] = True, err  # nothing to do: count it as done and move on
                 st["wait"] = []

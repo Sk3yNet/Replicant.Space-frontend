@@ -652,6 +652,11 @@ def test_carrier_plan_orders_steps():
 def test_carrier_card_and_pickup_with_vessel_move(client):
     world = client.app.state.api.http._transport.app.state.world
     world.move_seconds = 0.03
+    db = client.app.state.db   # D8C2A140 starts out scanning: a scanning drone would wait for its scan first
+    next(d for d in world.devices if d["device_code"] == "D8C2A140")["status"] = "idle"
+    cached = client.portal.call(db.kv_get, "devices")
+    next(d for d in cached if d["device_code"] == "D8C2A140")["status"] = "idle"
+    client.portal.call(db.kv_set, "devices", cached)
     client._seen = len(world.events)
     page = client.get("/devices/11ADA230", headers=H).text
     assert "Carrier · devices in SOL" in page
@@ -6903,10 +6908,9 @@ def test_attach_already_attached(client):
     from rsweb.automations import step
     eng, db = client.app.state.worker.automations, client.app.state.db
     devices = client.portal.call(db.kv_get, "devices")
-    devices += [{"device_code": "CAR00001", "device_type": "cargo_vessel", "location": "SOL-3", "status": "idle"},
-                {"device_code": "CAR00002", "device_type": "cargo_vessel", "location": "SOL-3", "status": "idle"},
-                {"device_code": "OBS0000A", "device_type": "observatory", "location": "SOL-3", "status": "attached",
-                 "attached_to_device_code": "CAR00001"}]
+    devices += [{"device_code": c, "device_type": "cargo_vessel", "location": "SOL-3", "status": "idle", "tags": t}
+                for c, t in (("CAR00001", ["fleet:m3"]), ("CAR00002", ["fleet:m3"]), ("CAR00003", ["fleet:other"]))]
+    devices.append({"device_code": "OBS0000A", "device_type": "observatory", "location": "SOL-3", "status": "attached"})
     client.portal.call(db.kv_set, "devices", devices)
     sent = []
 
@@ -6918,17 +6922,33 @@ def test_attach_already_attached(client):
     orig = eng.send
     eng.send = fake_send
     try:
-        for carrier in ("CAR00001", "CAR00002"):   # the carrier it's on already: done; another: detach there, retry
+        for on, carrier in (("CAR00001", "CAR00001"), ("CAR00001", "CAR00002"), ("CAR00003", "CAR00002"), (None, "CAR00002")):
+            cached = client.portal.call(db.kv_get, "devices")
+            next(d for d in cached if d["device_code"] == "OBS0000A")["attached_to_device_code"] = on
+            client.portal.call(db.kv_set, "devices", cached)
             sent.clear()
             job = client.portal.call(eng.create_job, "fleets", "attach test", carrier,
                                      [step(f"{carrier}: attach OBS0000A", f"/devices/{carrier}",
                                            {"command": "attach", "device": "OBS0000A"}, critical=True)], {"devices": []}, True)
             j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
-            assert j["status"] != "failed", carrier
-            if carrier == "CAR00001":
-                assert sent == [("/devices/CAR00001", "attach")] and j["steps"][0]["status"] == "done"
-            else:
-                assert sent == [("/devices/CAR00002", "attach"), ("/devices/CAR00001", "detach"),
-                                ("/devices/CAR00002", "attach")]
+            assert j["status"] != "failed" and j["steps"][0]["status"] == "done", (on, carrier)
+            if on in ("CAR00001",):   # this carrier, or another of the fleet: done
+                assert sent == [(f"/devices/{carrier}", "attach")], (on, carrier)
+            else:                     # outside the fleet, or unknown: deploy it, then attach again
+                assert sent == [(f"/devices/{carrier}", "attach"), ("/devices/OBS0000A", "deploy")], (on, carrier, sent)  # then waits
+                assert [s["desc"].split(" ")[0] for s in j["steps"]] == [f"{carrier}:", "deploy", f"{carrier}:"]
     finally:
         eng.send = orig
+
+
+def test_scanning_drone_finishes_its_scan_before_moving():
+    from rsweb.automations import step
+    from rsweb.modular import prepare_moves
+    devices = [{"device_code": "SD000001", "device_type": "survey_drone", "location": "SOLARES-4", "status": "scanning"},
+               {"device_code": "SD000002", "device_type": "survey_drone", "location": "SOLARES-4", "status": "idle"}]
+    steps = [step(f"{c} → SOLARES-4-L4 (board)", f"/devices/{c}", {"command": "travel", "destination": "SOLARES-4-L4"})
+             for c in ("SD000001", "SD000002")]
+    steps[1]["seq0_from"] = 0
+    out = prepare_moves(steps, devices, {}, {})
+    assert out[0]["method"] == "WAIT" and out[0]["wait"] == ["scan.completed"] and out[0]["wait_device"] == "SD000001"
+    assert [s["desc"] for s in out[1:]] == [s["desc"] for s in steps] and out[2]["seq0_from"] == 1

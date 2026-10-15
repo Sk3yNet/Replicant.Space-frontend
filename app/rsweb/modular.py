@@ -130,6 +130,30 @@ def mining(d: dict) -> bool:
     return str(d.get("status") or "").startswith("mining") and not str(d.get("status") or "").startswith("mining_stopped")
 
 
+def scanning(d: dict) -> bool:
+    """A survey drone scanning a body: it can't move until the scan is done (live 2026-10-15, Miner_4 assemble:
+    "Cannot cruise while scanning")."""
+    return str(d.get("status") or "").startswith("scanning")
+
+
+def with_scan_waits(steps: list[dict], devices: list[dict]) -> list[dict]:
+    """A job that moves a scanning drone first waits for its scan to finish (scan.completed). The waits open the job,
+    so a scan that ends while they run still counts."""
+    by = {d.get("device_code"): d for d in devices}
+    codes = sorted({c for c, k in (_subject(s) for s in steps) if k == "move" and c in by and scanning(by[c])})
+    if not codes:
+        return steps
+    waits = []
+    for code in codes:
+        w = step(f"wait for {code} to finish its scan", "", None, method="WAIT", wait=["scan.completed"], timeout=3600)
+        w["wait_device"] = code
+        waits.append(w)
+    for s in steps:
+        if isinstance(s.get("seq0_from"), int):
+            s["seq0_from"] += len(waits)
+    return waits + steps
+
+
 def with_untracking(steps: list[dict], devices: list[dict]) -> list[dict]:
     """A survey drone tracking (or searching) a site can't move: deactivate it right before its first move — so the
     miners keep their site until the carrier is there — and activate it again once it has landed. A mining drone is
@@ -230,7 +254,8 @@ def prepare_moves(steps: list[dict], devices: list[dict], bps: dict[str, dict] |
                   coop: dict | None = None) -> list[dict]:
     """Every job's steps: drones tracking a site deactivate before moving, large devices compact, and a device boarding
     another replicant's carrier is handed to that replicant first (unless replicant cooperation allows it as it is)."""
-    return with_owner_handoff(with_compaction(with_untracking(steps, devices), devices, bps), devices, coop)
+    return with_owner_handoff(with_compaction(with_untracking(with_scan_waits(steps, devices), devices), devices, bps),
+                              devices, coop)
 
 
 def _wrap(steps: list[dict], codes: set[str], before_move, after_land) -> list[dict]:
