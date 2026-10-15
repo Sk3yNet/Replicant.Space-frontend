@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Lockers{% endblock %}
+{% block content %}
+<h1>Equipment lockers</h1>
+<p class="muted small">An equipment locker is an NPC device that hands out a set loadout to a replicant at its location, once per
+  account. Send a replicant there, scan, then retrieve.</p>
+<div class="card"><h2>Known lockers</h2>
+  <table class="small"><tr><th>Where</th><th>Gives</th><th>Costs</th></tr>
+  {% for k in known %}<tr><td class="mono">{{ k.location }}</td><td>{{ k.gives }}</td><td>{{ k.cost }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Scan where a replicant is</h2>
+  {% for code, name, loc in reps %}<div class="small" style="margin:4px 0"><b>{{ name }}</b> at <span class="mono">{{ loc or '?' }}</span>
+    <button class="small ghost" hx-get="/lockers/scan/{{ code }}" hx-target="next .lk-scan">Scan for lockers</button>
+    <div class="lk-scan"></div></div>
+  {% else %}<p class="muted">No replicants.</p>{% endfor %}</div>
+{% endblock %}

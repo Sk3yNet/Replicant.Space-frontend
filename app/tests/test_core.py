@@ -6832,3 +6832,32 @@ def test_an_impact_warning_is_filed_under_the_asteroids_designation(client):
     assert set(ev.due(objs, warned={"KELM-OBJ-2"})) == {"KELM-OBJ-2", "KELM-4-L4"}
     page = client.get("/defence", headers=H).text
     assert "KELM-OBJ-2" in page and "warned your devices at" in page
+
+
+def test_docs_coverage_pages_2026_10_15(client):
+    """Interfaces for the docs not covered before: terraforming, research, simulation leaderboards, equipment lockers."""
+    import json as _json
+    db = client.app.state.db
+    status = {"body": "SOL-3", "attributes": {"temperature": {"value": 361.7, "delta": 0.2}, "pressure": {"value": 0.34, "delta": 0},
+                                              "oxygen": {"value": 5.2, "delta": 0.1}, "toxicity": {"value": 63.9, "delta": -0.4},
+                                              "hydrosphere": {"value": 8.1, "delta": 0.05}, "tectonic": {"value": 15, "delta": 0},
+                                              "biosphere": {"value": 0, "delta": 0}},
+              "projections": {"temperature": {"+6": 360.8}}, "warnings": ["temperature approaching Evaporation threshold (373)"],
+              "effects": {"devices": {}, "equilibrium": [{"attribute": "temperature", "direction": "decrease", "strength": "weak"}]}}
+    client.portal.call(db.insert_event, {"id": "tf1", "event": "terraform.status", "location": "SOL-3", "payload": status})
+    page = client.get("/terraforming", headers=H).text
+    assert "SOL-3" in page and "Evaporation" in page and "Toxic suppression" in page and "Bio seeders" in page
+    assert "MARYR" not in page
+    frag = client.get("/terraforming/kuiper/SOL", headers=HX).text
+    assert "SOL-KUIPER-001" in frag
+    from rsweb import terraform as tf
+    assert [c["rule"] for c in tf.coupling(status) if c["active"]] == ["Toxic suppression"]
+    assert {b["attr"] for b in tf.bio_ready(status) if not b["ok"]} == {"temperature", "oxygen", "toxicity", "hydrosphere"}
+    assert client.get("/lockers", headers=H).status_code == 200
+    assert "Leaderboards" in client.get("/simulations", headers=H).text
+    assert "Mining Rush" in client.get("/simulations/leaderboard", headers=HX).text
+    assert "Bob" in client.get("/simulations/leaderboard?scenario=mining_rush", headers=HX).text
+    # a rock you launched isn't a threat
+    from rsweb import defence as dfn
+    a = dfn.assess({"designation": "SOL-OBJ-9", "impact_eta": "2099-01-01T00:00:00Z", "launched_by_you": True}, [], {})
+    assert a["verdict"] == "launched by you" and not a["threat"]

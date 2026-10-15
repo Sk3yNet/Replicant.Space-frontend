@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Terraforming{% endblock %}
+{% block content %}
+<h1>Terraforming <span class="muted small">{{ worlds | length }} world(s) · monitors running {{ monitors }} / {{ cap }}</span></h1>
+<p class="muted small">Each terraform monitor reports its world every tick (<code>terraform.status</code>). Devices run at a strength
+  from 0 to 1; atmo processors, gas separators and aquifer taps can be reversed. Training first: the terraforming scenario at the
+  MIRFAKA datacenter (Economy › Simulations) unlocks the devices. Order of work (docs): temperature into 200–350 K, pressure
+  0.3–10 atm, toxicity under 20 and oxygen 10–35 %, hydrosphere over 10 %, then bio seeders; an atmospheric regulator holds it.</p>
+
+{% for w in worlds %}{% set s = w.status %}
+<div class="card" style="margin-bottom:14px">
+  <h2 style="margin:0"><a class="mono" href="/locations/{{ w.body }}">{{ w.body }}</a>
+    {% if s.at %}<span class="muted small">read {{ s.at | ago }}</span>{% else %}<span class="muted small">no monitor report yet</span>{% endif %}
+    {% if s.anomaly %}<span class="pill small lv-alert">{{ s.anomaly.severity }} {{ s.anomaly.type | human }} in {{ s.anomaly.ticks_until }} tick(s)</span>{% endif %}</h2>
+  {% if s.attributes %}
+  <div class="grid g2">
+  <table class="small">
+    <tr><th>Attribute</th><th class="num">Value</th><th class="num">Δ/tick</th><th class="num">+6</th><th class="num">+12</th><th class="num">+24</th></tr>
+    {% for a in attrs %}{% set v = s.attributes.get(a) or {} %}{% set pr = (s.projections or {}).get(a) or {} %}
+    <tr><td>{{ a }} <span class="muted">{{ units.get(a, '') }}</span></td><td class="num">{{ v.value | num }}</td>
+      <td class="num {{ 'lv-done' if (v.delta or 0) > 0 else 'lv-alert' if (v.delta or 0) < 0 }}">{{ v.delta | num }}</td>
+      <td class="num muted">{{ pr.get('+6') | num }}</td><td class="num muted">{{ pr.get('+12') | num }}</td><td class="num muted">{{ pr.get('+24') | num }}</td></tr>
+    {% endfor %}
+  </table>
+  <div class="small">
+    {% if s.warnings %}<div><b>Warnings</b>{% for x in s.warnings %}<div class="lv-alert">⚠ {{ x }}</div>{% endfor %}</div>{% endif %}
+    <div><b>Couplings</b> {% for c in w.coupling %}<div class="{{ 'lv-alert' if c.active and 'good' not in c.effect else 'muted' }}">
+      {{ '●' if c.active else '○ near' }} {{ c.rule }} ({{ c.attr }} {{ c.op }} {{ c.threshold }}): {{ c.effect }}{% if c.causal %} · full strength once triggered{% endif %}</div>
+      {% else %}<span class="muted">none active or near</span>{% endfor %}</div>
+    <div style="margin-top:6px"><b>Bio seeders</b> {% if w.bio | selectattr('ok') | list | length == w.bio | length %}<span class="lv-done">ready ✓</span>{% endif %}
+      {% for b in w.bio %}<span class="pill small {{ 'lv-done' if b.ok else '' }}">{{ b.attr }} {{ b.want }}{% if not b.ok %} (now {{ b.value | num }}){% endif %}</span> {% endfor %}</div>
+    {% set eff = s.effects or {} %}
+    {% if eff.cascade %}<div style="margin-top:6px"><b>Cascade</b> {% for e in eff.cascade %}{{ e.attribute }} {{ e.direction }} ({{ e.strength }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+    {% if eff.equilibrium %}<div><b>Drift</b> {% for e in eff.equilibrium %}{{ e.attribute }} {{ e.direction }} ({{ e.strength }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+    {% if s.asteroids %}<div><b>Incoming</b> {% for r in s.asteroids %}<span class="mono">{{ r.designation }}</span> {{ r.mass_class }} {{ r.composition }} · {{ r.impact_eta | local }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+  </div>
+  </div>
+  {% endif %}
+  {% if w.devices %}
+  <h3>Devices here</h3>
+  <table class="small">
+    <tr><th>Device</th><th>Status</th><th>Does</th><th>Reported effect</th><th>Strength / direction</th><th></th></tr>
+    {% for d in w.devices %}{% set rep = ((s.effects or {}).devices or {}).get(d.device_code) %}
+    <tr><td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> {{ d.device_type | human }}</td>
+      <td>{{ d.status }}</td><td class="muted">{{ effects.get(d.device_type, '') }}</td>
+      <td>{% if rep %}{% for e in rep.effects %}{{ e.attribute }} {{ e.direction }} ({{ e.strength }}){{ ', ' if not loop.last }}{% endfor %}{% endif %}</td>
+      <td>{% if d.device_type != 'terraform_monitor' %}<form class="inline" hx-post="/terraforming/{{ d.device_code }}/settings" hx-target="next .tf-out">
+        <input type="number" name="strength" min="0" max="1" step="0.01" value="{{ d._set.strength }}" style="width:64px">
+        {% if directions.get(d.device_type) %}<select name="direction">{% for x in directions[d.device_type] %}<option {{ 'selected' if d._set.direction == x }}>{{ x }}</option>{% endfor %}</select>{% endif %}
+        <button class="small ghost">Set</button></form>{% endif %}</td>
+      <td><form class="inline" hx-post="/terraforming/{{ d.device_code }}/power" hx-target="next .tf-out">
+        <button class="small ghost" name="action" value="activate">On</button> <button class="small ghost" name="action" value="deactivate">Off</button></form>
+        <span class="tf-out"></span></td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+{% else %}
+<div class="card"><p class="muted">No terraforming yet: deploy a terraform monitor at a planet or moon and its reports show up here.</p></div>
+{% endfor %}
+
+<div class="card">
+  <h2>Dropping rocks</h2>
+  <p class="muted small">Find a Kuiper object (detect_object on a sensor array, or a vessel the slow way; found ones stay 24 h), deploy a
+    vector charge at it and launch it at a planet or moon in the same system. Then steer it with propulsors (increase / decrease:
+    speed and ETA) and trajectory deflectors (steepen above 30° to hit the surface, shallow to spread it through the air).
+    Rocks you launch here are yours: asteroid defense leaves them alone (they still get evacuated around).</p>
+  {% if scanners %}<div class="small"><b>Detect objects with</b>
+    {% for d in scanners %}<form class="inline" hx-post="/terraforming/{{ d.device_code }}/detect" hx-target="next .tf-out" style="margin-right:8px">
+      <button class="small ghost">{{ d.device_code }} {{ d.device_type | human }} @ {{ d.location }}</button></form><span class="tf-out"></span>{% endfor %}</div>{% endif %}
+  {% if stars %}<div class="small" style="margin-top:6px"><b>Kuiper objects in</b>
+    {% for s in stars %}<button class="small ghost" hx-get="/terraforming/kuiper/{{ s }}" hx-target="#tf-kuiper">{{ s }}</button> {% endfor %}</div>{% endif %}
+  <div id="tf-kuiper" style="margin-top:6px"></div>
+  {% if rock_tools %}<h3>Rock tools</h3><table class="small">
+    {% for d in rock_tools %}<tr><td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> {{ d.device_type | human }}</td><td>{{ d.location }}</td><td>{{ d.status }}</td>
+      <td>{% if directions.get(d.device_type) %}<form class="inline" hx-post="/terraforming/{{ d.device_code }}/settings" hx-target="next .tf-out">
+        <select name="direction">{% for x in directions[d.device_type] %}<option {{ 'selected' if d._set and d._set.direction == x }}>{{ x }}</option>{% endfor %}</select>
+        <button class="small ghost">Set</button></form><span class="tf-out"></span>{% endif %}</td></tr>{% endfor %}</table>{% endif %}
+  {% if launched %}<h3>Launched by you</h3><table class="small"><tr><th>Rock</th><th>From</th><th>At</th><th>Impact</th><th>Angle / speed</th></tr>
+    {% for k, r in launched.items() %}<tr><td class="mono">{{ k }}</td><td class="mono">{{ r.kuiper_object }}</td><td class="mono">{{ r.destination }}</td>
+      <td>{{ r.impact_eta | local }}</td><td>{{ r.approach_angle }}° · {{ r.approach_speed }}</td></tr>{% endfor %}</table>{% endif %}
+</div>
+{% endblock %}

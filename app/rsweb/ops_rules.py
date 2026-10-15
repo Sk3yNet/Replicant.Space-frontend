@@ -449,6 +449,12 @@ class OpsRules:
                 if des in objs and p.get("outcome") != "partial":   # partial: still a threat
                     objs[des]["closed"] = dfn.closed_as(r["event"])
                     objs[des].setdefault("closed_at", r["created_at"])
+        mine = await self.db.kv_get("launched_rocks", {}) or {}   # rocks you launched (Terraforming): not a threat
+        for k, o in objs.items():
+            if k in mine:
+                o["launched_by_you"] = True
+                o.setdefault("impact_target", mine[k].get("destination"))
+                o.setdefault("impact_eta", mine[k].get("impact_eta"))
         for k, o in objs.items():   # saved before 1.99 without a designation (v3.5.0 detections): its location is its name
             if not o.get("designation"):
                 o["designation"] = k

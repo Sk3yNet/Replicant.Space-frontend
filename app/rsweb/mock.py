@@ -261,6 +261,30 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
 
     sims: dict = {"active": None, "history": []}
 
+    @app.get("/v1/devices/{code}/research")
+    async def research_list(code: str):
+        return ok({"research": [{"topic": "precursor_signal", "title": "Builder's Echo",
+                                 "description": "Analyse a precursor signal pattern.", "completed": False}]})
+
+    @app.post("/v1/devices/{code}/research/{topic}")
+    async def research_do(code: str, topic: str):
+        return ok({"topic": topic, "achievement": f"{topic}_discovered", "unlocked_blueprints": ["sensor_array"]})
+
+    @app.get("/v1/leaderboards/simulations")
+    async def sim_boards():
+        return ok({"scenarios": [{"scenario_code": "mining_rush", "scenario_name": "Mining Rush", "completions": 87,
+                                  "best_time_seconds": 1842}]})
+
+    @app.get("/v1/leaderboards/simulations/{scen}")
+    async def sim_board(scen: str):
+        return ok({"scenario_code": scen, "scenario_name": "Mining Rush", "entries": [
+            {"rank": 1, "replicant_code": "7A303E2A", "name": "Bob", "score_seconds": 1842, "resources_mined": 1031,
+             "devices_printed": 2}]})
+
+    @app.post("/v1/devices/{code}/retrieve")
+    async def locker_retrieve(code: str):
+        return ok({"status": "retrieved", "vessel_device_code": "HV2E8F3A"})
+
     @app.get("/v1/devices/{code}/simulate")
     async def sim_scenarios(code: str):
         return ok({"scenarios": [{"code": "mining_rush", "name": "Mining Rush", "description": "Mine 3,000 total resources",
@@ -755,6 +779,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
 
     @app.get("/v1/locations/{code}")
     async def location(code: str):
+        if code.endswith("-KUIPER"):
+            return ok({"location": code, "kuiper_objects": [{"designation": f"{code}-001", "mass_class": "large",
+                                                             "composition": "ice"}]})
         if code == "SOL":
             return ok(SOL_SCAN)
         if "BELT" in code:

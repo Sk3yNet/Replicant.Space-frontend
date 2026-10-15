@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.100.0"
+VERSION = "1.101.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.101.0", "2026-10-15", "New from the docs: Terraforming page (Map: each monitored world's status, couplings, bio "
+               "seeder checklist, device strength / direction / on-off; dropping rocks: detect Kuiper objects, launch with a "
+               "vector charge, steer — rocks you launch aren't diverted by asteroid defense); Simulations: research topics at "
+               "the interface, all-player leaderboards, the game's view of a run; Economy › Lockers: equipment lockers. "
+               "Fleets routes moved to their own module. CLAUDE.md: game facts and token-saving practice."),
     ("1.100.0", "2026-10-15", "Game messages saying \"Salvage discovered:\" are marked read (any text field, either id / "
                "read field name). Civilization beacons, asteroid-defense propulsors and maintenance drones are never printed "
                "on a vessel (replicant vessels take print orders too): only on an autofactory."),

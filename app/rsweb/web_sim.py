@@ -84,3 +84,92 @@ async def simulations_abandon(request: Request, user: str = Depends(current_user
                            f"abandon simulation {a.get('id')}")
     await eng.sim_finish(await eng.sim_state(), "abandoned")
     return out
+
+
+def _iface(s: dict) -> str | None:
+    return (s.get("interface") or {}).get("code")
+
+
+@router.get("/simulations/research", response_class=HTMLResponse)
+async def simulations_research(request: Request, user: str = Depends(current_user)):
+    """Research topics at the datacenter's interface (GET /devices/{interface}/research): each unlocks blueprints."""
+    from .api import ApiError
+    s = await request.app.state.worker.automations.sim_state()
+    iface = _iface(s)
+    if not iface:
+        return HTMLResponse('<p class="muted small">The interface is not known yet: a replicant at the datacenter finds it.</p>')
+    try:
+        topics = (await request.app.state.api.get(f"/devices/{iface}/research") or {}).get("research") or []
+    except ApiError as e:
+        return HTMLResponse(f'<p class="result err">{html.escape(e.message)}</p>')
+    if not topics:
+        return HTMLResponse('<p class="muted small">No topics: all done, or none released at this datacenter yet.</p>')
+    out = ['<table class="small">']
+    for t in topics:
+        code = html.escape(str(t.get("topic") or ""))
+        btn = ('<span class="lv-done">✓ done</span>' if t.get("completed") else
+               f'<button class="small" hx-post="/simulations/research/{code}" hx-target="next .rs-out" '
+               f'hx-confirm="Research {html.escape(str(t.get("title") or code))}? Your replicant must be at the interface.">Research</button>'
+               f'<span class="rs-out"></span>')
+        out.append(f'<tr><td><b>{html.escape(str(t.get("title") or code))}</b> <span class="muted mono">{code}</span>'
+                   f'<div class="muted">{html.escape(str(t.get("description") or ""))}</div></td><td>{btn}</td></tr>')
+    return HTMLResponse("".join(out) + "</table>")
+
+
+@router.post("/simulations/research/{topic}", response_class=HTMLResponse)
+async def simulations_research_do(request: Request, topic: str, user: str = Depends(current_user)):
+    s = await request.app.state.worker.automations.sim_state()
+    iface = _iface(s)
+    if not iface:
+        return _msg("The interface is not known yet.", ok=False)
+    return await run_action(request, user, "POST", f"/devices/{iface}/research/{topic}", None, f"research {topic}")
+
+
+@router.get("/simulations/leaderboard", response_class=HTMLResponse)
+async def simulations_leaderboard(request: Request, scenario: str = "", user: str = Depends(current_user)):
+    """GET /leaderboards/simulations (each scenario's completions and best time), or one scenario's top 10."""
+    from .api import ApiError
+    api = request.app.state.api
+    try:
+        if scenario:
+            b = await api.get(f"/leaderboards/simulations/{scenario}") or {}
+            rows = "".join(f'<tr><td>{e.get("rank")}</td><td>{html.escape(str(e.get("name") or e.get("replicant_code")))}</td>'
+                           f'<td class="num">{_dur(e.get("score_seconds"))}</td><td class="num">{e.get("resources_mined") or ""}</td>'
+                           f'<td class="num">{e.get("devices_printed") if e.get("devices_printed") is not None else ""}</td></tr>'
+                           for e in b.get("entries") or [])
+            return HTMLResponse(f'<div class="small"><b>{html.escape(str(b.get("scenario_name") or scenario))}</b> top 10</div>'
+                                f'<table class="small"><tr><th>#</th><th>Replicant</th><th class="num">Time</th><th class="num">Mined</th>'
+                                f'<th class="num">Printed</th></tr>{rows}</table>')
+        b = await api.get("/leaderboards/simulations") or {}
+    except ApiError as e:
+        return HTMLResponse(f'<p class="result err">{html.escape(e.message)}</p>')
+    rows = "".join(f'<tr><td><a href="#" hx-get="/simulations/leaderboard?scenario={html.escape(str(x.get("scenario_code")))}" '
+                   f'hx-target="#sim-board">{html.escape(str(x.get("scenario_name") or x.get("scenario_code")))}</a></td>'
+                   f'<td class="num">{x.get("completions")}</td><td class="num">{_dur(x.get("best_time_seconds"))}</td></tr>'
+                   for x in b.get("scenarios") or [])
+    return HTMLResponse(f'<table class="small"><tr><th>Scenario</th><th class="num">Completions</th><th class="num">Best</th></tr>'
+                        f'{rows or "<tr><td colspan=3 class=muted>No completions yet.</td></tr>"}</table><div id="sim-board"></div>')
+
+
+@router.get("/simulations/active", response_class=HTMLResponse)
+async def simulations_active(request: Request, user: str = Depends(current_user)):
+    """GET /devices/{interface}/simulate/active: the run as the game sees it."""
+    from .api import ApiError
+    s = await request.app.state.worker.automations.sim_state()
+    iface = _iface(s)
+    if not iface:
+        return HTMLResponse('<p class="muted small">No interface known.</p>')
+    try:
+        b = await request.app.state.api.get(f"/devices/{iface}/simulate/active") or {}
+    except ApiError as e:
+        return HTMLResponse(f'<p class="result err">{html.escape(e.message)}</p>')
+    import json as _json
+    return HTMLResponse(f'<pre class="small">{html.escape(_json.dumps(b, indent=1, default=str)[:4000])}</pre>')
+
+
+def _dur(v) -> str:
+    try:
+        s = int(v)
+    except (TypeError, ValueError):
+        return ""
+    return f"{s // 3600}h {s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m {s % 60:02d}s"

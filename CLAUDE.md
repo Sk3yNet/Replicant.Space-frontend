@@ -14,7 +14,9 @@ Portainer, which follows `main`: **a push to `main` is a deploy.**
 - **"Deploy" means everything outstanding.** Ship every uncommitted change in the repo (code, docs, CLAUDE.md), not
   just the latest one, following the checklist below.
 - **Save tokens.** Read only the code you need, don't repeat work already done, and keep replies short and concrete.
-  The owner is rationing usage across the week.
+  The owner is rationing usage across the week. Each step re-sends the whole conversation, so: suggest a fresh session
+  after a deploy; ask one short question before building on an unconfirmed game fact; search (`grep -n`, short `sed -n`
+  ranges) rather than read big files; read snapshots with scripts that print only what's needed.
 - **American spelling** in all text (UI, logs, comments, docs). The game's own names stay as the API spells them:
   the `travel.cancelled` event, the `travelling` status, the `/defence` URL, identifiers.
 
@@ -67,7 +69,14 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
 - Contracts are approved one by one, or pre-approved for a whole civilization. Shop listings are never fulfilled unless
   you approve that one trade.
 - Since v3.5.0 (2026-10-13) anything left at an asteroid's location is destroyed on impact or lost on diversion; the
-  game warns an hour ahead (`system.impact_warning`). Evacuate before the ETA.
+  game warns an hour ahead (`system.impact_warning`). Evacuate before the ETA. The warning names no asteroid: its
+  location is where your devices are (KELMORNEA-4-L4 on 2026-10-15); asteroids are named by their STAR-OBJ-n location.
+  Diversions never reach 0 % likelihood (1 % counts as diverted enough). An event is over once its ETA passes.
+- Relays never fold (hubs do, and only work at L4/L5). A relay left switched off out of everyone's reach can't be
+  commanded: switch it on before the carrier leaves. Out of reach the game lists a relay `out_of_range` whether it's on
+  or off. A hub links to relays only within the relay's own 7.5 ly (live list from the SOLARES hub, 2026-10-15).
+- Replicant vessels accept print orders: never queue prints on a vessel unless asked.
+- Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the
   job.
 

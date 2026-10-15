@@ -118,6 +118,8 @@ def assess(obj: dict, devices: list[dict], bps: dict[str, dict], now: datetime |
     done_in = (100 - progress) / rate if rate else None
     if str(obj.get("status") or "active") != "active" or obj.get("closed"):
         verdict = obj.get("closed") or str(obj.get("status"))
+    elif obj.get("launched_by_you"):   # dropped on purpose (Terraforming): not diverted, nothing sent or printed
+        verdict = "launched by you"
     elif likelihood <= 0:
         verdict = "diverted"
     elif likelihood <= pct:   # the likelihood never reaches 0: the rule's "diverted enough" (propulsors are recalled)
@@ -145,7 +147,7 @@ def assess(obj: dict, devices: list[dict], bps: dict[str, dict], now: datetime |
             "rate_pct_per_hour": round(rate, 2) if rate else None, "done_in_hours": round(done_in, 1) if done_in else None,
             "verdict": verdict, "diverter_types": types, "mass_class": obj.get("mass_class"),
             "composition": obj.get("composition"), "status": obj.get("status") or "active",
-            "threat": verdict not in ("diverted", "diverted enough", "too late") and not obj.get("closed") and likelihood > 0}
+            "threat": verdict not in ("diverted", "diverted enough", "too late", "launched by you") and not obj.get("closed") and likelihood > 0}
 
 
 def plan(a: dict, devices: list[dict], bps: dict[str, dict], busy: set[str], cfg: dict,

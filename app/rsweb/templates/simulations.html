@@ -61,6 +61,14 @@
       <p class="muted">Found automatically once a replicant is at the datacenter (a device scan).</p></details>
   </div>
 </div>
+<div class="grid g2">
+  <div class="card"><h2>Research <span class="muted small">at the interface: topics unlock blueprints, once each</span></h2>
+    <div hx-get="/simulations/research" hx-trigger="load"><p class="muted small">Loading…</p></div></div>
+  <div class="card"><h2>Leaderboards <span class="muted small">all players</span></h2>
+    <div hx-get="/simulations/leaderboard" hx-trigger="load"><p class="muted small">Loading…</p></div></div>
+</div>
+{% if s.active %}<div class="card"><h2>The game's view of the run</h2>
+  <div hx-get="/simulations/active" hx-trigger="load"><p class="muted small">Loading…</p></div></div>{% endif %}
 {% if runs %}
 <div class="card"><h2>Reports</h2>
   {% for r in runs %}<details class="small"{% if loop.first %} open{% endif %}><summary><b>{{ r.name }}</b> #{{ r.id }} · {{ r.outcome }}

@@ -70,7 +70,9 @@ rule with an on/off switch, plus the jobs and the log.
   networks and dashed for ones without a replicant; relays on order are white rings, suggested bridges dashed gray.
 - **Moving a replicant**: the Replicant page lists empty replicant matrices with *Transfer* (same location, instant) or *Teleport* (another system, over the FTL network), each with a confirmation.
 - **Megastructures**: a megastructure's location page shows its progress and what it still needs, with a Contribute button for your devices there; `/megastructures` has the leaderboard.
+- **Lockers** (Economy › Lockers): equipment lockers (NPC devices that hand out a set loadout once per account, e.g. SOL-OORT, TWAFFY-OORT): scan where a replicant is, then retrieve.
 - **Simulations** (Economy › Simulations): queue a run of a scenario at the datacenter's replicant interface
+  The page also lists the interface's **research** topics (each unlocks blueprints, once per account; a replicant must be there), the all-player **leaderboards** (per scenario: top 10), and the game's view of a run in progress.
   (MIRFAKA-OBJ-1): spare compute cores are pinned there (else printed at an autofactory, logistics bringing the
   materials, the loadout pass the cores), then a free replicant is sent. When cores, replicant and interface are all
   there, the bell nags (every 2 h) until you press *Start*. The bootstrap's compounding logic plays the run on the
@@ -105,6 +107,7 @@ rule with an on/off switch, plus the jobs and the log.
   clear the beacon logs, restart the follow at SOL and set his old shop location aside.
 - **Wards & hubs**: your wards (against the 25 cap), hub shield and upkeep with warnings, `evicted_miners` log. Other players'
   warded systems are left alone by every mining rule and mission.
+- **Terraforming** (Map › Terraforming): each world with a terraform monitor: its latest `terraform.status` (attributes, change per tick, projections +6/+12/+24, what drives them, warnings, anomalies), coupling rules active or close, bio seeder preconditions; your terraforming devices with strength (0–1), direction (reversible ones) and on/off. **Dropping rocks**: detect Kuiper objects, launch one with a vector charge at a planet or moon, set propulsor / trajectory deflector directions; rocks you launch are left alone by asteroid defense.
 - **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Evacuation** (game v3.5.0: what's left at an
   asteroid is destroyed on impact or lost on diversion): within the hour before impact, or at the game's
   `system.impact_warning`, your devices there leave for the system's entry point (propulsors still pushing stay until 30
