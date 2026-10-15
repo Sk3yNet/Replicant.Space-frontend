@@ -9,8 +9,6 @@ Portainer, which follows `main`: **a push to `main` is a deploy.**
 - **Plan or build: your call.** Build straight away when a request is concrete and its behavior is clear. Plan first,
   briefly, when the result depends on game facts or preferences you can't know. Lead the plan with your assumptions and
   the questions only the owner can answer, all in one batch. Don't propose and then wait on small, clear changes.
-- **Never deploy unless told.** Build, test, then hold the change uncommitted until the owner says "deploy" (or
-  "build and deploy" in the request). When the stop hook asks you to commit and push, decline in one line: held for deploy.
 - **"Deploy" means everything outstanding.** Ship every uncommitted change in the repo (code, docs, CLAUDE.md), not
   just the latest one, following the checklist below.
 - **Save tokens.** Read only the code you need, don't repeat work already done, and keep replies short and concrete.
