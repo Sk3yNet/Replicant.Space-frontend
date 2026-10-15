@@ -286,7 +286,8 @@ async def lost_page(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     names = {c: (r.get("name") or c) for c, r in st["replicants"].items()}
     rows = sorted(s["lost"].values(), key=lambda r: r.get("since") or "", reverse=True)
-    return await page(request, user, "lost.html", "lost", rows=rows, found=list(reversed(s["found"])), names=names)
+    return await page(request, user, "lost.html", "lost", rows=rows, found=list(reversed(s["found"])), names=names,
+                      gone=list(reversed(s.get("gone") or [])))
 
 
 @router.post("/lost/forget", response_class=HTMLResponse)

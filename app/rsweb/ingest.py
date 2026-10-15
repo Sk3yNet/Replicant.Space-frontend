@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -104,6 +105,7 @@ def _iso(dt: datetime) -> str:
 
 # docs catalogue: device.lost (v3.5.0, flung off by a diversion); device.changed_owner {direction: sent | received} —
 # only "sent" means it left us (device.transferred / device.owner_changed kept from before the catalogue was read)
+SALVAGE_MSG = re.compile(r"salvage[^.]{0,60}(discover|found|detect)|(discover|found|detect)[^.]{0,60}salvage", re.I)
 GONE_EVENTS = ("device.decommissioned", "device.destroyed", "device.lost", "device.transferred", "device.owner_changed",
                "hub.destroyed")
 GONE_SQL = (f"(event IN ({','.join('?' * len(GONE_EVENTS))}) OR "
@@ -566,6 +568,14 @@ class Worker:
             by_prev = {d.get("device_code"): d for d in prev}
             gone |= await given_away(self.db, {c: ((by_prev.get(c) or {}).get("location"), (by_prev.get(c) or {}).get("device_type"))
                                                for c in missing if c not in gone})
+            if gone:   # explained: on the Lost devices page with the reason, not silently dropped
+                from . import lost as lost_mod
+                why = await lost_mod.reasons(self.db, sorted(gone))
+                ls = lost_mod.normalize(await self.db.kv_get(lost_mod.KV, {}))
+                lost_mod.record_gone(ls, [{"code": c, "type": (by_prev.get(c) or {}).get("device_type"),
+                                           "last_location": (by_prev.get(c) or {}).get("location"),
+                                           "reason": why.get(c) or "paid in a deal"} for c in sorted(gone)])
+                await self.db.kv_set(lost_mod.KV, ls)
         # the same short list three syncs running is the truth (devices really lost), not a glitch
         short = None if partial else len(devices)
         streak = getattr(self, "_short_streak", (None, 0))
@@ -657,7 +667,20 @@ class Worker:
 
     async def sync_messages(self) -> None:
         body = await self.api.get("/messages", background=True, limit=50, latest="true")
-        await self.db.kv_set("messages", (body or {}).get("messages") or [])
+        msgs = (body or {}).get("messages") or []
+        # owner, 2026-10-15: salvage discoveries mustn't raise the Messages badge — they're marked read (the Events
+        # feed and the system pages still have them)
+        quiet = [m.get("id") for m in msgs if isinstance(m, dict) and not m.get("read") and m.get("id") is not None
+                 and SALVAGE_MSG.search(f"{m.get('title') or ''} {m.get('body') or ''}")]
+        if quiet:
+            try:
+                await self.api.request("POST", "/messages/read", json_body={"ids": quiet}, background=True)
+                for m in msgs:
+                    if m.get("id") in quiet:
+                        m["read"] = True
+            except ApiError as e:
+                log.warning("marking salvage messages read failed: %s", e.message)
+        await self.db.kv_set("messages", msgs)
 
     async def on_prospect(self, ev: dict) -> None:
         """An observatory's prospect finished: put the stars it found on the map (merged like census stars) and re-read

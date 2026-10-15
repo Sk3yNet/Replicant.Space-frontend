@@ -51,7 +51,9 @@ rule with an on/off switch, plus the jobs and the log.
 
 - **Lost** (Devices › Lost): devices out of sight — surging, left out of the device list, out of relay range with no replicant
   in their system, or aboard a carrier that is — with their last known location and where they're heading, until they're seen
-  again (then listed under *Seen again*). Write one off to stop tracking it.
+  again (then listed under *Seen again*). Write one off to stop tracking it. *Gone, with the reason* lists devices that
+  left for a known reason (destroyed by an asteroid, lost to a diversion, decommissioned, sent to another replicant, paid
+  in a trade or to a contract, consumed by a print, contributed to a megastructure, held in a trade's escrow).
 
 ### Maps
 - **Galaxy**: 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
@@ -61,11 +63,21 @@ rule with an on/off switch, plus the jobs and the log.
   their fixed devices from the latest scans, a shield where someone else's ward or hub is, and an arrow for each arrival or
   departure your beacons logged in the last hour (with the likely other end of the trip), all fading with distance from the
   point the view is centered on. The **trail** of the replicant you follow is drawn in gold.
-- **Relays** (Map › Relays): your relay networks — working relays (7.5 ly, or the range a relay reports) and active hubs
+- **Relays** (Map › Relays): *Live links* asks any relay or hub which neighbors it has really linked with (and flags links expected but missing); your relay networks — working relays (7.5 ly, or the range a relay reports) and active hubs
   (15 ly) that reach each other — each in its own color, **active** when one of your replicants is within reach (only then
   can what it covers be commanded), with suggested bridges (the fewest new relays, at most 10, joining two networks) and
   *Add route* to order them. On the galaxy map (*relay network* option, off by default) links are curves, solid for active
   networks and dashed for ones without a replicant; relays on order are white rings, suggested bridges dashed gray.
+- **Moving a replicant**: the Replicant page lists empty replicant matrices with *Transfer* (same location, instant) or *Teleport* (another system, over the FTL network), each with a confirmation.
+- **Megastructures**: a megastructure's location page shows its progress and what it still needs, with a Contribute button for your devices there; `/megastructures` has the leaderboard.
+- **Simulations** (Economy › Simulations): queue a run of a scenario at the datacenter's replicant interface
+  (MIRFAKA-OBJ-1): spare compute cores are pinned there (else printed at an autofactory, logistics bringing the
+  materials, the loadout pass the cores), then a free replicant is sent. When cores, replicant and interface are all
+  there, the bell nags (every 2 h) until you press *Start*. The bootstrap's compounding logic plays the run on the
+  simulation's own devices (no other automation touches them), recording when each build-order step was reached. When
+  it ends, everything from inside it (devices, events, scans, jobs) is purged; the report stays (score, resources
+  mined, devices printed, the step times), and the next run's build order (how many drones before printing stops)
+  is chosen from the scores so far — untried orders first, then the best, now and then the runner-up.
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
 - **Systems list**: per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &
   relays* ticked) your ward, FTL relay and FTL beacon with *add* (activate an idle one there, else send a spare, else print
@@ -129,7 +141,7 @@ lines or a template).
   compact when every direction is used up or the fleet is leaving.
 - **Auto-scout** (explore fleets): surveys the nearest unsurveyed systems within 100 ly of home, ring by ring (only inside relay
   coverage without a replicant aboard); sets out at 85 % capacity, comes home for repairs at 50 %.
-- **Logistics** fleets (Fleets › Logistics): no missions; their devices deliver materials and devices on demand. The page's **In transit** card lists every hold with materials in it (what, where, heading for, which run), with totals; the dashboard's stockpiles show "+ N in transit".
+- **Logistics** fleets (Fleets › Logistics): no missions; their devices deliver materials and devices on demand. A print delivery to another system leaves with its hold at least a quarter full (or carrying all that's wanted); a smaller load waits for more to be spared, also when a print is stalled if the trip is longer than 15 ly. The page's **In transit** card lists every hold with materials in it (what, where, heading for, which run), with totals; the dashboard's stockpiles show "+ N in transit".
   Requests: queued prints (their cost minus what's stocked), contracts you approved or whose civilization you pre-approved
   (Contracts), trades you approved (Shop: *approve*, used once; plain shop listings are never fulfilled), a home system's
   piles consolidated at its drop point (its autofactory, else its biggest pile; systems the Consolidate rule covers with an
@@ -187,7 +199,7 @@ lines or a template).
   a **Performance** panel (pages slowest on average, the slowest requests with their queries, game API calls, engine
   lock waits and saved values decoded; engine stage timings and lock holds; table sizes and the largest saved values,
   also in the snapshot). Every page answer carries a Server-Timing header, and requests over 1 s are logged;
-  feedback to the game's developers. **Console**: call any API endpoint through the server-side client.
+  feedback to the game's developers. **Console**: call any API endpoint through the server-side client; presets for every documented query, grouped, with fill-in blanks (replicant, device, location … with suggestions) that build the path and body, which stay editable before sending.
 - **Desktop wallpaper** (optional): the Galaxy and System maps as a live Windows wallpaper with
   [Octos](https://github.com/underpig1/octos) and [sk3ynet/replicant-space-octos](https://github.com/sk3ynet/replicant-space-octos).
   *Account › Desktop wallpaper* creates a read-only link (`/wallpaper/<id>/#key=…`); options such as `view=galaxy|system|cycle`,
@@ -417,11 +429,7 @@ What's still open, from comparing the app with the game's API reference and docs
 
 **Next**
 1. **Fleet controller** (once unlocked, see below): one travel command per fleet.
-2. **FTL network tools**: relay network view (`/devices/<relay>/network`) with coverage gaps, and teleport / transfer to an empty matrix with a confirmation. (The slingshot is done: see the Replicant page.)
-3. **Megastructures**: a Contribute button (`POST /locations/<code>/contribute`) and the leaderboard.
-4. **Simulations.**
-5. **Housekeeping**: add comments explaining the code blocks throughout the app.
-6. **GUPPI theming**: an optional theme for the web client in the style of GUPPI (the Bobiverse replicant's interface).
+2. **GUPPI theming**: an optional theme for the web client in the style of GUPPI (the Bobiverse replicant's interface).
 
 ### Fleet controller — how the app would use it
 

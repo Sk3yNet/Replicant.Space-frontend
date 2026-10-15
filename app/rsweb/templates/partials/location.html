@@ -1,3 +1,21 @@
+{% set mega = (data or {}).get("megastructure") %}
+{% if mega %}<div class="card" style="margin-bottom:8px">
+  <h3 style="margin-top:0">Megastructure: {{ mega.name or code }} <span class="muted small">{{ ((mega.progress or 0) * 100) | round(1) }}% complete</span></h3>
+  <table class="small"><tr><th>Device type</th><th class="num">Contributed</th><th class="num">Needed</th><th class="num">Yours here</th></tr>
+    {% for t, r in (mega.requirements or {}) | dictsort %}{% set mine = devices | selectattr("device_type", "equalto", t) | list %}
+    <tr><td>{{ t | human }}</td><td class="num">{{ r.contributed }}</td><td class="num">{{ r.needed }}</td><td class="num">{{ mine | length }}</td></tr>{% endfor %}
+  </table>
+  {% set types = (mega.requirements or {}).keys() | list %}
+  {% set eligible = devices | selectattr("device_type", "in", types) | list %}
+  {% if eligible %}<form hx-post="/locations/{{ code }}/contribute" hx-target="#mega-result"
+        hx-confirm="Contribute the ticked devices to {{ mega.name or code }}? They are consumed by the structure.">
+    {% for d in eligible %}<label style="text-transform:none;display:block"><input type="checkbox" name="devices" value="{{ d.device_code }}">
+      <span class="mono">{{ d.device_code }}</span> {{ d.device_type | human }}</label>{% endfor %}
+    <button class="small">Contribute</button></form>
+  {% else %}<p class="muted small">Bring devices of the needed types here to contribute them.</p>{% endif %}
+  <div id="mega-result"></div>
+  <p class="small"><a href="/megastructures">Contribution leaderboard →</a></p>
+</div>{% endif %}
 <div class="row between"><h2>{{ code }}</h2><a class="small" href="/locations/{{ code }}">open</a></div>
 {% if err %}<p class="lv-alert">{{ err }}</p>{% endif %}
 {% set body = data.belt or data.moon or data.planet or data.object or data.megastructure %}

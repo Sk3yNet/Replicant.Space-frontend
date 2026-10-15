@@ -1,0 +1,6 @@
+<div class="small">
+  <b>{{ body.status or '?' }}</b>{% if body.range_ly %} · range {{ body.range_ly }} ly{% endif %} ·
+  {% if conns %}linked to {% for c in conns %}<a href="/systems/{{ c.star }}">{{ c.star }}</a> <span class="muted">({{ c.distance_ly }} ly, <span class="mono">{{ c.device_code }}</span>)</span>{{ ', ' if not loop.last }}{% endfor %}{% else %}<span class="muted">no links</span>{% endif %}
+  {% if missing %}<div class="lv-alert">expected but not linked: {{ missing | join(', ') }}</div>{% endif %}
+  {% if extra %}<div class="muted">linked though the app didn't expect it: {{ extra | join(', ') }} (its range may be longer than assumed)</div>{% endif %}
+</div>

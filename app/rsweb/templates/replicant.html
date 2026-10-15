@@ -91,6 +91,22 @@
   </div>
 
   <div class="card">
+    <h2>Move to another matrix</h2>
+    <p class="muted small">Into an empty replicant matrix installed in a vessel: <b>transfer</b> when it's at the same location
+      (instant), <b>teleport</b> when it's in another system (through the FTL network, about 30 s offline; the two systems
+      need an FTL link).</p>
+    {% if empties %}<table class="small"><tr><th>Matrix</th><th>Where</th><th></th></tr>
+      {% for m in empties %}{% set same = m._at == loc %}<tr><td class="mono"><a href="/devices/{{ m.device_code }}">{{ m.device_code }}</a></td>
+        <td>{{ m._at }}</td>
+        <td><form class="inline" hx-post="/replicants/{{ code }}/move-to" hx-target="#move-result"
+                  hx-confirm="{{ 'Transfer' if same else 'Teleport' }} {{ rep.name or code }} into the empty matrix {{ m.device_code }} at {{ m._at }}?">
+          <input type="hidden" name="target" value="{{ m.device_code }}"><input type="hidden" name="how" value="{{ 'transfer' if same else 'teleport' }}">
+          <button class="small">{{ 'Transfer' if same else 'Teleport' }}</button></form></td></tr>{% endfor %}
+    </table>{% else %}<p class="muted small">No empty replicant matrix installed anywhere.</p>{% endif %}
+    <div id="move-result"></div>
+  </div>
+
+  <div class="card">
     <h2>FTL slingshot</h2>
     {% if slingshots %}
     <table class="small">

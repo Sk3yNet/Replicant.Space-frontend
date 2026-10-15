@@ -380,20 +380,27 @@ def test_hubs_share_reserves_to_stay_equally_busy():
               {"id": "sol", "role": "mining", "home": "SOL", "station": True, "materials": "self"}]
     bps = {"mining_drone": {"device_type": "mining_drone", "resources": {"carbon": 40}, "print_time": 600}}
 
-    def world_(fal_q, sol_q):
-        return [dev("F1", "cargo_freighter", "FAL-1", cargo_capacity=2000, **SURGE), dev("HV", "heaven_vessel", "FAL-1", **SURGE),
+    def world_(fal_q, sol_q, cap=500):
+        return [dev("F1", "cargo_freighter", "FAL-1", cargo_capacity=cap, **SURGE), dev("HV", "heaven_vessel", "FAL-1", **SURGE),
                 dev("AF", "autofactory", "FAL-1", tags=[], status="idle", print_queue=[{"device_type": "mining_drone", "quantity": fal_q}]),
                 dev("AS", "autofactory", "SOL-2", tags=[], status="waiting_for_resources",
                     printing={"device_type": "mining_drone"}, print_queue=[{"device_type": "mining_drone", "quantity": sol_q}])]
 
-    def sent(fal_q, sol_q, carbon):
-        p = lg.plan(fleets=fleets, devices=world_(fal_q, sol_q), bps=bps, inventory={"FAL-1": {"carbon": carbon}}, pos=pos,
+    def sent(fal_q, sol_q, carbon, cap=500):
+        p = lg.plan(fleets=fleets, devices=world_(fal_q, sol_q, cap), bps=bps, inventory={"FAL-1": {"carbon": carbon}}, pos=pos,
                     commandable={"FAL", "SOL"}, hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[],
                     incoming={}, replicants={}, drop=lambda s: f"{s}-1")
         return sum(r["carry"].get("carbon", 0) for r in p["runs"] if r["req"] == "print:SOL-2")
     assert sent(30, 5, 1000) == 240        # FAL keeps 19 prints' worth (3.2 h), more than SOL's whole queue (6 prints, 1 h)
     assert sent(30, 30, 1000) == 480       # both queues long: 12 prints each (2 h), the odd one stays home
     assert sent(10, 30, 400) == 200        # FAL's own queue takes all 400; even split: 5 prints (50 min) each
+    # a long haul waits for a fuller hold: 200 is under a quarter of a 2000 hold (more is spared on a later pass)
+    assert sent(10, 30, 400, cap=2000) == 0
+    assert sent(30, 5, 1000, cap=2000) == 240   # a small load that's all the queue wants still goes
+    p = lg.plan(fleets=fleets, devices=world_(10, 30, 2000), bps=bps, inventory={"FAL-1": {"carbon": 400}}, pos=pos,
+                commandable={"FAL", "SOL"}, hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[],
+                incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    assert any("waiting for a fuller load" in u["why"] for u in p["unmet"] if u["req"] == "print:SOL-2")
 
 
 def test_a_pile_already_being_fetched_is_not_planned_again(client):  # noqa: F811

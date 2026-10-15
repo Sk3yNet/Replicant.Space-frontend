@@ -259,6 +259,56 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         return {"slug": slug, "name": name, "description": desc, "order": i + 1, "completed": n >= len(steps),
                 "current_step": n, "total_steps": len(steps)}
 
+    sims: dict = {"active": None, "history": []}
+
+    @app.get("/v1/devices/{code}/simulate")
+    async def sim_scenarios(code: str):
+        return ok({"scenarios": [{"code": "mining_rush", "name": "Mining Rush", "description": "Mine 3,000 total resources",
+                                  "objective_type": "yield_quota", "objective_target": 3000,
+                                  "entry_cost": {"device_type": "compute_core", "quantity": 1}, "timeout_hours": 4}]})
+
+    @app.post("/v1/devices/{code}/simulate")
+    async def sim_start(code: str, request: Request):
+        body = await request.json()
+        sims["active"] = {"id": 42, "scenario": body.get("scenario"), "replicant": body.get("replicant_code")}
+        return ok({"simulation_id": 42, "scenario_code": body.get("scenario"), "scenario_name": "Mining Rush",
+                   "starting_star": "VIRTUHOMAM", "starting_location": "VIRTUHOMAM-3-L4", "seed": 2043,
+                   "devices": [{"device_code": "SIM8F2A1", "device_type": "heaven_vessel"},
+                               {"device_code": "SIM3B7C2", "device_type": "mining_drone"}], "timeout_hours": 4})
+
+    @app.get("/v1/replicants/{code}/devices")
+    async def rep_devices(code: str):
+        if sims["active"]:
+            return ok({"devices": [{"device_code": "SIM8F2A1", "device_type": "heaven_vessel", "location": "VIRTUHOMAM-3-L4",
+                                    "status": "idle"},
+                                   {"device_code": "SIM3B7C2", "device_type": "mining_drone", "location": None,
+                                    "status": "stowed", "stowed_in_device_code": "SIM8F2A1"}]})
+        return ok({"devices": []})
+
+    @app.get("/v1/accounts/simulations")
+    async def sim_history():
+        return ok({"simulations": sims["history"]})
+
+    @app.get("/v1/leaderboards/megastructure")
+    async def mega_board():
+        return ok({"leaderboard": [{"rank": 1, "replicant": "Bob-19", "devices": 214}]})
+
+    @app.post("/v1/locations/{code}/contribute")
+    async def contribute(code: str, request: Request):
+        body = await request.json()
+        return ok({"location": code, "accepted": body.get("devices") or [], "rejected": [], "progress": 0.46,
+                   "status": "contribution_recorded"})
+
+    @app.get("/v1/devices/{code}/network")
+    async def relay_network(code: str):
+        return ok({"connections": [{"device_code": "75B06535", "distance_ly": 2.4, "star": "MUROPE"}],
+                   "range_ly": 7.5, "status": "relaying"})
+
+    @app.post("/v1/replicants/{code}/transfer")
+    async def transfer(code: str, request: Request):
+        body = await request.json()
+        return ok({"status": "transferred", "old_host": "11ADA230", "new_host": body.get("target")})
+
     @app.get("/v1/tutorials")
     async def tutorials():
         return ok({"tutorials": [_tut(i, *t_) for i, t_ in enumerate(TUTORIALS)]})

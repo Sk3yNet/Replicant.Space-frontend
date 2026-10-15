@@ -27,4 +27,14 @@
       <td>{{ r.found_location or '—' }}</td></tr>{% endfor %}
   </table>{% else %}<p class="muted small">None yet.</p>{% endif %}
 </div>
+<div class="card">
+  <h2>Gone, with the reason <span class="muted small">last {{ gone | length }}</span></h2>
+  <p class="muted small">Devices that left your list for a known reason: destroyed (asteroid impact), lost to a diversion,
+    decommissioned, sent to another replicant, paid in a trade or to a contract, consumed by a print, contributed to a
+    megastructure, held in a trade's escrow. They aren't counted as lost.</p>
+  {% if gone %}<table class="small"><tr><th>Device</th><th>Last known</th><th>Why</th><th>When</th></tr>
+    {% for g in gone %}<tr><td class="mono">{{ g.code }} <span class="muted">{{ (g.type or 'device') | human }}</span></td>
+      <td>{{ g.last_location or '—' }}</td><td>{{ g.reason }}</td><td>{{ g.at | ago }}</td></tr>{% endfor %}
+  </table>{% else %}<p class="muted small">None recorded yet.</p>{% endif %}
+</div>
 {% endblock %}

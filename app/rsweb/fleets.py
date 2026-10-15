@@ -156,7 +156,8 @@ def stowable(d: dict) -> bool:
 def seats(c: dict, devices: list[dict] | None = None) -> dict:
     """Free hold slots and attach points on a carrier right now."""
     inside = len(c.get("stowed_devices") or []) or _int(c.get("stow_used"))
-    outside = len(c.get("attached_devices") or [])
+    # v3.5.1: the game reports attach_used (counts devices our list may miss, e.g. one surging along)
+    outside = max(len(c.get("attached_devices") or []), _int(c.get("attach_used")))
     if devices is not None:
         inside = max(inside, sum(1 for d in devices if d.get("stowed_in_device_code") == c.get("device_code")))
         outside = max(outside, sum(1 for d in devices if d.get("attached_to_device_code") == c.get("device_code")))
@@ -1157,7 +1158,10 @@ def solo_flyers(fleet: dict, devices: list[dict]) -> set[str]:
     carriers = [d for d in ms if is_carrier(d)]
     need = sum(1 for d in ms if not is_carrier(d) and not flies_itself(d)
                and (d.get("stowed_in_device_code") or d.get("attached_to_device_code")) not in {c["device_code"] for c in carriers})
-    for c in sorted(carriers, key=lambda c: -(capacity(c) + hold(c))):
+    # carriers where the seat-needing members are come first (they board there), then the biggest; a needed carrier
+    # elsewhere flies to them (the move's gather tour / the loadout pass), the rest go straight to the new home
+    riders = {star_of(d.get("location")) for d in ms if not is_carrier(d) and not flies_itself(d)}
+    for c in sorted(carriers, key=lambda c: (star_of(c.get("location")) not in riders, -(capacity(c) + hold(c)))):
         if c["device_code"] in hosts:
             continue   # carrying something already
         if need > 0:

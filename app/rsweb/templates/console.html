@@ -2,7 +2,8 @@
 {% block title %}Console{% endblock %}
 {% block content %}
 <h1>API console</h1>
-<p class="muted">Any endpoint from the <a href="https://replicant.space/docs" target="_blank" rel="noopener">API docs</a>. Requests go through the server (your token never reaches the browser) and share the rate-limit budget. Account wipe and token recovery are blocked.</p>
+<p class="muted">Any endpoint from the <a href="https://replicant.space/docs" target="_blank" rel="noopener">API docs</a>. Requests go through the server (your token never reaches the browser) and share the rate-limit budget. Account wipe and token recovery are blocked.
+  Pick a preset, fill in its blanks (or type), then edit the path or body as you like before sending.</p>
 <div class="grid g2">
   <div class="card">
     <form hx-post="/console" hx-target="#console-result">
@@ -11,6 +12,7 @@
         <input name="path" id="c-path" value="/accounts/me" size="44" required>
         <button>Send</button>
       </div>
+      <div id="c-fields" class="row" style="flex-wrap:wrap;gap:6px;margin:6px 0"></div>
       <label>JSON body</label>
       <textarea name="body" id="c-body" placeholder='{"command": "..."}'></textarea>
     </form>
@@ -18,9 +20,47 @@
   </div>
   <div class="card">
     <h2>Presets</h2>
-    {% for m, p, b in presets %}
-      <div><a href="#" class="mono small" data-m="{{ m }}" data-p="{{ p }}" data-b="{{ b }}" onclick="document.getElementById('c-method').value=this.dataset.m;document.getElementById('c-path').value=this.dataset.p;document.getElementById('c-body').value=this.dataset.b;return false;">{{ m }} {{ p }}</a></div>
-    {% endfor %}
+    {% for g, items in preset_groups.items() %}<details{{ ' open' if loop.first }}><summary><b>{{ g }}</b> <span class="muted small">{{ items | length }}</span></summary>
+      {% for m, p, b in items %}<div><a href="#" class="mono small c-preset" data-m="{{ m }}" data-p="{{ p }}" data-b="{{ b }}">{{ m }} {{ p }}</a></div>{% endfor %}
+    </details>{% endfor %}
   </div>
 </div>
+<datalist id="c-rep">{% for c, n in reps %}<option value="{{ c }}">{{ n }}</option>{% endfor %}</datalist>
+<datalist id="c-dev">{% for c, t in devs %}<option value="{{ c }}">{{ t | human }}</option>{% endfor %}</datalist>
+<datalist id="c-loc">{% for l in locs %}<option value="{{ l }}">{% endfor %}</datalist>
+<datalist id="c-star">{% for s in stars %}<option value="{{ s }}">{% endfor %}</datalist>
+<datalist id="c-tag">{% for t in tags %}<option value="{{ t }}">{% endfor %}</datalist>
+<script>
+(() => {
+  const FIELDS = {{ fields | tojson }};
+  const $ = id => document.getElementById(id);
+  let tpl = null;   // {path, body}: the preset being filled in
+  function compose() {
+    if (!tpl) return;
+    const vals = {};
+    $("c-fields").querySelectorAll("input").forEach(i => { vals[i.name] = i.value.trim(); });
+    const fill = s => s.replace(/\{(\w+)\}/g, (m, k) => vals[k] ? vals[k] : m);
+    $("c-path").value = fill(tpl.path);
+    $("c-body").value = fill(tpl.body);
+  }
+  document.querySelectorAll(".c-preset").forEach(a => a.addEventListener("click", ev => {
+    ev.preventDefault();
+    $("c-method").value = a.dataset.m;
+    tpl = { path: a.dataset.p, body: a.dataset.b };
+    const keys = [...new Set([...(tpl.path + tpl.body).matchAll(/\{(\w+)\}/g)].map(m => m[1]))];
+    const box = $("c-fields"); box.innerHTML = "";
+    for (const k of keys) {
+      const i = document.createElement("input");
+      i.name = k; i.placeholder = k; i.size = 14; i.autocomplete = "off";
+      if (FIELDS[k]) i.setAttribute("list", "c-" + FIELDS[k]);
+      i.addEventListener("input", compose); i.addEventListener("change", compose);
+      box.appendChild(i);
+    }
+    compose();
+    (box.querySelector("input") || $("c-path")).focus();
+  }));
+  // typing in the path or body by hand: that's the command now
+  ["c-path", "c-body"].forEach(id => $(id).addEventListener("input", () => { tpl = null; }));
+})();
+</script>
 {% endblock %}

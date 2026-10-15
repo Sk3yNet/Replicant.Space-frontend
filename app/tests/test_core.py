@@ -3098,7 +3098,7 @@ def test_replicant_slingshot_link_and_fire(client):
     world.devices += [sl, far, mx, mx2]
     client.portal.call(client.app.state.worker.sync_devices)
     page = client.get(f"/replicants/{REP}", headers=H).text
-    assert "FTL slingshot" in page and "SL000001" in page and 'value="MX000001"' in page and 'value="MX000002"' not in page
+    assert "FTL slingshot" in page and "SL000001" in page and 'value="MX000001"' in page and '<option value="MX000002"' not in page
     r = client.post(f"/replicants/{REP}/slingshot", data={"slingshot": "SL000001"}, headers=HX)
     assert "linked to a matrix yet" in r.text and not world.teleports
     r = client.post(f"/replicants/{REP}/slingshot", data={"slingshot": "SL000002"}, headers=HX)
@@ -6606,3 +6606,82 @@ def test_materials_in_transit_on_logistics_and_dashboard(client):
     assert [r["code"] for r in out["rows"]] == ["FR1"] and out["rows"][0]["dest"] == "FALQUORYX-3"
     assert out["totals"] == {"structural": 120, "carbon": 30}
     assert "In transit" in client.get("/fleets/logistics", headers=H).text
+
+
+def test_console_presets_relay_links_matrix_moves_and_megastructures(client):
+    """Console presets with fill-in blanks; a relay's live links; transfer / teleport into an empty matrix;
+    megastructure contribution and leaderboard; attach_used counts (v3.5.1)."""
+    from rsweb import fleets as fl
+    page = client.get("/console", headers=H).text
+    assert 'data-p="/devices/{relay}/network"' in page and 'id="c-dev"' in page and "Simulations" in page
+    r = client.get("/map/relays/AAAA1111/network", headers=HX).text
+    assert "relaying" in r and "MUROPE" in r
+    r = client.post("/replicants/77F75255/move-to", data={"target": "b22a1198", "how": "transfer"}, headers=HX)
+    row = client.portal.call(client.app.state.db.fetchone, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")
+    assert row["path"] == "/replicants/77F75255/transfer" and '"B22A1198"' in row["body"]
+    r = client.post("/locations/FLARM-OBJ-1/contribute", data={"devices": ["A473F411"]}, headers=HX)
+    row = client.portal.call(client.app.state.db.fetchone, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")
+    assert row["path"] == "/locations/FLARM-OBJ-1/contribute" and "A473F411" in row["body"]
+    assert "Bob-19" in client.get("/megastructures", headers=H).text
+    c = {"device_code": "C", "device_type": "surge_carrier", "attach_capacity": 4, "attach_used": 3}
+    assert fl.seats(c, [])["attach"] == 1
+
+
+def test_snapshot_2026_10_15_errors_count_as_done_and_salvage_messages_are_read():
+    from rsweb.ingest import SALVAGE_MSG
+    assert SALVAGE_MSG.search("Salvage discovered at KELHYRAS-6: a derelict hauler")
+    assert not SALVAGE_MSG.search("Print completed: mining drone")
+
+
+def test_simulation_prep_run_and_discard(client):
+    """Queue a run: a spare compute core is pinned to the interface; start it; the run plays with the bootstrap logic
+    and records its build order; at the end its devices / events / scans are purged and the report is kept."""
+    from rsweb import sim
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(eng.sim_save, {"interface": {"code": "IF000001", "location": sim.DATACENTER}})
+    devs = client.portal.call(db.kv_get, "devices")
+    core = {"device_code": "CC000001", "device_type": "compute_core", "location": "SOL-3", "status": "idle", "tags": ["spare"]}
+    devs.append(core)
+    client.portal.call(db.kv_set, "devices", devs)
+    client.app.state.api.http._transport.app.state.world.devices.append(dict(core))
+    assert "Queue a run" in client.get("/simulations", headers=H).text
+    client.post("/simulations/queue", data={"scenario": "mining_rush"}, headers=HX)
+    out = client.portal.call(eng.sim_pass)
+    assert any("CC000001 pinned" in x for x in out)
+    row = client.portal.call(db.fetchone, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")
+    assert row["path"] == "/devices/CC000001" and "at:mirfaka-obj-1" in row["body"]
+    ok, text = client.portal.call(eng.sim_start, "mining_rush", "77F75255")
+    assert ok, text
+    s = client.portal.call(eng.sim_state)
+    assert s["active"]["id"] == 42 and "SIM8F2A1" in s["active"]["devices"] and not s.get("prep")
+    assert [d for d in client.portal.call(eng.devices) if d.get("device_code", "").startswith("SIM")] == []
+    client.portal.call(eng.sim_pass)                       # scans its system
+    client.portal.call(eng.sim_pass)                       # then plays it like a bootstrap's home stage
+    client.portal.call(db.insert_event, {"id": "simev", "event": "mining.started", "device_code": "SIM3B7C2",
+                                          "star": "VIRTUHOMAM", "location": "VIRTUHOMAM-BELT-1"})
+    s = client.portal.call(eng.sim_state)
+    assert any(x["step"] == "system scanned" for x in s["active"]["timeline"])
+    client.portal.call(eng.sim_finish, s, "completed")
+    s = client.portal.call(eng.sim_state)
+    assert not s.get("active") and s["runs"][-1]["scenario"] == "mining_rush"
+    assert client.portal.call(db.fetchone, "SELECT COUNT(*) AS n FROM events WHERE id='simev'")["n"] == 0
+    assert "Reports" in client.get("/simulations", headers=H).text
+
+
+def test_explained_disappearances_show_with_their_reason(client):
+    """Devices that leave the list for a known reason are listed on the Lost devices page with it."""
+    from rsweb import lost
+    db = client.app.state.db
+    for i, (ev, code, payload, loc) in enumerate((("device.destroyed", "D1", {}, "SOL-OBJ-1"),
+                                                  ("device.lost", "D2", {}, "SOL-OBJ-1"),
+                                                  ("device.changed_owner", "D3", {"direction": "sent", "to_replicant": "R9"}, None))):
+        client.portal.call(db.insert_event, {"id": f"g{i}", "event": ev, "device_code": code, "location": loc, "payload": payload})
+    client.portal.call(db.insert_event, {"id": "g9", "event": "contract.completed", "created_at": lost._now(),
+                                          "payload": {"consumed": {"devices": ["D4"]}}})
+    why = client.portal.call(lost.reasons, db, ["D1", "D2", "D3", "D4", "D5"])
+    assert why["D1"].startswith("destroyed at SOL-OBJ-1 (asteroid impact)") and why["D2"].startswith("lost in space")
+    assert why["D3"] == "sent to replicant R9" and why["D4"] == "paid to a contract" and "D5" not in why
+    s = lost.normalize({})
+    lost.record_gone(s, [{"code": "D1", "type": "mining_drone", "last_location": "SOL-OBJ-1", "reason": why["D1"]}])
+    client.portal.call(db.kv_set, lost.KV, s)
+    assert "asteroid impact" in client.get("/lost", headers=H).text

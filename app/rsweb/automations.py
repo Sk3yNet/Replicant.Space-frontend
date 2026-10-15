@@ -26,6 +26,7 @@ from . import perf
 from .shapes import as_amounts  # noqa: F401  (kept for rule authors)
 from .ops_rules import OpsRules
 from .boot_engine import BootstrapMixin
+from .sim_engine import SimMixin
 
 log = logging.getLogger("rsweb.auto")
 
@@ -444,7 +445,7 @@ def survey_targets(scan: dict, surveyed: dict, include_moons: bool, include_belt
     return out[:max(0, max_targets)]
 
 
-class AutomationEngine(OpsRules, BootstrapMixin):
+class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
     def __init__(self, db, api, hub, worker):
         self.db, self.api, self.hub, self.worker = db, api, hub, worker
         self.lock = EngineLock()
@@ -713,6 +714,28 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                 # seen live (2026-10-04, Surveyors fleet): drones already out — that's what the step wanted
                 ok, st["note"] = True, err
                 st["wait"] = []
+            if (not ok and (st.get("body") or {}).get("command") in ("deactivate", "withdraw", "clear_directive", "release")
+                    and re.search(r"nothing to deactivate|not deployed|not launched|no directive|not adopted", (err or "").lower())):
+                # stopping something that isn't running (stowed, already idle, never launched): what the step wanted
+                ok, st["note"] = True, err
+                st["wait"] = []
+            if (not ok and (st.get("body") or {}).get("command") == "travel" and "not deployed" in (err or "").lower()
+                    and str(st.get("path") or "").startswith("/devices/")):
+                # seen live (2026-10-15, Surveyor 3 recall): a controller already stowed in its vessel was told to fly
+                # to it and board. Aboard something already: nothing to fly — its waits for this trip are dropped
+                code = st["path"].split("/")[2]
+                devs_now = await self.devices()
+                cur = next((d for d in devs_now if d.get("device_code") == code), {})
+                host = next((d for d in devs_now if d.get("device_code") == (cur.get("stowed_in_device_code")
+                                                                             or cur.get("attached_to_device_code"))), {})
+                fleet_tags = {x for x in cur.get("tags") or [] if x.startswith("fleet:")}
+                # only aboard a carrier of its own fleet counts (aboard another fleet's vessel, it still has to move)
+                if host and fleet_tags & set(host.get("tags") or []):
+                    ok, st["note"] = True, f"{err} — already aboard {cur.get('stowed_in_device_code') or cur.get('attached_to_device_code')}"
+                    st["wait"] = []
+                    for s2 in job["steps"][job["idx"] + 1:]:
+                        if s2.get("method") == "WAIT" and s2.get("wait_device") == code and s2.get("status") == "pending":
+                            s2["status"], s2["note"] = "skipped", "already aboard"
             if not ok and "already at destination" in (err or "").lower():
                 ok, st["note"] = True, err  # nothing to do: count it as done and move on
                 st["wait"] = []
@@ -1052,6 +1075,11 @@ class AutomationEngine(OpsRules, BootstrapMixin):
                     await self.log("engine", f"salvage rule failed: {e}", "alert")
             if name in ("event.discovered", "event.completed", "print.completed"):
                 await self.civ_on_event(ev)
+            if name.startswith("simulation."):
+                try:
+                    await self.sim_on_event(ev)
+                except Exception:
+                    log.exception("simulation end handling failed")
             if name == "system.object_detected":
                 asyncio.create_task(self._locked_sync_objects())
             if name == "system.impact_warning" and not late:
@@ -1127,7 +1155,7 @@ class AutomationEngine(OpsRules, BootstrapMixin):
             for stage in ("evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "news_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "news_pass", "sim_pass"):
                 self.stage = stage
                 await asyncio.sleep(0)   # let waiting page requests run between stages
                 t_stage = time.perf_counter()
@@ -2553,7 +2581,12 @@ class AutomationEngine(OpsRules, BootstrapMixin):
         return out
 
     async def devices(self) -> list[dict]:
-        return await self.db.kv_get("devices", []) or []
+        devs = await self.db.kv_get("devices", []) or []
+        s = await self.db.kv_get("sim", {}) or {}
+        if s.get("active"):   # a simulation's devices are its own (sim_engine): no other automation touches them
+            from . import sim
+            devs = [d for d in devs if not sim.is_sim_device(d, s)]
+        return devs
 
     async def warded(self, devices: list[dict] | None = None) -> set[str]:
         """Systems another player has warded (wards.foreign): the mining rules leave them alone."""

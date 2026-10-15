@@ -53,6 +53,8 @@ ROLE = "logistics"
 MIN_RETURN = 25.0              # a stray pile smaller than this isn't worth a trip
 TIERS = {0: "evacuation", 1: "queued prints", 2: "local delivery", 3: "long-range transfer", 4: "stockpile return", 5: "rescue"}
 KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like placed relays and beacons: never "rescued"
+MIN_LOAD = 0.25               # a cross-system print delivery leaves with its hold at least this full (or all that's wanted)
+LONG_HAUL_LY = 15.0            # beyond this a part load waits even when a print is stalled for materials
 RELAY_HOP = 7.5                # distances compared in relay hops: anything in the same hop counts as equally near
 MOVING = ("travel", "cruis", "surg", "moving", "recall", "returning", "collecting", "depositing", "mining", "printing")
 
@@ -393,7 +395,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
 
     def attach_free(d: dict) -> int:
         from . import fleets as fl
-        return fl.capacity(d) - sum(1 for x in devices if x.get("attached_to_device_code") == d["device_code"])
+        return fl.seats(d, devices)["attach"]   # attach_used (v3.5.1) or what our list shows attached
 
     def wait_point(d: dict, near: str) -> str | None:
         """Where a logistics device waits after a trip that ended outside the network: its fleet's home if covered, else the
@@ -578,6 +580,20 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 break
             if ride and not any(g["rides"] for g in group):
                 ride = None
+            hold = sum(g["room"] for g in group)
+            far = _dist(fstar, dstar, pos) > LONG_HAUL_LY
+            if r["kind"] == "print" and not same and need and hold and sum(taken.values()) < MIN_LOAD * hold \
+                    and (far or not r.get("waiting")):
+                # a part load for a print queue: more was wanted but this is all that can be spared now — wait and load
+                # more on a later pass instead of sending a near-empty hold (a long haul even when a print waits)
+                for g in group:
+                    used.discard(g["code"])
+                    for g2 in g["legs"]:
+                        for x, q in g2["take"].items():
+                            spare[g2["pile"]][x] += q
+                unmet.append({"req": r["id"], "why": f"waiting for a fuller load: {sum(taken.values()):g} of {hold:g} units can be "
+                                                     f"spared from {fstar} now (a trip leaves once it's {MIN_LOAD:.0%} full)"})
+                break
             stops = sorted({g2["pile"] for g in group for g2 in g["legs"]} | {g["dev"].get("location") for g in group if not g["legs"]}) + [dest]
             locs = [g["dev"].get("location") for g in group] + [(ride or {}).get("location")]
             outside = [x for x in stops + locs if x and star_of(x) not in commandable]

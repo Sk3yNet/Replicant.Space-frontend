@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Simulations{% endblock %}
+{% block content %}
+<h1>Simulations</h1>
+<p class="muted small">Timed scenarios run in a datacenter's replicant interface ({{ loc }}). Queue a run and logistics
+  brings the compute cores (spare ones pinned there, else printed and delivered) and a free replicant to the interface;
+  when both are there the bell says so (again every 2 h) and you start it here. The bootstrap logic plays the run,
+  recording when each step of its build order was reached. When the run ends, everything from inside it is discarded:
+  only the report stays, and the next run's build order learns from it.</p>
+{% set a = s.active %}{% set prep = s.prep %}
+<div class="grid g2">
+  <div class="card">
+    {% if a %}
+    <h2>Running: {{ a.name }} <span class="muted small">#{{ a.id }} · seed {{ a.seed }} · {{ a.replicant }}</span></h2>
+    <p class="small">Started {{ a.started_at | ago }} · build order: {{ variants[a.variant or 0].cap }} drones before printing stops ·
+      {% if a.target %}{{ a.mined_seen | default(0) | num }} of {{ a.target | num }} mined at the belt{% endif %}</p>
+    <table class="small"><tr><th>Step</th><th class="num">Reached after</th></tr>
+      {% for x in a.timeline %}<tr><td>{{ x.step }}</td><td class="num">{{ (x.t or 0) | duration }}</td></tr>{% endfor %}</table>
+    {% if a.log %}<details class="small"><summary>log</summary>{% for l in a.log | reverse %}<div class="muted">{{ l.at | ago }} · {{ l.text }}</div>{% endfor %}</details>{% endif %}
+    <button class="small ghost" hx-post="/simulations/abandon" hx-target="#sim-result"
+            hx-confirm="Abandon the run? No score is recorded and the entry cost isn't refunded.">Abandon</button>
+    {% elif prep %}
+    <h2>Queued: {{ (scenarios | selectattr('code', 'equalto', prep.scenario) | first or {}).name or prep.scenario }}</h2>
+    <ul class="small">
+      <li>Compute cores at {{ prep.location }}: <b>{{ prep.cores_here | default(0) }}</b> of {{ prep.cores_needed | default('?') }}
+        {% if prep.cores_coming %} · {{ prep.cores_coming }} on the way{% endif %}{% if prep.printing %} · {{ prep.printing }} printing{% endif %}</li>
+      <li>Replicant: {% if prep.replicant %}<b>{{ prep.replicant }}</b> is there{% elif prep.rep_sent %}{{ prep.rep_sent.code }} sent {{ prep.rep_sent.at | ago }}{% else %}<span class="muted">sent once the cores are there</span>{% endif %}</li>
+      <li>Interface: {% if s.interface and s.interface.code %}<span class="mono">{{ s.interface.code }}</span>{% else %}<span class="muted">found by the replicant once it's there</span>{% endif %}</li>
+      {% if prep.note %}<li class="lv-alert">{{ prep.note }}</li>{% endif %}
+    </ul>
+    {% if prep.ready %}
+    <form hx-post="/simulations/start" hx-target="#sim-result" hx-confirm="Start the simulation? The compute cores are used up.">
+      <input type="hidden" name="scenario" value="{{ prep.scenario }}"><input type="hidden" name="replicant" value="{{ prep.replicant }}">
+      <button>Start {{ prep.scenario | human }}</button></form>
+    {% endif %}
+    <button class="small ghost" hx-post="/simulations/cancel" hx-target="#sim-result">Cancel</button>
+    {% else %}
+    <h2>Queue a run</h2>
+    <form hx-post="/simulations/queue" hx-target="#sim-result" class="row">
+      <select name="scenario">{% for sc in scenarios %}<option value="{{ sc.code }}"{% if sc.code == cur %} selected{% endif %}>{{ sc.name }} — {{ sc.description }} ({{ (sc.entry_cost or {}).quantity or 1 }} {{ ((sc.entry_cost or {}).device_type or 'compute_core') | human }}, {{ sc.timeout_hours }} h)</option>{% endfor %}</select>
+      <button>Queue</button></form>
+    {% if reps_here and s.interface and s.interface.code %}
+    <form hx-post="/simulations/start" hx-target="#sim-result" class="row" style="margin-top:6px"
+          hx-confirm="Start now with what's at the interface? The compute cores are used up.">
+      <select name="scenario">{% for sc in scenarios %}<option value="{{ sc.code }}">{{ sc.name }}</option>{% endfor %}</select>
+      <select name="replicant">{% for r in reps_here %}<option>{{ r }}</option>{% endfor %}</select>
+      <button class="ghost">Start now</button></form>{% endif %}
+    {% endif %}
+    <div id="sim-result"></div>
+  </div>
+  <div class="card">
+    <h2>What was learned</h2>
+    {% for sc in scenarios %}{% if lessons[sc.code] %}<div class="small"><b>{{ sc.name }}</b>
+      <ul>{% for l in lessons[sc.code] %}<li>{{ l }}</li>{% endfor %}</ul></div>{% endif %}{% endfor %}
+    {% if not runs %}<p class="muted small">No runs yet.</p>{% endif %}
+    <details class="small"><summary>Interface</summary>
+      <form hx-post="/simulations/interface" hx-target="#sim-result" class="row">
+        <input name="code" placeholder="interface code" size="10" value="{{ (s.interface or {}).code or '' }}">
+        <input name="location" placeholder="{{ loc }}" size="16" value="{{ (s.interface or {}).location or '' }}">
+        <button class="small">Set</button></form>
+      <p class="muted">Found automatically once a replicant is at the datacenter (a device scan).</p></details>
+  </div>
+</div>
+{% if runs %}
+<div class="card"><h2>Reports</h2>
+  {% for r in runs %}<details class="small"{% if loop.first %} open{% endif %}><summary><b>{{ r.name }}</b> #{{ r.id }} · {{ r.outcome }}
+    {% if r.score_seconds %}· <b>{{ r.score_seconds | duration }}</b>{% endif %} · {{ r.ended_at | ago }} · build order {{ variants[r.variant or 0].cap }} drones</summary>
+    <p>{% if r.resources_mined %}{{ r.resources_mined | num }} mined · {% endif %}{% if r.devices_printed is not none %}{{ r.devices_printed }} printed · {% endif %}seed {{ r.seed }} · {{ r.replicant }}</p>
+    <table class="small"><tr><th>Step</th><th class="num">Reached after</th></tr>
+      {% for x in r.timeline %}<tr><td>{{ x.step }}</td><td class="num">{{ (x.t or 0) | duration }}</td></tr>{% endfor %}</table>
+    {% if r.lessons %}<ul>{% for l in r.lessons %}<li>{{ l }}</li>{% endfor %}</ul>{% endif %}
+  </details>{% endfor %}
+</div>{% endif %}
+{% endblock %}

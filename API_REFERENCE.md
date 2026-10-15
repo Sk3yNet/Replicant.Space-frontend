@@ -1001,3 +1001,14 @@ Settled by the docs:
   (`{species: [{species_key, name, description, government, greeting, homeworld_type, tech_affinity, trait}]}`).
 - **Tutorials**: `GET /v1/tutorials`, `GET /v1/tutorials/{slug}` (see Tutorials above).
 - **Blueprints**: starter mining_drone prints in 10 min (600 s); maintenance_drone isn't a starter type.
+
+## v3.5.1 "alteration" (2026-10-14), reviewed 2026-10-15
+
+- `system.object_impacted` / `system.object_diverted` now carry `object_designation` (the app reads it first, then the
+  envelope location).
+- `deploy` checks that the container device isn't moving, rather than the owning replicant.
+- `attach_used` is shown wherever attach capacity is: the app counts it (fleets.seats) alongside the devices its list
+  shows attached.
+- `tracking_site_id` → `tracking_site`: the designation of the belt site a survey drone tracks (shown on the device page
+  and in the diagnostics belt rows).
+- Fixed: Kuiper objects being launched into other systems.

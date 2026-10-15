@@ -2,7 +2,8 @@
 {% block title %}{{ code }}{% endblock %}
 {% block content %}
 <h1>{{ dev.device_type | human }} <span class="mono muted">{{ code }}</span>
-  <span class="pill {{ dev.status | status_class }}">{{ dev.status }}</span></h1>
+  <span class="pill {{ dev.status | status_class }}">{{ dev.status }}</span>
+  {% if dev.tracking_site %}<span class="small muted">holding site <a href="/locations/{{ dev.tracking_site }}">{{ dev.tracking_site }}</a></span>{% endif %}</h1>
 {% if err %}<div class="banner">Live fetch failed ({{ err }}); showing the last synced copy.</div>{% endif %}
 {% if trip %}<div class="card row between" style="align-items:center">
   <div class="small">Traveling to <b>{{ trip.destination }}</b>{% if trip.seconds_left %} · {{ (trip.seconds_left / 60) | round(0) | int }} min left{% endif %}</div>

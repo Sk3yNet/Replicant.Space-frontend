@@ -12,7 +12,7 @@ It's found again once it's listed, in range and not mid-surge; the last 50 finds
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 KV = "lost"
@@ -33,7 +33,58 @@ def normalize(s: dict | None) -> dict:
     s = dict(s or {})
     s.setdefault("lost", {})
     s.setdefault("found", [])
+    s.setdefault("gone", [])   # explained disappearances: [{code, type, last_location, reason, at}]
     return s
+
+
+GONE_KEEP = 100
+DEAL_REASON = {"trade.completed": "paid in a trade", "contract.completed": "paid to a contract",
+               "event.completed": "paid to a location event", "print.completed": "consumed by a print",
+               "megastructure.contributed": "contributed to a megastructure", "trade.created": "held in a trade's escrow"}
+
+
+async def reasons(db, codes: list[str]) -> dict[str, str]:
+    """Why each of these devices left the list, from the events: {code: reason} for those with an explanation."""
+    import json as _json
+    from .ingest import GONE_EVENTS, GONE_SQL
+    codes = [c for c in codes if c]
+    if not codes:
+        return {}
+    out: dict[str, str] = {}
+    for r in await db.fetchall(f"SELECT event, device_code, location, payload FROM events WHERE {GONE_SQL} "
+                               f"AND device_code IN ({','.join('?' * len(codes))}) ORDER BY seq DESC", (*GONE_EVENTS, *codes)):
+        if r["device_code"] in out:
+            continue
+        try:
+            p = _json.loads(r["payload"] or "{}") or {}
+        except ValueError:
+            p = {}
+        loc = r["location"] or ""
+        out[r["device_code"]] = {
+            "device.destroyed": "destroyed" + (f" at {loc} (asteroid impact)" if "-OBJ-" in loc else (f" at {loc}" if loc else "")),
+            "device.lost": "lost in space: flung off by an asteroid diversion" + (f" at {loc}" if loc else ""),
+            "device.decommissioned": "decommissioned" + (f" at {loc}" if loc else ""),
+            "hub.destroyed": "hub destroyed" + (f" at {loc}" if loc else ""),
+            "device.changed_owner": f"sent to replicant {p.get('to_replicant') or '?'}",
+        }.get(r["event"], "transferred to another replicant")
+    left = [c for c in codes if c not in out]
+    if left:
+        since = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat(timespec="seconds")
+        for r in await db.fetchall(f"SELECT event, payload FROM events WHERE event IN ({','.join('?' * len(DEAL_REASON))}) "
+                                   "AND created_at >= ? ORDER BY seq DESC", (*DEAL_REASON, since)):
+            text = r["payload"] or ""
+            for c in [c for c in left if c not in out and c in text]:
+                out[c] = DEAL_REASON[r["event"]]
+    return out
+
+
+def record_gone(s: dict, recs: list[dict], now: str | None = None) -> None:
+    """Add explained disappearances to the record (newest last, the last GONE_KEEP)."""
+    have = {g["code"] for g in s["gone"]}
+    for r in recs:
+        if r["code"] not in have:
+            s["gone"].append({**r, "at": now or _now()})
+    s["gone"] = s["gone"][-GONE_KEEP:]
 
 
 def _xyz(p: Any) -> list[float] | None:
@@ -91,7 +142,7 @@ def update(s: dict, devices: list[dict], replicants: dict, pos: dict[str, Any], 
     for code in [c for c in s["lost"] if c in gone]:
         rec = s["lost"].pop(code)
         s["found"].append({**rec, "found_at": now, "found_location": None,
-                           "outcome": "given away in a deal" if rec.get("given_away") else "gone"})
+                           "outcome": rec.get("gone_reason") or ("given away in a deal" if rec.get("given_away") else "gone")})
     for d in devices:
         code = d.get("device_code")
         if not code:
@@ -188,6 +239,10 @@ async def track(db, devices: list[dict]) -> dict:
         for c in traded:
             s["lost"][c]["given_away"] = True
         gone |= traded
+        why = await reasons(db, sorted(gone))
+        for c in gone:
+            if c in s["lost"] and why.get(c):
+                s["lost"][c]["gone_reason"] = why[c]
     out = update(s, devices, reps, pos, gone)
     await db.kv_set(KV, s)
     return out

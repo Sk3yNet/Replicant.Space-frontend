@@ -16,11 +16,20 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.94.0"
+VERSION = "1.95.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.95.0", "2026-10-15", "Simulations page (Economy): queue a run (compute cores and a replicant to the datacenter's "
+               "interface), a ready nag, Start, the bootstrap logic plays it recording its build-order step times, then "
+               "everything from inside it is purged and the report kept; the next build order learns from the scores. "
+               "Console: presets for every documented query with fill-in blanks. Relays: live links per relay/hub. "
+               "Replicant page: transfer / teleport into an empty matrix. Megastructures: progress, Contribute, leaderboard. "
+               "v3.5.1: attach_used counted, tracking_site shown. Lost page: explained disappearances with the reason. "
+               "Logistics: cross-system print deliveries leave at least a quarter full. Fixes: stopping what isn't running "
+               "counts as done; a device already aboard its own fleet's carrier isn't sent to board it; salvage messages "
+               "don't raise the Messages badge; relocations prefer carriers where the riders are."),
     ("1.94.0", "2026-10-13", "Travel destination: one field to type any system or location code, suggesting your systems "
                "then the 150 nearest explored ones; the spot list follows. Trail: Bill leaving his shop resets to SOL, "
                "so a departure from his shop's system sends the follow to SOL, and his move posts clear the beacon logs "

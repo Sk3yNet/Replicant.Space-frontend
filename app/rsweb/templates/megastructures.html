@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Megastructures{% endblock %}
+{% block content %}
+<h1>Megastructure leaderboard</h1>
+<p class="muted small">All-time devices contributed to megastructures, across the galaxy. A megastructure's own page (its
+  location) shows its progress, what it still needs and a Contribute button for your devices there.</p>
+<div class="card">
+  {% if err %}<p class="lv-alert small">{{ err }}</p>{% endif %}
+  {% if board %}<table class="small"><tr><th class="num">Rank</th><th>Replicant</th><th class="num">Devices</th></tr>
+    {% for r in board %}<tr><td class="num">{{ r.rank }}</td><td>{{ r.replicant }}</td><td class="num">{{ r.devices }}</td></tr>{% endfor %}
+  </table>{% elif not err %}<p class="muted">Nobody has contributed yet.</p>{% endif %}
+</div>
+{% endblock %}

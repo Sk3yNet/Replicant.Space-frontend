@@ -1089,6 +1089,8 @@ async def replicant_detail(request: Request, code: str, near_page: int = 1, user
     matrices = sorted(({**d, "_at": where_is(d, by, stowed)} for d in st["devices"]
                        if "matrix" in (d.get("device_type") or "") and "container" not in (d.get("device_type") or "")),
                       key=lambda d: (d.get("device_type") != "empty_replicant_matrix", d["_at"] or ""))
+    # empty matrices installed somewhere: transfer (same location, instant) or teleport (another system, over the FTL network)
+    empties = [m for m in matrices if m.get("device_type") == "empty_replicant_matrix" and m["_at"]]
     matrices = [m for m in matrices if m["_at"] in sl_locs]   # linking needs the matrix at the slingshot
     explored = {r["star"] for r in await request.app.state.db.fetchall("SELECT star FROM systems")}
     from .census import destination_systems
@@ -1098,7 +1100,7 @@ async def replicant_detail(request: Request, code: str, near_page: int = 1, user
     return await page(request, user, "replicant.html", "fleet", rep=rep, code=code, nearby=nearby, near_page=near_page,
                       dest_systems=dest_systems,
                       near_pages=near_pages, explored=explored,
-                      blueprints=blueprints, devices=devices, slingshots=slingshots, matrices=matrices,
+                      blueprints=blueprints, devices=devices, slingshots=slingshots, matrices=matrices, empties=empties,
                       SLINGSHOT_MIN=SLINGSHOT_MIN_CAPACITY, timers=[t for t in await active_timers(request)
                                                                       if code in (t.get("device_code"), t.get("replicant_code"))])
 
@@ -1146,6 +1148,16 @@ def where_is(d: dict, by: dict[str, dict], stowed_map: dict[str, list[str]] | No
     host = d.get("stowed_in_device_code") or d.get("attached_to_device_code") or next(
         (v for v, kids in (stowed_map or {}).items() if d.get("device_code") in kids), None)
     return (by.get(host) or {}).get("location") if host else None
+
+
+@router.post("/replicants/{code}/move-to", response_class=HTMLResponse)
+async def replicant_move_to(request: Request, code: str, target: str = Form(...), how: str = Form("transfer"),
+                            user: str = Depends(current_user)):
+    """Move the replicant into an empty matrix: transfer (docs: same location, instant) or teleport (another system,
+    through the FTL network, ~30 s offline; needs an FTL link between the two systems)."""
+    how = "teleport" if how == "teleport" else "transfer"
+    target = target.strip().upper()
+    return await run_action(request, user, "POST", f"/replicants/{code}/{how}", {"target": target}, f"{code}: {how} into {target}")
 
 
 @router.post("/replicants/{code}/slingshot", response_class=HTMLResponse)
@@ -1810,6 +1822,28 @@ async def location_detail(request: Request, code: str, user: str = Depends(curre
 
 
 # --- galaxy map ---------------------------------------------------------------------------
+@router.post("/locations/{code}/contribute", response_class=HTMLResponse)
+async def location_contribute(request: Request, code: str, user: str = Depends(current_user)):
+    """Give devices to a megastructure (docs: POST /locations/{code}/contribute {"devices": [...]}; accepted ones are
+    consumed, the rest come back as rejected)."""
+    form = await request.form()
+    codes = [c.strip().upper() for c in form.getlist("devices") if c.strip()]
+    if not codes:
+        return HTMLResponse('<div class="result err">Tick at least one device.</div>')
+    return await run_action(request, user, "POST", f"/locations/{code.upper()}/contribute", {"devices": codes},
+                            f"contribute {len(codes)} device(s) to {code.upper()}")
+
+
+@router.get("/megastructures", response_class=HTMLResponse)
+async def megastructures(request: Request, user: str = Depends(current_user)):
+    """The all-time megastructure contribution leaderboard (GET /leaderboards/megastructure)."""
+    try:
+        board, err = (await request.app.state.api.get("/leaderboards/megastructure") or {}).get("leaderboard") or [], None
+    except ApiError as e:
+        board, err = [], e.message
+    return await page(request, user, "megastructures.html", "systems", board=board, err=err)
+
+
 async def _bp_map(request: Request) -> dict[str, dict]:
     from .shapes import normalize_blueprints
     return {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
@@ -1854,6 +1888,28 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
         b["ordered"] = [s for s in b["stars"] if s in orders]
     return await page(request, user, "relays.html", "relays", nets=rn["networks"], nodes=rn["nodes"], bridges=br,
                       orders=orders, max_new=relaynet.MAX_BRIDGE)
+
+
+@router.get("/map/relays/{code}/network", response_class=HTMLResponse)
+async def map_relay_network(request: Request, code: str, user: str = Depends(current_user)):
+    """A relay's / hub's live links (GET /devices/{code}/network: connections, range_ly, status) next to the links the
+    app expects from distances: expected but missing, and linked though not expected."""
+    from . import relaynet
+    code = code.strip().upper()
+    try:
+        body = await request.app.state.api.get(f"/devices/{code}/network") or {}
+    except ApiError as e:
+        return HTMLResponse(f'<span class="lv-alert small">{html.escape(e.message)}</span>')
+    st = await load_state(request)
+    cat = await request.app.state.db.kv_get("stars", {}) or {}
+    pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict) and s.get("position")}
+    rn = relaynet.networks(st["devices"], pos, await _bp_map(request))
+    me = star_of(next((d.get("location") for d in st["devices"] if d.get("device_code") == code), "") or "")
+    expect = {l["b"] if l["a"] == me else l["a"] for l in rn["links"] if me in (l["a"], l["b"])}
+    conns = [c for c in body.get("connections") or [] if isinstance(c, dict)]
+    live = {c.get("star") for c in conns if c.get("star")}
+    return partial(request, "partials/relay_network.html", body=body, conns=conns, missing=sorted(expect - live),
+                   extra=sorted(live - expect))
 
 
 @router.post("/map/relays/route", response_class=HTMLResponse)
@@ -2677,23 +2733,53 @@ async def diagnostics_download(request: Request, user: str = Depends(current_use
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
+# (group, method, path template, JSON body). {replicant} {device} {relay} {controller} {interface} {beacon} {location}
+# {star} {tag} … are filled from pickers on the page (or typed); the path stays editable before it's sent.
 CONSOLE_PRESETS = [
-    ("GET", "/accounts/me", ""), ("GET", "/devices?limit=50", ""), ("GET", "/inventory", ""),
-    ("GET", "/locations", ""), ("GET", "/blueprints", ""), ("GET", "/events?limit=20", ""),
-    ("GET", "/accounts/achievements", ""), ("GET", "/accounts/reputation", ""),
-    ("GET", "/replicants/{code}/stars?per_page=20", ""), ("GET", "/replicants/{code}/scan/devices", ""),
-    ("GET", "/replicants/{code}/traders", ""),
-    ("POST", "/replicants/{code}/travel", '{"destination": "SOL-BELT-1", "dry_run": true}'),
-    ("PATCH", "/accounts/me", '{"events": {"ami_digest_interval": 3}}'),
+    ("Account", "GET", "/accounts/me", ""), ("Account", "GET", "/accounts/achievements", ""),
+    ("Account", "GET", "/accounts/reputation", ""), ("Account", "GET", "/accounts/events?status=active", ""),
+    ("Account", "GET", "/accounts/simulations", ""), ("Account", "GET", "/accounts/webhook", ""),
+    ("Account", "GET", "/messages", ""), ("Account", "GET", "/tutorials", ""), ("Account", "GET", "/tutorials/{slug}", ""),
+    ("Account", "PATCH", "/accounts/me", '{"events": {"ami_digest_interval": 3}}'),
+    ("Replicants", "GET", "/replicants/{replicant}", ""), ("Replicants", "GET", "/replicants/{replicant}/devices", ""),
+    ("Replicants", "GET", "/replicants/{replicant}/inventory", ""),
+    ("Replicants", "GET", "/replicants/{replicant}/stars?per_page=20", ""),
+    ("Replicants", "GET", "/replicants/{replicant}/stars/{star}", ""),
+    ("Replicants", "GET", "/replicants/{replicant}/scan/devices", ""),
+    ("Replicants", "GET", "/replicants/{replicant}/traders", ""), ("Replicants", "GET", "/replicants?per_page=20", ""),
+    ("Replicants", "POST", "/replicants/{replicant}/travel", '{"destination": "{location}", "dry_run": true}'),
+    ("Devices", "GET", "/devices?limit=50", ""), ("Devices", "GET", "/devices/{device}", ""),
+    ("Devices", "GET", "/devices/{device}/logs", ""), ("Devices", "GET", "/devices/tags/{tag}", ""),
+    ("Devices", "GET", "/devices/{beacon}/audit", ""), ("Devices", "GET", "/devices/{relay}/network", ""),
+    ("Devices", "GET", "/devices/{relay}/channels", ""), ("Devices", "GET", "/devices/{relay}/messages", ""),
+    ("Devices", "GET", "/devices/{controller}/trades", ""), ("Devices", "GET", "/devices/{interface}/research", ""),
+    ("Devices", "POST", "/devices/{device}", '{"command": "travel", "destination": "{location}", "dry_run": true}'),
+    ("Devices", "PATCH", "/devices/{device}", '{"configuration": {"add_tags": ["spare"]}}'),
+    ("Places", "GET", "/locations", ""), ("Places", "GET", "/locations/{location}", ""), ("Places", "GET", "/inventory", ""),
+    ("Places", "GET", "/stars", ""), ("Places", "GET", "/blueprints", ""), ("Places", "GET", "/species", ""),
+    ("Events", "GET", "/events?limit=20", ""), ("Events", "GET", "/events?limit=20&event={event}", ""),
+    ("Simulations", "GET", "/devices/{interface}/simulate", ""), ("Simulations", "GET", "/devices/{interface}/simulate/active", ""),
+    ("Simulations", "GET", "/leaderboards/simulations", ""), ("Simulations", "GET", "/leaderboards/simulations/{scenario}", ""),
+    ("Public", "GET", "/achievements", ""), ("Public", "GET", "/achievements/{achievement}", ""),
+    ("Public", "GET", "/leaderboards/megastructure", ""), ("Public", "GET", "/blog", ""),
 ]
+CONSOLE_FIELDS = {"replicant": "rep", "device": "dev", "beacon": "dev", "relay": "dev", "controller": "dev",
+                  "interface": "dev", "location": "loc", "star": "star", "tag": "tag"}
 
 
 @router.get("/console", response_class=HTMLResponse)
 async def console(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
-    first = next(iter(st["replicants"]), "{code}")
-    presets = [(m, p.replace("{code}", first), b) for m, p, b in CONSOLE_PRESETS]
-    return await page(request, user, "console.html", "console", presets=presets)
+    groups: dict[str, list] = {}
+    for g, m, p_, b in CONSOLE_PRESETS:
+        groups.setdefault(g, []).append((m, p_, b))
+    devs = sorted(st["devices"], key=lambda d: (d.get("device_type") or "", d.get("device_code") or ""))
+    locs = sorted({d.get("location") for d in devs if d.get("location")} | set(st["locations"] or {}))
+    return await page(request, user, "console.html", "console", preset_groups=groups, fields=CONSOLE_FIELDS,
+                      reps=[(c, r.get("name") or c) for c, r in st["replicants"].items()],
+                      devs=[(d.get("device_code"), d.get("device_type") or "") for d in devs if d.get("device_code")],
+                      locs=locs, stars=sorted({star_of(x) for x in locs}),
+                      tags=sorted({t for d in devs for t in d.get("tags") or []}))
 
 
 @router.post("/console", response_class=HTMLResponse)

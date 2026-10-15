@@ -18,6 +18,17 @@
   </table>{% endif %}
 </div>
 <div class="card">
+  <h2>Live links</h2>
+  <p class="muted small">Ask a relay or hub which neighbors it has actually linked with (<code>GET /devices/{code}/network</code>),
+    compared with the links the app expects from the distances. One request each, on demand.</p>
+  {% if not nodes %}<p class="muted">No working relay or hub of yours yet.</p>{% else %}
+  <table class="small"><tr><th>System</th><th>Device</th><th>Links</th></tr>
+    {% for s, n in nodes | dictsort %}{% for c in n.devices %}<tr><td><a href="/systems/{{ s }}">{{ s }}</a></td>
+      <td class="mono"><a href="/devices/{{ c }}">{{ c }}</a></td>
+      <td><button class="small ghost" hx-get="/map/relays/{{ c }}/network" hx-target="closest td" hx-swap="innerHTML">check</button></td></tr>{% endfor %}{% endfor %}
+  </table>{% endif %}
+</div>
+<div class="card">
   <h2>Bridges</h2>
   <p class="muted small">The fewest new relays (7.5 ly a hop) that join two of your networks — only when it takes {{ max_new }} or fewer.
     <i>Add route</i> asks for a relay in each system on it, like <i>add</i> on the Systems list: an idle one there is switched

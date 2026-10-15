@@ -255,7 +255,8 @@ def diagnose(snap: dict) -> dict:
             return {}
         det = belts.get(b)
         sites = (det or {}).get("resource_sites") if det else None
-        trackers = [d["device_code"] for d in devices if (d.get("location") or "").startswith(b) and
+        trackers = [d["device_code"] + (f" ({d['tracking_site']})" if d.get("tracking_site") else "")   # v3.5.1: the site held
+                    for d in devices if (d.get("location") or "").startswith(b) and
                     str(d.get("status") or "").startswith(("tracking", "searching"))]
         from .salvage import open_site_count
         return {"belt": b, "read": det is not None, "open_sites": open_site_count(det) if det is not None else None,
