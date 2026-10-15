@@ -852,3 +852,16 @@ def test_a_delivered_relay_is_activated_before_its_carrier_leaves():
     cmds = [(s["path"], (s["body"] or {}).get("command")) for s in lo.delivery_steps(dl, by, {}, True)]
     i = cmds.index(("/devices/RL9", "deploy"))
     assert cmds[i + 1] == ("/devices/RL9", "activate") and ("/devices/CV1", "travel") in cmds[i + 1:]
+
+
+def test_civ_beacon_prints_never_go_to_a_vessel():
+    """Owner 2026-10-15: printing beacons for a civilization still landed on replicant vessels (they take print orders)."""
+    from rsweb import traffic as tr
+    hv = {"device_code": "HV1", "device_type": "heaven_vessel", "location": "LOR-OORT", "status": "idle",
+          "features": ["cruise", "stow"], "stow_capacity": 4, "available_commands": ["enqueue_print", "travel"]}
+    af = {"device_code": "AF1", "device_type": "autofactory", "location": "LOR-1", "status": "idle",
+          "features": [], "available_commands": ["enqueue_print"]}
+    reps = {"R1": {"hosted_device_code": "HV1", "location": "LOR-OORT"}}
+    p = tr.placement("LOR-3", [hv, af], reps, {}, set(), use_replicant_vessel=False)
+    assert p["kind"] == "factory" and p["factory"] == "AF1"
+    assert tr.placement("LOR-3", [hv], reps, {}, set(), use_replicant_vessel=False)["kind"] == "none"

@@ -620,6 +620,7 @@ class OpsRules:
             if o and (_now() - o).total_seconds() < 6 * 3600:
                 continue
             fac = pq.least_loaded([f for f in devices if "enqueue_print" in (f.get("available_commands") or [])
+                                   and "vessel" not in (f.get("device_type") or "")   # never on a (replicant's) vessel
                                    and up.star_of(f.get("location")) == r["star"]], bps)
             if fac and (cfg.get("print_missing") or manual):
                 job = await self.create_job("maintenance", f"maintenance: print a maintenance drone for {r['star']}", fac["device_code"],

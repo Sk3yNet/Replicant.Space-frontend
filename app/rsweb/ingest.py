@@ -105,7 +105,22 @@ def _iso(dt: datetime) -> str:
 
 # docs catalogue: device.lost (v3.5.0, flung off by a diversion); device.changed_owner {direction: sent | received} —
 # only "sent" means it left us (device.transferred / device.owner_changed kept from before the catalogue was read)
-SALVAGE_MSG = re.compile(r"salvage[^.]{0,60}(discover|found|detect)|(discover|found|detect)[^.]{0,60}salvage", re.I)
+SALVAGE_MSG = re.compile(r"salvage discovered:|salvage[^.]{0,60}(discover|found|detect)|(discover|found|detect)[^.]{0,60}salvage",
+                         re.I)   # live (owner, 2026-10-15): "Salvage discovered: …"
+
+
+def salvage_message(m: dict) -> bool:
+    """A game message announcing salvage: any of its text fields says so (the field names vary: title / body /
+    message / text / subject …)."""
+    return bool(SALVAGE_MSG.search(" ".join(str(v) for v in m.values() if isinstance(v, str))))
+
+
+def message_id(m: dict):
+    return m.get("id") if m.get("id") is not None else m.get("message_id")
+
+
+def message_unread(m: dict) -> bool:
+    return not (m.get("read") or m.get("is_read") or m.get("read_at"))
 GONE_EVENTS = ("device.decommissioned", "device.destroyed", "device.lost", "device.transferred", "device.owner_changed",
                "hub.destroyed")
 GONE_SQL = (f"(event IN ({','.join('?' * len(GONE_EVENTS))}) OR "
@@ -690,14 +705,14 @@ class Worker:
         msgs = (body or {}).get("messages") or []
         # owner, 2026-10-15: salvage discoveries mustn't raise the Messages badge — they're marked read (the Events
         # feed and the system pages still have them)
-        quiet = [m.get("id") for m in msgs if isinstance(m, dict) and not m.get("read") and m.get("id") is not None
-                 and SALVAGE_MSG.search(f"{m.get('title') or ''} {m.get('body') or ''}")]
+        quiet = [message_id(m) for m in msgs if isinstance(m, dict) and message_unread(m) and message_id(m) is not None
+                 and salvage_message(m)]
         if quiet:
             try:
                 await self.api.request("POST", "/messages/read", json_body={"ids": quiet}, background=True)
                 for m in msgs:
-                    if m.get("id") in quiet:
-                        m["read"] = True
+                    if message_id(m) in quiet:
+                        m["read"] = m["is_read"] = True
             except ApiError as e:
                 log.warning("marking salvage messages read failed: %s", e.message)
         await self.db.kv_set("messages", msgs)

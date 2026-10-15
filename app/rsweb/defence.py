@@ -179,6 +179,7 @@ def plan(a: dict, devices: list[dict], bps: dict[str, dict], busy: set[str], cfg
         else:
             t = types[0]
             facs = [d for d in devices if "enqueue_print" in (d.get("available_commands") or [])
+                    and "vessel" not in (d.get("device_type") or "")   # never on a (replicant's) vessel
                     and star_of(d.get("location")) == a["star"]]
             if not facs:
                 out["notes"].append(f"no autofactory in {a['star']} to print {t}")

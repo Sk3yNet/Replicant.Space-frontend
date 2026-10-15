@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.99.0"
+VERSION = "1.100.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.100.0", "2026-10-15", "Game messages saying \"Salvage discovered:\" are marked read (any text field, either id / "
+               "read field name). Civilization beacons, asteroid-defense propulsors and maintenance drones are never printed "
+               "on a vessel (replicant vessels take print orders too): only on an autofactory."),
     ("1.99.0", "2026-10-15", "Galaxy map: a violet hexagon marks megastructures (from system scans, your contributions and "
                "the MIRFAKA datacenter), with its own checkbox. Asteroids are named by their location designation: an "
                "impact warning (which names none, and comes from where your devices are) is filed under the asteroid "

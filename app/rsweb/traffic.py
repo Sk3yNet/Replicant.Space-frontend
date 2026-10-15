@@ -318,8 +318,11 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
         return {"kind": "print", "replicant": rep, "vessel": host,
                 "text": f"{r.get('name') or rep} is at {loc}: print an FTL beacon on the vessel (≈100 s), then deploy it"}
     from . import printqueue as pq
+    # the system's autofactory — never a vessel, least of all one hosting a replicant (they take print orders too;
+    # owner, 2026-10-15: civ beacons were landing on replicant vessels)
     fac = pq.least_loaded([f for f in devices if "enqueue_print" in (f.get("available_commands") or [])
-                           and star_of(f.get("location")) == star], bps or {})
+                           and star_of(f.get("location")) == star and not is_vessel(f)
+                           and f.get("device_code") not in hosts], bps or {})
     if fac:
         return {"kind": "factory", "factory": fac["device_code"], "factory_at": fac.get("location"),
                 "has_vessel": bool(vessels),

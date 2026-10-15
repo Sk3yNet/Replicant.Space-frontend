@@ -6630,6 +6630,9 @@ def test_snapshot_2026_10_15_errors_count_as_done_and_salvage_messages_are_read(
     from rsweb.ingest import SALVAGE_MSG
     assert SALVAGE_MSG.search("Salvage discovered at KELHYRAS-6: a derelict hauler")
     assert not SALVAGE_MSG.search("Print completed: mining drone")
+    from rsweb.ingest import salvage_message, message_unread, message_id
+    m = {"message_id": 7, "is_read": False, "subject": "Salvage discovered: derelict hauler at KELHYRAS-6-SAL-2"}
+    assert salvage_message(m) and message_unread(m) and message_id(m) == 7   # live wording, other field names
 
 
 def test_simulation_prep_run_and_discard(client):
