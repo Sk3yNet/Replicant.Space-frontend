@@ -741,6 +741,24 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                     for s2 in job["steps"][job["idx"] + 1:]:
                         if s2.get("method") == "WAIT" and s2.get("wait_device") == code and s2.get("status") == "pending":
                             s2["status"], s2["note"] = "skipped", "already aboard"
+            if (not ok and (st.get("body") or {}).get("command") == "attach" and "already attached" in (err or "").lower()
+                    and str(st.get("path") or "").startswith("/devices/")):
+                # seen live (2026-10-15, Prospector 4): "Target device is already attached to a carrier". Attached to
+                # this carrier: that's what the step wanted. Attached to another: detach it there, then attach again
+                carrier, code = st["path"].split("/")[2], st["body"].get("device")
+                cur = next((d for d in await self.devices() if d.get("device_code") == code), {})
+                other = cur.get("attached_to_device_code")
+                if other == carrier:
+                    ok, st["note"] = True, f"{err} — already attached to {carrier}"
+                    st["wait"] = []
+                elif other:
+                    dok, _r, derr = await self.send("POST", f"/devices/{other}", {"command": "detach", "device": code},
+                                                    f"auto: {other}: detach {code} (to attach it to {carrier})")
+                    if dok:
+                        ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']} (retry)")
+                        st["note"] = f"detached from {other} first"
+                    else:
+                        err = f"{err}; detaching it from {other} failed: {derr}"
             if not ok and "already at destination" in (err or "").lower():
                 ok, st["note"] = True, err  # nothing to do: count it as done and move on
                 st["wait"] = []

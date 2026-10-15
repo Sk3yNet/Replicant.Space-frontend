@@ -6897,3 +6897,38 @@ def test_fleets_listed_alphabetically(client):
         t = client.get(url, headers=HX).text
         mark = "#fleet-" if url.endswith("overview") else 'id="fleet-'   # z1 alpha, z2 Mike, z0 Zulu
         assert t.index(mark + "z1") < t.index(mark + "z2") < t.index(mark + "z0"), url
+
+
+def test_attach_already_attached(client):
+    from rsweb.automations import step
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    devices = client.portal.call(db.kv_get, "devices")
+    devices += [{"device_code": "CAR00001", "device_type": "cargo_vessel", "location": "SOL-3", "status": "idle"},
+                {"device_code": "CAR00002", "device_type": "cargo_vessel", "location": "SOL-3", "status": "idle"},
+                {"device_code": "OBS0000A", "device_type": "observatory", "location": "SOL-3", "status": "attached",
+                 "attached_to_device_code": "CAR00001"}]
+    client.portal.call(db.kv_set, "devices", devices)
+    sent = []
+
+    async def fake_send(method, path, body, why):
+        sent.append((path, body.get("command")))
+        if body.get("command") == "attach" and len([s for s in sent if s[1] == "attach"]) == 1:
+            return False, None, "Target device is already attached to a carrier"
+        return True, {}, None
+    orig = eng.send
+    eng.send = fake_send
+    try:
+        for carrier in ("CAR00001", "CAR00002"):   # the carrier it's on already: done; another: detach there, retry
+            sent.clear()
+            job = client.portal.call(eng.create_job, "fleets", "attach test", carrier,
+                                     [step(f"{carrier}: attach OBS0000A", f"/devices/{carrier}",
+                                           {"command": "attach", "device": "OBS0000A"}, critical=True)], {"devices": []}, True)
+            j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
+            assert j["status"] != "failed", carrier
+            if carrier == "CAR00001":
+                assert sent == [("/devices/CAR00001", "attach")] and j["steps"][0]["status"] == "done"
+            else:
+                assert sent == [("/devices/CAR00002", "attach"), ("/devices/CAR00001", "detach"),
+                                ("/devices/CAR00002", "attach")]
+    finally:
+        eng.send = orig
