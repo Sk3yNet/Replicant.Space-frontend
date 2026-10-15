@@ -31,20 +31,24 @@ def _ts(v: Any) -> float | None:
     return dt.timestamp() if dt else None
 
 
-def diverted_enough(o: dict) -> bool:
-    """Pushed far enough: the game puts the impact likelihood at 0, or the diversion progress at 100 %. More thrust is
-    wasted, and whatever is still there when it swings past is flung off and lost — so everything leaves now."""
+DIVERTED_PCT = 1.0   # owner, 2026-10-15: the likelihood never reaches 0 % (e.g. 0.70 % at 99.30 % progress)
+
+
+def diverted_enough(o: dict, pct: float = DIVERTED_PCT) -> bool:
+    """Pushed far enough: the impact likelihood is at or below `pct` % (a setting of the asteroid defense rule), or the
+    diversion progress at 100 %. More thrust is wasted, and whatever is still there when it swings past is flung off
+    and lost — so everything leaves now."""
     def num(v):
         try:
             return float(v)
         except (TypeError, ValueError):
             return None
     lk, pg = num(o.get("impact_likelihood")), num(o.get("progress_pct"))
-    return (lk is not None and lk <= 0) or (pg is not None and pg >= 100)
+    return (lk is not None and lk <= pct) or (pg is not None and pg >= 100)
 
 
 def due(objects: dict[str, dict], now: float | None = None, minutes: float = EVAC_MINUTES,
-        warned: set[str] | frozenset = frozenset()) -> dict[str, float]:
+        warned: set[str] | frozenset = frozenset(), pct: float = DIVERTED_PCT) -> dict[str, float]:
     """{object location: minutes to impact} for open objects due within `minutes` (or warned about by the game), and
     those diverted enough already (owner, 2026-10-15: the propulsors are recalled then, before the ETA)."""
     now = now if now is not None else datetime.now(timezone.utc).timestamp()
@@ -54,32 +58,41 @@ def due(objects: dict[str, dict], now: float | None = None, minutes: float = EVA
             continue
         eta = _ts(o.get("impact_eta"))
         left = (eta - now) / 60 if eta else None
-        if des in warned or (left is not None and left <= minutes) or diverted_enough(o):
+        if left is not None and left <= 0:
+            continue   # the impact time has passed: the event is over (owner, 2026-10-15: no alerts with negative times)
+        if des in warned or (left is not None and left <= minutes) or diverted_enough(o, pct):
             out[des] = left if left is not None else 0.0
     return out
 
 
-def safe_spot(star: str, target: str | None, stars: dict[str, dict], scan: dict | None = None) -> str | None:
-    """Somewhere in the system away from the object and its impact target: the entry point, else the first body that
-    isn't the target."""
+def safe_spot(star: str, target: str | None, stars: dict[str, dict], scan: dict | None = None,
+              here: str | None = None, avoid: set[str] | frozenset = frozenset()) -> str | None:
+    """Somewhere in the system away from the object (`here`, where the devices are) and its impact target: the entry
+    point, else the first body that is neither, else the Oort cloud. Never `here` itself (live 2026-10-15: devices at
+    KELMORNEA-4-L4, the system's entry point, were sent "from KELMORNEA-4-L4 to KELMORNEA-4-L4"), nor another object
+    that is due (`avoid`)."""
+    bad = {x for x in (target, here) if x} | set(avoid)
     entry = (stars.get(star) or {}).get("entry_point")
-    if entry and entry != target:
+    if entry and entry not in bad:
         return entry
     for p in (scan or {}).get("planets") or []:
         loc = p.get("designation") if isinstance(p, dict) else None
-        if loc and loc != target:
+        if loc and loc not in bad:
             return loc
-    return f"{star}-OORT" if target != f"{star}-OORT" else None
+    for loc in (f"{star}-OORT", f"{star}-KUIPER"):
+        if loc not in bad:
+            return loc
+    return None
 
 
 def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], busy: set[str],
          hosts: set[str] | frozenset = frozenset(), scans: dict[str, dict] | None = None, now: float | None = None,
-         warned: set[str] | frozenset = frozenset()) -> dict:
+         warned: set[str] | frozenset = frozenset(), pct: float = DIVERTED_PCT) -> dict:
     """{"moves": [{code, from, to, why}], "boards": [{carrier, code, mode, to}], "stuck": [{code, location, why}],
     "piles": {location: minutes left}}."""
     from . import fleets as fl
     from .defence import DIVERTING
-    hot = due(objects, now, EVAC_MINUTES, warned)
+    hot = due(objects, now, EVAC_MINUTES, warned, pct)
     out: dict = {"moves": [], "boards": [], "stuck": [], "piles": hot}
     by_loc: dict[str, list[dict]] = {}
     for d in devices:
@@ -88,7 +101,7 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
     for loc, here in by_loc.items():
         left = hot[loc]
         star, target = star_of(loc), (objects.get(loc) or {}).get("impact_target")
-        to = safe_spot(star, target, stars, (scans or {}).get(star))
+        to = safe_spot(star, target, stars, (scans or {}).get(star), here=loc, avoid=set(hot))
         if not to:
             out["stuck"].extend({"code": d["device_code"], "location": loc, "why": "no safe spot known in the system"} for d in here)
             continue
@@ -99,7 +112,7 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
             st = str(d.get("status") or "").lower()
             if code in busy or st.startswith(MOVING) or code in hosts:
                 continue   # on its way already, or a replicant's vessel (the game evacuates those to orbit)
-            enough = diverted_enough(objects.get(loc) or {})
+            enough = diverted_enough(objects.get(loc) or {}, pct)
             if "propulsor" in (d.get("device_type") or "") and any(k in st for k in DIVERTING) \
                     and left is not None and left > DIVERTER_MINUTES and not enough:
                 continue   # still pushing it off course

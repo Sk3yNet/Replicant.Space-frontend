@@ -1975,10 +1975,17 @@ async def map_payload(request: Request, part: str = "all") -> dict:
     if part in ("core", "all"):
         presence = Counter(star_of(d.get("location")) for d in st["devices"])
         infra: dict[str, list[str]] = defaultdict(list)
+        from . import relaynet as _rn
+        bpm = await _bp_map(request)
+        reach: dict[str, dict] = {}   # star -> the working relay / hub reaching furthest there (the map's range sphere)
         for d in st["devices"]:
             t = d.get("device_type") or ""
             if any(k in t for k in ("relay", "hub", "beacon", "ward", "slingshot", "observatory")):
                 infra[star_of(d.get("location"))].append(t)
+            r = _rn.reach(d, bpm)
+            s_ = star_of(d.get("location"))
+            if r and r > (reach.get(s_) or {}).get("ly", 0):
+                reach[s_] = {"ly": r, "hub": "hub" in t}
         scanned = {r["star"] for r in await db.fetchall("SELECT star FROM systems")}
         from .census import observatory_stars
         prospected, _ = await observatory_stars(db)   # stars our observatories found: highlighted until scanned
@@ -2000,7 +2007,7 @@ async def map_payload(request: Request, part: str = "all") -> dict:
             if scope != "all" and (d in mine) != (scope == "mine"):
                 continue
             stars.append({**{k: s[k] for k in STAR_FIELDS if k in s}, "devices": presence.get(d, 0), "infra": infra.get(d, []),
-                          "scanned": d in scanned,
+                          **({"reach": reach[d]} if d in reach else {}), "scanned": d in scanned,
                           **({"prospected": prospected[d].get("found_at"), "found_by": prospected[d].get("found_by")}
                              if d in prospected else {}),
                           **({"prospected_from": pfrom[d]} if d in pfrom else {})})
@@ -3028,6 +3035,11 @@ async def automations_rule(request: Request, rule_id: str, user: str = Depends(c
         elif o.kind == "int":
             try:
                 cfg[o.name] = max(0, int(raw or o.default))
+            except ValueError:
+                pass
+        elif o.kind == "float":
+            try:
+                cfg[o.name] = max(0.0, float(raw if raw not in (None, "") else o.default))
             except ValueError:
                 pass
         elif raw is not None:

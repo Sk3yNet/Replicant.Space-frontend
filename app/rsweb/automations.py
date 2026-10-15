@@ -42,7 +42,7 @@ def _reserved(d: dict) -> bool:
 @dataclass
 class Option:
     name: str
-    kind: str  # bool | int | choice
+    kind: str  # bool | int | float | choice
     label: str
     default: Any
     options: list = field(default_factory=list)
@@ -181,7 +181,12 @@ RULES: list[Rule] = [
          [Option("activate", "bool", "Activate idle propulsors at the asteroid", True),
           Option("send_idle", "bool", "Send idle propulsors in the system to the asteroid", True),
           Option("print_missing", "bool", "Print the shortfall on the system's autofactory", False, help="Spends resources"),
-          Option("max_prints", "int", "Most propulsors to print per asteroid at a time", 6)],
+          Option("max_prints", "int", "Most propulsors to print per asteroid at a time", 6),
+          Option("diverted_pct", "float", "Diverted enough at an impact likelihood of (%)", 1.0,
+                 help="The likelihood never reaches 0 %. At or below this, more thrust is wasted: the propulsors are recalled "
+                      "before the swing-past"),
+          Option("recheck_minutes", "int", "Read an asteroid with propulsors on it every (minutes)", 5,
+                 help="Others are read every 15 minutes")],
          default_on=True),
     Rule("maintenance", "Keep maintenance drones patrolling",
          "A maintenance drone only repairs on the `patrol` directive (it then fixes the most worn device in its system, one "
@@ -2253,8 +2258,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
         """{object location: where its stockpile goes} for every object due within the evacuation window."""
         from . import evacuate as ev
         objs, warned, scans = await self.evacuation_inputs()
-        return {loc: ev.safe_spot(star_of(loc), (objs.get(loc) or {}).get("impact_target"), stars, scans.get(star_of(loc)))
-                for loc in ev.due(objs, warned=warned)}
+        hot = ev.due(objs, warned=warned, pct=await self.diverted_pct())
+        return {loc: ev.safe_spot(star_of(loc), (objs.get(loc) or {}).get("impact_target"), stars, scans.get(star_of(loc)),
+                                  here=loc, avoid=set(hot))
+                for loc in hot}
 
     async def evacuate_pass(self, force: bool = False) -> list[str]:
         """Evacuation before impact (evacuate.py): devices at an object due within the hour leave for a safe spot in
@@ -2262,7 +2269,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
         from . import evacuate as ev
         from . import loadouts as lo
         objs, warned, scans = await self.evacuation_inputs()
-        if not ev.due(objs, warned=warned):
+        pct = await self.diverted_pct()
+        if not ev.due(objs, warned=warned, pct=pct):
             return []
         devices = await self.devices()
         cat = await self.db.kv_get("stars", {}) or {}
@@ -2270,7 +2278,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
         reps = await self.db.kv_get("replicants", {}) or {}
         hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
         busy = self.busy_devices(await self.jobs())
-        p = ev.plan(objs, devices, stars, busy, hosts, scans, warned=warned)
+        p = ev.plan(objs, devices, stars, busy, hosts, scans, warned=warned, pct=pct)
         from . import fleets as fl
         out = []
         boards: dict[str, list[dict]] = {}
@@ -2465,12 +2473,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                 if r.get("resend", True):
                     ferries[r["controller"]] = {"configuration": {"collect": r["collect"], "deliver": r["deliver"]}, "at": now_iso()}
         await self.db.kv_set("loadout_ferries", ferries)
+        on = lambda code, loc: [lo.activate_step(code)] if lo.relay_ready_at(p["by_code"].get(code) or {}, loc) else []  # noqa: E731
         for code, loc in p.get("pins") or []:
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {loc} (pinned)", code,
-                                                  [lo.pin_step(code, loc)], {"devices": [code]}, force=manual))
+                                                  [lo.pin_step(code, loc)] + on(code, loc), {"devices": [code]}, force=manual))
         for code, loc in p.get("places") or []:
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {loc} (placement)", code,
-                                                  [lo.pin_step(code, loc, "where its type works")], {"devices": [code]}, force=manual))
+                                                  [lo.pin_step(code, loc, "where its type works")] + on(code, loc),
+                                                  {"devices": [code]}, force=manual))
         for code in p["arrived"]:
             steps = lo.arrived_steps(code, p["by_code"][code], stowed_in, join=(p.get("assign") or {}).get(code))
             if steps:

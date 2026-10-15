@@ -63,7 +63,7 @@ rule with an on/off switch, plus the jobs and the log.
   their fixed devices from the latest scans, a shield where someone else's ward or hub is, and an arrow for each arrival or
   departure your beacons logged in the last hour (with the likely other end of the trip), all fading with distance from the
   point the view is centered on. The **trail** of the replicant you follow is drawn in gold.
-- **Relays** (Map › Relays): *Live links* asks any relay or hub which neighbors it has really linked with (and flags links expected but missing); your relay networks — working relays (7.5 ly, or the range a relay reports) and active hubs (15 ly, by distance like relays — checked live 2026-10-15; on the galaxy map a hub's links are gold, and two relays both linked to the same hub don't show their own link)
+- **Relays** (Map › Relays): *Live links* asks any relay or hub which neighbors it has really linked with (and flags links expected but missing); your relay networks — working relays (7.5 ly, or the range a relay reports) and active hubs (15 ly, by distance like relays — checked live 2026-10-15; on the galaxy map a hub's links are gold, and two relays both linked to the same hub don't show their own link); the range sphere per system is its working relay or hub that reaches furthest; a relay dropped off at an L4/L5 point is switched on
   (15 ly) that reach each other — each in its own color, **active** when one of your replicants is within reach (only then
   can what it covers be commanded), with suggested bridges (the fewest new relays, at most 10, joining two networks) and
   *Add route* to order them. On the galaxy map (*relay network* option, off by default) links are curves, solid for active
@@ -108,8 +108,8 @@ rule with an on/off switch, plus the jobs and the log.
 - **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Evacuation** (game v3.5.0: what's left at an
   asteroid is destroyed on impact or lost on diversion): within the hour before impact, or at the game's
   `system.impact_warning`, your devices there leave for the system's entry point (propulsors still pushing stay until 30
-  minutes out, and are recalled as soon as the asteroid is diverted enough: likelihood 0 or progress 100%; one that can't fly boards a carrier there), their `at:` pin to the asteroid is dropped, and a stockpile there
-  is logistics' top priority. Nothing more is sent or printed for an asteroid due within the hour. **Upkeep**: wear per system and maintenance
+  minutes out, and are recalled as soon as the asteroid is diverted enough: impact likelihood at or below the Asteroid defense rule's setting, default 1 %, as it never reaches 0; an asteroid with propulsors on it is read every 5 minutes, also a setting; one that can't fly boards a carrier there), their `at:` pin to the asteroid is dropped, and a stockpile there
+  is logistics' top priority. Nothing more is sent or printed for an asteroid due within the hour. An event is over once its impact time passes: it's no longer read, alerted or evacuated, and moves to the Concluded list; the card title shows the warning's destination. **Upkeep**: wear per system and maintenance
   coverage.
 
 ### Fleets

@@ -17,8 +17,8 @@
           <div class="field">
             {% if o.kind == "bool" %}
               <label style="text-transform:none"><input type="checkbox" name="{{ o.name }}" {{ 'checked' if cfg[o.name] }}> {{ o.label }}</label>
-            {% elif o.kind == "int" %}
-              <label style="text-transform:none">{{ o.label }}</label><input type="number" min="0" name="{{ o.name }}" value="{{ cfg[o.name] }}" style="width:90px">
+            {% elif o.kind in ("int", "float") %}
+              <label style="text-transform:none">{{ o.label }}</label><input type="number" min="0" step="{{ '1' if o.kind == 'int' else 'any' }}" name="{{ o.name }}" value="{{ cfg[o.name] }}" style="width:90px">
             {% else %}
               <label style="text-transform:none">{{ o.label }}</label>
               <select name="{{ o.name }}">{% for v in o.options %}<option {{ 'selected' if cfg[o.name] == v }}>{{ v }}</option>{% endfor %}</select>

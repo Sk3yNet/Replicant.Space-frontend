@@ -382,6 +382,27 @@ class OpsRules:
         return out
 
     # --- asteroid defense -----------------------------------------------------------------------------------------
+    async def diverted_pct(self) -> float:
+        """The asteroid defense rule's "diverted enough" impact likelihood (%)."""
+        from .evacuate import DIVERTED_PCT
+        try:
+            return float(((await self.settings())["rules"].get("asteroid_defence") or {}).get("diverted_pct", DIVERTED_PCT))
+        except (TypeError, ValueError):
+            return DIVERTED_PCT
+
+    async def objects_interval(self, base: int = 900) -> int:
+        """Seconds to the next read of the incoming objects: the rule's recheck interval while propulsors push one
+        (its likelihood is watched for "diverted enough"), else POLL_OBJECTS."""
+        objs = await self.db.kv_get("objects", {}) or {}
+        pushing = any(not o.get("closed") and int(float(o.get("active_propulsors") or 0)) > 0 for o in objs.values())
+        if not pushing:
+            return base
+        try:
+            m = int(((await self.settings())["rules"].get("asteroid_defence") or {}).get("recheck_minutes") or 5)
+        except (TypeError, ValueError):
+            m = 5
+        return max(60, min(base, m * 60))
+
     async def defence_objects(self) -> dict[str, dict]:
         """Tracked objects, after picking up detections and closures from the event log."""
         import json as _json
@@ -406,6 +427,7 @@ class OpsRules:
                                           "detected_at": r["created_at"]})
                 o["impact_eta"] = p.get("impact_eta") or o.get("impact_eta")
                 o["impact_target"] = o.get("impact_target") or p.get("destination")
+                o["destination"] = p.get("destination") or o.get("destination")
                 o["warned_at"] = r["created_at"]
             elif r["event"] in dfn.CLOSED_EVENTS:
                 if des not in objs:   # matched by its target when the location isn't the object's
@@ -414,6 +436,12 @@ class OpsRules:
                 if des in objs and p.get("outcome") != "partial":   # partial: still a threat
                     objs[des]["closed"] = dfn.closed_as(r["event"])
                     objs[des].setdefault("closed_at", r["created_at"])
+        # owner, 2026-10-15: an event is over once its impact time has passed — no more reads, alerts or evacuations
+        for o in objs.values():
+            eta = _ts(o.get("impact_eta"))
+            if not o.get("closed") and eta and eta <= _now():
+                o["closed"] = "concluded (impact time passed)"
+                o["closed_at"] = o.get("impact_eta")
         return objs
 
     async def defence_report(self) -> list[dict]:
@@ -423,7 +451,8 @@ class OpsRules:
         devices = await self.devices()
         bps = normalize_blueprints(await self.db.kv_get("blueprints", []))
         enroute = await self._defence_enroute()
-        out = [dfn.assess(o, devices, bps, enroute=enroute.get(d, 0)) for d, o in objs.items()]
+        pct = await self.diverted_pct()
+        out = [dfn.assess(o, devices, bps, enroute=enroute.get(d, 0), pct=pct) for d, o in objs.items()]
         return sorted(out, key=lambda a: (not a["threat"], a["hours_left"] if a["hours_left"] is not None else 1e9))
 
     async def _defence_enroute(self) -> dict[str, int]:
@@ -452,9 +481,6 @@ class OpsRules:
             if o.get("closed") or (only and des != only):
                 continue
             eta = _ts(o.get("impact_eta"))
-            if eta and (now - eta).total_seconds() > 3600:
-                o["closed"] = "past impact time"
-                continue
             try:
                 body = await self.api.request("GET", f"/locations/{des}", background=True) or {}
             except ApiError as e:
@@ -476,14 +502,15 @@ class OpsRules:
         devices = await self.devices()
         bps = normalize_blueprints(await self.db.kv_get("blueprints", []))
         enroute = await self._defence_enroute()
+        pct = await self.diverted_pct()
         for des, o in objs.items():
-            a = dfn.assess(o, devices, bps, enroute=enroute.get(des, 0))
+            a = dfn.assess(o, devices, bps, enroute=enroute.get(des, 0), pct=pct)
             key = a["verdict"].split(" —")[0]
             if (cfg.get("enabled") or manual) and alerted.get(des) != key:
                 alerted[des] = key
-                if a["threat"] or key in ("diverted", "too late", "impacted"):
+                if a["threat"] or key in ("diverted", "diverted enough", "too late", "impacted"):
                     from .traffic import notify
-                    eta = f", impact in {a['hours_left']:.1f} h" if a["hours_left"] else ""
+                    eta = f", impact in {a['hours_left']:.1f} h" if (a["hours_left"] or 0) > 0 else ""
                     need = f", needs ~{a['needed']} propulsor(s), have {a['active']}" if a["needed"] is not None and a["threat"] else ""
                     await notify(self.db, self.hub, f"Asteroid {des} → {a['target'] or '?'}: {a['verdict']}{eta}{need}",
                                  "alert" if a["threat"] else "done", "/defence")
@@ -508,6 +535,9 @@ class OpsRules:
         await self.db.kv_set("objects_alerted", alerted)
         for line in lines:
             await self.log("asteroid_defence", line)
+        from . import evacuate as ev
+        if any(ev.diverted_enough(o, pct) for o in objs.values() if not o.get("closed")):
+            lines += await self.evacuate_pass()   # recall the propulsors now, not at the next tick
         return {"read": read, "lines": lines}
 
     async def poll_objects(self) -> dict:

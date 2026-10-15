@@ -5108,7 +5108,7 @@ def test_galaxy_map_loads_in_two_parts(client):
     assert core["stars"] and "per_star" not in core and "fleets" not in core and "drones" not in core["stars"][0]
     assert set(core["stars"][0]) <= {"designation", "name", "position", "color", "spectral_type", "region", "estimated_planets",
                                      "entry_point", "has_hub", "has_ward", "has_life", "explored", "from_census",
-                                     "from_observatory", "devices", "infra", "scanned"}
+                                     "from_observatory", "devices", "infra", "reach", "scanned"}
     over = client.get("/api/map.json", params={"part": "overlay"}, headers=H).json()
     assert "stars" not in over and {"per_star", "moving", "fleets", "supply"} <= set(over)
     assert any(v["drones"] for v in over["per_star"].values())
@@ -6532,10 +6532,10 @@ def test_docs_review_2026_10_13_fixes(client):
     db, eng = client.app.state.db, client.app.state.worker.automations
     client.portal.call(db.insert_event, {"id": "w1", "event": "system.impact_warning", "location": "KELM-OBJ-1",
                                           "created_at": "2026-10-13T10:00:00+00:00",
-                                          "payload": {"destination": "KELM-3", "impact_eta": "2026-10-13T11:00:00Z",
+                                          "payload": {"destination": "KELM-3", "impact_eta": "2099-10-13T11:00:00Z",
                                                       "device_codes": ["D1"]}})
     o = client.portal.call(eng.defence_objects)["KELM-OBJ-1"]
-    assert o["impact_target"] == "KELM-3" and o["impact_eta"] == "2026-10-13T11:00:00Z" and not o.get("closed")
+    assert o["impact_target"] == "KELM-3" and o["impact_eta"] == "2099-10-13T11:00:00Z" and not o.get("closed")
     client.portal.call(db.insert_event, {"id": "w2", "event": "system.object_diverted", "location": "KELM-OBJ-1",
                                           "payload": {"outcome": "partial", "impact_target": "KELM-3"}})
     assert not client.portal.call(eng.defence_objects)["KELM-OBJ-1"].get("closed")
@@ -6736,3 +6736,19 @@ def test_prospector_fleet_tours_one_prospect_per_star(client, monkeypatch):
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "pro")
     assert f["station"] is False and f["tour"]["target"] == "NEAR"     # the crowd west of HOME counts against C0…C4
     assert client.get("/fleets/details", headers=H).status_code == 200
+
+
+def test_an_asteroid_event_is_over_once_its_impact_time_passes(client):
+    """Owner 2026-10-15: no alerts with a negative time; a concluded event isn't tracked any more. The warning's
+    destination shows in the Defense card's title."""
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.insert_event, {"id": "p1", "event": "system.impact_warning", "location": "KELM-4-L4",
+                                          "created_at": "2026-10-15T10:00:00+00:00",
+                                          "payload": {"destination": "KELM-4", "impact_eta": "2026-10-15T11:00:00Z"}})
+    client.portal.call(db.insert_event, {"id": "p2", "event": "system.impact_warning", "location": "KELM-OBJ-2",
+                                          "created_at": "2026-10-15T10:00:00+00:00",
+                                          "payload": {"destination": "KELM-5", "impact_eta": "2099-10-15T11:00:00Z"}})
+    objs = client.portal.call(eng.defence_objects)
+    assert objs["KELM-4-L4"]["closed"].startswith("concluded") and not objs["KELM-OBJ-2"].get("closed")
+    page = client.get("/defence", headers=H).text
+    assert "destination <b class=\"mono\">KELM-5</b>" in page and "Concluded (1)" in page

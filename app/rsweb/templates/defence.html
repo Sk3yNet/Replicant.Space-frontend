@@ -14,10 +14,12 @@
   (activate idle {{ 'on' if cfg.activate else 'off' }} · send idle {{ 'on' if cfg.send_idle else 'off' }} ·
   print shortfall {{ 'on' if cfg.print_missing else 'off' }}).</p>
 
-{% for a in report %}{% set o = objs[a.designation] %}
+{% set ended = report | selectattr('closed') | list %}
+{% for a in report | rejectattr('closed') %}{% set o = objs[a.designation] %}
 <div class="card">
   <div class="row between">
     <h2 style="margin:0"><a class="mono" href="/locations/{{ a.designation }}">{{ a.designation }}</a> → {{ a.target or '?' }}
+      {% if a.destination %}<span class="small">· destination <b class="mono">{{ a.destination }}</b></span>{% endif %}
       <span class="small {{ 'lv-alert' if a.threat else 'muted' }}">{{ a.verdict }}</span></h2>
     {% if a.threat %}<button class="small" hx-post="/defence/{{ a.designation }}/act" hx-target="next .df-out"
       hx-confirm="Activate idle propulsors, send idle ones and print the shortfall for {{ a.designation }} now?">Defend now</button>{% endif %}
@@ -37,8 +39,13 @@
   </table>
 </div>
 {% else %}
-<div class="card"><p class="muted">No incoming objects detected. They appear here from <span class="mono">system.object_detected</span> events, or add one by its code.</p></div>
+<div class="card"><p class="muted">No incoming objects{% if ended %} still on their way{% else %} detected{% endif %}. They appear here from <span class="mono">system.object_detected</span> events, or add one by its code.</p></div>
+
 {% endfor %}
+{% if ended %}<details class="card"><summary class="small">Concluded ({{ ended | length }}): no longer read, alerted or evacuated</summary>
+  <table class="small"><tr><th>Object</th><th>Target</th><th>Destination</th><th>Impact time</th><th>Outcome</th></tr>
+  {% for a in ended %}<tr><td class="mono">{{ a.designation }}</td><td>{{ a.target or '—' }}</td><td class="mono">{{ a.destination or '—' }}</td>
+    <td>{{ a.eta | local if a.eta else '?' }}</td><td>{{ a.closed }}</td></tr>{% endfor %}</table></details>{% endif %}
 
 <div class="card">
   <form class="inline small" hx-post="/defence/track" hx-target="#df-msg">

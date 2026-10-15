@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.96.0"
+VERSION = "1.97.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.97.0", "2026-10-15", "Asteroids: diverted enough is a setting (impact likelihood, default 1 %), an asteroid with "
+               "propulsors on it is read every 5 minutes, and a diverted-enough read recalls them at once; an event is over "
+               "once its impact time passes (no more reads, alerts or evacuations; listed under Concluded); the warning's "
+               "destination shows in the card title. Evacuation never sends devices to where they already are. A relay "
+               "dropped off at an L4/L5 point is switched on. Galaxy map: one range sphere per system, from its working "
+               "relay or hub. Snapshots carry the tracked asteroids, their events and the evacuation log."),
     ("1.96.0", "2026-10-15", "Fleets split: the landing page has fleet status (loaded just after) and templates; the slow "
                "parts (fleet cards, next pass, tags check, spare & on the way) moved to Fleet details. Propulsors are "
                "recalled as soon as an asteroid is diverted enough. Prospector fleets tour stars within 30 ly of home, one "

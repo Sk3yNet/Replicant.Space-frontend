@@ -829,3 +829,15 @@ def test_bill_leaving_his_shop_resets_to_sol():
     assert tl.next_hop(s, "NOSOXA", pos, [])["go"] == "SOL"
     s["shop_stars"] = []                               # not his shop: an ordinary departure is followed
     assert tl.next_hop(s, "NOSOXA", pos, [])["go"] == "EAST"
+
+
+
+def test_a_relay_dropped_off_at_its_point_is_activated():
+    """Owner 2026-10-15: after dropping off a requested relay, switch it on."""
+    from rsweb import loadouts as lo
+    relay = {"device_code": "RL9", "device_type": "ftl_relay", "location": "ABOTEIN-1-L4", "status": "stowed", "tags": ["to:ABOTEIN"]}
+    steps = lo.arrived_steps("RL9", relay, {"RL9": "CV1"})
+    assert steps[0]["body"]["command"] == "deploy" and steps[-1]["body"] == {"command": "activate"}
+    belt = dict(relay, location="ABOTEIN-BELT-1")   # not at an L4/L5 point: placement takes it there, then switches it on
+    assert all(s["body"].get("command") != "activate" for s in lo.arrived_steps("RL9", belt, {"RL9": "CV1"}))
+    assert lo.relay_ready_at(belt, "ABOTEIN-2-L5") and not lo.relay_ready_at(dict(belt, tags=["spare"]), "ABOTEIN-2-L5")

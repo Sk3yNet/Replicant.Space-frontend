@@ -69,6 +69,22 @@ def test_propulsors_are_recalled_once_the_object_is_diverted_enough():
     objs = {"A-OBJ-1": {"impact_eta": iso(600), "impact_target": "A-3", "impact_likelihood": 40, "progress_pct": 70}}
     devs = [dev("PR", "propulsor_plate", "A-OBJ-1", status="diverting", available_commands=["travel"], features=["cruise"])]
     assert ev.plan(objs, devs, STARS, set())["moves"] == []            # 10 h out, still needed
-    objs["A-OBJ-1"].update({"impact_likelihood": 0, "progress_pct": 100})
+    objs["A-OBJ-1"].update({"impact_likelihood": 0.7, "progress_pct": 99.3})   # live: it never reaches 0 %
     m = ev.plan(objs, devs, STARS, set())["moves"]
     assert [x["code"] for x in m] == ["PR"] and "diverted enough" in m[0]["why"]
+    assert ev.plan(objs, devs, STARS, set(), pct=0.5)["moves"] == []   # the rule's setting is stricter
+    from rsweb import defence as dfn
+    a = dfn.assess(objs["A-OBJ-1"], [], {})
+    assert a["verdict"] == "diverted enough" and not a["threat"]
+
+
+def test_never_evacuates_to_where_the_devices_already_are():
+    """Live 2026-10-15: "leaving KELMORNEA-4-L4 for KELMORNEA-4-L4" — the warned location was the system's entry point."""
+    stars = {"K": {"entry_point": "K-4-L4"}}
+    objs = {"K-4-L4": {"impact_eta": iso(30), "impact_target": "K-4"}}
+    devs = [dev("MD", "mining_drone", "K-4-L4", available_commands=["travel"], features=["cruise"])]
+    m = ev.plan(objs, devs, stars, set(), warned={"K-4-L4"})["moves"]
+    assert [(x["code"], x["to"]) for x in m] == [("MD", "K-OORT")]
+    objs["K-4-L4"]["impact_eta"] = iso(-30)   # owner: once the impact time has passed it's over, nothing more is sent
+    assert ev.plan(objs, devs, stars, set(), warned={"K-4-L4"})["moves"] == []
+    assert ev.safe_spot("K", "K-4", stars, {"planets": [{"designation": "K-4"}, {"designation": "K-5"}]}, here="K-4-L4") == "K-5"

@@ -1335,9 +1335,25 @@ def arrived_steps(code: str, d: dict, stowed_in: dict, join: str | None = None) 
     if gathered:
         return steps
     pin = pinned_at(d)
+    spot = d.get("location")
     if pin and star_of(pin) == dest and d.get("location") != pin:
         steps.append(pin_step(code, pin))   # delivered to the system: now the exact spot it was ordered for
+        spot = pin
+    if relay_ready_at(d, spot):
+        steps.append(activate_step(code))
     return steps
+
+
+def relay_ready_at(d: dict, loc: str | None) -> bool:
+    """An FTL relay dropped off at an L4/L5 point (the only place it works) is switched on there (owner, 2026-10-15).
+    One somewhere else waits for placement to take it to one, which switches it on then."""
+    from .placement import is_lagrange
+    return (d.get("device_type") or "") == "ftl_relay" and is_lagrange(loc) \
+        and not str(d.get("status") or "").startswith("relaying") and SPARE not in (d.get("tags") or [])
+
+
+def activate_step(code: str) -> dict:
+    return step(f"activate {code}", f"/devices/{code}", {"command": "activate"})
 
 
 def pin_step(code: str, loc: str, why: str = "its at: pin") -> dict:

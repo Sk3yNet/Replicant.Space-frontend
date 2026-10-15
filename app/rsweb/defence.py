@@ -93,7 +93,7 @@ def observed_rate(history: list[dict]) -> float | None:
 
 
 def assess(obj: dict, devices: list[dict], bps: dict[str, dict], now: datetime | None = None,
-           enroute: int = 0) -> dict:
+           enroute: int = 0, pct: float = 1.0) -> dict:
     now = now or datetime.now(timezone.utc)
     bps = bp_map(bps)
     des = obj.get("designation")
@@ -119,6 +119,8 @@ def assess(obj: dict, devices: list[dict], bps: dict[str, dict], now: datetime |
         verdict = obj.get("closed") or str(obj.get("status"))
     elif likelihood <= 0:
         verdict = "diverted"
+    elif likelihood <= pct:   # the likelihood never reaches 0: the rule's "diverted enough" (propulsors are recalled)
+        verdict = "diverted enough"
     elif hours is not None and hours <= 0:
         verdict = "too late"
     elif needed is None:
@@ -132,6 +134,7 @@ def assess(obj: dict, devices: list[dict], bps: dict[str, dict], now: datetime |
     if done_in is not None and hours and done_in > hours and verdict == "on track":
         verdict = f"behind — at this rate done in {done_in:.1f} h, impact in {hours:.1f} h"
     return {"designation": des, "star": star_of(des), "target": obj.get("impact_target"), "eta": obj.get("impact_eta"),
+            "destination": obj.get("destination"), "closed": obj.get("closed"),
             "hours_left": round(hours, 2) if hours is not None else None, "likelihood": likelihood, "progress": progress,
             "required": required, "remaining": round(remaining, 1) if remaining is not None else None,
             "active": active, "ours_here": [d["device_code"] for d in ours_here],
@@ -141,7 +144,7 @@ def assess(obj: dict, devices: list[dict], bps: dict[str, dict], now: datetime |
             "rate_pct_per_hour": round(rate, 2) if rate else None, "done_in_hours": round(done_in, 1) if done_in else None,
             "verdict": verdict, "diverter_types": types, "mass_class": obj.get("mass_class"),
             "composition": obj.get("composition"), "status": obj.get("status") or "active",
-            "threat": verdict not in ("diverted", "too late") and not obj.get("closed") and likelihood > 0}
+            "threat": verdict not in ("diverted", "diverted enough", "too late") and not obj.get("closed") and likelihood > 0}
 
 
 def plan(a: dict, devices: list[dict], bps: dict[str, dict], busy: set[str], cfg: dict,

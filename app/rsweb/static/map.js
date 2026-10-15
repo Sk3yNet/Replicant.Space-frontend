@@ -53,7 +53,6 @@ const tip = $("map-tip") || document.createElement("div");
 const fromSel = $("map-from");
 
 const COLORS = { red: 0xff8a65, orange: 0xffb74d, yellow: 0xffe082, white: 0xf5f5f5, blue: 0x90caf9, "blue-white": 0xbbdefb, brown: 0xa1887f };
-const RANGE = { ftl_relay: 7.5, relay: 7.5, system_hub: 15, hub: 15 };
 
 // phones report a device pixel ratio of 3: a canvas that size at full frame rate can exhaust a phone's GPU (the map
 // froze a few seconds after focusing a system, as the keyboard closed and the canvas was resized). 2 is plenty.
@@ -229,13 +228,11 @@ function build() {
         sparkles.push({ sp, c: v, r: 2.4 + k * .3, a0: i / n * Math.PI * 2 + k, w: .25 - k * .025, tilt: (k % 2 ? 1 : -1) * .35 });
       }
     });
-    for (const t of s.infra || []) {
-      const r = Object.entries(RANGE).find(([k]) => t.includes(k));
-      if (r) {
-        const m = new THREE.Mesh(new THREE.SphereGeometry(r[1], 24, 16),
-          new THREE.MeshBasicMaterial({ color: t.includes("hub") ? 0xf0b64f : 0x6cb6ff, wireframe: true, transparent: true, opacity: .07 }));
-        m.position.copy(v); coverGroup.add(m);
-      }
+    if (s.reach) {   // one sphere per system: its working relay or hub that reaches furthest (inactive ones don't count)
+      const m = new THREE.Mesh(new THREE.SphereGeometry(s.reach.ly, 24, 16),
+        new THREE.MeshBasicMaterial({ color: s.reach.hub ? 0xf0b64f : 0x6cb6ff, wireframe: true, transparent: true,
+                                      opacity: s.reach.hub ? .12 : .07 }));
+      m.position.copy(v); coverGroup.add(m);
     }
     if (s.devices > 0 || hasRep || s.has_hub || fresh) {
       const d = document.createElement("div");

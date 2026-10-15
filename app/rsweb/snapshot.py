@@ -127,7 +127,7 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
     settings = await eng.settings()
     jobs = await eng.jobs()
     mine_rules = ("restart_idle_miners", "ami_schedules", "reopen_sites", "salvage_when_depleted", "loadouts", "fleets", "engine",
-                  "wards")
+                  "wards", "evacuate", "asteroid_defence")
     app = {
         # every device in one list: the /devices pages above merged (or the app's cached list when those came back empty)
         "devices": devices,
@@ -150,6 +150,13 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "loadouts": await db.kv_get("loadouts", {}) or {},              # templates, settings, ignore tags — to replay a pass
         "loadout_orders": await db.kv_get("loadout_orders", []) or [],
         "stowed_map": await db.kv_get("stowed_map", {}) or {},
+        # asteroids: the tracked objects (key = where the warning or detection was) and their raw events
+        "objects": await db.kv_get("objects", {}) or {},
+        "asteroid_events": [{"event": r["event"], "location": r["location"], "at": r["created_at"], "payload": r["payload"]}
+                            for r in await db.fetchall(
+                                "SELECT event, location, created_at, payload FROM events WHERE event LIKE 'system.%' "
+                                "OR event LIKE 'diversion.%' OR event IN ('device.lost', 'device.destroyed') "
+                                "ORDER BY seq DESC LIMIT 60")],
         "engine": {**eng.engine_status(), **(await db.kv_get("engine_tick", {}) or {})},   # is the tick loop alive?
         "fleets": [{"id": f.get("id"), "name": f.get("name"), "role": f.get("role"), "home": f.get("home"),
                     "station": bool(f.get("station")), "template": f.get("template"), "wants": f.get("wants") or {},
