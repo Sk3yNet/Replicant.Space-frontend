@@ -841,3 +841,14 @@ def test_a_relay_dropped_off_at_its_point_is_activated():
     belt = dict(relay, location="ABOTEIN-BELT-1")   # not at an L4/L5 point: placement takes it there, then switches it on
     assert all(s["body"].get("command") != "activate" for s in lo.arrived_steps("RL9", belt, {"RL9": "CV1"}))
     assert lo.relay_ready_at(belt, "ABOTEIN-2-L5") and not lo.relay_ready_at(dict(belt, tags=["spare"]), "ABOTEIN-2-L5")
+
+
+def test_a_delivered_relay_is_activated_before_its_carrier_leaves():
+    """Live 2026-10-15: F6A3A357 was dropped at KAMUYIS and left off: out of everyone's reach, it can't be commanded."""
+    from rsweb import loadouts as lo
+    by = {"CV1": {"device_code": "CV1", "device_type": "cargo_vessel", "location": "SOL-1-L4", "features": ["cruise", "surge"]},
+          "RL9": {"device_code": "RL9", "device_type": "ftl_relay", "location": "SOL-1-L4", "status": "inactive", "tags": []}}
+    dl = {"carrier": "CV1", "carrier_loc": "SOL-1-L4", "to": "KAMUYIS", "devices": ["RL9"], "mode": "stow"}
+    cmds = [(s["path"], (s["body"] or {}).get("command")) for s in lo.delivery_steps(dl, by, {}, True)]
+    i = cmds.index(("/devices/RL9", "deploy"))
+    assert cmds[i + 1] == ("/devices/RL9", "activate") and ("/devices/CV1", "travel") in cmds[i + 1:]

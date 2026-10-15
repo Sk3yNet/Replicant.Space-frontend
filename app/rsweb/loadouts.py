@@ -1298,6 +1298,10 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
                       timeout=SHORT_TIMEOUT, critical=True)
             st["wait_device"] = code
         steps.append(st)
+        if (by_code.get(code) or {}).get("device_type") == "ftl_relay" and code not in gathering:
+            # switched on while the carrier is still there: left off out of everyone's reach it can't be commanded any
+            # more (live 2026-10-15: F6A3A357 dropped at KAMUYIS, "out_of_range"); placement takes it to L4/L5 after
+            steps.append(activate_step(code))
         steps.append(rehome_step(code, by_code.get(code, {}), dest_star, keep_spare=code in gathering, join=assign.get(code)))
     back = dl.get("fetch_from") or cloc
     if carriers_return and back and not dl.get("stay"):
@@ -1345,8 +1349,8 @@ def arrived_steps(code: str, d: dict, stowed_in: dict, join: str | None = None) 
 
 
 def relay_ready_at(d: dict, loc: str | None) -> bool:
-    """An FTL relay dropped off at an L4/L5 point (the only place it works) is switched on there (owner, 2026-10-15).
-    One somewhere else waits for placement to take it to one, which switches it on then."""
+    """An FTL relay arriving at, or moved to, an L4/L5 point is switched on there (owner, 2026-10-15). (A delivery
+    switches it on at the drop-off anyway, while its carrier is still there: see delivery_steps.)"""
     from .placement import is_lagrange
     return (d.get("device_type") or "") == "ftl_relay" and is_lagrange(loc) \
         and not str(d.get("status") or "").startswith("relaying") and SPARE not in (d.get("tags") or [])

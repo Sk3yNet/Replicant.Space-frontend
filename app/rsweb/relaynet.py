@@ -55,7 +55,9 @@ def reach(d: dict, bps: dict[str, dict] | None = None) -> float | None:
     if not d.get("location") or d.get("location_stale") or d.get("stowed_in_device_code") or d.get("attached_to_device_code"):
         return None
     own = own_range(d) or own_range((bps or {}).get(t))
-    if "relay" in t and st.startswith("relaying"):
+    if "relay" in t and (st.startswith("relaying") or (st.startswith("out_of_range") and d.get("_on"))):
+        # out of range and switched on (the status doesn't say which: d["_on"], from the activation history — see
+        # web.relays_on): linked to nothing, a network of its own
         return float(own or RELAY_LY)
     if "hub" in t and st and not st.startswith(("inactive", "idle", "stowed", "compact", "travel", "cruis", "surg", "unfurl")):
         return float(own or HUB_LY)

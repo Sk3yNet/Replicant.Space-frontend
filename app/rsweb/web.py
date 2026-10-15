@@ -1849,12 +1849,45 @@ async def _bp_map(request: Request) -> dict[str, dict]:
     return {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
 
 
+async def relays_on(db, devices: list[dict]) -> list[dict]:
+    """The devices, with `_on` set on relays the game reports out_of_range that are switched on. Their status reads the
+    same on or off (F6A3A357 at KAMUYIS, 2026-10-15), so the last word is the latest of: an activate / deactivate
+    command that went through, the game's relay.activated event, and the last time the device list showed it
+    relaying or inactive (e.g. with a replicant there: kv relay_state)."""
+    import json as _json
+    codes = [d["device_code"] for d in devices if "relay" in (d.get("device_type") or "")
+             and str(d.get("status") or "").startswith("out_of_range")]
+    if not codes:
+        return devices
+    last: dict[str, tuple[str, bool]] = {}
+    q = ",".join("?" * len(codes))
+    for r in await db.fetchall(f"SELECT path, body, at FROM actions WHERE status < 300 AND path IN ({q})",
+                               tuple(f"/devices/{c}" for c in codes)):
+        try:
+            cmd = (_json.loads(r["body"] or "{}") or {}).get("command")
+        except ValueError:
+            continue
+        if cmd in ("activate", "deactivate"):
+            code = r["path"].rsplit("/", 1)[-1]
+            if r["at"] >= last.get(code, ("", False))[0]:
+                last[code] = (r["at"], cmd == "activate")
+    for r in await db.fetchall(f"SELECT device_code, received_at FROM events WHERE event = 'relay.activated' "
+                               f"AND device_code IN ({q})", tuple(codes)):
+        if r["received_at"] >= last.get(r["device_code"], ("", False))[0]:
+            last[r["device_code"]] = (r["received_at"], True)
+    for code, s in (await db.kv_get("relay_state", {}) or {}).items():   # last seen relaying / inactive (ingest)
+        if code in codes and (s.get("at") or "") >= last.get(code, ("", False))[0]:
+            last[code] = (s.get("at") or "", bool(s.get("on")))
+    return [{**d, "_on": True} if last.get(d.get("device_code"), ("", False))[1] else d for d in devices]
+
+
 async def relay_overlay(request: Request, st: dict, positions: dict) -> dict:
     """The galaxy map's relay layer: links and nodes per network (active = a replicant inside its coverage: solid;
     inactive: dashed), relays on order (planned) and the suggested bridges."""
     from . import relaynet
     from . import ward_orders as wo
-    rn = relaynet.networks(st["devices"], positions, await _bp_map(request))
+    devs = await relays_on(request.app.state.db, st["devices"])
+    rn = relaynet.networks(devs, positions, await _bp_map(request))
     rstars = relaynet.replicant_stars(st["replicants"], st["devices"])
     relaynet.coverage(rn, positions, rstars)
     nets = rn["networks"]
@@ -1876,7 +1909,13 @@ async def relay_overlay(request: Request, st: dict, positions: dict) -> dict:
     return {"links": [{"a": l["a"], "b": l["b"], "color": nets[l["net"]]["color"], "active": nets[l["net"]]["active"],
                        "hub": bool(l.get("hub"))} for l in shown],
             "nodes": [{"star": s, "color": nets[i]["color"], "net": i, "active": nets[i]["active"]} for s, i in rn["of"].items()],
-            "planned": sorted(orders), "suggested": suggested}
+            "planned": sorted(orders), "suggested": suggested,
+            # relays of yours that are switched off (inactive, or out of range and never switched on): red rings
+            "off": sorted({star_of(d.get("location")) for d in devs if "relay" in (d.get("device_type") or "")
+                           and d.get("location") and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+                           and (str(d.get("status") or "").startswith("inactive")
+                                or (str(d.get("status") or "").startswith("out_of_range") and not d.get("_on")))
+                           and star_of(d.get("location")) not in rn["of"]})}
 
 
 @router.get("/map/relays", response_class=HTMLResponse)

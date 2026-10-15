@@ -515,6 +515,24 @@ class Worker:
                 await self.db.kv_set(f"sync:{name}", {"ok": False, "at": now_iso(), "error": str(e)})
             await asyncio.sleep(await interval() if callable(interval) else interval)
 
+    async def _note_relay_states(self, devices: list[dict]) -> None:
+        """Remember whether each relay was last seen on (relaying) or off (inactive): out of everyone's reach the game
+        lists it out_of_range either way, so the last clear reading — e.g. while a replicant was there — stands
+        (web.relays_on). Relays rarely switch off once on. kv "relay_state" {code: {"on", "at"}}."""
+        state = await self.db.kv_get("relay_state", {}) or {}
+        changed = False
+        for d in devices:
+            if "relay" not in (d.get("device_type") or ""):
+                continue
+            st = str(d.get("status") or "")
+            on = True if st.startswith("relaying") else False if st.startswith("inactive") else None
+            code = d.get("device_code")
+            if on is not None and code and (state.get(code) or {}).get("on") is not on:
+                state[code] = {"on": on, "at": now_iso()}
+                changed = True
+        if changed:
+            await self.db.kv_set("relay_state", state)
+
     async def traffic_interval(self) -> int:
         """Beacon audit polling: Map › Traffic's setting (minutes), else POLL_TRAFFIC."""
         m = ((await self.db.kv_get("traffic_settings", {})) or {}).get("poll_minutes")
@@ -608,6 +626,7 @@ class Worker:
                 d["folded"] = True
             else:
                 d.pop("folded", None)
+        await self._note_relay_states(devices)
         await self.db.kv_set("devices", devices)
         self.hub.publish("state", "devices")
         try:   # lost equipment: out of sight (surging, unlisted, out of range) until seen again

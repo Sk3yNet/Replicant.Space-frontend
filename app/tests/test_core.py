@@ -6752,3 +6752,44 @@ def test_an_asteroid_event_is_over_once_its_impact_time_passes(client):
     assert objs["KELM-4-L4"]["closed"].startswith("concluded") and not objs["KELM-OBJ-2"].get("closed")
     page = client.get("/defence", headers=H).text
     assert "destination <b class=\"mono\">KELM-5</b>" in page and "Concluded (1)" in page
+
+
+def test_a_relay_out_of_range_is_a_network_of_its_own():
+    """Owner 2026-10-15: a relay the game reports out of range starts its own network (its own color)."""
+    from rsweb import relaynet
+    pos = {"A": {"x": 0, "y": 0, "z": 0}, "B": {"x": 3, "y": 0, "z": 0}, "K": {"x": 40, "y": 0, "z": 0}}
+    devs = [{"device_code": "R1", "device_type": "ftl_relay", "location": "A-1-L4", "status": "relaying"},
+            {"device_code": "R2", "device_type": "ftl_relay", "location": "B-1-L4", "status": "relaying"},
+            {"device_code": "R3", "device_type": "ftl_relay", "location": "K", "status": "out_of_range"}]
+    assert "K" not in relaynet.networks(devs, pos)["of"]         # out of range reads the same switched off
+    devs[2]["_on"] = True                                         # … switched on (web.relays_on): its own network
+    rn = relaynet.networks(devs, pos)
+    assert rn["of"]["A"] == rn["of"]["B"] != rn["of"]["K"]
+    assert len({n["color"] for n in rn["networks"]}) == 2
+
+
+def test_relays_switched_off_get_a_red_ring_unless_their_system_has_a_working_one(client):
+    """Owner 2026-10-15: a relay switched off gets a red ring, but not in a system with a working relay of yours."""
+    import json as _json
+    from types import SimpleNamespace
+    from rsweb import web
+    db = client.app.state.db
+    devs = [{"device_code": "R1", "device_type": "ftl_relay", "location": "A-1-L4", "status": "relaying"},
+            {"device_code": "R0", "device_type": "ftl_relay", "location": "A-1-L4", "status": "inactive"},
+            {"device_code": "R2", "device_type": "ftl_relay", "location": "B-1-L4", "status": "inactive"},
+            {"device_code": "R3", "device_type": "ftl_relay", "location": "K", "status": "out_of_range"},
+            {"device_code": "R4", "device_type": "ftl_relay", "location": "M", "status": "out_of_range"}]
+    client.portal.call(db.execute, "INSERT INTO actions(at, user, method, path, body, status, response) VALUES(?,?,?,?,?,?,?)",
+                       ("2026-10-15T16:00:00+00:00", "you", "POST", "/devices/R3", _json.dumps({"command": "activate"}), 200, "{}"))
+    marked = client.portal.call(web.relays_on, db, devs)
+    assert [d["device_code"] for d in marked if d.get("_on")] == ["R3"]
+    pos = {"A": {"x": 0, "y": 0, "z": 0}, "B": {"x": 30, "y": 0, "z": 0}, "K": {"x": 60, "y": 0, "z": 0},
+           "M": {"x": 90, "y": 0, "z": 0}}
+    req = SimpleNamespace(app=client.app)
+    out = client.portal.call(web.relay_overlay, req, {"devices": devs, "replicants": {}}, pos)
+    assert out["off"] == ["B", "M"]   # A has a working relay; K is out of range but on: a network of its own
+    # a replicant visits M: the list shows R4 relaying for a while; back out of range it stays on
+    w = client.app.state.worker
+    client.portal.call(w._note_relay_states, [dict(devs[4], status="relaying")])
+    out = client.portal.call(web.relay_overlay, req, {"devices": devs, "replicants": {}}, pos)
+    assert out["off"] == ["B"] and any(n["star"] == "M" for n in out["nodes"])

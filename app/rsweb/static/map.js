@@ -319,6 +319,7 @@ function buildRelayNet() {
     for (const x of b.stars) ring(byName[x], 0x9aa4b2, 1.8, .7);
   }
   for (const x of rn.planned || []) { const s = byName[x]; if (s) ring(s, 0xffffff, 2.6, .95); }
+  for (const x of rn.off || []) { const s = byName[x]; if (s) ring(s, 0xff5252, 2.2, .85); }   // a relay of yours switched off
   relayGroup.visible = checked("opt-relaynet", OPTS.relayNet === true);
 }
 function buildSupply() {

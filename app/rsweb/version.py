@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.97.0"
+VERSION = "1.98.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.98.0", "2026-10-15", "Relays: a delivered relay is switched on while its carrier is still there (one left off "
+               "out of reach can't be commanded). Galaxy map: a relay out of range but switched on is a network of its own; "
+               "a relay switched off gets a red ring unless its system has a working relay or hub. Whether an out-of-range "
+               "relay is on comes from the last activate / deactivate, relay.activated, or the last time the device list "
+               "showed it relaying or inactive (e.g. while a replicant was there)."),
     ("1.97.0", "2026-10-15", "Asteroids: diverted enough is a setting (impact likelihood, default 1 %), an asteroid with "
                "propulsors on it is read every 5 minutes, and a diverted-enough read recalls them at once; an event is over "
                "once its impact time passes (no more reads, alerts or evacuations; listed under Concluded); the warning's "
