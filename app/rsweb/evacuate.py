@@ -61,7 +61,17 @@ def due(objects: dict[str, dict], now: float | None = None, minutes: float = EVA
         if left is not None and left <= 0:
             continue   # the impact time has passed: the event is over (owner, 2026-10-15: no alerts with negative times)
         if des in warned or (left is not None and left <= minutes) or diverted_enough(o, pct):
-            out[des] = left if left is not None else 0.0
+            for loc in [des] + list(o.get("also_at") or []):   # also_at: where the game warned devices of yours are
+                out[loc] = left if left is not None else 0.0
+    return out
+
+
+def at_location(objects: dict[str, dict]) -> dict[str, dict]:
+    """{location: the object threatening it}: the object's own designation and the places it warned devices at."""
+    out: dict[str, dict] = {}
+    for des, o in (objects or {}).items():
+        for loc in [des] + list(o.get("also_at") or []):
+            out.setdefault(loc, o)
     return out
 
 
@@ -93,6 +103,7 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
     from . import fleets as fl
     from .defence import DIVERTING
     hot = due(objects, now, EVAC_MINUTES, warned, pct)
+    obj_at = at_location(objects)
     out: dict = {"moves": [], "boards": [], "stuck": [], "piles": hot}
     by_loc: dict[str, list[dict]] = {}
     for d in devices:
@@ -100,7 +111,7 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
             by_loc.setdefault(d["location"], []).append(d)
     for loc, here in by_loc.items():
         left = hot[loc]
-        star, target = star_of(loc), (objects.get(loc) or {}).get("impact_target")
+        star, target = star_of(loc), (obj_at.get(loc) or {}).get("impact_target")
         to = safe_spot(star, target, stars, (scans or {}).get(star), here=loc, avoid=set(hot))
         if not to:
             out["stuck"].extend({"code": d["device_code"], "location": loc, "why": "no safe spot known in the system"} for d in here)
@@ -112,7 +123,7 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
             st = str(d.get("status") or "").lower()
             if code in busy or st.startswith(MOVING) or code in hosts:
                 continue   # on its way already, or a replicant's vessel (the game evacuates those to orbit)
-            enough = diverted_enough(objects.get(loc) or {}, pct)
+            enough = diverted_enough(obj_at.get(loc) or {}, pct)
             if "propulsor" in (d.get("device_type") or "") and any(k in st for k in DIVERTING) \
                     and left is not None and left > DIVERTER_MINUTES and not enough:
                 continue   # still pushing it off course

@@ -2238,14 +2238,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
         """(tracked objects, objects the game warned us about in the last two hours, system scans by star)."""
         import json as _json
         objs = await self.defence_objects()
-        warned = set()
-        for r in await self.db.fetchall("SELECT payload, location, created_at FROM events WHERE event='system.impact_warning' "
-                                        "ORDER BY seq DESC LIMIT 50"):
-            if _ts(r["created_at"]) and (_now() - _ts(r["created_at"])).total_seconds() < 7200:
-                p = _json.loads(r["payload"] or "{}")
-                des = p.get("object_designation") or p.get("designation") or r["location"]   # envelope location = the object
-                if des:
-                    warned.add(des)
+        # warned in the last two hours (defence_objects files each warning under its asteroid's designation)
+        warned = {des for des, o in objs.items() if _ts(o.get("warned_at")) and (_now() - _ts(o["warned_at"])).total_seconds() < 7200}
         scans = {}
         for r in await self.db.fetchall("SELECT star, data FROM systems"):
             try:
@@ -2259,7 +2253,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
         from . import evacuate as ev
         objs, warned, scans = await self.evacuation_inputs()
         hot = ev.due(objs, warned=warned, pct=await self.diverted_pct())
-        return {loc: ev.safe_spot(star_of(loc), (objs.get(loc) or {}).get("impact_target"), stars, scans.get(star_of(loc)),
+        obj_at = ev.at_location(objs)
+        return {loc: ev.safe_spot(star_of(loc), (obj_at.get(loc) or {}).get("impact_target"), stars, scans.get(star_of(loc)),
                                   here=loc, avoid=set(hot))
                 for loc in hot}
 

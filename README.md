@@ -56,7 +56,7 @@ rule with an on/off switch, plus the jobs and the log.
   in a trade or to a contract, consumed by a print, contributed to a megastructure, held in a trade's escrow).
 
 ### Maps
-- **Galaxy**: (every layer and each kind of star marker — mine, scanned, hubs, replicants, new finds, prospected from — has its own checkbox; your choices are remembered in this browser) 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
+- **Galaxy**: (every layer and each kind of star marker — mine, scanned, hubs, replicants, new finds, prospected from, my wards, megastructures (violet hexagon), surveying — has its own checkbox; your choices are remembered in this browser) 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
   rest of the catalog after), live: ships in transit, fleets,
   supply lines, mining sparkles and **prospecting cones** (each observatory scan, darker as it progresses) redraw as events
   arrive. Relay/hub range, search, distances, route preview; right-click (on touch: long-press) two stars to measure. **Other players** (coral):
@@ -109,7 +109,7 @@ rule with an on/off switch, plus the jobs and the log.
   asteroid is destroyed on impact or lost on diversion): within the hour before impact, or at the game's
   `system.impact_warning`, your devices there leave for the system's entry point (propulsors still pushing stay until 30
   minutes out, and are recalled as soon as the asteroid is diverted enough: impact likelihood at or below the Asteroid defense rule's setting, default 1 %, as it never reaches 0; an asteroid with propulsors on it is read every 5 minutes, also a setting; one that can't fly boards a carrier there), their `at:` pin to the asteroid is dropped, and a stockpile there
-  is logistics' top priority. Nothing more is sent or printed for an asteroid due within the hour. An event is over once its impact time passes: it's no longer read, alerted or evacuated, and moves to the Concluded list; the card title shows the warning's destination. **Upkeep**: wear per system and maintenance
+  is logistics' top priority. Nothing more is sent or printed for an asteroid due within the hour. An event is over once its impact time passes: it's no longer read, alerted or evacuated, and moves to the Concluded list; the card title shows the warning's destination. An asteroid is named by its location designation (STAR-OBJ-n): the game's impact warning names none and comes from where your devices are, so it's filed under the asteroid tracked in that system (else the system's scan names it at the next read), and the warned place is evacuated too. **Upkeep**: wear per system and maintenance
   coverage.
 
 ### Fleets

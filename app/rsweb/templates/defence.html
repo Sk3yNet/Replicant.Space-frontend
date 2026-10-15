@@ -20,6 +20,8 @@
   <div class="row between">
     <h2 style="margin:0"><a class="mono" href="/locations/{{ a.designation }}">{{ a.designation }}</a> → {{ a.target or '?' }}
       {% if a.destination %}<span class="small">· destination <b class="mono">{{ a.destination }}</b></span>{% endif %}
+      {% if o.also_at %}<span class="small muted">· warned your devices at <span class="mono">{{ o.also_at | join(', ') }}</span></span>{% endif %}
+      {% if o.unresolved %}<span class="small muted">· its STAR-OBJ name isn't known yet (the next read looks it up)</span>{% endif %}
       <span class="small {{ 'lv-alert' if a.threat else 'muted' }}">{{ a.verdict }}</span></h2>
     {% if a.threat %}<button class="small" hx-post="/defence/{{ a.designation }}/act" hx-target="next .df-out"
       hx-confirm="Activate idle propulsors, send idle ones and print the shortfall for {{ a.designation }} now?">Defend now</button>{% endif %}

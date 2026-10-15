@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.98.0"
+VERSION = "1.99.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.99.0", "2026-10-15", "Galaxy map: a violet hexagon marks megastructures (from system scans, your contributions and "
+               "the MIRFAKA datacenter), with its own checkbox. Asteroids are named by their location designation: an "
+               "impact warning (which names none, and comes from where your devices are) is filed under the asteroid "
+               "tracked in that system, else the system's scan names it; the warned place is evacuated too and shown on "
+               "the Defense card. Detections saved without a designation take their location as name."),
     ("1.98.0", "2026-10-15", "Relays: a delivered relay is switched on while its carrier is still there (one left off "
                "out of reach can't be commanded). Galaxy map: a relay out of range but switched on is a network of its own; "
                "a relay switched off gets a red ring unless its system has a working relay or hub. Whether an out-of-range "

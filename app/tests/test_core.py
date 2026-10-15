@@ -6793,3 +6793,39 @@ def test_relays_switched_off_get_a_red_ring_unless_their_system_has_a_working_on
     client.portal.call(w._note_relay_states, [dict(devs[4], status="relaying")])
     out = client.portal.call(web.relay_overlay, req, {"devices": devs, "replicants": {}}, pos)
     assert out["off"] == ["B"] and any(n["star"] == "M" for n in out["nodes"])
+
+
+def test_megastructures_for_the_map(client):
+    """Owner 2026-10-15: a symbol on the galaxy map where megastructures are."""
+    import json as _json
+    from rsweb import megas
+    db = client.app.state.db
+    scan = {"planets": [], "objects": [{"designation": "FLARM-OBJ-1", "location_type": "megastructure"},
+                                       {"designation": "FLARM-OBJ-2", "location_type": "object"}]}
+    assert megas.in_scan(scan) == {"FLARM-OBJ-1"}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("FLARM", _json.dumps(scan), "2026-10-15T00:00:00+00:00"))
+    client.portal.call(db.insert_event, {"id": "m1", "event": "megastructure.contributed", "location": "VEGA-OBJ-4",
+                                          "payload": {"accepted_count": 1}})
+    got = client.portal.call(megas.known, db)
+    assert got["FLARM"] == ["FLARM-OBJ-1"] and got["VEGA"] == ["VEGA-OBJ-4"] and got["MIRFAKA"] == ["MIRFAKA-OBJ-1"]
+
+
+def test_an_impact_warning_is_filed_under_the_asteroids_designation(client):
+    """Owner 2026-10-15: an incoming asteroid is named by its location designation. Live, the warning's location was
+    KELMORNEA-4-L4 (where devices were): it goes under the asteroid tracked in that system, and devices there leave."""
+    from rsweb import evacuate as ev
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.insert_event, {"id": "d1", "event": "system.object_detected", "location": "KELM-OBJ-2",
+                                          "created_at": "2026-10-15T09:00:00+00:00",
+                                          "payload": {"impact_target": "KELM-4", "impact_eta": "2099-10-15T11:00:00Z"}})
+    client.portal.call(db.insert_event, {"id": "w9", "event": "system.impact_warning", "location": "KELM-4-L4",
+                                          "created_at": "2099-10-15T10:00:00+00:00",
+                                          "payload": {"destination": "KELM-4", "impact_eta": "2099-10-15T11:00:00Z",
+                                                      "device_codes": ["D1"]}})
+    objs = client.portal.call(eng.defence_objects)
+    assert "KELM-4-L4" not in objs and objs["KELM-OBJ-2"]["also_at"] == ["KELM-4-L4"]
+    assert objs["KELM-OBJ-2"]["warned_devices"] == ["D1"]
+    assert set(ev.due(objs, warned={"KELM-OBJ-2"})) == {"KELM-OBJ-2", "KELM-4-L4"}
+    page = client.get("/defence", headers=H).text
+    assert "KELM-OBJ-2" in page and "warned your devices at" in page

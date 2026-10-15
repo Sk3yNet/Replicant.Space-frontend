@@ -2036,6 +2036,8 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                     pfrom[star_of(o)] = {"at": r["created_at"], "by": r["device_code"], "outcome": "prospected"}
             if pfrom:
                 await db.kv_set("prospected_from", pfrom)
+        from . import megas
+        mega = await megas.known(db)   # star -> megastructures there: the map's hexagon
         scope = request.query_params.get("scope") or "all"
         mine = set(presence) | set(infra) | scanned | set(prospected) | set(pfrom) \
             | {star_of(r.get("location") or r.get("current_location")) for r in st["replicants"].values()} \
@@ -2049,7 +2051,8 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                           **({"reach": reach[d]} if d in reach else {}), "scanned": d in scanned,
                           **({"prospected": prospected[d].get("found_at"), "found_by": prospected[d].get("found_by")}
                              if d in prospected else {}),
-                          **({"prospected_from": pfrom[d]} if d in pfrom else {})})
+                          **({"prospected_from": pfrom[d]} if d in pfrom else {}),
+                          **({"mega": mega[d]} if d in mega else {})})
         out.update({"stars": stars, "generated_at": cat.get("generated_at"), "sources": cat.get("sources"),
                     "catalogue_updated": await db.kv_updated("stars"),
                     "replicants": [{"code": c, "name": r.get("name"), "star": star_of(r.get("location") or r.get("current_location")),

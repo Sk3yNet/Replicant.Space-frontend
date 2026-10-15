@@ -42,7 +42,7 @@ function resizeMarks() {
   mineGroup.children.forEach(sp => {
     const k = sp.userData.mark;
     if (!k) return;
-    if (k === "ward" || k === "survey") { sp.visible = checked("opt-mark-" + k, true); return; }
+    if (k === "ward" || k === "survey" || k === "mega") { sp.visible = checked("opt-mark-" + k, true); return; }
     sp.visible = markOn(k);
     const sz = markSize(k); sp.scale.set(sz, sz, 1);
   });
@@ -102,6 +102,18 @@ const dot = (() => {
 
 // thin ring for markers around a star (your devices, scanned, hub, replicant, fleet): rings nest without the stacked
 // glow that filled sprites made
+const megaTex = (() => {   // megastructure: a hexagon with a hexagon core
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d");
+  g.strokeStyle = "rgba(255,255,255,1)"; g.fillStyle = "rgba(255,255,255,1)"; g.lineJoin = "round";
+  const hex = (r, fill) => {
+    g.beginPath();
+    for (let i = 0; i < 6; i++) { const a = Math.PI / 3 * i + Math.PI / 6; g[i ? "lineTo" : "moveTo"](32 + r * Math.cos(a), 32 + r * Math.sin(a)); }
+    g.closePath(); if (fill) g.fill(); else g.stroke();
+  };
+  g.lineWidth = 4; hex(26); hex(9, true);
+  return new THREE.CanvasTexture(c);
+})();
 const ringTex = (() => {
   const c = document.createElement("canvas"); c.width = c.height = 128;
   const g = c.getContext("2d");
@@ -210,6 +222,11 @@ function build() {
       const sh = new THREE.Sprite(new THREE.SpriteMaterial({ map: shieldTex, color: 0x6cb6ff, transparent: true, depthWrite: false }));
       sh.scale.set(1.4, 1.4, 1); sh.position.copy(v).add(new THREE.Vector3(0, 0, 2.2)); sh.userData.mark = "ward";
       sh.visible = checked("opt-mark-ward", true); mineGroup.add(sh);
+    }
+    if (s.mega) {   // a megastructure in the system: a violet hexagon below the star
+      const mg = new THREE.Sprite(new THREE.SpriteMaterial({ map: megaTex, color: 0xc792ff, transparent: true, depthWrite: false }));
+      mg.scale.set(1.6, 1.6, 1); mg.position.copy(v).add(new THREE.Vector3(0, 0, -2.2)); mg.userData.mark = "mega";
+      mg.visible = checked("opt-mark-mega", true); mineGroup.add(mg);
     }
     if (s.surveying) {   // being surveyed: a wave running out from the star to the edge of its rings (animate)
       const w = ring(0x4fd18b); w.position.copy(v); w.userData.wave = Math.random() * WAVE_S; w.userData.mark = "survey";
@@ -669,7 +686,7 @@ $("map-search")?.addEventListener("change", e => {
 });
 ["opt-mine"].forEach(id => $(id)?.addEventListener("change", build));
 $("opt-cover")?.addEventListener("change", e => coverGroup.visible = e.target.checked);
-[...Object.keys(MARKS), "ward", "survey"].forEach(kind => $("opt-mark-" + kind)?.addEventListener("change", resizeMarks));
+[...Object.keys(MARKS), "ward", "survey", "mega"].forEach(kind => $("opt-mark-" + kind)?.addEventListener("change", resizeMarks));
 $("opt-relaynet")?.addEventListener("change", e => relayGroup.visible = e.target.checked);
 $("btn-top")?.addEventListener("click", () => { camera.position.set(controls.target.x, controls.target.y - 0.01, controls.target.z + 160); });
 $("btn-home")?.addEventListener("click", () => { const s = repStar(); if (s) { focus(s); show(s); } });

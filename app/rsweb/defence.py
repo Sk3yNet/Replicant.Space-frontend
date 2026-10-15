@@ -17,6 +17,7 @@ show progress, the observed rate is used to project when it will be done.
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -223,8 +224,51 @@ def plan_steps(a: dict, p: dict) -> list[tuple[str, list[dict], list[str]]]:
     return jobs
 
 
+def is_object(code: str | None) -> bool:
+    """A system object's location designation, e.g. KELMORNEA-OBJ-2."""
+    return bool(re.match(r"^[A-Z0-9]+-OBJ-\d+$", (code or "").upper()))
+
+
+def warning_object(p: dict, location: str | None, objs: dict[str, dict]) -> str | None:
+    """The asteroid a system.impact_warning is about, by its location designation (owner, 2026-10-15). The warning
+    names none: its envelope location can be where your devices are (live: KELMORNEA-4-L4) rather than the object.
+    Tried in turn: a designation in the payload, the envelope location or the destination when they are an object, then
+    the open object tracked in that system (the one due nearest the warning's ETA). None: not known yet."""
+    for c in (p.get("object_designation"), p.get("designation"), location, p.get("destination")):
+        if is_object(c):
+            return c.upper()
+    star = (location or p.get("destination") or "").split("-")[0]
+    eta = _ts(p.get("impact_eta"))
+    open_ = [d for d, o in objs.items() if is_object(d) and d.split("-")[0] == star and not o.get("closed")]
+    if not open_:
+        return None
+    return min(open_, key=lambda d: abs(((_ts(objs[d].get("impact_eta")) or eta or datetime.now(timezone.utc))
+                                          - (eta or datetime.now(timezone.utc))).total_seconds()))
+
+
+def objects_in_scan(data: Any, star: str) -> list[dict]:
+    """Incoming objects a system scan lists (its field for them isn't documented: any entry with an object designation
+    of this system that isn't a megastructure)."""
+    out: list[dict] = []
+
+    def walk(x: Any) -> None:
+        if isinstance(x, dict):
+            code = x.get("designation") or x.get("code") or x.get("location")
+            kind = str(x.get("location_type") or x.get("object_type") or x.get("type") or "").lower()
+            if isinstance(code, str) and is_object(code) and code.upper().startswith(star.upper() + "-") \
+                    and kind != "megastructure" and not isinstance(x.get("megastructure"), dict):
+                out.append(x)
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    walk(data)
+    return out
+
+
 def from_detected(payload: dict, location: str | None = None) -> dict:
-    des = payload.get("object_designation") or payload.get("designation")
+    des = payload.get("object_designation") or payload.get("designation") or location   # v3.5.0: the envelope location
     return {"designation": des, "impact_target": payload.get("impact_target"), "impact_eta": payload.get("impact_eta"),
             "size_class": payload.get("size_class"), "status": "active", "source": payload.get("discovery_source"),
             "history": []}

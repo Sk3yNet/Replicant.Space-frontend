@@ -419,12 +419,25 @@ class OpsRules:
                 continue
             if r["event"] == "system.object_detected":
                 if des not in objs:
-                    objs[des] = {**dfn.from_detected(p), "detected_at": r["created_at"]}
+                    objs[des] = {**dfn.from_detected(p, des), "detected_at": r["created_at"]}
             elif r["event"] == "system.impact_warning":
-                # {destination, impact_eta, device_codes}: one hour out, to accounts with devices at the object — it
-                # may be the first we hear of it (no hub or beacon in the system saw it detected)
+                # {destination, impact_eta, device_codes}: one hour out, to accounts with devices at risk — it may be the
+                # first we hear of it (no hub or beacon in the system saw it detected). Filed under the asteroid's own
+                # location designation; where the warned devices are is kept as `also_at` (evacuated as well)
+                obj = dfn.warning_object(p, r["location"], objs)
+                at = r["location"] if r["location"] and r["location"] != obj else None
+                if not obj:   # not known yet: under the warned location until a scan names it (sync_objects)
+                    obj = r["location"]
+                if at and at in objs and obj != at and objs[at].get("source") == "impact_warning":
+                    objs.pop(at)   # filed under the warned location before it was resolved
+                des = obj
                 o = objs.setdefault(des, {"designation": des, "status": "active", "source": "impact_warning", "history": [],
                                           "detected_at": r["created_at"]})
+                if at and at != des:
+                    o["also_at"] = sorted(set(o.get("also_at") or []) | {at})
+                if not dfn.is_object(des):
+                    o["unresolved"] = True
+                o["warned_devices"] = p.get("device_codes") or o.get("warned_devices") or []
                 o["impact_eta"] = p.get("impact_eta") or o.get("impact_eta")
                 o["impact_target"] = o.get("impact_target") or p.get("destination")
                 o["destination"] = p.get("destination") or o.get("destination")
@@ -436,6 +449,9 @@ class OpsRules:
                 if des in objs and p.get("outcome") != "partial":   # partial: still a threat
                     objs[des]["closed"] = dfn.closed_as(r["event"])
                     objs[des].setdefault("closed_at", r["created_at"])
+        for k, o in objs.items():   # saved before 1.99 without a designation (v3.5.0 detections): its location is its name
+            if not o.get("designation"):
+                o["designation"] = k
         # owner, 2026-10-15: an event is over once its impact time has passed — no more reads, alerts or evacuations
         for o in objs.values():
             eta = _ts(o.get("impact_eta"))
@@ -477,6 +493,19 @@ class OpsRules:
         objs = await self.defence_objects()
         now = _now()
         read = 0
+        for des, o in list(objs.items()):   # a warning not matched to an object yet: the system's scan names it
+            if o.get("unresolved") and not o.get("closed") and not (only and des != only):
+                star = des.split("-")[0]
+                try:
+                    found = dfn.objects_in_scan(await self.api.request("GET", f"/locations/{star}", background=True) or {}, star)
+                except ApiError:
+                    continue
+                if found:
+                    new = str(found[0].get("designation") or found[0].get("code") or found[0].get("location")).upper()
+                    if new not in objs:
+                        objs[new] = {**o, "designation": new, "also_at": sorted(set(o.get("also_at") or []) | {des})}
+                        objs[new].pop("unresolved", None)
+                    objs.pop(des)
         for des, o in objs.items():
             if o.get("closed") or (only and des != only):
                 continue
