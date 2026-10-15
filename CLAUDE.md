@@ -9,6 +9,8 @@ Portainer, which follows `main`: **a push to `main` is a deploy.**
 - **Plan or build: your call.** Build straight away when a request is concrete and its behavior is clear. Plan first,
   briefly, when the result depends on game facts or preferences you can't know. Lead the plan with your assumptions and
   the questions only the owner can answer, all in one batch. Don't propose and then wait on small, clear changes.
+- **Ship to `main` when done.** There is no test server: once a change is built and the full suite passes, run the
+  deploy checklist below and push to `main` without waiting to be told.
 - **"Deploy" means everything outstanding.** Ship every uncommitted change in the repo (code, docs, CLAUDE.md), not
   just the latest one, following the checklist below.
 - **Save tokens.** Read only the code you need, don't repeat work already done, and keep replies short and concrete.
