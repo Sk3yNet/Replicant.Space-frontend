@@ -21,10 +21,15 @@ from .web import current_user, load_state, loadout_ctx, page, partial, star_of, 
 
 router = APIRouter()
 
+def fleet_order(f: dict) -> tuple[str, str]:
+    """Fleets show alphabetically by name."""
+    return ((f.get("name") or f.get("id") or "").casefold(), f.get("id") or "")
+
+
 async def fleets_ctx(request: Request) -> dict:
     eng = request.app.state.worker.automations
     st = await load_state(request)
-    items = await eng.fleets()
+    items = sorted(await eng.fleets(), key=fleet_order)
     bps = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
     types = sorted({b["device_type"] for b in bps} | {d.get("device_type") for d in st["devices"] if d.get("device_type")})
     jobs = {j["id"]: j for j in await eng.jobs()}
@@ -135,7 +140,7 @@ async def fleets_page(request: Request, user: str = Depends(current_user)):
     eng = request.app.state.worker.automations
     db = request.app.state.db
     st = await load_state(request)
-    items = await eng.fleets()
+    items = sorted(await eng.fleets(), key=fleet_order)
     cfg = await eng.loadout_cfg()
     bps = normalize_blueprints(await db.kv_get("blueprints", []))
     types = sorted({b["device_type"] for b in bps} | {d.get("device_type") for d in st["devices"] if d.get("device_type")}
@@ -153,7 +158,7 @@ async def fleets_overview(request: Request, user: str = Depends(current_user)):
     """The landing page's status table: each fleet against the loadout plan (computed here, after the page shows)."""
     eng = request.app.state.worker.automations
     st = await load_state(request)
-    items = await eng.fleets()
+    items = sorted(await eng.fleets(), key=fleet_order)
     cfg = await eng.loadout_cfg()
     p = await eng.loadout_plan()
     for f in items:

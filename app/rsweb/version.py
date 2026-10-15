@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.102.0"
+VERSION = "1.103.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.103.0", "2026-10-15", "Fleets: the status table and the fleet cards list fleets alphabetically by name"),
     ("1.102.0", "2026-10-15", "Auto-scout: worn members of a fleet back home for repairs are deployed out of their "
                "vessel, since only deployed devices get repaired"),
     ("1.101.0", "2026-10-15", "New from the docs: Terraforming page (Map: each monitored world's status, couplings, bio "

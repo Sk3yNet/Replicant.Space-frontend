@@ -6887,3 +6887,13 @@ def test_auto_scout_deploys_worn_members_for_repairs(client):
         assert client.portal.call(eng.auto_scout_pass) == [] and len(sent) == 1    # not again while the list lags
     finally:
         eng.send = real
+
+
+def test_fleets_listed_alphabetically(client):
+    eng = client.app.state.worker.automations
+    client.portal.call(eng.save_fleets, [{"id": f"z{i}", "name": n, "role": "explore", "home": "SOL", "wants": {}}
+                                         for i, n in enumerate(("Zulu Fleetq", "alpha Fleetq", "Mike Fleetq"))])
+    for url in ("/fleets/overview", "/fleets/details"):
+        t = client.get(url, headers=HX).text
+        mark = "#fleet-" if url.endswith("overview") else 'id="fleet-'   # z1 alpha, z2 Mike, z0 Zulu
+        assert t.index(mark + "z1") < t.index(mark + "z2") < t.index(mark + "z0"), url
