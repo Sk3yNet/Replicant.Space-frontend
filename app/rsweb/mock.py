@@ -810,6 +810,14 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     async def blueprints():
         return ok({"blueprints": BLUEPRINTS})
 
+    @app.get("/v1/achievements")
+    async def all_achievements():
+        return ok({"achievements": [
+            {"achievement_key": "first_scan", "title": "First Scan", "description": "Completed your first system scan.",
+             "category": "exploration", "xp_reward": 100, "player_count": 42, "last_achieved_at": iso()},
+            {"achievement_key": "signal_fire", "title": "Signal Fire", "description": "Deploy your first FTL beacon.",
+             "category": "infrastructure", "xp_reward": 300, "player_count": 17, "last_achieved_at": iso()}]})
+
     @app.get("/v1/accounts/achievements")
     async def achievements():
         return ok({"achievements": [{"achievement_key": "first_scan", "title": "First Scan", "description": "Completed your first system scan.",

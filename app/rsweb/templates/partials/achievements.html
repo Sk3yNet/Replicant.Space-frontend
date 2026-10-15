@@ -1,0 +1,15 @@
+{% set earned = ach.earned or [] %}{% set left = ach.left or [] %}
+<div class="row between"><h2>Achievements <span class="muted small">{{ earned | length }}{% if ach.total %} of {{ ach.total }}{% endif %} earned · {{ '%g' % (ach.xp or 0) }} XP</span></h2>
+  <button class="small ghost" hx-get="/partials/achievements?refresh=1" hx-target="#achievements" title="Ask the game again{% if ach.at %} (checked {{ ach.at | ago }}){% endif %}">refresh</button></div>
+{% if ach.error %}<p class="small lv-alert">Couldn't read the achievements: {{ ach.error }}</p>{% endif %}
+{% if not earned and not left %}<p class="muted small">No achievements reported.</p>{% endif %}
+{% if earned %}<table class="small">{% for a in earned %}<tr>
+  <td><b>{{ a.title or a.achievement_key }}</b></td><td class="muted">{{ a.description }}</td>
+  <td class="num" style="white-space:nowrap">{% if a.xp_reward %}{{ '%g' % a.xp_reward }} XP{% endif %}</td>
+  <td class="muted" style="white-space:nowrap">{% if a.achieved_at %}{{ a.achieved_at | ago }}{% endif %}</td></tr>{% endfor %}</table>{% endif %}
+{% if left %}<details class="small" style="margin-top:6px"><summary>{{ left | length }} still to earn</summary>
+<table class="small">{% for a in left %}<tr>
+  <td>{{ a.title or a.achievement_key }}</td><td class="muted">{{ a.description }}</td>
+  <td class="muted">{{ a.category }}</td>
+  <td class="num" style="white-space:nowrap">{% if a.xp_reward %}{{ '%g' % a.xp_reward }} XP{% endif %}</td>
+  <td class="muted num" title="players who have it">{% if a.player_count is not none %}{{ a.player_count }} players{% endif %}</td></tr>{% endfor %}</table></details>{% endif %}

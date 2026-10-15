@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.105.0"
+VERSION = "1.106.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.106.0", "2026-10-15", "Dashboard: Achievements panel (yours with XP and when, total XP, and the ones still to "
+               "earn with how many players have them)"),
     ("1.105.0", "2026-10-15", "Jobs that move a scanning survey drone wait for its scan to finish first (no more "
                "'Cannot cruise while scanning' stopping an assemble or recall). Attach steps refused as already "
                "attached: done if it rides a carrier of the same fleet; otherwise it is deployed, then attached again"),

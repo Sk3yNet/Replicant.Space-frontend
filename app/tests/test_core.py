@@ -6952,3 +6952,11 @@ def test_scanning_drone_finishes_its_scan_before_moving():
     out = prepare_moves(steps, devices, {}, {})
     assert out[0]["method"] == "WAIT" and out[0]["wait"] == ["scan.completed"] and out[0]["wait_device"] == "SD000001"
     assert [s["desc"] for s in out[1:]] == [s["desc"] for s in steps] and out[2]["seq0_from"] == 1
+
+
+def test_dashboard_shows_achievements(client):
+    """GET /accounts/achievements (yours) against GET /achievements (all): earned with XP, the rest still to earn."""
+    assert 'hx-get="/partials/achievements"' in client.get("/", headers=H).text
+    body = client.get("/partials/achievements", headers=HX).text
+    assert "1 of 2 earned · 100 XP" in body and "First Scan" in body
+    assert "1 still to earn" in body and "Signal Fire" in body and "17 players" in body

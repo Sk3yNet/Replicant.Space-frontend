@@ -427,6 +427,42 @@ async def tutorials_status(request: Request, force: bool = False) -> dict:
     return c
 
 
+ACHIEVEMENTS_KV, ACHIEVEMENTS_TTL = "achievements", 1800
+
+
+async def achievements_status(request: Request, force: bool = False) -> dict:
+    """GET /achievements (every achievement in the game) and GET /accounts/achievements (yours), cached for half an
+    hour on the background budget. Earned: matched by achievement_key (else title), newest first; the rest by category."""
+    db = request.app.state.db
+    c = await db.kv_get(ACHIEVEMENTS_KV, {}) or {}
+    now = datetime.now(timezone.utc).timestamp()
+    if force or now - float(c.get("t") or 0) > ACHIEVEMENTS_TTL:
+        api = request.app.state.api
+        try:
+            mine = (await api.get("/accounts/achievements", background=True) or {}).get("achievements") or []
+            try:
+                every = (await api.get("/achievements", background=True) or {}).get("achievements") or []
+            except ApiError:
+                every = []   # the public list is a nice-to-have: yours still shows
+            key = lambda a: str(a.get("achievement_key") or a.get("key") or a.get("title") or "").lower()
+            got = {key(a): a for a in mine}
+            earned = [{**next((x for x in every if key(x) == k), {}), **a} for k, a in got.items()]
+            earned.sort(key=lambda a: str(a.get("achieved_at") or a.get("unlocked_at") or ""), reverse=True)
+            left = sorted((a for a in every if key(a) not in got),
+                          key=lambda a: (str(a.get("category") or ""), float(a.get("xp_reward") or 0), str(a.get("title") or "")))
+            c = {"t": now, "at": now_iso(), "earned": earned, "left": left, "total": len(every) or None,
+                 "xp": sum(float(a.get("xp_reward") or 0) for a in earned)}
+        except ApiError as e:
+            c = {**c, "t": now, "error": str(e)}
+        await db.kv_set(ACHIEVEMENTS_KV, c)
+    return c
+
+
+@router.get("/partials/achievements", response_class=HTMLResponse)
+async def p_achievements(request: Request, refresh: str = "", user: str = Depends(current_user)):
+    return partial(request, "partials/achievements.html", ach=await achievements_status(request, force=bool(refresh)))
+
+
 @router.get("/partials/news", response_class=HTMLResponse)
 async def p_news(request: Request, refresh: str = "", user: str = Depends(current_user)):
     from . import news
@@ -2812,7 +2848,7 @@ CONSOLE_PRESETS = [
     ("Account", "GET", "/accounts/me", ""), ("Account", "GET", "/accounts/achievements", ""),
     ("Account", "GET", "/accounts/reputation", ""), ("Account", "GET", "/accounts/events?status=active", ""),
     ("Account", "GET", "/accounts/simulations", ""), ("Account", "GET", "/accounts/webhook", ""),
-    ("Account", "GET", "/messages", ""), ("Account", "GET", "/tutorials", ""), ("Account", "GET", "/tutorials/{slug}", ""),
+    ("Account", "GET", "/messages", ""), ("Account", "GET", "/tutorials", ""), ("Account", "GET", "/achievements", ""), ("Account", "GET", "/accounts/achievements", ""), ("Account", "GET", "/tutorials/{slug}", ""),
     ("Account", "PATCH", "/accounts/me", '{"events": {"ami_digest_interval": 3}}'),
     ("Replicants", "GET", "/replicants/{replicant}", ""), ("Replicants", "GET", "/replicants/{replicant}/devices", ""),
     ("Replicants", "GET", "/replicants/{replicant}/inventory", ""),
