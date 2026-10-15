@@ -21,7 +21,10 @@ def star_of(loc: str | None) -> str:
 
 class SimMixin:
     async def sim_state(self) -> dict:
-        return await self.db.kv_get(sim.KV, {}) or {}
+        s = await self.db.kv_get(sim.KV, {}) or {}
+        if not (s.get("interface") or {}).get("code"):
+            s["interface"] = dict(sim.KNOWN_INTERFACE)
+        return s
 
     async def sim_save(self, s: dict) -> None:
         await self.db.kv_set(sim.KV, s)
@@ -98,7 +101,8 @@ class SimMixin:
                 prep["note"] = "no free replicant to send"
         prep["replicant"] = rep_here
         ready = len(here) >= need and bool(rep_here)
-        if ready and not s.get("interface", {}).get("code"):
+        if rep_here and not s.get("interface", {}).get("found") and not prep.get("interface_scanned"):
+            prep["interface_scanned"] = True   # once per run: confirm (or correct) the known code with a device scan
             await self.sim_find_interface(s, rep_here, loc)
         prep["ready"] = ready and bool(s.get("interface", {}).get("code"))
         if prep["ready"]:
@@ -125,8 +129,8 @@ class SimMixin:
             s.setdefault("prep", {})["note"] = f"looking for the replicant interface failed: {e.message}"
             return
         for d in body.get("devices") or []:
-            if sim.INTERFACE in str(d.get("device_type") or "") and (d.get("location") in (None, loc)):
-                s["interface"] = {"code": d.get("device_code"), "location": d.get("location") or loc}
+            if sim.is_interface(d) and (d.get("location") in (None, loc)):
+                s["interface"] = {"code": d.get("device_code"), "location": d.get("location") or loc, "found": True}
                 await self.sim_load_scenarios(s)
                 return
 

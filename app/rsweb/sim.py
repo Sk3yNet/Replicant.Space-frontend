@@ -20,6 +20,14 @@ KV = "sim"
 DATACENTER = "MIRFAKA-OBJ-1"   # docs (2026-10-14): the only datacenter so far
 CORE = "compute_core"
 INTERFACE = "replicant_interface"
+# live 2026-10-15: the datacenter's interface is Bill's device (owner Bill, not yours); a device scan from a replicant
+# there still finds it (and replaces this if the code changes)
+KNOWN_INTERFACE = {"code": "F4791EDF", "location": DATACENTER}
+
+
+def is_interface(d: dict) -> bool:
+    """A replicant interface, however the type is spelled (replicant_interface, "replicant interface")."""
+    return INTERFACE in str(d.get("device_type") or "").lower().replace(" ", "_").replace("-", "_")
 # docs' scenario table, used until the interface lists its own (GET /devices/{interface}/simulate)
 DOC_SCENARIOS = [
     {"code": "mining_rush", "name": "Mining Rush", "description": "Mine 3,000 total resources", "objective_type": "yield_quota",

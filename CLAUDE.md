@@ -75,6 +75,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
 - Relays never fold (hubs do, and only work at L4/L5). A relay left switched off out of everyone's reach can't be
   commanded: switch it on before the carrier leaves. Out of reach the game lists a relay `out_of_range` whether it's on
   or off. A hub links to relays only within the relay's own 7.5 ly (live list from the SOLARES hub, 2026-10-15).
+- Simulations run at the datacenter (MIRFAKA-OBJ-1) through its replicant interface, a device owned by Bill (F4791EDF on
+  2026-10-15): scan for devices from a replicant there and use that code in `/v1/devices/:interface_code/simulate`.
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the

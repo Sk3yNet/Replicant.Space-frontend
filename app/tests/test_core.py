@@ -6960,3 +6960,12 @@ def test_dashboard_shows_achievements(client):
     body = client.get("/partials/achievements", headers=HX).text
     assert "1 of 2 earned · 100 XP" in body and "First Scan" in body
     assert "1 still to earn" in body and "Signal Fire" in body and "17 players" in body
+
+
+def test_simulation_interface_known_and_matched_loosely(client):
+    from rsweb import sim
+    eng = client.app.state.worker.automations
+    s = client.portal.call(eng.sim_state)
+    assert s["interface"]["code"] == "F4791EDF" and s["interface"]["location"] == "MIRFAKA-OBJ-1"
+    assert sim.is_interface({"device_type": "replicant interface"}) and sim.is_interface({"device_type": "replicant_interface"})
+    assert not sim.is_interface({"device_type": "compute_core"})
