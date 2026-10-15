@@ -133,7 +133,7 @@ def test_bootstrap_fleet_create_decide_and_card(client):
     e = eng(client)
     f = next(x for x in client.portal.call(e.fleets) if x["role"] == "bootstrap")
     assert f["boot"]["vessel"] and f["boot"]["stage"] == "home"
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert "Pioneer" in page and "Costs" in page and "Gate:" in page
     client.portal.call(e.bootstrap_pass)
     f = next(x for x in client.portal.call(e.fleets) if x["role"] == "bootstrap")

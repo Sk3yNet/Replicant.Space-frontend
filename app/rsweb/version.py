@@ -16,11 +16,18 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.95.0"
+VERSION = "1.96.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.96.0", "2026-10-15", "Fleets split: the landing page has fleet status (loaded just after) and templates; the slow "
+               "parts (fleet cards, next pass, tags check, spare & on the way) moved to Fleet details. Propulsors are "
+               "recalled as soon as an asteroid is diverted enough. Prospector fleets tour stars within 30 ly of home, one "
+               "prospect per star (already surveyed uses up the star), emptiest direction first, with a stall alert. "
+               "Galaxy map: saved marker checkboxes, rings sized by how many are shown, prospected-from marker, my-ward "
+               "shield, survey waves, gold hub links (relay pairs sharing a hub hidden). Hubs link by distance only (15 ly) "
+               "and are placed at L4/L5."),
     ("1.95.0", "2026-10-15", "Simulations page (Economy): queue a run (compute cores and a replicant to the datacenter's "
                "interface), a ready nag, Start, the bootstrap logic plays it recording its build-order step times, then "
                "everything from inside it is purged and the report kept; the next build order learns from the scores. "

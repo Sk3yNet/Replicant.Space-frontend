@@ -7,6 +7,46 @@ import { OrbitControls } from "three/addons/OrbitControls.js";
 const OPTS = window.MAP_OPTS || {};
 const $ = id => document.getElementById(id);
 const checked = (id, dflt) => $(id) ? $(id).checked : dflt;
+// The Galaxy page's options are remembered in this browser (every opt-* checkbox), restored before the first draw.
+const PREFS_KEY = "galaxy-map-options";
+if (!OPTS.dataUrl) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+    document.querySelectorAll('input[type=checkbox][id^="opt-"]').forEach(c => { if (c.id in saved) c.checked = !!saved[c.id]; });
+  } catch (e) { /* storage blocked: defaults */ }
+  document.querySelectorAll('input[type=checkbox][id^="opt-"]').forEach(c => c.addEventListener("change", () => {
+    try {
+      const all = {};
+      document.querySelectorAll('input[type=checkbox][id^="opt-"]').forEach(x => { all[x.id] = x.checked; });
+      localStorage.setItem(PREFS_KEY, JSON.stringify(all));
+    } catch (e) { /* not saved: fine */ }
+  }));
+}
+// star markers by kind, each with its own checkbox (opt-mark-<kind>)
+const MARKS = { devices: 0x6cb6ff, scanned: 0x4fd18b, hub: 0xf0b64f, replicant: 0xff5fa2, found: 0xfff27a, prospected: 0x7fe3ff };
+const MARK_ORDER = ["scanned", "devices", "hub", "found", "replicant", "prospected"];   // innermost first
+const markOn = kind => checked("opt-mark-" + kind, true);
+// Each kind of ring has one size on every star: its place among the kinds switched on (innermost first), so the
+// rings stay nested and evenly spaced however many are shown.
+function markSize(kind) {
+  const on = MARK_ORDER.filter(markOn);
+  return 2.2 + 0.8 * Math.max(0, on.indexOf(kind));
+}
+const WAVE_S = 2.4;          // seconds per survey wave
+const waves = [];            // survey-wave sprites (rebuilt with the markers)
+function waveEdge() {        // the outermost ring switched on: where a wave fades out
+  const on = MARK_ORDER.filter(markOn);
+  return (on.length ? 2.2 + 0.8 * (on.length - 1) : 2.2) + 0.6;
+}
+function resizeMarks() {
+  mineGroup.children.forEach(sp => {
+    const k = sp.userData.mark;
+    if (!k) return;
+    if (k === "ward" || k === "survey") { sp.visible = checked("opt-mark-" + k, true); return; }
+    sp.visible = markOn(k);
+    const sz = markSize(k); sp.scale.set(sz, sz, 1);
+  });
+}
 const el = $("map");
 const info = $("map-info") || document.createElement("div");
 const tip = $("map-tip") || document.createElement("div");
@@ -137,7 +177,7 @@ function repStar() {
 
 function build() {
   [starPoints].forEach(o => o && scene.remove(o));
-  mineGroup.clear(); coverGroup.clear();
+  mineGroup.clear(); coverGroup.clear(); waves.length = 0;
   labels.forEach(l => l.el.remove()); labels.length = 0; lastCamKey = "";   // new labels: place them next frame
   const onlyMine = checked("opt-mine", !!OPTS.onlyMine);
   visible = data.stars.filter(s => !onlyMine || s.devices > 0 || data.replicants.some(r => r.star === s.designation));
@@ -160,13 +200,27 @@ function build() {
     const v = pos(s);
     const hasRep = data.replicants.some(r => r.star === s.designation);
     const marks = [];
-    if (s.devices > 0) marks.push([0x6cb6ff, 3.2]);
-    if (s.scanned) marks.push([0x4fd18b, 2.4]);
-    if (s.has_hub || (s.infra || []).some(t => t.includes("hub"))) marks.push([0xf0b64f, 2.8]);
-    if (hasRep) marks.push([0xff5fa2, 4.2]);
+    if (s.devices > 0) marks.push("devices");
+    if (s.scanned) marks.push("scanned");
+    if (s.has_hub || (s.infra || []).some(t => t.includes("hub"))) marks.push("hub");
+    if (hasRep) marks.push("replicant");
     const fresh = s.prospected && !s.scanned;   // found by our observatories, nothing has scanned it yet
-    if (fresh) marks.push([0xfff27a, 3.6]);
-    for (const [c, sz] of marks) { const sp = ring(c); sp.scale.set(sz, sz, 1); sp.position.copy(v); mineGroup.add(sp); }
+    if (fresh) marks.push("found");
+    if (s.prospected_from) marks.push("prospected");   // an observatory prospected from here (once per star)
+    if (s.my_ward) {   // your own working ward: the same shield as other players' wards, in your color
+      const sh = new THREE.Sprite(new THREE.SpriteMaterial({ map: shieldTex, color: 0x6cb6ff, transparent: true, depthWrite: false }));
+      sh.scale.set(1.4, 1.4, 1); sh.position.copy(v).add(new THREE.Vector3(0, 0, 2.2)); sh.userData.mark = "ward";
+      sh.visible = checked("opt-mark-ward", true); mineGroup.add(sh);
+    }
+    if (s.surveying) {   // being surveyed: a wave running out from the star to the edge of its rings (animate)
+      const w = ring(0x4fd18b); w.position.copy(v); w.userData.wave = Math.random() * WAVE_S; w.userData.mark = "survey";
+      w.visible = checked("opt-mark-survey", true); mineGroup.add(w); waves.push(w);
+    }
+    for (const kind of marks) {
+      const sz = markSize(kind);
+      const sp = ring(MARKS[kind]); sp.scale.set(sz, sz, 1); sp.position.copy(v); sp.userData.mark = kind; sp.visible = markOn(kind);
+      mineGroup.add(sp);
+    }
     RES_ORDER.forEach((res, k) => {
       const n = Math.min(10, (s.mining || {})[res] || 0);
       for (let i = 0; i < n; i++) {
@@ -236,6 +290,7 @@ function buildFleets() {
 // something is traveling along it, dots flow from source to destination.
 const SUPPLY = { materials: 0xffb74d, trade: 0x6cb6ff };
 const SUPPLY_TEXT = { materials: "#ffd59a", trade: "#a9d3ff" };
+const HUB_LINK = 0xf0b64f;   // a hub's links (relays both linked to one hub: their own link isn't drawn)
 function buildRelayNet() {
   relayGroup.clear();
   const rn = data.relay_net || { links: [], nodes: [], planned: [], suggested: [] };
@@ -253,8 +308,9 @@ function buildRelayNet() {
   // active networks solid, ones without a replicant in reach dashed and dimmer
   for (const l of rn.links) {
     const a = byName[l.a], b = byName[l.b]; if (!a || !b) continue;
-    arc(a, b, l.active ? new THREE.LineBasicMaterial({ color: new THREE.Color(l.color), transparent: true, opacity: .9 })
-                       : new THREE.LineDashedMaterial({ color: new THREE.Color(l.color), dashSize: .5, gapSize: .4, transparent: true, opacity: .55 }));
+    const c = new THREE.Color(l.hub ? HUB_LINK : l.color);   // a hub's link to a relay: the hub color
+    arc(a, b, l.active ? new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: .9 })
+                       : new THREE.LineDashedMaterial({ color: c, dashSize: .5, gapSize: .4, transparent: true, opacity: .55 }));
   }
   for (const n of rn.nodes) { const s = byName[n.star]; if (s) ring(s, n.color, 2.2, n.active ? 1 : .5); }
   // suggested bridges: dashed gray through the new relay systems; relays on order: white rings
@@ -536,6 +592,7 @@ function show(s) {
       ${(s.infra || []).length ? `<dt>Infrastructure</dt><dd>${esc(s.infra.join(", "))}</dd>` : ""}
       ${s.has_hub ? "<dt>Hub</dt><dd>yes</dd>" : ""}
       ${othersBy[s.designation] ? `<dt>Other players</dt><dd>${othersBy[s.designation].owners.map(w => `${esc(w.name)}: ${Object.entries(w.types).map(([t, n]) => `${n > 1 ? n + "× " : ""}${esc(t.replace(/_/g, " "))}`).join(", ")}`).join("<br>") || ""}${othersBy[s.designation].ward && !othersBy[s.designation].n ? "warded by another player" : ""}${othersBy[s.designation].scanned_at ? ` <span class="muted">· scanned ${fmt((Date.now() - Date.parse(othersBy[s.designation].scanned_at)) / 1000)} ago</span>` : ""}</dd>` : ""}
+      ${s.prospected_from ? `<dt>Prospected from</dt><dd>${esc(s.prospected_from.outcome || "")} · ${esc((s.prospected_from.at || "").slice(0, 10))}</dd>` : ""}
       ${s.prospected ? `<dt>Prospected</dt><dd>by ${esc(s.found_by || "an observatory")}${s.scanned ? "" : " · <b>not scanned yet</b>"}</dd>` : ""}
     </dl>
     ${rep ? `<div class="row">
@@ -614,6 +671,7 @@ $("map-search")?.addEventListener("change", e => {
 });
 ["opt-mine"].forEach(id => $(id)?.addEventListener("change", build));
 $("opt-cover")?.addEventListener("change", e => coverGroup.visible = e.target.checked);
+[...Object.keys(MARKS), "ward", "survey"].forEach(kind => $("opt-mark-" + kind)?.addEventListener("change", resizeMarks));
 $("opt-relaynet")?.addEventListener("change", e => relayGroup.visible = e.target.checked);
 $("btn-top")?.addEventListener("click", () => { camera.position.set(controls.target.x, controls.target.y - 0.01, controls.target.z + 160); });
 $("btn-home")?.addEventListener("click", () => { const s = repStar(); if (s) { focus(s); show(s); } });
@@ -638,6 +696,13 @@ function animate(t = 0) {
   if (minFrame && t - lastFrame < minFrame) return;
   lastFrame = t;
   controls.update();
+  if (waves.length) {   // survey waves: grow from the star to the outer ring, fading as they go
+    const edge = waveEdge(), ts = t / 1000;
+    for (const w of waves) {
+      const ph = ((ts + w.userData.wave) % WAVE_S) / WAVE_S;
+      const sz = 0.4 + ph * (edge - 0.4); w.scale.set(sz, sz, 1); w.material.opacity = 0.85 * (1 - ph);
+    }
+  }
   renderer.render(scene, camera);
   const w = el.clientWidth, h = el.clientHeight;
   const readable = h / (2 * camera.position.distanceTo(controls.target) * HALF_FOV) >= TEXT_MIN_PX;

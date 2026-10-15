@@ -3,7 +3,9 @@
 Nodes are your working relays (status relaying) and active system hubs, one per system (the longest reach there). Two
 nodes link when they're within reach of each other: 7.5 ly for a relay, 15 ly for a hub — or the range the device
 itself reports (`range_ly` / `relay_range_ly`: upgraded relays may reach further). Other players' relays don't join
-your network (confirmed by the owner 2026-10-12). Linked nodes form a network; each network gets its own color.
+your network (confirmed by the owner 2026-10-12). Hubs link by distance like relays (15 ly): the docs' "mesh across the
+galaxy" isn't what the game does — live 2026-10-15, the SOLARES hub's network listed only nodes within 15 ly, not the
+FALQUORYX hub. Linked nodes form a network; each network gets its own color.
 
 Bridges: for each network, the fewest new relays (each a 7.5 ly hop, any system — relays are allowed in warded systems)
 that link it to another of your networks, at most MAX_BRIDGE new relays. One suggestion per pair of networks.
@@ -94,7 +96,8 @@ def networks(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | No
         for b in stars[i + 1:]:
             ly = math.dist(ns[a]["xyz"], ns[b]["xyz"])
             if ly <= max(ns[a]["range"], ns[b]["range"]) + 1e-9:
-                links.append({"a": a, "b": b, "ly": round(ly, 2)})
+                links.append({"a": a, "b": b, "ly": round(ly, 2),
+                              "hub": "hub" in ns[a]["kinds"] or "hub" in ns[b]["kinds"]})
                 parent[find(a)] = find(b)
     groups: dict[str, list[str]] = defaultdict(list)
     for s in stars:

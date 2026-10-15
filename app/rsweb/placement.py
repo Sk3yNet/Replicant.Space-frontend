@@ -2,6 +2,7 @@
 
   ftl_relay              — an L4/L5 Lagrange point (`STAR-N-L4` / `-L5`): it needs a gravitationally stable spot and
                            can only be activated there (game docs, confirmed by Joe).
+  system_hub             — an L4/L5 Lagrange point too (owner, 2026-10-15).
   ami_mining_controller  — the system's asteroid belt.
   ami_survey_controller  — the asteroid belt too; with no belt in the system, the inner system (a planet, its moons or
                            its Lagrange points — never the Kuiper belt, Oort cloud or an object).
@@ -14,8 +15,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-RULES = {"ftl_relay": "lagrange", "ami_mining_controller": "belt", "ami_survey_controller": "belt_or_inner"}
-WHY = {"lagrange": "a relay only works at an L4/L5 Lagrange point", "belt": "a mining controller belongs at the asteroid belt",
+RULES = {"ftl_relay": "lagrange", "system_hub": "lagrange", "ami_mining_controller": "belt", "ami_survey_controller": "belt_or_inner"}
+WHY = {"lagrange": "a relay or system hub only works at an L4/L5 Lagrange point", "belt": "a mining controller belongs at the asteroid belt",
        "belt_or_inner": "a survey controller belongs at the asteroid belt (or the inner system when there's none)"}
 
 _LAGRANGE = re.compile(r"^[A-Z0-9]+-\d+-L[45]$")

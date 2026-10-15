@@ -1155,7 +1155,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
             for stage in ("evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "news_pass", "sim_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "news_pass", "sim_pass", "prospector_pass"):
                 self.stage = stage
                 await asyncio.sleep(0)   # let waiting page requests run between stages
                 t_stage = time.perf_counter()
@@ -1696,13 +1696,22 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                     runs[code] = run
                     continue
                 err = next((x.get("error") for x in (j or {}).get("steps", []) if x.get("status") == "failed"), None)
-                if j and j["status"] == "failed" and not pr.already_surveyed(err):
+                dense = bool(j and j["status"] == "failed" and "no new stars visible" in str(err or "").lower())
+                if dense:
+                    # too dense that way (docs: try another direction) — the star isn't used up by a refusal; the next
+                    # direction goes out in this same pass
+                    run.setdefault("used", []).append(run.get("idx") or 0)
+                    run.pop("job", None)
+                    run["note"] = f"refused that way: {err}"
+                elif j and j["status"] == "failed" and not pr.already_surveyed(err):
                     run.pop("job", None)
                     run["retry_at"] = (_now() + timedelta(minutes=30)).isoformat(timespec="seconds")
                     run["note"] = f"prospect refused: {err}"
                     runs[code] = run
                     continue
-                if not pr.already_surveyed(err):
+                if dense:
+                    pass
+                elif not pr.already_surveyed(err):
                     if st.startswith("prospecting"):
                         runs[code] = run
                         continue
@@ -1720,9 +1729,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                     run["found"] = int(run.get("found") or 0) + new
                 else:
                     new = 0
-                if not new:
-                    run.setdefault("used", []).append(run.get("idx") or 0)
-                run.pop("job", None)
+                if not dense:
+                    # docs + live (2026-10-08): a star can be prospected from only once — after one prospect (or
+                    # "already been surveyed"), every direction is used up there
+                    run["used"] = list(range(pr.N_DIRECTIONS))
+                    pf = await self.db.kv_get("prospected_from", {}) or {}
+                    pf[here] = {"at": now_iso(), "by": code, "found": new,
+                                "outcome": "already surveyed" if pr.already_surveyed(err) else f"{new} new star(s)"}
+                    await self.db.kv_set("prospected_from", pf)
+                    run.pop("job", None)
             moving = (lmoves.get("moves") or {}).get(code)
             leaving = (bool(f.get("next_home")) or (bound_for(o, set(pos), {x["id"]: x.get("home") for x in fleet_list}) not in (None, here))
                        or bool(moving and moving != here and lfresh))
@@ -1761,6 +1776,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
             if "prospect" not in (o.get("available_commands") or []):
                 continue
             dirs = pr.directions(pr.base_heading((f.get("heading") or {}).get("vector"), pa.xyz(pos.get(here))))
+            if not (f.get("heading") or {}).get("vector"):
+                # one prospect per star: emptiest hemisphere first (a fleet's set heading still goes first)
+                dirs = pr.rank_directions(dirs, pa.xyz(pos.get(here)), {s: pa.xyz(p) for s, p in pos.items() if p})
             v = dirs[nxt]
             seq0 = (await self.db.fetchone("SELECT max(seq) AS s FROM events") or {"s": 0})["s"] or 0
             job = await self.create_job("observatory", f"{f['name']}: prospect from {here} (direction {nxt + 1} of {len(dirs)})",
@@ -1775,6 +1793,100 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                 out.append(f"{code}: prospecting from {here}, direction {nxt + 1}")
         await self.db.kv_set("observatory_runs", runs)
         if fleets_changed:
+            await self.save_fleets(fleet_list)
+        return out
+
+    async def prospector_pass(self) -> list[str]:
+        """Fleets with role "prospector" (an observatory and a carrier): tour the stars within `radius` ly (30) of the fleet's
+        home, one prospect each (observatory_pass prospects and compacts), then the carrier takes the observatory to the next
+        star — the emptiest neighborhood not prospected from yet, nearer first, commandable. A tour that hasn't moved on or
+        found anything for STALL_HOURS raises a warning (once per stall)."""
+        from . import fleets as fl
+        from . import pathing as pa
+        from . import prospecting as pr
+        from .modular import folded
+        STALL_HOURS = 12
+        fleet_list = await self.fleets()
+        mine = [f for f in fleet_list if f.get("role") == "prospector" and f.get("home")]
+        if not mine:
+            return []
+        devices = await self.devices()
+        jobs = {j["id"]: j for j in await self.jobs()}
+        busy = self.busy_devices(list(jobs.values()))
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
+        xyz_all = {s: pa.xyz(x.get("position")) for s, x in stars.items() if x.get("position")}
+        runs = await self.db.kv_get("observatory_runs", {}) or {}
+        pfrom = await self.db.kv_get("prospected_from", {}) or {}
+        allowed = await self.commandable(devices)
+        out, changed = [], False
+        for f in mine:
+            if f.get("station"):
+                f["station"] = False   # it tours: the loadout pass doesn't keep it at home
+                changed = True
+            tour = f.setdefault("tour", {"since": now_iso()})
+            ms = fl.members(f, devices)
+            obs = next((d for d in ms if d.get("device_type") == "galactic_observatory"), None)
+            car = next((d for d in ms if fl.is_carrier(d) and fl.capacity(d) > 0), None)
+            if not obs or not car:
+                tour["note"] = "needs a galactic observatory and a carrier with an attach point"
+                continue
+            j = jobs.get(tour.get("job"))
+            if j and j["status"] in ("running", "waiting"):
+                continue
+            if j and j["status"] == "failed":
+                err = next((s.get("error") for s in j["steps"] if s.get("status") == "failed"), "")
+                tour["note"] = f"last move failed: {err}"
+            tour.pop("job", None)
+            here = star_of(obs.get("location") or "")
+            if here and here != tour.get("star"):
+                tour.update({"star": here, "since": now_iso(), "alerted": False})
+                changed = True
+            if here and (pfrom.get(here) or {}).get("at", "") > (tour.get("since") or ""):
+                tour["since"] = pfrom[here]["at"]   # a prospect here counts as progress
+            # moving on: the observatory is folded and done with this star (one prospect each)
+            run = runs.get(obs["device_code"]) or {}
+            ready = here and obs.get("location") and folded(obs) and (here in pfrom or (run.get("star") == here and run.get("done")))
+            if ready and obs["device_code"] not in busy and car["device_code"] not in busy:
+                taken = {(x.get("tour") or {}).get("target") for x in mine if x is not f} | \
+                        {(x.get("tour") or {}).get("star") for x in mine if x is not f}
+                nxt, left = pr.next_star(here, f["home"], xyz_all, set(pfrom), taken - {None}, allowed,
+                                         float(f.get("radius") or 30))
+                tour["left"] = left
+                if not nxt:
+                    tour["note"] = f"no star left to prospect within {f.get('radius') or 30} ly of {f['home']}"
+                    if not tour.get("alerted"):
+                        tour["alerted"] = True
+                        await self._notify("warning", f"{f['name']}: {tour['note']}", "/fleets")
+                    continue
+                dest = fl.destination(nxt, stars)
+                steps = []
+                if car.get("location") != obs.get("location"):   # the carrier comes to the observatory first
+                    steps += [step(f"{car['device_code']} → {obs['location']}", f"/devices/{car['device_code']}",
+                                   {"command": "travel", "destination": obs["location"]}, critical=True),
+                              fl._wait_arrive(car["device_code"], obs["location"])]
+                steps += [fl.board_step(car["device_code"], obs["device_code"], "attach"),
+                          step(f"{car['device_code']} → {dest}", f"/devices/{car['device_code']}",
+                               {"command": "travel", "destination": dest}, critical=True),
+                          fl._wait_arrive(car["device_code"], dest, nxt),
+                          step(f"{car['device_code']}: detach {obs['device_code']}", f"/devices/{car['device_code']}",
+                               {"command": "detach", "device": obs["device_code"]}, critical=True)]
+                job = await self.create_job("fleets", f"{f['name']}: observatory {here} → {nxt} (prospecting tour)",
+                                            car["device_code"], steps, {"devices": [car["device_code"], obs["device_code"]]})
+                if job:
+                    tour.update({"job": job["id"], "target": nxt, "note": f"moving to {nxt} ({left} star(s) left in range)"})
+                    out.append(f"{f['name']}: {here} → {nxt}")
+                    changed = True
+                continue
+            # stalled: nothing found or moved for too long
+            since = _ts(tour.get("since"))
+            if since and (_now() - since).total_seconds() > STALL_HOURS * 3600 and not tour.get("alerted"):
+                tour["alerted"] = True
+                await self._notify("warning", f"{f['name']}: the prospecting tour has stalled at {here or '?'} for "
+                                              f"{STALL_HOURS} h+ — {tour.get('note') or (runs.get(obs['device_code']) or {}).get('note') or 'check the observatory'}",
+                                   "/fleets")
+                changed = True
+        if changed:
             await self.save_fleets(fleet_list)
         return out
 

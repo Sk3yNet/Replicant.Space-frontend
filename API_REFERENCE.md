@@ -992,7 +992,8 @@ Settled by the docs:
 - **Wards**: `evicted_miners` is a count. Max 25 active wards; no ward in a system with anyone's System Hub.
 - **Hubs**: printed with a 7-day shield; unmaintained 17 days after printing they degrade to 0 %; upkeep wants a
   stockpile at the hub's location and a maintenance drone patrolling the system. All of an account's hubs form one
-  FTL mesh across the galaxy (the app still links hubs only within 15 ly: to verify with `GET /devices/{hub}/network`).
+  FTL mesh across the galaxy. **Not so live (2026-10-15):** the SOLARES hub's `GET /devices/{hub}/network` listed only
+  nodes within its 15 ly range (relays at 0–7.3 ly), not the FALQUORYX hub — hubs link by distance.
 - **Relays**: 7.5 ly; `GET /devices/{relay}/network` → `connections`, `range_ly`, `status`.
 - **Catalog**: regenerated every 5 minutes; `has_hub` / `has_ward` omitted when false; covers ~70 ly (observatory
   page) or ~88 ly (locations page).

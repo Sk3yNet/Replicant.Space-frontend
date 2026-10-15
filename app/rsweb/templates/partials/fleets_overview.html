@@ -1,0 +1,37 @@
+  <h2>Overview</h2>
+  <table class="small">
+    <tr><th>Fleet</th><th>Home</th><th>Loadout</th><th title="Kept at its loadout in its home system">Stationed</th>
+      <th title="Send this fleet's home stockpile to another fleet's home, or take materials in">Materials</th><th>Status</th><th></th></tr>
+    {% for f in fleets %}{% set rep = f.report %}{% set m = f.mission or {} %}
+    <tr>
+      <td><a href="/fleets/details#fleet-{{ f.id }}"><b>{{ f.name }}</b></a> <span class="muted">{{ f.role }}</span></td>
+      <td><a href="/systems/{{ f.home }}">{{ f.home or '—' }}</a> <span class="muted">{{ present.get(f.home, 0) }} devices there</span></td>
+      <td>{{ (templates | selectattr('id', 'equalto', f.template) | map(attribute='name') | first) if f.template else 'custom' }}</td>
+      <td colspan="2"><form hx-post="/fleets/{{ f.id }}/station" hx-trigger="change" class="row" style="gap:6px;flex-wrap:nowrap">
+        <input type="checkbox" name="station" {{ 'checked' if f.station }} title="stationed">
+        <select name="materials">
+          <option value="">—</option>
+          <option value="self" {{ 'selected' if f.materials == 'self' }}>takes materials in ↘</option>
+          {% for g in fleets if g.id != f.id %}<option value="{{ g.id }}" {{ 'selected' if f.materials == g.id }}>send to {{ g.name }} ({{ g.home }}) ↗</option>{% endfor %}
+        </select>
+        <select name="supplied_from" title="Supplied from: that fleet's autofactories print this fleet's shortfalls and its carriers bring them, at any distance (everything else stays within the supply range)">
+          <option value="">supplied nearby</option>
+          {% for g in fleets if g.id != f.id and g.role != 'bootstrap' %}<option value="{{ g.id }}" {{ 'selected' if f.supplied_from == g.id }}>supplied from {{ g.name }} ({{ g.home }})</option>{% endfor %}
+        </select></form>
+        {% if f.route %}<div class="muted">ferry {{ f.route.controller }}: {{ f.route.source }} → {{ f.route.dest }}</div>{% endif %}
+        {% if f.takes_from %}<div class="muted">from {{ f.takes_from | map(attribute='name') | join(', ') }}</div>{% endif %}</td>
+      <td>{% if m.status in ('running', 'stalled', 'ended', 'stopped') %}<span class="pill small {{ 'lv-alert' if m.status == 'stalled' else 'st-work' }}">mission: {{ m.status }}{% if m.status == 'running' %} · {{ m.phase }}{% endif %}</span>
+        {% elif not f.station %}<span class="muted">not stationed</span>
+        {% elif not rep %}<span class="muted">—</span>
+        {% elif not rep.short and not rep.surplus %}<span class="lv-done">✓ matches</span>
+        {% else %}{% if rep.short %}<span class="lv-alert">short {{ rep.short }}</span>{% endif %}
+          {% if rep.surplus %}<span class="pill small">{{ rep.surplus }} spare</span>{% endif %}{% endif %}</td>
+      <td>{% if rep %}<button class="small ghost" hx-post="/loadouts/apply" hx-vals='{{ {"fleet": (f.id) | string} | tojson }}' hx-target="#lo-result">Apply</button>{% endif %}</td>
+    </tr>
+    {% else %}<tr><td colspan="7" class="muted">No fleets yet. Create one above.</td></tr>{% endfor %}
+  </table>
+  <p class="muted small"><b>Materials:</b> a fleet set to <i>send to</i> another fleet has its home system's biggest stockpile ferried
+    to that fleet's home by <b>cargo freighters</b> (surge drive) under a dedicated AMI transport controller there, the <i>ferry
+    controller</i> (tagged <code>ferry</code>). A fleet that <i>takes materials in</i> is a destination: mining missions in deliver
+    mode ferry to the one they send to, else the nearest such fleet, and the spare depot defaults to one of them. Deliveries land at
+    the home system's autofactory, else its biggest stockpile, else its entry point. One route per system.</p>

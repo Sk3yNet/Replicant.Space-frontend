@@ -1865,8 +1865,16 @@ async def relay_overlay(request: Request, st: dict, positions: dict) -> dict:
         suggested.append({"stars": b["stars"], "from": ends(b["a"], b["stars"][0]), "to": ends(b["b"], b["stars"][-1]),
                           "n": b["n"]})
     orders = await request.app.state.db.kv_get(wo.kv_key("relay"), {}) or {}
-    return {"links": [{"a": l["a"], "b": l["b"], "color": nets[l["net"]]["color"], "active": nets[l["net"]]["active"]}
-                      for l in rn["links"]],
+    # a hub's links get the hub color; two relays that are both linked to the same hub are connected through it, so
+    # their own link isn't drawn
+    hub_of: dict[str, set[str]] = defaultdict(set)
+    for l in rn["links"]:
+        for x, y in ((l["a"], l["b"]), (l["b"], l["a"])):
+            if "hub" in rn["nodes"][y]["kinds"]:
+                hub_of[x].add(y)
+    shown = [l for l in rn["links"] if l.get("hub") or not (hub_of[l["a"]] & hub_of[l["b"]])]
+    return {"links": [{"a": l["a"], "b": l["b"], "color": nets[l["net"]]["color"], "active": nets[l["net"]]["active"],
+                       "hub": bool(l.get("hub"))} for l in shown],
             "nodes": [{"star": s, "color": nets[i]["color"], "net": i, "active": nets[i]["active"]} for s, i in rn["of"].items()],
             "planned": sorted(orders), "suggested": suggested}
 
@@ -1974,8 +1982,16 @@ async def map_payload(request: Request, part: str = "all") -> dict:
         scanned = {r["star"] for r in await db.fetchall("SELECT star FROM systems")}
         from .census import observatory_stars
         prospected, _ = await observatory_stars(db)   # stars our observatories found: highlighted until scanned
+        pfrom = await db.kv_get("prospected_from", {}) or {}   # stars an observatory has prospected from (once each)
+        if not pfrom:   # before 1.96 only finds were kept: the stars prospected from, out of the stored prospects
+            for r in await db.fetchall("SELECT payload, created_at, device_code FROM events WHERE event='prospect.completed'"):
+                o = (json.loads(r["payload"] or "{}") or {}).get("origin")
+                if o:
+                    pfrom[star_of(o)] = {"at": r["created_at"], "by": r["device_code"], "outcome": "prospected"}
+            if pfrom:
+                await db.kv_set("prospected_from", pfrom)
         scope = request.query_params.get("scope") or "all"
-        mine = set(presence) | set(infra) | scanned | set(prospected) \
+        mine = set(presence) | set(infra) | scanned | set(prospected) | set(pfrom) \
             | {star_of(r.get("location") or r.get("current_location")) for r in st["replicants"].values()} \
             | {f.get("home") for f in await request.app.state.worker.automations.fleets() if f.get("home")}
         stars = []
@@ -1986,7 +2002,8 @@ async def map_payload(request: Request, part: str = "all") -> dict:
             stars.append({**{k: s[k] for k in STAR_FIELDS if k in s}, "devices": presence.get(d, 0), "infra": infra.get(d, []),
                           "scanned": d in scanned,
                           **({"prospected": prospected[d].get("found_at"), "found_by": prospected[d].get("found_by")}
-                             if d in prospected else {})})
+                             if d in prospected else {}),
+                          **({"prospected_from": pfrom[d]} if d in pfrom else {})})
         out.update({"stars": stars, "generated_at": cat.get("generated_at"), "sources": cat.get("sources"),
                     "catalogue_updated": await db.kv_updated("stars"),
                     "replicants": [{"code": c, "name": r.get("name"), "star": star_of(r.get("location") or r.get("current_location")),
@@ -1999,7 +2016,14 @@ async def map_payload(request: Request, part: str = "all") -> dict:
         per_star = {}
         for d, ds in by_star.items():
             drones = [{k: g[k] for k in ("kind", "n", "working", "idle", "moving", "state")} for g in drone_summary(ds)]
-            per_star[d] = {"drones": drones, "mining": mining_now(ds)}
+            from . import wardhub as wh
+            per_star[d] = {"drones": drones, "mining": mining_now(ds),
+                           # your own working ward here (shown like other players' wards, in your color)
+                           "my_ward": any(wh.is_ward(x) and wh.active(x) for x in ds),
+                           # being surveyed: a survey drone scanning / searching, or a survey controller launched
+                           "surveying": any(str(x.get("status") or "").startswith(("scanning", "searching"))
+                                            or ("survey_controller" in (x.get("device_type") or "")
+                                                and str(x.get("status") or "").startswith("launched")) for x in ds)}
         from . import transit
         positions = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if s.get("position")}
         items = await request.app.state.worker.automations.fleets()
@@ -3524,7 +3548,43 @@ async def fleets_ctx(request: Request) -> dict:
 
 @router.get("/fleets", response_class=HTMLResponse)
 async def fleets_page(request: Request, user: str = Depends(current_user)):
-    return await page(request, user, "fleets.html", "fleets", **await fleets_ctx(request))
+    """Landing: fleet status (loaded after the page, see /fleets/overview) and the templates. Nothing slow here: the
+    loadout plan, prospect ranks, contracts and the per-fleet cards are on /fleets/details."""
+    eng = request.app.state.worker.automations
+    db = request.app.state.db
+    st = await load_state(request)
+    items = await eng.fleets()
+    cfg = await eng.loadout_cfg()
+    bps = normalize_blueprints(await db.kv_get("blueprints", []))
+    types = sorted({b["device_type"] for b in bps} | {d.get("device_type") for d in st["devices"] if d.get("device_type")}
+                   - {"heaven_vessel"})
+    stars = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")} | {f["home"] for f in items if f.get("home")})
+    return await page(request, user, "fleets.html", "fleets", fleets=items, cfg=cfg, templates=cfg["phases"], types=types,
+                      stars=stars, roles=fl.ROLES, last=await db.kv_get("loadouts_last", {}) or {},
+                      depot=lo.spare_depot(cfg, st["devices"]),
+                      all_tags=sorted({t for d in st["devices"] for t in (d.get("tags") or [])}),
+                      boot_reps=[(c, r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")])
+
+
+@router.get("/fleets/overview", response_class=HTMLResponse)
+async def fleets_overview(request: Request, user: str = Depends(current_user)):
+    """The landing page's status table: each fleet against the loadout plan (computed here, after the page shows)."""
+    eng = request.app.state.worker.automations
+    st = await load_state(request)
+    items = await eng.fleets()
+    cfg = await eng.loadout_cfg()
+    p = await eng.loadout_plan()
+    for f in items:
+        f["report"] = p["report"].get(f["id"])
+        f["route"] = next((r for r in p.get("routes") or [] if r.get("fleet_id") == f["id"]), None)
+        f["takes_from"] = [x for x in items if x.get("materials") == f["id"]]
+    return partial(request, "partials/fleets_overview.html", fleets=items, templates=cfg["phases"],
+                   present=Counter(lo.star_of(d.get("location")) for d in st["devices"]))
+
+
+@router.get("/fleets/details", response_class=HTMLResponse)
+async def fleets_details(request: Request, user: str = Depends(current_user)):
+    return await page(request, user, "fleet_details.html", "fleet_details", **await fleets_ctx(request))
 
 
 def _fleet_locked(fn):

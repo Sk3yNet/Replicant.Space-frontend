@@ -78,7 +78,7 @@ def test_mission_waits_at_the_gate_until_complete_or_sent_anyway(client):
     client.portal.call(e.run_fleets)
     m = client.portal.call(e.fleets)[0]["mission"]
     assert m["phase"] == "gather" and m["watch_note"].startswith("waiting to leave") and not m.get("departed")
-    assert "Launch anyway" in client.get("/fleets", headers=H).text
+    assert "Launch anyway" in client.get("/fleets/details", headers=H).text
     client.post("/fleets/f/control", data={"action": "partial"}, headers=HX)
     client.portal.call(e.run_fleets)
     m = client.portal.call(e.fleets)[0]["mission"]
@@ -105,7 +105,7 @@ def test_add_devices_lists_other_fleets_members_grouped(client):
     client.portal.call(client.app.state.db.kv_set, "devices", devs)
     client.portal.call(e.save_fleets, [{"id": "f", "name": "F", "role": "mining", "home": "SOL", "wants": {}},
                                        {"id": "other", "name": "Other", "role": "mining", "home": "SOL", "wants": {}}])
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     card = page[page.index('id="fleet-f"'):page.index('id="fleet-other"')]
     assert "in no fleet" in card and "in Other" in card
     assert card.index("in no fleet") < card.index("in Other")          # fleetless first
@@ -498,7 +498,7 @@ def test_shops_from_a_system_scan_are_offered_as_trades(client):
                        ("NOSOXA", json.dumps(scan), now_iso()))
     e = eng(client)
     client.portal.call(e.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert "The Skunkworks @ NOSOXA-OORT — Service Bot Upgrade: pay 1× maintenance_drone" in page
 
 

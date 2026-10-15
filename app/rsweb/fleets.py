@@ -33,12 +33,13 @@ from typing import Any
 from .automations import SHORT_TIMEOUT, STEP_TIMEOUT, step
 from .shapes import as_amounts
 
-ROLES = ("mining", "explore", "logistics")   # logistics: no missions — it runs the logistics service (logistics.py). Trade fleets are retired
+ROLES = ("mining", "explore", "logistics", "prospector")   # prospector: an observatory touring nearby stars (prospector_pass)   # logistics: no missions — it runs the logistics service (logistics.py). Trade fleets are retired
                                        # (2026-10-12): they become logistics fleets once their last run ends (auto_deals_pass)
 PHASES = {
     "mining": ["assemble", "gather", "travel", "deploy", "work", "watch", "recall", "return", "unload"],
     "explore": ["assemble", "gather", "travel", "deploy", "work", "watch", "recall"],   # travel…recall per target, then return/unload
     "logistics": [],
+    "prospector": [],
     "trade": ["load", "assemble", "gather", "travel", "deliver", "wait", "trade", "collect", "recall", "return", "unload",
               "home"],
 }

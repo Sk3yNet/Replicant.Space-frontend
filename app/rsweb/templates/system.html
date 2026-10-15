@@ -69,7 +69,7 @@
       <td>{{ d.device_type | human }}</td>
       <td><span class="pill {{ d._class }}">{{ d.status }}</span></td>
       <td class="num">{% set cap = d.operational_capacity | capacity %}{% if cap is not none %}<span class="{{ 'lv-alert' if cap < 50 }}">{{ cap | round | int }}%</span>{% endif %}</td>
-      <td>{% if d._fleet %}<a href="/fleets#fleet-{{ d._fleet }}">{{ d._fleet }}</a>{% endif %}</td>
+      <td>{% if d._fleet %}<a href="/fleets/details#fleet-{{ d._fleet }}">{{ d._fleet }}</a>{% endif %}</td>
       <td class="mono small">{% if d.controller_device_code %}<a href="/devices/{{ d.controller_device_code }}">{{ d.controller_device_code }}</a>{% endif %}</td>
     </tr>{% endfor %}
   </table></details>

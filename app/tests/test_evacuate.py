@@ -61,3 +61,14 @@ def test_engine_evacuates_on_the_warning(client):  # noqa: F811
     bodies = [s["body"] for s in job["steps"]]
     assert bodies[0]["command"] == "travel" and bodies[0]["destination"] != "SOL-OBJ-1"
     assert any((b or {}).get("configuration", {}).get("remove_tags") == ["at:sol-obj-1"] for b in bodies)
+
+
+def test_propulsors_are_recalled_once_the_object_is_diverted_enough():
+    """Owner 2026-10-15: diverted far enough (likelihood 0 / progress 100 %), the propulsors leave before the ETA —
+    more thrust is wasted, and anything still there when it swings past is flung off and lost."""
+    objs = {"A-OBJ-1": {"impact_eta": iso(600), "impact_target": "A-3", "impact_likelihood": 40, "progress_pct": 70}}
+    devs = [dev("PR", "propulsor_plate", "A-OBJ-1", status="diverting", available_commands=["travel"], features=["cruise"])]
+    assert ev.plan(objs, devs, STARS, set())["moves"] == []            # 10 h out, still needed
+    objs["A-OBJ-1"].update({"impact_likelihood": 0, "progress_pct": 100})
+    m = ev.plan(objs, devs, STARS, set())["moves"]
+    assert [x["code"] for x in m] == ["PR"] and "diverted enough" in m[0]["why"]

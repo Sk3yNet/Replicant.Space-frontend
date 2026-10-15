@@ -978,7 +978,7 @@ def test_loadouts_page_and_apply_against_mock(client):
     assert "fleets" not in cfg   # the fleets live in their own store
     fleets = client.portal.call(client.app.state.db.kv_get, "fleets")
     assert fleets[0]["home"] == "SOL" and fleets[0]["station"] and fleets[0]["template"] == pid
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert "Mining hub" in page and "2 spare" in page and "as spare" in page and "Tags &amp; controllers check" in page
     r = client.post("/loadouts/apply", data={"fleet": "sol-home"}, headers=HX)
     assert "Applied to sol-home" in r.text
@@ -1165,8 +1165,9 @@ def test_fleet_materials_setting(client):
     client.post("/fleets/depot/station", data={"station": "on", "materials": "no-such-fleet"}, headers=HX)
     fleets = {f["id"]: f for f in client.portal.call(client.app.state.db.kv_get, "fleets")}
     assert fleets["sol-home"]["materials"] == "depot" and fleets["depot"]["materials"] == ""   # unknown fleet: cleared
-    page = client.get("/fleets", headers=H).text
-    assert 'value="depot" selected' in page and "materials from Sol home" in page   # its route (or why not) is listed
+    page = client.get("/fleets/details", headers=H).text
+    assert "materials from Sol home" in page
+    assert 'value="depot" selected' in client.get("/fleets/overview", headers=HX).text   # its route (or why not) is listed
 
 
 def test_arrival_rules_ignore_in_system_hops_and_surveyed_systems(client):
@@ -1747,7 +1748,7 @@ def test_fleet_pages_and_mission_launch(client):
         if fl_tag := next((t for t in d["tags"] if t.startswith("fleet:")), None):
             d["tags"] = ["fleet:prospector-1"]
     client.portal.call(client.app.state.db.kv_set, "devices", devices)
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert "Prospector 1" in page and "fleet:prospector-1" in page and "attach 7 / 36" in page
     client.post("/fleets/prospector-1/edit", data={"name": "Prospector 1", "role": "mining", "home": "SOL",
                                                    "want:mining_drone": "4", "want:mobile_fleet": "1"}, headers=HX)
@@ -1764,7 +1765,7 @@ def test_fleet_pages_and_mission_launch(client):
     client.portal.call(eng.run_fleets)
     f = client.portal.call(eng.fleets)[0]
     assert f["mission"]["status"] == "stalled" and "stalled in assemble" in f["mission"]["log"][-1]["text"]
-    assert "Retry" in client.get("/fleets", headers=H).text
+    assert "Retry" in client.get("/fleets/details", headers=H).text
     # membership: adding a device swaps its home/spare tags for the fleet tag
     world = client.app.state.api.http._transport.app.state.world
     client.portal.call(client.app.state.worker.sync_devices)
@@ -1912,7 +1913,7 @@ def test_fleet_loadout_lines_add_and_remove(client):
     assert r.headers.get("HX-Refresh") and client.portal.call(eng.fleets)[0]["wants"] == {"ftl_relay_x": 1}
     client.post("/fleets/p1/want", data={"type": "ftl_relay_x", "qty": "3"}, headers=HX)
     client.post("/fleets/p1/want", data={"type": dtype, "qty": "1"}, headers=HX)
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert 'loadout-form' in page and "✕" in page
     # Save (name/role/home) no longer touches the loadout
     client.post("/fleets/p1/edit", data={"name": "P1b", "role": "mining", "home": "SOL"}, headers=HX)
@@ -1947,7 +1948,7 @@ def test_fleet_loadout_editor_lines(client):
     r = client.post("/fleets/p1/edit", data={**base, "type": [dtype, "survey_drone", "", "relay_x"], "qty": ["2", "1", "", "0"]}, headers=HX)
     assert "Loadout saved" in r.text and not r.headers.get("HX-Refresh")
     assert client.portal.call(eng.fleets)[0]["wants"] == {dtype: 2, "survey_drone": 1}
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert page.count('class="lnew"') == 1 and 'name="lines"' in page
     # removing a type with members (release) drops the line and releases them
     client.post("/fleets/p1/edit", data={**base, "type": [dtype, "survey_drone"], "qty": ["0", "1"], "release": dtype}, headers=HX)
@@ -2445,7 +2446,7 @@ def test_fleet_end_mission_and_board(client):
             d["ami_directive"] = {"name": "gather_evenly"}
     client.portal.call(client.app.state.db.kv_set, "devices", devices)
     client.portal.call(eng.save_fleets, [fleet])
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert "End mission &amp; board" in page and "Recall &amp; return home" in page
     r = client.post(f"/fleets/{fleet['id']}/control", data={"action": "end"}, headers=HX)
     assert r.headers.get("HX-Refresh")
@@ -2478,7 +2479,7 @@ def test_fleet_board_everyone_without_a_mission(client):
     fleet, devices = _fleet_world()
     client.portal.call(client.app.state.db.kv_set, "devices", devices)
     client.portal.call(eng.save_fleets, [fleet])
-    assert "Board everyone" in client.get("/fleets", headers=H).text
+    assert "Board everyone" in client.get("/fleets/details", headers=H).text
     client.post(f"/fleets/{fleet['id']}/control", data={"action": "end"}, headers=HX)
     m = client.portal.call(eng.fleets)[0]["mission"]
     assert m["phase"] == "recall" and m.get("end_started")
@@ -2692,7 +2693,9 @@ def test_audit_flags_mismatches():
 
 
 def test_loadouts_page_shows_the_check(client):
-    page = client.get("/loadouts", headers=H).text
+    landing = client.get("/fleets", headers=H).text   # landing: status (loaded after) and templates; the slow parts on details
+    assert 'hx-get="/fleets/overview"' in landing and 'id="templates"' in landing and "Tags &amp;" not in landing
+    page = client.get("/fleets/details", headers=H).text
     assert "Tags &amp; controllers check" in page
 
 
@@ -2753,7 +2756,7 @@ def test_consolidate_rule_creates_job(client):
     assert len(done) == 1 and done[0].startswith("TC1 hauls SOL-3 (350 units) → autofactory at SOL-BELT-1")
     job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "consolidate"][-1]
     assert job["device"] == "TC1"
-    page = client.get("/loadouts", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert "Consolidation at the autofactory" in page
 
 
@@ -3220,7 +3223,7 @@ def test_missions_cannot_target_a_system_with_a_home_fleet(client):
     client.portal.call(client.app.state.db.kv_set, "loadouts",
                        {"phases": [{"id": "p", "name": "Outpost", "order": 1, "wants": {"survey_drone": 1}}],
                         "systems": {"KEL": "p", "ABC": ""}})
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     targets = page[page.index('<datalist id="fl-stars-scouts">'):]
     targets = targets[:targets.index("</datalist>")]
     assert "Not available as targets" in page and '"KEL"' not in targets
@@ -3353,9 +3356,9 @@ def test_reform_and_fill_pages(client):
     client.portal.call(client.app.state.db.kv_set, "loadouts",
                        {"phases": [{"id": "sc", "name": "Scout set", "order": 1, "wants": {"survey_drone": 2}}], "systems": {}})
     client.post("/fleets/scouts/edit", data={"template": "sc"}, headers=HX)
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert '<option value="sc" selected>Scout set</option>' in page and "fieldset disabled" in page
-    assert "Fill from spares" in page and 'rules-panel?ids=loadouts,fleet_fill"' in page
+    assert "Fill from spares" in page and 'rules-panel?ids=loadouts,fleet_fill"' in client.get("/fleets", headers=H).text
     assert "Scouts" in client.post("/fleets/scouts/fill", headers=HX).text or "Nothing to fill" in client.post("/fleets/scouts/fill", headers=HX).text
 
 
@@ -3454,8 +3457,8 @@ def test_back_to_station_clears_an_ended_mission(client):
     client.portal.call(eng.save_fleets, items)
     from rsweb import fleets as fl
     assert fl.away(client.portal.call(eng.fleets)[0])
-    page = client.get("/fleets", headers=H).text
-    assert "Back to station" in page and "mission: ended" in page
+    page = client.get("/fleets/details", headers=H).text
+    assert "Back to station" in page and "mission: ended" in client.get("/fleets/overview", headers=HX).text
     client.post("/fleets/sol-home/control", data={"action": "station"}, headers=HX)
     f = client.portal.call(eng.fleets)[0]
     assert f["mission"]["status"] == "done" and fl.stationed(f)
@@ -3762,7 +3765,7 @@ def test_snapshot_2026_10_06_fixes(client):
     client.post("/fleets", data={"name": "Scouts", "role": "explore", "home": "SOL"}, headers=HX)
     r = client.post("/fleets/scouts/mission", data={"targets": "LORALEL"}, headers=HX)
     assert "Unknown system" in r.text and "did you mean LORALAEL" in r.text
-    assert 'value="LORALAEL"' in client.get("/fleets", headers=H).text            # census stars are offered
+    assert 'value="LORALAEL"' in client.get("/fleets/details", headers=H).text            # census stars are offered
     r = client.post("/fleets/scouts/mission", data={"targets": "LORALAEL"}, headers=HX)
     assert r.headers.get("HX-Refresh")
     # 2. the production planner skips controllers of fleets that aren't at their station
@@ -3800,12 +3803,12 @@ def test_fleet_owner_hands_members_to_one_replicant(client):
     client.post("/fleets", data={"name": "Miners", "home": "SOL"}, headers=HX)
     client.portal.call(client.app.state.db.kv_set, "devices", devices)
     client.portal.call(client.app.state.db.kv_set, "replicants", {"AAAA0001": {"name": "Sk3y-1"}, "BBBB0002": {"name": "Sk3y-6"}})
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert "Owner" in page and "owned by" in page
     client.post("/fleets/miners/owner", data={"owner": "AAAA0001", "keep_owner": "on"}, headers=HX)
     f = client.portal.call(eng.fleets)[0]
     assert f["owner"] == "AAAA0001" and f["keep_owner"] and "owner_move" not in client.portal.call(client.app.state.db.kv_get, "fleets")[0]
-    assert "Left alone (they host a replicant): HV (Sk3y-6)" in client.get("/fleets", headers=H).text
+    assert "Left alone (they host a replicant): HV (Sk3y-6)" in client.get("/fleets/details", headers=H).text
     lines = client.portal.call(eng.fleet_owners)
     assert lines and "M2, M3 → owner AAAA0001" in lines[0]
     client.portal.call(client.app.state.db.kv_set, "fleet_owners_at", None)
@@ -4059,7 +4062,7 @@ def test_removing_from_a_queue_forgets_its_order(client):
     client.portal.call(eng.save_fleets, [{"id": "hub", "name": "Hub", "role": "mining", "home": "SOL", "station": True,
                                           "wants": {"ftl_beacon": 3}, "materials": "", "mission": None}])
     client.portal.call(db.kv_set, "loadout_orders", [{**O("ftl_beacon"), "at": "2099-01-01T00:00:00+00:00"}])
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert "Queued prints counted as incoming" in page and "1 queued print(s)" in page and "Forget these" in page
 
 
@@ -4177,7 +4180,7 @@ def test_contract_fleet_delivers_waits_fulfils_and_brings_the_rewards(client):
                        "category": "event", "location": "SOL-3-L4", "star": "SOL", "payload": disc,
                        "created_at": "2026-10-07T10:00:00+00:00"})
     client.portal.call(eng.save_fleets, [{**fleet, "mission": None}])
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert "Atmospheric Harvest @ SOL-3-L4" in page and 'name="contract"' in page
     import json as _json
     client.post("/fleets/t/mission", data={"contract": _json.dumps({"designation": "SOL-3-L4-EVT-009", "location": "SOL-3-L4",
@@ -4349,7 +4352,7 @@ def test_vessels_hosting_a_replicant_can_join_a_fleet(client):
     code, rep = next((c, r) for c, r in reps.items() if r.get("hosted_device_code"))
     client.portal.call(eng.save_fleets, [{"id": "s", "name": "Surveyors", "role": "explore", "home": "SOL", "wants": {},
                                           "station": False, "materials": "", "mission": None}])
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert f'name="add" value="{rep["hosted_device_code"]}"' in page and f"hosts {rep.get('name') or code}" in page
 
 
@@ -4868,7 +4871,7 @@ def test_prospects_page_and_mining_targets(client):
     assert "Mining prospects" in client.get("/systems", headers=H).text
     eng = client.app.state.worker.automations
     client.portal.call(eng.save_fleets, [{"id": "m", "name": "M", "role": "mining", "home": "ABOTEIN", "wants": {}}])
-    f = client.get("/fleets", headers=H).text
+    f = client.get("/fleets/details", headers=H).text
     assert "prospect " in f
 
 
@@ -5551,7 +5554,7 @@ def test_pathing_pass_prospects_then_relocates(client):
     client.portal.call(eng.save_fleets, items)
     out = client.portal.call(eng.pathing_pass, True)
     assert out == ["Miner 1: next home AHEADB"]                            # not BEHINDC, though it scores the same
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert "Next home <b><a href=\"/systems/AHEADB\">AHEADB</a></b>" in page and "/fleets/m1/next-home" in page
     r = client.post("/fleets/m1/next-home", data={"action": "now"}, headers=HX)
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
@@ -6089,19 +6092,15 @@ def test_observatory_prospects_each_direction_then_compacts(client):
 
     assert client.portal.call(eng.observatory_pass) == ["OBS00001: prospecting from HOMEA, direction 1"]
     assert last_job()["steps"][0]["body"]["direction"] == [0.0, 1.0, 0.0]     # outward from Sol: no heading set
-    finish(stars=["NEWSTAR1"])                                                  # found one: the same direction again
-    assert client.portal.call(eng.observatory_pass) == ["OBS00001: prospecting from HOMEA, direction 1"]
-    finish(stars=["NEWSTAR1"])                                                  # nothing new: used up
+    finish(error="No new stars visible from this location")                    # too dense that way: the next direction
     assert client.portal.call(eng.observatory_pass) == ["OBS00001: prospecting from HOMEA, direction 2"]
-    finish(error="This location has already been surveyed")                    # the game says so: used up too
-    assert client.portal.call(eng.observatory_pass) == ["OBS00001: prospecting from HOMEA, direction 3"]
-    runs = client.portal.call(db.kv_get, "observatory_runs")
-    runs["OBS00001"].update({"used": list(range(14)), "job": None})
-    client.portal.call(db.kv_set, "observatory_runs", runs)
-    finish()
+    finish(stars=["NEWSTAR1"])                                                  # one prospect per star: HOMEA is used up
     out = client.portal.call(eng.observatory_pass)
     assert out == ["OBS00001: compacting (every direction tried in HOMEA)"]
-    assert "done in HOMEA" in client.get("/fleets", headers=H).text
+    pf = client.portal.call(db.kv_get, "prospected_from")
+    assert pf["HOMEA"]["by"] == "OBS00001" and pf["HOMEA"]["found"] == 1
+    assert client.get("/api/map.json?part=core", headers=H).json()["stars"][0]["prospected_from"]["found"] == 1
+    assert "done in HOMEA" in client.get("/fleets/details", headers=H).text
 
 
 def test_prospect_cones_on_the_galaxy_map(client):
@@ -6182,7 +6181,7 @@ def test_advancing_explorer_moves_home_to_farthest_star_ahead(client):
     r = client.post("/fleets/ex/path", data={"heading_kind": "custom", "heading_vec": "1, 0, 0", "cone": "30",
                                              "advance": "on", "hop_ly": "30"}, headers=HX)
     assert r.status_code == 200
-    assert "advance along the heading" in client.get("/fleets", headers=H).text
+    assert "advance along the heading" in client.get("/fleets/details", headers=H).text
     client.portal.call(db.kv_set, "observatory_runs", {"OBSX": {"star": "HOMEA", "used": list(range(14)), "idx": 0, "found": 3}})
     out = client.portal.call(eng.observatory_pass)
     assert out == ["Pathfinder: advancing HOMEA → FAR1"]                     # farthest ahead within 30 ly, not NEAR1
@@ -6266,7 +6265,7 @@ def test_path_forward_form_shows_the_saved_heading(client):
                                                       {"designation": "TGT", "position": {"x": 9, "y": 4, "z": 0}}]})
     client.portal.call(eng.save_fleets, [{"id": "m1", "name": "Miner 1", "role": "mining", "home": "HOMEA", "station": True, "wants": {}}])
     client.post("/fleets/m1/path", data={"heading_kind": "star", "heading_star": "TGT", "cone": "45"}, headers=HX)
-    page = client.get("/fleets", headers=H).text
+    page = client.get("/fleets/details", headers=H).text
     assert '<option value="star" selected>' in page and 'name="heading_star" placeholder="star" size="10" list="path-stars" value="TGT"' in page
     items = client.portal.call(eng.fleets)
     items[0]["home"] = "ELSEWHERE"                                           # the fleet moved since
@@ -6685,3 +6684,55 @@ def test_explained_disappearances_show_with_their_reason(client):
     lost.record_gone(s, [{"code": "D1", "type": "mining_drone", "last_location": "SOL-OBJ-1", "reason": why["D1"]}])
     client.portal.call(db.kv_set, lost.KV, s)
     assert "asteroid impact" in client.get("/lost", headers=H).text
+
+
+def test_hubs_link_by_distance_and_hub_links_are_marked(client):
+    """Live 2026-10-15: hubs link by distance (15 ly), not across the galaxy. A hub's links are marked; two relays both
+    linked to one hub don't show their own link on the map."""
+    from rsweb import relaynet
+    pos = {"FAL": {"x": 0, "y": 0, "z": 0}, "SOL": {"x": 500, "y": 0, "z": 0}, "NEAR": {"x": 506, "y": 0, "z": 0},
+           "NEAR2": {"x": 503, "y": 4, "z": 0}}
+    devs = [{"device_code": "H1", "device_type": "system_hub", "location": "FAL-3-L4", "status": "active"},
+            {"device_code": "H2", "device_type": "system_hub", "location": "SOL-3-L4", "status": "active"},
+            {"device_code": "R1", "device_type": "ftl_relay", "location": "NEAR-2-L4", "status": "relaying"},
+            {"device_code": "R2", "device_type": "ftl_relay", "location": "NEAR2-2-L4", "status": "relaying"}]
+    rn = relaynet.networks(devs, pos)
+    assert len(rn["networks"]) == 2                              # FAL's hub is 500 ly away: its own network
+    assert all(l.get("hub") for l in rn["links"] if "SOL" in (l["a"], l["b"]))
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": k, "position": v} for k, v in pos.items()]})
+    links = client.get("/api/map.json?part=overlay", headers=H).json()["relay_net"]["links"]
+    assert {frozenset((l["a"], l["b"])) for l in links} == {frozenset(("SOL", "NEAR")), frozenset(("SOL", "NEAR2"))}
+
+
+
+def test_prospector_fleet_tours_one_prospect_per_star(client, monkeypatch):
+    """A prospector fleet (observatory + carrier) moves its folded observatory to the emptiest un-prospected star within
+    30 ly of home; the next prospect aims at the emptiest hemisphere."""
+    from rsweb import prospecting as pr
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    stars = [{"designation": "HOME", "position": {"x": 0, "y": 0, "z": 0}},
+             {"designation": "NEAR", "position": {"x": 5, "y": 0, "z": 0}},
+             {"designation": "FAR", "position": {"x": 60, "y": 0, "z": 0}}]
+    stars += [{"designation": f"C{i}", "position": {"x": -10 - i * 0.1, "y": 0, "z": 0}} for i in range(5)]   # a crowd west
+    client.portal.call(db.kv_set, "stars", {"stars": stars})
+    assert pr.rank_directions([[1, 0, 0], [-1, 0, 0]], [0, 0, 0],
+                              {s["designation"]: [s["position"][k] for k in "xyz"] for s in stars})[0] == [1, 0, 0]
+    obs = {"device_code": "OBS1", "device_type": "galactic_observatory", "location": "HOME-3-L4", "status": "compacted",
+           "tags": ["fleet:pro"], "available_commands": ["prospect", "unfurl"]}
+    car = {"device_code": "CAR1", "device_type": "surge_carrier", "location": "HOME-3-L4", "status": "idle",
+           "features": ["surge"], "attach_capacity": 4, "tags": ["fleet:pro"]}
+    client.portal.call(db.kv_set, "devices", [obs, car])
+    client.portal.call(db.kv_set, "prospected_from", {"HOME": {"at": "2026-10-15T00:00:00+00:00", "outcome": "3 new star(s)"}})
+    client.portal.call(eng.save_fleets, [{"id": "pro", "name": "Prospector 1", "role": "prospector", "home": "HOME", "wants": {}}])
+    async def covered(devices, stars=None):   # a relay network over the whole area
+        return {"HOME", "NEAR", "FAR"} | {f"C{i}" for i in range(5)}
+    monkeypatch.setattr(eng, "commandable", covered)
+    out = client.portal.call(eng.prospector_pass)
+    assert out and "HOME → " in out[0] and "FAR" not in out[0]          # FAR is beyond 30 ly
+    job = [j for j in client.portal.call(eng.jobs) if "prospecting tour" in j["title"]][-1]
+    assert [s["body"]["command"] for s in job["steps"] if s.get("body")] == ["attach", "travel", "detach"]
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "pro")
+    assert f["station"] is False and f["tour"]["target"] == "NEAR"     # the crowd west of HOME counts against C0…C4
+    assert client.get("/fleets/details", headers=H).status_code == 200

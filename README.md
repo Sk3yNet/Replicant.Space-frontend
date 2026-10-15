@@ -56,14 +56,14 @@ rule with an on/off switch, plus the jobs and the log.
   in a trade or to a contract, consumed by a print, contributed to a megastructure, held in a trade's escrow).
 
 ### Maps
-- **Galaxy**: 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
+- **Galaxy**: (every layer and each kind of star marker — mine, scanned, hubs, replicants, new finds, prospected from — has its own checkbox; your choices are remembered in this browser) 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
   rest of the catalog after), live: ships in transit, fleets,
   supply lines, mining sparkles and **prospecting cones** (each observatory scan, darker as it progresses) redraw as events
   arrive. Relay/hub range, search, distances, route preview; right-click (on touch: long-press) two stars to measure. **Other players** (coral):
   their fixed devices from the latest scans, a shield where someone else's ward or hub is, and an arrow for each arrival or
   departure your beacons logged in the last hour (with the likely other end of the trip), all fading with distance from the
   point the view is centered on. The **trail** of the replicant you follow is drawn in gold.
-- **Relays** (Map › Relays): *Live links* asks any relay or hub which neighbors it has really linked with (and flags links expected but missing); your relay networks — working relays (7.5 ly, or the range a relay reports) and active hubs
+- **Relays** (Map › Relays): *Live links* asks any relay or hub which neighbors it has really linked with (and flags links expected but missing); your relay networks — working relays (7.5 ly, or the range a relay reports) and active hubs (15 ly, by distance like relays — checked live 2026-10-15; on the galaxy map a hub's links are gold, and two relays both linked to the same hub don't show their own link)
   (15 ly) that reach each other — each in its own color, **active** when one of your replicants is within reach (only then
   can what it covers be commanded), with suggested bridges (the fewest new relays, at most 10, joining two networks) and
   *Add route* to order them. On the galaxy map (*relay network* option, off by default) links are curves, solid for active
@@ -108,13 +108,16 @@ rule with an on/off switch, plus the jobs and the log.
 - **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Evacuation** (game v3.5.0: what's left at an
   asteroid is destroyed on impact or lost on diversion): within the hour before impact, or at the game's
   `system.impact_warning`, your devices there leave for the system's entry point (propulsors still pushing stay until 30
-  minutes out; one that can't fly boards a carrier there), their `at:` pin to the asteroid is dropped, and a stockpile there
+  minutes out, and are recalled as soon as the asteroid is diverted enough: likelihood 0 or progress 100%; one that can't fly boards a carrier there), their `at:` pin to the asteroid is dropped, and a stockpile there
   is logistics' top priority. Nothing more is sent or printed for an asteroid due within the hour. **Upkeep**: wear per system and maintenance
   coverage.
 
 ### Fleets
 A fleet is a named group of devices tagged `fleet:<id>`, with a role (mining / explore / logistics), a home and a loadout (its own
 lines or a template).
+- **Fleets** (the landing page) shows each fleet's status against its loadout, loaded just after the page, and the templates
+  and loadout settings. **Fleet details** has the slower parts: each fleet's card (members, loadout, missions), what the next
+  loadout pass would do, the tags & controllers check, and what's spare or on the way.
 - **Stationed** fleets are kept at their loadout in their home system by the **loadout pass**: extras become `spare`, spares
   are sent where they're short (within the supply range, default 100 ly), what's still missing is printed and carried there
   (large devices are compacted first). Placed beacons and relays are never made spare or moved. A borrowed carrier only comes
@@ -141,6 +144,11 @@ lines or a template).
   compact when every direction is used up or the fleet is leaving.
 - **Auto-scout** (explore fleets): surveys the nearest unsurveyed systems within 100 ly of home, ring by ring (only inside relay
   coverage without a replicant aboard); sets out at 85 % capacity, comes home for repairs at 50 %.
+- **Prospector** fleets (role *prospector*: a galactic observatory and a carrier with an attach point): a tour of the
+  stars within 30 ly of the fleet's home. Each star is prospected from once (the game allows one prospect per star),
+  aimed at the emptiest hemisphere; then the observatory compacts and the carrier takes it to the next star — the
+  emptiest neighborhood not prospected from yet, nearer first, commandable, and not another prospector's. A tour that
+  hasn't moved on or prospected for 12 hours, or has no star left in range, raises a warning in the bell.
 - **Logistics** fleets (Fleets › Logistics): no missions; their devices deliver materials and devices on demand. A print delivery to another system leaves with its hold at least a quarter full (or carrying all that's wanted); a smaller load waits for more to be spared, also when a print is stalled if the trip is longer than 15 ly. The page's **In transit** card lists every hold with materials in it (what, where, heading for, which run), with totals; the dashboard's stockpiles show "+ N in transit".
   Requests: queued prints (their cost minus what's stocked), contracts you approved or whose civilization you pre-approved
   (Contracts), trades you approved (Shop: *approve*, used once; plain shop listings are never fulfilled), a home system's

@@ -31,9 +31,22 @@ def _ts(v: Any) -> float | None:
     return dt.timestamp() if dt else None
 
 
+def diverted_enough(o: dict) -> bool:
+    """Pushed far enough: the game puts the impact likelihood at 0, or the diversion progress at 100 %. More thrust is
+    wasted, and whatever is still there when it swings past is flung off and lost — so everything leaves now."""
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    lk, pg = num(o.get("impact_likelihood")), num(o.get("progress_pct"))
+    return (lk is not None and lk <= 0) or (pg is not None and pg >= 100)
+
+
 def due(objects: dict[str, dict], now: float | None = None, minutes: float = EVAC_MINUTES,
         warned: set[str] | frozenset = frozenset()) -> dict[str, float]:
-    """{object location: minutes to impact} for open objects due within `minutes` (or warned about by the game)."""
+    """{object location: minutes to impact} for open objects due within `minutes` (or warned about by the game), and
+    those diverted enough already (owner, 2026-10-15: the propulsors are recalled then, before the ETA)."""
     now = now if now is not None else datetime.now(timezone.utc).timestamp()
     out = {}
     for des, o in (objects or {}).items():
@@ -41,7 +54,7 @@ def due(objects: dict[str, dict], now: float | None = None, minutes: float = EVA
             continue
         eta = _ts(o.get("impact_eta"))
         left = (eta - now) / 60 if eta else None
-        if des in warned or (left is not None and left <= minutes):
+        if des in warned or (left is not None and left <= minutes) or diverted_enough(o):
             out[des] = left if left is not None else 0.0
     return out
 
@@ -86,12 +99,14 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
             st = str(d.get("status") or "").lower()
             if code in busy or st.startswith(MOVING) or code in hosts:
                 continue   # on its way already, or a replicant's vessel (the game evacuates those to orbit)
+            enough = diverted_enough(objects.get(loc) or {})
             if "propulsor" in (d.get("device_type") or "") and any(k in st for k in DIVERTING) \
-                    and left is not None and left > DIVERTER_MINUTES:
+                    and left is not None and left > DIVERTER_MINUTES and not enough:
                 continue   # still pushing it off course
             if "travel" in (d.get("available_commands") or ["travel"]) and "cruise" in (d.get("features") or ["cruise"]):
-                out["moves"].append({"code": code, "from": loc, "to": to,
-                                     "why": f"impact in {left:.0f} min" if left is not None else "impact warning"})
+                why = ("diverted enough — recalled before the swing-past" if enough
+                       else f"impact in {left:.0f} min" if left is not None else "impact warning")
+                out["moves"].append({"code": code, "from": loc, "to": to, "why": why})
                 leaving.append(code)
                 continue
             ride = next(((c, m) for c, s in seats.items() if c != code and (m := fl.take_seat(s, d))), None)
