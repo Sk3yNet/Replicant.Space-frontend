@@ -2089,6 +2089,24 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
         return [d["device_code"] for d in fl.members(f, devices)
                 if (_cap(d) < start_at if start_at is not None else _cap(d) <= self.SCOUT_MIN_CAPACITY)]
 
+    async def deploy_for_repairs(self, f: dict, weak: list[str], devices: list[dict]) -> list[str]:
+        """Only deployed devices get repaired: deploy the fleet's worn members still stowed in (or attached to) a vessel
+        parked in its home system. Readiness counts deployed members at home, so the next run takes them aboard again."""
+        from . import fleets as fl
+        by = {d.get("device_code"): d for d in devices}
+        home, out = f.get("home") or "", []
+        for code in weak:
+            d = by.get(code) or {}
+            host = by.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code") or "")
+            if (not host or not home or star_of(host.get("location")) != home or fl.in_flight(host)
+                    or str(host.get("status") or "").lower().startswith(("travel", "cruis", "surg"))):
+                continue
+            ok, _resp, err = await self.send("POST", f"/devices/{code}", {"command": "deploy"},
+                                             f"auto: deploy {code} for repairs ({f.get('name') or f.get('id')})")
+            out.append(f"{f.get('name') or f.get('id')}: deployed {code} for repairs" if ok
+                       else f"{f.get('name') or f.get('id')}: deploying {code} for repairs failed: {err}")
+        return out
+
     async def auto_scout_pass(self) -> list[str]:
         """Explore fleets with 'auto-scout' ticked: when one is free and every member is above 50 % capacity, send it
         to the next unsurveyed system (scout_next); each time it finishes a system it takes the next one, until a member
@@ -2105,10 +2123,17 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
         for f in free:
             weak = self.scout_unhealthy(f, devices, self.SCOUT_START_CAPACITY)
             if weak:
+                tried = set(f.get("repair_deploys") or [])
+                sent = await self.deploy_for_repairs(f, [c for c in weak if c not in tried], devices)
+                if sent:   # once per worn member: the device list may lag the deploy
+                    out += sent
+                    f["repair_deploys"], changed = sorted(tried | {c for c in weak if any(c in x for x in sent)}), True
                 note = f"waiting for repairs: {', '.join(weak)} below {self.SCOUT_START_CAPACITY:g} % capacity"
                 if f.get("scout_note") != note:
                     f["scout_note"], changed = note, True
                 continue
+            if f.get("repair_deploys"):
+                f["repair_deploys"], changed = [], True
             r = fl.readiness(f, devices)
             if not r["ready"]:   # nothing leaves short: the loadout pass fills it at home first
                 note = f"waiting: {fl.readiness_text(r)}"

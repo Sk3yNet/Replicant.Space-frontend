@@ -6861,3 +6861,29 @@ def test_docs_coverage_pages_2026_10_15(client):
     from rsweb import defence as dfn
     a = dfn.assess({"designation": "SOL-OBJ-9", "impact_eta": "2099-01-01T00:00:00Z", "launched_by_you": True}, [], {})
     assert a["verdict"] == "launched by you" and not a["threat"]
+
+
+def test_auto_scout_deploys_worn_members_for_repairs(client):
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(eng.save_fleets, [{"id": "x1", "name": "Scouts", "role": "explore", "home": "SOL", "wants": {},
+                                          "auto_scout": True}])
+    devices = client.portal.call(db.kv_get, "devices")
+    devices += [{"device_code": "SHIP0001", "device_type": "heaven_vessel", "location": "SOL-3", "status": "idle",
+                 "operational_capacity": 1.0, "tags": ["fleet:x1"]},
+                {"device_code": "WORN0001", "device_type": "survey_drone", "location": "SOL-3", "status": "stowed",
+                 "stowed_in_device_code": "SHIP0001", "operational_capacity": 0.6, "tags": ["fleet:x1"]}]
+    client.portal.call(db.kv_set, "devices", devices)
+    sent = []
+    real = eng.send
+
+    async def send(method, path, body, label):
+        sent.append((path, body))
+        return True, {}, None
+    eng.send = send
+    try:
+        out = client.portal.call(eng.auto_scout_pass)
+        assert out == ["Scouts: deployed WORN0001 for repairs"]
+        assert sent == [("/devices/WORN0001", {"command": "deploy"})]
+        assert client.portal.call(eng.auto_scout_pass) == [] and len(sent) == 1    # not again while the list lags
+    finally:
+        eng.send = real
