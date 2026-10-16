@@ -12,8 +12,10 @@
   <div class="card">
     {% if a %}
     <h2>Running: {{ a.name }} <span class="muted small">#{{ a.id }} · seed {{ a.seed }} · {{ a.replicant }}</span></h2>
-    <p class="small">Started {{ a.started_at | ago }} · build order: {{ variants[a.variant or 0].cap }} drones before printing stops ·
+    <p class="small">Started {{ a.started_at | ago }} · {% if not a.order %}build order: {{ variants[a.variant or 0].cap }} drones before printing stops ·{% endif %}
       {% if a.target %}{{ a.mined_seen | default(0) | num }} of {{ a.target | num }} mined at the belt{% endif %}</p>
+    {% if a.order %}<p class="small"><b>Build order: {{ a.order_name }}</b></p><ol class="small" style="margin:0 0 8px 18px;padding:0">
+      {% for st in a.order %}<li{% if loop.index0 < (a.order_idx or 0) %} class="muted" style="text-decoration:line-through"{% endif %}>{% if loop.index0 == (a.order_idx or 0) %}<b>{{ st.raw }}</b>{% else %}{{ st.raw }}{% endif %}</li>{% endfor %}</ol>{% endif %}
     <table class="small"><tr><th>Step</th><th class="num">Reached after</th></tr>
       {% for x in a.timeline %}<tr><td>{{ x.step }}</td><td class="num">{{ (x.t or 0) | duration }}</td></tr>{% endfor %}</table>
     {% if a.log %}<details class="small"><summary>log</summary>{% for l in a.log | reverse %}<div class="muted">{{ l.at | ago }} · {{ l.text }}</div>{% endfor %}</details>{% endif %}
@@ -49,6 +51,21 @@
     <div id="sim-result"></div>
   </div>
   <div class="card">
+    <h2>Build orders <span class="muted small">the next run follows <b>{{ order_choice }}</b></span></h2>
+    {% if orders %}<form hx-post="/simulations/orders/use" hx-target="#sim-result" class="row">
+      <select name="name">{% for n in orders %}<option{% if n == order_choice %} selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+      <button class="small">Use for the next run</button>
+      <button class="small ghost" name="delete" value="1" hx-confirm="Delete this build order?">Delete</button></form>{% endif %}
+    <form hx-post="/simulations/orders" hx-target="#sim-result" style="margin-top:6px">
+      <input name="name" value="{{ order_choice }}" size="20" placeholder="name">
+      <textarea name="text" rows="11" style="width:100%;font-family:monospace">{{ order_text }}</textarea>
+      <p class="muted small">One step per line: <span class="mono">scan system</span> · <span class="mono">deploy all</span> ·
+        <span class="mono">mine: structural, conductive</span> · <span class="mono">print 2 mining_drone</span> ·
+        <span class="mono">wait: 500 structural</span> (or <span class="mono">wait: 2000 total</span>) ·
+        <span class="mono">mine until objective</span>. Lines starting with # are notes.</p>
+      <button class="small">Save and use</button></form>
+  </div>
+  <div class="card">
     <h2>What was learned</h2>
     {% for sc in scenarios %}{% if lessons[sc.code] %}<div class="small"><b>{{ sc.name }}</b>
       <ul>{% for l in lessons[sc.code] %}<li>{{ l }}</li>{% endfor %}</ul></div>{% endif %}{% endfor %}
@@ -78,7 +95,7 @@
 {% if runs %}
 <div class="card"><h2>Reports</h2>
   {% for r in runs %}<details class="small"{% if loop.first %} open{% endif %}><summary><b>{{ r.name }}</b> #{{ r.id }} · {{ r.outcome }}
-    {% if r.score_seconds %}· <b>{{ r.score_seconds | duration }}</b>{% endif %} · {{ r.ended_at | ago }} · build order {{ variants[r.variant or 0].cap }} drones</summary>
+    {% if r.score_seconds %}· <b>{{ r.score_seconds | duration }}</b>{% endif %} · {{ r.ended_at | ago }} · {% if r.order_name %}build order {{ r.order_name }}{% if r.order_steps %} ({{ r.order_steps }} steps){% endif %}{% else %}build order {{ variants[r.variant or 0].cap }} drones{% endif %}</summary>
     <p>{% if r.resources_mined %}{{ r.resources_mined | num }} mined · {% endif %}{% if r.devices_printed is not none %}{{ r.devices_printed }} printed · {% endif %}seed {{ r.seed }} · {{ r.replicant }}</p>
     <table class="small"><tr><th>Step</th><th class="num">Reached after</th></tr>
       {% for x in r.timeline %}<tr><td>{{ x.step }}</td><td class="num">{{ (x.t or 0) | duration }}</td></tr>{% endfor %}</table>

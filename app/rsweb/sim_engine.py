@@ -76,12 +76,22 @@ class SimMixin:
                        "timeout_hours": g.get("timeout_hours") or sc.get("timeout_hours"),
                        "target": sc.get("objective_target"), "variant": vi, "timeline": [], "log": [], "scans": {},
                        "adopted": True}
+        self._sim_attach_order(s)
         sim.mark(s["active"], "entered", s["active"]["started_at"])
         s.pop("prep", None)
         await self.sim_save(s)
         await self.log("simulation", f"took over {s['active']['name']} (#{s['active']['id']}) with {rep}: the game reports "
                                      f"it running", notify=True)
         return [f"simulation: took over {s['active']['name']} #{s['active']['id']}"]
+
+    @staticmethod
+    def _sim_attach_order(s: dict) -> None:
+        """The run follows the build order chosen on the Simulations page (the built-in one if none is)."""
+        from . import sim_order
+        name = s.get("order_choice") or "Default"
+        text = (s.get("orders") or {}).get(name) or sim_order.DEFAULT
+        steps, _ = sim_order.parse(text)
+        s["active"].update(order=steps, order_name=name, order_idx=0, order_done=[])
 
     async def sim_prep_pass(self, s: dict) -> list[str]:
         from .loadouts import at_tag, is_factory, to_tag
@@ -232,11 +242,12 @@ class SimMixin:
                        "start_location": resp.get("starting_location"), "started_at": now_iso(),
                        "timeout_hours": resp.get("timeout_hours") or sc.get("timeout_hours"),
                        "target": sc.get("objective_target"), "variant": vi, "timeline": [], "log": [], "scans": {}}
+        self._sim_attach_order(s)
         sim.mark(s["active"], "entered", now_iso())
         s.pop("prep", None)
         await self.sim_save(s)
         await self.log("simulation", f"started {s['active']['name']} (#{s['active']['id']}) with {rep}, build order: "
-                                     f"{sim.VARIANTS[vi]['cap']} drones", notify=True)
+                                     f"{s['active'].get('order_name')}", notify=True)
         return True, f"started {s['active']['name']}"
 
     async def sim_run_pass(self, s: dict) -> list[str]:
@@ -296,7 +307,16 @@ class SimMixin:
                 sim.mark(a, f"{pct}% of the objective", now)
         w = {"devices": devs, "scans": a["scans"], "inventory": inv,
              "bps": {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}}
-        ev = bt.compound(f, w, star, v["cap"], autofactory=False)
+        if a.get("order"):   # the owner's build order (sim_order), step by step
+            from . import sim_order
+            seen = len(a.get("order_done") or [])
+            bd = (belt or {}).get("designation")
+            o_acts, note = sim_order.advance(a, devs, vessel, bd, inv.get(bd) or {}, star in a["scans"], now)
+            for x in (a.get("order_done") or [])[seen:]:
+                sim.mark(a, f"step {x['step'] + 1}: {a['order'][x['step']]['raw']}", now)
+            ev = {"actions": o_acts, "next": note, "done": int(a.get("order_idx") or 0) >= len(a["order"])}
+        else:
+            ev = bt.compound(f, w, star, v["cap"], autofactory=False)
         miners = [d for d in devs if d.get("device_type") == "mining_drone"]
         if any(not d.get("stowed_in_device_code") and d.get("location") for d in miners):
             sim.mark(a, "drones deployed", now)
@@ -347,6 +367,8 @@ class SimMixin:
         if hist and hist.get("completed_at"):
             sim.mark(a, "objective complete", hist["completed_at"])
         rep = sim.report(a, hist, outcome)
+        rep["order_name"] = a.get("order_name")
+        rep["order_steps"] = f"{len(a.get('order_done') or [])} of {len(a.get('order') or [])}" if a.get("order") else None
         s.setdefault("runs", []).append(rep)
         s["runs"] = s["runs"][-50:]
         if rep.get("score_seconds"):

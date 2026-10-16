@@ -7008,3 +7008,49 @@ def test_simulated_world_kept_apart(client):
     client.portal.call(db.kv_set, "devices", devices)   # (the mock's own syncs list no simulated devices)
     t = client.get("/simulations", headers=H).text
     assert "Virtual galaxy" in t
+
+
+def test_build_order_parse_and_play():
+    from rsweb import sim_order
+    steps, errors = sim_order.parse("scan system\ndeploy all\nmine: structural, conductive\nprint 2 mining_drone\n"
+                                    "wait: 500 structural\nmine until objective\n# note\nfly away")
+    assert [s["kind"] for s in steps] == ["scan", "deploy", "mine", "print", "wait", "mine_all"]
+    assert errors == ["line 8: not understood: fly away"]
+    a = {"order": steps}
+    belt, now = "VIRTX-BELT-1", "2026-10-16T00:00:00+00:00"
+    vessel = {"device_code": "V1", "device_type": "heaven_vessel", "location": "VIRTX-3-L4", "status": "idle"}
+    devs = [vessel, {"device_code": "M1", "device_type": "mining_drone", "stowed_in_device_code": "V1"},
+            {"device_code": "M2", "device_type": "mining_drone", "stowed_in_device_code": "V1"}]
+    acts, note = sim_order.advance(a, devs, vessel, belt, {}, True, now)
+    assert acts == [{"kind": "travel", "device": "V1", "to": belt}] and a["order_idx"] == 1   # scan done, flying out
+    vessel["location"] = belt
+    acts, _ = sim_order.advance(a, devs, vessel, belt, {}, True, now)
+    assert [x["kind"] for x in acts] == ["deploy", "deploy"]
+    for d in devs[1:]:
+        d.pop("stowed_in_device_code"); d["location"], d["status"] = belt, "idle"
+    acts, _ = sim_order.advance(a, devs, vessel, belt, {}, True, now)
+    assert [(x["device"], x["resource"]) for x in acts] == [("M1", "structural"), ("M2", "conductive")]
+    for d in devs[1:]:
+        d["status"] = "mining"
+    acts, _ = sim_order.advance(a, devs, vessel, belt, {}, True, now)
+    assert acts == [{"kind": "print", "device_type": "mining_drone"}] and a["order_idx"] == 3
+    vessel["status"] = "printing"
+    assert sim_order.advance(a, devs, vessel, belt, {}, True, now)[0] == []
+    devs += [{"device_code": f"M{i}", "device_type": "mining_drone", "location": belt, "status": "mining"} for i in (3, 4)]
+    vessel["status"] = "idle"
+    acts, note = sim_order.advance(a, devs, vessel, belt, {"structural": 120}, True, now)
+    assert acts == [] and "120 so far" in note and a["order_idx"] == 4
+    acts, note = sim_order.advance(a, devs, vessel, belt, {"structural": 600}, True, now)
+    assert a["order_idx"] == 5 and note == "mine until objective"
+
+
+def test_build_order_saved_and_followed(client):
+    eng = client.app.state.worker.automations
+    r = client.post("/simulations/orders", data={"name": "Fast", "text": "scan system\nprint 1 mining_drone"}, headers=HX)
+    assert "Saved Fast (2 steps)" in r.text
+    assert "Not saved" in client.post("/simulations/orders", data={"name": "Bad", "text": "dance"}, headers=HX).text
+    page = client.get("/simulations", headers=H).text
+    assert "Build orders" in page and "the next run follows <b>Fast</b>" in page
+    ok, _ = client.portal.call(eng.sim_start, "mining_rush", "77F75255")
+    a = client.portal.call(eng.sim_state)["active"]
+    assert ok and a["order_name"] == "Fast" and [x["kind"] for x in a["order"]] == ["scan", "print"]

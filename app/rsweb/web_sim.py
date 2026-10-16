@@ -19,6 +19,11 @@ def _msg(text: str, ok: bool = True) -> HTMLResponse:
                         headers={"HX-Refresh": "true"} if ok else {})
 
 
+def _default_order() -> str:
+    from .sim_order import DEFAULT
+    return DEFAULT
+
+
 @router.get("/simulations", response_class=HTMLResponse)
 async def simulations_page(request: Request, user: str = Depends(current_user)):
     eng = request.app.state.worker.automations
@@ -32,8 +37,43 @@ async def simulations_page(request: Request, user: str = Depends(current_user)):
     return await page(request, user, "simulations.html", "simulations", s=s, loc=loc, reps_here=reps_here,
                       scenarios=s.get("scenarios") or sim.DOC_SCENARIOS, variants=sim.VARIANTS, cur=scen,
                       lessons=lessons, runs=list(reversed(s.get("runs") or [])),
+                      orders=s.get("orders") or {}, order_choice=s.get("order_choice") or "Default",
+                      order_text=(s.get("orders") or {}).get(s.get("order_choice") or "") or _default_order(),
                       virt_devices=await request.app.state.db.kv_get("sim:devices", []) or [],
                       virt_stock=await request.app.state.db.kv_get("sim:inventory", []) or [])
+
+
+@router.post("/simulations/orders", response_class=HTMLResponse)
+async def simulations_order_save(request: Request, name: str = Form(...), text: str = Form(""),
+                                 user: str = Depends(current_user)):
+    """Save a build order (and choose it for the next run)."""
+    from . import sim_order
+    name = name.strip()[:40] or "Default"
+    steps, errors = sim_order.parse(text)
+    if errors:
+        return _msg("Not saved: " + "; ".join(errors), ok=False)
+    eng = request.app.state.worker.automations
+    s = await eng.sim_state()
+    s.setdefault("orders", {})[name] = text.strip()
+    s["order_choice"] = name
+    await eng.sim_save(s)
+    return _msg(f"Saved {name} ({len(steps)} steps); the next run follows it.")
+
+
+@router.post("/simulations/orders/use", response_class=HTMLResponse)
+async def simulations_order_use(request: Request, name: str = Form(...), delete: str = Form(""),
+                                user: str = Depends(current_user)):
+    eng = request.app.state.worker.automations
+    s = await eng.sim_state()
+    if delete:
+        (s.get("orders") or {}).pop(name, None)
+        if s.get("order_choice") == name:
+            s.pop("order_choice", None)
+        await eng.sim_save(s)
+        return _msg(f"Deleted {name}.")
+    s["order_choice"] = name
+    await eng.sim_save(s)
+    return _msg(f"The next run follows {name}.")
 
 
 @router.post("/simulations/queue", response_class=HTMLResponse)

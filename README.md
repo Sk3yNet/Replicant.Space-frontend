@@ -78,8 +78,9 @@ rule with an on/off switch, plus the jobs and the log.
   there, the bell nags (every 2 h) until you press *Start*. The bootstrap's compounding logic plays the run on the
   simulation's own devices (no other automation touches them; everything from the virtual galaxy, the VIRT… systems, is kept apart: its devices, stockpiles, stars, surveys and events never reach your real numbers, map or alerts, and the page shows them in a Virtual galaxy card), recording when each build-order step was reached. When
   it ends, everything from inside it (devices, events, scans, jobs) is purged; the report stays (score, resources
-  mined, devices printed, the step times), and the next run's build order (how many drones before printing stops)
-  is chosen from the scores so far — untried orders first, then the best, now and then the runner-up.
+  mined, devices printed, the step times), and the next run follows the build order you choose: a Build orders card holds named orders, one step per line
+  (`scan system`, `deploy all`, `mine: structural, conductive`, `print 2 mining_drone`, `wait: 500 structural`,
+  `mine until objective`); the run card crosses steps off as they're done and the timeline records when.
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
 - **Systems list**: per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &
   relays* ticked) your ward, FTL relay and FTL beacon with *add* (activate an idle one there, else send a spare, else print
