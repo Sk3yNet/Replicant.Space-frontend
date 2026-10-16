@@ -7234,3 +7234,17 @@ def test_supplying_fleet_sends_to_the_nearest_receiver(client):
     assert m["materials"] == "supply" and fl.materials_target(m, items)["id"] == "near"
     t = client.get("/fleets/overview", headers=HX).text
     assert "supplying the nearest receiver" in t and "to Near hub (NEARHUB), the nearest" in t
+
+
+def test_device_page_links_host_and_cargo_codes(client):
+    db = client.app.state.db
+    devices = client.portal.call(db.kv_get, "devices")
+    devices += [{"device_code": "HOSTV001", "device_type": "cargo_vessel", "location": "SOL-3", "status": "idle",
+                 "stowed_devices": ["RIDE0001"], "attached_devices": [{"device_code": "TOW00001", "device_type": "autofactory"}]},
+                {"device_code": "RIDE0001", "device_type": "mining_drone", "location": None, "status": "stowed",
+                 "stowed_in_device_code": "HOSTV001"}]
+    client.portal.call(db.kv_set, "devices", devices)
+    t = client.get("/devices/RIDE0001", headers=H).text
+    assert '<a class="mono" href="/devices/HOSTV001">HOSTV001</a>' in t
+    t = client.get("/devices/HOSTV001", headers=H).text
+    assert 'href="/devices/RIDE0001">RIDE0001</a>' in t and 'href="/devices/TOW00001">TOW00001</a>' in t
