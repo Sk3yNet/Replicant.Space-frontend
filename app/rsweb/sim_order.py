@@ -24,7 +24,7 @@ wait: 500 structural
 print 3 mining_drone
 mine until objective"""
 
-RESOURCES = ("structural", "conductive", "silicates", "volatiles", "exotic", "radioactive", "organics")
+from .bootstrap import RESOURCES  # noqa: E402  (the game's six)
 
 
 def parse(text: str) -> tuple[list[dict], list[str]]:

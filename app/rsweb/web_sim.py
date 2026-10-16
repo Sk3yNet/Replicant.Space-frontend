@@ -7,8 +7,9 @@ import html
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
-from . import sim
+from . import sim, sim_order
 from .db import now_iso
+from .shapes import normalize_blueprints
 from .web import current_user, load_state, page, run_action
 
 router = APIRouter()
@@ -37,6 +38,9 @@ async def simulations_page(request: Request, user: str = Depends(current_user)):
     return await page(request, user, "simulations.html", "simulations", s=s, loc=loc, reps_here=reps_here,
                       scenarios=s.get("scenarios") or sim.DOC_SCENARIOS, variants=sim.VARIANTS, cur=scen,
                       lessons=lessons, runs=list(reversed(s.get("runs") or [])),
+                      bp_types=sorted({b["device_type"] for b in normalize_blueprints(
+                          await request.app.state.db.kv_get("blueprints", [])) if b.get("device_type")}),
+                      resources=sim_order.RESOURCES,
                       orders=s.get("orders") or {}, order_choice=s.get("order_choice") or "Default",
                       order_text=(s.get("orders") or {}).get(s.get("order_choice") or "") or _default_order(),
                       virt_devices=await request.app.state.db.kv_get("sim:devices", []) or [],

@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.110.0"
+VERSION = "1.111.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.111.0", "2026-10-16", "Simulations: build-order steps as buttons (scan system, deploy all, mine until objective; "
+               "mine: with resource checkboxes; print N of any blueprint; wait: N of a resource or total; undo)"),
     ("1.110.0", "2026-10-16", "Simulations: programmable build orders. Write named orders on the Simulations page (scan "
                "system, deploy all, mine: resources, print N type, wait: N resource, mine until objective); the next run "
                "follows the one you choose, the run card crosses off each step and the timeline records when"),

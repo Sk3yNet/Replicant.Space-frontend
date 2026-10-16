@@ -7051,6 +7051,7 @@ def test_build_order_saved_and_followed(client):
     assert "Not saved" in client.post("/simulations/orders", data={"name": "Bad", "text": "dance"}, headers=HX).text
     page = client.get("/simulations", headers=H).text
     assert "Build orders" in page and "the next run follows <b>Fast</b>" in page
+    assert "boAdd('deploy all')" in page and 'class="bo-res" value="carbon"' in page and "<option>mining_drone</option>" in page.replace(" selected", "")
     ok, _ = client.portal.call(eng.sim_start, "mining_rush", "77F75255")
     a = client.portal.call(eng.sim_state)["active"]
     assert ok and a["order_name"] == "Fast" and [x["kind"] for x in a["order"]] == ["scan", "print"]
