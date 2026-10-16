@@ -865,3 +865,17 @@ def test_civ_beacon_prints_never_go_to_a_vessel():
     p = tr.placement("LOR-3", [hv, af], reps, {}, set(), use_replicant_vessel=False)
     assert p["kind"] == "factory" and p["factory"] == "AF1"
     assert tr.placement("LOR-3", [hv], reps, {}, set(), use_replicant_vessel=False)["kind"] == "none"
+
+
+def test_civ_beacon_pass_never_prints_on_the_vessel_of_a_replicant_at_the_body():
+    """Owner 2026-10-16: heaven vessels still got civ beacon prints. A replicant sitting at the event body took the
+    `print` branch (its replicant print lands in the vessel's queue); only the manual Place beacon may do that."""
+    from rsweb import traffic as tr
+    hv = {"device_code": "HV1", "device_type": "heaven_vessel", "location": "LOR-3", "status": "idle",
+          "features": ["cruise", "stow"], "stow_capacity": 4, "available_commands": ["enqueue_print", "travel"]}
+    af = {"device_code": "AF1", "device_type": "autofactory", "location": "LOR-1", "status": "idle",
+          "features": [], "available_commands": ["enqueue_print"]}
+    reps = {"R1": {"hosted_device_code": "HV1", "location": "LOR-3"}}
+    assert tr.placement("LOR-3", [hv, af], reps, {}, set(), use_replicant_vessel=False, vessel_print=False)["factory"] == "AF1"
+    assert tr.placement("LOR-3", [hv], reps, {}, set(), use_replicant_vessel=False, vessel_print=False)["kind"] == "none"
+    assert tr.placement("LOR-3", [hv], reps, {}, set())["kind"] == "print"      # manual: still allowed

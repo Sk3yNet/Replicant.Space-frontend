@@ -163,11 +163,10 @@ RULES: list[Rule] = [
          "As soon as a survey discovers an event (and every 10 minutes for older ones) this puts a beacon at that body, so "
          "it's already there when you complete the event. Beacons can't fly, so, cheapest first: a vessel in the system "
          "that carries one flies there and deploys it; a vessel picks up a loose beacon (tagged civ or spare — e.g. one "
-         "just printed) and takes it there; a replicant at the body prints one on its vessel; otherwise one is printed on "
-         "the system's autofactory (tagged civ) and fetched on a later pass.",
+         "just printed) and takes it there; otherwise one is printed on the system's autofactory (tagged civ) and fetched "
+         "on a later pass. Never printed on a vessel (Place beacon on the Traffic page can have a replicant print one).",
          [Option("print_beacons", "bool", "Print a beacon on the system's autofactory when none is free", True,
                  help="60 structural + 20 conductive each"),
-          Option("allow_print", "bool", "Print on a replicant's vessel when the replicant is at the body", True),
           Option("use_replicant_vessel", "bool", "Also use vessels that host your replicant to carry beacons", False,
                  help="Moves your replicant"),
           Option("spare_redundant", "bool", "Mark beacons a system doesn't need as spare", True,

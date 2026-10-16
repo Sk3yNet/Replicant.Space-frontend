@@ -233,7 +233,7 @@ def is_vessel(d: dict) -> bool:
 
 def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[str, list[str]],
               busy: set[str] | None = None, use_replicant_vessel: bool = True, keep: set[str] | None = None,
-              bps: dict[str, dict] | None = None) -> dict:
+              bps: dict[str, dict] | None = None, vessel_print: bool = True) -> dict:
     """How to get a beacon deployed at `loc` (beacons can't fly). Cheapest first:
       deploy — a replicant is at loc and its vessel carries one
       carry  — a vessel in the system carries one: fly it there, deploy
@@ -243,8 +243,9 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
       print  — a replicant is at loc: print one on its vessel (≈100 s), deploy it
       factory — nothing to carry yet: print one on the system's autofactory (tagged `civ`); a later pass fetches it
       none
-    Vessels hosting a replicant are only used when use_replicant_vessel is True. `keep` = locations whose beacon
-    must stay (other event bodies)."""
+    Vessels hosting a replicant are only used when use_replicant_vessel is True. `print` only when vessel_print is
+    True (the automatic pass passes False: a replicant's print lands in its vessel's queue). `keep` = locations whose
+    beacon must stay (other event bodies)."""
     busy, keep = busy or set(), keep or set()
     by = {d.get("device_code"): d for d in devices}
     holds: dict[str, list[str]] = defaultdict(list)
@@ -275,6 +276,8 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
             if b:
                 return {"kind": "deploy", "beacon": b, "vessel": host, "replicant": rep,
                         "text": f"deploy beacon {b} from {r.get('name') or rep}'s vessel {host} (already at {loc})"}
+    if not vessel_print:
+        rep_here = None
     vessels = [v for v in sorted(devices, key=lambda d: (d.get("device_code") in hosts, d.get("device_code") or ""))
                if is_vessel(v) and star_of(v.get("location")) == star and v.get("device_code") not in busy
                and not str(v.get("status") or "").startswith(("stowed", "travel", "cruis", "surg"))
