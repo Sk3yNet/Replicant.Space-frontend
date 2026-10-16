@@ -81,6 +81,8 @@ rule with an on/off switch, plus the jobs and the log.
   mined, devices printed, the step times), and the next run follows the build order you choose: a Build orders card holds named orders, one step per line
   (`scan system`, `deploy all`, `mine: structural, conductive`, `print 2 mining_drone`, `wait: 500 structural`,
   `mine until objective`); the run card crosses steps off as they're done and the timeline records when.
+  Runs in the game lists every run the game has going: End early on any of yours, and a devices & galaxy page per run
+  (its devices, stock and a top-down map of the virtual stars around its replicant, read live).
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
 - **Systems list**: per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &
   relays* ticked) your ward, FTL relay and FTL beacon with *add* (activate an idle one there, else send a spare, else print

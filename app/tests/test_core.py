@@ -6981,7 +6981,7 @@ def test_simulation_run_started_elsewhere_is_taken_over(client):
     assert any("took over Mining Rush #42" in x for x in out), out
     s = client.portal.call(eng.sim_state)
     assert s["active"]["id"] == 42 and s["active"]["replicant"] == "77F75255" and s["active"]["adopted"]
-    assert "The game's view of the run" in client.get("/simulations", headers=H).text
+    assert "Runs in the game" in client.get("/simulations", headers=H).text
 
 
 def test_simulated_world_kept_apart(client):
@@ -7055,3 +7055,18 @@ def test_build_order_saved_and_followed(client):
     ok, _ = client.portal.call(eng.sim_start, "mining_rush", "77F75255")
     a = client.portal.call(eng.sim_state)["active"]
     assert ok and a["order_name"] == "Fast" and [x["kind"] for x in a["order"]] == ["scan", "print"]
+
+
+def test_simulation_runs_end_early_and_world(client):
+    eng = client.app.state.worker.automations
+    ok, _ = client.portal.call(eng.sim_start, "mining_rush", "77F75255")
+    assert ok
+    t = client.get("/simulations/active", headers=HX).text
+    assert "#42" in t and "End early" in t and 'href="/simulations/world/42"' in t
+    w = client.get("/simulations/world/42", headers=H).text
+    assert "Simulation #42" in w and "SIM8F2A1" in w and "<svg" in w
+    r = client.post("/simulations/end", data={"sim_id": "42"}, headers=HX)
+    assert r.status_code == 200
+    s = client.portal.call(eng.sim_state)
+    assert not s.get("active") and s["runs"][-1]["id"] == 42
+    assert "No simulation running" in client.get("/simulations/active", headers=HX).text

@@ -291,6 +291,11 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                   "objective_type": "yield_quota", "objective_target": 3000,
                                   "entry_cost": {"device_type": "compute_core", "quantity": 1}, "timeout_hours": 4}]})
 
+    @app.delete("/v1/devices/{code}/simulate/{sim_id}")
+    async def sim_end(code: str, sim_id: int):
+        sims["active"] = None
+        return ok({"simulation_id": sim_id, "status": "abandoned"})
+
     @app.get("/v1/devices/{code}/simulate/active")
     async def sim_active(code: str):
         a = sims["active"]

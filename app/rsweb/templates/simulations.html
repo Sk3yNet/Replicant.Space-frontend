@@ -108,7 +108,7 @@
   <div class="card"><h2>Leaderboards <span class="muted small">all players</span></h2>
     <div hx-get="/simulations/leaderboard" hx-trigger="load"><p class="muted small">Loading…</p></div></div>
 </div>
-{% if s.interface and s.interface.code %}<div class="card"><h2>The game's view of the run</h2>
+{% if s.interface and s.interface.code %}<div class="card"><h2>Runs in the game <span class="muted small">end one early, or open its devices and galaxy</span></h2>
   <div hx-get="/simulations/active" hx-trigger="load"><p class="muted small">Loading…</p></div></div>{% endif %}
 {% if virt_devices or virt_stock %}<div class="card"><h2>Virtual galaxy <span class="muted small">kept apart from your real devices, stock and map</span></h2>
   {% if virt_devices %}<table class="small"><tr><th>Device</th><th>Type</th><th>Where</th><th>Status</th></tr>

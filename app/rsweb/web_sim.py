@@ -199,7 +199,7 @@ async def simulations_leaderboard(request: Request, scenario: str = "", user: st
 
 @router.get("/simulations/active", response_class=HTMLResponse)
 async def simulations_active(request: Request, user: str = Depends(current_user)):
-    """GET /devices/{interface}/simulate/active: the run as the game sees it."""
+    """GET /devices/{interface}/simulate/active: the runs the game has going, each with End early and its world."""
     from .api import ApiError
     s = await request.app.state.worker.automations.sim_state()
     iface = _iface(s)
@@ -209,9 +209,103 @@ async def simulations_active(request: Request, user: str = Depends(current_user)
         b = await request.app.state.api.get(f"/devices/{iface}/simulate/active") or {}
     except ApiError as e:
         return HTMLResponse(f'<p class="result err">{html.escape(e.message)}</p>')
-    import json as _json
-    return HTMLResponse(f'<pre class="small">{html.escape(_json.dumps(b, indent=1, default=str)[:4000])}</pre>')
+    runs = [r for r in b.get("simulations") or [] if isinstance(r, dict)]
+    if not runs:
+        return HTMLResponse('<p class="muted small">No simulation running.</p>')
+    rows = []
+    for r in runs:
+        sid, name = r.get("simulation_id"), str(r.get("replicant_name") or "")
+        left = _left(r.get("started_at"), r.get("timeout_hours"))
+        acts = ""
+        if r.get("is_mine"):
+            acts = (f'<a href="/simulations/world/{html.escape(str(sid))}">devices &amp; galaxy</a> '
+                    f'<button class="small ghost" hx-post="/simulations/end" hx-vals=\'{{"sim_id": "{html.escape(str(sid))}"}}\' '
+                    f'hx-target="#sim-result" hx-confirm="End simulation #{html.escape(str(sid))} ({html.escape(name)}) now? '
+                    f'No score is recorded and the entry cost is not refunded.">End early</button>')
+        rows.append(f'<tr><td>#{html.escape(str(sid))}</td><td>{html.escape(str(r.get("scenario_name") or r.get("scenario_code") or ""))}</td>'
+                    f'<td>{html.escape(name)}{"" if r.get("is_mine") else " <span class=muted>(not yours)</span>"}</td>'
+                    f'<td class="muted">{left}</td><td>{acts}</td></tr>')
+    return HTMLResponse('<table class="small"><tr><th>Run</th><th>Scenario</th><th>Replicant</th><th>Time left</th><th></th></tr>'
+                        + "".join(rows) + "</table>")
 
+
+def _left(started: str | None, hours) -> str:
+    from datetime import datetime, timedelta, timezone
+    try:
+        t0 = datetime.fromisoformat(str(started))
+        if t0.tzinfo is None:   # the game gives it without an offset: UTC (live 2026-10-15)
+            t0 = t0.replace(tzinfo=timezone.utc)
+        end = t0 + timedelta(hours=float(hours))
+    except (TypeError, ValueError):
+        return ""
+    secs = int((end - datetime.now(timezone.utc)).total_seconds())
+    return "timed out" if secs <= 0 else f"{secs // 3600} h {secs % 3600 // 60:02d} min"
+
+
+@router.post("/simulations/end", response_class=HTMLResponse)
+async def simulations_end(request: Request, sim_id: str = Form(...), user: str = Depends(current_user)):
+    """End one run early (DELETE /devices/{interface}/simulate/{id}); the app's own run is closed with it."""
+    eng = request.app.state.worker.automations
+    s = await eng.sim_state()
+    iface = _iface(s)
+    if not iface:
+        return _msg("No interface known.", ok=False)
+    out = await run_action(request, user, "DELETE", f"/devices/{iface}/simulate/{sim_id}", None, f"end simulation {sim_id}")
+    s = await eng.sim_state()
+    if s.get("active") and str(s["active"].get("id")) == str(sim_id):
+        await eng.sim_finish(s, "abandoned")
+    return out
+
+
+@router.get("/simulations/world/{sim_id}", response_class=HTMLResponse)
+async def simulations_world(request: Request, sim_id: str, user: str = Depends(current_user)):
+    """One run's own world, read live through its replicant: devices, stock and the virtual galaxy around it."""
+    from .api import ApiError
+    eng = request.app.state.worker.automations
+    s = await eng.sim_state()
+    iface, api = _iface(s), request.app.state.api
+    run, err = {}, None
+    try:
+        b = await api.get(f"/devices/{iface}/simulate/active") or {} if iface else {}
+        run = next((r for r in b.get("simulations") or [] if str(r.get("simulation_id")) == sim_id), {})
+    except ApiError as e:
+        err = e.message
+    a = s.get("active") or {}
+    rep = a.get("replicant") if str(a.get("id")) == sim_id else None
+    if not rep and run:
+        reps = await request.app.state.db.kv_get("replicants", {}) or {}
+        rep = run.get("replicant_code") or next((c for c, r in reps.items() if isinstance(r, dict)
+                                                 and r.get("name") == run.get("replicant_name")), None)
+    devices, stars, here = [], [], {}
+    if rep:
+        try:
+            devices = (await api.get(f"/replicants/{rep}/devices") or {}).get("devices") or []
+            sb = await api.get(f"/replicants/{rep}/stars", per_page=50) or {}
+            stars, here = sb.get("stars") or [], sb.get("replicant_position") or {}
+        except ApiError as e:
+            err = e.message
+    names = {x.get("designation") for x in stars} | {str(d.get("location") or "").split("-")[0] for d in devices}
+    stock = [x for x in await request.app.state.db.kv_get("sim:inventory", []) or []
+             if str(x.get("location") or "").split("-")[0] in names]
+    occupied = {str(d.get("location") or "").split("-")[0] for d in devices if d.get("location")}
+    return await page(request, user, "sim_world.html", "simulations", sim_id=sim_id, run=run or a, rep=rep, err=err,
+                      devices=sorted(devices, key=lambda d: (str(d.get("device_type")), str(d.get("device_code")))),
+                      stock=stock, galaxy=_galaxy(stars, here, occupied))
+
+
+def _galaxy(stars: list[dict], here: dict, occupied: set[str]) -> dict:
+    """Top-down (x, z) positions scaled into a 600 × 600 box around the replicant."""
+    pts = []
+    for x in stars:
+        p = x.get("position") or {}
+        pts.append({"name": x.get("designation"), "dx": float(p.get("x") or 0) - float(here.get("x") or 0),
+                    "dz": float(p.get("z") or 0) - float(here.get("z") or 0), "explored": bool(x.get("explored")),
+                    "life": bool(x.get("has_life")), "dist": x.get("distance_from_replicant"),
+                    "color": str(x.get("color") or "").lower(), "occupied": x.get("designation") in occupied})
+    r = max([max(abs(p["dx"]), abs(p["dz"])) for p in pts] + [1.0])
+    for p in pts:
+        p["sx"], p["sy"] = round(300 + p["dx"] / r * 270, 1), round(300 + p["dz"] / r * 270, 1)
+    return {"stars": pts, "radius": round(r, 2)}
 
 def _dur(v) -> str:
     try:
