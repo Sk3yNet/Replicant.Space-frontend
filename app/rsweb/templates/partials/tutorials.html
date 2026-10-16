@@ -1,3 +1,4 @@
+{% macro grad(g) %}{% if g %}{% if g is string %}{{ g }}{% elif g is mapping %}{{ g.description or g.message or g.title or g.name or (g | tojson) }}{% else %}{{ g }}{% endif %}{% endif %}{% endmacro %}
 {% set tuts = tut.tutorials or [] %}
 {% set left = tuts | rejectattr('completed') | list %}
 <div class="row between"><h2>Tutorials <span class="muted small">{{ tuts | length - left | length }} of {{ tuts | length }} done</span></h2>
@@ -8,10 +9,11 @@
 {% else %}
 {% set d = tut.detail or {} %}
 {% if d.steps %}<div class="small" style="margin-bottom:8px"><b>{{ d.name }}</b> <span class="muted">{{ d.description }}</span>
+  {% if d.graduation %}<div class="muted">On graduation: {{ grad(d.graduation) }}</div>{% endif %}
   <ol class="small" style="margin:4px 0 0 18px;padding:0">{% for st in d.steps %}
     <li{% if st.completed %} class="muted" style="text-decoration:line-through"{% endif %}>{% if st.current %}<b>{{ st.description }}</b>
       <div class="muted mono">{{ st.hint }}</div>{% else %}{{ st.description }}{% endif %}</li>{% endfor %}</ol></div>{% endif %}
 <table class="small">{% for t in tuts %}<tr{% if t.completed %} class="muted"{% endif %}>
-  <td>{{ t.name }}</td><td class="muted">{{ t.description }}</td>
+  <td>{{ t.name }}</td><td class="muted">{{ t.description }}{% if t.graduation %}<div>On graduation: {{ grad(t.graduation) }}</div>{% endif %}</td>
   <td class="num" style="white-space:nowrap">{% if t.completed %}done{% else %}{{ t.current_step or 0 }} / {{ t.total_steps or '?' }}{% endif %}</td></tr>{% endfor %}</table>
 {% endif %}

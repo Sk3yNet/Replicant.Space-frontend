@@ -20,7 +20,7 @@
     <table class="small">
       <tr><th>Star</th><th class="num">ly</th><th class="num" title="estimated from the census travel times">ETA</th><th class="num">Planets</th><th>Notes</th><th></th></tr>
       {% for s in rows %}<tr>
-        <td><a href="/systems/{{ s.designation }}"><b>{{ s.designation }}</b></a> <span class="muted">{{ s.color }} {{ s.spectral_type or '' }}</span></td>
+        <td><a href="/systems/{{ s.designation }}"><b>{{ s.designation }}</b></a> <span class="muted">{{ s.color }} {{ s.spectral_type or '' }}{% if s.radius_solar %} · {{ s.radius_solar }} R☉{% endif %}</span></td>
         <td class="num">{{ s.distance if s.distance is not none else '?' }}</td>
         <td class="num">{% if s.eta is not none %}≈ {{ (s.eta / 60) | round(0) | int }} min{% endif %}</td>
         <td class="num">{{ s.estimated_planets or '' }}</td>

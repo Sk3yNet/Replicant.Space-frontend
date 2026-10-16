@@ -257,7 +257,7 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     def _tut(i, slug, name, desc, steps):
         n = tut_done[slug]
         return {"slug": slug, "name": name, "description": desc, "order": i + 1, "completed": n >= len(steps),
-                "current_step": n, "total_steps": len(steps)}
+                "current_step": n, "total_steps": len(steps), "graduation": f"{name} graduate: 100 XP"}   # v3.5.2
 
     sims: dict = {"active": None, "history": []}
 

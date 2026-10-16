@@ -40,7 +40,24 @@ def normalize(s: dict | None) -> dict:
 GONE_KEEP = 100
 DEAL_REASON = {"trade.completed": "paid in a trade", "contract.completed": "paid to a contract",
                "event.completed": "paid to a location event", "print.completed": "consumed by a print",
+               "print.started": "used in a print",   # v3.5.2: component_device_codes, known when the print starts
                "megastructure.contributed": "contributed to a megastructure", "trade.created": "held in a trade's escrow"}
+
+
+async def returned_by_cancel(db, since: str) -> dict[str, str]:
+    """v3.5.2: a canceled print hands its components back (print.cancelled returned_device_codes): {code: when}."""
+    import json as _json
+    out: dict[str, str] = {}
+    for r in await db.fetchall("SELECT payload, created_at FROM events WHERE event='print.cancelled' AND created_at >= ?",
+                               (since,)):
+        try:
+            p = _json.loads(r["payload"] or "{}") or {}
+        except ValueError:
+            continue
+        for c in p.get("returned_device_codes") or []:
+            if isinstance(c, str) and str(r["created_at"] or "") > out.get(c, ""):
+                out[c] = str(r["created_at"] or "")
+    return out
 
 
 async def reasons(db, codes: list[str]) -> dict[str, str]:
@@ -70,10 +87,12 @@ async def reasons(db, codes: list[str]) -> dict[str, str]:
     left = [c for c in codes if c not in out]
     if left:
         since = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat(timespec="seconds")
-        for r in await db.fetchall(f"SELECT event, payload FROM events WHERE event IN ({','.join('?' * len(DEAL_REASON))}) "
+        back = await returned_by_cancel(db, since)
+        for r in await db.fetchall(f"SELECT event, payload, created_at FROM events WHERE event IN ({','.join('?' * len(DEAL_REASON))}) "
                                    "AND created_at >= ? ORDER BY seq DESC", (*DEAL_REASON, since)):
             text = r["payload"] or ""
-            for c in [c for c in left if c not in out and c in text]:
+            for c in [c for c in left if c not in out and c in text
+                      and not (r["event"] == "print.started" and back.get(c, "") >= str(r["created_at"] or ""))]:
                 out[c] = DEAL_REASON[r["event"]]
     return out
 
@@ -177,7 +196,7 @@ def update(s: dict, devices: list[dict], replicants: dict, pos: dict[str, Any], 
 # + devices used up otherwise (docs catalogue): print.completed consumed_device_codes, megastructure.contributed
 # contributed_devices, trade.created escrowed.devices — matched by their codes in the payload
 DEAL_EVENTS = ("trade.completed", "event.completed", "contract.completed", "print.completed", "megastructure.contributed",
-               "trade.created")
+               "trade.created", "print.started")   # print.started: component_device_codes (v3.5.2)
 
 
 async def given_away(db, missing: dict[str, tuple[str | None, str | None]], hours: float = 24) -> set[str]:
@@ -191,8 +210,9 @@ async def given_away(db, missing: dict[str, tuple[str | None, str | None]], hour
     from datetime import timedelta
     from .fleets import device_counts
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
-    rows = await db.fetchall(f"SELECT payload, location, created_at FROM events WHERE event IN ({','.join('?' * len(DEAL_EVENTS))}) "
+    rows = await db.fetchall(f"SELECT event, payload, location, created_at FROM events WHERE event IN ({','.join('?' * len(DEAL_EVENTS))}) "
                              "AND created_at >= ?", (*DEAL_EVENTS, since))
+    back = await returned_by_cancel(db, since)   # a canceled print's components came back: not used up
     out: set[str] = set()
     for r in rows:
         text = r["payload"] or ""
@@ -200,7 +220,8 @@ async def given_away(db, missing: dict[str, tuple[str | None, str | None]], hour
             p = _json.loads(text) or {}
         except ValueError:
             p = {}
-        out |= {c for c in missing if c in text}
+        out |= {c for c in missing if c in text
+                and not (r["event"] == "print.started" and back.get(c, "") >= str(r["created_at"] or ""))}
         paid = p.get("criteria_paid") or p.get("consumed") or {}
         try:
             counts = dict(device_counts(paid.get("devices") if isinstance(paid, dict) else None))

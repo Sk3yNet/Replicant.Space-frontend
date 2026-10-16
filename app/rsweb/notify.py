@@ -72,6 +72,9 @@ def describe(ev: dict) -> str:
             return f"{who} canceled travel to {p.get('destination', '?')}"
         case "print.started":
             return f"Printing {p.get('device_type', '?')} at {loc}"
+        case "print.cancelled":
+            back = p.get("returned_device_codes") or []
+            return f"Print of {p.get('device_type', '?')} canceled at {loc}" + (f" ({len(back)} device(s) handed back)" if back else "")
         case "print.completed":
             return f"Printed {p.get('device_type', '?')} {p.get('new_device_code', '')} at {loc}"
         case "mining.started":

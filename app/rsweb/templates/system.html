@@ -9,7 +9,7 @@
 
 {% set s = scan.star or {} %}
 <div class="row between">
-  <h1>{{ star }} {% if s.spectral_type %}<span class="muted">{{ s.spectral_type }} · {{ s.color }}</span>{% endif %}
+  <h1>{{ star }} {% if s.spectral_type %}<span class="muted">{{ s.spectral_type }} · {{ s.color }}{% if s.radius_solar %} · {{ s.radius_solar }} R☉{% endif %}</span>{% endif %}
     {% for t in scan.system_tags or [] %}<span class="pill">{{ t | human }}</span>{% endfor %}</h1>
   <span class="row"><span class="muted small">{{ 'scan cached ' ~ (updated | ago) if updated else 'no scan cached' }}</span>
     <a class="btn small" href="/systems/{{ star }}?refresh=1">Refresh</a></span>

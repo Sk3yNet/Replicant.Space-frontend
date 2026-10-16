@@ -32,6 +32,8 @@
     {% set eff = s.effects or {} %}
     {% if eff.cascade %}<div style="margin-top:6px"><b>Cascade</b> {% for e in eff.cascade %}{{ e.attribute }} {{ e.direction }} ({{ e.strength }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
     {% if eff.equilibrium %}<div><b>Drift</b> {% for e in eff.equilibrium %}{{ e.attribute }} {{ e.direction }} ({{ e.strength }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+    {% if not eff.cascade and not eff.equilibrium and not eff.devices %}<div class="muted small" style="margin-top:6px">No effects on this world right now.
+      That's expected once a species has moved down to it: since game v3.5.2 terraforming stops then (otherwise nothing is acting on it yet).</div>{% endif %}
     {% if s.asteroids %}<div><b>Incoming</b> {% for r in s.asteroids %}<span class="mono">{{ r.designation }}</span> {{ r.mass_class }} {{ r.composition }} · {{ r.impact_eta | local }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
   </div>
   </div>

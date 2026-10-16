@@ -458,6 +458,8 @@ class Worker:
             end = _parse_ts(p.get("completes_at"))
             if end:
                 await self.set_timer(f"print:{dc}", "print", f"print {p.get('device_type', '?')} @ {ev.get('location') or dc}", end, **kw)
+        elif e == "print.cancelled":   # v3.5.2
+            await self.clear_timer(f"print:{dc}")
         elif e == "print.completed":
             await self.clear_timer(f"print:{dc}")
             if p.get("compacted") or p.get("print_mode") == "flatpack":   # printed folded up

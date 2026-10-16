@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.115.0"
+VERSION = "1.116.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.116.0", "2026-10-16", "Game v3.5.2: devices a print uses up count as used from print.started; a canceled print's "
+               "returned devices aren't lost (and its countdown clears); tutorials show their graduation; terraforming "
+               "explains a world with no effects (settled by a species); stars show their radius"),
     ("1.115.0", "2026-10-16", "Simulations: a run's device list and galaxy show only the virtual galaxy (the game lists the "
                "replicant's real devices too); the run player no longer counts real devices as the run's"),
     ("1.114.0", "2026-10-16", "Simulations: a run's devices and galaxy now open the normal Devices page and Galaxy map on "

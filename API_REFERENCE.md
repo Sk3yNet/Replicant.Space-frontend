@@ -1013,3 +1013,16 @@ Settled by the docs:
 - `tracking_site_id` → `tracking_site`: the designation of the belt site a survey drone tracks (shown on the device page
   and in the diagnostics belt rows).
 - Fixed: Kuiper objects being launched into other systems.
+
+## v3.5.2 (2026-10-16), reviewed 2026-10-16
+- `print.started` lists the devices a print uses up: `component_device_codes`. The Lost page counts them as "used in
+  a print" from the start (before, only `print.completed` named them).
+- New `print.cancelled`: `returned_device_codes` are the components handed back. They aren't counted as used up, and
+  the print's countdown is cleared.
+- `/tutorials` items gain `graduation` and `description` (shape of `graduation` not seen yet: shown as text, or a
+  mapping's description / message / title / name). The resource-collection tutorial step was improved.
+- Terraforming effects stop once a species has moved down to the world: a settled world showing no effects is normal.
+- Star details include `radius_solar` (shown on the system and star pages when present).
+- The game's OpenAPI spec was updated. NOT CHECKED: it couldn't be fetched (api.replicant.space is unreachable from
+  the build environment and replicant.space serves no openapi.json / .yaml at the usual paths). Still unconfirmed:
+  the scan field listing asteroids and megastructures, game message field names, terraforming device type names.

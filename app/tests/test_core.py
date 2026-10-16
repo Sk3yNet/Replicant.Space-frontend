@@ -7105,3 +7105,20 @@ def test_worn_fleets_return_home_and_deploy_for_repairs(client):
     assert fl["m1"]["mission"]["recall_now"] and fl["m1"]["mission"]["repair_return"]
     assert "Miners: home for repairs" in out and "Back: deployed WORNM002 for repairs" in out
     assert sent == [("/devices/WORNM002", {"command": "deploy"})]
+
+
+def test_print_components_used_and_returned(client):
+    from rsweb import lost
+    db, w = client.app.state.db, client.app.state.worker
+    now = datetime.now(timezone.utc)
+    client.portal.call(w.handle_event, _ev(2001, "print.started", device="FAC00001", created=now - timedelta(minutes=5),
+                                           device_type="ami_mining_controller", component_device_codes=["USED0001", "BACK0001"]))
+    client.portal.call(w.handle_event, _ev(2002, "print.cancelled", device="FAC00001", created=now - timedelta(minutes=2),
+                                           device_type="ami_mining_controller", returned_device_codes=["BACK0001"]))
+    got = client.portal.call(lost.given_away, db, {"USED0001": ("SOL-BELT-1", "mining_drone"),
+                                                   "BACK0001": ("SOL-BELT-1", "mining_drone")})
+    assert got == {"USED0001"}
+    why = client.portal.call(lost.reasons, db, ["USED0001", "BACK0001"])
+    assert why == {"USED0001": "used in a print"}
+    body = client.get("/partials/tutorials", headers=HX).text
+    assert "On graduation:" in body and "graduate: 100 XP" in body
