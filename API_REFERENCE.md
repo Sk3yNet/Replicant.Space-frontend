@@ -1023,7 +1023,22 @@ Settled by the docs:
   mapping's description / message / title / name). The resource-collection tutorial step was improved.
 - Terraforming effects stop once a species has moved down to the world: a settled world showing no effects is normal.
 - Star details include `radius_solar` (shown on the system and star pages when present).
-- The game's spec is the docs site (replicant.space/docs/, there's no openapi.json). Checked there 2026-10-16:
+- The OpenAPI spec is at https://api.replicant.space/swagger/openapi.json (Swagger UI: /swagger/); a copy from
+  2026-10-16 is `openapi.json` in the repo root, for diffing at the next update. Checked against it:
+  - System scan: the asteroids / megastructures field is `system_objects` (array of free-form objects). Also
+    `life_detected`, `mining_bonus_pct`, `shops`, `active_location_events`. The app's whole-scan search covers it.
+  - `MessageSchema`: {id, message_type, category, subcategory, title, body, is_read, created_at}: as the app reads.
+  - Simulations: enter {scenario, replicant_code} → {simulation_id, scenario_code, scenario_name, starting_star,
+    starting_location, seed, devices, timeout_hours}; active → simulations[{simulation_id, scenario_code,
+    scenario_name, replicant_name, started_at, is_mine, timeout_hours}] (no replicant code: the app matches the name);
+    abandon → {status, simulation_id}; history entries add completed_at / abandoned_at / timed_out_at, score_seconds,
+    resources_mined, devices_printed. All as the app uses them.
+  - The spec doesn't enumerate device types, so the terraforming names stay confirmed by the docs page (below).
+  - Endpoints the app doesn't use yet: `/devices/{code}/permissions` (GET/POST/DELETE), `/locations/{star}/stars`,
+    `/locations/{code}/events`, `/locations/{designation}/inventory`, `/replicants/{code}/events`,
+    `/replicants/{code}/transfer`, leaderboards (xp, fleet, trades, distance, reputation, colony_planet,
+    colony_moon), `/health`, `/blog/{post_id}`.
+- Checked on the docs site too (replicant.space/docs/), 2026-10-16:
   - Terraforming device types: the components page names exactly the app's set — terraform_monitor, orbital_mirror,
     thermal_lance, orbital_shade, cryo_disperser, atmo_processor, gas_separator, filtration_array, aquifer_tap,
     bio_seeder, atmospheric_regulator (built from one of each plus a processing core). Max 5 monitors per account. All
