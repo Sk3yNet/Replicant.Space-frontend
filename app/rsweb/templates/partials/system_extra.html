@@ -1,0 +1,14 @@
+{% for e in errs %}<p class="small muted">{{ e }}</p>{% endfor %}
+<h3>Location events <span class="muted small">discovered by you</span></h3>
+{% if events %}<table class="small">{% for e in events %}<tr><td><b>{{ e.title or e.event_type }}</b> <span class="muted">{{ e.location }}</span></td>
+  <td>{{ e.status }}</td><td class="muted">{% if e.tier %}tier {{ e.tier }} · {% endif %}{{ e.category }}{% if e.discovered_at %} · found {{ e.discovered_at | ago }}{% endif %}</td></tr>
+  {% if e.description %}<tr><td colspan="3" class="muted">{{ e.description }}</td></tr>{% endif %}{% endfor %}</table>
+{% else %}<p class="muted small">None found here.</p>{% endif %}
+<h3>Stockpiles <span class="muted small">as the game reports them</span></h3>
+{% for l in inv %}<p class="small"><b>{{ l.location }}</b>{% if l.location_name %} ({{ l.location_name }}){% endif %}:
+  {% for it in l['items'] or [] %}{{ it.resource_type }} {{ it.quantity | num }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+{% else %}<p class="muted small">No stock here.</p>{% endfor %}
+<h3>Stars nearby <span class="muted small">added to the map if the catalog lacked them</span></h3>
+{% if stars %}<table class="small">{% for s in stars %}<tr><td><a href="/systems/{{ s.designation }}">{{ s.designation }}</a> <span class="muted">{{ s.color }} {{ s.spectral_type or '' }}</span></td>
+  <td class="num">{{ s.distance_from_replicant }} ly</td><td class="muted">{% if s.explored %}explored{% endif %}{% if s.has_life %} · life{% endif %}{% if s.has_ward %} · warded{% endif %}{% if s.has_hub %} · hub{% endif %}</td></tr>{% endfor %}</table>
+{% else %}<p class="muted small">None reported.</p>{% endif %}

@@ -1,0 +1,6 @@
+{% if err %}<p class="result err">{{ err }}</p>{% endif %}
+{% if entries %}<table class="small">{% for e in entries %}<tr{% if e.replicant_code in mine %} style="font-weight:bold"{% endif %}>
+  <td class="num">{{ e.rank }}</td><td>{{ e.name or e.replicant or e.designation or e.replicant_code }}</td>
+  <td class="num">{{ (e.value if e.value is not none else e.devices) | num }}</td>
+  <td class="muted">{% if e.contribution_count %}{{ e.contribution_count }} contributions{% endif %}{% if e.designation and e.name %} · {{ e.designation }}{% endif %}</td></tr>{% endfor %}</table>
+{% elif not err %}<p class="muted small">Nobody on it yet.</p>{% endif %}

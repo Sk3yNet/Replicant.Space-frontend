@@ -142,4 +142,6 @@
     {% else %}<div class="muted">No FTL slingshots in your device list.</div>{% endif %}
   </div>
 </div>
+<div class="card" style="margin-top:14px"><h2>Event log <span class="muted small">the game's, last 30 (mining cycles and AMI evaluations left out)</span></h2>
+  <div hx-get="/partials/replicant-events/{{ code }}" hx-trigger="load"><p class="muted small">Loading…</p></div></div>
 {% endblock %}

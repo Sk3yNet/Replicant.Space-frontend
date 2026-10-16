@@ -23,7 +23,8 @@
     ("Fleets", "/fleets", [("fleets", "/fleets", "Fleets"), ("fleet_details", "/fleets/details", "Fleet details"), ("logistics", "/fleets/logistics", "Logistics"), ("reform", "/fleets/reform", "Reset & reform")]),
     ("Economy", "/blueprints", [("blueprints", "/blueprints", "Blueprints"), ("gameevents", "/game-events", "Contracts"), ("reputation", "/reputation", "Reputation"), ("shop", "/shop", "Shop"), ("simulations", "/simulations", "Simulations"), ("lockers", "/lockers", "Lockers")]),
     ("Activity", "/automations", [("automations", "/automations", "Automations"), ("events", "/events", "Events"),
-                                  ("messages", "/messages", "Messages"), ("notifications", "/notifications", "Notifications")]),
+                                  ("messages", "/messages", "Messages"), ("notifications", "/notifications", "Notifications"),
+                                  ("leaderboards", "/leaderboards", "Leaderboards"), ("blog", "/blog", "Blog")]),
   ] %}
   {% set ns = namespace(cur=None) %}
   {% for g in groups %}{% if active in g[2] | map(attribute=0) | list %}{% set ns.cur = g %}{% endif %}{% endfor %}

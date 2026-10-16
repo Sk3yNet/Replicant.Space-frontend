@@ -2894,6 +2894,11 @@ CONSOLE_PRESETS = [
     ("Simulations", "GET", "/leaderboards/simulations", ""), ("Simulations", "GET", "/leaderboards/simulations/{scenario}", ""),
     ("Public", "GET", "/achievements", ""), ("Public", "GET", "/achievements/{achievement}", ""),
     ("Public", "GET", "/leaderboards/megastructure", ""), ("Public", "GET", "/blog", ""),
+    ("Public", "GET", "/leaderboards", ""), ("Public", "GET", "/leaderboards/xp", ""), ("Public", "GET", "/health", ""),
+    ("Places", "GET", "/locations/{star}/stars", ""), ("Places", "GET", "/locations/{star}/events", ""),
+    ("Places", "GET", "/locations/{location}/inventory", ""),
+    ("Replicants", "GET", "/replicants/{replicant}/events?latest=true&limit=20&exclude_mining_cycles=true", ""),
+    ("Devices", "GET", "/devices/{device}/permissions", ""),
 ]
 CONSOLE_FIELDS = {"replicant": "rep", "device": "dev", "beacon": "dev", "relay": "dev", "controller": "dev",
                   "interface": "dev", "location": "loc", "star": "star", "tag": "tag"}

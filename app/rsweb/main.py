@@ -83,6 +83,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     app.include_router(web_terraform.router)
     from . import web_lockers
     app.include_router(web_lockers.router)
+    from . import web_extras
+    app.include_router(web_extras.router)
     app.add_exception_handler(web.AuthError, web.auth_error_handler)
     from . import perf
     app.add_middleware(perf.Middleware)

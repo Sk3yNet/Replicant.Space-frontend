@@ -140,6 +140,8 @@
   {% if scan.entry_point %}<p class="small muted">Entry point: {{ scan.entry_point }}</p>{% endif %}
   {% if s %}<p class="small muted">Star: {% for k in ['mass_solar','luminosity_solar','temperature_k','age_my'] %}{% if s[k] is defined %}{{ k | human }} {{ s[k] }}{{ ' · ' if not loop.last }}{% endif %}{% endfor %}</p>{% endif %}
 </div>
+<div class="card" style="margin-top:14px"><h2>From the game <span class="muted small">events, stockpiles and stars nearby</span></h2>
+  <div hx-get="/partials/system-extra/{{ star }}" hx-trigger="load"><p class="muted small">Loading…</p></div></div>
 {% endblock %}
 
 {% block scripts %}

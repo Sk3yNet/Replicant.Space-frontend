@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Blog{% endblock %}
+{% block content %}
+<h1>Blog <span class="muted small">the game's blog, read and written through the API</span></h1>
+{% if err %}<p class="result err">{{ err }}</p>{% endif %}
+<div class="grid g2">
+<div class="card"><h2>Posts</h2>
+  <form class="row small" method="get" action="/blog"><input name="q" value="{{ q }}" placeholder="keywords"><button class="small ghost">search</button></form>
+  {% for p in posts %}<details class="small" style="margin-top:6px"><summary><b>{{ p.subject }}</b> · {{ p.replicant_name }} · {{ (p.published_at or p.created_at) | ago }}{% if p.is_player_content %} · player post{% endif %}</summary>
+    <div style="white-space:pre-wrap">{{ p.content }}</div>
+    {% if p.replicant_name in my_names %}<form hx-post="/blog" hx-target="#blog-result" style="margin-top:6px">
+      <input type="hidden" name="post_id" value="{{ p.id }}"><input type="hidden" name="replicant_name" value="{{ p.replicant_name }}">
+      <input name="subject" value="{{ p.subject }}" style="width:100%"><textarea name="content" rows="5" style="width:100%">{{ p.content }}</textarea>
+      <button class="small">Save changes</button> <button class="small ghost" name="delete" value="1" hx-confirm="Delete this post?">Delete</button></form>{% endif %}
+  </details>{% else %}<p class="muted small">No posts.</p>{% endfor %}
+</div>
+<div class="card"><h2>Write a post</h2>
+  <form hx-post="/blog" hx-target="#blog-result" hx-confirm="Publish this post to the game's blog?">
+    <select name="replicant_name">{% for n in my_names %}<option>{{ n }}</option>{% endfor %}</select>
+    <input name="subject" placeholder="subject" style="width:100%" required>
+    <textarea name="content" rows="10" style="width:100%" required></textarea>
+    <button>Post</button></form>
+  <div id="blog-result"></div></div>
+</div>
+{% endblock %}

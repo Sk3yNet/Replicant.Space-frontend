@@ -114,4 +114,6 @@
     {% else %}<li class="muted">No log entries.</li>{% endfor %}</ul>
   </div>
 </div>
+<div class="card" style="margin-top:14px"><h2>Permissions <span class="muted small">other accounts allowed to use this device</span></h2>
+  <div hx-get="/partials/permissions/{{ code }}" hx-trigger="load"><p class="muted small">Loading…</p></div></div>
 {% endblock %}

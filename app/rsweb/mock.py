@@ -327,6 +327,68 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     async def sim_history():
         return ok({"simulations": sims["history"]})
 
+    @app.get("/v1/leaderboards")
+    async def boards():
+        return ok({"boards": [{"key": "xp", "name": "Experience", "description": "Top 10 by XP", "type": "value"},
+                              {"key": "distance", "name": "Distance", "description": "Light years traveled", "type": "value"}]})
+
+    @app.get("/v1/leaderboards/xp")
+    async def board_xp():
+        return ok({"board": "xp", "entries": [{"rank": 1, "replicant_code": "77F75255", "name": "Bob", "value": 101050}]})
+
+    @app.get("/v1/leaderboards/distance")
+    async def board_distance():
+        return ok({"board": "distance", "entries": [{"rank": 1, "replicant_code": "ZZZZ0001", "name": "Riker", "value": 9000.5}]})
+
+    @app.get("/v1/health")
+    async def health():
+        return ok({"status": "ok", "database": "ok", "redis": "ok"})
+
+    @app.get("/v1/locations/{star}/events")
+    async def loc_events(star: str):
+        return ok({"events": [{"designation": "EV1", "location": f"{star}-3", "event_type": "famine", "title": "Famine Signal",
+                               "status": "active", "tier": 2, "category": "humanitarian", "discovered_at": iso()}]})
+
+    @app.get("/v1/locations/{star}/inventory")
+    async def loc_inventory(star: str):
+        return ok({"star": star, "locations": [{"location": f"{star}-BELT-1", "items": [{"resource_type": "structural", "quantity": 120}]}]})
+
+    @app.get("/v1/locations/{star}/stars")
+    async def loc_stars(star: str):
+        return ok({"stars": [{"designation": "FARAWAYX", "color": "Red", "spectral_type": "M2", "distance_from_replicant": 4.2,
+                              "position": {"x": 900, "y": 0, "z": 0}, "explored": False}], "total": 1, "total_pages": 1})
+
+    @app.get("/v1/replicants/{code}/events")
+    async def rep_events(code: str):
+        return ok({"events": [{"id": 1, "device_code": "HV2E8F3A", "event_type": "travel.arrived", "message": "Arrived at SOL-3",
+                               "created_at": iso()}], "next_cursor": None})
+
+    perms: list = []
+
+    @app.get("/v1/devices/{code}/permissions")
+    async def perms_get(code: str):
+        return ok({"permissions": perms})
+
+    @app.post("/v1/devices/{code}/permissions")
+    async def perms_add(code: str, request: Request):
+        b = await request.json()
+        perms.append({"id": len(perms) + 1, "permission_type": b.get("permission_type"), "granted_account_id": b.get("account_id"),
+                      "granted_at": iso()})
+        return ok({"status": "granted", "permission_type": b.get("permission_type"), "granted_account_id": b.get("account_id")})
+
+    posts: list = [{"id": 1, "replicant_name": "Bill", "subject": "New shop location", "content": "NOSOXA is in the rear-view mirror",
+                    "is_player_content": True, "published_at": iso(), "created_at": iso()}]
+
+    @app.get("/v1/blog")
+    async def blog_list():
+        return ok({"posts": list(reversed(posts)), "next_cursor": None})
+
+    @app.post("/v1/blog")
+    async def blog_add(request: Request):
+        b = await request.json()
+        posts.append({"id": len(posts) + 1, **b, "is_player_content": True, "published_at": iso(), "created_at": iso()})
+        return ok(posts[-1], 201)
+
     @app.get("/v1/leaderboards/megastructure")
     async def mega_board():
         return ok({"leaderboard": [{"rank": 1, "replicant": "Bob-19", "devices": 214}]})

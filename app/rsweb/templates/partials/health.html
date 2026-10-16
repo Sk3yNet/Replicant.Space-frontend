@@ -1,0 +1,1 @@
+{% if err %}<span class="lv-alert small">Game API: {{ err }}</span>{% else %}<span class="small muted">Game API {{ h.status or '?' }} · database {{ h.database or '?' }} · Redis {{ h.redis or '?' }}</span>{% endif %}

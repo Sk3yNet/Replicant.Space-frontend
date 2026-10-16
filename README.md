@@ -468,3 +468,16 @@ How it fits the app:
 ## Caveats
 
 The API reference was compiled from the public docs, not from the live API. A few response shapes are undocumented: messages, achievements, reputation, and some device detail fields. The UI copes with missing or unknown fields and shows raw JSON where it can't lay a response out. If something looks off, check the response in the **Console** and adjust the matching template.
+
+### From the OpenAPI spec (1.117.0)
+
+- **Leaderboards** (Activity › Leaderboards): every board the game keeps (XP, fleet, trades, distance, reputation,
+  colonies …), top 10 each, your replicants in bold.
+- **Blog** (Activity › Blog): read and search the game's blog, write a post as one of your replicants, edit or delete
+  your own.
+- Dashboard: the game API's health (API, database, Redis), checked every 5 minutes.
+- System pages: the location events you've discovered there, the game's own stockpile figures, and the stars nearby
+  (new ones join the map, like a census).
+- Replicant pages: the game's event log for that replicant (filter by event type).
+- Device pages: permissions (other accounts allowed to use the device), with grant and revoke.
+

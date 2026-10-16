@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Leaderboards{% endblock %}
+{% block content %}
+<h1>Leaderboards <span class="muted small">top 10 of every board the game keeps; your replicants in bold</span></h1>
+{% if err %}<p class="result err">{{ err }}</p>{% endif %}
+<div class="grid g2">
+{% for b in boards %}<div class="card"><h2>{{ b.name or b.key }} <span class="muted small">{{ b.description }}</span></h2>
+  <div hx-get="/partials/leaderboard/{{ b.key }}" hx-trigger="load"><p class="muted small">Loading…</p></div></div>
+{% else %}<p class="muted">No leaderboards reported.</p>{% endfor %}
+</div>
+{% endblock %}

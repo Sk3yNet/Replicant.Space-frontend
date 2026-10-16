@@ -7122,3 +7122,23 @@ def test_print_components_used_and_returned(client):
     assert why == {"USED0001": "used in a print"}
     body = client.get("/partials/tutorials", headers=HX).text
     assert "On graduation:" in body and "graduate: 100 XP" in body
+
+
+def test_spec_endpoints_pages_and_cards(client):
+    t = client.get("/leaderboards", headers=H).text
+    assert 'hx-get="/partials/leaderboard/xp"' in t and "Distance" in t
+    assert "101" in client.get("/partials/leaderboard/xp", headers=HX).text
+    assert "Game API ok" in client.get("/partials/health", headers=HX).text
+    x = client.get("/partials/system-extra/SOL", headers=HX).text
+    assert "Famine Signal" in x and "structural 120" in x and "FARAWAYX" in x
+    cat = client.portal.call(client.app.state.db.kv_get, "stars")
+    assert any(s.get("designation") == "FARAWAYX" for s in cat["stars"])   # nearby stars join the map
+    assert "Arrived at SOL-3" in client.get("/partials/replicant-events/77F75255", headers=HX).text
+    client.post("/devices/HV2E8F3A/permissions", data={"permission_type": "command", "account_id": "42"}, headers=HX)
+    p = client.get("/partials/permissions/HV2E8F3A", headers=HX).text
+    assert "command" in p and ">42<" in p and "revoke" in p
+    b = client.get("/blog", headers=H).text
+    assert "New shop location" in b and "Write a post" in b
+    client.post("/blog", data={"replicant_name": "Bob", "subject": "Hello", "content": "From the app"}, headers=HX)
+    assert "Hello" in client.get("/blog", headers=H).text
+    assert 'href="/leaderboards"' in client.get("/messages", headers=H).text and 'hx-get="/partials/health"' in client.get("/", headers=H).text

@@ -1,0 +1,6 @@
+<form class="row small" hx-get="/partials/replicant-events/{{ code }}" hx-target="closest div" style="margin-bottom:4px">
+  <input name="event_type" value="{{ event_type }}" placeholder="event type (e.g. travel.arrived)" size="24"><button class="small ghost">filter</button></form>
+{% if err %}<p class="result err">{{ err }}</p>{% endif %}
+{% if events %}<table class="small">{% for e in events %}<tr><td class="muted" style="white-space:nowrap">{{ e.created_at | ago }}</td>
+  <td class="mono">{{ e.device_code or '' }}</td><td>{{ e.event_type }}</td><td class="muted">{{ e.message }}</td></tr>{% endfor %}</table>
+{% elif not err %}<p class="muted small">No events.</p>{% endif %}

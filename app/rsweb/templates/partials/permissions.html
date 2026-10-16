@@ -1,0 +1,11 @@
+{% if err %}<p class="small muted">{{ err }}</p>{% endif %}
+{% if perms %}<table class="small"><tr><th>Permission</th><th>Account</th><th>Granted</th><th></th></tr>{% for p in perms %}<tr>
+  <td>{{ p.permission_type }}</td><td class="mono">{{ p.granted_account_id }}</td><td class="muted">{{ p.granted_at | ago }}</td>
+  <td><form hx-post="/devices/{{ code }}/permissions" hx-target="#perm-result" hx-confirm="Revoke {{ p.permission_type }} for account {{ p.granted_account_id }}?">
+    <input type="hidden" name="permission_type" value="{{ p.permission_type }}"><input type="hidden" name="account_id" value="{{ p.granted_account_id }}">
+    <input type="hidden" name="revoke" value="1"><button class="small ghost">revoke</button></form></td></tr>{% endfor %}</table>
+{% elif not err %}<p class="muted small">Nobody else has access.</p>{% endif %}
+<form class="row small" hx-post="/devices/{{ code }}/permissions" hx-target="#perm-result" hx-confirm="Grant this permission?" style="margin-top:4px">
+  <input name="permission_type" placeholder="permission type" size="14" required><input name="account_id" placeholder="account id" size="10" required>
+  <button class="small">Grant</button></form>
+<div id="perm-result"></div>
