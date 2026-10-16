@@ -261,12 +261,16 @@ class SimMixin:
             return []   # one job at a time, like the bootstrap
         try:
             devs = (await self.api.get(f"/replicants/{rep}/devices", background=True) or {}).get("devices") or []
+            # the game lists the replicant's real devices too: only the virtual galaxy's belong to the run
+            devs = sim.split_devices(devs)[1] or sim.split_devices(await self.db.kv_get("sim:devices", []) or [])[1]
         except ApiError as e:
             if e.status in (403, 404, 409):
                 return await self.sim_finish(s, "ended")
             return []
         now = now_iso()
-        a["devices"] = sorted(set(a.get("devices") or []) | {d.get("device_code") for d in devs if d.get("device_code")})
+        real = {d.get("device_code") for d in await self.db.kv_get("devices", []) or []}   # never a run's (fixes 1.114.0)
+        a["devices"] = sorted((set(a.get("devices") or []) | {d.get("device_code") for d in devs if d.get("device_code")})
+                              - real - {None})
         vessel = next((d for d in devs if d.get("device_code") == a.get("vessel")), None) \
             or next((d for d in devs if "vessel" in str(d.get("device_type"))), None)
         if not vessel:

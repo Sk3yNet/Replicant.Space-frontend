@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .api import ApiError
+from .sim import is_virtual, split_devices
 
 TTL = 60
 
@@ -48,6 +49,9 @@ async def world(app: Any, sid: str, force: bool = False) -> dict:
             stars = (await app.state.api.get(f"/replicants/{rep}/stars", background=True, per_page=50) or {}).get("stars") or []
         except ApiError:
             pass
+    # the game lists the replicant's real devices (and stars) too: only the virtual galaxy's are this run's
+    devices = split_devices(devices)[1] or split_devices(await db.kv_get("sim:devices", []) or [])[1]
+    stars = [x for x in stars if is_virtual(x.get("designation"))]
     names = {x.get("designation") for x in stars} | {str(d.get("location") or "").split("-")[0] for d in devices}
     inv = [x for x in await db.kv_get("sim:inventory", []) or [] if str(x.get("location") or "").split("-")[0] in names]
     totals: dict[str, float] = defaultdict(float)

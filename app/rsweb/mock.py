@@ -315,7 +315,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     @app.get("/v1/replicants/{code}/devices")
     async def rep_devices(code: str):
         if sims["active"]:
-            return ok({"devices": [{"device_code": "SIM8F2A1", "device_type": "heaven_vessel", "location": "VIRTUHOMAM-3-L4",
+            return ok({"devices": [{"device_code": "REAL0001", "device_type": "mining_drone", "location": "SOL-BELT-1",
+                                    "status": "mining"},   # live: the replicant's real devices are listed too
+                                   {"device_code": "SIM8F2A1", "device_type": "heaven_vessel", "location": "VIRTUHOMAM-3-L4",
                                     "status": "idle"},
                                    {"device_code": "SIM3B7C2", "device_type": "mining_drone", "location": None,
                                     "status": "stowed", "stowed_in_device_code": "SIM8F2A1"}]})

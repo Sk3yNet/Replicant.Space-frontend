@@ -7064,7 +7064,7 @@ def test_simulation_runs_end_early_and_world(client):
     t = client.get("/simulations/active", headers=HX).text
     assert "#42" in t and "End early" in t and 'href="/fleet?sim=42"' in t and 'href="/map?sim=42"' in t
     w = client.get("/fleet?sim=42", headers=H).text
-    assert "Simulation #42" in w and "SIM8F2A1" in w and "11ADA230" not in w   # only the run's devices
+    assert "Simulation #42" in w and "SIM8F2A1" in w and "11ADA230" not in w and "REAL0001" not in w   # only the run's
     assert 'dataUrl: "/api/map.json?sim=42"' in client.get("/map?sim=42", headers=H).text
     j = client.get("/api/map.json?sim=42&part=core", headers=H).json()
     assert "11ADA230" not in str(j)
