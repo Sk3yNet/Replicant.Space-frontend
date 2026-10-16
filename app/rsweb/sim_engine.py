@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from . import sim
@@ -34,11 +35,53 @@ class SimMixin:
     async def sim_pass(self) -> list[str]:
         s = await self.sim_state()
         out: list[str] = []
+        if not s.get("active"):
+            out += await self.sim_adopt(s)
         if s.get("active"):
             out += await self.sim_run_pass(s)
         elif s.get("prep"):
             out += await self.sim_prep_pass(s)
         return out
+
+    SIM_ADOPT_EVERY = 300   # seconds between checks of the game's active runs while the app knows of none
+
+    async def sim_adopt(self, s: dict) -> list[str]:
+        """A run of yours the game reports (GET /devices/{interface}/simulate/active) that the app didn't record (live
+        2026-10-15: Mining Rush #6 started while a prep pass saved over it, or started by hand): take it over."""
+        iface = (s.get("interface") or {}).get("code")
+        t = datetime.now(timezone.utc).timestamp()
+        if not iface or t - getattr(self, "_sim_adopt_t", 0) < self.SIM_ADOPT_EVERY:
+            return []
+        self._sim_adopt_t = t
+        try:
+            body = await self.api.get(f"/devices/{iface}/simulate/active", background=True) or {}
+        except ApiError:
+            return []
+        done = {r.get("id") for r in s.get("runs") or []}
+        g = next((x for x in body.get("simulations") or [] if x.get("is_mine") and x.get("simulation_id") not in done), None)
+        if not g:
+            return []
+        reps = await self.db.kv_get("replicants", {}) or {}
+        rep = g.get("replicant_code") or next((c for c, r in reps.items() if isinstance(r, dict)
+                                               and r.get("name") == g.get("replicant_name")), None)
+        if not rep:
+            return [f"simulation #{g.get('simulation_id')} is running, but its replicant {g.get('replicant_name')} is unknown"]
+        scen = g.get("scenario_code") or ""
+        learn = (s.get("learn") or {}).get(scen) or {}
+        vi = sim.pick_variant(learn, len([r for r in s.get("runs") or [] if r.get("scenario") == scen]))
+        sc = sim.scenario(s, scen)
+        s["active"] = {"id": g.get("simulation_id"), "scenario": scen, "name": g.get("scenario_name") or sc.get("name"),
+                       "seed": None, "replicant": rep, "vessel": None, "devices": [], "star": None, "stars": [],
+                       "start_location": None, "started_at": g.get("started_at") or now_iso(),
+                       "timeout_hours": g.get("timeout_hours") or sc.get("timeout_hours"),
+                       "target": sc.get("objective_target"), "variant": vi, "timeline": [], "log": [], "scans": {},
+                       "adopted": True}
+        sim.mark(s["active"], "entered", s["active"]["started_at"])
+        s.pop("prep", None)
+        await self.sim_save(s)
+        await self.log("simulation", f"took over {s['active']['name']} (#{s['active']['id']}) with {rep}: the game reports "
+                                     f"it running", notify=True)
+        return [f"simulation: took over {s['active']['name']} #{s['active']['id']}"]
 
     async def sim_prep_pass(self, s: dict) -> list[str]:
         from .loadouts import at_tag, is_factory, to_tag
@@ -107,6 +150,8 @@ class SimMixin:
         prep["ready"] = ready and bool(s.get("interface", {}).get("code"))
         if prep["ready"]:
             await self._sim_nag(s, sc)
+        if (await self.db.kv_get(sim.KV, {}) or {}).get("active"):
+            return out   # started meanwhile (the Start button): this pass's copy is stale, saving it would drop the run
         await self.sim_save(s)
         return out
 

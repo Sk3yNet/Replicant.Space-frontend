@@ -6969,3 +6969,16 @@ def test_simulation_interface_known_and_matched_loosely(client):
     assert s["interface"]["code"] == "F4791EDF" and s["interface"]["location"] == "MIRFAKA-OBJ-1"
     assert sim.is_interface({"device_type": "replicant interface"}) and sim.is_interface({"device_type": "replicant_interface"})
     assert not sim.is_interface({"device_type": "compute_core"})
+
+
+def test_simulation_run_started_elsewhere_is_taken_over(client):
+    eng = client.app.state.worker.automations
+    r = client.app.state.api   # start it in the game only, as if the app's record had been lost
+    client.portal.call(lambda: r.request("POST", "/devices/F4791EDF/simulate",
+                                         json_body={"scenario": "mining_rush", "replicant_code": "77F75255"}))
+    eng._sim_adopt_t = 0
+    out = client.portal.call(eng.sim_pass)
+    assert any("took over Mining Rush #42" in x for x in out), out
+    s = client.portal.call(eng.sim_state)
+    assert s["active"]["id"] == 42 and s["active"]["replicant"] == "77F75255" and s["active"]["adopted"]
+    assert "The game's view of the run" in client.get("/simulations", headers=H).text

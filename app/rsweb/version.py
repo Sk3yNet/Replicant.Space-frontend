@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.107.0"
+VERSION = "1.108.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.108.0", "2026-10-16", "Simulations: a run the game reports as yours but the app has no record of is taken over "
+               "(checked every 5 minutes); the prep pass no longer saves over a run started meanwhile; the game's view "
+               "of the run shows whenever the interface is known"),
     ("1.107.0", "2026-10-15", "Simulations: the datacenter's replicant interface (Bill's F4791EDF at MIRFAKA-OBJ-1) is "
                "known from the start; a device scan from the replicant there confirms or corrects it once per run"),
     ("1.106.0", "2026-10-15", "Dashboard: Achievements panel (yours with XP and when, total XP, and the ones still to "

@@ -291,6 +291,13 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                   "objective_type": "yield_quota", "objective_target": 3000,
                                   "entry_cost": {"device_type": "compute_core", "quantity": 1}, "timeout_hours": 4}]})
 
+    @app.get("/v1/devices/{code}/simulate/active")
+    async def sim_active(code: str):
+        a = sims["active"]
+        return ok({"simulations": [{"is_mine": True, "replicant_name": "Mellifont_Gabbleworth", "scenario_code": a.get("scenario"),
+                                    "scenario_name": "Mining Rush", "simulation_id": a.get("id"), "replicant_code": a.get("replicant"),
+                                    "started_at": iso(), "timeout_hours": 4}] if a else []})
+
     @app.post("/v1/devices/{code}/simulate")
     async def sim_start(code: str, request: Request):
         body = await request.json()

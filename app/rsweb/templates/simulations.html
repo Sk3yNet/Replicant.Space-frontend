@@ -67,7 +67,7 @@
   <div class="card"><h2>Leaderboards <span class="muted small">all players</span></h2>
     <div hx-get="/simulations/leaderboard" hx-trigger="load"><p class="muted small">Loading…</p></div></div>
 </div>
-{% if s.active %}<div class="card"><h2>The game's view of the run</h2>
+{% if s.interface and s.interface.code %}<div class="card"><h2>The game's view of the run</h2>
   <div hx-get="/simulations/active" hx-trigger="load"><p class="muted small">Loading…</p></div></div>{% endif %}
 {% if runs %}
 <div class="card"><h2>Reports</h2>
