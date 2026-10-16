@@ -31,7 +31,9 @@ async def simulations_page(request: Request, user: str = Depends(current_user)):
                for sc in (s.get("scenarios") or sim.DOC_SCENARIOS)}
     return await page(request, user, "simulations.html", "simulations", s=s, loc=loc, reps_here=reps_here,
                       scenarios=s.get("scenarios") or sim.DOC_SCENARIOS, variants=sim.VARIANTS, cur=scen,
-                      lessons=lessons, runs=list(reversed(s.get("runs") or [])))
+                      lessons=lessons, runs=list(reversed(s.get("runs") or [])),
+                      virt_devices=await request.app.state.db.kv_get("sim:devices", []) or [],
+                      virt_stock=await request.app.state.db.kv_get("sim:inventory", []) or [])
 
 
 @router.post("/simulations/queue", response_class=HTMLResponse)

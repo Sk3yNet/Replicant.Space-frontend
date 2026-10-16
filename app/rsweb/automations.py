@@ -1016,7 +1016,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
             name = ev.get("event") or ""
             p = ev.get("payload") or {}
             # remember what has been surveyed
-            if name in ("scan.completed", "search.completed"):
+            if name in ("scan.completed", "search.completed") and not ev.get("virtual"):
                 target = (p.get("scan_target") or p.get("search_target") or p.get("target") or p.get("body")
                           or p.get("designation") or ev.get("location"))
                 if target:
@@ -1025,7 +1025,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                     await self.db.kv_set("surveyed", surveyed)
             # an AMI survey controller finished survey_system: the whole system counts as surveyed
             # (not any directive: a belt_search finishing on the same controller says nothing about the planets)
-            if (name == "directive.completed" and "survey" in (ev.get("device_type") or "")
+            if (name == "directive.completed" and "survey" in (ev.get("device_type") or "") and not ev.get("virtual")
                     and (p.get("directive") or "survey_system") == "survey_system"):
                 await self.mark_system_surveyed(star_of(ev.get("location")) or ev.get("star") or "", ev.get("device_code"))
             # tags changed while it was printing (Print queue panel): put them on the new device now
@@ -1106,7 +1106,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                 except Exception as e:
                     log.exception("salvage rule failed")
                     await self.log("engine", f"salvage rule failed: {e}", "alert")
-            if name in ("event.discovered", "event.completed", "print.completed"):
+            if name in ("event.discovered", "event.completed", "print.completed") and not ev.get("virtual"):
                 await self.civ_on_event(ev)
             if name.startswith("simulation."):
                 try:

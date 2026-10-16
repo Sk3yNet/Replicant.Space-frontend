@@ -114,6 +114,7 @@ def now_iso() -> str:
 # several times per page and per tick). Each read gets its own copy of the top level and of each list item, so a
 # caller annotating star dicts (the map does) doesn't change the cached catalog.
 CACHED = {"stars"}
+SPLIT_KEYS = ("devices", "inventory", "stars")   # their VIRT… (simulated) part goes to sim:<key>
 
 
 def _copy(v: Any) -> Any:
@@ -128,12 +129,27 @@ class DB:
         self.path = path
         self.conn: aiosqlite.Connection | None = None
         self._cache: dict[str, Any] = {}
+        self._sim_split: set[str] = set()
 
     async def open(self) -> None:
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
         await self.conn.executescript(SCHEMA)
         await self.conn.commit()
+        await self.separate_simulated()
+
+    async def separate_simulated(self) -> None:
+        """Move what a simulation left among the real data (before 1.109.0) to its own place: VIRT… systems, stockpile
+        keys, devices, stockpiles and stars; its events are kept (jobs wait on them) but marked category simulation."""
+        await self.conn.execute("DELETE FROM systems WHERE star LIKE 'VIRT%'")
+        await self.conn.execute("DELETE FROM kv WHERE key LIKE 'loc:VIRT%'")
+        await self.conn.execute("UPDATE events SET category='simulation' WHERE (star LIKE 'VIRT%' OR location LIKE 'VIRT%') "
+                                "AND category != 'simulation'")
+        await self.conn.commit()
+        for key in SPLIT_KEYS:
+            cur = await self.kv_get(key)
+            if cur is not None:
+                await self.kv_set(key, cur)
 
     async def close(self) -> None:
         if self.conn:
@@ -141,6 +157,17 @@ class DB:
 
     # --- generic helpers -------------------------------------------------
     async def execute(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Cursor:
+        params = tuple(params)
+        if sql.lstrip().upper().startswith("INSERT OR REPLACE INTO SYSTEMS") and params \
+                and str(params[0] or "").upper().startswith("VIRT"):
+            # a simulated system's survey: kept apart (sim:systems), never on the map or the systems pages
+            virt = await self.kv_get("sim:systems", {}) or {}
+            try:
+                virt[params[0]] = json.loads(params[1])
+            except (TypeError, ValueError, IndexError):
+                pass
+            await self._kv_write("sim:systems", virt)
+            return await self.conn.execute("SELECT 1")
         t0 = time.perf_counter()
         cur = await self.conn.execute(sql, tuple(params))
         await self.conn.commit()
@@ -163,6 +190,15 @@ class DB:
 
     # --- key/value snapshots ---------------------------------------------
     async def kv_set(self, key: str, value: Any) -> None:
+        if key in SPLIT_KEYS:   # simulated devices / stockpiles / stars never mix with the real ones (sim.py)
+            from .sim import split_kv
+            value, virt = split_kv(key, value)
+            if virt or key in self._sim_split:
+                self._sim_split.add(key)
+                await self._kv_write(f"sim:{key}", virt or [])
+        await self._kv_write(key, value)
+
+    async def _kv_write(self, key: str, value: Any) -> None:
         self._cache.pop(key, None)
         await self.execute(
             "INSERT INTO kv(key, value, updated_at) VALUES(?,?,?) "

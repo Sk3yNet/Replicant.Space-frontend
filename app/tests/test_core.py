@@ -6982,3 +6982,29 @@ def test_simulation_run_started_elsewhere_is_taken_over(client):
     s = client.portal.call(eng.sim_state)
     assert s["active"]["id"] == 42 and s["active"]["replicant"] == "77F75255" and s["active"]["adopted"]
     assert "The game's view of the run" in client.get("/simulations", headers=H).text
+
+
+def test_simulated_world_kept_apart(client):
+    db = client.app.state.db
+    devices = client.portal.call(db.kv_get, "devices")
+    n = len(devices)
+    devices += [{"device_code": "459B6E13", "device_type": "heaven_vessel", "location": "VIRTCRYSARON-BELT-1", "status": "idle"},
+                {"device_code": "E4B28B5D", "device_type": "mining_drone", "location": None, "status": "stowed",
+                 "stowed_in_device_code": "459B6E13"}]
+    client.portal.call(db.kv_set, "devices", devices)
+    assert len(client.portal.call(db.kv_get, "devices")) == n
+    assert {d["device_code"] for d in client.portal.call(db.kv_get, "sim:devices")} == {"459B6E13", "E4B28B5D"}
+    client.portal.call(db.kv_set, "inventory", [{"location": "VIRTCRYSARON-BELT-1", "items": {"silicates": 40}},
+                                                {"location": "SOL-BELT-1", "items": {"structural": 5}}])
+    assert [x["location"] for x in client.portal.call(db.kv_get, "inventory")] == ["SOL-BELT-1"]
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("VIRTCRYSARON", '{"star": "VIRTCRYSARON"}', "2026-10-16"))
+    assert not client.portal.call(db.fetchall, "SELECT star FROM systems WHERE star='VIRTCRYSARON'")
+    assert "VIRTCRYSARON" in client.portal.call(db.kv_get, "sim:systems")
+    w = client.app.state.worker
+    client.portal.call(w.handle_event, _ev(990, "scan.completed", device="459B6E13", location="VIRTCRYSARON-3"))
+    row = client.portal.call(db.fetchone, "SELECT category FROM events WHERE id='1990-0'")
+    assert row["category"] == "simulation"
+    client.portal.call(db.kv_set, "devices", devices)   # (the mock's own syncs list no simulated devices)
+    t = client.get("/simulations", headers=H).text
+    assert "Virtual galaxy" in t

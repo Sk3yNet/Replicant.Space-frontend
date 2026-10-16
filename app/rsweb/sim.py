@@ -45,6 +45,49 @@ NAG_EVERY_H = 2.0
 SIM_CODE = re.compile(r"^SIM")
 
 
+def is_virtual(loc: Any) -> bool:
+    """A place inside a simulation: every simulated system is named VIRT… (live 2026-10-16: VIRTCRYSARON, region virt6)."""
+    return str(loc or "").upper().startswith("VIRT")
+
+
+def split_devices(devices: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(real, simulated): a device at, or flying to or from, a VIRT… place is simulated, and so is anything stowed in
+    or attached to one."""
+    def here(d: dict) -> bool:
+        t = d.get("travel") if isinstance(d.get("travel"), dict) else {}
+        return any(is_virtual(x) for x in (d.get("location"), t.get("destination"), t.get("origin")))
+    virt = {d.get("device_code") for d in devices if isinstance(d, dict) and here(d)}
+    for _ in range(3):   # riders of riders
+        virt |= {d.get("device_code") for d in devices if isinstance(d, dict)
+                 and (d.get("stowed_in_device_code") in virt or d.get("attached_to_device_code") in virt)}
+    virt.discard(None)
+    return ([d for d in devices if not (isinstance(d, dict) and d.get("device_code") in virt)],
+            [d for d in devices if isinstance(d, dict) and d.get("device_code") in virt])
+
+
+def split_kv(key: str, value: Any) -> tuple[Any, Any]:
+    """(real, simulated) parts of a stored snapshot: devices, inventory (stockpiles) and the star catalog."""
+    if key == "devices" and isinstance(value, list):
+        return split_devices(value)
+    if key == "inventory" and isinstance(value, list):
+        return ([x for x in value if not (isinstance(x, dict) and is_virtual(x.get("location")))],
+                [x for x in value if isinstance(x, dict) and is_virtual(x.get("location"))])
+    if key == "stars" and isinstance(value, dict) and isinstance(value.get("stars"), list):
+        st = value["stars"]
+        virt = [x for x in st if isinstance(x, dict) and is_virtual(x.get("designation"))]
+        if virt:
+            return {**value, "stars": [x for x in st if not (isinstance(x, dict) and is_virtual(x.get("designation")))]}, \
+                {"stars": virt}
+    return value, None
+
+
+def virtual_event(ev: dict) -> bool:
+    """An event from inside a simulation: it happens at (or names) a VIRT… place."""
+    p = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
+    return any(is_virtual(x) for x in (ev.get("star"), ev.get("location"), p.get("location"), p.get("destination"),
+                                       p.get("origin"), p.get("belt"), p.get("scan_target"), p.get("star")))
+
+
 def scenario(state: dict, code: str) -> dict:
     return next((s for s in (state.get("scenarios") or DOC_SCENARIOS) if s.get("code") == code),
                 next((s for s in DOC_SCENARIOS if s["code"] == code), {"code": code, "name": code, "entry_cost": {}}))

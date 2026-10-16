@@ -258,10 +258,28 @@ class Worker:
             return
         if not isinstance(ev.get("payload"), dict):
             ev["payload"] = {}
+        if await self._virtual(ev):
+            # inside a simulation: stored apart (category simulation) and only wakes the run's own jobs — no alerts,
+            # timers, rules, maps or stock from the virtual galaxy
+            ev["category"], ev["virtual"] = "simulation", True
+            if await self.db.insert_event(ev):
+                try:
+                    await self.automations.on_event(ev, late=True)
+                except Exception:
+                    log.exception("simulation event %s failed", ev.get("event"))
+            await self.db.kv_set("event_cursor", str(ev["id"]))
+            return
         is_new = await self.db.insert_event(ev)
         if is_new:
             await self.process_event(ev)
         await self.db.kv_set("event_cursor", str(ev["id"]))
+
+    async def _virtual(self, ev: dict) -> bool:
+        from .sim import virtual_event
+        if virtual_event(ev):
+            return True
+        code = ev.get("device_code")
+        return bool(code) and any(d.get("device_code") == code for d in await self.db.kv_get("sim:devices", []) or [])
 
     async def process_event(self, ev: dict, notify_live: bool = True) -> None:
         """Everything a new event sets off. Each part is guarded: the event is stored already, so a part that fails

@@ -77,6 +77,9 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   or off. A hub links to relays only within the relay's own 7.5 ly (live list from the SOLARES hub, 2026-10-15).
 - Simulations run at the datacenter (MIRFAKA-OBJ-1) through its replicant interface, a device owned by Bill (F4791EDF on
   2026-10-15): scan for devices from a replicant there and use that code in `/v1/devices/:interface_code/simulate`.
+  The replicant entering a run becomes the interface to a virtual galaxy: every simulated system is named VIRT… (region
+  virt6), and its devices (ordinary hex codes) show in the account's `/devices`. The app keeps all of it apart
+  (`sim:devices`, `sim:inventory`, `sim:stars`, `sim:systems`, events with category `simulation`).
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the

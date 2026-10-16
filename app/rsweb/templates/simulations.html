@@ -69,6 +69,12 @@
 </div>
 {% if s.interface and s.interface.code %}<div class="card"><h2>The game's view of the run</h2>
   <div hx-get="/simulations/active" hx-trigger="load"><p class="muted small">Loading…</p></div></div>{% endif %}
+{% if virt_devices or virt_stock %}<div class="card"><h2>Virtual galaxy <span class="muted small">kept apart from your real devices, stock and map</span></h2>
+  {% if virt_devices %}<table class="small"><tr><th>Device</th><th>Type</th><th>Where</th><th>Status</th></tr>
+    {% for d in virt_devices | sort(attribute='device_type') %}<tr><td class="mono">{{ d.device_code }}</td><td>{{ d.device_type }}</td>
+      <td>{{ d.location or ('in ' ~ d.stowed_in_device_code if d.stowed_in_device_code else '—') }}</td><td class="muted">{{ d.status }}</td></tr>{% endfor %}</table>{% endif %}
+  {% for loc in virt_stock %}<p class="small"><b>{{ loc.location }}</b>: {% for k, v in (loc['items'] or {}).items() %}{{ k }} {{ v | num }}{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endfor %}
+</div>{% endif %}
 {% if runs %}
 <div class="card"><h2>Reports</h2>
   {% for r in runs %}<details class="small"{% if loop.first %} open{% endif %}><summary><b>{{ r.name }}</b> #{{ r.id }} · {{ r.outcome }}

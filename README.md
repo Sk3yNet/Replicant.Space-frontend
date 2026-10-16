@@ -76,7 +76,7 @@ rule with an on/off switch, plus the jobs and the log.
   (MIRFAKA-OBJ-1): spare compute cores are pinned there (else printed at an autofactory, logistics bringing the
   materials, the loadout pass the cores), then a free replicant is sent. When cores, replicant and interface are all
   there, the bell nags (every 2 h) until you press *Start*. The bootstrap's compounding logic plays the run on the
-  simulation's own devices (no other automation touches them), recording when each build-order step was reached. When
+  simulation's own devices (no other automation touches them; everything from the virtual galaxy, the VIRT… systems, is kept apart: its devices, stockpiles, stars, surveys and events never reach your real numbers, map or alerts, and the page shows them in a Virtual galaxy card), recording when each build-order step was reached. When
   it ends, everything from inside it (devices, events, scans, jobs) is purged; the report stays (score, resources
   mined, devices printed, the step times), and the next run's build order (how many drones before printing stops)
   is chosen from the scores so far — untried orders first, then the best, now and then the runner-up.
