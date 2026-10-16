@@ -218,7 +218,7 @@ async def simulations_active(request: Request, user: str = Depends(current_user)
         left = _left(r.get("started_at"), r.get("timeout_hours"))
         acts = ""
         if r.get("is_mine"):
-            acts = (f'<a href="/simulations/world/{html.escape(str(sid))}">devices &amp; galaxy</a> '
+            acts = (f'<a href="/fleet?sim={html.escape(str(sid))}">devices</a> · <a href="/map?sim={html.escape(str(sid))}">galaxy</a> '
                     f'<button class="small ghost" hx-post="/simulations/end" hx-vals=\'{{"sim_id": "{html.escape(str(sid))}"}}\' '
                     f'hx-target="#sim-result" hx-confirm="End simulation #{html.escape(str(sid))} ({html.escape(name)}) now? '
                     f'No score is recorded and the entry cost is not refunded.">End early</button>')
@@ -257,55 +257,10 @@ async def simulations_end(request: Request, sim_id: str = Form(...), user: str =
     return out
 
 
-@router.get("/simulations/world/{sim_id}", response_class=HTMLResponse)
-async def simulations_world(request: Request, sim_id: str, user: str = Depends(current_user)):
-    """One run's own world, read live through its replicant: devices, stock and the virtual galaxy around it."""
-    from .api import ApiError
-    eng = request.app.state.worker.automations
-    s = await eng.sim_state()
-    iface, api = _iface(s), request.app.state.api
-    run, err = {}, None
-    try:
-        b = await api.get(f"/devices/{iface}/simulate/active") or {} if iface else {}
-        run = next((r for r in b.get("simulations") or [] if str(r.get("simulation_id")) == sim_id), {})
-    except ApiError as e:
-        err = e.message
-    a = s.get("active") or {}
-    rep = a.get("replicant") if str(a.get("id")) == sim_id else None
-    if not rep and run:
-        reps = await request.app.state.db.kv_get("replicants", {}) or {}
-        rep = run.get("replicant_code") or next((c for c, r in reps.items() if isinstance(r, dict)
-                                                 and r.get("name") == run.get("replicant_name")), None)
-    devices, stars, here = [], [], {}
-    if rep:
-        try:
-            devices = (await api.get(f"/replicants/{rep}/devices") or {}).get("devices") or []
-            sb = await api.get(f"/replicants/{rep}/stars", per_page=50) or {}
-            stars, here = sb.get("stars") or [], sb.get("replicant_position") or {}
-        except ApiError as e:
-            err = e.message
-    names = {x.get("designation") for x in stars} | {str(d.get("location") or "").split("-")[0] for d in devices}
-    stock = [x for x in await request.app.state.db.kv_get("sim:inventory", []) or []
-             if str(x.get("location") or "").split("-")[0] in names]
-    occupied = {str(d.get("location") or "").split("-")[0] for d in devices if d.get("location")}
-    return await page(request, user, "sim_world.html", "simulations", sim_id=sim_id, run=run or a, rep=rep, err=err,
-                      devices=sorted(devices, key=lambda d: (str(d.get("device_type")), str(d.get("device_code")))),
-                      stock=stock, galaxy=_galaxy(stars, here, occupied))
-
-
-def _galaxy(stars: list[dict], here: dict, occupied: set[str]) -> dict:
-    """Top-down (x, z) positions scaled into a 600 × 600 box around the replicant."""
-    pts = []
-    for x in stars:
-        p = x.get("position") or {}
-        pts.append({"name": x.get("designation"), "dx": float(p.get("x") or 0) - float(here.get("x") or 0),
-                    "dz": float(p.get("z") or 0) - float(here.get("z") or 0), "explored": bool(x.get("explored")),
-                    "life": bool(x.get("has_life")), "dist": x.get("distance_from_replicant"),
-                    "color": str(x.get("color") or "").lower(), "occupied": x.get("designation") in occupied})
-    r = max([max(abs(p["dx"]), abs(p["dz"])) for p in pts] + [1.0])
-    for p in pts:
-        p["sx"], p["sy"] = round(300 + p["dx"] / r * 270, 1), round(300 + p["dz"] / r * 270, 1)
-    return {"stars": pts, "radius": round(r, 2)}
+@router.get("/simulations/world/{sim_id}")
+async def simulations_world(sim_id: str, user: str = Depends(current_user)):
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(f"/fleet?sim={sim_id}", status_code=303)
 
 def _dur(v) -> str:
     try:

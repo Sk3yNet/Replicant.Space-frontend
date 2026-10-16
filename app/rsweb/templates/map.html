@@ -48,4 +48,4 @@
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script type="module" src="/static/map.js?v={{ APP_VERSION }}"></script>{% endblock %}
+{% block scripts %}{% if sim_id %}<script>window.MAP_OPTS = {dataUrl: "/api/map.json?sim={{ sim_id }}"{% if map_focus %}, focus: "{{ map_focus }}"{% endif %}};</script>{% endif %}<script type="module" src="/static/map.js?v={{ APP_VERSION }}"></script>{% endblock %}

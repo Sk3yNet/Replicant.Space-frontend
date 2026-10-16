@@ -210,7 +210,7 @@ templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, leve
 async def base_ctx(request: Request, user: str, active: str, **kw) -> dict:
     st = request.app.state
     return {
-        "request": request, "user": user, "active": active,
+        "request": request, "user": user, "active": active, "sim_id": sim_view(request),
         "rate": st.api.rate_status(), "stream_state": st.worker.stream_state,
         "notif_unread": await notify.unread_errors(st.db),   # the badge counts errors only
         "configured": st.api.configured,
@@ -233,8 +233,21 @@ def partial(request: Request, template: str, **kw) -> HTMLResponse:
 # =====================================================================================
 # state helpers
 # =====================================================================================
+def sim_view(request: Request) -> str | None:
+    """`?sim=<run id>`: the page shows that simulation's virtual galaxy instead of the real one (sim_world)."""
+    qp = getattr(request, "query_params", None)
+    v = str((qp.get("sim") if qp is not None else "") or "").strip()
+    return v if v.isdigit() else None
+
+
 async def load_state(request: Request) -> dict:
     db = request.app.state.db
+    sid = sim_view(request)
+    if sid:
+        from .sim_world import world
+        w = await world(request.app, sid)
+        return {"account": await db.kv_get("account", {}) or {}, "replicants": w["replicants"], "devices": w["devices"],
+                "inventory": normalize_inventory(w["inventory"]), "locations": {}, "totals": w["totals"]}
     return {
         "account": await db.kv_get("account", {}) or {},
         "replicants": await db.kv_get("replicants", {}) or {},
@@ -2015,7 +2028,12 @@ def relaynet_max() -> int:
 @router.get("/map", response_class=HTMLResponse)
 async def galaxy_map(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
-    return await page(request, user, "map.html", "map", replicants=st["replicants"])
+    focus = None
+    if sim_view(request):   # the virtual galaxy: start at the run's vessel
+        focus = next((star_of(d.get("location")) for d in st["devices"] if "vessel" in str(d.get("device_type"))
+                      and d.get("location")), None) or next((star_of(d.get("location")) for d in st["devices"]
+                                                             if d.get("location")), None)
+    return await page(request, user, "map.html", "map", replicants=st["replicants"], map_focus=focus)
 
 
 @router.get("/api/map.json")
@@ -2044,8 +2062,12 @@ async def map_payload(request: Request, part: str = "all") -> dict:
     (`scope`): "mine" — the systems with your devices, replicants, fleet homes, scans or observatory finds, so the map
     can draw them first; "rest" — every other star in the catalog."""
     db = request.app.state.db
-    cat = await db.kv_get("stars", {}) or {}
     st = await load_state(request)
+    if sim_view(request):
+        from .sim_world import world
+        cat = {"stars": (await world(request.app, sim_view(request)))["stars"]}
+    else:
+        cat = await db.kv_get("stars", {}) or {}
     out: dict = {}
     if part in ("core", "all"):
         presence = Counter(star_of(d.get("location")) for d in st["devices"])
@@ -2061,7 +2083,8 @@ async def map_payload(request: Request, part: str = "all") -> dict:
             s_ = star_of(d.get("location"))
             if r and r > (reach.get(s_) or {}).get("ly", 0):
                 reach[s_] = {"ly": r, "hub": "hub" in t}
-        scanned = {r["star"] for r in await db.fetchall("SELECT star FROM systems")}
+        scanned = ({x.get("designation") for x in cat["stars"] if x.get("explored")} if sim_view(request)
+                   else {r["star"] for r in await db.fetchall("SELECT star FROM systems")})
         from .census import observatory_stars
         prospected, _ = await observatory_stars(db)   # stars our observatories found: highlighted until scanned
         pfrom = await db.kv_get("prospected_from", {}) or {}   # stars an observatory has prospected from (once each)

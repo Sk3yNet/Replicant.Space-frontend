@@ -5,6 +5,7 @@
   <span class="row"><span id="refresh-msg"></span>
   <button class="small" hx-post="/fleet/refresh" hx-target="#refresh-msg">Refresh from game</button></span></div>
 <form class="inline card" hx-get="/fleet" hx-target="#fleet-table" hx-trigger="input changed delay:300ms, change, fleet-refreshed from:body" hx-push-url="true" style="margin-bottom:12px">
+  {% if sim_id %}<input type="hidden" name="sim" value="{{ sim_id }}">{% endif %}
   <input name="q" placeholder="search code, location, status…" value="{{ f.q }}" size="28">
   <select name="type"><option value="">all types</option>{% for t in types %}<option value="{{ t }}" {{ 'selected' if f.type == t }}>{{ t | human }}</option>{% endfor %}</select>
   <select name="status"><option value="">any status</option>

@@ -7062,9 +7062,13 @@ def test_simulation_runs_end_early_and_world(client):
     ok, _ = client.portal.call(eng.sim_start, "mining_rush", "77F75255")
     assert ok
     t = client.get("/simulations/active", headers=HX).text
-    assert "#42" in t and "End early" in t and 'href="/simulations/world/42"' in t
-    w = client.get("/simulations/world/42", headers=H).text
-    assert "Simulation #42" in w and "SIM8F2A1" in w and "<svg" in w
+    assert "#42" in t and "End early" in t and 'href="/fleet?sim=42"' in t and 'href="/map?sim=42"' in t
+    w = client.get("/fleet?sim=42", headers=H).text
+    assert "Simulation #42" in w and "SIM8F2A1" in w and "11ADA230" not in w   # only the run's devices
+    assert 'dataUrl: "/api/map.json?sim=42"' in client.get("/map?sim=42", headers=H).text
+    j = client.get("/api/map.json?sim=42&part=core", headers=H).json()
+    assert "11ADA230" not in str(j)
+    assert "11ADA230" in client.get("/fleet", headers=H).text   # the real list is untouched
     r = client.post("/simulations/end", data={"sim_id": "42"}, headers=HX)
     assert r.status_code == 200
     s = client.portal.call(eng.sim_state)

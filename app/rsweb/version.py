@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.113.0"
+VERSION = "1.114.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.114.0", "2026-10-16", "Simulations: a run's devices and galaxy now open the normal Devices page and Galaxy map on "
+               "that run's own data (?sim=<run>), with a banner; the separate world page is gone"),
     ("1.113.0", "2026-10-16", "Fleets: mining and survey fleets come home for repairs when a member is at or below 50 % "
                "(recall, return, unload as usual); at home, members below 85 % are deployed from their vessel so the "
                "maintenance drone repairs them"),
