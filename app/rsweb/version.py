@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.117.0"
+VERSION = "1.118.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.118.0", "2026-10-16", "Prospector fleets: before each move the carrier collects every member it doesn't carry yet "
+               "(the matrix containers stayed at home), then takes the observatory on; members it can't take are named "
+               "in the tour note"),
     ("1.117.0", "2026-10-16", "From the OpenAPI spec: Leaderboards and Blog pages (write, edit, delete your posts); game "
                "API health on the dashboard; system pages show location events, the game's stockpiles and nearby stars "
                "(added to the map); replicant event log; device permissions with grant / revoke; console presets"),

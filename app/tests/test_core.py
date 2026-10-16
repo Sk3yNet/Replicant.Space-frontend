@@ -6746,6 +6746,45 @@ def test_prospector_fleet_tours_one_prospect_per_star(client, monkeypatch):
     assert client.get("/fleets/details", headers=H).status_code == 200
 
 
+
+def test_prospector_fleet_picks_up_every_member_first(client, monkeypatch):
+    """A prospector fleet (observatory + carrier) moves its folded observatory to the emptiest un-prospected star within
+    30 ly of home; the next prospect aims at the emptiest hemisphere."""
+    from rsweb import prospecting as pr
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    stars = [{"designation": "HOME", "position": {"x": 0, "y": 0, "z": 0}},
+             {"designation": "NEAR", "position": {"x": 5, "y": 0, "z": 0}},
+             {"designation": "FAR", "position": {"x": 60, "y": 0, "z": 0}}]
+    stars += [{"designation": f"C{i}", "position": {"x": -10 - i * 0.1, "y": 0, "z": 0}} for i in range(5)]   # a crowd west
+    client.portal.call(db.kv_set, "stars", {"stars": stars})
+    assert pr.rank_directions([[1, 0, 0], [-1, 0, 0]], [0, 0, 0],
+                              {s["designation"]: [s["position"][k] for k in "xyz"] for s in stars})[0] == [1, 0, 0]
+    obs = {"device_code": "OBS1", "device_type": "galactic_observatory", "location": "HOME-3-L4", "status": "compacted",
+           "tags": ["fleet:pro"], "available_commands": ["prospect", "unfurl"]}
+    car = {"device_code": "CAR1", "device_type": "surge_carrier", "location": "HOME-3-L4", "status": "idle",
+           "features": ["surge"], "attach_capacity": 4, "tags": ["fleet:pro"]}
+    mat = {"device_code": "MAT1", "device_type": "matrix_container", "location": "HOME-BELT-1", "status": "idle",
+           "tags": ["fleet:pro"]}
+    client.portal.call(db.kv_set, "devices", [obs, car, mat])
+    client.portal.call(db.kv_set, "prospected_from", {"HOME": {"at": "2026-10-15T00:00:00+00:00", "outcome": "3 new star(s)"}})
+    client.portal.call(eng.save_fleets, [{"id": "pro", "name": "Prospector 1", "role": "prospector", "home": "HOME", "wants": {}}])
+    async def covered(devices, stars=None):   # a relay network over the whole area
+        return {"HOME", "NEAR", "FAR"} | {f"C{i}" for i in range(5)}
+    monkeypatch.setattr(eng, "commandable", covered)
+    out = client.portal.call(eng.prospector_pass)
+    assert out and "HOME → " in out[0] and "FAR" not in out[0]          # FAR is beyond 30 ly
+    job = [j for j in client.portal.call(eng.jobs) if "prospecting tour" in j["title"]][-1]
+    cmds = [(s["path"].split("/")[2], s["body"]["command"], s["body"].get("device") or s["body"].get("destination"))
+            for s in job["steps"] if s.get("body")]
+    assert cmds[0] == ("CAR1", "travel", "HOME-BELT-1") and ("CAR1", "travel", "HOME-3-L4") in cmds   # fetch, come back
+    assert any(c[0] == "MAT1" or c[2] == "MAT1" for c in cmds)                                       # MAT1 boards
+    assert [c[1] for c in cmds][-3:] == ["attach", "travel", "detach"] and "picking up MAT1" in client.portal.call(
+        eng.fleets)[0]["tour"]["note"]
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "pro")
+    assert f["station"] is False and f["tour"]["target"] == "NEAR"     # the crowd west of HOME counts against C0…C4
+    assert client.get("/fleets/details", headers=H).status_code == 200
+
+
 def test_an_asteroid_event_is_over_once_its_impact_time_passes(client):
     """Owner 2026-10-15: no alerts with a negative time; a concluded event isn't tracked any more. The warning's
     destination shows in the Defense card's title."""

@@ -1894,10 +1894,33 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                     continue
                 dest = fl.destination(nxt, stars)
                 steps = []
-                if car.get("location") != obs.get("location"):   # the carrier comes to the observatory first
-                    steps += [step(f"{car['device_code']} → {obs['location']}", f"/devices/{car['device_code']}",
+                # every other member comes along (live 2026-10-16: the matrix containers stayed at FALQUORYX-BELT-1
+                # while the surge platforms towed the observatories away): the carrier collects them first
+                cc = car["device_code"]
+                free = fl.seats(car, devices)
+                if obs.get("attached_to_device_code") != cc:
+                    free["attach"] -= 1   # kept for the observatory
+                strays: dict[str, list[tuple[str, str]]] = {}
+                no_room = []
+                for d in ms:
+                    if d is obs or d is car or cc in (d.get("stowed_in_device_code"), d.get("attached_to_device_code")):
+                        continue
+                    host = next((x for x in devices if x.get("device_code") in
+                                 (d.get("stowed_in_device_code"), d.get("attached_to_device_code"))), None)
+                    loc = d.get("location") or (host or {}).get("location")
+                    mode = fl.take_seat(free, d) if loc and not host else None
+                    if mode:
+                        strays.setdefault(loc, []).append((d["device_code"], mode))
+                    else:
+                        no_room.append(d["device_code"])
+                at = car.get("location")
+                if strays:
+                    tour_steps, at = fl.pickup_tour(cc, at, strays)
+                    steps += tour_steps
+                if at != obs.get("location"):   # the carrier comes to the observatory
+                    steps += [step(f"{cc} → {obs['location']}", f"/devices/{cc}",
                                    {"command": "travel", "destination": obs["location"]}, critical=True),
-                              fl._wait_arrive(car["device_code"], obs["location"])]
+                              fl._wait_arrive(cc, obs["location"])]
                 steps += [fl.board_step(car["device_code"], obs["device_code"], "attach"),
                           step(f"{car['device_code']} → {dest}", f"/devices/{car['device_code']}",
                                {"command": "travel", "destination": dest}, critical=True),
@@ -1905,9 +1928,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                           step(f"{car['device_code']}: detach {obs['device_code']}", f"/devices/{car['device_code']}",
                                {"command": "detach", "device": obs["device_code"]}, critical=True)]
                 job = await self.create_job("fleets", f"{f['name']}: observatory {here} → {nxt} (prospecting tour)",
-                                            car["device_code"], steps, {"devices": [car["device_code"], obs["device_code"]]})
+                                            cc, steps, {"devices": [cc, obs["device_code"]] + [c for g in strays.values()
+                                                                                                for c, _ in g]})
                 if job:
-                    tour.update({"job": job["id"], "target": nxt, "note": f"moving to {nxt} ({left} star(s) left in range)"})
+                    tour.update({"job": job["id"], "target": nxt, "note": f"moving to {nxt} ({left} star(s) left in range)"
+                                 + (f"; picking up {', '.join(c for g in strays.values() for c, _ in g)} first" if strays else "")
+                                 + (f"; can't take {', '.join(no_room)} (no room or aboard another device)" if no_room else "")})
                     out.append(f"{f['name']}: {here} → {nxt}")
                     changed = True
                 continue
