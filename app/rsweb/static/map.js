@@ -375,9 +375,10 @@ function buildSupply() {
   }
 }
 
-// observatories prospecting: a faint cone from the system along the direction, darker as the scan progresses (at most
-// ~15 % opaque, and never hiding what's behind it). Reach / width come from past finds ("≈" while still a guess).
-const PROSPECT = 0x7fe3ff, DOWN = new THREE.Vector3(0, -1, 0);
+// observatories prospecting: a faint gray cone from the system along the direction, darker as the scan progresses (at
+// most ~15 % opaque, and never hiding what's behind it), with a wave (a spherical cap centered on the system, as wide as
+// the cone) running out to its reach. Reach / width come from past finds ("≈" while still a guess).
+const PROSPECT = 0x9aa3ad, PROSPECT_WAVE = 0x7fe3ff, PROSPECT_WAVE_S = 3.2, DOWN = new THREE.Vector3(0, -1, 0);
 const prospectCones = [];
 function buildProspects() {
   prospectGroup.clear();
@@ -394,11 +395,21 @@ function buildProspects() {
     cone.quaternion.setFromUnitVectors(DOWN, dir);   // … turned to the prospect's direction
     cone.raycast = () => {};                         // clicks go through to the stars behind it
     prospectGroup.add(cone);
+    // the wave: a unit sphere's cap around -y, cut at the cone's half angle; scaled out to the reach each period
+    const capGeo = new THREE.SphereGeometry(1, 40, 6, 0, Math.PI * 2, 0, p.half_angle * Math.PI / 180);
+    capGeo.rotateX(Math.PI);
+    const waveMat = new THREE.MeshBasicMaterial({ color: PROSPECT_WAVE, transparent: true, opacity: 0, depthWrite: false,
+                                                  side: THREE.DoubleSide });
+    const wave = new THREE.Mesh(capGeo, waveMat);
+    wave.position.copy(cone.position); wave.quaternion.copy(cone.quaternion);
+    wave.raycast = () => {};
+    prospectGroup.add(wave);
     const d = document.createElement("div");
     Object.assign(d.style, { position: "absolute", color: "#bdf2ff", pointerEvents: "none", fontFamily: "monospace",
                              fontSize: "11px", whiteSpace: "nowrap" });
     el.appendChild(d);
-    prospectCones.push({ p, mat, el: d, v: pos(p).add(dir.multiplyScalar(h * .5)) });
+    prospectCones.push({ p, mat, wave, waveMat, phase: Math.random() * PROSPECT_WAVE_S, el: d,
+                         v: pos(p).add(dir.multiplyScalar(h * .5)) });
   }
 }
 function placeProspects(now, showLabels) {
@@ -407,6 +418,9 @@ function placeProspects(now, showLabels) {
   for (const x of prospectCones) {
     const f = Math.max(0, Math.min(1, (now - x.p.t0) / Math.max(1, x.p.t1 - x.p.t0)));
     x.mat.opacity = .02 + .13 * f;
+    const ph = ((now / 1000 + x.phase) % PROSPECT_WAVE_S) / PROSPECT_WAVE_S;   // grows from the system, fading out
+    x.wave.scale.setScalar(Math.max(.01, ph * x.p.reach));
+    x.waveMat.opacity = .35 * (1 - ph) * Math.min(1, ph * 6);
     v.copy(x.v).project(camera);
     const vis = prospectGroup.visible && showLabels && v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
     x.el.style.display = vis ? "block" : "none";
