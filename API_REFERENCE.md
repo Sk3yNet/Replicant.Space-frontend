@@ -1023,6 +1023,19 @@ Settled by the docs:
   mapping's description / message / title / name). The resource-collection tutorial step was improved.
 - Terraforming effects stop once a species has moved down to the world: a settled world showing no effects is normal.
 - Star details include `radius_solar` (shown on the system and star pages when present).
-- The game's OpenAPI spec was updated. NOT CHECKED: it couldn't be fetched (api.replicant.space is unreachable from
-  the build environment and replicant.space serves no openapi.json / .yaml at the usual paths). Still unconfirmed:
-  the scan field listing asteroids and megastructures, game message field names, terraforming device type names.
+- The game's spec is the docs site (replicant.space/docs/, there's no openapi.json). Checked there 2026-10-16:
+  - Terraforming device types: the components page names exactly the app's set — terraform_monitor, orbital_mirror,
+    thermal_lance, orbital_shade, cryo_disperser, atmo_processor, gas_separator, filtration_array, aquifer_tap,
+    bio_seeder, atmospheric_regulator (built from one of each plus a processing core). Max 5 monitors per account. All
+    of them need an autofactory and are unlocked by the terraforming training simulation at MIRFAKA-OBJ-1. Stacking:
+    effective rate per device (1 + ln(count)) / count.
+  - System scan (`POST /replicants/{code}/scan`): the documented example has asteroid_belt, entry_point, outer_system
+    (kuiper, oort), planets, replicants, star (now with radius_solar, age_my, luminosity_solar, mass_solar,
+    temperature_k, habitable_zone), system_tags. Asteroids "show up alongside planets, moons and belts", but no field
+    is named, and megastructures aren't mentioned: still unconfirmed, so the app keeps searching the whole scan for
+    entries typed incoming_asteroid / megastructure (megas.py, defence.py).
+  - Messages: the page documents `GET /v1/messages` (cursor, limit, latest, unread_only), `POST /v1/messages/read`
+    (`ids` or `mark_all`) and the `X-Replicant-Space-Unread-Count` header, but no response body. Live (2026-10-15):
+    `{messages: [{id, title, body, category, subcategory, message_type, is_read, created_at}], next_cursor,
+    unread_message_count}`; achievement unlocks are message_type achievement, salvage finds discovery / salvage.
+    The app keeps accepting message_id / read too.
