@@ -3141,6 +3141,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
         derived = ("roster", "points", "job", "zero", "report", "route", "sends_to", "takes_from", "target_options",
                    "owner_move", "owner_hosts", "owners", "orders", "outposts")   # page-only fields, never stored
         keep = [{k: v for k, v in f.items() if k not in derived} for f in items]
+        if any(f.get("materials") == "supply" or f.get("supply_to") for f in keep):   # nearest receiver, by home
+            from .fleets import resolve_supply
+            cat = await self.db.kv_get("stars", {}) or {}
+            resolve_supply(keep, {x.get("designation"): x.get("position") or {} for x in cat.get("stars") or []
+                                  if isinstance(x, dict)})
         # a stationed fleet that changed home: its replicants' vessels follow it there (rider_pass)
         before = {f.get("id"): f.get("home") for f in await self.db.kv_get("fleets", []) or [] if f.get("station")}
         moved = {f["id"]: f["home"] for f in keep if stationed(f) and f.get("home") and before.get(f["id"])
@@ -3685,7 +3690,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
             if opts.get("deliver"):
                 fleets = await self.fleets()
                 pos = {k: (v or {}).get("position") or {} for k, v in stars.items()}
-                to = fl.materials_target(fleet, fleets)   # the fleet its materials go to, else the nearest that takes them in
+                # the fleet its materials go to, else (none set, or "supply") the nearest that takes them in from here
+                to = fl.materials_target(fleet, fleets) if fleet.get("materials") != "supply" else None
                 dests = [to["home"]] if to and to.get("home") and to["home"] != target else \
                     [f["home"] for f in fl.destinations(fleets) if f["home"] != target]
                 if dests:

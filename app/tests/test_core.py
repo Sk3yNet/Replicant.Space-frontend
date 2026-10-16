@@ -7216,3 +7216,21 @@ def test_assemble_stops_controllers_and_scans_are_waited_out(client):
     j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
     assert j["status"] != "failed" and j["steps"][1]["wait"] == ["scan.completed", "search.completed"]
     assert j["steps"][2]["scan_retry"] and j["steps"][2]["body"]["command"] == "travel"
+
+
+def test_supplying_fleet_sends_to_the_nearest_receiver(client):
+    from rsweb import fleets as fl
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": d, "position": {"x": x, "y": 0, "z": 0}}
+                                                      for d, x in (("MINE", 0), ("NEARHUB", 3), ("FARHUB", 40))]})
+    client.portal.call(eng.save_fleets, [
+        {"id": "far", "name": "Far hub", "role": "mining", "home": "FARHUB", "wants": {}, "materials": "self"},
+        {"id": "near", "name": "Near hub", "role": "mining", "home": "NEARHUB", "wants": {}, "materials": "self"},
+        {"id": "m", "name": "Miner", "role": "mining", "home": "MINE", "wants": {}, "materials": ""}])
+    r = client.post("/fleets/m/station", data={"materials": "supply"}, headers=HX)
+    assert r.status_code == 200
+    items = client.portal.call(eng.fleets)
+    m = next(f for f in items if f["id"] == "m")
+    assert m["materials"] == "supply" and fl.materials_target(m, items)["id"] == "near"
+    t = client.get("/fleets/overview", headers=HX).text
+    assert "supplying the nearest receiver" in t and "to Near hub (NEARHUB), the nearest" in t

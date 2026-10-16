@@ -480,4 +480,7 @@ The API reference was compiled from the public docs, not from the live API. A fe
   (new ones join the map, like a census).
 - Replicant pages: the game's event log for that replicant (filter by event type).
 - Device pages: permissions (other accounts allowed to use the device), with grant and revoke.
+- **Materials** (Fleets overview): a fleet is *receiving* (takes materials in) or *supplying the nearest receiver*: its
+  materials go to the receiving fleet nearest its home (recomputed whenever fleets change), and a mission that ferries
+  while mining delivers to the receiver nearest the belt it mines. A fleet set earlier to send to one named fleet keeps it.
 

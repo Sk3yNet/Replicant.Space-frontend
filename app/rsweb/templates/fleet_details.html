@@ -245,7 +245,7 @@
               {{ home_systems | join(', ') }}</div>{% endif %}
           {% endif %}
           {% if f.role == 'mining' %}
-            <label style="text-transform:none;display:block"><input type="checkbox" name="deliver"> Ferry while mining, to {{ (f.sends_to.name ~ ' (' ~ f.sends_to.home ~ ')') if f.sends_to else 'the nearest fleet that takes materials in' }} (otherwise freighters haul it home on recall)</label>
+            <label style="text-transform:none;display:block"><input type="checkbox" name="deliver"> Ferry while mining, to {{ (f.sends_to.name ~ ' (' ~ f.sends_to.home ~ ')') if f.sends_to and f.materials != 'supply' else 'the nearest fleet that takes materials in' }} (otherwise freighters haul it home on recall)</label>
             <label style="text-transform:none">Recall after exhausted for <input type="number" name="exhausted_minutes" value="30" style="width:56px"> min with no site being searched</label>
           {% endif %}
           <div><button style="margin-top:6px">Launch mission</button>

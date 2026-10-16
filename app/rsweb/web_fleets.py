@@ -100,7 +100,7 @@ async def fleets_ctx(request: Request) -> dict:
         f["orders"] = [o for o in lctx.get("orders") or [] if o.get("fleet") == f["id"] and not o.get("device_code")]
         f["route"] = next((r for r in lctx["plan"].get("routes") or [] if r.get("fleet_id") == f["id"]), None)
         f["sends_to"] = fl.materials_target(f, items)
-        f["takes_from"] = [x for x in items if x.get("materials") == f["id"]]
+        f["takes_from"] = [x for x in items if (fl.materials_target(x, items) or {}).get("id") == f["id"]]
     from . import gameevents as gev
     from .shapes import normalize_inventory
     inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await request.app.state.db.kv_get("inventory", []))}
@@ -164,7 +164,8 @@ async def fleets_overview(request: Request, user: str = Depends(current_user)):
     for f in items:
         f["report"] = p["report"].get(f["id"])
         f["route"] = next((r for r in p.get("routes") or [] if r.get("fleet_id") == f["id"]), None)
-        f["takes_from"] = [x for x in items if x.get("materials") == f["id"]]
+        f["sends_to"] = fl.materials_target(f, items)
+        f["takes_from"] = [x for x in items if (fl.materials_target(x, items) or {}).get("id") == f["id"]]
     return partial(request, "partials/fleets_overview.html", fleets=items, templates=cfg["phases"],
                    present=Counter(lo.star_of(d.get("location")) for d in st["devices"]))
 
@@ -459,7 +460,7 @@ async def fleets_station(request: Request, fid: str, user: str = Depends(current
         return HTMLResponse("", status_code=404)
     f["station"] = form.get("station") == "on"
     m = (form.get("materials") or "").strip()
-    f["materials"] = m if m == "self" or any(x["id"] == m and x["id"] != fid for x in items) else ""
+    f["materials"] = m if m in ("self", "supply") or any(x["id"] == m and x["id"] != fid for x in items) else ""
     if "supplied_from" in form:   # a hub whose autofactories and carriers may supply this fleet at any distance
         sup = (form.get("supplied_from") or "").strip()
         f["supplied_from"] = sup if any(x["id"] == sup and x["id"] != fid for x in items) else ""

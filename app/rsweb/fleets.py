@@ -1101,11 +1101,33 @@ def worked_systems(fleets: list[dict]) -> set[str]:
 
 
 def materials_target(fleet: dict, fleets: list[dict]) -> dict | None:
-    """The fleet this fleet's materials go to (its `materials` names another fleet), else None."""
+    """The fleet this fleet's materials go to: `materials` names another fleet, or is "supply" (the nearest fleet that
+    takes materials in, worked out when fleets are saved: `supply_to`), else None."""
     m = fleet.get("materials") or ""
+    if m == "supply":
+        m = fleet.get("supply_to") or ""
     if not m or m == "self":
         return None
     return next((f for f in fleets if f.get("id") == m and f.get("id") != fleet.get("id")), None)
+
+
+def resolve_supply(fleets: list[dict], pos: dict[str, dict]) -> None:
+    """Each fleet set to supply gets the nearest fleet that takes materials in (by home system) as `supply_to`."""
+    import math
+
+    def dist(a: str, b: str) -> float:
+        pa, pb = pos.get(a) or {}, pos.get(b) or {}
+        if not pa or not pb:
+            return 1e9
+        return math.dist([float(pa.get(k) or 0) for k in "xyz"], [float(pb.get(k) or 0) for k in "xyz"])
+    dests = destinations(fleets)
+    for f in fleets:
+        if f.get("materials") != "supply":
+            f.pop("supply_to", None)
+            continue
+        cands = [d for d in dests if d.get("id") != f.get("id")]
+        best = min(cands, key=lambda d: (dist(f.get("home") or "", d["home"]), d["home"])) if cands else None
+        f["supply_to"] = best["id"] if best else None
 
 
 def destinations(fleets: list[dict]) -> list[dict]:
