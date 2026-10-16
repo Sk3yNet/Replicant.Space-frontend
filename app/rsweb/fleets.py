@@ -540,6 +540,12 @@ def assemble_steps(fleet: dict, devices: list[dict], radii: dict[str, float] | N
     for carrier in sorted(fetch):   # then each carrier fetches the far ones
         tour, _ = pickup_tour(carrier, loc[carrier], fetch[carrier], radii)
         steps += tour
+    if steps:   # nobody boards while a controller still directs them
+        stop, _ = stop_controllers(r["members"], release=True)
+        for st in steps:
+            if isinstance(st.get("seq0_from"), int):
+                st["seq0_from"] += len(stop)
+        steps = stop + steps
     return steps, problems
 
 
@@ -880,27 +886,45 @@ def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None
     return steps, []
 
 
+def stop_controllers(ms: list[dict], release: bool = False) -> tuple[list[dict], set[str]]:
+    """Steps that stop the fleet's AMI controllers from directing its drones: clear a directive, withdraw a launched
+    controller; with `release`, also let go of the drones each one has adopted (they go idle where they are, so they
+    can board — the work phase adopts them again where the fleet goes). Returns (steps, withdrawn controllers)."""
+    steps, withdrawn = [], set()
+    for d in ms:
+        if "controller" not in (d.get("device_type") or ""):
+            continue
+        code = d["device_code"]
+        launched = str(d.get("status") or "").startswith("launched")
+        if (d.get("ami_directive") or {}).get("name") and not launched:
+            # a launched one is withdrawn below instead: docs (AMI) — withdraw recalls the fleet and pauses the
+            # directive, keeping its configuration (activate resumes it)
+            steps.append(step(f"{code}: clear directive", f"/devices/{code}", {"command": "clear_directive"}))
+        if launched:
+            # a launched controller isn't deployed and can't travel ("Device is not deployed", seen live 2026-10-11:
+            # Surveyors recall after its survey_system launch): withdraw first, which calls its drones back
+            st = step(f"{code}: withdraw (call its drones back)", f"/devices/{code}",
+                      {"command": "withdraw"}, wait=["ami.withdrawn"], timeout=1800)
+            st["wait_device"] = code
+            steps.append(st)
+            withdrawn.add(code)
+        elif release:
+            # live 2026-10-16: Miner 0.5's transport controller kept its drones collecting at the belt after they were
+            # sent to board ("Target device is not at the same location"); Miner_3 / Miner_4's survey controller
+            # started new scans ("Cannot cruise while scanning")
+            drones = sorted(x["device_code"] for x in ms if x.get("controller_device_code") == code)
+            if drones:
+                steps.append(step(f"{code}: release {len(drones)} drone(s) to board", f"/devices/{code}",
+                                  {"command": "release", "devices": drones}))
+    return steps, withdrawn
+
+
 def recall_steps(fleet: dict, devices: list[dict], inventory: dict[str, dict], haul_from: str | None,
                  radii: dict[str, float] | None = None, limit: float | None = None) -> list[dict]:
     """Stop the controllers, (haul) fill freighters, and bring every passenger back to a carrier."""
     r = roster(fleet, devices)
     ms = r["members"]
-    steps = []
-    withdrawn = set()
-    for d in ms:
-        launched = str(d.get("status") or "").startswith("launched")
-        if "controller" in (d.get("device_type") or "") and (d.get("ami_directive") or {}).get("name") and not launched:
-            # a launched one is withdrawn below instead: docs (AMI) — withdraw recalls the fleet and pauses the
-            # directive, keeping its configuration (activate resumes it)
-            steps.append(step(f"{d['device_code']}: clear directive", f"/devices/{d['device_code']}", {"command": "clear_directive"}))
-        if "controller" in (d.get("device_type") or "") and str(d.get("status") or "").startswith("launched"):
-            # a launched controller isn't deployed and can't travel ("Device is not deployed", seen live 2026-10-11:
-            # Surveyors recall after its survey_system launch): withdraw first, which calls its drones back
-            st = step(f"{d['device_code']}: withdraw (call its drones back)", f"/devices/{d['device_code']}",
-                      {"command": "withdraw"}, wait=["ami.withdrawn"], timeout=1800)
-            st["wait_device"] = d["device_code"]
-            steps.append(st)
-            withdrawn.add(d["device_code"])
+    steps, withdrawn = stop_controllers(ms)
     if haul_from:
         stock = dict(as_amounts(inventory.get(haul_from) or {}))
         for d in ms:

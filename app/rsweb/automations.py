@@ -741,6 +741,25 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                     for s2 in job["steps"][job["idx"] + 1:]:
                         if s2.get("method") == "WAIT" and s2.get("wait_device") == code and s2.get("status") == "pending":
                             s2["status"], s2["note"] = "skipped", "already aboard"
+            if (not ok and (st.get("body") or {}).get("command") in ("travel", "stow", "attach")
+                    and re.search(r"while (scanning|searching)", (err or "").lower()) and not st.get("scan_retry")
+                    and str(st.get("path") or "").startswith("/devices/")):
+                # live 2026-10-16 (Miner_3, Miner_4): a drone started a scan after the job was planned. Wait for it
+                # to finish (scan.completed / search.completed), then try once more
+                code = st["body"].get("device") if st["body"].get("command") == "attach" else st["path"].split("/")[2]
+                w = step(f"wait for {code} to finish its scan", "", None, method="WAIT",
+                         wait=["scan.completed", "search.completed"], timeout=3600)
+                w["wait_device"] = code
+                again = step(st["desc"], st["path"], dict(st["body"]), wait=list(st.get("wait") or []),
+                             timeout=st.get("timeout", STEP_TIMEOUT), critical=st.get("critical", False),
+                             match=dict(st.get("match") or {}))
+                again["wait_device"], again["scan_retry"] = st.get("wait_device"), True
+                job["steps"][job["idx"] + 1:job["idx"] + 1] = [w, again]
+                for s2 in job["steps"][job["idx"] + 3:]:
+                    if isinstance(s2.get("seq0_from"), int) and s2["seq0_from"] > job["idx"]:
+                        s2["seq0_from"] += 2
+                ok, st["note"] = True, f"{err} — waiting for {code}'s scan, then again"
+                st["wait"] = []
             if (not ok and (st.get("body") or {}).get("command") == "attach" and "already attached" in (err or "").lower()
                     and str(st.get("path") or "").startswith("/devices/")):
                 # seen live (2026-10-15, Prospector 4, Miner_3): "Target device is already attached to a carrier".

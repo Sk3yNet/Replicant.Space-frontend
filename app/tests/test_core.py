@@ -7181,3 +7181,38 @@ def test_spec_endpoints_pages_and_cards(client):
     client.post("/blog", data={"replicant_name": "Bob", "subject": "Hello", "content": "From the app"}, headers=HX)
     assert "Hello" in client.get("/blog", headers=H).text
     assert 'href="/leaderboards"' in client.get("/messages", headers=H).text and 'hx-get="/partials/health"' in client.get("/", headers=H).text
+
+
+def test_assemble_stops_controllers_and_scans_are_waited_out(client):
+    from rsweb import fleets as fl
+    from rsweb.automations import step
+    fleet = {"id": "m5", "name": "Miner 0.5", "role": "mining", "home": "BADU", "wants": {}}
+    t = ["fleet:m5"]
+    devices = [{"device_code": "CAR9", "device_type": "cargo_vessel", "location": "BADU-3-L4", "status": "idle", "tags": t,
+                "features": ["surge", "cruise", "attach", "stow"], "attach_capacity": 3, "stow_capacity": 20},
+               {"device_code": "TC1", "device_type": "ami_transport_controller", "location": "BADU-3-L4", "status": "coordinating",
+                "tags": t, "ami_directive": {"name": "gather"}},
+               {"device_code": "TD1", "device_type": "transport_drone", "location": "BADU-BELT-1", "status": "collecting",
+                "controller_device_code": "TC1", "tags": t, "available_commands": ["travel"]}]
+    steps, _ = fl.assemble_steps(fleet, devices)
+    cmds = [(s["path"].split("/")[2], (s.get("body") or {}).get("command")) for s in steps if s.get("body")]
+    assert cmds[:2] == [("TC1", "clear_directive"), ("TC1", "release")] and ("TD1", "travel") in cmds
+    eng = client.app.state.worker.automations
+    calls = []
+
+    async def send(method, path, body, label):
+        calls.append((path, (body or {}).get("command")))
+        if len(calls) == 1:
+            return False, None, "Cannot cruise while scanning"
+        return True, {}, None
+    real = eng.send
+    eng.send = send
+    try:
+        job = client.portal.call(eng.create_job, "fleets", "scan test", "SD1",
+                                 [step("SD1 → X-1 (board)", "/devices/SD1", {"command": "travel", "destination": "X-1"})],
+                                 {"devices": []}, True)
+    finally:
+        eng.send = real
+    j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
+    assert j["status"] != "failed" and j["steps"][1]["wait"] == ["scan.completed", "search.completed"]
+    assert j["steps"][2]["scan_retry"] and j["steps"][2]["body"]["command"] == "travel"
