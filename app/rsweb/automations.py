@@ -1188,7 +1188,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
             for stage in ("evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "news_pass", "sim_pass", "prospector_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "news_pass", "sim_pass", "prospector_pass"):
                 self.stage = stage
                 await asyncio.sleep(0)   # let waiting page requests run between stages
                 t_stage = time.perf_counter()
@@ -2133,6 +2133,48 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                                              f"auto: deploy {code} for repairs ({f.get('name') or f.get('id')})")
             out.append(f"{f.get('name') or f.get('id')}: deployed {code} for repairs" if ok
                        else f"{f.get('name') or f.get('id')}: deploying {code} for repairs failed: {err}")
+        return out
+
+    async def repair_return_pass(self) -> list[str]:
+        """Mining and survey fleets (auto-scouting ones have their own rule): a member at or below 50 % sends the fleet
+        home — a mission in its watch phase recalls now (then returns and unloads as usual). Back home, members below
+        85 % still aboard a vessel there are deployed, once each, so the maintenance drone can repair them."""
+        from . import fleets as fl
+        items = await self.fleets()
+        devices = await self.devices()
+        out, changed = [], False
+        for f in items:
+            if f.get("role") not in ("mining", "explore"):
+                continue
+            m = f.get("mission") or {}
+            if m.get("status") in ("running", "stalled"):
+                if m.get("scouting") or m.get("repair_return") or m.get("status") != "running" or m.get("end_here"):
+                    continue
+                weak = self.scout_unhealthy(f, devices)
+                if weak and m.get("phase") == "watch":
+                    m["recall_now"] = m["repair_return"] = True
+                    if f["role"] == "explore":
+                        m["targets"] = (m.get("targets") or [])[:m.get("idx", 0) + 1]   # no further targets
+                    why = f"{', '.join(weak)} at or below {self.SCOUT_MIN_CAPACITY:g} %"
+                    self._mlog(m, f"returning home for repairs ({why})")
+                    await self.log("fleets", f"{f.get('name')}: returning home for repairs ({why})", notify=True)
+                    out.append(f"{f.get('name')}: home for repairs")
+                    changed = True
+                continue
+            if f.get("auto_scout"):
+                continue   # auto_scout_pass deploys those
+            weak = self.scout_unhealthy(f, devices, self.SCOUT_START_CAPACITY)
+            tried = set(f.get("repair_deploys") or [])
+            sent = await self.deploy_for_repairs(f, [c for c in weak if c not in tried], devices) if weak else []
+            if sent:
+                out += sent
+                f["repair_deploys"] = sorted(tried | {c for c in weak if any(c in x for x in sent)})
+                changed = True
+            elif not weak and f.get("repair_deploys"):
+                f["repair_deploys"] = []
+                changed = True
+        if changed:
+            await self.save_fleets(items)
         return out
 
     async def auto_scout_pass(self) -> list[str]:

@@ -149,7 +149,8 @@ lines or a template).
 - **Observatories** prospect wherever they're deployed — the heading (else outward from Sol), then 13 other directions — and
   compact when every direction is used up or the fleet is leaving.
 - **Auto-scout** (explore fleets): surveys the nearest unsurveyed systems within 100 ly of home, ring by ring (only inside relay
-  coverage without a replicant aboard); sets out at 85 % capacity, comes home for repairs at 50 % and deploys its worn members so they can be repaired.
+  coverage without a replicant aboard); sets out at 85 % capacity, comes home for repairs at 50 % and deploys its worn members so they can be repaired. Any mining or survey fleet does the same: a member at or below 50 % while it works sends it home
+  (it recalls, returns and unloads as usual), and back home members below 85 % are deployed from their vessel to be repaired.
 - **Prospector** fleets (role *prospector*: a galactic observatory and a carrier with an attach point): a tour of the
   stars within 30 ly of the fleet's home. Each star is prospected from once (the game allows one prospect per star),
   aimed at the emptiest hemisphere; then the observatory compacts and the carrier takes it to the next star — the

@@ -7070,3 +7070,34 @@ def test_simulation_runs_end_early_and_world(client):
     s = client.portal.call(eng.sim_state)
     assert not s.get("active") and s["runs"][-1]["id"] == 42
     assert "No simulation running" in client.get("/simulations/active", headers=HX).text
+
+
+def test_worn_fleets_return_home_and_deploy_for_repairs(client):
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(eng.save_fleets, [
+        {"id": "m1", "name": "Miners", "role": "mining", "home": "SOL", "wants": {},
+         "mission": {"status": "running", "phase": "watch", "targets": ["AEM"], "log": []}},
+        {"id": "m2", "name": "Back", "role": "mining", "home": "SOL", "wants": {}, "mission": {"status": "done", "log": []}}])
+    devices = client.portal.call(db.kv_get, "devices")
+    devices += [{"device_code": "WORNM001", "device_type": "mining_drone", "location": "AEM-BELT-1", "status": "mining",
+                 "operational_capacity": 45.0, "tags": ["fleet:m1"]},
+                {"device_code": "SHIPM002", "device_type": "cargo_vessel", "location": "SOL-3", "status": "idle",
+                 "operational_capacity": 100.0, "tags": ["fleet:m2"]},
+                {"device_code": "WORNM002", "device_type": "mining_drone", "location": "SOL-3", "status": "stowed",
+                 "stowed_in_device_code": "SHIPM002", "operational_capacity": 70.0, "tags": ["fleet:m2"]}]
+    client.portal.call(db.kv_set, "devices", devices)
+    sent = []
+    real = eng.send
+
+    async def send(method, path, body, label):
+        sent.append((path, body))
+        return True, {}, None
+    eng.send = send
+    try:
+        out = client.portal.call(eng.repair_return_pass)
+    finally:
+        eng.send = real
+    fl = {f["id"]: f for f in client.portal.call(eng.fleets)}
+    assert fl["m1"]["mission"]["recall_now"] and fl["m1"]["mission"]["repair_return"]
+    assert "Miners: home for repairs" in out and "Back: deployed WORNM002 for repairs" in out
+    assert sent == [("/devices/WORNM002", {"command": "deploy"})]

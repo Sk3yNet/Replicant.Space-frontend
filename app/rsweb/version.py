@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.112.0"
+VERSION = "1.113.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.113.0", "2026-10-16", "Fleets: mining and survey fleets come home for repairs when a member is at or below 50 % "
+               "(recall, return, unload as usual); at home, members below 85 % are deployed from their vessel so the "
+               "maintenance drone repairs them"),
     ("1.112.0", "2026-10-16", "Simulations: Runs in the game replaces the raw view: each run with its replicant and time "
                "left, End early, and a devices & galaxy page per run (devices, stock, a top-down map of the virtual "
                "stars around its replicant)"),
