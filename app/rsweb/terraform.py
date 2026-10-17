@@ -84,6 +84,37 @@ def out_of_range(status: dict, targets: dict | None = None) -> list[str] | None:
     return [a for a in ATTRS if a in (targets or TARGETS) and in_range(a, (attrs.get(a) or {}).get("value"), targets) is False]
 
 
+# what each terraform device pushes (docs' quick reference): (attribute, +1 / -1, 0 = either way by its setting); main first
+PUSHES = {"orbital_mirror": [("temperature", 1)], "thermal_lance": [("temperature", 1), ("tectonic", 1), ("pressure", 1)],
+          "orbital_shade": [("temperature", -1)], "cryo_disperser": [("temperature", -1), ("pressure", 1)],
+          "atmo_processor": [("pressure", 0), ("temperature", 1)], "gas_separator": [("oxygen", 0), ("toxicity", -1)],
+          "filtration_array": [("toxicity", -1), ("oxygen", 1), ("pressure", -1)],
+          "aquifer_tap": [("hydrosphere", 0), ("pressure", 1)], "bio_seeder": [("biosphere", 1), ("oxygen", 1)]}
+CONTROL = ("terraform_monitor", "atmospheric_regulator")   # one switch each: shown together in one Control card
+
+
+def needs(status: dict, targets: dict | None = None) -> dict[str, int]:
+    """Which way each out-of-range attribute has to go: +1 (below its range) or -1 (above)."""
+    out = {}
+    for a in out_of_range(status, targets) or []:
+        lo, _ = (targets or TARGETS).get(a, (None, None))
+        v = value(status, a)
+        out[a] = 1 if lo is not None and v is not None and v < lo else -1
+    return out
+
+
+def priority(device_type: str, need: dict[str, int]) -> tuple[int, int, int]:
+    """Sort key for a world's device groups: the control card first, then groups whose main effect brings an
+    out-of-range attribute back (0), then those whose side effect does (1), then the rest; the docs' order breaks ties."""
+    if device_type in CONTROL:
+        return (0, 0, CONTROL.index(device_type))
+    rank = 3
+    for i, (a, sign) in enumerate(PUSHES.get(device_type, [])):
+        if a in need and (sign == 0 or sign == need[a]):
+            rank = min(rank, 1 if i == 0 else 2)
+    return (1, rank, DEVICES.index(device_type) if device_type in DEVICES else 99)
+
+
 def in_range(attr: str, value: Any, targets: dict | None = None) -> bool | None:
     """Whether a value is inside the habitable range (None: no range, or no value)."""
     lo, hi = (targets or TARGETS).get(attr, (None, None))

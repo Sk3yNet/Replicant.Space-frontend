@@ -114,8 +114,18 @@ async def _ctx(request: Request) -> dict:
         hist = await db.fetchall("SELECT payload, created_at FROM events WHERE event = 'terraform.status' AND location = ? "
                                  "ORDER BY seq DESC LIMIT ?", (body, tf.HISTORY))
         series = tf.history(list(reversed(hist)))
+        need = tf.needs(s, targets) if s else {}
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for d in by_loc.get(body, []):
+            groups["control" if d.get("device_type") in tf.CONTROL else d.get("device_type") or "?"].append(d)
+        if groups.get("control"):
+            groups["control"].sort(key=lambda d: (tf.CONTROL.index(d["device_type"]), d.get("device_code") or ""))
+        order = sorted(groups, key=lambda t: tf.priority("terraform_monitor" if t == "control" else t, need))
         worlds.append({"body": body, "status": s, "coupling": tf.coupling(s) if s else [], "bio": tf.bio_ready(s) if s else [],
                        "devices": by_loc.get(body, []), "out": out,
+                       "groups": [{"type": t, "devices": groups[t],
+                                   "helps": [a for a, sg in tf.PUSHES.get(t, []) if a in need and (sg == 0 or sg == need[a])]}
+                                  for t in order],
                        "sparks": {a: tf.spark(series.get(a) or [], targets.get(a)) for a in tf.ATTRS},
                        "regulating": next((since[d["device_code"]] for d in by_loc.get(body, []) if d.get("device_code") in since), None),
                        "lock_warn": ("Every value is in range: switch the atmospheric regulator on? It holds temperature, "

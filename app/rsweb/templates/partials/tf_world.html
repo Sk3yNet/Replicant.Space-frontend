@@ -48,10 +48,27 @@
   {% if w.devices %}
   {% set rep_all = (s.effects or {}).devices or {} %}
   <div class="tf-console">
-    {% for t, ds in w.devices | groupby('device_type') %}{% set on = ds | selectattr('_on') | list | length %}
+    {% for g in w.groups %}{% set t, ds = g.type, g.devices %}{% set on = ds | selectattr('_on') | list | length %}
+    {% if t == 'control' %}
+    <div class="tf-group">
+      <div class="small"><b>Control</b> <span class="muted">monitor and regulator</span></div>
+      {% for d in ds %}
+      <div class="tf-dev">
+        <form class="inline" hx-post="/terraforming/{{ d.device_code }}/power?{{ sim_q }}" hx-trigger="change" hx-target="#{{ wid }}" hx-swap="outerHTML" hx-sync="#{{ wid }}:queue all"
+              {% if d.device_type == 'atmospheric_regulator' %}hx-confirm="{{ w.lock_warn }}"{% endif %}>
+          <input type="hidden" name="body" value="{{ w.body }}">
+          <label class="tf-switch{{ ' pending' if d._pending }}" title="{{ d.status }}{{ ' (commanded, waiting for the game to agree)' if d._pending }}"><input type="checkbox" name="on" value="1" {{ 'checked' if d._on }}><span></span></label></form>
+        <span class="tf-light {{ 'ok' if d._on else 'off' }}"></span> <span class="small">{{ d.device_type | human }}</span>
+        <a class="mono small" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a>
+        <span class="small muted">{{ d.status }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
     <div class="tf-group">
       <div class="row between small">
-        <b><span class="tf-light {{ 'ok' if on == ds | length else 'warn' if on else 'off' }}"></span> {{ t | human }} <span class="muted">{{ on }}/{{ ds | length }} on</span></b>
+        <b><span class="tf-light {{ 'ok' if on == ds | length else 'warn' if on else 'off' }}"></span> {{ t | human }} <span class="muted">{{ on }}/{{ ds | length }} on</span>
+          {% if g.helps %}<span class="pill small lv-alert" title="brings these back toward the range">fixes {{ g.helps | join(', ') }}</span>{% endif %}</b>
         {% if ds | length > 1 %}<form class="inline" hx-post="/terraforming/group/power?{{ sim_q }}" hx-target="#{{ wid }}" hx-swap="outerHTML" hx-sync="#{{ wid }}:queue all"
               {% if t == 'atmospheric_regulator' %}hx-confirm="{{ w.lock_warn }}"{% endif %}>
           <input type="hidden" name="codes" value="{{ ds | map(attribute='device_code') | join(' ') }}"><input type="hidden" name="body" value="{{ w.body }}">
@@ -76,6 +93,7 @@
       </div>
       {% endfor %}
     </div>
+    {% endif %}
     {% endfor %}
   </div>
   {% endif %}

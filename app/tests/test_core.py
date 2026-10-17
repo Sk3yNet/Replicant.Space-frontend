@@ -7430,6 +7430,7 @@ def test_terraforming_training_controls(client):
     assert "VIRTCEL-1" in t and "0/3 on" in t and "270–300 K" in t and "18–25 %" in t and "2 out of range: temperature, oxygen" in t
     assert 'name="codes" value="M0 M1 M2"' in t and "Not ready: temperature, oxygen" in t and "out of range for Humans" in t
     assert 'class="tf-switch"' in t and 'hx-trigger="every 15s' in t   # a console: switches, refreshes itself
+    assert t.index("<b>Control</b>") < t.index("0/3 on") and "fixes" not in t   # mirrors heat: no help at 410 K
     t = client.get("/terraforming?sim=7&species=branthar", headers=H).text   # another species, remembered
     assert "300–340 K" in t and "1 out of range: temperature" in t
     assert "300–340" in client.get("/terraforming?sim=7", headers=H).text
@@ -7505,3 +7506,15 @@ def test_queueing_a_simulation_checks_its_offer_and_preps_at_once(client):
         time.sleep(0.05)
     assert prep["cores_needed"] == 0 and prep["rep_sent"]
     assert "Entry cost: <b>free</b>" in client.get("/simulations", headers=H).text
+
+
+def test_terraforming_groups_are_ordered_by_what_they_fix():
+    """Monitor and regulator share one Control card, first; then groups whose main effect brings an out-of-range value
+    back, then side effects, then the rest."""
+    from rsweb import terraform as tf
+    st = {"attributes": {"temperature": {"value": 410}, "oxygen": {"value": 12}, "toxicity": {"value": 2}}}
+    need = tf.needs(st, {"temperature": (270, 300), "oxygen": (18, 25), "toxicity": (0, 5)})
+    assert need == {"temperature": -1, "oxygen": 1}
+    types = ["orbital_mirror", "bio_seeder", "orbital_shade", "atmospheric_regulator", "gas_separator", "aquifer_tap"]
+    assert sorted(types, key=lambda t: tf.priority(t, need)) == [
+        "atmospheric_regulator", "orbital_shade", "gas_separator", "bio_seeder", "orbital_mirror", "aquifer_tap"]

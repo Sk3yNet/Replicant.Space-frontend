@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.139.0"
+VERSION = "1.140.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.140.0", "2026-10-17", "Terraforming console: the monitor and the regulator share one Control card, first; the "
+     "device groups follow in order of what they fix (main effect on an out-of-range value, then side effects, then the "
+     "rest), each marked with what it fixes."),
     ("1.139.0", "2026-10-17", "Simulations: queuing asks the interface at once whether it offers the scenario and at "
      "what entry cost (refused with what it does offer), then preps right away: cores counted, the replicant sent. "
      "A free run shows Entry cost: free."),
