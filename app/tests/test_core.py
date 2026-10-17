@@ -7442,6 +7442,12 @@ def test_terraforming_training_controls(client):
     assert "VIRTOTHER-2" in t and "in range in 53 ticks" in t
     assert "1 out of range: toxicity" in t and "1 out of range: temperature" in t
     assert tf.out_of_range({"attributes": {"temperature": {"value": 300}, "toxicity": {"value": 5}}}) == []
+    devs[3]["status"] = "regulating"   # live 2026-10-17: the regulator can be switched off again; how long it has run shows
+    client.portal.call(db.insert_event, {"id": "rg1", "event": "terraform.device_activated", "device_code": "RG1", "created_at": "2026-10-17T22:30:13+00:00",
+                                          "location": "VIRTCEL-1", "payload": {}})
+    client.portal.call(db.kv_set, "sim:world:7", {"t": time.time(), "rep": "R1", "devices": devs, "stars": [],
+                                                  "inventory": [], "replicants": {}, "totals": {}})
+    assert "regulating since" in client.get("/terraforming?sim=7", headers=H).text
     assert not sim.plays({"code": "terraforming_training_1", "objective_type": "terraform_training"})
     assert sim.plays({"code": "mining_rush", "objective_type": "yield_quota"})
     s = client.portal.call(eng.sim_state)

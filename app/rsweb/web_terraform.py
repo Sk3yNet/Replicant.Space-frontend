@@ -35,17 +35,27 @@ async def terraforming_page(request: Request, user: str = Depends(current_user))
     by_loc: dict[str, list[dict]] = defaultdict(list)
     for d in devs:
         by_loc[d.get("location") or "aboard / in transit"].append({**d, "_set": tf.settings_of(d)})
+    # how long each running regulator has been on: its latest terraform.device_activated (the run's goal may need time)
+    since: dict[str, str] = {}
+    for d in devs:
+        if d.get("device_type") == "atmospheric_regulator" and str(d.get("status") or "") == "regulating":
+            r = await db.fetchone("SELECT event, created_at FROM events WHERE device_code=? AND event IN "
+                                  "('terraform.device_activated', 'terraform.device_deactivated') ORDER BY seq DESC LIMIT 1",
+                                  (d.get("device_code"),))
+            if r and r["event"] == "terraform.device_activated":
+                since[d["device_code"]] = r["created_at"]
     worlds = []
     for body in sorted(set(bodies) | {d.get("location") for d in devs if d.get("device_type") in tf.DEVICES and d.get("location")}):
         s = bodies.get(body) or {}
         out = tf.out_of_range(s)
         worlds.append({"body": body, "status": s, "coupling": tf.coupling(s) if s else [], "bio": tf.bio_ready(s) if s else [],
                        "devices": by_loc.get(body, []), "out": out,
-                       "lock_warn": ("Every value is habitable: activate the atmospheric regulator to lock the world in?"
+                       "regulating": next((since[d["device_code"]] for d in by_loc.get(body, []) if d.get("device_code") in since), None),
+                       "lock_warn": ("Every value is habitable: switch the atmospheric regulator on? It holds temperature, "
+                                     "pressure and hydrosphere where they are (it can be switched off again)."
                                      if out == [] else
-                                     f"Not ready: {', '.join(out)} out of the habitable range. In the training the run "
-                                     "didn't end when the regulator went on with values out of range (2026-10-17). "
-                                     "Activate it anyway?" if out else
+                                     f"Not ready: {', '.join(out)} out of the habitable range. The regulator would hold "
+                                     "temperature, pressure and hydrosphere there. Switch it on anyway?" if out else
                                      "No monitor report yet. Activate the atmospheric regulator anyway?")})
     monitors = sum(1 for d in devs if d.get("device_type") == "terraform_monitor"
                    and not str(d.get("status") or "").startswith(("inactive", "idle", "stowed")))

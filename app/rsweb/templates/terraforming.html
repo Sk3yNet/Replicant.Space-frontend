@@ -11,7 +11,8 @@
 <div class="card" style="margin-bottom:14px">
   <h2 style="margin:0"><a class="mono" href="/locations/{{ w.body }}">{{ w.body }}</a>
     {% if s.at %}<span class="muted small">read {{ s.at | ago }}</span>{% else %}<span class="muted small">no monitor report yet</span>{% endif %}
-    {% if w.out == [] %}<span class="pill small lv-done">ready to lock in ✓</span>{% elif w.out %}<span class="pill small lv-alert">{{ w.out | length }} out of range: {{ w.out | join(', ') }}</span>{% endif %}
+    {% if w.out == [] %}<span class="pill small lv-done">all habitable ✓</span>{% elif w.out %}<span class="pill small lv-alert">{{ w.out | length }} out of range: {{ w.out | join(', ') }}</span>{% endif %}
+    {% if w.regulating %}<span class="pill small st-work" title="switched on {{ w.regulating | ago }}">regulating since {{ w.regulating | local }}</span>{% endif %}
     {% if s.anomaly %}<span class="pill small lv-alert">{{ s.anomaly.severity }} {{ s.anomaly.type | human }} in {{ s.anomaly.ticks_until }} tick(s)</span>{% endif %}</h2>
   {% if s.attributes %}
   <div class="grid g2">
