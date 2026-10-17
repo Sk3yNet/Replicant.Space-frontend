@@ -60,6 +60,14 @@ def range_eta(attr: str, value: Any, delta: Any) -> dict | None:
     return {"enter": int((v - hi) / -dv) + 1} if dv < 0 else {"away": True}
 
 
+def out_of_range(status: dict) -> list[str] | None:
+    """The habitable-range attributes a report has outside their range ([] = ready to lock in; None = no report)."""
+    attrs = (status or {}).get("attributes") or {}
+    if not attrs:
+        return None
+    return [a for a in TARGETS if in_range(a, (attrs.get(a) or {}).get("value")) is False]
+
+
 def in_range(attr: str, value: Any) -> bool | None:
     """Whether a value is inside the habitable range (None: no range, or no value)."""
     lo, hi = TARGETS.get(attr, (None, None))

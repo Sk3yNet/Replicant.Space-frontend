@@ -76,8 +76,8 @@ rule with an on/off switch, plus the jobs and the log.
 - **Terraforming training** (a simulation played by hand): its run card links to *Terraforming controls*, the
   Terraforming page on the run's own world (`/terraforming?sim=<run>`): the monitor's values against the habitable ranges
   (✓ / ✗) and where each is heading at its current Δ (in range in N ticks, leaves the range, moving away; a tick is
-  30 s), each device's strength / direction and on/off, and *all on* / *all off* per kind of device. Activating the
-  atmospheric regulator asks first: it locks the world in. The engine plays no build order in this scenario.
+  30 s), each device's strength / direction and on/off, and *all on* / *all off* per kind of device. Each world says whether it's
+  *ready to lock in* or which values are out of range; activating the atmospheric regulator asks first and says so too. The engine plays no build order in this scenario.
 - **Simulations** (Economy › Simulations): *Available simulations* lists every replicant interface known (the
   datacenter's, your own, and any a device scan saw) with the scenarios each one offers (GET `/devices/{code}/simulate`, read
   every 6 h or with *Scan interfaces now*): objective, time limit, entry cost and details. *Approve* one, like a contract, and

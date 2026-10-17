@@ -7427,7 +7427,7 @@ def test_terraforming_training_controls(client):
                                                                                          "oxygen": {"value": 12, "delta": 0}}}})
     t = client.get("/terraforming?sim=7", headers=H).text
     assert "VIRTCEL-1" in t and "orbital mirror 0/3 on" in t and "200–350 ✗" in t and "10–35 ✓" in t
-    assert 'name="codes" value="M0 M1 M2"' in t and "locks the world in" in t
+    assert 'name="codes" value="M0 M1 M2"' in t and "Not ready: temperature" in t
     assert "VIRTCEL-1" not in client.get("/terraforming", headers=H).text
     # live 2026-10-17: the running monitor carries its report (terraform_status); numbers from the training run
     from rsweb import terraform as tf
@@ -7440,6 +7440,8 @@ def test_terraforming_training_controls(client):
                                                   "inventory": [], "replicants": {}, "totals": {}})
     t = client.get("/terraforming?sim=7", headers=H).text
     assert "VIRTOTHER-2" in t and "in range in 53 ticks" in t
+    assert "1 out of range: toxicity" in t and "1 out of range: temperature" in t
+    assert tf.out_of_range({"attributes": {"temperature": {"value": 300}, "toxicity": {"value": 5}}}) == []
     assert not sim.plays({"code": "terraforming_training_1", "objective_type": "terraform_training"})
     assert sim.plays({"code": "mining_rush", "objective_type": "yield_quota"})
     s = client.portal.call(eng.sim_state)

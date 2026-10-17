@@ -85,7 +85,10 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   regulator, all idle at the planet (VIRTCELRENETH-1), commanded by device code (activate / deactivate). The regulator
   locks the world in once activated. A tick is 30 s; an active device's status is `terraforming`, the monitor's
   `monitoring`, and the monitor carries its latest report in the device list (`terraform_status`). Effects are reported
-  as words (negligible, weak, moderate). Ideas not built yet go in TODO.md.
+  as words (negligible, weak, moderate). Settings work: PATCH `{"configuration": {"settings": {"strength": 1.0,
+  "direction": "decrease"}}}` answers with the device's `settings`. The monitor's warnings name the habitable limits
+  (temperature > 350, oxygen < 10, toxicity > 20 suppress the biosphere). Activating the regulator with values out of
+  range did not end the run (2026-10-17). Ideas not built yet go in TODO.md.
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the

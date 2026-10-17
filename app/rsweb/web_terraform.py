@@ -38,8 +38,15 @@ async def terraforming_page(request: Request, user: str = Depends(current_user))
     worlds = []
     for body in sorted(set(bodies) | {d.get("location") for d in devs if d.get("device_type") in tf.DEVICES and d.get("location")}):
         s = bodies.get(body) or {}
+        out = tf.out_of_range(s)
         worlds.append({"body": body, "status": s, "coupling": tf.coupling(s) if s else [], "bio": tf.bio_ready(s) if s else [],
-                       "devices": by_loc.get(body, [])})
+                       "devices": by_loc.get(body, []), "out": out,
+                       "lock_warn": ("Every value is habitable: activate the atmospheric regulator to lock the world in?"
+                                     if out == [] else
+                                     f"Not ready: {', '.join(out)} out of the habitable range. In the training the run "
+                                     "didn't end when the regulator went on with values out of range (2026-10-17). "
+                                     "Activate it anyway?" if out else
+                                     "No monitor report yet. Activate the atmospheric regulator anyway?")})
     monitors = sum(1 for d in devs if d.get("device_type") == "terraform_monitor"
                    and not str(d.get("status") or "").startswith(("inactive", "idle", "stowed")))
     rock_tools = [{**d, "_set": tf.settings_of(d)} for d in devs if d.get("device_type") in tf.ROCK_TOOLS]
