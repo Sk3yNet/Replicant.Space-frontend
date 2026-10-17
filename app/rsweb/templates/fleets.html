@@ -38,7 +38,9 @@
       a fleet on it should have. Editing a template updates every fleet that follows it. A fleet's members keep their <code>fleet:</code> tag
       wherever they go, so a carrier out on a delivery still counts at home (listed under "Away from home") and isn't made spare where it's
       visiting. A device marked <code>spare</code> is in no fleet until it's sent to one.
-      Leave a box empty for "don't care" (never counted, marked spare or filled); 0 means none wanted, so a stationed fleet makes any spare.</p>
+      Leave a box empty for "don't care" (never counted, marked spare or filled); 0 means none wanted, so a stationed fleet makes any spare.
+      The second box (+) is <b>keep in stock</b>: that many more are kept as spares at the fleet's home, printed one at a time on an autofactory
+      there with nothing else to print (supplied by logistics last, queued behind every other print), for any fleet or ward / relay order to take.</p>
     <form hx-post="/loadouts/phases" hx-swap="none">
       <div class="sticky-grid">
       <table class="small">
@@ -48,8 +50,9 @@
           <button type="button" class="small ghost" hx-post="/loadouts/phases/{{ ph.id }}/delete" hx-confirm="Delete template {{ ph.name }}? Fleets that follow it keep its loadout as their own." title="delete">✕</button>
         </th>{% endfor %}</tr>
         {% for t in types %}<tr><td>{{ t | human }}</td>
-          {% for ph in cfg.phases %}<td class="num"><input type="number" min="0" name="want:{{ ph.id }}:{{ t }}" value="{{ ph.wants.get(t, '') }}" style="width:56px"
-            title="{{ ph.name }} · {{ t | human }}"></td>{% endfor %}
+          {% for ph in cfg.phases %}<td class="num" style="white-space:nowrap"><input type="number" min="0" name="want:{{ ph.id }}:{{ t }}" value="{{ ph.wants.get(t, '') }}" style="width:56px"
+            title="{{ ph.name }} · {{ t | human }}"><input type="number" min="0" name="stock:{{ ph.id }}:{{ t }}" value="{{ (ph.stock or {}).get(t, '') }}" style="width:48px" class="muted"
+            title="{{ ph.name }} · {{ t | human }}: keep in stock (spares printed at the fleet's home beyond the loadout)" placeholder="+"></td>{% endfor %}
         </tr>{% endfor %}
       </table>
       </div>

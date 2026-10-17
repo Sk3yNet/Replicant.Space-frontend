@@ -3342,6 +3342,15 @@ async def loadouts_save_phases(request: Request, user: str = Depends(current_use
                 except ValueError:
                     pass
         ph["wants"] = wants
+        stock = {}
+        for key, val in form.multi_items():
+            if key.startswith(f"stock:{pid}:") and str(val).strip() != "":
+                try:
+                    if int(val) > 0:
+                        stock[key[len(f"stock:{pid}:"):]] = int(val)
+                except ValueError:
+                    pass
+        ph["stock"] = stock
     new = (form.get("new_phase") or "").strip()
     if new:
         pid = re.sub(r"[^a-z0-9]+", "-", new.lower()).strip("-") or "phase"
@@ -3349,7 +3358,7 @@ async def loadouts_save_phases(request: Request, user: str = Depends(current_use
             pid += "-2"
         copy = next((p for p in cfg["phases"] if p["id"] == form.get("copy_from")), None)
         cfg["phases"].append({"id": pid, "name": new, "order": max([p.get("order", 0) for p in cfg["phases"]] or [0]) + 1,
-                              "wants": dict((copy or {}).get("wants") or {})})
+                              "wants": dict((copy or {}).get("wants") or {}), "stock": dict((copy or {}).get("stock") or {})})
     await save_loadouts(request, cfg)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 

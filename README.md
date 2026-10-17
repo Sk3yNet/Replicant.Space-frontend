@@ -486,10 +486,12 @@ The API reference was compiled from the public docs, not from the live API. A fe
   (new ones join the map, like a census).
 - Replicant pages: the game's event log for that replicant (filter by event type).
 - Device pages: permissions (other accounts allowed to use the device), with grant and revoke.
-- **Keep in stock** (Fleets overview, on a fleet that takes materials in, a printing hub): e.g. `ftl_relay 2, system_ward 1`.
-  Spares of each type in the hub's system (and stock prints under way) count; what's missing is printed one at a time on a
-  factory there that has nothing printing or queued, tagged `spare` and `stock`, so any fleet or ward/relay order can take
-  it. Stock prints are low priority: logistics supplies them last, and a waiting stock print is moved behind any other print.
+- **Keep in stock** (each loadout: a *Stock* column beside *Want* in a fleet's loadout editor, and a second box (+) per
+  type in the Templates grid, which the template's fleets follow): that many more of a type are kept as spares at the
+  fleet's home, beyond its loadout. Spares in that system (and stock prints under way) count; what's missing is printed
+  one at a time on an autofactory there that has nothing printing or queued, tagged `spare` and `stock`, so any fleet or
+  ward / relay order can take it (wards are only printed, never activated). Stock prints are low priority: logistics
+  supplies them last, and a waiting stock print is moved behind any other print.
 - **Materials** (Fleets overview): a fleet is *receiving* (takes materials in) or *supplying the nearest receiver*: its
   materials go to the receiving fleet nearest its home (recomputed whenever fleets change), and a mission that ferries
   while mining delivers to the receiver nearest the belt it mines. A fleet set earlier to send to one named fleet keeps it.

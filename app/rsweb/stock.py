@@ -4,8 +4,9 @@ Re-queue: the game has no command to reorder an autofactory's queue (only enqueu
 0-based position), so moving a waiting print removes every waiting print from its new place down and enqueues them again
 in the new order, with their tags, oncomplete, controller and flatpack. The print running now can't be moved.
 
-Keep in stock (owner's request, 2026-10-17): a printing hub (a fleet that takes materials in, `materials: self`) can keep
-a number of each device type in stock at its home: `stock: {type: n}` on the fleet. Spares of that type in the home system
+Keep in stock (owner's request, 2026-10-17): each loadout (a fleet's own, or a template's, which its fleets follow) can
+keep a number of each device type in stock at the fleet's home, beyond the loadout: `stock: {type: n}` on the fleet
+(set in the loadout editor and the Templates grid). Spares of that type in the home system
 (tagged `spare`, in no fleet) count, and so do prints already queued for the stock (tagged `stock`). What's missing is
 printed one at a time on a factory there with nothing printing or queued, tagged `spare` and `stock`, so any fleet can
 take it. Stock prints are low priority: logistics supplies them last (logistics.print_costs), and a stock print still
@@ -63,27 +64,8 @@ def stock_last(queue: list[dict]) -> list[dict]:
     return [x for x in queue if not is_stock(x)] + [x for x in queue if is_stock(x)]
 
 
-def parse_stock(text: str, known: set[str] | None = None) -> tuple[dict[str, int], list[str]]:
-    """'ftl_relay 2, system_ward 1' → ({ftl_relay: 2, system_ward: 1}, [unknown types])."""
-    import re
-    out: dict[str, int] = {}
-    bad: list[str] = []
-    for part in re.split(r"[,;\n]+", text or ""):
-        m = re.match(r"\s*([a-z0-9_ ]+?)\s*[:=x×]?\s*(\d+)\s*$", part.strip().lower()) if part.strip() else None
-        if not m:
-            if part.strip():
-                bad.append(part.strip())
-            continue
-        t, n = m.group(1).strip().replace(" ", "_"), int(m.group(2))
-        if known is not None and t not in known:
-            bad.append(t)
-        elif n > 0:
-            out[t] = n
-    return out, bad
-
-
 def hub_factories(fleet: dict, devices: list[dict]) -> list[dict]:
-    """The autofactories of a printing hub: at its home, the fleet's own or in no fleet."""
+    """The autofactories that print a fleet's stock: at its home, the fleet's own or in no fleet."""
     from .fleets import fleet_of
     from .loadouts import is_factory
     home = fleet.get("home")
@@ -160,9 +142,10 @@ class StockMixin:
         return True, f"queue re-ordered from #{k + 1}"
 
     async def stock_pass(self) -> list[str]:
-        """Keep-in-stock printing at the printing hubs, and stock prints kept behind every other print."""
+        """Keep-in-stock printing at the homes of fleets whose loadout has stock, and stock prints kept behind every
+        other print there."""
         from . import printqueue as pq
-        hubs = [f for f in await self.fleets() if f.get("materials") == "self" and f.get("home")]
+        hubs = [f for f in await self.fleets() if f.get("stock") and f.get("home")]
         if not hubs:
             return []
         devices = await self.devices()

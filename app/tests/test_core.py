@@ -7314,7 +7314,6 @@ def test_print_queue_reorder_and_keep_in_stock(client):
     assert [x["device_type"] for x in w.queues["AF00BEEF"]] == ["cargo_freighter", "ftl_relay", "mining_drone"]
     assert w.queues["AF00BEEF"][2]["tags"] == ["fleet:x"] and "⤒" in t
     assert stock.stock_last(q)[-1]["device_type"] == "ftl_relay"
-    assert stock.parse_stock("ftl_relay 2, system_ward: 1") == ({"ftl_relay": 2, "system_ward": 1}, [])
     # keep in stock: SOL's receiving fleet wants one relay; the factory there is idle and nothing is in stock
     af["status"] = "idle"
     w.queues["AF00BEEF"] = []
@@ -7331,8 +7330,16 @@ def test_print_queue_reorder_and_keep_in_stock(client):
     hub = client.portal.call(eng.fleets)[0]
     devs[-1:] = [devs[-1], {"device_code": "R1", "device_type": "ftl_relay", "location": "SOL-3-L4", "tags": ["spare"]}]
     assert stock.shortfall(hub, devs) == {}                     # a spare in the hub's system counts
-    t = client.get("/fleets/overview", headers=HX).text
-    assert 'value="ftl_relay 1"' in t and "/fleets/hub/stock" in t
-    assert "not saved: warp_gate" in client.post("/fleets/hub/stock", data={"stock": "warp_gate 1"}, headers=HX).text
-    assert "3 kept in stock" in client.post("/fleets/hub/stock", data={"stock": "mining drone 3"}, headers=HX).text
-    assert client.portal.call(eng.fleets)[0]["stock"] == {"mining_drone": 3}
+    # set in the loadout editor (a Stock column beside Want) …
+    client.post("/fleets/hub/edit", data={"name": "Hub", "lines": "1", "autosave": "1", "type": ["mining_drone", "ftl_relay"],
+                                          "qty": ["2", ""], "stock": ["", "3"]}, headers=HX)
+    hub = client.portal.call(eng.fleets)[0]
+    assert hub["wants"] == {"mining_drone": 2} and hub["stock"] == {"ftl_relay": 3}
+    assert 'name="stock" value="3"' in client.get("/fleets/details", headers=H).text
+    # … or in a template, which its fleets follow
+    client.post("/loadouts/phases", data={"new_phase": "Depot"}, headers=HX)
+    pid = next(p["id"] for p in client.portal.call(eng.loadout_cfg)["phases"] if p["name"] == "Depot")
+    client.post("/loadouts/phases", data={f"want:{pid}:mining_drone": "1", f"stock:{pid}:system_ward": "2"}, headers=HX)
+    client.post("/fleets/hub/edit", data={"name": "Hub", "template": pid}, headers=HX)
+    hub = client.portal.call(eng.fleets)[0]
+    assert hub["stock"] == {"system_ward": 2} and stock.shortfall(hub, devs) == {"system_ward": 2}

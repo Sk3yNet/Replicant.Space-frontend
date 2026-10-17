@@ -409,15 +409,24 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
         if f.get("template"):
             pass   # the loadout comes from the template
         elif form.get("lines"):   # the loadout editor: parallel type / qty lists, blank or 0 lines ignored
-            wants = {}
-            for t, q in zip(form.getlist("type"), form.getlist("qty")):
+            wants, stock = {}, {}
+            stocks = form.getlist("stock")
+            for i, (t, q) in enumerate(zip(form.getlist("type"), form.getlist("qty"))):
                 t = (t or "").strip()
                 try:
                     q = int(str(q).strip() or 0)
                 except ValueError:
                     q = 0
+                try:   # keep in stock (stock.py): printed as spares at home beyond the loadout
+                    k = int(str(stocks[i] if i < len(stocks) else "").strip() or 0)
+                except ValueError:
+                    k = 0
                 if t and q > 0:
                     wants[t] = wants.get(t, 0) + q
+                if t and k > 0:
+                    stock[t] = stock.get(t, 0) + k
+            if stocks:
+                f["stock"] = stock
         elif any(k.startswith("want:") for k in form.keys()):   # older bulk form / API use
             wants = {}
             for k, v in form.multi_items():
@@ -466,26 +475,6 @@ async def fleets_station(request: Request, fid: str, user: str = Depends(current
         f["supplied_from"] = sup if any(x["id"] == sup and x["id"] != fid for x in items) else ""
     await eng.save_fleets(items)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
-
-
-@router.post("/fleets/{fid}/stock", response_class=HTMLResponse)
-@_fleet_locked
-async def fleets_stock(request: Request, fid: str, stock: str = Form(""), user: str = Depends(current_user)):
-    """A printing hub's keep-in-stock list (stock.py): 'ftl_relay 2, system_ward 1'."""
-    from . import stock as sk
-    from .shapes import normalize_blueprints
-    eng, items = await _fleets(request)
-    f = next((x for x in items if x["id"] == fid), None)
-    if not f:
-        return HTMLResponse("", status_code=404)
-    known = {b["device_type"] for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
-    want, bad = sk.parse_stock(stock, known or None)
-    if bad:
-        return HTMLResponse(f'<span class="lv-alert">not saved: {html.escape(", ".join(bad))} — use blueprint names, e.g. ftl_relay 2</span>')
-    f["stock"] = want
-    await eng.save_fleets(items)
-    return HTMLResponse(f'<span class="muted">saved · {sum(want.values())} kept in stock</span>' if want
-                        else '<span class="muted">saved · nothing kept in stock</span>')
 
 
 @router.post("/fleets/{fid}/owner", response_class=HTMLResponse)

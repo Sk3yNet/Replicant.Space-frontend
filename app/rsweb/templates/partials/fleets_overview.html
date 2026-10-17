@@ -19,10 +19,6 @@
           <option value="">supplied nearby</option>
           {% for g in fleets if g.id != f.id and g.role != 'bootstrap' %}<option value="{{ g.id }}" {{ 'selected' if f.supplied_from == g.id }}>supplied from {{ g.name }} ({{ g.home }})</option>{% endfor %}
         </select></form>
-        {% if f.materials == 'self' %}<form hx-post="/fleets/{{ f.id }}/stock" hx-trigger="change" hx-target="next span" class="row" style="gap:6px;margin-top:4px">
-          <input name="stock" value="{{ (f.stock or {}).items() | map('join', ' ') | join(', ') }}" placeholder="keep in stock, e.g. ftl_relay 2, system_ward 1"
-            title="Printing hub: keep this many of each type in stock here, as spares any fleet can take. Printed one at a time when a factory here is idle; supplied by logistics last; queued behind every other print." style="min-width:260px">
-          <span class="muted"></span></form>{% endif %}
         {% if f.route %}<div class="muted">ferry {{ f.route.controller }}: {{ f.route.source }} → {{ f.route.dest }}</div>{% endif %}
         {% if f.takes_from %}<div class="muted">from {{ f.takes_from | map(attribute='name') | join(', ') }}</div>{% endif %}
         {% if f.materials == 'supply' %}<div class="muted">{% if f.sends_to %}to {{ f.sends_to.name }} ({{ f.sends_to.home }}), the nearest{% else %}no fleet is receiving yet{% endif %}</div>{% endif %}</td>

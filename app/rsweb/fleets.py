@@ -1069,6 +1069,7 @@ def resolve_template(fleet: dict, cfg: dict) -> dict:
         if ph:
             fleet["wants"] = template_wants(ph)
             fleet["zero"] = sorted(t for t, n in (ph.get("wants") or {}).items() if t and str(n).strip() == "0")
+            fleet["stock"] = dict(ph.get("stock") or {})   # keep in stock (stock.py) follows the template too
     return fleet
 
 
