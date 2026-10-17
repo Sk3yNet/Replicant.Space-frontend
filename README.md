@@ -82,7 +82,11 @@ rule with an on/off switch, plus the jobs and the log.
   it ends, everything from inside it (devices, events, scans, jobs) is purged; the report stays (score, resources
   mined, devices printed, the step times), and the next run follows the build order you choose: a Build orders card holds named orders, one step per line
   (`scan system`, `deploy all`, `mine: structural, conductive`, `print 2 mining_drone`, `wait: 500 structural`,
-  `mine until objective`); the run card crosses steps off as they're done and the timeline records when.
+  `mine until objective`, `survey` (survey drones at the belt search it), `controller: gather_evenly` (a mining controller at
+  the belt adopts the drones there, takes the directive and is launched, so they keep mining after the vessel leaves), `next system`
+  (the vessel flies to the nearest unvisited system with whatever it printed aboard), `each system:` and `repeat` (loop back
+  to it; a system with no belt is skipped)); every system mined counts toward a yield quota. The built-in *Mining Rush: spread
+  out* order uses them. The run card crosses steps off as they're done and the timeline records when.
   Runs in the game lists every run the game has going: End early on any of yours, and devices / galaxy links that open the
   normal Devices page and Galaxy map on that run's own data (`?sim=<run>`: its devices, stock and the virtual stars
   around its replicant, read live through it and cached for a minute). A run's clock runs faster than real time, so when one of its

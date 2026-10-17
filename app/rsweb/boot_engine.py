@@ -247,6 +247,10 @@ class BootstrapMixin:
                 steps.append(step(f"{a['device']}: mine {a['resource']}", f"/devices/{a['device']}",
                                   {"command": "start_mining", "resource_type": a["resource"]}))
                 touched.append(a["device"])
+            elif k == "command":   # any device command (a simulation's build order: controller adopt / directive / launch)
+                steps.append(step(a.get("label") or f"{a['device']}: {a['body'].get('command')}", f"/devices/{a['device']}",
+                                  a["body"], critical=True))
+                touched.append(a["device"])
             elif k == "search":
                 steps.append(step(f"{a['device']}: search the belt", f"/devices/{a['device']}", {"command": "search"}))
                 touched.append(a["device"])

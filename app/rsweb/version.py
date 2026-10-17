@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.127.0"
+VERSION = "1.128.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.128.0", "2026-10-17", "Simulation build orders: new steps survey, controller: <directive>, next system, each "
+     "system: / repeat. A built-in Mining Rush: spread out order prints drones, survey drones and a mining controller, "
+     "hands each system to its controller and flies on. A yield quota counts every system mined"),
     ("1.127.0", "2026-10-17", "Keep in stock moves to the loadouts: a Stock column beside Want in each fleet's loadout "
      "editor and a second box per type in the Templates grid (followed by the template's fleets); printed at the fleet's "
      "home. The Fleets overview box is gone"),

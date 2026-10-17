@@ -25,6 +25,10 @@ class SimMixin:
         s = await self.db.kv_get(sim.KV, {}) or {}
         if not (s.get("interface") or {}).get("code"):
             s["interface"] = dict(sim.KNOWN_INTERFACE)
+        if not s.get("expand_seeded"):   # the spreading-out Mining Rush order (2026-10-17), offered once; deletable
+            from . import sim_order
+            s.setdefault("orders", {}).setdefault(sim_order.EXPAND_NAME, sim_order.EXPAND)
+            s["expand_seeded"] = True
         return s
 
     async def sim_save(self, s: dict) -> None:
@@ -319,16 +323,19 @@ class SimMixin:
              "boot": {**bt.new_state(a["vessel"], rep, star), "settings": {**bt.DEFAULTS, "hold": v["cap"],
                                                                          "survey_per_miner": v["survey_per_miner"]}}}
         belt = bt.best_belt(a["scans"].get(star))
-        inv: dict[str, Any] = {}
         if belt:
+            a.setdefault("belts", {})[star] = belt["designation"]
+        inv: dict[str, Any] = {}
+        for bd in sorted(set((a.get("belts") or {}).values())):   # every system mined counts toward the quota
             try:
-                body = await self.api.get("/inventory", background=True, location=belt["designation"]) or {}
+                body = await self.api.get("/inventory", background=True, location=bd) or {}
                 for it in body.get("inventory") or body.get("stockpiles") or []:
-                    if it.get("location") == belt["designation"]:
-                        inv[belt["designation"]] = as_amounts(it.get("items"))
+                    if it.get("location") == bd:
+                        inv[bd] = as_amounts(it.get("items"))
             except ApiError:
                 pass
-        mined = sum((inv.get((belt or {}).get("designation")) or {}).values())
+        mined = sum(sum(x.values()) for x in inv.values())
+        a["mined_by_system"] = {s_: round(sum((inv.get(bd) or {}).values())) for s_, bd in (a.get("belts") or {}).items()}
         a["mined_seen"] = max(float(a.get("mined_seen") or 0), mined)
         target = float(a.get("target") or 0)
         for pct in (25, 50, 75):
@@ -338,6 +345,15 @@ class SimMixin:
              "bps": {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}}
         if a.get("order"):   # the owner's build order (sim_order), step by step
             from . import sim_order
+            i = int(a.get("order_idx") or 0)
+            if i < len(a["order"]) and a["order"][i]["kind"] == "next" and a.get("near_star") != star:
+                try:   # the systems around the vessel, nearest first (the virtual galaxy's only)
+                    body = await self.api.get(f"/replicants/{rep}/stars", background=True, per_page=50) or {}
+                    near = [x for x in body.get("stars") or [] if sim.is_virtual(x.get("designation"))]
+                    a["near"] = [x["designation"] for x in sorted(near, key=lambda x: float(x.get("distance_from_replicant") or 0))]
+                    a["near_star"] = star
+                except ApiError:
+                    pass
             seen = len(a.get("order_done") or [])
             bd = (belt or {}).get("designation")
             o_acts, note = sim_order.advance(a, devs, vessel, bd, inv.get(bd) or {}, star in a["scans"], now)

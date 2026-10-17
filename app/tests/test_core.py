@@ -7343,3 +7343,32 @@ def test_print_queue_reorder_and_keep_in_stock(client):
     client.post("/fleets/hub/edit", data={"name": "Hub", "template": pid}, headers=HX)
     hub = client.portal.call(eng.fleets)[0]
     assert hub["stock"] == {"system_ward": 2} and stock.shortfall(hub, devs) == {"system_ward": 2}
+
+
+def test_build_order_spreads_out_over_systems():
+    """Survey drones search the belt, a mining controller takes over the drones there and is launched, the vessel goes
+    on to the nearest unvisited system with what it printed, and `repeat` loops; a system with no belt is skipped."""
+    from rsweb import sim_order as so
+    steps, err = so.parse("each system:\nsurvey\ncontroller: gather_evenly\nprint 1 mining_drone\nnext system\nrepeat")
+    assert not err and [s_["kind"] for s_ in steps] == ["label", "survey", "controller", "print", "next", "repeat"]
+    assert so.parse("controller: gather_resources")[1]                    # needs a configuration: refused
+    assert not so.parse(so.EXPAND)[1]
+    belt = "VIRTA-BELT-1"
+    v = {"device_code": "V", "device_type": "heaven_vessel", "location": belt, "status": "idle"}
+    devs = [v, {"device_code": "S1", "device_type": "survey_drone", "location": belt, "status": "idle"},
+            {"device_code": "M1", "device_type": "mining_drone", "location": belt, "status": "idle"},
+            {"device_code": "C1", "device_type": "ami_mining_controller", "location": belt, "status": "idle"}]
+    a = {"order": steps, "stars": ["VIRTA"], "near": ["VIRTA", "VIRTB", "VIRTC"]}
+    acts, _ = so.advance(a, devs, v, belt, {}, True, "t")
+    assert acts == [{"kind": "search", "device": "S1"}]
+    acts, _ = so.advance(a, devs, v, belt, {}, True, "t")
+    assert [x["body"]["command"] for x in acts] == ["adopt", "set_directive", "launch"] and acts[0]["body"]["devices"] == ["M1"]
+    acts, note = so.advance(a, devs, v, belt, {}, True, "t")
+    assert acts == [{"kind": "print", "device_type": "mining_drone"}]
+    devs.append({"device_code": "M2", "device_type": "mining_drone", "stowed_in_device_code": "V"})
+    acts, _ = so.advance(a, devs, v, belt, {}, True, "t")
+    assert acts[0]["kind"] == "travel" and acts[0]["to"] == "VIRTB"
+    v2 = {**v, "location": "VIRTB"}                                      # arrived: no belt there, so on again
+    a["stars"].append("VIRTB")
+    acts, _ = so.advance(a, devs, v2, None, {}, True, "t")
+    assert acts[0]["kind"] == "travel" and acts[0]["to"] == "VIRTC" and a["loops"] == 1
