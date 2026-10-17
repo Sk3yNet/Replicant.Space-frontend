@@ -35,7 +35,8 @@ async def simulations_page(request: Request, user: str = Depends(current_user)):
     scen = (s.get("prep") or {}).get("scenario") or "mining_rush"
     lessons = {sc.get("code"): sim.lessons(s.get("runs") or [], (s.get("learn") or {}).get(sc.get("code")), sc.get("code"))
                for sc in (s.get("scenarios") or sim.DOC_SCENARIOS)}
-    return await page(request, user, "simulations.html", "simulations", s=s, loc=loc, reps_here=reps_here,
+    catalog = sorted((s.get("catalog") or {}).values(), key=lambda x: (x.get("location") or "", x.get("code") or ""))
+    return await page(request, user, "simulations.html", "simulations", s=s, loc=loc, reps_here=reps_here, catalog=catalog,
                       scenarios=s.get("scenarios") or sim.DOC_SCENARIOS, variants=sim.VARIANTS, cur=scen,
                       lessons=lessons, runs=list(reversed(s.get("runs") or [])),
                       bp_types=sorted({b["device_type"] for b in normalize_blueprints(
@@ -81,15 +82,38 @@ async def simulations_order_use(request: Request, name: str = Form(...), delete:
 
 
 @router.post("/simulations/queue", response_class=HTMLResponse)
-async def simulations_queue(request: Request, scenario: str = Form(...), user: str = Depends(current_user)):
+async def simulations_queue(request: Request, scenario: str = Form(...), interface: str = Form(""),
+                            user: str = Depends(current_user)):
+    """Approve a scenario (like a contract): its entry cost (compute cores: spares pinned there, else printed and
+    delivered) and a replicant go to that interface; the run is started here once they're there."""
     eng = request.app.state.worker.automations
     s = await eng.sim_state()
     if s.get("active"):
         return _msg("A simulation is running: queue the next one when it ends.", ok=False)
+    x = (s.get("catalog") or {}).get(interface.strip().upper()) if interface.strip() else None
+    if x:   # the run happens at the interface it was approved at
+        if x["code"] != (s.get("interface") or {}).get("code"):
+            s["interface"] = {"code": x["code"], "location": x["location"], "found": True}
+        if x.get("scenarios"):
+            s["scenarios"] = x["scenarios"]
     s["prep"] = {"scenario": scenario, "location": (s.get("interface") or {}).get("location") or sim.DATACENTER,
                  "queued_at": now_iso(), "by": user}
     await eng.sim_save(s)
-    return _msg(f"Queued: compute cores and a replicant go to {s['prep']['location']}; you're told when it's ready.")
+    ctype, need = sim.cost(sim.scenario(s, scenario))
+    what = f"{need} {ctype.replace('_', ' ')}(s) and a replicant go" if need else "a replicant goes (no entry cost)"
+    return _msg(f"Approved: {what} to {s['prep']['location']}; you're told when it's ready.")
+
+
+@router.post("/simulations/scan", response_class=HTMLResponse)
+async def simulations_scan(request: Request, user: str = Depends(current_user)):
+    """List the scenarios of every known replicant interface now."""
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        s = await eng.sim_state()
+        out = await eng.sim_catalog(s, force=True)
+        await eng.sim_save(s)
+    return _msg("; ".join(out) or "No replicant interface known yet: a device scan from a replicant at a datacenter finds one.",
+                ok=bool(out))
 
 
 @router.post("/simulations/cancel", response_class=HTMLResponse)

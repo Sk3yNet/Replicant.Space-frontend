@@ -41,6 +41,11 @@ class SimMixin:
         out: list[str] = []
         if not s.get("active"):
             out += await self.sim_adopt(s)
+            if not s.get("active"):
+                found = await self.sim_catalog(s)
+                if found and not (await self.db.kv_get(sim.KV, {}) or {}).get("active"):   # not over a run just started
+                    out += found
+                    await self.sim_save(s)
         if s.get("active"):
             out += await self.sim_run_pass(s)
         elif s.get("prep"):
@@ -217,6 +222,49 @@ class SimMixin:
                 s["interface"] = {"code": d.get("device_code"), "location": d.get("location") or loc, "found": True}
                 await self.sim_load_scenarios(s)
                 return
+
+    async def sim_interfaces(self, s: dict) -> dict[str, dict]:
+        """Every replicant interface known: the datacenter's, the one in use, your own, and any a device scan saw (kv
+        "others": each scan's raw answer)."""
+        from . import others as oth
+        out: dict[str, dict] = {}
+        for x in (sim.KNOWN_INTERFACE, s.get("interface") or {}):
+            if x.get("code"):
+                out[x["code"]] = {"code": x["code"], "location": x.get("location") or sim.DATACENTER}
+        snap = oth.normalize(await self.db.kv_get(oth.KV, {}))
+        seen = [d for st in snap["stars"].values() for d in st.get("raw") or []]
+        for d in seen + list(await self.db.kv_get("devices", []) or []):
+            if isinstance(d, dict) and sim.is_interface(d) and d.get("device_code") and not sim.is_virtual(d.get("location")):
+                out[d["device_code"]] = {"code": d["device_code"], "location": d.get("location") or sim.DATACENTER,
+                                         "owner_name": d.get("owner_name")}
+        return out
+
+    async def sim_catalog(self, s: dict, force: bool = False) -> list[str]:
+        """Each known interface's scenarios (GET /devices/{code}/simulate), every CATALOG_EVERY_H hours or when asked."""
+        cat = s.setdefault("catalog", {})
+        now = datetime.now(timezone.utc)
+        out = []
+        for code, x in (await self.sim_interfaces(s)).items():
+            e = cat.get(code) or {}
+            try:
+                age = (now - datetime.fromisoformat(e["at"])).total_seconds() / 3600 if e.get("at") else None
+            except ValueError:
+                age = None
+            if not force and age is not None and age < sim.CATALOG_EVERY_H:
+                continue
+            e = {**e, **x, "at": now_iso()}
+            try:
+                body = await self.api.get(f"/devices/{code}/simulate", background=True) or {}
+                e["scenarios"] = body.get("scenarios") or []
+                e.pop("error", None)
+                if code == (s.get("interface") or {}).get("code") and e["scenarios"]:
+                    s["scenarios"] = e["scenarios"]
+            except ApiError as err:
+                e["error"] = err.message
+            cat[code] = e
+            out.append(f"simulation: {code} at {x['location']} lists {len(e.get('scenarios') or [])} scenario(s)"
+                       + (f" ({e['error']})" if e.get("error") else ""))
+        return out
 
     async def sim_load_scenarios(self, s: dict) -> None:
         code = (s.get("interface") or {}).get("code")

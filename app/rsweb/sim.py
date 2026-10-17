@@ -4,6 +4,8 @@ prepares a run (compute cores and a replicant at the interface), you start it wi
 the score, the build order and when each step of it was reached, and what that teaches the next run.
 
 State: kv `sim` = {"interface": {code, location}, "scenarios": [...], "prep": {...}, "active": {...},
+"catalog": {interface code: {code, location, owner_name, at, scenarios | error}} (every interface found, each one's
+GET /devices/{code}/simulate, refreshed every CATALOG_EVERY_H hours or on demand),
 "runs": [report, ...], "learn": {scenario: {variant: [scores]}}}.
 
 Learning: a run follows a build order — compound to `cap` drones (mining + survey, `survey_per_miner` of them survey)
@@ -35,13 +37,14 @@ DOC_SCENARIOS = [
     {"code": "mining_sprint", "name": "Mining Sprint", "description": "Mine 10,000 total resources", "objective_type": "yield_quota",
      "objective_target": 10000, "entry_cost": {"device_type": CORE, "quantity": 2}, "timeout_hours": 8},
     {"code": "resource_hunter", "name": "Resource Hunter", "description": "Accumulate 5,000 resources across all locations",
-     "objective_type": "yield_quota", "objective_target": 5000, "entry_cost": {"device_type": CORE, "quantity": 1}, "timeout_hours": 8},
+     "objective_type": "stockpile_quota", "objective_target": 5000, "entry_cost": {"device_type": CORE, "quantity": 1}, "timeout_hours": 8},
     {"code": "hunter_gatherer", "name": "Hunter Gatherer", "description": "Gather 3,000 resources at a single location",
-     "objective_type": "yield_quota", "objective_target": 3000, "entry_cost": {"device_type": CORE, "quantity": 1}, "timeout_hours": 8},
+     "objective_type": "single_stockpile_quota", "objective_target": 3000, "entry_cost": {"device_type": CORE, "quantity": 1}, "timeout_hours": 8},
 ]
 VARIANTS = [{"cap": 4, "survey_per_miner": 0.34}, {"cap": 6, "survey_per_miner": 0.34}, {"cap": 8, "survey_per_miner": 0.5},
             {"cap": 10, "survey_per_miner": 0.5}]
 NAG_EVERY_H = 2.0
+CATALOG_EVERY_H = 6.0
 SIM_CODE = re.compile(r"^SIM")
 
 
@@ -94,6 +97,9 @@ def scenario(state: dict, code: str) -> dict:
 
 
 def cost(sc: dict) -> tuple[str, int]:
+    """(device type, how many) a run costs to enter; `entry_cost: null` (the terraforming training) is free."""
+    if "entry_cost" in sc and not sc["entry_cost"]:
+        return CORE, 0
     c = sc.get("entry_cost") or {}
     return c.get("device_type") or CORE, int(c.get("quantity") or 1)
 

@@ -289,7 +289,12 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     async def sim_scenarios(code: str):
         return ok({"scenarios": [{"code": "mining_rush", "name": "Mining Rush", "description": "Mine 3,000 total resources",
                                   "objective_type": "yield_quota", "objective_target": 3000,
-                                  "entry_cost": {"device_type": "compute_core", "quantity": 1}, "timeout_hours": 4}]})
+                                  "entry_cost": {"device_type": "compute_core", "quantity": 1}, "timeout_hours": 4,
+                                  "long_description": "A small cluster of ~10 stars with you in the middle.", "version": 1},
+                                 {"code": "terraforming_training_1", "name": "Terraforming Training",
+                                  "description": "Transform a hostile world into a habitable home for humanity.",
+                                  "objective_type": "terraform_training", "objective_target": None, "entry_cost": None,
+                                  "timeout_hours": None, "version": 1}]})
 
     @app.delete("/v1/devices/{code}/simulate/{sim_id}")
     async def sim_end(code: str, sim_id: int):

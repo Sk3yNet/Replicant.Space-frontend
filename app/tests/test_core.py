@@ -7372,3 +7372,25 @@ def test_build_order_spreads_out_over_systems():
     a["stars"].append("VIRTB")
     acts, _ = so.advance(a, devs, v2, None, {}, True, "t")
     assert acts[0]["kind"] == "travel" and acts[0]["to"] == "VIRTC" and a["loops"] == 1
+
+
+def test_simulations_listed_per_interface_and_approved(client):
+    """Every known interface's scenarios (GET /devices/{code}/simulate) are listed on the Simulations page; approving
+    one queues it at that interface, like a contract: its entry cost and a replicant go there. A null entry cost is free."""
+    from rsweb import others as oth, sim
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    snap = oth.normalize({})
+    snap["stars"]["ALGOL"] = {"scanned_at": "2026-10-17T00:00:00+00:00", "devices": [], "drones": [],
+                              "raw": [{"device_code": "IF2", "device_type": "replicant_interface", "location": "ALGOL-OBJ-2",
+                                       "owner_name": "Bill"}]}
+    client.portal.call(db.kv_set, oth.KV, snap)
+    t = client.post("/simulations/scan", headers=HX).text
+    assert "IF2 at ALGOL-OBJ-2 lists 2 scenario(s)" in t
+    page = client.get("/simulations", headers=H).text
+    assert "ALGOL-OBJ-2" in page and "Terraforming Training" in page and "free" in page and "Approve" in page
+    t = client.post("/simulations/queue", data={"scenario": "terraforming_training_1", "interface": "IF2"}, headers=HX).text
+    assert "a replicant goes (no entry cost) to ALGOL-OBJ-2" in t
+    s = client.portal.call(eng.sim_state)
+    assert s["interface"]["code"] == "IF2" and s["prep"]["location"] == "ALGOL-OBJ-2"
+    assert sim.cost(sim.scenario(s, "terraforming_training_1")) == ("compute_core", 0)
+    assert "approved" in client.get("/simulations", headers=H).text

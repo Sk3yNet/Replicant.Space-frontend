@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.128.0"
+VERSION = "1.129.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.129.0", "2026-10-17", "Simulations page: Available simulations lists every known replicant interface (also "
+     "ones other players' device scans saw) with its scenarios, read every 6 h or on demand; Approve one and its entry "
+     "cost and a replicant go there. Free scenarios (terraforming training) need no compute core. Build-order buttons "
+     "for the new steps"),
     ("1.128.0", "2026-10-17", "Simulation build orders: new steps survey, controller: <directive>, next system, each "
      "system: / repeat. A built-in Mining Rush: spread out order prints drones, survey drones and a mining controller, "
      "hands each system to its controller and flies on. A yield quota counts every system mined"),

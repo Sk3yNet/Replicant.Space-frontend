@@ -8,6 +8,30 @@
   recording when each step of its build order was reached. When the run ends, everything from inside it is discarded:
   only the report stays, and the next run's build order learns from it.</p>
 {% set a = s.active %}{% set prep = s.prep %}
+<div class="card" style="margin-bottom:14px">
+  <h2>Available simulations <span class="muted small">every replicant interface found, its scenarios read every 6 h</span>
+    <button class="small ghost" hx-post="/simulations/scan" hx-target="#sim-scan">Scan interfaces now</button></h2>
+  <div id="sim-scan"></div>
+  {% for x in catalog %}
+  <h3 style="margin-top:10px">{{ x.location }} <span class="muted small mono">{{ x.code }}</span>
+    <span class="muted small">{% if x.owner_name %}· {{ x.owner_name }}'s {% endif %}· read {{ x.at | ago }}</span></h3>
+  {% if x.error %}<p class="small lv-alert">{{ x.error }}</p>{% endif %}
+  {% if x.scenarios %}<table class="small">
+    <tr><th>Scenario</th><th>Objective</th><th class="num">Time limit</th><th>Entry cost</th><th></th></tr>
+    {% for sc in x.scenarios %}{% set ec = sc.entry_cost %}
+    <tr><td><b>{{ sc.name }}</b> <span class="muted">{{ sc.description }}</span>
+        {% if sc.long_description %}<details><summary class="muted">details</summary><div class="muted">{{ sc.long_description }}</div></details>{% endif %}</td>
+      <td>{{ (sc.objective_type or '') | human }}{% if sc.objective_target %} · {{ sc.objective_target | num }}{% endif %}</td>
+      <td class="num">{{ (sc.timeout_hours ~ ' h') if sc.timeout_hours else '—' }}</td>
+      <td>{% if ec %}{{ ec.quantity or 1 }} {{ (ec.device_type or 'compute_core') | human }}{% else %}<span class="muted">free</span>{% endif %}</td>
+      <td>{% if prep and prep.scenario == sc.code and s.interface and s.interface.code == x.code %}<span class="pill small st-work">approved</span>
+        {% elif not a and not prep %}<button class="small" hx-post="/simulations/queue" hx-target="#sim-scan"
+          hx-vals='{{ {"scenario": sc.code, "interface": x.code} | tojson }}'
+          hx-confirm="Approve {{ sc.name }} at {{ x.location }}? {% if ec %}{{ ec.quantity or 1 }} {{ (ec.device_type or 'compute_core') | human }}(s) are pinned there from spares, or printed and delivered, and {% endif %}a replicant is sent; you start the run once they're there.">Approve</button>{% endif %}</td></tr>
+    {% endfor %}</table>
+  {% elif not x.error %}<p class="muted small">No scenarios listed.</p>{% endif %}
+  {% else %}<p class="muted small">No interface read yet. Press <i>Scan interfaces now</i>; other datacenters' interfaces are found by a device scan from a replicant there.</p>{% endfor %}
+</div>
 <div class="grid g2">
   <div class="card">
     {% if a %}
@@ -38,6 +62,7 @@
     <button class="small ghost" hx-post="/simulations/cancel" hx-target="#sim-result">Cancel</button>
     {% else %}
     <h2>Queue a run</h2>
+    <p class="muted small">Approve a scenario under <i>Available simulations</i>, or queue one at {{ loc }} here.</p>
     <form hx-post="/simulations/queue" hx-target="#sim-result" class="row">
       <select name="scenario">{% for sc in scenarios %}<option value="{{ sc.code }}"{% if sc.code == cur %} selected{% endif %}>{{ sc.name }} — {{ sc.description }} ({{ (sc.entry_cost or {}).quantity or 1 }} {{ ((sc.entry_cost or {}).device_type or 'compute_core') | human }}, {{ sc.timeout_hours }} h)</option>{% endfor %}</select>
       <button>Queue</button></form>
@@ -62,6 +87,11 @@
         <button type="button" class="small ghost" onclick="boAdd('scan system')">scan system</button>
         <button type="button" class="small ghost" onclick="boAdd('deploy all')">deploy all</button>
         <button type="button" class="small ghost" onclick="boAdd('mine until objective')">mine until objective</button>
+        <button type="button" class="small ghost" onclick="boAdd('survey')">survey</button>
+        <button type="button" class="small ghost" onclick="boAdd('controller: gather_evenly')">controller</button>
+        <button type="button" class="small ghost" onclick="boAdd('next system')">next system</button>
+        <button type="button" class="small ghost" onclick="boAdd('each system:')">each system:</button>
+        <button type="button" class="small ghost" onclick="boAdd('repeat')">repeat</button>
       </div>
       <div class="row small" style="gap:4px;flex-wrap:wrap;margin:4px 0">
         <span>mine:</span>{% for r in resources %}<label><input type="checkbox" class="bo-res" value="{{ r }}"> {{ r }}</label>{% endfor %}
