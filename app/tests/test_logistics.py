@@ -464,3 +464,29 @@ def test_devices_a_deal_paid_out_are_sent_to_the_gather_point(client):  # noqa: 
     assert len(jobs) == 1 and jobs[0]["device"] == "SP"
     assert jobs[0]["steps"][0]["body"]["configuration"]["add_tags"] == ["to:a"]
     assert client.portal.call(db.kv_get, lg.KV_PICKUPS) == {}
+
+
+def test_idle_logistics_devices_gather_at_the_nearest_printing_hub():
+    """Owner's request 2026-10-17: a free logistics device away from every printing hub (a fleet taking materials in)
+    flies to the nearest one; one that can't surge is towed there by a free carrier."""
+    devs = [dev("F1", "cargo_freighter", "B-1", cargo_capacity=100, **SURGE),
+            dev("PL", "carrier_plate", "B-1", attach_capacity=2, **SURGE),
+            dev("HL", "hauler", "B-2", available_commands=["collect_resources"])]
+    p = run_plan(devs, {})
+    by = {r.get("escort") or r.get("rescued"): r for r in p["runs"]}
+    assert by["F1"]["kind"] == "reposition" and by["F1"]["to"] == "A-1"
+    assert by["HL"]["kind"] == "rescue" and by["HL"]["ride"] == "PL" and by["HL"]["to"] == "A-1"
+    p = run_plan([dev("F1", "cargo_freighter", "A-2", cargo_capacity=100, **SURGE)], {})
+    assert not p["runs"]                                 # at a hub already: it stays
+
+
+def test_stock_prints_are_supplied_last():
+    devs = [dev("AF", "autofactory", "B-2", tags=[], status="idle",
+                print_queue=[{"device_type": "mining_drone", "quantity": 1, "tags": ["spare", "stock"]}])]
+    req = next(r for r in lg.requests(devices=devs, bps=BPS, inventory={}, pos=POS, contracts=[], trades=[], incoming={},
+                                      fleets=FLEETS, gather={"A": "A-1"}, busy_stars=set())[0] if r["kind"] == "print")
+    assert req["tier"] == 4 and "keep in stock" in req["label"]
+    devs[0]["print_queue"].append({"device_type": "mining_drone", "quantity": 1})
+    req = next(r for r in lg.requests(devices=devs, bps=BPS, inventory={}, pos=POS, contracts=[], trades=[], incoming={},
+                                      fleets=FLEETS, gather={"A": "A-1"}, busy_stars=set())[0] if r["kind"] == "print")
+    assert req["tier"] == 1

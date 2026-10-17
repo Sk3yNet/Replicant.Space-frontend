@@ -20,7 +20,8 @@ transport drones and haulers work inside their system, or are towed (attached) t
 platform, carrier, cargo vessel). Anywhere outside an active relay network (relaynet.coverage)
 a logistics device hosting a replicant flies alongside — a cargo vessel hosting one carries its own escort — or nothing goes.
 After a delivery outside the network the logistics devices come back to wait in it: their fleet's home when that's covered, else
-the nearest covered system. When a delivery completes a contract's or trade's price, the escort's replicant (or one
+the nearest covered system. Inside the network an idle logistics device gathers at the nearest printing hub (a fleet that
+takes materials in): it flies there, or a free carrier tows it (members of a stationed logistics fleet stay at its home). When a delivery completes a contract's or trade's price, the escort's replicant (or one
 already there) fulfills it at once; a request already stocked waits for a replicant logistics device to come and fulfill it.
 
 Inside one system the system's own free AMI transport controller (drones / haulers) takes the delivery when there is
@@ -103,8 +104,14 @@ def print_costs(devices: list[dict], bps: dict[str, dict]) -> dict[str, dict]:
             running = running or (st[st.find("(") + 1:st.rfind(")")] if "(" in st else None)
             if running and counts.get(running):
                 counts[running] -= 1
-        e = out.setdefault(loc, {"cost": {}, "waiting": False, "types": defaultdict(int), "factories": []})
+        e = out.setdefault(loc, {"cost": {}, "waiting": False, "types": defaultdict(int), "factories": [], "stock_only": True})
         e["waiting"] |= st.startswith("waiting_for_resources")
+        # only keep-in-stock prints to pay for here (stock.py): supplied last
+        from . import printqueue as pq
+        from .stock import is_stock
+        pr = d.get("printing") if isinstance(d.get("printing"), dict) else {}
+        if any(not is_stock(it) for it in pq.items(d)) or (st.startswith("waiting_for_resources") and not is_stock(pr)):
+            e["stock_only"] = False
         e["factories"].append(d.get("device_code"))
         for t, n in counts.items():
             if n <= 0:
@@ -276,8 +283,10 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
     for loc, e in sorted(costs.items()):
         need = _short(e["cost"], have(loc))
         types = ", ".join(f"{n}× {t.replace('_', ' ')}" for t, n in sorted(e["types"].items()))
-        out.append({"id": f"print:{loc}", "kind": "print", "to": loc, "need": need, "price": e["cost"], "tier": 1,
-                    "waiting": e["waiting"], "label": f"prints at {loc}: {types}"})
+        for_stock = e.get("stock_only", False)
+        out.append({"id": f"print:{loc}", "kind": "print", "to": loc, "need": need, "price": e["cost"],
+                    "tier": 4 if for_stock else 1, "waiting": e["waiting"],
+                    "label": f"prints at {loc}: {types}" + (" (keep in stock)" if for_stock else "")})
     for c in contracts:
         out.append({"id": f"contract:{c['designation']}", "kind": "contract", "to": c["location"], "price": c["price"],
                     "need": _short(c["price"], have(c["location"])), "label": f"contract {c.get('title') or c['designation']}",
@@ -726,6 +735,37 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         if w:
             runs.append({"req": None, "kind": "reposition", "cargos": [], "escort": c, "legs": [], "to": w, "carry": {},
                          "fulfil": None, "replicant": None, "back": None, "label": f"{c} back to wait in the relay network"})
+    # the rest of the idle logistics devices gather at the nearest printing hub (a fleet that takes materials in, inside
+    # the network; owner's request 2026-10-17): those that can surge fly there, the others are towed by a free carrier
+    from . import fleets as fl
+    hubs = sorted(s for s in gather if s in commandable and gather[s])
+    for c, d in sorted(free.items()):
+        here = star_of(d.get("location"))
+        if not hubs or c in used or here not in commandable or here in gather or fl.stationed(d.get("_fleet") or {}):
+            continue   # a stationed logistics fleet is kept at its own home by the loadout pass: it stays there
+        to_star = min(hubs, key=lambda h: (_dist(here, h, pos), h))
+        to = gather[to_star]
+        label = f"{c} idle: gathers at the printing hub in {to_star}"
+        if can_surge(d) and "travel" in (d.get("available_commands") or ["travel"]):
+            used.add(c)
+            runs.append({"req": None, "kind": "reposition", "cargos": [], "escort": c, "legs": [], "to": to, "carry": {},
+                         "fulfil": None, "replicant": None, "back": None, "label": label})
+            continue
+        cands = []
+        for k, e in free.items():
+            there = star_of(e.get("location"))
+            if k == c or k in used or not can_surge(e) or there not in commandable \
+                    or not (there == here or _dist(there, here, pos) <= reach):
+                continue
+            mode = fl.take_seat(dict(fl.seats(e, devices)), d)
+            if mode:
+                cands.append((there != here, _dist(there, here, pos), k, mode))
+        if not cands:
+            continue   # nothing free to tow it: it waits where it is
+        _, _, k, mode = min(cands)
+        used |= {c, k}
+        runs.append({"req": None, "kind": "rescue", "cargos": [], "ride": k, "escort": None, "rescued": c, "mode": mode,
+                     "point": d["location"], "to": to, "carry": {}, "back": None, "label": label})
     for run in runs:
         run["direct"] = {c: direct[c] for c in run_devices(run) if c in direct}
     return {"requests": reqs, "runs": runs, "unmet": unmet, "reserve": reserve,

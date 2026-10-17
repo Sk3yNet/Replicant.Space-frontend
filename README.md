@@ -40,7 +40,9 @@ rule with an on/off switch, plus the jobs and the log.
   them one command, or to **add tags** / **remove tags**; the ones that can't take it — command not available, in use by an
   automation, a deploy/detach while the carrier is between systems — are listed and skipped.
 - **Device page**: live detail, any available command with its fields (destructive ones ask first), tags, history and game log,
-  cancel travel. Autofactories get a **print queue** card (add with an optional *deliver to*, remove, clear); carrier vessels
+  cancel travel. Autofactories get a **print queue** card (add with an optional *deliver to*, remove, clear, and move a waiting print
+  to the front, up or down: the game can't reorder a queue, so the waiting prints from that place down are taken off and queued
+  again in the new order, tags and destinations kept; the print running now can't be moved); carrier vessels
   a **carrier** card on every carrier (launch / stow / recall for a hold, detach / attach for attach points); stow, deploy, attach and detach work from either side (the carrier's
   page lists its hold / attachments, the cargo's page lists carriers here — only the side the device fits); *Decommission at an autofactory* takes a device there so the autofactory learns
   its blueprint. `enqueue_print` on a replicant's vessel is sent as the replicant's own print (one at a time).
@@ -161,7 +163,7 @@ lines or a template).
   aimed at the emptiest hemisphere; then the observatory compacts and the carrier takes it to the next star — the
   emptiest neighborhood not prospected from yet, nearer first, commandable, and not another prospector's. A tour that
   hasn't moved on or prospected for 12 hours, or has no star left in range, raises a warning in the bell.
-- **Logistics** fleets (Fleets › Logistics): no missions; their devices deliver materials and devices on demand. A print delivery to another system leaves with its hold at least a quarter full (or carrying all that's wanted); a smaller load waits for more to be spared, also when a print is stalled if the trip is longer than 15 ly. The page's **In transit** card lists every hold with materials in it (what, where, heading for, which run), with totals; the dashboard's stockpiles show "+ N in transit".
+- **Logistics** fleets (Fleets › Logistics): no missions; their devices deliver materials and devices on demand. Idle logistics devices inside the relay network gather at the nearest printing hub (a fleet that takes materials in): they fly there, or a free logistics carrier tows them; a stationed logistics fleet stays at its own home. A print delivery to another system leaves with its hold at least a quarter full (or carrying all that's wanted); a smaller load waits for more to be spared, also when a print is stalled if the trip is longer than 15 ly. The page's **In transit** card lists every hold with materials in it (what, where, heading for, which run), with totals; the dashboard's stockpiles show "+ N in transit".
   Requests: queued prints (their cost minus what's stocked), contracts you approved or whose civilization you pre-approved
   (Contracts), trades you approved (Shop: *approve*, used once; plain shop listings are never fulfilled), a home system's
   piles consolidated at its drop point (its autofactory, else its biggest pile; systems the Consolidate rule covers with an
@@ -484,6 +486,10 @@ The API reference was compiled from the public docs, not from the live API. A fe
   (new ones join the map, like a census).
 - Replicant pages: the game's event log for that replicant (filter by event type).
 - Device pages: permissions (other accounts allowed to use the device), with grant and revoke.
+- **Keep in stock** (Fleets overview, on a fleet that takes materials in, a printing hub): e.g. `ftl_relay 2, system_ward 1`.
+  Spares of each type in the hub's system (and stock prints under way) count; what's missing is printed one at a time on a
+  factory there that has nothing printing or queued, tagged `spare` and `stock`, so any fleet or ward/relay order can take
+  it. Stock prints are low priority: logistics supplies them last, and a waiting stock print is moved behind any other print.
 - **Materials** (Fleets overview): a fleet is *receiving* (takes materials in) or *supplying the nearest receiver*: its
   materials go to the receiving fleet nearest its home (recomputed whenever fleets change), and a mission that ferries
   while mining delivers to the receiver nearest the belt it mines. A fleet set earlier to send to one named fleet keeps it.

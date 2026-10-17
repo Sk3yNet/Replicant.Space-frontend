@@ -468,6 +468,26 @@ async def fleets_station(request: Request, fid: str, user: str = Depends(current
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
+@router.post("/fleets/{fid}/stock", response_class=HTMLResponse)
+@_fleet_locked
+async def fleets_stock(request: Request, fid: str, stock: str = Form(""), user: str = Depends(current_user)):
+    """A printing hub's keep-in-stock list (stock.py): 'ftl_relay 2, system_ward 1'."""
+    from . import stock as sk
+    from .shapes import normalize_blueprints
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f:
+        return HTMLResponse("", status_code=404)
+    known = {b["device_type"] for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
+    want, bad = sk.parse_stock(stock, known or None)
+    if bad:
+        return HTMLResponse(f'<span class="lv-alert">not saved: {html.escape(", ".join(bad))} — use blueprint names, e.g. ftl_relay 2</span>')
+    f["stock"] = want
+    await eng.save_fleets(items)
+    return HTMLResponse(f'<span class="muted">saved · {sum(want.values())} kept in stock</span>' if want
+                        else '<span class="muted">saved · nothing kept in stock</span>')
+
+
 @router.post("/fleets/{fid}/owner", response_class=HTMLResponse)
 @_fleet_locked
 async def fleets_owner(request: Request, fid: str, owner: str = Form(""), keep_owner: str = Form(""), now: str = Form(""),

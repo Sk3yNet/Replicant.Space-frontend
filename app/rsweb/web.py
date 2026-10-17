@@ -700,6 +700,20 @@ async def print_queue_action(request: Request, code: str, action: str = Form(...
                              user: str = Depends(current_user)):
     dev = await fetch_device(request, code)
     cmds = dev.get("available_commands") or []
+    if action in ("top", "up", "down"):
+        from . import stock
+        q = printqueue.items(dev)
+        to = {"top": 0, "up": index - 1, "down": index + 1}[action]
+        if not 0 <= index < len(q) or not 0 <= to < len(q):
+            return HTMLResponse('<div class="result err">That print isn\'t in the queue any more.</div>', status_code=400)
+        eng = request.app.state.worker.automations
+        async with eng.lock:
+            ok, msg = await eng.requeue(code, stock.moved(q, index, to), f"#{index + 1} {action} by hand")
+        dev = await fetch_device(request, code)
+        return partial(request, "partials/print_queue.html", **await print_queue_ctx(
+            request, code, dev, {"label": f"move #{index + 1} {q[index]['device_type']} to #{to + 1}", "ok": ok,
+                                 "method": "POST", "path": f"/devices/{code}", "status": 200 if ok else 409,
+                                 "error": None if ok else msg, "response": msg if ok else None}))
     if action == "remove":
         # `index` is the game's 0-based queue position (the panel shows #1 for index 0)
         body, label = {"command": "dequeue_print", "index": index}, f"remove #{index + 1} from {code}'s queue"

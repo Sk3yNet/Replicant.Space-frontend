@@ -45,7 +45,13 @@
           {% if not compact %}{{ tag_editor(it) }}{% endif %}
           {% if it.oncomplete %}<span class="muted"> · then {{ it.oncomplete.command or it.oncomplete }}{% if it.oncomplete.destination %} → {{ it.oncomplete.destination }}{% endif %}</span>{% endif %}</td>
         <td>{% if it.notify %}<a href="/devices/{{ it.notify }}" class="mono">{{ it.notify }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-        {% if not compact %}<td class="num"><button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
+        {% if not compact %}<td class="num" style="white-space:nowrap">{% if not loop.first %}<button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
+              hx-vals='{{ {"action": "top", "index": it.api_index} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
+              title="Move to the front of the queue (the waiting prints are taken off and queued again in the new order)">⤒</button><button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
+              hx-vals='{{ {"action": "up", "index": it.api_index} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
+              title="Move up one place">↑</button>{% endif %}{% if not loop.last %}<button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
+              hx-vals='{{ {"action": "down", "index": it.api_index} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
+              title="Move down one place">↓</button>{% endif %}<button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
               hx-vals='{{ {"action": "remove", "index": it.api_index} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
               hx-confirm="Remove #{{ it.index }} {{ it.device_type | human }} from the queue?" title="dequeue_print index {{ it.api_index }} (0-based)">Remove</button></td>{% endif %}
       </tr>

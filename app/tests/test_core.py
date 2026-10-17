@@ -7295,3 +7295,44 @@ def test_simulation_next_step_follows_a_finished_job(client):
             await asyncio.sleep(0.01)
     client.portal.call(finish)
     assert calls == [42]
+
+
+def test_print_queue_reorder_and_keep_in_stock(client):
+    """The game can't reorder a queue: moving a print takes the waiting prints off from its new place down and queues
+    them again. A printing hub keeps its stock: one print at a time on an idle factory, tagged spare + stock, and a
+    waiting stock print goes behind any other print."""
+    from rsweb import printqueue as pq, stock
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    w = client.app.state.api.http._transport.app.state.world
+    af = next(d for d in w.devices if d["device_code"] == "AF00BEEF")
+    af["status"] = "printing (mining_drone)"
+    w.queues["AF00BEEF"] = [{"device_type": t, "notify": {"device": None}, "tags": tags}
+                            for t, tags in (("ftl_relay", ["spare", "stock"]), ("mining_drone", ["fleet:x"]),
+                                            ("cargo_freighter", []))]
+    q = pq.items({"print_queue": w.queues["AF00BEEF"]})
+    t = client.post("/devices/AF00BEEF/print-queue", data={"action": "top", "index": 2}, headers=HX).text
+    assert [x["device_type"] for x in w.queues["AF00BEEF"]] == ["cargo_freighter", "ftl_relay", "mining_drone"]
+    assert w.queues["AF00BEEF"][2]["tags"] == ["fleet:x"] and "⤒" in t
+    assert stock.stock_last(q)[-1]["device_type"] == "ftl_relay"
+    assert stock.parse_stock("ftl_relay 2, system_ward: 1") == ({"ftl_relay": 2, "system_ward": 1}, [])
+    # keep in stock: SOL's receiving fleet wants one relay; the factory there is idle and nothing is in stock
+    af["status"] = "idle"
+    w.queues["AF00BEEF"] = []
+    devs = client.portal.call(db.kv_get, "devices")
+    for d in devs:
+        if d["device_code"] == "AF00BEEF":
+            d.update(status="idle", print_queue=[], tags=[])
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(eng.save_fleets, [{"id": "hub", "name": "Hub", "role": "mining", "home": "SOL", "station": True,
+                                          "materials": "self", "stock": {"ftl_relay": 1}}])
+    out = client.portal.call(eng.stock_pass)
+    assert any("ftl_relay to keep in stock" in x for x in out)
+    assert client.portal.call(eng.stock_pass) == []            # ordered: not again while the device list catches up
+    hub = client.portal.call(eng.fleets)[0]
+    devs[-1:] = [devs[-1], {"device_code": "R1", "device_type": "ftl_relay", "location": "SOL-3-L4", "tags": ["spare"]}]
+    assert stock.shortfall(hub, devs) == {}                     # a spare in the hub's system counts
+    t = client.get("/fleets/overview", headers=HX).text
+    assert 'value="ftl_relay 1"' in t and "/fleets/hub/stock" in t
+    assert "not saved: warp_gate" in client.post("/fleets/hub/stock", data={"stock": "warp_gate 1"}, headers=HX).text
+    assert "3 kept in stock" in client.post("/fleets/hub/stock", data={"stock": "mining drone 3"}, headers=HX).text
+    assert client.portal.call(eng.fleets)[0]["stock"] == {"mining_drone": 3}

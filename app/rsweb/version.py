@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.125.0"
+VERSION = "1.126.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.126.0", "2026-10-17", "Print queues: move a waiting print to the front, up or down (the queue is rebuilt, since the game "
+     "can't reorder). Printing hubs (fleets taking materials in) can keep device types in stock as spares: printed one at "
+     "a time on an idle factory, supplied by logistics last, kept behind other prints. Idle logistics devices gather at "
+     "the nearest printing hub, towed by a free carrier when they can't fly"),
     ("1.125.0", "2026-10-17", "Simulations: when one of a run's jobs finishes, its next step starts at once instead of on the "
      "next engine tick (a minute of real time is much more of the run's faster clock). Galaxy and System maps draw stars "
      "by size: the scan's radius when known, else the typical radius of the spectral class. In a simulation's galaxy map "
