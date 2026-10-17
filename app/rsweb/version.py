@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.123.0"
+VERSION = "1.124.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.124.0", "2026-10-17", "Galaxy map: a prospecting observatory shows only its wave (the cone is gone)"),
     ("1.123.0", "2026-10-16", "Galaxy map: a prospecting observatory's cone is gray, and a wave runs out from its system to "
                "the cone's reach, like the survey wave"),
     ("1.122.0", "2026-10-16", "Civilization beacons: the automatic pass never has a replicant print one on its vessel any more "

@@ -375,40 +375,30 @@ function buildSupply() {
   }
 }
 
-// observatories prospecting: a faint gray cone from the system along the direction, darker as the scan progresses (at
-// most ~15 % opaque, and never hiding what's behind it), with a wave (a spherical cap centered on the system, as wide as
-// the cone) running out to its reach. Reach / width come from past finds ("≈" while still a guess).
-const PROSPECT = 0x9aa3ad, PROSPECT_WAVE = 0x7fe3ff, PROSPECT_WAVE_S = 3.2, DOWN = new THREE.Vector3(0, -1, 0);
+// observatories prospecting: a wave (a spherical cap centered on the system, as wide as the scan's cone) running out
+// along the direction to the scan's reach. Reach / width come from past finds ("≈" while still a guess).
+const PROSPECT_WAVE = 0x7fe3ff, PROSPECT_WAVE_S = 3.2, DOWN = new THREE.Vector3(0, -1, 0);
 const prospectCones = [];
 function buildProspects() {
   prospectGroup.clear();
   prospectCones.forEach(x => x.el.remove()); prospectCones.length = 0;
   for (const p of data.prospects || []) {
     const dir = new THREE.Vector3(...(p.direction || [1, 0, 0])).normalize();
-    const h = p.reach, r = h * Math.tan(p.half_angle * Math.PI / 180);
-    const geo = new THREE.ConeGeometry(r, h, 40, 1, true);
-    geo.translate(0, -h / 2, 0);   // apex at the system, opening along -y …
-    const mat = new THREE.MeshBasicMaterial({ color: PROSPECT, transparent: true, opacity: .02, depthWrite: false,
-                                              side: THREE.DoubleSide });
-    const cone = new THREE.Mesh(geo, mat);
-    cone.position.copy(pos(p));
-    cone.quaternion.setFromUnitVectors(DOWN, dir);   // … turned to the prospect's direction
-    cone.raycast = () => {};                         // clicks go through to the stars behind it
-    prospectGroup.add(cone);
+    const h = p.reach;
     // the wave: a unit sphere's cap around -y, cut at the cone's half angle; scaled out to the reach each period
     const capGeo = new THREE.SphereGeometry(1, 40, 6, 0, Math.PI * 2, 0, p.half_angle * Math.PI / 180);
     capGeo.rotateX(Math.PI);
     const waveMat = new THREE.MeshBasicMaterial({ color: PROSPECT_WAVE, transparent: true, opacity: 0, depthWrite: false,
                                                   side: THREE.DoubleSide });
     const wave = new THREE.Mesh(capGeo, waveMat);
-    wave.position.copy(cone.position); wave.quaternion.copy(cone.quaternion);
+    wave.position.copy(pos(p)); wave.quaternion.setFromUnitVectors(DOWN, dir);   // turned to the prospect's direction
     wave.raycast = () => {};
     prospectGroup.add(wave);
     const d = document.createElement("div");
     Object.assign(d.style, { position: "absolute", color: "#bdf2ff", pointerEvents: "none", fontFamily: "monospace",
                              fontSize: "11px", whiteSpace: "nowrap" });
     el.appendChild(d);
-    prospectCones.push({ p, mat, wave, waveMat, phase: Math.random() * PROSPECT_WAVE_S, el: d,
+    prospectCones.push({ p, wave, waveMat, phase: Math.random() * PROSPECT_WAVE_S, el: d,
                          v: pos(p).add(dir.multiplyScalar(h * .5)) });
   }
 }
@@ -417,7 +407,6 @@ function placeProspects(now, showLabels) {
   const w = el.clientWidth, hgt = el.clientHeight, v = new THREE.Vector3();
   for (const x of prospectCones) {
     const f = Math.max(0, Math.min(1, (now - x.p.t0) / Math.max(1, x.p.t1 - x.p.t0)));
-    x.mat.opacity = .02 + .13 * f;
     const ph = ((now / 1000 + x.phase) % PROSPECT_WAVE_S) / PROSPECT_WAVE_S;   // grows from the system, fading out
     x.wave.scale.setScalar(Math.max(.01, ph * x.p.reach));
     x.waveMat.opacity = .35 * (1 - ph) * Math.min(1, ph * 6);

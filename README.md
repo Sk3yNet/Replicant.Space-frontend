@@ -58,7 +58,7 @@ rule with an on/off switch, plus the jobs and the log.
 ### Maps
 - **Galaxy**: (every layer and each kind of star marker — mine, scanned, hubs, replicants, new finds, prospected from, my wards, megastructures (violet hexagon), surveying — has its own checkbox; your choices are remembered in this browser) 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
   rest of the catalog after), live: ships in transit, fleets,
-  supply lines, mining sparkles and **prospecting cones** (each observatory scan: a gray cone, darker as it progresses, with a wave running out to its reach) redraw as events
+  supply lines, mining sparkles and **prospecting cones** (each observatory scan: a wave running out to its reach) redraw as events
   arrive. Relay/hub range, search, distances, route preview; right-click (on touch: long-press) two stars to measure. **Other players** (coral):
   their fixed devices from the latest scans, a shield where someone else's ward or hub is, and an arrow for each arrival or
   departure your beacons logged in the last hour (with the likely other end of the trip), all fading with distance from the
