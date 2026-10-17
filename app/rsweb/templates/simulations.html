@@ -50,7 +50,7 @@
     {% elif prep %}
     <h2>Queued: {{ (scenarios | selectattr('code', 'equalto', prep.scenario) | first or {}).name or prep.scenario }}</h2>
     <ul class="small">
-      <li>Compute cores at {{ prep.location }}: <b>{{ prep.cores_here | default(0) }}</b> of {{ prep.cores_needed | default('?') }}
+      <li>{% if prep.cores_needed == 0 %}Entry cost: <b>free</b> (no compute cores needed){% else %}Compute cores at {{ prep.location }}: <b>{{ prep.cores_here | default(0) }}</b> of {{ prep.cores_needed | default('?') }}{% endif %}
         {% if prep.cores_coming %} · {{ prep.cores_coming }} on the way{% endif %}{% if prep.printing %} · {{ prep.printing }} printing{% endif %}</li>
       <li>Replicant: {% if prep.replicant %}<b>{{ prep.replicant }}</b> is there{% elif prep.rep_sent %}{{ prep.rep_sent.code }} sent {{ prep.rep_sent.at | ago }}{% else %}<span class="muted">sent once the cores are there</span>{% endif %}</li>
       <li>Interface: {% if s.interface and s.interface.code %}<span class="mono">{{ s.interface.code }}</span>{% else %}<span class="muted">found by the replicant once it's there</span>{% endif %}</li>
@@ -66,7 +66,7 @@
     <h2>Queue a run</h2>
     <p class="muted small">Approve a scenario under <i>Available simulations</i>, or queue one at {{ loc }} here.</p>
     <form hx-post="/simulations/queue" hx-target="#sim-result" class="row">
-      <select name="scenario">{% for sc in scenarios %}<option value="{{ sc.code }}"{% if sc.code == cur %} selected{% endif %}>{{ sc.name }} — {{ sc.description }} ({{ (sc.entry_cost or {}).quantity or 1 }} {{ ((sc.entry_cost or {}).device_type or 'compute_core') | human }}, {{ sc.timeout_hours }} h)</option>{% endfor %}</select>
+      <select name="scenario">{% for sc in scenarios %}<option value="{{ sc.code }}"{% if sc.code == cur %} selected{% endif %}>{{ sc.name }} — {{ sc.description }} ({% if 'entry_cost' in sc and not sc.entry_cost %}free{% else %}{{ (sc.entry_cost or {}).quantity or 1 }} {{ ((sc.entry_cost or {}).device_type or 'compute_core') | human }}{% endif %}{% if sc.timeout_hours %}, {{ sc.timeout_hours }} h{% endif %})</option>{% endfor %}</select>
       <button>Queue</button></form>
     {% if reps_here and s.interface and s.interface.code %}
     <form hx-post="/simulations/start" hx-target="#sim-result" class="row" style="margin-top:6px"

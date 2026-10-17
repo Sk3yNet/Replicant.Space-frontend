@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.138.0"
+VERSION = "1.139.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.139.0", "2026-10-17", "Simulations: queuing asks the interface at once whether it offers the scenario and at "
+     "what entry cost (refused with what it does offer), then preps right away: cores counted, the replicant sent. "
+     "A free run shows Entry cost: free."),
     ("1.138.0", "2026-10-17", "Logistics reaches every logistics device, however far: the supply range no longer "
      "limits it. Nearer devices (by relay hop) still go first, and a carrier to ride is picked nearest first too."),
     ("1.137.0", "2026-10-17", "Terraforming console: switches and settings no longer flip back. What you commanded "

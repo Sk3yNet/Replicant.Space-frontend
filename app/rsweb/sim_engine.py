@@ -269,6 +269,47 @@ class SimMixin:
                        + (f" ({e['error']})" if e.get("error") else ""))
         return out
 
+    async def sim_offer(self, s: dict, code: str) -> tuple[dict | None, str]:
+        """Ask the interface in use now whether it offers scenario `code` and at what entry cost (GET .../simulate),
+        refreshing its catalog entry. (scenario, "") when offered; (None, why) when not; (scenario from the last list, "")
+        when the interface couldn't be asked, so a queue still goes ahead on what was known."""
+        x = s.get("interface") or {}
+        ic = x.get("code") or sim.KNOWN_INTERFACE.get("code")
+        if not ic:
+            return sim.scenario(s, code), ""
+        loc = x.get("location") or sim.KNOWN_INTERFACE.get("location") or sim.DATACENTER
+        try:
+            body = await self.api.get(f"/devices/{ic}/simulate") or {}
+        except ApiError as err:
+            log.warning("scenario check at %s failed: %s", ic, err.message)
+            return sim.scenario(s, code), ""
+        found = body.get("scenarios") or []
+        s.setdefault("catalog", {})[ic] = {**(s.get("catalog") or {}).get(ic, {}), "code": ic, "location": loc,
+                                           "scenarios": found, "at": now_iso()}
+        if found:
+            s["scenarios"] = found
+        sc = next((f for f in found if f.get("code") == code), None)
+        if not sc:
+            return None, f"{ic} at {loc} doesn't offer {code} now" + (
+                f" (it offers {', '.join(f.get('code') or '?' for f in found)})" if found else " (it lists no scenarios)")
+        return sc, ""
+
+    def sim_prep_kick(self) -> None:
+        """Run the queued run's prep pass right away (cores counted, spares pinned, prints and the replicant sent) instead
+        of on the next tick; it waits for the lock."""
+        import asyncio
+
+        async def go() -> None:
+            try:
+                async with self.lock:
+                    s = await self.sim_state()
+                    if s.get("prep") and not s.get("active"):
+                        for line in await self.sim_prep_pass(s):
+                            await self.log("simulation", line)
+            except Exception:  # noqa: BLE001
+                log.exception("simulation prep kick failed")
+        asyncio.get_running_loop().create_task(go())
+
     async def sim_load_scenarios(self, s: dict) -> None:
         code = (s.get("interface") or {}).get("code")
         if not code:

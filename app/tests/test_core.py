@@ -7486,3 +7486,22 @@ def test_terraforming_training_controls(client):
     s = client.portal.call(eng.sim_state)
     s["active"] = {"id": 7, "scenario": "terraforming_training_1", "replicant": "R1", "devices": [], "stars": [], "scans": {}}
     assert client.portal.call(eng.sim_run_pass, s) == []
+
+
+def test_queueing_a_simulation_checks_its_offer_and_preps_at_once(client):
+    """Queuing asks the interface right away whether it offers the scenario and at what cost, then runs the prep pass
+    (the free training sends a replicant at once) instead of waiting for the next tick."""
+    import time
+    eng = client.app.state.worker.automations
+    t = client.post("/simulations/queue", data={"scenario": "nope"}, headers=HX).text
+    assert "Not queued" in t and "offers mining_rush, terraforming_training_1" in t
+    assert not client.portal.call(eng.sim_state).get("prep")
+    t = client.post("/simulations/queue", data={"scenario": "terraforming_training_1"}, headers=HX).text
+    assert "no entry cost" in t
+    for _ in range(50):
+        prep = client.portal.call(eng.sim_state)["prep"]
+        if prep.get("rep_sent"):
+            break
+        time.sleep(0.05)
+    assert prep["cores_needed"] == 0 and prep["rep_sent"]
+    assert "Entry cost: <b>free</b>" in client.get("/simulations", headers=H).text

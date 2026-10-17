@@ -98,10 +98,15 @@ async def simulations_queue(request: Request, scenario: str = Form(...), interfa
             s["interface"] = {"code": x["code"], "location": x["location"], "found": True}
         if x.get("scenarios"):
             s["scenarios"] = x["scenarios"]
+    sc, why = await eng.sim_offer(s, scenario)   # availability and entry cost, asked right away
+    if not sc:
+        await eng.sim_save(s)
+        return _msg(f"Not queued: {why}.", ok=False)
+    ctype, need = sim.cost(sc)
     s["prep"] = {"scenario": scenario, "location": (s.get("interface") or {}).get("location") or sim.DATACENTER,
-                 "queued_at": now_iso(), "by": user}
+                 "queued_at": now_iso(), "by": user, "cores_needed": need}
     await eng.sim_save(s)
-    ctype, need = sim.cost(sim.scenario(s, scenario))
+    eng.sim_prep_kick()   # cores counted and the replicant sent now, not on the next tick
     what = f"{need} {ctype.replace('_', ' ')}(s) and a replicant go" if need else "a replicant goes (no entry cost)"
     return _msg(f"Approved: {what} to {s['prep']['location']}; you're told when it's ready.")
 

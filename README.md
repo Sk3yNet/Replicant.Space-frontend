@@ -89,7 +89,9 @@ rule with an on/off switch, plus the jobs and the log.
 - **Simulations** (Economy › Simulations): *Available simulations* lists every replicant interface known (the
   datacenter's, your own, and any a device scan saw) with the scenarios each one offers (GET `/devices/{code}/simulate`, read
   every 6 h or with *Scan interfaces now*): objective, time limit, entry cost and details. *Approve* one, like a contract, and
-  its entry cost (a free scenario has none) and a replicant go to that interface. Or queue a run of a scenario at the datacenter's replicant interface
+  its entry cost (a free scenario has none) and a replicant go to that interface. Approving or queuing asks the interface at
+  once whether it still offers the scenario and at what cost (refused otherwise, naming what it offers) and starts preparing
+  right away, not on the next tick. Or queue a run of a scenario at the datacenter's replicant interface
   The page also lists the interface's **research** topics (each unlocks blueprints, once per account; a replicant must be there), the all-player **leaderboards** (per scenario: top 10), and the game's view of a run in progress.
   (MIRFAKA-OBJ-1): spare compute cores are pinned there (else printed at an autofactory, logistics bringing the
   materials, the loadout pass the cores), then a free replicant is sent. When cores, replicant and interface are all
