@@ -672,6 +672,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin):
                 await self._update(job)
                 await self.log(job["rule"], f"finished: {job['title']}" + (f" ({skipped} step(s) skipped)" if skipped else ""),
                                notify=True)
+                if (job.get("meta") or {}).get("sim"):   # a run's clock runs fast: its next step now, not next tick
+                    self.sim_kick()
                 return
             st = job["steps"][job["idx"]]
             if st["status"] == "waiting":

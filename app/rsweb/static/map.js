@@ -28,15 +28,32 @@ const MARK_ORDER = ["scanned", "devices", "hub", "found", "replicant", "prospect
 const markOn = kind => checked("opt-mark-" + kind, true);
 // Each kind of ring has one size on every star: its place among the kinds switched on (innermost first), so the
 // rings stay nested and evenly spaced however many are shown.
+// Rings are sized in light-years. A simulation's virtual galaxy packs its stars far tighter than the real one, so
+// there every ring shrinks with the stars' spacing (ringScale, set when the stars are drawn).
+let ringScale = 1;
 function markSize(kind) {
   const on = MARK_ORDER.filter(markOn);
-  return 2.2 + 0.8 * Math.max(0, on.indexOf(kind));
+  return (2.2 + 0.8 * Math.max(0, on.indexOf(kind))) * ringScale;
 }
+// median distance from a star to its nearest neighbor (a sample of up to 200 stars), in light-years
+function spacing(stars) {
+  if (stars.length < 2) return Infinity;
+  const step = Math.max(1, Math.floor(stars.length / 200)), d = [];
+  for (let i = 0; i < stars.length; i += step) {
+    const a = pos(stars[i]); let best = Infinity;
+    for (let j = 0; j < stars.length; j++) if (j !== i) best = Math.min(best, a.distanceTo(pos(stars[j])));
+    d.push(best);
+  }
+  d.sort((x, y) => x - y);
+  return d[Math.floor(d.length / 2)];
+}
+// a star's drawn size: the Sun 1.3, growing gently with its radius (solar radii), within 0.8–3
+const starSize = s => 1.3 * (s.radius ? Math.min(2.3, Math.max(0.6, Math.pow(s.radius, 0.35))) : 1);
 const WAVE_S = 2.4;          // seconds per survey wave
 const waves = [];            // survey-wave sprites (rebuilt with the markers)
 function waveEdge() {        // the outermost ring switched on: where a wave fades out
   const on = MARK_ORDER.filter(markOn);
-  return (on.length ? 2.2 + 0.8 * (on.length - 1) : 2.2) + 0.6;
+  return ((on.length ? 2.2 + 0.8 * (on.length - 1) : 2.2) + 0.6) * ringScale;
 }
 function resizeMarks() {
   mineGroup.children.forEach(sp => {
@@ -194,15 +211,24 @@ function build() {
   visible = data.stars.filter(s => !onlyMine || s.devices > 0 || data.replicants.some(r => r.star === s.designation));
 
   const g = new THREE.BufferGeometry();
+  // the outermost ring (6 ly across with every kind on) fits inside the gap between neighbors
+  ringScale = OPTS.sim ? Math.min(1, Math.max(0.05, 0.9 * spacing(visible) / 6)) : 1;
   const p = new Float32Array(visible.length * 3), col = new Float32Array(visible.length * 3);
+  const sizes = new Float32Array(visible.length);
   visible.forEach((s, i) => {
-    const v = pos(s); p.set([v.x, v.y, v.z], i * 3);
+    const v = pos(s); p.set([v.x, v.y, v.z], i * 3); sizes[i] = starSize(s) / 1.3;
     const c = new THREE.Color(COLORS[(s.color || "").toLowerCase()] ?? 0xdddddd);
     col.set([c.r, c.g, c.b], i * 3);
   });
   g.setAttribute("position", new THREE.BufferAttribute(p, 3));
   g.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  starPoints = new THREE.Points(g, new THREE.PointsMaterial({ size: 1.3, map: starTex, vertexColors: true, transparent: true, depthWrite: false }));
+  g.setAttribute("starSize", new THREE.BufferAttribute(sizes, 1));
+  const starMat = new THREE.PointsMaterial({ size: 1.3 * ringScale, map: starTex, vertexColors: true, transparent: true, depthWrite: false });
+  starMat.onBeforeCompile = sh => {   // one size per star (its radius): scale the material's size by the attribute
+    sh.vertexShader = sh.vertexShader.replace("void main() {", "attribute float starSize;\nvoid main() {")
+      .replace("gl_PointSize = size;", "gl_PointSize = size * starSize;");
+  };
+  starPoints = new THREE.Points(g, starMat);
   scene.add(starPoints);
 
   const ring = color => new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color, transparent: true, opacity: .55, depthWrite: false }));
@@ -220,12 +246,12 @@ function build() {
     if (s.prospected_from) marks.push("prospected");   // an observatory prospected from here (once per star)
     if (s.my_ward) {   // your own working ward: the same shield as other players' wards, in your color
       const sh = new THREE.Sprite(new THREE.SpriteMaterial({ map: shieldTex, color: 0x6cb6ff, transparent: true, depthWrite: false }));
-      sh.scale.set(1.4, 1.4, 1); sh.position.copy(v).add(new THREE.Vector3(0, 0, 2.2)); sh.userData.mark = "ward";
+      sh.scale.set(1.4 * ringScale, 1.4 * ringScale, 1); sh.position.copy(v).add(new THREE.Vector3(0, 0, 2.2 * ringScale)); sh.userData.mark = "ward";
       sh.visible = checked("opt-mark-ward", true); mineGroup.add(sh);
     }
     if (s.mega) {   // a megastructure in the system: a violet hexagon below the star
       const mg = new THREE.Sprite(new THREE.SpriteMaterial({ map: megaTex, color: 0xc792ff, transparent: true, depthWrite: false }));
-      mg.scale.set(1.6, 1.6, 1); mg.position.copy(v).add(new THREE.Vector3(0, 0, -2.2)); mg.userData.mark = "mega";
+      mg.scale.set(1.6 * ringScale, 1.6 * ringScale, 1); mg.position.copy(v).add(new THREE.Vector3(0, 0, -2.2 * ringScale)); mg.userData.mark = "mega";
       mg.visible = checked("opt-mark-mega", true); mineGroup.add(mg);
     }
     if (s.surveying) {   // being surveyed: a wave running out from the star to the edge of its rings (animate)
@@ -599,6 +625,7 @@ function show(s) {
     ${s.name ? `<div>${esc(s.name)}</div>` : ""}
     <dl class="kv small">
       <dt>Spectral</dt><dd>${esc(s.spectral_type || "?")} · ${esc(s.color || "")}</dd>
+      ${s.radius ? `<dt>Radius</dt><dd>${+s.radius.toFixed(2)} R☉${s.radius_measured ? "" : ` <span class="muted">(typical for its class)</span>`}</dd>` : ""}
       <dt>Region</dt><dd>${esc(s.region || "?")}</dd>
       <dt>Est. planets</dt><dd>${s.estimated_planets ?? "?"}</dd>
       <dt>Entry point</dt><dd>${esc(s.entry_point || "?")}</dd>
@@ -627,6 +654,7 @@ function pick(ev) {
   const r = renderer.domElement.getBoundingClientRect();
   mouse.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(mouse, camera);
+  ray.params.Points.threshold = 1.2 * ringScale;
   const hit = starPoints && ray.intersectObject(starPoints)[0];
   return hit ? visible[hit.index] : null;
 }

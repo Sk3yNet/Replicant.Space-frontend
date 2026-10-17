@@ -43,6 +43,31 @@ class SimMixin:
             out += await self.sim_prep_pass(s)
         return out
 
+    def sim_kick(self) -> None:
+        """Play the run's next step right away instead of on the next tick (a minute away). A simulation's clock runs
+        faster than the real one: travel, prints and mining finish sooner and their events arrive at once, so waiting a
+        tick between steps would cost the run many minutes of its own time. One kick at a time; it waits for the lock."""
+        import asyncio
+        if getattr(self, "_sim_kicking", False):
+            return
+        self._sim_kicking = True
+
+        async def go() -> None:
+            try:
+                for _ in range(3):   # a scan, then the step it unlocks: at most a few passes
+                    async with self.lock:
+                        s = await self.sim_state()
+                        if not s.get("active"):
+                            return
+                        out = await self.sim_run_pass(s)
+                    if not any(x.startswith("simulation: scan") for x in out):
+                        return
+            except Exception:  # noqa: BLE001
+                log.exception("simulation kick failed")
+            finally:
+                self._sim_kicking = False
+        asyncio.get_running_loop().create_task(go())
+
     SIM_ADOPT_EVERY = 300   # seconds between checks of the game's active runs while the app knows of none
 
     async def sim_adopt(self, s: dict) -> list[str]:

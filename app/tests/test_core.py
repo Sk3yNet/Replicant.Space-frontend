@@ -5113,7 +5113,8 @@ def test_galaxy_map_loads_in_two_parts(client):
     assert core["stars"] and "per_star" not in core and "fleets" not in core and "drones" not in core["stars"][0]
     assert set(core["stars"][0]) <= {"designation", "name", "position", "color", "spectral_type", "region", "estimated_planets",
                                      "entry_point", "has_hub", "has_ward", "has_life", "explored", "from_census",
-                                     "from_observatory", "devices", "infra", "reach", "scanned"}
+                                     "from_observatory", "devices", "infra", "reach", "scanned", "radius",
+                                     "radius_measured"}
     over = client.get("/api/map.json", params={"part": "overlay"}, headers=H).json()
     assert "stars" not in over and {"per_star", "moving", "fleets", "supply"} <= set(over)
     assert any(v["drones"] for v in over["per_star"].values())
@@ -7248,3 +7249,49 @@ def test_device_page_links_host_and_cargo_codes(client):
     assert '<a class="mono" href="/devices/HOSTV001">HOSTV001</a>' in t
     t = client.get("/devices/HOSTV001", headers=H).text
     assert 'href="/devices/RIDE0001">RIDE0001</a>' in t and 'href="/devices/TOW00001">TOW00001</a>' in t
+
+
+def test_star_sizes_on_the_maps(client):
+    """Stars are drawn by radius: a scan's radius_solar when known, else the typical radius of the spectral class."""
+    from rsweb.web import build_system_view, star_radius
+    assert star_radius({"spectral_type": "M3V"}) == (0.4, False)
+    assert star_radius({"spectral_type": "K1III"}) == (8.0, False)
+    assert star_radius({"spectral_type": "G2"}, 1.4) == (1.4, True)
+    assert star_radius({}) == (None, False)
+    sol = build_system_view("SOL", {"star": {"spectral_type": "G2", "radius_solar": 1.0}}, [], [])
+    red = build_system_view("RED", {"star": {"spectral_type": "M5V"}}, [], [])
+    assert sol["star_r"] == 12 and 5 <= red["star_r"] < 12 and not red["star_radius"]["measured"]
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "BIG", "position": {"x": 1, "y": 0, "z": 0},
+                                                       "spectral_type": "B1"},
+                                                      {"designation": "ODD", "position": {"x": 9, "y": 0, "z": 0}}]})
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("BIG", json.dumps({"star": {"radius_solar": 6.2}}), "2026-10-17"))
+    stars = {s["designation"]: s for s in client.get("/api/map.json?part=core", headers=H).json()["stars"]}
+    assert stars["BIG"]["radius"] == 6.2 and stars["BIG"]["radius_measured"] and "radius" not in stars["ODD"]
+
+
+def test_simulation_next_step_follows_a_finished_job(client):
+    """A run's clock is fast: when one of its jobs finishes, its next step is played at once, not on the next tick."""
+    eng = client.app.state.worker.automations
+    calls = []
+
+    async def fake_pass(s):
+        calls.append(s["active"]["id"])
+        return []
+    ok, _ = client.portal.call(eng.sim_start, "mining_rush", "77F75255")
+    assert ok
+    eng.sim_run_pass = fake_pass
+    job = {"id": "simjob", "title": "t", "rule": "simulation", "status": "running", "idx": 0, "steps": [],
+           "meta": {"sim": 42}}
+
+    async def finish():
+        jobs = await eng.jobs()
+        await eng.save_jobs(jobs + [job])
+        await eng._advance("simjob")
+        for _ in range(50):
+            if calls:
+                break
+            await asyncio.sleep(0.01)
+    client.portal.call(finish)
+    assert calls == [42]

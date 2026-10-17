@@ -1492,6 +1492,11 @@ def build_system_view(star: str, scan: dict, devices: list[dict], inventory: lis
         return 28 + (c - 50) * math.log10(1 + 9 * (au or 0) / max_au)
 
     shapes = {"planets": [], "belts": [], "hz": None, "kuiper": None, "markers": [], "size": size, "c": c}
+    # the star's disc: 12 px for the Sun, growing gently with its radius, inside the innermost orbit (28 px)
+    rad, measured = star_radius({"spectral_type": (scan.get("star") or {}).get("spectral_type")},
+                                (scan.get("star") or {}).get("radius_solar"))
+    shapes["star_r"] = round(min(22.0, max(5.0, 12 * rad ** 0.4)), 1) if rad else 12
+    shapes["star_radius"] = {"r": rad, "measured": measured} if rad else None
     hz = (scan.get("star") or {}).get("habitable_zone") or {}
     if hz.get("inner_au") is not None and hz.get("outer_au") is not None:
         ri, ro = r(hz["inner_au"]), r(hz["outer_au"])
@@ -2055,6 +2060,27 @@ STAR_FIELDS = ("designation", "name", "position", "color", "spectral_type", "reg
                "has_hub", "has_ward", "has_life", "explored", "from_census", "from_observatory")
 
 
+# typical main-sequence radius by spectral class (solar radii): the map's star size until a scan gives the real one
+CLASS_RADIUS = {"O": 10.0, "B": 4.0, "A": 1.7, "F": 1.3, "G": 1.0, "K": 0.8, "M": 0.4, "L": 0.12, "T": 0.1, "D": 0.02}
+
+
+def star_radius(s: dict, known: float | None = None) -> tuple[float | None, bool]:
+    """(radius in solar radii, whether it's measured): a scan's radius_solar when there is one, else the typical radius
+    of the star's spectral class (giants, class III and brighter, ten times that), else None."""
+    for v in (known, s.get("radius_solar")):
+        try:
+            if v is not None and float(v) > 0:
+                return float(v), True
+        except (TypeError, ValueError):
+            pass
+    sp = str(s.get("spectral_type") or "").strip().upper()
+    r = CLASS_RADIUS.get(sp[:1])
+    if r is None:
+        return None, False
+    lum = re.search(r"(IV|V|III|II|I)[AB]?$", sp[1:])
+    return (r * 10 if lum and lum.group(1) in ("I", "II", "III") else r), False
+
+
 async def map_payload(request: Request, part: str = "all") -> dict:
     """The galaxy map's data (the Galaxy page and the desktop wallpaper), in two parts so the map can draw the stars
     first: part="core" — the stars (only the fields the map uses), where your devices are, replicants; part="overlay"
@@ -2083,8 +2109,17 @@ async def map_payload(request: Request, part: str = "all") -> dict:
             s_ = star_of(d.get("location"))
             if r and r > (reach.get(s_) or {}).get("ly", 0):
                 reach[s_] = {"ly": r, "hub": "hub" in t}
-        scanned = ({x.get("designation") for x in cat["stars"] if x.get("explored")} if sim_view(request)
-                   else {r["star"] for r in await db.fetchall("SELECT star FROM systems")})
+        radii: dict[str, Any] = {}   # star -> the radius its scan reports (radius_solar)
+        if sim_view(request):
+            scanned = {x.get("designation") for x in cat["stars"] if x.get("explored")}
+            a = (await request.app.state.worker.automations.sim_state()).get("active") or {}
+            if str(a.get("id")) == sim_view(request):
+                radii = {k: (v.get("star") or {}).get("radius_solar") for k, v in (a.get("scans") or {}).items()
+                         if isinstance(v, dict)}
+        else:
+            rows = await db.fetchall("SELECT star, CASE WHEN json_valid(data) THEN json_extract(data, '$.star.radius_solar') END AS r FROM systems")
+            scanned = {r["star"] for r in rows}
+            radii = {r["star"]: r["r"] for r in rows if r["r"] is not None}
         from .census import observatory_stars
         prospected, _ = await observatory_stars(db)   # stars our observatories found: highlighted until scanned
         pfrom = await db.kv_get("prospected_from", {}) or {}   # stars an observatory has prospected from (once each)
@@ -2112,6 +2147,9 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                              if d in prospected else {}),
                           **({"prospected_from": pfrom[d]} if d in pfrom else {}),
                           **({"mega": mega[d]} if d in mega else {})})
+            rad, measured = star_radius(s, radii.get(d))
+            if rad is not None:
+                stars[-1].update({"radius": round(rad, 3), "radius_measured": measured})
         out.update({"stars": stars, "generated_at": cat.get("generated_at"), "sources": cat.get("sources"),
                     "catalogue_updated": await db.kv_updated("stars"),
                     "replicants": [{"code": c, "name": r.get("name"), "star": star_of(r.get("location") or r.get("current_location")),

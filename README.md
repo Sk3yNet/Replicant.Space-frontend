@@ -83,13 +83,17 @@ rule with an on/off switch, plus the jobs and the log.
   `mine until objective`); the run card crosses steps off as they're done and the timeline records when.
   Runs in the game lists every run the game has going: End early on any of yours, and devices / galaxy links that open the
   normal Devices page and Galaxy map on that run's own data (`?sim=<run>`: its devices, stock and the virtual stars
-  around its replicant, read live through it and cached for a minute).
+  around its replicant, read live through it and cached for a minute). A run's clock runs faster than real time, so when one of its
+  jobs finishes the next step starts at once rather than on the next engine tick. On a run's galaxy map the star rings
+  shrink to fit its tighter star spacing.
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
 - **Systems list**: per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &
   relays* ticked) your ward, FTL relay and FTL beacon with *add* (activate an idle one there, else send a spare, else print
   one in range; a relay is placed at an L4/L5 point) and *remove* (deactivate; it stays deployed) or *cancel* an order.
   ✦ marks a local civilization (green: your beacon is at its body). A beacon requested for such a system goes on to the
   civilization's body, carried by a vessel in the system.
+- **Star sizes**: the Galaxy and System maps draw each star by its radius (the scan's `radius_solar`, else the typical
+  radius of its spectral class, giants ten times that); the star's details say which.
 - **System page**: a top-down map with your devices, stockpiles, sites and salvage. Three cards: **Resources** (per
   resource: richness, open sites, % left, ≈ units left — learned from what past sites gave — salvage, stockpiled),
   **Belts** (richness, a viability line, open sites) and **Bodies** (planets, moons, L-points with their salvage and stock).
