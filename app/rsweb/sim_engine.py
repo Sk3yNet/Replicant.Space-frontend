@@ -336,6 +336,8 @@ class SimMixin:
         from .shapes import as_amounts, normalize_blueprints
         a = s["active"]
         rep = a["replicant"]
+        if not sim.plays(sim.scenario(s, a.get("scenario") or "")):
+            return []   # played by hand (the terraforming training): nothing to do here
         if any(j.get("status") in ("running", "waiting") and (j.get("meta") or {}).get("sim") == a.get("id")
                for j in await self.jobs()):
             return []   # one job at a time, like the bootstrap

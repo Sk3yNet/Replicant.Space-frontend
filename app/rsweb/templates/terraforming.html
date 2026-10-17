@@ -15,10 +15,12 @@
   {% if s.attributes %}
   <div class="grid g2">
   <table class="small">
-    <tr><th>Attribute</th><th class="num">Value</th><th class="num">Δ/tick</th><th class="num">+6</th><th class="num">+12</th><th class="num">+24</th></tr>
+    <tr><th>Attribute</th><th class="num">Value</th><th>Habitable</th><th class="num">Δ/tick</th><th class="num">+6</th><th class="num">+12</th><th class="num">+24</th></tr>
     {% for a in attrs %}{% set v = s.attributes.get(a) or {} %}{% set pr = (s.projections or {}).get(a) or {} %}
-    <tr><td>{{ a }} <span class="muted">{{ units.get(a, '') }}</span></td><td class="num">{{ v.value | num }}</td>
-      <td class="num {{ 'lv-done' if (v.delta or 0) > 0 else 'lv-alert' if (v.delta or 0) < 0 }}">{{ v.delta | num }}</td>
+    {% set ok = in_range(a, v.get('value')) %}{% set t = targets.get(a) %}
+    <tr><td>{{ a }} <span class="muted">{{ units.get(a, '') }}</span></td><td class="num {{ 'lv-done' if ok else 'lv-alert' if ok == false }}">{{ v.get('value') | num }}</td>
+      <td class="muted">{% if t %}{% if t[0] is not none and t[1] is not none %}{{ t[0] }}–{{ t[1] }}{% elif t[0] is not none %}over {{ t[0] }}{% else %}under {{ t[1] }}{% endif %} {{ '✓' if ok else '✗' if ok == false }}{% endif %}</td>
+      <td class="num {{ 'lv-done' if (v.get('delta') or 0) > 0 else 'lv-alert' if (v.get('delta') or 0) < 0 }}">{{ v.get('delta') | num }}</td>
       <td class="num muted">{{ pr.get('+6') | num }}</td><td class="num muted">{{ pr.get('+12') | num }}</td><td class="num muted">{{ pr.get('+24') | num }}</td></tr>
     {% endfor %}
   </table>
@@ -40,6 +42,16 @@
   {% endif %}
   {% if w.devices %}
   <h3>Devices here</h3>
+  {% set groups = w.devices | groupby('device_type') %}
+  <div class="small row" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">
+    {% for t, ds in groups %}{% set on = ds | rejectattr('status', 'in', ['idle', 'inactive', 'deactivated']) | list | length %}
+    <form class="inline" hx-post="/terraforming/group/power" hx-target="#tf-group-out"
+          {% if t == 'atmospheric_regulator' %}hx-confirm="Activate the atmospheric regulator? It locks the world in as it is: only do it once every value is habitable."{% endif %}>
+      <input type="hidden" name="codes" value="{{ ds | map(attribute='device_code') | join(' ') }}">{% if sim_id %}<input type="hidden" name="sim" value="{{ sim_id }}">{% endif %}
+      <span class="pill small">{{ t | human }} {{ on }}/{{ ds | length }} on</span>
+      <button class="small ghost" name="action" value="activate">all on</button><button class="small ghost" name="action" value="deactivate">all off</button></form>
+    {% endfor %}</div>
+  <div id="tf-group-out" class="small"></div>
   <table class="small">
     <tr><th>Device</th><th>Status</th><th>Does</th><th>Reported effect</th><th>Strength / direction</th><th></th></tr>
     {% for d in w.devices %}{% set rep = ((s.effects or {}).devices or {}).get(d.device_code) %}
@@ -50,7 +62,8 @@
         <input type="number" name="strength" min="0" max="1" step="0.01" value="{{ d._set.strength }}" style="width:64px">
         {% if directions.get(d.device_type) %}<select name="direction">{% for x in directions[d.device_type] %}<option {{ 'selected' if d._set.direction == x }}>{{ x }}</option>{% endfor %}</select>{% endif %}
         <button class="small ghost">Set</button></form>{% endif %}</td>
-      <td><form class="inline" hx-post="/terraforming/{{ d.device_code }}/power" hx-target="next .tf-out">
+      <td><form class="inline" hx-post="/terraforming/{{ d.device_code }}/power" hx-target="next .tf-out"
+          {% if d.device_type == 'atmospheric_regulator' %}hx-confirm="Activate the atmospheric regulator? It locks the world in as it is: only do it once every value is habitable."{% endif %}>
         <button class="small ghost" name="action" value="activate">On</button> <button class="small ghost" name="action" value="deactivate">Off</button></form>
         <span class="tf-out"></span></td></tr>
     {% endfor %}

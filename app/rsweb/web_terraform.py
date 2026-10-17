@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 
 from . import terraform as tf
 from .db import now_iso
-from .web import call_action, current_user, load_state, page, render_action, run_action, star_of
+from .web import call_action, current_user, load_state, page, render_action, run_action, sim_view, star_of
 
 router = APIRouter()
 LAUNCHED_KV = "launched_rocks"   # {object_designation: detonate response + at}: rocks you sent; defense leaves them be
@@ -19,11 +19,14 @@ LAUNCHED_KV = "launched_rocks"   # {object_designation: detonate response + at}:
 
 @router.get("/terraforming", response_class=HTMLResponse)
 async def terraforming_page(request: Request, user: str = Depends(current_user)):
+    from .sim import is_virtual
     db = request.app.state.db
+    sid = sim_view(request)
     st = await load_state(request)
     rows = await db.fetchall("SELECT payload, location, created_at FROM events WHERE event = 'terraform.status' "
                              "ORDER BY seq DESC LIMIT 400")
-    bodies = tf.latest_by_body(rows)
+    # a simulation's worlds (VIRT…) only on its own view (?sim=), never among your real ones
+    bodies = {b: v for b, v in tf.latest_by_body(rows).items() if is_virtual(b) == bool(sid)}
     devs = [d for d in st["devices"] if tf.kind(d)]
     by_loc: dict[str, list[dict]] = defaultdict(list)
     for d in devs:
@@ -40,6 +43,7 @@ async def terraforming_page(request: Request, user: str = Depends(current_user))
                 and "detect_object" in (d.get("available_commands") or ["detect_object"])]
     launched = await db.kv_get(LAUNCHED_KV, {}) or {}
     return await page(request, user, "terraforming.html", "terraforming", worlds=worlds, attrs=tf.ATTRS, units=tf.UNITS,
+                      targets=tf.TARGETS, in_range=tf.in_range,
                       effects=tf.EFFECTS, directions=tf.DIRECTIONS, monitors=monitors, cap=tf.MONITOR_CAP,
                       rock_tools=rock_tools, scanners=scanners, launched=launched,
                       stars=sorted({star_of(d.get("location")) for d in scanners + rock_tools if d.get("location")}))
@@ -58,6 +62,23 @@ async def terraforming_settings(request: Request, code: str, strength: str = For
         return HTMLResponse('<span class="result err">Nothing to set.</span>')
     return await run_action(request, user, "PATCH", f"/devices/{code}", {"configuration": {"settings": s}},
                             f"{code}: strength {s.get('strength', '—')} · direction {s.get('direction', '—')}")
+
+
+@router.post("/terraforming/group/power", response_class=HTMLResponse)
+async def terraforming_group_power(request: Request, action: str = Form(...), codes: str = Form(""), sim: str = Form(""),
+                                   user: str = Depends(current_user)):
+    """Switch several devices on or off at once (e.g. all six orbital mirrors), then reload the page."""
+    if action not in ("activate", "deactivate"):
+        return HTMLResponse('<span class="result err">activate or deactivate</span>')
+    done, failed = [], []
+    for c in [x for x in codes.replace(",", " ").split() if x][:40]:
+        out = await call_action(request, user, "POST", f"/devices/{c}", {"command": action}, f"{action} {c}")
+        (done if out.get("ok") else failed).append(f"{c}" + ("" if out.get("ok") else f" ({out.get('error')})"))
+    if sim.isdigit():
+        await request.app.state.db.kv_set(f"sim:world:{sim}", {})
+    text = f"{action}: {len(done)} done" + (f" · failed: {', '.join(failed)}" if failed else "")
+    return HTMLResponse(f'<span class="result {"err" if failed else "ok"}">{html.escape(text)}</span>',
+                        headers={} if failed else {"HX-Refresh": "true"})
 
 
 @router.post("/terraforming/{code}/power", response_class=HTMLResponse)

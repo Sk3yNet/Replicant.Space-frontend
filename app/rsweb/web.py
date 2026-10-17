@@ -245,7 +245,7 @@ async def load_state(request: Request) -> dict:
     sid = sim_view(request)
     if sid:
         from .sim_world import world
-        w = await world(request.app, sid)
+        w = await world(request.app, sid, force=bool(request.query_params.get("refresh")))
         return {"account": await db.kv_get("account", {}) or {}, "replicants": w["replicants"], "devices": w["devices"],
                 "inventory": normalize_inventory(w["inventory"]), "locations": {}, "totals": w["totals"]}
     return {

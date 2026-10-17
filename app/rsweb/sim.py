@@ -96,6 +96,12 @@ def scenario(state: dict, code: str) -> dict:
                 next((s for s in DOC_SCENARIOS if s["code"] == code), {"code": code, "name": code, "entry_cost": {}}))
 
 
+def plays(sc: dict) -> bool:
+    """Whether the engine plays the scenario (a build order for the quota ones); the terraforming training is played by
+    hand on the Terraforming page (?sim=), so the run's devices are left alone."""
+    return "terraform" not in str(sc.get("objective_type") or sc.get("code") or "")
+
+
 def cost(sc: dict) -> tuple[str, int]:
     """(device type, how many) a run costs to enter; `entry_cost: null` (the terraforming training) is free."""
     if "entry_cost" in sc and not sc["entry_cost"]:

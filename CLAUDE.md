@@ -80,6 +80,10 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   The replicant entering a run becomes the interface to a virtual galaxy: every simulated system is named VIRT… (region
   virt6), and its devices (ordinary hex codes) show in the account's `/devices`. The app keeps all of it apart
   (`sim:devices`, `sim:inventory`, `sim:stars`, `sim:systems`, events with category `simulation`).
+- The terraforming training (live 2026-10-17, VIRTCELRENETH) gives a racing vessel (a survey drone stowed), one
+  terraform monitor, 6 orbital mirrors, 6 orbital shades, 3 each of the other terraform devices and one atmospheric
+  regulator, all idle at the planet (VIRTCELRENETH-1), commanded by device code (activate / deactivate). The regulator
+  locks the world in once activated. Ideas not built yet go in TODO.md.
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the

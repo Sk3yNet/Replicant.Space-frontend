@@ -245,7 +245,9 @@ async def simulations_active(request: Request, user: str = Depends(current_user)
         acts = ""
         if r.get("is_mine"):
             acts = (f'<a href="/fleet?sim={html.escape(str(sid))}">devices</a> · <a href="/map?sim={html.escape(str(sid))}">galaxy</a> '
-                    f'<button class="small ghost" hx-post="/simulations/end" hx-vals=\'{{"sim_id": "{html.escape(str(sid))}"}}\' '
+                    + (f'· <a href="/terraforming?sim={html.escape(str(sid))}"><b>terraforming controls</b></a> '
+                       if "terraform" in str(r.get("scenario_code") or "") else "")
+                    + f'<button class="small ghost" hx-post="/simulations/end" hx-vals=\'{{"sim_id": "{html.escape(str(sid))}"}}\' '
                     f'hx-target="#sim-result" hx-confirm="End simulation #{html.escape(str(sid))} ({html.escape(name)}) now? '
                     f'No score is recorded and the entry cost is not refunded.">End early</button>')
         rows.append(f'<tr><td>#{html.escape(str(sid))}</td><td>{html.escape(str(r.get("scenario_name") or r.get("scenario_code") or ""))}</td>'

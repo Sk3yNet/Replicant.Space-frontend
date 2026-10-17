@@ -7409,3 +7409,28 @@ def test_build_orders_mine_what_their_prints_need(client):
     assert "Not saved" in t and "needs carbon, conductive, silicates" in t
     client.portal.call(db.kv_set, "sim", {"orders": {so.EXPAND_NAME: so.OLD_BUILTINS[0]}, "expand_seeded": True})
     assert client.portal.call(eng.sim_state)["orders"][so.EXPAND_NAME] == so.EXPAND
+
+
+def test_terraforming_training_controls(client):
+    """The terraforming training is played by hand: the Terraforming page shows a run's devices and its monitor's
+    reports (?sim=), with habitable ranges and a switch for each kind of device; the engine leaves the run alone; a
+    run's world never shows among the real ones."""
+    import time
+    from rsweb import sim
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    devs = [{"device_code": f"M{i}", "device_type": "orbital_mirror", "location": "VIRTCEL-1", "status": "idle"} for i in range(3)]
+    devs.append({"device_code": "RG1", "device_type": "atmospheric_regulator", "location": "VIRTCEL-1", "status": "idle"})
+    client.portal.call(db.kv_set, "sim:world:7", {"t": time.time(), "rep": "R1", "devices": devs, "stars": [],
+                                                  "inventory": [], "replicants": {}, "totals": {}})
+    client.portal.call(db.insert_event, {"id": "tf1", "event": "terraform.status", "location": "VIRTCEL-1",
+                                          "payload": {"body": "VIRTCEL-1", "attributes": {"temperature": {"value": 410, "delta": -1},
+                                                                                         "oxygen": {"value": 12, "delta": 0}}}})
+    t = client.get("/terraforming?sim=7", headers=H).text
+    assert "VIRTCEL-1" in t and "orbital mirror 0/3 on" in t and "200–350 ✗" in t and "10–35 ✓" in t
+    assert 'name="codes" value="M0 M1 M2"' in t and "locks the world in" in t
+    assert "VIRTCEL-1" not in client.get("/terraforming", headers=H).text
+    assert not sim.plays({"code": "terraforming_training_1", "objective_type": "terraform_training"})
+    assert sim.plays({"code": "mining_rush", "objective_type": "yield_quota"})
+    s = client.portal.call(eng.sim_state)
+    s["active"] = {"id": 7, "scenario": "terraforming_training_1", "replicant": "R1", "devices": [], "stars": [], "scans": {}}
+    assert client.portal.call(eng.sim_run_pass, s) == []

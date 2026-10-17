@@ -73,6 +73,10 @@ rule with an on/off switch, plus the jobs and the log.
 - **Moving a replicant**: the Replicant page lists empty replicant matrices with *Transfer* (same location, instant) or *Teleport* (another system, over the FTL network), each with a confirmation.
 - **Megastructures**: a megastructure's location page shows its progress and what it still needs, with a Contribute button for your devices there; `/megastructures` has the leaderboard.
 - **Lockers** (Economy › Lockers): equipment lockers (NPC devices that hand out a set loadout once per account, e.g. SOL-OORT, TWAFFY-OORT): scan where a replicant is, then retrieve.
+- **Terraforming training** (a simulation played by hand): its run card links to *Terraforming controls*, the
+  Terraforming page on the run's own world (`/terraforming?sim=<run>`): the monitor's values against the habitable ranges
+  (✓ / ✗), each device's strength / direction and on/off, and *all on* / *all off* per kind of device. Activating the
+  atmospheric regulator asks first: it locks the world in. The engine plays no build order in this scenario.
 - **Simulations** (Economy › Simulations): *Available simulations* lists every replicant interface known (the
   datacenter's, your own, and any a device scan saw) with the scenarios each one offers (GET `/devices/{code}/simulate`, read
   every 6 h or with *Scan interfaces now*): objective, time limit, entry cost and details. *Approve* one, like a contract, and

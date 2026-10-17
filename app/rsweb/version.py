@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.130.0"
+VERSION = "1.131.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.131.0", "2026-10-17", "Terraforming training controls: the Terraforming page on a run (?sim=) with its devices, "
+     "the monitor's values against the habitable ranges, all on / all off per kind, and a confirmation before the "
+     "regulator locks the world in. The engine no longer plays a build order in that scenario. TODO.md started"),
     ("1.130.0", "2026-10-17", "Build orders mine carbon: the built-in orders now mine in a mining drone's cost ratio "
      "(mine: structural 4, conductive 2, carbon 1, silicates 1; stored copies updated). mine: takes weights and rejects "
      "unknown resources; saving refuses an order whose print needs a resource no earlier step mines"),

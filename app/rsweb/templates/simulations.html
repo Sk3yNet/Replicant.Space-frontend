@@ -36,6 +36,8 @@
   <div class="card">
     {% if a %}
     <h2>Running: {{ a.name }} <span class="muted small">#{{ a.id }} · seed {{ a.seed }} · {{ a.replicant }}</span></h2>
+    {% if 'terraform' in (a.scenario or '') %}<p><a class="btn" href="/terraforming?sim={{ a.id }}">Terraforming controls</a>
+      <span class="muted small">played by hand: the engine leaves this run's devices alone</span></p>{% endif %}
     <p class="small">Started {{ a.started_at | ago }} · {% if not a.order %}build order: {{ variants[a.variant or 0].cap }} drones before printing stops ·{% endif %}
       {% if a.target %}{{ a.mined_seen | default(0) | num }} of {{ a.target | num }} mined at the belt{% endif %}</p>
     {% if a.order %}<p class="small"><b>Build order: {{ a.order_name }}</b></p><ol class="small" style="margin:0 0 8px 18px;padding:0">

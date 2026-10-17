@@ -30,6 +30,21 @@ EFFECTS = {   # docs' quick reference (per tick at full strength)
     "propulsor": "diversion / speed (increase, decrease) of a rock", "trajectory_deflector": "approach angle (steepen, shallow)",
     "sensor_array": "detect_object: finds Kuiper objects (24 h)"}
 MONITOR_CAP = 5
+# habitable ranges (docs' order of work): (low, high), None = open
+TARGETS = {"temperature": (200, 350), "pressure": (0.3, 10), "oxygen": (10, 35), "toxicity": (None, 20),
+           "hydrosphere": (10, None)}
+
+
+def in_range(attr: str, value: Any) -> bool | None:
+    """Whether a value is inside the habitable range (None: no range, or no value)."""
+    lo, hi = TARGETS.get(attr, (None, None))
+    if (lo is None and hi is None) or value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return (lo is None or v >= lo) and (hi is None or v <= hi)
 # coupling rules (docs: disasters): (name, attribute, ">" or "<", threshold, effect, causal)
 COUPLING = [("Greenhouse runaway", "pressure", ">", 10, "temp +1.0", True),
             ("Evaporation", "temperature", ">", 373, "hydro −1.5, pressure +0.05", False),
