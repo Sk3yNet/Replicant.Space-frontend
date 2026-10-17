@@ -84,7 +84,8 @@ rule with an on/off switch, plus the jobs and the log.
   simulation's own devices (no other automation touches them; everything from the virtual galaxy, the VIRT… systems, is kept apart: its devices, stockpiles, stars, surveys and events never reach your real numbers, map or alerts, and the page shows them in a Virtual galaxy card), recording when each build-order step was reached. When
   it ends, everything from inside it (devices, events, scans, jobs) is purged; the report stays (score, resources
   mined, devices printed, the step times), and the next run follows the build order you choose: a Build orders card holds named orders, one step per line
-  (`scan system`, `deploy all`, `mine: structural, conductive`, `print 2 mining_drone`, `wait: 500 structural`,
+  (`scan system`, `deploy all`, `mine: structural 4, conductive 2, carbon 1, silicates 1` (a number weights a resource;
+  saving refuses an order whose print needs a resource no earlier step mines), `print 2 mining_drone`, `wait: 500 structural`,
   `mine until objective`, `survey` (survey drones at the belt search it), `controller: gather_evenly` (a mining controller at
   the belt adopts the drones there, takes the directive and is launched, so they keep mining after the vessel leaves), `next system`
   (the vessel flies to the nearest unvisited system with whatever it printed aboard), `each system:` and `repeat` (loop back

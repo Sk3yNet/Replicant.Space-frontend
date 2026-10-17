@@ -25,10 +25,13 @@ class SimMixin:
         s = await self.db.kv_get(sim.KV, {}) or {}
         if not (s.get("interface") or {}).get("code"):
             s["interface"] = dict(sim.KNOWN_INTERFACE)
+        from . import sim_order
         if not s.get("expand_seeded"):   # the spreading-out Mining Rush order (2026-10-17), offered once; deletable
-            from . import sim_order
             s.setdefault("orders", {}).setdefault(sim_order.EXPAND_NAME, sim_order.EXPAND)
             s["expand_seeded"] = True
+        for k, v in list((s.get("orders") or {}).items()):   # built-ins stored before carbon was mined: updated
+            if v in sim_order.OLD_BUILTINS:
+                s["orders"][k] = sim_order.EXPAND if v == sim_order.OLD_BUILTINS[0] else sim_order.DEFAULT
         return s
 
     async def sim_save(self, s: dict) -> None:

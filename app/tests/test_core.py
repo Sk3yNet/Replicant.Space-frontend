@@ -7086,15 +7086,15 @@ def test_build_order_parse_and_play():
 
 def test_build_order_saved_and_followed(client):
     eng = client.app.state.worker.automations
-    r = client.post("/simulations/orders", data={"name": "Fast", "text": "scan system\nprint 1 mining_drone"}, headers=HX)
-    assert "Saved Fast (2 steps)" in r.text
+    r = client.post("/simulations/orders", data={"name": "Fast", "text": "scan system\nmine: structural 4, conductive 2, carbon, silicates\nprint 1 mining_drone"}, headers=HX)
+    assert "Saved Fast (3 steps)" in r.text
     assert "Not saved" in client.post("/simulations/orders", data={"name": "Bad", "text": "dance"}, headers=HX).text
     page = client.get("/simulations", headers=H).text
     assert "Build orders" in page and "the next run follows <b>Fast</b>" in page
     assert "boAdd('deploy all')" in page and 'class="bo-res" value="carbon"' in page and "<option>mining_drone</option>" in page.replace(" selected", "")
     ok, _ = client.portal.call(eng.sim_start, "mining_rush", "77F75255")
     a = client.portal.call(eng.sim_state)["active"]
-    assert ok and a["order_name"] == "Fast" and [x["kind"] for x in a["order"]] == ["scan", "print"]
+    assert ok and a["order_name"] == "Fast" and [x["kind"] for x in a["order"]] == ["scan", "mine", "print"]
 
 
 def test_simulation_runs_end_early_and_world(client):
@@ -7394,3 +7394,18 @@ def test_simulations_listed_per_interface_and_approved(client):
     assert s["interface"]["code"] == "IF2" and s["prep"]["location"] == "ALGOL-OBJ-2"
     assert sim.cost(sim.scenario(s, "terraforming_training_1")) == ("compute_core", 0)
     assert "approved" in client.get("/simulations", headers=H).text
+
+
+def test_build_orders_mine_what_their_prints_need(client):
+    """A mining drone costs carbon too: the built-in orders mine it, `mine:` takes weights, and saving an order whose
+    print needs a resource no earlier step mines is refused. Built-ins stored before the fix are updated."""
+    from rsweb import sim_order as so
+    bps = {"mining_drone": {"resources": {"carbon": 25, "conductive": 50, "silicates": 25, "structural": 100}}}
+    assert all(not so.check(so.parse(t)[0], bps) for t in (so.DEFAULT, so.EXPAND))
+    assert so.parse("mine: structural 2, carbon")[0][0]["resources"] == ["structural", "structural", "carbon"]
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "blueprints", [{"device_type": "mining_drone", **bps["mining_drone"]}])
+    t = client.post("/simulations/orders", data={"name": "x", "text": "mine: structural\nprint 1 mining_drone"}, headers=HX).text
+    assert "Not saved" in t and "needs carbon, conductive, silicates" in t
+    client.portal.call(db.kv_set, "sim", {"orders": {so.EXPAND_NAME: so.OLD_BUILTINS[0]}, "expand_seeded": True})
+    assert client.portal.call(eng.sim_state)["orders"][so.EXPAND_NAME] == so.EXPAND

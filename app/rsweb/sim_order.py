@@ -3,7 +3,9 @@
 One step per line (blank lines and lines starting with # are skipped):
     scan system                       the run's star is scanned (the run scans it first anyway)
     deploy all                        the vessel goes to the best belt and deploys everything it carries
-    mine: structural, conductive      deployed drones that aren't mining start, the resources taken in turn
+    mine: structural, conductive      deployed drones that aren't mining start, the resources taken in turn; a number
+                                      weights one (`mine: structural 4, conductive 2, carbon 1, silicates 1` is a
+                                      mining drone's cost: 100 structural, 50 conductive, 25 carbon, 25 silicates)
     print 2 mining_drone              the vessel prints that many more of the type, one at a time
     wait: 500 structural              until the belt's stockpile holds that much (`wait: 2000 total` for all of it)
     mine until objective              keeps deploying and starting new drones until the run ends (never finishes)
@@ -17,6 +19,7 @@ One step per line (blank lines and lines starting with # are skipped):
 
 Every system counts toward a yield quota (owner, 2026-10-17): the run adds up the stockpiles at every belt it mined.
 A system whose scan shows no belt is skipped: the order jumps to its next `next system`.
+Saving an order checks that every print's materials are mined by some step before it (check).
 """
 from __future__ import annotations
 
@@ -27,12 +30,12 @@ EXPAND_NAME = "Mining Rush: spread out"
 EXPAND = """# Mining Rush, spreading out: every system mined counts toward the quota
 scan system
 deploy all
-mine: structural, conductive, silicates
+mine: structural 4, conductive 2, carbon 1, silicates 1
 print 2 mining_drone
 print 1 survey_drone
 deploy all
 survey
-mine: structural, conductive, silicates
+mine: structural 4, conductive 2, carbon 1, silicates 1
 wait: 300 total
 print 1 ami_mining_controller
 deploy all
@@ -49,11 +52,11 @@ repeat"""
 
 DEFAULT = """scan system
 deploy all
-mine: structural, conductive, silicates
+mine: structural 4, conductive 2, carbon 1, silicates 1
 print 2 mining_drone
 print 1 survey_drone
 deploy all
-mine: structural, conductive, silicates
+mine: structural 4, conductive 2, carbon 1, silicates 1
 wait: 500 structural
 print 3 mining_drone
 mine until objective"""
@@ -93,8 +96,16 @@ def parse(text: str) -> tuple[list[dict], list[str]]:
         elif low in ("mine until objective", "mine until done"):
             steps.append({"kind": "mine_all", "raw": raw})
         elif low.startswith("mine:") or low.startswith("mine "):
-            res = [r.strip() for r in re.split(r"[,\s]+", low.split(":", 1)[1] if ":" in low else low[5:]) if r.strip()]
-            if not res:
+            res, bad = [], []
+            for part in re.split(r"[,;]+", low.split(":", 1)[1] if ":" in low else low[5:]):
+                for m_ in re.finditer(r"([a-z_]+)(?:\s*[x×]?\s*(\d+))?", part):
+                    if m_.group(1) not in RESOURCES:
+                        bad.append(m_.group(1))
+                    else:   # weighted: repeated in turn
+                        res += [m_.group(1)] * max(1, min(10, int(m_.group(2) or 1)))
+            if bad:
+                errors.append(f"line {n}: not a resource: {', '.join(bad)} (one of {', '.join(RESOURCES)})")
+            elif not res:
                 errors.append(f"line {n}: mine needs at least one resource")
             else:
                 steps.append({"kind": "mine", "raw": raw, "resources": res})
@@ -111,6 +122,27 @@ def parse(text: str) -> tuple[list[dict], list[str]]:
 
 def star_of(loc: str | None) -> str:
     return (loc or "").split("-")[0]
+
+
+OLD_BUILTINS = ('# Mining Rush, spreading out: every system mined counts toward the quota\nscan system\ndeploy all\nmine: structural, conductive, silicates\nprint 2 mining_drone\nprint 1 survey_drone\ndeploy all\nsurvey\nmine: structural, conductive, silicates\nwait: 300 total\nprint 1 ami_mining_controller\ndeploy all\ncontroller: gather_evenly\neach system:\nprint 1 ami_mining_controller\nprint 3 mining_drone\nprint 1 survey_drone\nnext system\ndeploy all\nsurvey\ncontroller: gather_evenly\nrepeat', 'scan system\ndeploy all\nmine: structural, conductive, silicates\nprint 2 mining_drone\nprint 1 survey_drone\ndeploy all\nmine: structural, conductive, silicates\nwait: 500 structural\nprint 3 mining_drone\nmine until objective')   # the built-in orders before carbon was mined (1.130.0): a stored copy is updated
+
+
+def check(steps: list[dict], bps: dict[str, dict]) -> list[str]:
+    """Prints that can never happen: a resource the blueprint needs that no earlier mine step gathers (a controller
+    gathers everything)."""
+    from .shapes import as_amounts
+    mined: set[str] = set()
+    out = []
+    for st in steps:
+        if st["kind"] == "mine":
+            mined |= set(st["resources"])
+        elif st["kind"] == "controller":
+            mined |= set(RESOURCES)
+        elif st["kind"] == "print":
+            need = {r for r, q in as_amounts((bps.get(st["type"]) or {}).get("resources") or {}).items() if q > 0}
+            if need - mined:
+                out.append(f"{st['raw']}: needs {', '.join(sorted(need - mined))}, which no mine step before it gathers")
+    return out
 
 
 def _stowed(devs: list[dict], vessel: str) -> list[dict]:

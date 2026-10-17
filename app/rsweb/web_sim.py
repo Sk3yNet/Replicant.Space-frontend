@@ -55,6 +55,8 @@ async def simulations_order_save(request: Request, name: str = Form(...), text: 
     from . import sim_order
     name = name.strip()[:40] or "Default"
     steps, errors = sim_order.parse(text)
+    errors += sim_order.check(steps, {b["device_type"]: b for b in normalize_blueprints(
+        await request.app.state.db.kv_get("blueprints", []))})
     if errors:
         return _msg("Not saved: " + "; ".join(errors), ok=False)
     eng = request.app.state.worker.automations
