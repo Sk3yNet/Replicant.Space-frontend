@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.136.0"
+VERSION = "1.137.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.137.0", "2026-10-17", "Terraforming console: switches and settings no longer flip back. What you commanded "
+     "shows (dashed while pending) until the game reports it, up to 2 min; a world's controls and refreshes no longer "
+     "overlap"),
     ("1.136.0", "2026-10-17", "Terraforming console: each world refreshes itself every 15 s, with lights, a gauge and "
      "an hour-long graph per attribute (target range shaded), switches, strength sliders and direction pickers that "
      "answer at once. Fix: direction and strength now show as set (read from the device's settings), not reset to increase"),

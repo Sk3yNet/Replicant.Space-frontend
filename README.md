@@ -77,7 +77,8 @@ rule with an on/off switch, plus the jobs and the log.
   itself every 15 s (not while you're using a control in it): a light per world, attribute and device group; a gauge per
   attribute with its value, change per tick, the target range and a graph of the last hour with the range shaded; a switch
   per device, a strength slider and direction for those that take one (shown as set), and all on / all off per kind. Every
-  control updates the console at once.
+  control updates the console at once; a switch or setting shows what you commanded (dashed while pending) until the game
+  reports it, for up to 2 minutes, and a world's controls are sent one after another.
 - **Terraforming training** (a simulation played by hand): its run card links to *Terraforming controls*, the
   Terraforming page on the run's own world (`/terraforming?sim=<run>`): the monitor's values against a target species' ranges (GET `/species` `environment`; Humans by default, the choice
   is remembered)

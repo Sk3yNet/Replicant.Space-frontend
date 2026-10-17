@@ -3,7 +3,7 @@
    Context: w, attrs, units, targets, in_range, range_eta, tick_s, target, effects, directions, sim_q, note, note_ok #}
 {% set s = w.status %}{% set wid = 'tfw-' ~ (w.body | replace('-', '_')) %}
 <div class="card tf-world" id="{{ wid }}" style="margin-bottom:14px"
-     hx-get="/terraforming/world/{{ w.body }}?{{ sim_q }}" hx-trigger="every 15s [!this.matches(':focus-within')]" hx-swap="outerHTML">
+     hx-get="/terraforming/world/{{ w.body }}?{{ sim_q }}" hx-trigger="every 15s [!this.matches(':focus-within')]" hx-swap="outerHTML" hx-sync="this:drop">
   <div class="row between" style="align-items:center">
     <h2 style="margin:0"><span class="tf-light {{ 'ok' if w.out == [] else 'bad' if w.out else 'off' }}"></span>
       <a class="mono" href="/locations/{{ w.body }}">{{ w.body }}</a>
@@ -52,7 +52,7 @@
     <div class="tf-group">
       <div class="row between small">
         <b><span class="tf-light {{ 'ok' if on == ds | length else 'warn' if on else 'off' }}"></span> {{ t | human }} <span class="muted">{{ on }}/{{ ds | length }} on</span></b>
-        {% if ds | length > 1 %}<form class="inline" hx-post="/terraforming/group/power?{{ sim_q }}" hx-target="#{{ wid }}" hx-swap="outerHTML"
+        {% if ds | length > 1 %}<form class="inline" hx-post="/terraforming/group/power?{{ sim_q }}" hx-target="#{{ wid }}" hx-swap="outerHTML" hx-sync="#{{ wid }}:queue all"
               {% if t == 'atmospheric_regulator' %}hx-confirm="{{ w.lock_warn }}"{% endif %}>
           <input type="hidden" name="codes" value="{{ ds | map(attribute='device_code') | join(' ') }}"><input type="hidden" name="body" value="{{ w.body }}">
           <button class="small ghost" name="action" value="activate">all on</button><button class="small ghost" name="action" value="deactivate">all off</button></form>{% endif %}
@@ -60,13 +60,13 @@
       <div class="muted small">{{ effects.get(t, '') }}</div>
       {% for d in ds %}{% set rep = rep_all.get(d.device_code) %}
       <div class="tf-dev">
-        <form class="inline" hx-post="/terraforming/{{ d.device_code }}/power?{{ sim_q }}" hx-trigger="change" hx-target="#{{ wid }}" hx-swap="outerHTML"
+        <form class="inline" hx-post="/terraforming/{{ d.device_code }}/power?{{ sim_q }}" hx-trigger="change" hx-target="#{{ wid }}" hx-swap="outerHTML" hx-sync="#{{ wid }}:queue all"
               {% if t == 'atmospheric_regulator' %}hx-confirm="{{ w.lock_warn }}"{% endif %}>
           <input type="hidden" name="body" value="{{ w.body }}">
-          <label class="tf-switch" title="{{ d.status }}"><input type="checkbox" name="on" value="1" {{ 'checked' if d._on }}><span></span></label></form>
+          <label class="tf-switch{{ ' pending' if d._pending }}" title="{{ d.status }}{{ ' (commanded, waiting for the game to agree)' if d._pending }}"><input type="checkbox" name="on" value="1" {{ 'checked' if d._on }}><span></span></label></form>
         <a class="mono small" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a>
         {% if t not in ('terraform_monitor', 'atmospheric_regulator') %}
-        <form class="inline tf-set" hx-post="/terraforming/{{ d.device_code }}/settings?{{ sim_q }}" hx-trigger="change" hx-target="#{{ wid }}" hx-swap="outerHTML">
+        <form class="inline tf-set" hx-post="/terraforming/{{ d.device_code }}/settings?{{ sim_q }}" hx-trigger="change" hx-target="#{{ wid }}" hx-swap="outerHTML" hx-sync="#{{ wid }}:queue all">
           <input type="hidden" name="body" value="{{ w.body }}">
           <input type="range" name="strength" min="0" max="1" step="0.05" value="{{ d._set.strength }}" title="strength {{ d._set.strength }}">
           <span class="small mono">{{ '%.2f' | format(d._set.strength | float) }}</span>

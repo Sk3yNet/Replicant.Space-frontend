@@ -38,6 +38,37 @@ async def species_list(request: Request) -> list[dict]:
     return [x for x in c.get("species") or [] if isinstance(x, dict)]
 
 
+PENDING_KV = "terraform_pending"   # {code: {"on": bool, "set": {...}, "at": epoch}}: what was last commanded
+PENDING_S = 120   # the game can report a device's old state for a while after a command: show the command meanwhile
+
+
+async def _remember(db, code: str, **kw) -> None:
+    import time
+    p = await db.kv_get(PENDING_KV, {}) or {}
+    p = {c: e for c, e in p.items() if time.time() - float(e.get("at") or 0) < PENDING_S}
+    e = p.get(code) or {}
+    if "set" in kw:
+        kw["set"] = {**(e.get("set") or {}), **kw["set"]}
+    p[code] = {**e, **kw, "at": time.time()}
+    await db.kv_set(PENDING_KV, p)
+
+
+def _overlay(d: dict, pend: dict) -> dict:
+    """The device as the console shows it: its reported state, or what was just commanded until the game agrees."""
+    import time
+    row = {**d, "_set": tf.settings_of(d), "_on": tf.is_on(d)}
+    e = pend.get(d.get("device_code") or "")
+    if not e or time.time() - float(e.get("at") or 0) >= PENDING_S:
+        return row
+    if "on" in e and e["on"] != row["_on"]:
+        row["_on"], row["_pending"] = e["on"], True
+    for k, v in (e.get("set") or {}).items():
+        if row["_set"].get(k) != v:
+            row["_set"] = {**row["_set"], k: v}
+            row["_pending"] = True
+    return row
+
+
 TARGET_KV = "terraform_species"   # the species the Terraforming page judges worlds for (humans by default)
 
 
@@ -64,8 +95,9 @@ async def _ctx(request: Request) -> dict:
             bodies[ts.get("body") or d.get("location")] = ts
     devs = [d for d in st["devices"] if tf.kind(d)]
     by_loc: dict[str, list[dict]] = defaultdict(list)
+    pend = await db.kv_get(PENDING_KV, {}) or {}
     for d in devs:
-        by_loc[d.get("location") or "aboard / in transit"].append({**d, "_set": tf.settings_of(d), "_on": tf.is_on(d)})
+        by_loc[d.get("location") or "aboard / in transit"].append(_overlay(d, pend))
     # how long each running regulator has been on: its latest terraform.device_activated (the run's goal may need time)
     since: dict[str, str] = {}
     for d in devs:
@@ -141,6 +173,8 @@ async def terraforming_settings(request: Request, code: str, strength: str = For
         return HTMLResponse('<span class="result err">Nothing to set.</span>')
     label = f"{code}: strength {s.get('strength', '—')} · direction {s.get('direction', '—')}"
     out = await call_action(request, user, "PATCH", f"/devices/{code}", {"configuration": {"settings": s}}, label)
+    if out.get("ok"):
+        await _remember(request.app.state.db, code, set=s)
     if body:
         return await _world(request, body, label if out.get("ok") else f"{label}: {out.get('error')}", out.get("ok"))
     return render_action(request, out)
@@ -155,6 +189,8 @@ async def terraforming_group_power(request: Request, action: str = Form(...), co
     done, failed = [], []
     for c in [x for x in codes.replace(",", " ").split() if x][:40]:
         out = await call_action(request, user, "POST", f"/devices/{c}", {"command": action}, f"{action} {c}")
+        if out.get("ok"):
+            await _remember(request.app.state.db, c, on=action == "activate")
         (done if out.get("ok") else failed).append(f"{c}" + ("" if out.get("ok") else f" ({out.get('error')})"))
     text = f"{action}: {len(done)} done" + (f" · failed: {', '.join(failed)}" if failed else "")
     if body:
@@ -173,6 +209,8 @@ async def terraforming_power(request: Request, code: str, action: str = Form("")
     if action not in ("activate", "deactivate"):
         return HTMLResponse('<span class="result err">activate or deactivate</span>')
     out = await call_action(request, user, "POST", f"/devices/{code}", {"command": action}, f"{action} {code}")
+    if out.get("ok") or "already" in str(out.get("error") or "").lower():   # "Device is already terraforming": it is on
+        await _remember(request.app.state.db, code, on=action == "activate")
     if body:
         return await _world(request, body, f"{action} {code}" + ("" if out.get("ok") else f": {out.get('error')}"), out.get("ok"))
     return render_action(request, out)

@@ -7462,6 +7462,21 @@ def test_terraforming_training_controls(client):
     assert w.lstrip().startswith('<div class="card tf-world"') and "regulating since" in w
     w = client.post("/terraforming/M0/power?sim=7", data={"on": "1", "body": "VIRTCEL-1"}, headers=HX).text
     assert "tf-world" in w and "activate M0" in w
+    # what was just commanded shows until the game agrees (the switch doesn't flip back on a stale read)
+    import time as _t
+    from rsweb.web_terraform import PENDING_KV, _overlay, _remember
+    client.portal.call(lambda: _remember(db, "M0", on=True))
+    pend = client.portal.call(db.kv_get, PENDING_KV)
+    assert pend["M0"]["on"] is True
+    row = _overlay({"device_code": "M0", "device_type": "orbital_mirror", "status": "idle"}, pend)
+    assert row["_on"] is True and row["_pending"]
+    row = _overlay({"device_code": "M0", "device_type": "orbital_mirror", "status": "terraforming"}, pend)
+    assert row["_on"] is True and not row.get("_pending")
+    old = {"M0": {**pend["M0"], "at": _t.time() - 600}}
+    assert _overlay({"device_code": "M0", "status": "idle"}, old)["_on"] is False   # stale command: the game wins
+    row = _overlay({"device_code": "A1", "status": "terraforming", "settings": {"direction": "increase"}},
+                   {"A1": {"set": {"direction": "decrease"}, "at": _t.time()}})
+    assert row["_set"]["direction"] == "decrease" and row["_pending"]
     # settings are read from the device list's `settings` (live 2026-10-17), so the console shows what's set
     assert tf.settings_of({"settings": {"direction": "decrease", "strength": 0.5}}) == {"strength": 0.5, "direction": "decrease"}
     sp = tf.spark([1, 2, 3], (2, 4))

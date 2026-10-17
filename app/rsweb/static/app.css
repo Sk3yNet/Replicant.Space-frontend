@@ -208,3 +208,4 @@ svg.system.nodrones .drone { display: none; }
 .tf-switch span::before { content: ""; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: .15s; }
 .tf-switch input:checked + span { background: var(--good); }
 .tf-switch input:checked + span::before { transform: translateX(16px); }
+.tf-switch.pending span { opacity: .6; outline: 1px dashed var(--warn); outline-offset: 1px; }
