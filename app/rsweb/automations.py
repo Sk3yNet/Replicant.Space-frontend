@@ -3317,7 +3317,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                              {"devices": [d["device_code"], c]}):
                         busy |= {d["device_code"], c}
         p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
-                    busy=busy, reach=await self.supply_reach(), contracts=contracts, trades=trades, incoming=incoming,
+                    busy=busy, contracts=contracts, trades=trades, incoming=incoming,
                     replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),
                     busy_stars=mission_stars,
                     prefs=await self.db.kv_get(lg.KV_PREFS, {}) or {}, ami=ami, moved=moved,

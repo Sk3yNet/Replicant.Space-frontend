@@ -490,3 +490,17 @@ def test_stock_prints_are_supplied_last():
     req = next(r for r in lg.requests(devices=devs, bps=BPS, inventory={}, pos=POS, contracts=[], trades=[], incoming={},
                                       fleets=FLEETS, gather={"A": "A-1"}, busy_stars=set())[0] if r["kind"] == "print")
     assert req["tier"] == 1
+
+
+def test_logistics_reaches_every_device_nearest_first():
+    devs = world([dev("F2", "cargo_freighter", "W-1", cargo_capacity=100, **SURGE)])
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    pos = {**POS, "W": {"x": 500, "y": 0, "z": 0}}
+    c = {"designation": "EV1", "location": "Z-3", "title": "Help", "price": {"carbon": 50}}
+
+    def plan(busy):
+        return lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 500}}, pos=pos,
+                       commandable={"A", "B", "W"}, hosts={"HV": "R1"}, busy=set(busy), contracts=[c], trades=[],
+                       incoming={}, replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1")
+    assert cargo(next(r for r in plan(())["runs"] if r["req"] == "contract:EV1")) == ["F1"]       # the near one first
+    assert cargo(next(r for r in plan({"F1"})["runs"] if r["req"] == "contract:EV1")) == ["F2"]   # 500 ly is no limit

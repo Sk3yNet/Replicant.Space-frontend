@@ -194,7 +194,8 @@ lines or a template).
   page. Home systems keep what their own prints need, but hubs share that reserve so each one's print queue is paid for
   about as many hours ahead (print time over its autofactories): the one with the fewest hours gets what its next print
   lacks from the one with the most, while the giver still has at least as many hours left. Inside one system a free AMI transport controller (drones / haulers)
-  gets the delivery as a `delivery` directive; logistics covers what it can't. Ships are picked nearest first, then the
+  gets the delivery as a `delivery` directive; logistics covers what it can't. Logistics reaches every logistics device however far (the supply range doesn't
+  limit it), so one logistics fleet serves everywhere. Ships are picked nearest first (by relay hop), then the
   smallest that takes the rest in one go (else the biggest), and as many as the load needs go at once, as one convoy:
   freighters and cargo vessels fly themselves (a freighter is too large to attach); haulers and drones stay in their
   system unless they ride (attached) on a free logistics carrier (plate, platform, carrier, fleet carrier). A ship still

@@ -68,6 +68,11 @@ def logistics_fleets(fleets: list[dict]) -> list[dict]:
     return [f for f in fleets or [] if f.get("role") == ROLE]
 
 
+def _within(reach: float, star: str) -> str:
+    """How far an unmet reason looked: 'within N ly of STAR', or 'to reach STAR' when logistics reaches everywhere (the default)."""
+    return f"within {reach:g} ly of {star}" if math.isfinite(reach) else f"to reach {star}"
+
+
 def _dist(a: str, b: str, pos: dict[str, Any]) -> float:
     if a == b:
         return 0.0
@@ -366,7 +371,7 @@ def fleet_devices(fleets: list[dict], devices: list[dict]) -> list[dict]:
 
 
 def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inventory: dict[str, dict],
-         pos: dict[str, Any], commandable: set[str], hosts: dict[str, str], busy: set[str], reach: float,
+         pos: dict[str, Any], commandable: set[str], hosts: dict[str, str], busy: set[str], reach: float = math.inf,
          contracts: list[dict], trades: list[dict], incoming: dict[str, dict], replicants: dict[str, dict],
          drop: Any, busy_stars: set[str] | frozenset = frozenset(), prefs: dict | None = None,
          ami: list[dict] | None = None, moved: dict[str, str] | None = None,
@@ -527,8 +532,10 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 rides = [d for c, d in free.items() if c not in used and can_surge(d) and attach_free(d) >= 1
                          and (star_of(d.get("location")) in commandable or c in hosts)
                          and (star_of(d.get("location")) == fstar or _dist(star_of(d.get("location")), fstar, pos) <= reach)]
-                ride = min(rides, key=lambda d: (_dist(star_of(d.get("location")), fstar, pos) > 0, -attach_free(d),
-                                                 _dist(star_of(d.get("location")), fstar, pos), d["device_code"]), default=None)
+                ride = min(rides, key=lambda d: (_dist(star_of(d.get("location")), fstar, pos) > 0,
+                                                 round(_dist(star_of(d.get("location")), fstar, pos) / RELAY_HOP),
+                                                 -attach_free(d), _dist(star_of(d.get("location")), fstar, pos),
+                                                 d["device_code"]), default=None)
             seats = attach_free(ride) if ride else 0
             group, taken = [], {}
             while need:
@@ -585,7 +592,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             if not group:
                 if not assigned:
                     unmet.append({"req": r["id"], "why": f"no free logistics cargo device (freighter, cargo vessel, or a hauler in {fstar} "
-                                                         f"with a logistics carrier to tow it) within {reach:g} ly of {first}"})
+                                                         f"with a logistics carrier to tow it) {_within(reach, first)}"})
                 break
             if ride and not any(g["rides"] for g in group):
                 ride = None
@@ -690,7 +697,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                     if dd <= reach and (best is None or dd < best[0]):
                         best = (dd, e, sp)
             if not best:
-                unmet.append({"req": r["id"], "why": f"no free logistics device hosting a replicant within {reach:g} ly of {star} "
+                unmet.append({"req": r["id"], "why": f"no free logistics device hosting a replicant {_within(reach, star)} "
                                                      "or its relay network"})
                 continue
             _, esc, sp = best
@@ -711,7 +718,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             if mode:
                 cands.append((c in hosts, _dist(star_of(e.get("location")), star, pos), c, e, mode))
         if not cands:
-            unmet.append({"req": r["id"], "why": f"no free logistics carrier with a free seat within {reach:g} ly of {star}"})
+            unmet.append({"req": r["id"], "why": f"no free logistics carrier with a free seat {_within(reach, star)}"})
             continue
         cands.sort(key=lambda x: (not x[0], x[1], x[2]))   # one hosting a replicant needs no escort
         _, _, c, carrier, mode = cands[0]
