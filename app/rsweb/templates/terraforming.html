@@ -13,73 +13,7 @@
       {% if not species %}<option>no species list (GET /species failed): the docs' bio seeder ranges</option>{% endif %}</select></label>
   {% if target %}<span class="muted">{% for a, r in (target.environment or {}).items() %}{{ a }} {{ r[0] }}–{{ r[1] }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}
 </form>
-{% for w in worlds %}{% set s = w.status %}
-<div class="card" style="margin-bottom:14px">
-  <h2 style="margin:0"><a class="mono" href="/locations/{{ w.body }}">{{ w.body }}</a>
-    {% if s.at %}<span class="muted small">read {{ s.at | ago }}</span>{% else %}<span class="muted small">no monitor report yet</span>{% endif %}
-    {% if w.out == [] %}<span class="pill small lv-done">all in range for {{ target.name if target else 'life' }} ✓</span>{% elif w.out %}<span class="pill small lv-alert">{{ w.out | length }} out of range: {{ w.out | join(', ') }}</span>{% endif %}
-    {% if w.regulating %}<span class="pill small st-work" title="switched on {{ w.regulating | ago }}">regulating since {{ w.regulating | local }}</span>{% endif %}
-    {% if s.anomaly %}<span class="pill small lv-alert">{{ s.anomaly.severity }} {{ s.anomaly.type | human }} in {{ s.anomaly.ticks_until }} tick(s)</span>{% endif %}</h2>
-  {% if s.attributes %}
-  <div class="grid g2">
-  <table class="small">
-    <tr><th>Attribute</th><th class="num">Value</th><th>{{ target.name if target else 'Habitable' }}</th><th class="num">Δ/tick</th><th title="At the current Δ, one tick every {{ tick_s }} s">Heading</th><th class="num">+6</th><th class="num">+12</th><th class="num">+24</th></tr>
-    {% for a in attrs %}{% set v = s.attributes.get(a) or {} %}{% set pr = (s.projections or {}).get(a) or {} %}
-    {% set ok = in_range(a, v.get('value'), targets) %}{% set t = targets.get(a) %}
-    <tr><td>{{ a }} <span class="muted">{{ units.get(a, '') }}</span></td><td class="num {{ 'lv-done' if ok else 'lv-alert' if ok == false }}">{{ v.get('value') | num }}</td>
-      <td class="muted">{% if t %}{% if t[0] is not none and t[1] is not none %}{{ t[0] }}–{{ t[1] }}{% elif t[0] is not none %}over {{ t[0] }}{% else %}under {{ t[1] }}{% endif %} {{ '✓' if ok else '✗' if ok == false }}{% endif %}</td>
-      <td class="num {{ 'lv-done' if (v.get('delta') or 0) > 0 else 'lv-alert' if (v.get('delta') or 0) < 0 }}">{{ v.get('delta') | num }}</td>
-      {% set e = range_eta(a, v.get('value'), v.get('delta'), targets) %}
-      <td class="small {{ 'lv-alert' if e and (e.leave or e.away) else 'lv-done' if e and e.ok else '' }}">{% if e %}{% if e.enter %}in range in {{ e.enter }} ticks (~{{ (e.enter * tick_s) | duration }}){% elif e.leave %}leaves the range in {{ e.leave }} ticks (~{{ (e.leave * tick_s) | duration }}){% elif e.ok %}holding{% else %}moving away{% endif %}{% endif %}</td>
-      <td class="num muted">{{ pr.get('+6') | num }}</td><td class="num muted">{{ pr.get('+12') | num }}</td><td class="num muted">{{ pr.get('+24') | num }}</td></tr>
-    {% endfor %}
-  </table>
-  <div class="small">
-    {% if s.warnings %}<div><b>Warnings</b>{% for x in s.warnings %}<div class="lv-alert">⚠ {{ x }}</div>{% endfor %}</div>{% endif %}
-    <div><b>Couplings</b> {% for c in w.coupling %}<div class="{{ 'lv-alert' if c.active and 'good' not in c.effect else 'muted' }}">
-      {{ '●' if c.active else '○ near' }} {{ c.rule }} ({{ c.attr }} {{ c.op }} {{ c.threshold }}): {{ c.effect }}{% if c.causal %} · full strength once triggered{% endif %}</div>
-      {% else %}<span class="muted">none active or near</span>{% endfor %}</div>
-    <div style="margin-top:6px"><b>Bio seeders</b> {% if w.bio | selectattr('ok') | list | length == w.bio | length %}<span class="lv-done">ready ✓</span>{% endif %}
-      {% for b in w.bio %}<span class="pill small {{ 'lv-done' if b.ok else '' }}">{{ b.attr }} {{ b.want }}{% if not b.ok %} (now {{ b.value | num }}){% endif %}</span> {% endfor %}</div>
-    {% set eff = s.effects or {} %}
-    {% if eff.cascade %}<div style="margin-top:6px"><b>Cascade</b> {% for e in eff.cascade %}{{ e.attribute }} {{ e.direction }} ({{ e.strength }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
-    {% if eff.equilibrium %}<div><b>Drift</b> {% for e in eff.equilibrium %}{{ e.attribute }} {{ e.direction }} ({{ e.strength }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
-    {% if not eff.cascade and not eff.equilibrium and not eff.devices %}<div class="muted small" style="margin-top:6px">No effects on this world right now.
-      That's expected once a species has moved down to it: since game v3.5.2 terraforming stops then (otherwise nothing is acting on it yet).</div>{% endif %}
-    {% if s.asteroids %}<div><b>Incoming</b> {% for r in s.asteroids %}<span class="mono">{{ r.designation }}</span> {{ r.mass_class }} {{ r.composition }} · {{ r.impact_eta | local }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
-  </div>
-  </div>
-  {% endif %}
-  {% if w.devices %}
-  <h3>Devices here</h3>
-  {% set groups = w.devices | groupby('device_type') %}
-  <div class="small row" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">
-    {% for t, ds in groups %}{% set on = ds | rejectattr('status', 'in', ['idle', 'inactive', 'deactivated']) | list | length %}
-    <form class="inline" hx-post="/terraforming/group/power" hx-target="#tf-group-out"
-          {% if t == 'atmospheric_regulator' %}hx-confirm="{{ w.lock_warn }}"{% endif %}>
-      <input type="hidden" name="codes" value="{{ ds | map(attribute='device_code') | join(' ') }}">{% if sim_id %}<input type="hidden" name="sim" value="{{ sim_id }}">{% endif %}
-      <span class="pill small">{{ t | human }} {{ on }}/{{ ds | length }} on</span>
-      <button class="small ghost" name="action" value="activate">all on</button><button class="small ghost" name="action" value="deactivate">all off</button></form>
-    {% endfor %}</div>
-  <div id="tf-group-out" class="small"></div>
-  <table class="small">
-    <tr><th>Device</th><th>Status</th><th>Does</th><th>Reported effect</th><th>Strength / direction</th><th></th></tr>
-    {% for d in w.devices %}{% set rep = ((s.effects or {}).devices or {}).get(d.device_code) %}
-    <tr><td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> {{ d.device_type | human }}</td>
-      <td>{{ d.status }}</td><td class="muted">{{ effects.get(d.device_type, '') }}</td>
-      <td>{% if rep %}{% for e in rep.effects %}{{ e.attribute }} {{ e.direction }} ({{ e.strength }}){{ ', ' if not loop.last }}{% endfor %}{% endif %}</td>
-      <td>{% if d.device_type != 'terraform_monitor' %}<form class="inline" hx-post="/terraforming/{{ d.device_code }}/settings" hx-target="next .tf-out">
-        <input type="number" name="strength" min="0" max="1" step="0.01" value="{{ d._set.strength }}" style="width:64px">
-        {% if directions.get(d.device_type) %}<select name="direction">{% for x in directions[d.device_type] %}<option {{ 'selected' if d._set.direction == x }}>{{ x }}</option>{% endfor %}</select>{% endif %}
-        <button class="small ghost">Set</button></form>{% endif %}</td>
-      <td><form class="inline" hx-post="/terraforming/{{ d.device_code }}/power" hx-target="next .tf-out"
-          {% if d.device_type == 'atmospheric_regulator' %}hx-confirm="{{ w.lock_warn }}"{% endif %}>
-        <button class="small ghost" name="action" value="activate">On</button> <button class="small ghost" name="action" value="deactivate">Off</button></form>
-        <span class="tf-out"></span></td></tr>
-    {% endfor %}
-  </table>
-  {% endif %}
-</div>
+{% for w in worlds %}{% with note=None, note_ok=True %}{% include "partials/tf_world.html" %}{% endwith %}
 {% else %}
 <div class="card"><p class="muted">No terraforming yet: deploy a terraform monitor at a planet or moon and its reports show up here.</p></div>
 {% endfor %}

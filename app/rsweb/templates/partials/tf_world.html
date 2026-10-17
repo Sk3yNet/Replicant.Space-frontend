@@ -1,0 +1,82 @@
+{# One world's terraforming console: lights, gauges with graphs, switches. Refreshes itself every 15 s (not while you're
+   using a control in it); every control answers with this partial, so the console updates at once.
+   Context: w, attrs, units, targets, in_range, range_eta, tick_s, target, effects, directions, sim_q, note, note_ok #}
+{% set s = w.status %}{% set wid = 'tfw-' ~ (w.body | replace('-', '_')) %}
+<div class="card tf-world" id="{{ wid }}" style="margin-bottom:14px"
+     hx-get="/terraforming/world/{{ w.body }}?{{ sim_q }}" hx-trigger="every 15s [!this.matches(':focus-within')]" hx-swap="outerHTML">
+  <div class="row between" style="align-items:center">
+    <h2 style="margin:0"><span class="tf-light {{ 'ok' if w.out == [] else 'bad' if w.out else 'off' }}"></span>
+      <a class="mono" href="/locations/{{ w.body }}">{{ w.body }}</a>
+      {% if s.at %}<span class="muted small">read {{ s.at | ago }}</span>{% else %}<span class="muted small">{{ 'live report' if s.attributes else 'no monitor report yet' }}</span>{% endif %}</h2>
+    <div class="small">
+      {% if w.out == [] %}<span class="pill small lv-done">all in range for {{ target.name if target else 'life' }} ✓</span>{% elif w.out %}<span class="pill small lv-alert">{{ w.out | length }} out of range: {{ w.out | join(', ') }}</span>{% endif %}
+      {% if w.regulating %}<span class="pill small st-work" title="switched on {{ w.regulating | ago }}">regulating since {{ w.regulating | local }}</span>{% endif %}
+      {% if s.anomaly %}<span class="pill small lv-alert">{{ s.anomaly.severity }} {{ s.anomaly.type | human }} in {{ s.anomaly.ticks_until }} tick(s)</span>{% endif %}
+    </div>
+  </div>
+  {% if note %}<div class="small {{ 'lv-done' if note_ok else 'lv-alert' }}" style="margin-top:4px">{{ '✔' if note_ok else '✖' }} {{ note }}</div>{% endif %}
+
+  {% if s.attributes %}
+  <div class="tf-gauges">
+    {% for a in attrs %}{% set v = s.attributes.get(a) or {} %}{% set t = targets.get(a) %}
+    {% set ok = in_range(a, v.get('value'), targets) %}{% set e = range_eta(a, v.get('value'), v.get('delta'), targets) %}
+    {% set sp = w.sparks.get(a) %}{% set d = v.get('delta') or 0 %}
+    <div class="tf-gauge">
+      <div class="row between small"><span><span class="tf-light {{ 'ok' if ok and not (e and e.leave) else 'warn' if (e and (e.enter or e.leave)) else 'bad' if ok == false else 'off' }}"></span> {{ a }}</span>
+        <span class="muted">{% if t %}{{ t[0] if t[0] is not none else '' }}–{{ t[1] if t[1] is not none else '' }}{% endif %} {{ units.get(a, '') }}</span></div>
+      <div class="tf-value">{{ v.get('value') | num }} <span class="small {{ 'lv-done' if d > 0 else 'lv-alert' if d < 0 else 'muted' }}">{{ '▲' if d > 0 else '▼' if d < 0 else '■' }} {{ d | num }}</span></div>
+      {% if sp %}<svg class="tf-spark" viewBox="0 0 {{ sp.w }} {{ sp.h }}" preserveAspectRatio="none">
+        {% if sp.band %}<rect x="0" y="{{ sp.band[0] }}" width="{{ sp.w }}" height="{{ [sp.band[1] - sp.band[0], 0.5] | max }}" class="band"/>{% endif %}
+        <polyline points="{{ sp.pts }}"/><circle cx="{{ sp.x }}" cy="{{ sp.y }}" r="2.2"/></svg>{% endif %}
+      <div class="small muted">{% if e %}{% if e.enter %}in range in {{ e.enter }} ticks (~{{ (e.enter * tick_s) | duration }}){% elif e.leave %}<span class="lv-alert">leaves in {{ e.leave }} ticks (~{{ (e.leave * tick_s) | duration }})</span>{% elif e.ok %}holding{% else %}<span class="lv-alert">moving away</span>{% endif %}{% endif %}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="small"><b>Bio seeders</b> {% if w.bio | selectattr('ok') | list | length == w.bio | length %}<span class="lv-done">ready ✓</span>{% endif %}
+    {% for b in w.bio %}<span class="pill small {{ 'lv-done' if b.ok else '' }}">{{ b.attr }} {{ b.want }}{% if not b.ok %} (now {{ b.value | num }}){% endif %}</span> {% endfor %}</div>
+  {% set eff = s.effects or {} %}
+  <details class="small" {{ 'open' if s.warnings }}><summary>Warnings, couplings and drift{% if s.warnings %} <span class="lv-alert">({{ s.warnings | length }})</span>{% endif %}</summary>
+    {% for x in s.warnings or [] %}<div class="lv-alert">⚠ {{ x }}</div>{% endfor %}
+    {% for c in w.coupling %}<div class="{{ 'lv-alert' if c.active and 'good' not in c.effect else 'muted' }}">{{ '●' if c.active else '○ near' }} {{ c.rule }} ({{ c.attr }} {{ c.op }} {{ c.threshold }}): {{ c.effect }}{% if c.causal %} · full strength once triggered{% endif %}</div>{% endfor %}
+    {% if eff.cascade %}<div><b>Cascade</b> {% for e in eff.cascade %}{{ e.attribute }} {{ e.direction }} ({{ e.strength }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+    {% if eff.equilibrium %}<div><b>Drift</b> {% for e in eff.equilibrium %}{{ e.attribute }} {{ e.direction }} ({{ e.strength }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+    {% if s.asteroids %}<div><b>Incoming</b> {% for r in s.asteroids %}<span class="mono">{{ r.designation }}</span> {{ r.mass_class }} {{ r.composition }} · {{ r.impact_eta | local }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+    {% if not eff.cascade and not eff.equilibrium and not eff.devices %}<div class="muted">No effects on this world right now (normal once a species has moved down to it).</div>{% endif %}
+  </details>
+  {% endif %}
+
+  {% if w.devices %}
+  {% set rep_all = (s.effects or {}).devices or {} %}
+  <div class="tf-console">
+    {% for t, ds in w.devices | groupby('device_type') %}{% set on = ds | selectattr('_on') | list | length %}
+    <div class="tf-group">
+      <div class="row between small">
+        <b><span class="tf-light {{ 'ok' if on == ds | length else 'warn' if on else 'off' }}"></span> {{ t | human }} <span class="muted">{{ on }}/{{ ds | length }} on</span></b>
+        {% if ds | length > 1 %}<form class="inline" hx-post="/terraforming/group/power?{{ sim_q }}" hx-target="#{{ wid }}" hx-swap="outerHTML"
+              {% if t == 'atmospheric_regulator' %}hx-confirm="{{ w.lock_warn }}"{% endif %}>
+          <input type="hidden" name="codes" value="{{ ds | map(attribute='device_code') | join(' ') }}"><input type="hidden" name="body" value="{{ w.body }}">
+          <button class="small ghost" name="action" value="activate">all on</button><button class="small ghost" name="action" value="deactivate">all off</button></form>{% endif %}
+      </div>
+      <div class="muted small">{{ effects.get(t, '') }}</div>
+      {% for d in ds %}{% set rep = rep_all.get(d.device_code) %}
+      <div class="tf-dev">
+        <form class="inline" hx-post="/terraforming/{{ d.device_code }}/power?{{ sim_q }}" hx-trigger="change" hx-target="#{{ wid }}" hx-swap="outerHTML"
+              {% if t == 'atmospheric_regulator' %}hx-confirm="{{ w.lock_warn }}"{% endif %}>
+          <input type="hidden" name="body" value="{{ w.body }}">
+          <label class="tf-switch" title="{{ d.status }}"><input type="checkbox" name="on" value="1" {{ 'checked' if d._on }}><span></span></label></form>
+        <a class="mono small" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a>
+        {% if t not in ('terraform_monitor', 'atmospheric_regulator') %}
+        <form class="inline tf-set" hx-post="/terraforming/{{ d.device_code }}/settings?{{ sim_q }}" hx-trigger="change" hx-target="#{{ wid }}" hx-swap="outerHTML">
+          <input type="hidden" name="body" value="{{ w.body }}">
+          <input type="range" name="strength" min="0" max="1" step="0.05" value="{{ d._set.strength }}" title="strength {{ d._set.strength }}">
+          <span class="small mono">{{ '%.2f' | format(d._set.strength | float) }}</span>
+          {% if directions.get(t) %}<select name="direction" class="small">{% for x in directions[t] %}<option {{ 'selected' if (d._set.direction or directions[t][0]) == x }}>{{ x }}</option>{% endfor %}</select>{% endif %}
+        </form>{% endif %}
+        <span class="small muted">{% if rep %}{% for e in rep.effects %}{{ e.attribute }} {{ '▲' if e.direction == 'increase' else '▼' }} {{ e.strength }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

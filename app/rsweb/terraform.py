@@ -64,6 +64,8 @@ def range_eta(attr: str, value: Any, delta: Any, targets: dict | None = None) ->
     if lo is None and hi is None:
         return None
     if in_range(attr, v, targets):
+        if (dv < 0 and lo is not None and lo <= 0) or (dv > 0 and hi is not None and hi >= 100 and attr != "temperature"):
+            return {"ok": True}   # the range runs to the attribute's own floor (0) or ceiling (100): it can't leave that way
         if dv > 0 and hi is not None:
             return {"leave": int((hi - v) / dv) + 1}
         if dv < 0 and lo is not None:
@@ -165,8 +167,58 @@ def latest_by_body(rows: list[dict]) -> dict[str, dict]:
 
 
 def settings_of(d: dict) -> dict:
-    s = ((d.get("configuration") or {}).get("settings") or {}) if isinstance(d.get("configuration"), dict) else {}
+    """A device's strength and direction: the device list reports them as `settings` (live 2026-10-17), older answers
+    under configuration.settings."""
+    s = d.get("settings") if isinstance(d.get("settings"), dict) else None
+    if s is None:
+        s = ((d.get("configuration") or {}).get("settings") or {}) if isinstance(d.get("configuration"), dict) else {}
     return {"strength": s.get("strength", 1.0), "direction": s.get("direction")}
+
+
+ON = ("terraforming", "regulating", "monitoring", "active", "running")
+
+
+def is_on(d: dict) -> bool:
+    """Switched on: live statuses terraforming (devices), regulating (the regulator), monitoring (the monitor)."""
+    return str(d.get("status") or "").lower().startswith(ON)
+
+
+HISTORY = 120   # status reports kept for each world's graphs (an hour at 30 s ticks)
+
+
+def history(rows: list[dict]) -> dict[str, list[float]]:
+    """{attr: [values, oldest first]} from terraform.status rows (oldest first)."""
+    out: dict[str, list[float]] = {a: [] for a in ATTRS}
+    for r in rows:
+        try:
+            attrs = (json.loads(r["payload"] or "{}") or {}).get("attributes") or {}
+        except ValueError:
+            continue
+        for a in ATTRS:
+            v = (attrs.get(a) or {}).get("value")
+            if isinstance(v, (int, float)):
+                out[a].append(float(v))
+    return out
+
+
+def spark(values: list[float], rng: tuple | None, w: int = 180, h: int = 38) -> dict | None:
+    """An SVG sparkline: {"w", "h", "pts", "band": (y_top, y_bottom) of the target range, "x", "y" of the last point}."""
+    if not values:
+        return None
+    lo_r, hi_r = rng or (None, None)
+    vals = list(values) + [x for x in (lo_r, hi_r) if x is not None]
+    lo, hi = min(vals), max(vals)
+    pad = (hi - lo) * 0.08 or 1.0
+    lo, hi = lo - pad, hi + pad
+
+    def y(v: float) -> float:
+        return round(h - (v - lo) / (hi - lo) * h, 1)
+    n = len(values)
+    pts = [(round(i * (w - 4) / max(1, n - 1) + 2, 1), y(v)) for i, v in enumerate(values)]
+    band = None
+    if rng and (lo_r is not None or hi_r is not None):
+        band = (y(hi_r if hi_r is not None else hi), y(lo_r if lo_r is not None else lo))
+    return {"w": w, "h": h, "pts": " ".join(f"{a},{b}" for a, b in pts), "band": band, "x": pts[-1][0], "y": pts[-1][1]}
 
 
 def clamp_strength(v: Any) -> float | None:

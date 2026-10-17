@@ -73,6 +73,11 @@ rule with an on/off switch, plus the jobs and the log.
 - **Moving a replicant**: the Replicant page lists empty replicant matrices with *Transfer* (same location, instant) or *Teleport* (another system, over the FTL network), each with a confirmation.
 - **Megastructures**: a megastructure's location page shows its progress and what it still needs, with a Contribute button for your devices there; `/megastructures` has the leaderboard.
 - **Lockers** (Economy › Lockers): equipment lockers (NPC devices that hand out a set loadout once per account, e.g. SOL-OORT, TWAFFY-OORT): scan where a replicant is, then retrieve.
+- **Terraforming console** (Map › Terraforming, and a run's own with `?sim=`): each world is a live console that refreshes
+  itself every 15 s (not while you're using a control in it): a light per world, attribute and device group; a gauge per
+  attribute with its value, change per tick, the target range and a graph of the last hour with the range shaded; a switch
+  per device, a strength slider and direction for those that take one (shown as set), and all on / all off per kind. Every
+  control updates the console at once.
 - **Terraforming training** (a simulation played by hand): its run card links to *Terraforming controls*, the
   Terraforming page on the run's own world (`/terraforming?sim=<run>`): the monitor's values against a target species' ranges (GET `/species` `environment`; Humans by default, the choice
   is remembered)

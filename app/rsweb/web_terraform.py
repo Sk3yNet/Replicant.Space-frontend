@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 
 from . import terraform as tf
 from .db import now_iso
-from .web import call_action, current_user, load_state, page, render_action, run_action, sim_view, star_of
+from .web import call_action, current_user, load_state, page, partial, render_action, run_action, sim_view, star_of
 
 router = APIRouter()
 LAUNCHED_KV = "launched_rocks"   # {object_designation: detonate response + at}: rocks you sent; defense leaves them be
@@ -41,8 +41,8 @@ async def species_list(request: Request) -> list[dict]:
 TARGET_KV = "terraform_species"   # the species the Terraforming page judges worlds for (humans by default)
 
 
-@router.get("/terraforming", response_class=HTMLResponse)
-async def terraforming_page(request: Request, user: str = Depends(current_user)):
+async def _ctx(request: Request) -> dict:
+    """Everything the Terraforming page shows (the page, and each world's live console partial)."""
     from .sim import is_virtual
     db = request.app.state.db
     sid = sim_view(request)
@@ -65,7 +65,7 @@ async def terraforming_page(request: Request, user: str = Depends(current_user))
     devs = [d for d in st["devices"] if tf.kind(d)]
     by_loc: dict[str, list[dict]] = defaultdict(list)
     for d in devs:
-        by_loc[d.get("location") or "aboard / in transit"].append({**d, "_set": tf.settings_of(d)})
+        by_loc[d.get("location") or "aboard / in transit"].append({**d, "_set": tf.settings_of(d), "_on": tf.is_on(d)})
     # how long each running regulator has been on: its latest terraform.device_activated (the run's goal may need time)
     since: dict[str, str] = {}
     for d in devs:
@@ -79,8 +79,12 @@ async def terraforming_page(request: Request, user: str = Depends(current_user))
     for body in sorted(set(bodies) | {d.get("location") for d in devs if d.get("device_type") in tf.DEVICES and d.get("location")}):
         s = bodies.get(body) or {}
         out = tf.out_of_range(s, targets)
+        hist = await db.fetchall("SELECT payload, created_at FROM events WHERE event = 'terraform.status' AND location = ? "
+                                 "ORDER BY seq DESC LIMIT ?", (body, tf.HISTORY))
+        series = tf.history(list(reversed(hist)))
         worlds.append({"body": body, "status": s, "coupling": tf.coupling(s) if s else [], "bio": tf.bio_ready(s) if s else [],
                        "devices": by_loc.get(body, []), "out": out,
+                       "sparks": {a: tf.spark(series.get(a) or [], targets.get(a)) for a in tf.ATTRS},
                        "regulating": next((since[d["device_code"]] for d in by_loc.get(body, []) if d.get("device_code") in since), None),
                        "lock_warn": ("Every value is in range: switch the atmospheric regulator on? It holds temperature, "
                                      "pressure and hydrosphere where they are (it can be switched off again)."
@@ -93,18 +97,40 @@ async def terraforming_page(request: Request, user: str = Depends(current_user))
     rock_tools = [{**d, "_set": tf.settings_of(d)} for d in devs if d.get("device_type") in tf.ROCK_TOOLS]
     scanners = [d for d in st["devices"] if "system_scan" in (d.get("features") or [])
                 and "detect_object" in (d.get("available_commands") or ["detect_object"])]
-    launched = await db.kv_get(LAUNCHED_KV, {}) or {}
-    return await page(request, user, "terraforming.html", "terraforming", worlds=worlds, attrs=tf.ATTRS, units=tf.UNITS,
-                      targets=targets, in_range=tf.in_range, range_eta=tf.range_eta, tick_s=tf.TICK_S,
-                      species=species, target=target,
-                      effects=tf.EFFECTS, directions=tf.DIRECTIONS, monitors=monitors, cap=tf.MONITOR_CAP,
-                      rock_tools=rock_tools, scanners=scanners, launched=launched,
-                      stars=sorted({star_of(d.get("location")) for d in scanners + rock_tools if d.get("location")}))
+    return dict(worlds=worlds, attrs=tf.ATTRS, units=tf.UNITS,
+                targets=targets, in_range=tf.in_range, range_eta=tf.range_eta, tick_s=tf.TICK_S,
+                species=species, target=target, sim_q=f"sim={sid}&" if sid else "",
+                effects=tf.EFFECTS, directions=tf.DIRECTIONS, monitors=monitors, cap=tf.MONITOR_CAP,
+                rock_tools=rock_tools, scanners=scanners, launched=await db.kv_get(LAUNCHED_KV, {}) or {},
+                stars=sorted({star_of(d.get("location")) for d in scanners + rock_tools if d.get("location")}))
+
+
+@router.get("/terraforming", response_class=HTMLResponse)
+async def terraforming_page(request: Request, user: str = Depends(current_user)):
+    return await page(request, user, "terraforming.html", "terraforming", **await _ctx(request))
+
+
+async def _world(request: Request, body: str, note: str = "", ok: bool = True, fresh: bool = True) -> HTMLResponse:
+    """One world's console (partials/tf_world.html): the live refresh (fresh=False: the run's devices may be a minute
+    old, the monitor's reports arrive as events), and the answer to every control (read again from the game)."""
+    sid = sim_view(request)
+    if sid and fresh:   # the run's devices again, so a switch shows its new state at once
+        await request.app.state.db.kv_set(f"sim:world:{sid}", {})
+    ctx = await _ctx(request)
+    w = next((x for x in ctx["worlds"] if x["body"] == body), None)
+    if not w:
+        return HTMLResponse(f'<div class="card muted small">{html.escape(body)}: no longer reported.</div>')
+    return partial(request, "partials/tf_world.html", w=w, note=note, note_ok=ok, **ctx)
+
+
+@router.get("/terraforming/world/{body}", response_class=HTMLResponse)
+async def terraforming_world(request: Request, body: str, user: str = Depends(current_user)):
+    return await _world(request, body.upper(), fresh=False)
 
 
 @router.post("/terraforming/{code}/settings", response_class=HTMLResponse)
 async def terraforming_settings(request: Request, code: str, strength: str = Form(""), direction: str = Form(""),
-                                user: str = Depends(current_user)):
+                                body: str = Form(""), user: str = Depends(current_user)):
     s: dict = {}
     v = tf.clamp_strength(strength) if strength.strip() else None
     if v is not None:
@@ -113,32 +139,43 @@ async def terraforming_settings(request: Request, code: str, strength: str = For
         s["direction"] = direction
     if not s:
         return HTMLResponse('<span class="result err">Nothing to set.</span>')
-    return await run_action(request, user, "PATCH", f"/devices/{code}", {"configuration": {"settings": s}},
-                            f"{code}: strength {s.get('strength', '—')} · direction {s.get('direction', '—')}")
+    label = f"{code}: strength {s.get('strength', '—')} · direction {s.get('direction', '—')}"
+    out = await call_action(request, user, "PATCH", f"/devices/{code}", {"configuration": {"settings": s}}, label)
+    if body:
+        return await _world(request, body, label if out.get("ok") else f"{label}: {out.get('error')}", out.get("ok"))
+    return render_action(request, out)
 
 
 @router.post("/terraforming/group/power", response_class=HTMLResponse)
 async def terraforming_group_power(request: Request, action: str = Form(...), codes: str = Form(""), sim: str = Form(""),
-                                   user: str = Depends(current_user)):
-    """Switch several devices on or off at once (e.g. all six orbital mirrors), then reload the page."""
+                                   body: str = Form(""), user: str = Depends(current_user)):
+    """Switch several devices on or off at once (e.g. all six orbital mirrors)."""
     if action not in ("activate", "deactivate"):
         return HTMLResponse('<span class="result err">activate or deactivate</span>')
     done, failed = [], []
     for c in [x for x in codes.replace(",", " ").split() if x][:40]:
         out = await call_action(request, user, "POST", f"/devices/{c}", {"command": action}, f"{action} {c}")
         (done if out.get("ok") else failed).append(f"{c}" + ("" if out.get("ok") else f" ({out.get('error')})"))
+    text = f"{action}: {len(done)} done" + (f" · failed: {', '.join(failed)}" if failed else "")
+    if body:
+        return await _world(request, body, text, not failed)
     if sim.isdigit():
         await request.app.state.db.kv_set(f"sim:world:{sim}", {})
-    text = f"{action}: {len(done)} done" + (f" · failed: {', '.join(failed)}" if failed else "")
     return HTMLResponse(f'<span class="result {"err" if failed else "ok"}">{html.escape(text)}</span>',
                         headers={} if failed else {"HX-Refresh": "true"})
 
 
 @router.post("/terraforming/{code}/power", response_class=HTMLResponse)
-async def terraforming_power(request: Request, code: str, action: str = Form(...), user: str = Depends(current_user)):
+async def terraforming_power(request: Request, code: str, action: str = Form(""), on: str = Form(""), body: str = Form(""),
+                             user: str = Depends(current_user)):
+    """One device on or off: `action`, or a console switch (`on` checked or not)."""
+    action = action or ("activate" if on else "deactivate")
     if action not in ("activate", "deactivate"):
         return HTMLResponse('<span class="result err">activate or deactivate</span>')
-    return await run_action(request, user, "POST", f"/devices/{code}", {"command": action}, f"{action} {code}")
+    out = await call_action(request, user, "POST", f"/devices/{code}", {"command": action}, f"{action} {code}")
+    if body:
+        return await _world(request, body, f"{action} {code}" + ("" if out.get("ok") else f": {out.get('error')}"), out.get("ok"))
+    return render_action(request, out)
 
 
 @router.post("/terraforming/{code}/detect", response_class=HTMLResponse)

@@ -7427,10 +7427,11 @@ def test_terraforming_training_controls(client):
                                                                                          "oxygen": {"value": 12, "delta": 0}}}})
     t = client.get("/terraforming?sim=7", headers=H).text
     # judged for humans by default (GET /species environment, live 2026-10-17)
-    assert "VIRTCEL-1" in t and "orbital mirror 0/3 on" in t and "270–300 ✗" in t and "18–25 ✗" in t
+    assert "VIRTCEL-1" in t and "0/3 on" in t and "270–300 K" in t and "18–25 %" in t and "2 out of range: temperature, oxygen" in t
     assert 'name="codes" value="M0 M1 M2"' in t and "Not ready: temperature, oxygen" in t and "out of range for Humans" in t
+    assert 'class="tf-switch"' in t and 'hx-trigger="every 15s' in t   # a console: switches, refreshes itself
     t = client.get("/terraforming?sim=7&species=branthar", headers=H).text   # another species, remembered
-    assert "300–340 ✗" in t and "12–18 ✓" in t
+    assert "300–340 K" in t and "1 out of range: temperature" in t
     assert "300–340" in client.get("/terraforming?sim=7", headers=H).text
     client.get("/terraforming?sim=7&species=humans", headers=H)
     assert "VIRTCEL-1" not in client.get("/terraforming", headers=H).text
@@ -7441,6 +7442,7 @@ def test_terraforming_training_controls(client):
     assert tf.range_eta("toxicity", 60.75, -0.7737) == {"enter": 53} and tf.range_eta("oxygen", 7.81, 0.5658) == {"enter": 4}
     assert tf.range_eta("temperature", 350.15, 0.03) == {"away": True} and tf.range_eta("hydrosphere", 10.15, 0.5) == {"ok": True}
     assert tf.range_eta("temperature", 349.0, 0.5) == {"leave": 3}
+    assert tf.range_eta("toxicity", 0, -0.1, {"toxicity": (0, 5)}) == {"ok": True}   # can't go below 0
     devs.append({"device_code": "MON", "device_type": "terraform_monitor", "location": "VIRTOTHER-2", "status": "monitoring",
                  "terraform_status": {"body": "VIRTOTHER-2", "attributes": {"toxicity": {"value": 60.75, "delta": -0.7737}}}})
     client.portal.call(db.kv_set, "sim:world:7", {"t": time.time(), "rep": "R1", "devices": devs, "stars": [],
@@ -7455,6 +7457,15 @@ def test_terraforming_training_controls(client):
     client.portal.call(db.kv_set, "sim:world:7", {"t": time.time(), "rep": "R1", "devices": devs, "stars": [],
                                                   "inventory": [], "replicants": {}, "totals": {}})
     assert "regulating since" in client.get("/terraforming?sim=7", headers=H).text
+    # the console's live refresh and a switch: both answer with the world's partial
+    w = client.get("/terraforming/world/VIRTCEL-1?sim=7", headers=HX).text
+    assert w.lstrip().startswith('<div class="card tf-world"') and "regulating since" in w
+    w = client.post("/terraforming/M0/power?sim=7", data={"on": "1", "body": "VIRTCEL-1"}, headers=HX).text
+    assert "tf-world" in w and "activate M0" in w
+    # settings are read from the device list's `settings` (live 2026-10-17), so the console shows what's set
+    assert tf.settings_of({"settings": {"direction": "decrease", "strength": 0.5}}) == {"strength": 0.5, "direction": "decrease"}
+    sp = tf.spark([1, 2, 3], (2, 4))
+    assert sp["band"] and len(sp["pts"].split()) == 3
     assert not sim.plays({"code": "terraforming_training_1", "objective_type": "terraform_training"})
     assert sim.plays({"code": "mining_rush", "objective_type": "yield_quota"})
     s = client.portal.call(eng.sim_state)

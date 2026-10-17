@@ -185,3 +185,26 @@ svg.system.nodrones .drone { display: none; }
   white-space: nowrap; box-shadow: 1px 0 0 var(--line); }
 .sticky-grid tr:first-child th:first-child { z-index: 3; }
 .sticky-grid tr:hover td { background: var(--panel2); }
+
+/* terraforming console (partials/tf_world.html) */
+.tf-light { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--line); vertical-align: middle; margin-right: 3px; }
+.tf-light.ok { background: var(--good); box-shadow: 0 0 6px var(--good); }
+.tf-light.warn { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.tf-light.bad { background: var(--bad); box-shadow: 0 0 6px var(--bad); }
+.tf-gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin: 10px 0; }
+.tf-gauge { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.tf-value { font-size: 20px; font-variant-numeric: tabular-nums; }
+.tf-spark { width: 100%; height: 38px; display: block; margin: 2px 0; }
+.tf-spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.tf-spark circle { fill: var(--accent); }
+.tf-spark .band { fill: var(--good); opacity: .14; }
+.tf-console { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; margin-top: 8px; }
+.tf-group { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.tf-dev { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 3px 0; border-top: 1px solid var(--line); }
+.tf-set input[type=range] { width: 90px; vertical-align: middle; }
+.tf-switch { position: relative; display: inline-block; width: 34px; height: 18px; cursor: pointer; vertical-align: middle; }
+.tf-switch input { opacity: 0; width: 0; height: 0; }
+.tf-switch span { position: absolute; inset: 0; background: var(--line); border-radius: 9px; transition: .15s; }
+.tf-switch span::before { content: ""; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: .15s; }
+.tf-switch input:checked + span { background: var(--good); }
+.tf-switch input:checked + span::before { transform: translateX(16px); }
