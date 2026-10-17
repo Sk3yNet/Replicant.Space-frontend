@@ -74,7 +74,8 @@ rule with an on/off switch, plus the jobs and the log.
 - **Megastructures**: a megastructure's location page shows its progress and what it still needs, with a Contribute button for your devices there; `/megastructures` has the leaderboard.
 - **Lockers** (Economy › Lockers): equipment lockers (NPC devices that hand out a set loadout once per account, e.g. SOL-OORT, TWAFFY-OORT): scan where a replicant is, then retrieve.
 - **Terraforming training** (a simulation played by hand): its run card links to *Terraforming controls*, the
-  Terraforming page on the run's own world (`/terraforming?sim=<run>`): the monitor's values against the habitable ranges
+  Terraforming page on the run's own world (`/terraforming?sim=<run>`): the monitor's values against a target species' ranges (GET `/species` `environment`; Humans by default, the choice
+  is remembered)
   (✓ / ✗) and where each is heading at its current Δ (in range in N ticks, leaves the range, moving away; a tick is
   30 s), each device's strength / direction and on/off, and *all on* / *all off* per kind of device. Each world says whether it's
   *all habitable* or which values are out of range, and since when the atmospheric regulator has been regulating (it

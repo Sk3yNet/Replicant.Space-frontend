@@ -999,7 +999,8 @@ Settled by the docs:
   page) or ~88 ly (locations page).
 - **Accounts**: `/accounts/me` nests `events` and `messages` objects; `cohort_permission` is set per replicant via
   PATCH (default "private"); replicant `project` up to 2000 characters; `GET /v1/species` is documented
-  (`{species: [{species_key, name, description, government, greeting, homeworld_type, tech_affinity, trait}]}`).
+  (`{species: [{species_key, name, description, government, greeting, homeworld_type, tech_affinity, trait}]}`); live 2026-10-17 each species also has `environment` {attribute: [low, high]} for biosphere,
+  gravity, hydrosphere, oxygen, pressure, tectonic, temperature, toxicity (its habitable ranges) and sometimes `star_regions`).
 - **Tutorials**: `GET /v1/tutorials`, `GET /v1/tutorials/{slug}` (see Tutorials above).
 - **Blueprints**: starter mining_drone prints in 10 min (600 s); maintenance_drone isn't a starter type.
 

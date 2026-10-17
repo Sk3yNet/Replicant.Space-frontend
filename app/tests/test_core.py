@@ -7426,11 +7426,18 @@ def test_terraforming_training_controls(client):
                                           "payload": {"body": "VIRTCEL-1", "attributes": {"temperature": {"value": 410, "delta": -1},
                                                                                          "oxygen": {"value": 12, "delta": 0}}}})
     t = client.get("/terraforming?sim=7", headers=H).text
-    assert "VIRTCEL-1" in t and "orbital mirror 0/3 on" in t and "200–350 ✗" in t and "10–35 ✓" in t
-    assert 'name="codes" value="M0 M1 M2"' in t and "Not ready: temperature" in t
+    # judged for humans by default (GET /species environment, live 2026-10-17)
+    assert "VIRTCEL-1" in t and "orbital mirror 0/3 on" in t and "270–300 ✗" in t and "18–25 ✗" in t
+    assert 'name="codes" value="M0 M1 M2"' in t and "Not ready: temperature, oxygen" in t and "out of range for Humans" in t
+    t = client.get("/terraforming?sim=7&species=branthar", headers=H).text   # another species, remembered
+    assert "300–340 ✗" in t and "12–18 ✓" in t
+    assert "300–340" in client.get("/terraforming?sim=7", headers=H).text
+    client.get("/terraforming?sim=7&species=humans", headers=H)
     assert "VIRTCEL-1" not in client.get("/terraforming", headers=H).text
     # live 2026-10-17: the running monitor carries its report (terraform_status); numbers from the training run
     from rsweb import terraform as tf
+    hum = tf.species_targets({"environment": {"temperature": [270, 300], "gravity": [0.7, 1.3]}})
+    assert hum == {"temperature": (270, 300)} and tf.in_range("temperature", 305.45, hum) is False
     assert tf.range_eta("toxicity", 60.75, -0.7737) == {"enter": 53} and tf.range_eta("oxygen", 7.81, 0.5658) == {"enter": 4}
     assert tf.range_eta("temperature", 350.15, 0.03) == {"away": True} and tf.range_eta("hydrosphere", 10.15, 0.5) == {"ok": True}
     assert tf.range_eta("temperature", 349.0, 0.5) == {"leave": 3}
@@ -7439,8 +7446,8 @@ def test_terraforming_training_controls(client):
     client.portal.call(db.kv_set, "sim:world:7", {"t": time.time(), "rep": "R1", "devices": devs, "stars": [],
                                                   "inventory": [], "replicants": {}, "totals": {}})
     t = client.get("/terraforming?sim=7", headers=H).text
-    assert "VIRTOTHER-2" in t and "in range in 53 ticks" in t
-    assert "1 out of range: toxicity" in t and "1 out of range: temperature" in t
+    assert "VIRTOTHER-2" in t and "in range in 73 ticks" in t   # humans: toxicity under 5
+    assert "1 out of range: toxicity" in t and "2 out of range: temperature, oxygen" in t
     assert tf.out_of_range({"attributes": {"temperature": {"value": 300}, "toxicity": {"value": 5}}}) == []
     devs[3]["status"] = "regulating"   # live 2026-10-17: the regulator can be switched off again; how long it has run shows
     client.portal.call(db.insert_event, {"id": "rg1", "event": "terraform.device_activated", "device_code": "RG1", "created_at": "2026-10-17T22:30:13+00:00",

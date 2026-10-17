@@ -35,21 +35,35 @@ TARGETS = {"temperature": (200, 350), "pressure": (0.3, 10), "oxygen": (10, 35),
            "hydrosphere": (10, None)}
 
 
+SPECIES_KV = "species"   # {"at", "species": [...]}: GET /species, whose `environment` gives each species' ranges
+
+
+def species_targets(sp: dict | None) -> dict[str, tuple]:
+    """A species' habitable ranges ({attr: (lo, hi)}) from GET /species `environment` (live 2026-10-17: Humans
+    temperature 270–300, pressure 0.8–1.2, oxygen 18–25, toxicity 0–5, hydrosphere 40–70, biosphere 30–70, tectonic
+    5–30; gravity too, which no device changes, so it's left out)."""
+    out = {}
+    for a, r in ((sp or {}).get("environment") or {}).items():
+        if a in ATTRS and isinstance(r, (list, tuple)) and len(r) == 2:
+            out[a] = (r[0], r[1])
+    return out
+
+
 TICK_S = 30   # a terraform tick (live 2026-10-17: terraform.status every 30 s in the training)
 
 
-def range_eta(attr: str, value: Any, delta: Any) -> dict | None:
+def range_eta(attr: str, value: Any, delta: Any, targets: dict | None = None) -> dict | None:
     """Where an attribute is heading at its current delta: {"enter": ticks} until it's habitable, {"leave": ticks}
     until it drifts out, {"ok": True} when it stays in, {"away": True} when it moves away from the range (or stands
     still outside it); None without a range or a value."""
-    lo, hi = TARGETS.get(attr, (None, None))
+    lo, hi = (targets or TARGETS).get(attr, (None, None))
     try:
         v, dv = float(value), float(delta or 0)
     except (TypeError, ValueError):
         return None
     if lo is None and hi is None:
         return None
-    if in_range(attr, v):
+    if in_range(attr, v, targets):
         if dv > 0 and hi is not None:
             return {"leave": int((hi - v) / dv) + 1}
         if dv < 0 and lo is not None:
@@ -60,17 +74,17 @@ def range_eta(attr: str, value: Any, delta: Any) -> dict | None:
     return {"enter": int((v - hi) / -dv) + 1} if dv < 0 else {"away": True}
 
 
-def out_of_range(status: dict) -> list[str] | None:
+def out_of_range(status: dict, targets: dict | None = None) -> list[str] | None:
     """The habitable-range attributes a report has outside their range ([] = ready to lock in; None = no report)."""
     attrs = (status or {}).get("attributes") or {}
     if not attrs:
         return None
-    return [a for a in TARGETS if in_range(a, (attrs.get(a) or {}).get("value")) is False]
+    return [a for a in ATTRS if a in (targets or TARGETS) and in_range(a, (attrs.get(a) or {}).get("value"), targets) is False]
 
 
-def in_range(attr: str, value: Any) -> bool | None:
+def in_range(attr: str, value: Any, targets: dict | None = None) -> bool | None:
     """Whether a value is inside the habitable range (None: no range, or no value)."""
-    lo, hi = TARGETS.get(attr, (None, None))
+    lo, hi = (targets or TARGETS).get(attr, (None, None))
     if (lo is None and hi is None) or value is None:
         return None
     try:

@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.134.0"
+VERSION = "1.135.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.135.0", "2026-10-17", "Terraforming judges worlds for a target species: ranges from GET /species environment "
+     "(Humans by default, selectable and remembered), including biosphere and tectonic; readiness, heading and the "
+     "regulator warning follow them"),
     ("1.134.0", "2026-10-17", "Terraforming: the regulator doesn't lock in (it holds temperature, pressure and "
      "hydrosphere and can be switched off): wording fixed, and the page shows since when it has been regulating"),
     ("1.133.0", "2026-10-17", "Terraforming: each world says whether it's ready to lock in or which values are out of "

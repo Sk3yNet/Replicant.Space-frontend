@@ -17,12 +17,43 @@ router = APIRouter()
 LAUNCHED_KV = "launched_rocks"   # {object_designation: detonate response + at}: rocks you sent; defense leaves them be
 
 
+async def species_list(request: Request) -> list[dict]:
+    """GET /species, cached for a day (kv species): each species' habitable ranges are in its `environment`."""
+    from datetime import datetime, timezone
+    from .api import ApiError
+    db = request.app.state.db
+    c = await db.kv_get(tf.SPECIES_KV, {}) or {}
+    try:
+        fresh = (datetime.now(timezone.utc) - datetime.fromisoformat(c["at"])).total_seconds() < 86400
+    except (KeyError, TypeError, ValueError):
+        fresh = False
+    if not fresh or request.query_params.get("refresh"):
+        try:
+            body = await request.app.state.api.get("/species") or {}
+            if body.get("species"):
+                c = {"at": now_iso(), "species": body["species"]}
+                await db.kv_set(tf.SPECIES_KV, c)
+        except ApiError:
+            pass
+    return [x for x in c.get("species") or [] if isinstance(x, dict)]
+
+
+TARGET_KV = "terraform_species"   # the species the Terraforming page judges worlds for (humans by default)
+
+
 @router.get("/terraforming", response_class=HTMLResponse)
 async def terraforming_page(request: Request, user: str = Depends(current_user)):
     from .sim import is_virtual
     db = request.app.state.db
     sid = sim_view(request)
     st = await load_state(request)
+    species = await species_list(request)
+    want = (request.query_params.get("species") or "").strip().lower()
+    if want:
+        await db.kv_set(TARGET_KV, want)
+    want = want or await db.kv_get(TARGET_KV, "") or "humans"
+    target = next((x for x in species if x.get("species_key") == want), None)
+    targets = tf.species_targets(target) or tf.TARGETS   # no species list: the docs' bio seeder ranges
     rows = await db.fetchall("SELECT payload, location, created_at FROM events WHERE event = 'terraform.status' "
                              "ORDER BY seq DESC LIMIT 400")
     # a simulation's worlds (VIRT…) only on its own view (?sim=), never among your real ones
@@ -47,14 +78,14 @@ async def terraforming_page(request: Request, user: str = Depends(current_user))
     worlds = []
     for body in sorted(set(bodies) | {d.get("location") for d in devs if d.get("device_type") in tf.DEVICES and d.get("location")}):
         s = bodies.get(body) or {}
-        out = tf.out_of_range(s)
+        out = tf.out_of_range(s, targets)
         worlds.append({"body": body, "status": s, "coupling": tf.coupling(s) if s else [], "bio": tf.bio_ready(s) if s else [],
                        "devices": by_loc.get(body, []), "out": out,
                        "regulating": next((since[d["device_code"]] for d in by_loc.get(body, []) if d.get("device_code") in since), None),
-                       "lock_warn": ("Every value is habitable: switch the atmospheric regulator on? It holds temperature, "
+                       "lock_warn": ("Every value is in range: switch the atmospheric regulator on? It holds temperature, "
                                      "pressure and hydrosphere where they are (it can be switched off again)."
                                      if out == [] else
-                                     f"Not ready: {', '.join(out)} out of the habitable range. The regulator would hold "
+                                     f"Not ready: {', '.join(out)} out of range for {(target or {}).get('name') or 'life'}. The regulator would hold "
                                      "temperature, pressure and hydrosphere there. Switch it on anyway?" if out else
                                      "No monitor report yet. Activate the atmospheric regulator anyway?")})
     monitors = sum(1 for d in devs if d.get("device_type") == "terraform_monitor"
@@ -64,7 +95,8 @@ async def terraforming_page(request: Request, user: str = Depends(current_user))
                 and "detect_object" in (d.get("available_commands") or ["detect_object"])]
     launched = await db.kv_get(LAUNCHED_KV, {}) or {}
     return await page(request, user, "terraforming.html", "terraforming", worlds=worlds, attrs=tf.ATTRS, units=tf.UNITS,
-                      targets=tf.TARGETS, in_range=tf.in_range, range_eta=tf.range_eta, tick_s=tf.TICK_S,
+                      targets=targets, in_range=tf.in_range, range_eta=tf.range_eta, tick_s=tf.TICK_S,
+                      species=species, target=target,
                       effects=tf.EFFECTS, directions=tf.DIRECTIONS, monitors=monitors, cap=tf.MONITOR_CAP,
                       rock_tools=rock_tools, scanners=scanners, launched=launched,
                       stars=sorted({star_of(d.get("location")) for d in scanners + rock_tools if d.get("location")}))

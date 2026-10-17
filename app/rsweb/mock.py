@@ -490,7 +490,14 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
 
     @app.get("/v1/species")
     async def species():
-        return ok({"species": [{"name": "Veth", "home": "LERNA-3", "stage": "intelligent", "traits": ["curious", "aquatic"]}]})
+        return ok({"species": [   # live shape 2026-10-17: environment = each species' habitable ranges
+            {"name": "Humans", "species_key": "humans", "homeworld_type": "terrestrial", "trait": "curious",
+             "environment": {"biosphere": [30, 70], "gravity": [0.7, 1.3], "hydrosphere": [40, 70], "oxygen": [18, 25],
+                             "pressure": [0.8, 1.2], "tectonic": [5, 30], "temperature": [270, 300], "toxicity": [0, 5]}},
+            {"name": "Branthar", "species_key": "branthar", "homeworld_type": "desert_world", "trait": "nomadic",
+             "environment": {"biosphere": [5, 25], "gravity": [0.8, 1.5], "hydrosphere": [0, 10], "oxygen": [12, 18],
+                             "pressure": [0.3, 0.7], "tectonic": [0, 15], "temperature": [300, 340], "toxicity": [0, 15]}},
+            {"name": "Veth", "home": "LERNA-3", "stage": "intelligent", "traits": ["curious", "aquatic"]}]})
 
     @app.get("/v1/replicants")
     async def directory(name: str | None = None, limit: int = 20):

@@ -88,8 +88,10 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   `monitoring`, and the monitor carries its latest report in the device list (`terraform_status`). Effects are reported
   as words (negligible, weak, moderate). Settings work: PATCH `{"configuration": {"settings": {"strength": 1.0,
   "direction": "decrease"}}}` answers with the device's `settings`. The monitor's warnings name the habitable limits
-  (temperature > 350, oxygen < 10, toxicity > 20 suppress the biosphere). The run did not end with the regulator on and every
-  value habitable for 77 s (2026-10-17): it likely needs that held longer, or a biosphere level. Ideas not built yet go in TODO.md.
+  (temperature > 350, oxygen < 10, toxicity > 20 suppress the biosphere). `GET /species` gives each species' habitable ranges in
+  `environment` (temperature, pressure, oxygen, toxicity, hydrosphere, biosphere, tectonic, gravity); the training is for
+  Humans (270–300 K, 0.8–1.2 atm, O2 18–25, toxicity 0–5, hydrosphere 40–70, biosphere 30–70, tectonic 5–30). The
+  docs' 200–350 K etc. are only the bio seeder preconditions. Ideas not built yet go in TODO.md.
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the
