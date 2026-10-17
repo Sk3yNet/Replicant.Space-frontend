@@ -15,12 +15,14 @@
   {% if s.attributes %}
   <div class="grid g2">
   <table class="small">
-    <tr><th>Attribute</th><th class="num">Value</th><th>Habitable</th><th class="num">Δ/tick</th><th class="num">+6</th><th class="num">+12</th><th class="num">+24</th></tr>
+    <tr><th>Attribute</th><th class="num">Value</th><th>Habitable</th><th class="num">Δ/tick</th><th title="At the current Δ, one tick every {{ tick_s }} s">Heading</th><th class="num">+6</th><th class="num">+12</th><th class="num">+24</th></tr>
     {% for a in attrs %}{% set v = s.attributes.get(a) or {} %}{% set pr = (s.projections or {}).get(a) or {} %}
     {% set ok = in_range(a, v.get('value')) %}{% set t = targets.get(a) %}
     <tr><td>{{ a }} <span class="muted">{{ units.get(a, '') }}</span></td><td class="num {{ 'lv-done' if ok else 'lv-alert' if ok == false }}">{{ v.get('value') | num }}</td>
       <td class="muted">{% if t %}{% if t[0] is not none and t[1] is not none %}{{ t[0] }}–{{ t[1] }}{% elif t[0] is not none %}over {{ t[0] }}{% else %}under {{ t[1] }}{% endif %} {{ '✓' if ok else '✗' if ok == false }}{% endif %}</td>
       <td class="num {{ 'lv-done' if (v.get('delta') or 0) > 0 else 'lv-alert' if (v.get('delta') or 0) < 0 }}">{{ v.get('delta') | num }}</td>
+      {% set e = range_eta(a, v.get('value'), v.get('delta')) %}
+      <td class="small {{ 'lv-alert' if e and (e.leave or e.away) else 'lv-done' if e and e.ok else '' }}">{% if e %}{% if e.enter %}in range in {{ e.enter }} ticks (~{{ (e.enter * tick_s) | duration }}){% elif e.leave %}leaves the range in {{ e.leave }} ticks (~{{ (e.leave * tick_s) | duration }}){% elif e.ok %}holding{% else %}moving away{% endif %}{% endif %}</td>
       <td class="num muted">{{ pr.get('+6') | num }}</td><td class="num muted">{{ pr.get('+12') | num }}</td><td class="num muted">{{ pr.get('+24') | num }}</td></tr>
     {% endfor %}
   </table>

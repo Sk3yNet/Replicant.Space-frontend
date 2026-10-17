@@ -7429,6 +7429,17 @@ def test_terraforming_training_controls(client):
     assert "VIRTCEL-1" in t and "orbital mirror 0/3 on" in t and "200–350 ✗" in t and "10–35 ✓" in t
     assert 'name="codes" value="M0 M1 M2"' in t and "locks the world in" in t
     assert "VIRTCEL-1" not in client.get("/terraforming", headers=H).text
+    # live 2026-10-17: the running monitor carries its report (terraform_status); numbers from the training run
+    from rsweb import terraform as tf
+    assert tf.range_eta("toxicity", 60.75, -0.7737) == {"enter": 53} and tf.range_eta("oxygen", 7.81, 0.5658) == {"enter": 4}
+    assert tf.range_eta("temperature", 350.15, 0.03) == {"away": True} and tf.range_eta("hydrosphere", 10.15, 0.5) == {"ok": True}
+    assert tf.range_eta("temperature", 349.0, 0.5) == {"leave": 3}
+    devs.append({"device_code": "MON", "device_type": "terraform_monitor", "location": "VIRTOTHER-2", "status": "monitoring",
+                 "terraform_status": {"body": "VIRTOTHER-2", "attributes": {"toxicity": {"value": 60.75, "delta": -0.7737}}}})
+    client.portal.call(db.kv_set, "sim:world:7", {"t": time.time(), "rep": "R1", "devices": devs, "stars": [],
+                                                  "inventory": [], "replicants": {}, "totals": {}})
+    t = client.get("/terraforming?sim=7", headers=H).text
+    assert "VIRTOTHER-2" in t and "in range in 53 ticks" in t
     assert not sim.plays({"code": "terraforming_training_1", "objective_type": "terraform_training"})
     assert sim.plays({"code": "mining_rush", "objective_type": "yield_quota"})
     s = client.portal.call(eng.sim_state)

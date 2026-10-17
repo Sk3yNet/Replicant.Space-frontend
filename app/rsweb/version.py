@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.131.0"
+VERSION = "1.132.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.132.0", "2026-10-17", "Terraforming: a Heading column (in range in N ticks, leaves the range, moving away; "
+     "30 s ticks), and a running monitor's own report (terraform_status in the device list) shows when no event has"),
     ("1.131.0", "2026-10-17", "Terraforming training controls: the Terraforming page on a run (?sim=) with its devices, "
      "the monitor's values against the habitable ranges, all on / all off per kind, and a confirmation before the "
      "regulator locks the world in. The engine no longer plays a build order in that scenario. TODO.md started"),

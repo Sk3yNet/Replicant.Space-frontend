@@ -27,6 +27,10 @@ async def terraforming_page(request: Request, user: str = Depends(current_user))
                              "ORDER BY seq DESC LIMIT 400")
     # a simulation's worlds (VIRT…) only on its own view (?sim=), never among your real ones
     bodies = {b: v for b, v in tf.latest_by_body(rows).items() if is_virtual(b) == bool(sid)}
+    for d in st["devices"]:   # a running monitor carries its latest report too (terraform_status, live 2026-10-17)
+        ts = d.get("terraform_status")
+        if isinstance(ts, dict) and ts.get("attributes") and (ts.get("body") or d.get("location")) not in bodies:
+            bodies[ts.get("body") or d.get("location")] = ts
     devs = [d for d in st["devices"] if tf.kind(d)]
     by_loc: dict[str, list[dict]] = defaultdict(list)
     for d in devs:
@@ -43,7 +47,7 @@ async def terraforming_page(request: Request, user: str = Depends(current_user))
                 and "detect_object" in (d.get("available_commands") or ["detect_object"])]
     launched = await db.kv_get(LAUNCHED_KV, {}) or {}
     return await page(request, user, "terraforming.html", "terraforming", worlds=worlds, attrs=tf.ATTRS, units=tf.UNITS,
-                      targets=tf.TARGETS, in_range=tf.in_range,
+                      targets=tf.TARGETS, in_range=tf.in_range, range_eta=tf.range_eta, tick_s=tf.TICK_S,
                       effects=tf.EFFECTS, directions=tf.DIRECTIONS, monitors=monitors, cap=tf.MONITOR_CAP,
                       rock_tools=rock_tools, scanners=scanners, launched=launched,
                       stars=sorted({star_of(d.get("location")) for d in scanners + rock_tools if d.get("location")}))

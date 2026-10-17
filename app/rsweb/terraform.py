@@ -35,6 +35,31 @@ TARGETS = {"temperature": (200, 350), "pressure": (0.3, 10), "oxygen": (10, 35),
            "hydrosphere": (10, None)}
 
 
+TICK_S = 30   # a terraform tick (live 2026-10-17: terraform.status every 30 s in the training)
+
+
+def range_eta(attr: str, value: Any, delta: Any) -> dict | None:
+    """Where an attribute is heading at its current delta: {"enter": ticks} until it's habitable, {"leave": ticks}
+    until it drifts out, {"ok": True} when it stays in, {"away": True} when it moves away from the range (or stands
+    still outside it); None without a range or a value."""
+    lo, hi = TARGETS.get(attr, (None, None))
+    try:
+        v, dv = float(value), float(delta or 0)
+    except (TypeError, ValueError):
+        return None
+    if lo is None and hi is None:
+        return None
+    if in_range(attr, v):
+        if dv > 0 and hi is not None:
+            return {"leave": int((hi - v) / dv) + 1}
+        if dv < 0 and lo is not None:
+            return {"leave": int((v - lo) / -dv) + 1}
+        return {"ok": True}
+    if lo is not None and v < lo:
+        return {"enter": int((lo - v) / dv) + 1} if dv > 0 else {"away": True}
+    return {"enter": int((v - hi) / -dv) + 1} if dv < 0 else {"away": True}
+
+
 def in_range(attr: str, value: Any) -> bool | None:
     """Whether a value is inside the habitable range (None: no range, or no value)."""
     lo, hi = TARGETS.get(attr, (None, None))
