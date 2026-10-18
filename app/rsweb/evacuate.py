@@ -130,7 +130,9 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
             if "travel" in (d.get("available_commands") or ["travel"]) and "cruise" in (d.get("features") or ["cruise"]):
                 why = ("diverted enough — recalled before the swing-past" if enough
                        else f"impact in {left:.0f} min" if left is not None else "impact warning")
-                out["moves"].append({"code": code, "from": loc, "to": to, "why": why})
+                # a pushing propulsor is switched off first: it won't travel while active (owner, 2026-10-18)
+                out["moves"].append({"code": code, "from": loc, "to": to, "why": why,
+                                     "deactivate": "propulsor" in (d.get("device_type") or "") and any(k in st for k in DIVERTING)})
                 leaving.append(code)
                 continue
             ride = next(((c, m) for c, s in seats.items() if c != code and (m := fl.take_seat(s, d))), None)

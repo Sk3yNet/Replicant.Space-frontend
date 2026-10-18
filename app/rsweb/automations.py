@@ -2432,6 +2432,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         for m in p["moves"]:
             code = m["code"]
             steps = [fl.board_step(code, b["code"], b["mode"]) for b in boards.get(code, [])]
+            if m.get("deactivate"):
+                steps.append(step(f"{code}: deactivate", f"/devices/{code}", {"command": "deactivate"}))
             steps.append(step(f"{code} → {m['to']} (evacuate {m['from']}: {m['why']})", f"/devices/{code}",
                               {"command": "travel", "destination": m["to"]}, critical=True))
             codes = [code] + [b["code"] for b in boards.get(code, [])]

@@ -72,6 +72,7 @@ def test_propulsors_are_recalled_once_the_object_is_diverted_enough():
     objs["A-OBJ-1"].update({"impact_likelihood": 0.7, "progress_pct": 99.3})   # live: it never reaches 0 %
     m = ev.plan(objs, devs, STARS, set())["moves"]
     assert [x["code"] for x in m] == ["PR"] and "diverted enough" in m[0]["why"]
+    assert m[0]["deactivate"]   # owner 2026-10-18: switched off first, then it travels
     assert ev.plan(objs, devs, STARS, set(), pct=0.5)["moves"] == []   # the rule's setting is stricter
     from rsweb import defence as dfn
     a = dfn.assess(objs["A-OBJ-1"], [], {})

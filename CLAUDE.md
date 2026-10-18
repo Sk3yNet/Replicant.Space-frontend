@@ -92,6 +92,10 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   `environment` (temperature, pressure, oxygen, toxicity, hydrosphere, biosphere, tectonic, gravity); the training is for
   Humans (270–300 K, 0.8–1.2 atm, O2 18–25, toxicity 0–5, hydrosphere 40–70, biosphere 30–70, tectonic 5–30). The
   docs' 200–350 K etc. are only the bio seeder preconditions. Ideas not built yet go in TODO.md.
+- An active propulsor must be deactivated before it can travel (recall after a diversion: deactivate, then travel).
+- Some blueprints need component devices (blueprint `components`, e.g. biosphere cultivator: 2 hydroponic bays, 1 nutrient
+  synthesizer, 1 orbital farm). Without them the factory sits `waiting_for_resources` with
+  `waiting_for.components: {type: {have, need}}` (live 2026-10-18, 9E13498F at SOLARES-BELT-1).
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the
