@@ -2307,8 +2307,13 @@ async def blueprints(request: Request, q: str = "", feature: str = "", user: str
     features = sorted({f for b in bps for f in b.get("features") or []})   # every row stays; the page filters live
     inv = {i.get("location"): i.get("items") or {} for i in st["inventory"]}
     prs = printers(st)
+    from . import components as comp
+    by_type = {b["device_type"]: b for b in bps}
     for b in bps:
-        b["_afford"] = {p["code"]: affordable(b["resources"], inv.get(p["location"], {})) for p in prs}
+        b["_components"] = comp.components(b)
+        b["_total"] = comp.total_resources(b["device_type"], by_type) if b["_components"] else b["resources"]
+        # a print with components is printed with them (components.py): it's affordable when the lot is
+        b["_afford"] = {p["code"]: affordable(b["_total"], inv.get(p["location"], {})) for p in prs}
     return await page(request, user, "blueprints.html", "blueprints", blueprints=sorted(bps, key=lambda b: b.get("device_type", "")),
                       printers=prs, inv=inv, q=q, feature=feature, features=features, recent=recent, refresh_msg=refresh_msg,
                       synced=await db.kv_updated("blueprints"))

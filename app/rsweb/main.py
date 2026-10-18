@@ -29,6 +29,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         db = DB(s.db_path)
         await db.open()
         api = RSClient(s, transport=transport)
+        from . import components as comp
+        api.before_post = lambda a, path, body: comp.before_print(a, db, path, body)
         hub = Hub()
         worker = Worker(s, db, api, hub)
         app.state.settings, app.state.db, app.state.api, app.state.hub, app.state.worker = s, db, api, hub, worker

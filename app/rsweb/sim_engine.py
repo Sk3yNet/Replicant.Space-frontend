@@ -276,12 +276,14 @@ class SimMixin:
         return sc, ""
 
     async def pin_or_print(self, ctype: str, n: int, loc: str, devices: list[dict], busy: set[str], why: str,
-                           skip: list[dict] | None = None) -> tuple[list[str], int, str | None]:
+                           skip: list[dict] | None = None, tags: list[str] | None = None,
+                           not_at: set[str] | frozenset = frozenset()) -> tuple[list[str], int, str | None]:
         """Get n devices of `ctype` to `loc`: spare ones anywhere are pinned there first (the loadout pass delivers to: /
         at: tagged devices), the rest are printed at the least busy autofactory with those tags (logistics brings the
-        materials). Returns (codes pinned, how many queued to print, note on what failed)."""
+        materials). `tags` replaces the to: / at: pins as the tags to add; factories in `not_at` don't print. Returns (codes
+        pinned, how many queued to print, note on what failed)."""
         from .loadouts import at_tag, is_factory, to_tag
-        tags = [to_tag(star_of(loc)), at_tag(loc)]
+        tags = tags or [to_tag(star_of(loc)), at_tag(loc)]
         spares = [d for d in devices if d.get("device_type") == ctype and d not in (skip or []) and at_tag(loc) not in (d.get("tags") or [])
                   and "spare" in (d.get("tags") or []) and d.get("device_code") not in busy]
         pinned: list[str] = []
@@ -294,7 +296,8 @@ class SimMixin:
         left = n - len(pinned)
         if left > 0:
             bps = {b.get("device_type") for b in await self.db.kv_get("blueprints", []) or [] if isinstance(b, dict)}
-            facs = [d for d in devices if is_factory(d) and d.get("location") and d.get("device_code") not in busy]
+            facs = [d for d in devices if is_factory(d) and d.get("location") and d.get("device_code") not in busy
+                    and d.get("device_code") not in not_at]
             if ctype in bps and facs:
                 f = min(facs, key=lambda d: (len(d.get("print_queue") or []), d["device_code"]))
                 ok, _, err = await self.send("POST", f"/devices/{f['device_code']}",

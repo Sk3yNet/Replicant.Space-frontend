@@ -232,7 +232,8 @@ lines or a template).
   `at:<location>` pins it to a spot; `to:<location>` (e.g. `to:sol-3`) is rewritten as `to:sol` + `at:sol-3`.
 
 ### Economy
-- **Blueprints**: costs and print times, what each printer can afford, a production planner that queues prints (spread over
+- **Component prints**: some blueprints use up component devices (e.g. a biosphere cultivator: 2 hydroponic bays, a nutrient synthesizer, an orbital farm), deployed at the factory. Every print the app queues puts its components ahead of it on the same factory, with the item's tags (its location pins swapped for the factory's). A factory already waiting for components gets spares pinned to it, or the rest printed at another autofactory (every 5 minutes).
+- **Blueprints**: costs (component devices included, with an all-in material total) and print times, what each printer can afford, a production planner that queues prints (spread over
   several autofactories) and can mine or deliver the shortfall.
 - **Contracts**: in-game events with criteria (any one option completes it), rewards and progress; *send replicant*, *deliver
   materials*, *fulfill*. **Deliver devices** sends spare devices to a contract's location; printing what no spare covers waits

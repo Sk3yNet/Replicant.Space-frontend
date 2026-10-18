@@ -22,7 +22,9 @@
         <td><strong>{{ b.device_type | human }}</strong>{% if b.device_type in recent %} <span class="pill st-work">new</span>{% endif %}<div class="muted small">{{ b.short_description }}</div>
           <div class="small">{{ (b.features or []) | join(', ') }}{% if b.directives %} · directives: {{ b.directives | join(', ') }}{% endif %}</div></td>
         <td class="num mono">{{ ((b.print_time or 0) / 60) | round(1) }}m</td>
-        <td class="small" style="white-space:nowrap">{% for r, v in (b.resources or {}) | dictsort %}{{ v }} {{ r }}<br>{% endfor %}</td>
+        <td class="small" style="white-space:nowrap">{% for r, v in (b.resources or {}) | dictsort %}{{ v }} {{ r }}<br>{% endfor %}
+          {% for t, n in (b._components or {}) | dictsort %}<span title="component device: used up by the print">{{ n }}× {{ t | human }}</span><br>{% endfor %}
+          {% if b._components %}<span class="muted" title="materials with the components' own prints">all in: {% for r, v in b._total | dictsort %}{{ v | round(0) | int }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}</td>
         <td class="small afford-col"><div class="afford">{% for p in printers %}{% set n = b._afford.get(p.code, 0) %}
           <span class="{{ 'lv-done' if n else 'muted' }}" title="{{ p.name }} @ {{ p.location }}: enough stock there for {{ n }}">{{ p.name }} <b>×{{ n }}</b></span>{% endfor %}</div></td>
         <td class="num"><input type="number" min="0" name="qty:{{ b.device_type }}" value="0" style="width:64px"></td>

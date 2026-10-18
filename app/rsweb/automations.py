@@ -1213,7 +1213,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
-            for stage in ("evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass"):
@@ -2366,6 +2366,33 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 out.update(system_radii(json.loads(r["data"])))
             except ValueError:
                 pass
+        return out
+
+    async def component_pass(self) -> list[str]:
+        """Factories waiting for component devices (components.py): spares are pinned to the factory's location, the
+        rest printed at another autofactory, with the waiting item's tags. Every 5 minutes."""
+        from . import components as comp
+        last = _ts(await self.db.kv_get("components_last", None))
+        if last and (_now() - last).total_seconds() < 300:
+            return []
+        await self.db.kv_set("components_last", now_iso())
+        devices = await self.devices()
+        gaps = comp.shortfalls(devices)
+        if not gaps:
+            return []
+        busy = self.busy_devices(await self.jobs())
+        blocked = {g["factory"] for g in gaps}
+        out = []
+        for g in gaps:
+            pinned, printed, note = await self.pin_or_print(g["type"], g["short"], g["location"], devices, busy,
+                                                            f"components for {g['factory']}", tags=g["tags"], not_at=blocked)
+            what = ", ".join(x for x in [f"{len(pinned)} spare(s) sent" if pinned else "",
+                                         f"{printed} queued to print" if printed else ""] if x)
+            if what:
+                out.append(f"{g['factory']} needs {g['short']} {g['type'].replace('_', ' ')}: {what}")
+                await self.log("components", out[-1])
+            elif note:
+                await self.log("components", f"{g['factory']} needs {g['short']} {g['type'].replace('_', ' ')}: {note}")
         return out
 
     async def commandable(self, devices: list[dict], stars: dict | None = None, without: set[str] | None = None) -> set[str]:

@@ -99,6 +99,8 @@ class RSClient:
         self.unread_count: int | None = None
         self.last_error: str | None = None
         self.last_ok: float | None = None
+        # called before each POST (main.py: components.before_print — a print's components are queued first)
+        self.before_post: Any = None
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -147,11 +149,13 @@ class RSClient:
                 raise ApiError(403, f"{m} {blocked} is blocked by this client for safety")
 
     async def request(self, method: str, path: str, *, params: dict | None = None, json_body: Any = None,
-                      background: bool = False, retries: int = 2) -> Any:
+                      background: bool = False, retries: int = 2, components_done: bool = False) -> Any:
         method = method.upper()
         self.check_allowed(method, path)
         if not self.configured:
             raise ApiError(0, "No API token configured (set RS_API_TOKEN)")
+        if method == "POST" and self.before_post and not components_done:
+            await self.before_post(self, path, json_body)
         path = "/" + path.lstrip("/")
         if path.startswith("/v1/"):
             path = path[3:]
