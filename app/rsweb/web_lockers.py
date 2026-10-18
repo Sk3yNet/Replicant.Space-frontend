@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import html
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
 from .web import current_user, load_state, page, run_action
@@ -15,14 +15,54 @@ router = APIRouter()
 KNOWN = [{"location": "SOL-OORT", "gives": "an FTL slingshot pair and a heaven vessel in a private starter cluster",
           "cost": "free (accounts from before 2.5.0)"},
          {"location": "TWAFFY-OORT", "gives": "an FTL slingshot pair and a heaven vessel in the Delta region, with drones",
-          "cost": "50 compute cores deployed at TWAFFY-OORT (used up)"}]
+          "cost": "50 compute cores deployed at TWAFFY-OORT (used up)", "price": {"compute_core": 50}}]
+
+
+def in_system(star: str) -> list[dict]:
+    """The known lockers in a system (the System page links them here)."""
+    return [k for k in KNOWN if k["location"].split("-")[0] == star]
 
 
 @router.get("/lockers", response_class=HTMLResponse)
 async def lockers_page(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     reps = [(c, r.get("name") or c, r.get("location") or r.get("current_location")) for c, r in st["replicants"].items()]
-    return await page(request, user, "lockers.html", "lockers", reps=reps, known=KNOWN)
+    known = []
+    for k in KNOWN:   # how much of the price is there, or on its way (pinned to the locker's location)
+        from .loadouts import at_tag
+        price = []
+        for t, n in (k.get("price") or {}).items():
+            there = sum(1 for d in st["devices"] if d.get("device_type") == t and d.get("location") == k["location"]
+                        and not d.get("stowed_in_device_code"))
+            coming = sum(1 for d in st["devices"] if d.get("device_type") == t and at_tag(k["location"]) in (d.get("tags") or [])
+                         and d.get("location") != k["location"])
+            price.append({"type": t, "need": n, "there": there, "coming": coming})
+        known.append({**k, "progress": price})
+    return await page(request, user, "lockers.html", "lockers", reps=reps, known=known)
+
+
+@router.post("/lockers/deliver", response_class=HTMLResponse)
+async def lockers_deliver(request: Request, location: str = Form(...), user: str = Depends(current_user)):
+    """Deliver a locker's price: spare devices of each kind are pinned to its location (the loadout pass takes them
+    there), the rest printed with those tags. Retrieving stays yours: send a replicant there, scan and retrieve."""
+    from .loadouts import at_tag
+    k = next((x for x in KNOWN if x["location"] == location), None)
+    if not k or not k.get("price"):
+        return HTMLResponse('<span class="result err">No price known for that locker.</span>')
+    eng = request.app.state.worker.automations
+    devices = await eng.devices()
+    busy = eng.busy_devices(await eng.jobs())
+    out = []
+    for t, n in k["price"].items():
+        have = [d for d in devices if d.get("device_type") == t and (at_tag(location) in (d.get("tags") or [])
+                or (d.get("location") == location and not d.get("stowed_in_device_code")))]
+        short = n - len(have)
+        if short <= 0:
+            out.append(f"{n} {t.replace('_', ' ')} already there or on the way")
+            continue
+        pinned, printed, note = await eng.pin_or_print(t, short, location, devices, busy, f"locker {location}", have)
+        out.append(f"{t.replace('_', ' ')}: {len(pinned)} spare(s) sent, {printed} queued to print" + (f" ({note})" if note else ""))
+    return HTMLResponse(f'<span class="result">{html.escape("; ".join(out))}</span>')
 
 
 @router.get("/lockers/scan/{rep}", response_class=HTMLResponse)

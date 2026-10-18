@@ -1740,6 +1740,7 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     belts, resources, bodies = await system_layout(db, star, scan, st, sys_t, res, viability)
     from . import others as oth
     osnap = oth.normalize(await db.kv_get(oth.KV, {}))["stars"].get(star)
+    from .web_lockers import in_system as lockers_in
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err,
                       others=oth.summary(osnap, await db.kv_get("replicant_profiles", {}) or {}), others_snap=osnap,
                       other_drones=oth.drone_totals(osnap, await db.kv_get("replicant_profiles", {}) or {}),
@@ -1747,7 +1748,7 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
                       surveyed=surveyed, fully_surveyed=full,
                       updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t, here=here,
                       CATEGORY_LABEL=CATEGORY_LABEL, game_locs=game_locs, qty=qty,
-                      belts=belts, resources=resources, bodies=bodies)
+                      belts=belts, resources=resources, bodies=bodies, lockers=lockers_in(star))
 
 
 @router.post("/systems/{star}/scan-others", response_class=HTMLResponse)

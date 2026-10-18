@@ -26,6 +26,8 @@
   </div>
   <div>
     <div class="card" id="loc-panel"><p class="muted">Click a planet or marker to load location detail.</p></div>
+    {% if lockers %}<div class="card" style="margin-top:14px"><h2>Equipment lockers</h2>
+      {% for k in lockers %}<div class="small"><a href="/lockers">{{ k.location }}</a>: {{ k.gives }} <span class="muted">({{ k.cost }})</span></div>{% endfor %}</div>{% endif %}
     {% if reps %}<div class="card" style="margin-top:14px"><h2>Your replicants here</h2>
       {% for r in reps %}<div><a href="/replicants/{{ r.replicant_code }}">{{ r.name }}</a> @ {{ r.location or r.current_location }}</div>{% endfor %}</div>{% endif %}
     <div class="card" style="margin-top:14px">

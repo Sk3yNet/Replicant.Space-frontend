@@ -7575,3 +7575,26 @@ def test_only_logistics_carriers_deliver_a_fleets_carrier_only_fetches_its_own()
     devices[0]["tags"] = []   # a spare carrier, in no fleet, still delivers
     p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
     assert [x["carrier"] for x in p["deliveries"] if "CC" in x["devices"]] == ["MF"]
+
+
+def test_lockers_deliver_and_show_on_the_system_page(client):
+    db = client.app.state.db
+    page = client.get("/lockers", headers=H).text
+    assert "0 of 50 compute core there" in page and "Deliver" in page
+    devs = client.portal.call(db.kv_get, "devices") or []
+    devs[0] = {**devs[0], "device_type": "compute_core", "tags": ["spare"]}   # a device the mock game knows, as a spare core
+    client.portal.call(db.kv_set, "devices", devs)
+    r = client.post("/lockers/deliver", data={"location": "TWAFFY-OORT"}, headers=HX).text
+    assert "compute core: 1 spare(s) sent" in r, r
+    assert "TWAFFY-OORT" in client.get("/systems/TWAFFY", headers=H).text
+
+
+def test_a_drone_aboard_a_carrier_at_the_destination_has_arrived(client):
+    db, e = client.app.state.db, client.app.state.worker.automations
+    devs = client.portal.call(db.kv_get, "devices") or []
+    devs += [{"device_code": "HV000009", "device_type": "heaven_vessel", "location": "SOL-4-L4", "status": "idle"},
+             {"device_code": "SD000009", "device_type": "survey_drone", "location": None, "status": "stowed",
+              "stowed_in_device_code": "HV000009"}]
+    client.portal.call(db.kv_set, "devices", devs)
+    st = {"wait": ["travel.arrived"], "match": {"destination": "SOL-4-L4"}, "wait_device": "SD000009"}
+    assert client.portal.call(e._arrived_now, st, {})

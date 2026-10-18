@@ -955,7 +955,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             return False
         code = st.get("wait_device") or job.get("device")
         dest = str((st.get("match") or {}).get("destination") or "").upper()
-        d = next((x for x in await self.devices() if x.get("device_code") == code), None)
+        by = {x.get("device_code"): x for x in await self.devices()}
+        d, seen = by.get(code), set()
+        # already aboard a carrier standing there counts too (live 2026-10-18: a survey controller with recall on stowed
+        # its drones in the fleet's vessel itself, and the recall waited out an hour per drone)
+        while d and not d.get("location") and (d.get("stowed_in_device_code") or d.get("attached_to_device_code")) \
+                and d.get("device_code") not in seen:
+            seen.add(d.get("device_code"))
+            d = by.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code"))
         if not d or not dest or not d.get("location") or d.get("location_stale"):
             return False
         if str(d.get("status") or "").lower().startswith(("travel", "cruis", "surg", "moving", "recalling", "returning")):

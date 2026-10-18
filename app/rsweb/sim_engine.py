@@ -149,33 +149,14 @@ class SimMixin:
         prep["_seen"] = len(here) + len(pinned)
         short = need - len(here) - len(pinned) - int(prep.get("printing") or 0)
         if short > 0:
-            # spare cores anywhere first: pin them to the interface (the loadout pass delivers to: / at: tagged devices)
-            spares = [d for d in devices if d.get("device_type") == ctype and d not in here and d not in pinned
-                      and "spare" in (d.get("tags") or []) and d.get("device_code") not in busy]
-            for d in spares[:short]:
-                ok, _, err = await self.send("PATCH", f"/devices/{d['device_code']}",
-                                             {"configuration": {"add_tags": [to_tag(star_of(loc)), at_tag(loc)]}},
-                                             f"simulation: {d['device_code']} to {loc}")
-                if ok:
-                    short -= 1
-                    prep["_tagged"] = int(prep.get("_tagged") or 0) + 1
-                    out.append(f"{d['device_code']} pinned to {loc}")
-            if short > 0:   # print the rest at an autofactory (logistics brings its materials; the tags bring the core)
-                bps = {b.get("device_type") for b in await self.db.kv_get("blueprints", []) or [] if isinstance(b, dict)}
-                facs = [d for d in devices if is_factory(d) and d.get("location") and d.get("device_code") not in busy]
-                if ctype in bps and facs:
-                    f = min(facs, key=lambda d: (len(d.get("print_queue") or []), d["device_code"]))
-                    ok, _, err = await self.send("POST", f"/devices/{f['device_code']}",
-                                                 {"command": "enqueue_print", "device_type": ctype, "quantity": short,
-                                                  "tags": [to_tag(star_of(loc)), at_tag(loc)]},
-                                                 f"simulation: print {short} {ctype} for {loc}")
-                    if ok:
-                        prep["printing"] = int(prep.get("printing") or 0) + short
-                        out.append(f"{short} {ctype} queued at {f['device_code']} for {loc}")
-                    else:
-                        prep["note"] = f"couldn't queue the {ctype} print: {err}"
-                else:
-                    prep["note"] = f"no {ctype} blueprint or no free autofactory to print one"
+            tagged, printed, note = await self.pin_or_print(ctype, short, loc, devices, busy, "simulation", [d for d in here + pinned])
+            prep["_tagged"] = int(prep.get("_tagged") or 0) + len(tagged)
+            prep["printing"] = int(prep.get("printing") or 0) + printed
+            out += [f"{c} pinned to {loc}" for c in tagged]
+            if printed:
+                out.append(f"{printed} {ctype} queued for {loc}")
+            if note:
+                prep["note"] = note
         rep_here = next((c for c, r in reps.items() if (r.get("location") or r.get("current_location")) == loc), None)
         if len(here) >= need and not rep_here and not prep.get("rep_sent"):
             cand = self._sim_replicant(reps, devices, busy, loc)
@@ -293,6 +274,39 @@ class SimMixin:
             return None, f"{ic} at {loc} doesn't offer {code} now" + (
                 f" (it offers {', '.join(f.get('code') or '?' for f in found)})" if found else " (it lists no scenarios)")
         return sc, ""
+
+    async def pin_or_print(self, ctype: str, n: int, loc: str, devices: list[dict], busy: set[str], why: str,
+                           skip: list[dict] | None = None) -> tuple[list[str], int, str | None]:
+        """Get n devices of `ctype` to `loc`: spare ones anywhere are pinned there first (the loadout pass delivers to: /
+        at: tagged devices), the rest are printed at the least busy autofactory with those tags (logistics brings the
+        materials). Returns (codes pinned, how many queued to print, note on what failed)."""
+        from .loadouts import at_tag, is_factory, to_tag
+        tags = [to_tag(star_of(loc)), at_tag(loc)]
+        spares = [d for d in devices if d.get("device_type") == ctype and d not in (skip or []) and at_tag(loc) not in (d.get("tags") or [])
+                  and "spare" in (d.get("tags") or []) and d.get("device_code") not in busy]
+        pinned: list[str] = []
+        printed, note = 0, None
+        for d in spares[:n]:
+            ok, _, err = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": {"add_tags": tags}},
+                                         f"{why}: {d['device_code']} to {loc}")
+            if ok:
+                pinned.append(d["device_code"])
+        left = n - len(pinned)
+        if left > 0:
+            bps = {b.get("device_type") for b in await self.db.kv_get("blueprints", []) or [] if isinstance(b, dict)}
+            facs = [d for d in devices if is_factory(d) and d.get("location") and d.get("device_code") not in busy]
+            if ctype in bps and facs:
+                f = min(facs, key=lambda d: (len(d.get("print_queue") or []), d["device_code"]))
+                ok, _, err = await self.send("POST", f"/devices/{f['device_code']}",
+                                             {"command": "enqueue_print", "device_type": ctype, "quantity": left, "tags": tags},
+                                             f"{why}: print {left} {ctype} for {loc}")
+                if ok:
+                    printed = left
+                else:
+                    note = f"couldn't queue the {ctype} print: {err}"
+            else:
+                note = f"no {ctype} blueprint or no free autofactory to print one"
+        return pinned, printed, note
 
     def sim_prep_kick(self) -> None:
         """Run the queued run's prep pass right away (cores counted, spares pinned, prints and the replicant sent) instead
