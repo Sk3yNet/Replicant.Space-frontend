@@ -7527,3 +7527,18 @@ def test_terraforming_groups_keep_a_fixed_order():
     types = ["bio_seeder", "orbital_shade", "atmospheric_regulator", "gas_separator", "orbital_mirror", "cryo_disperser"]
     assert sorted(types, key=tf.priority) == [
         "atmospheric_regulator", "orbital_mirror", "orbital_shade", "cryo_disperser", "gas_separator", "bio_seeder"]
+
+
+def test_device_list_filters_by_owning_replicant(client):
+    """Fleet › Device list filters by the replicant owning a device (by name), e.g. to reassign the devices of one gone
+    into a simulation with change_owner."""
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "replicants", {"AAAA0001": {"replicant_code": "AAAA0001", "name": "bob-1"},
+                                                 "BBBB0002": {"replicant_code": "BBBB0002", "name": "riker-2"}})
+    client.portal.call(db.kv_set, "devices", [
+        {"device_code": "D1", "device_type": "mining_drone", "location": "SOL-1", "replicant_code": "AAAA0001"},
+        {"device_code": "D2", "device_type": "mining_drone", "location": "SOL-1", "replicant_code": "BBBB0002"}])
+    page = client.get("/fleet", headers=H).text
+    assert "any owner" in page and "riker-2 (BBBB0002)" in page
+    t = client.get("/fleet?owner=BBBB0002", headers={**HX, "HX-Target": "fleet-table"}).text
+    assert "D2" in t and "D1" not in t

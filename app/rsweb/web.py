@@ -507,7 +507,7 @@ async def p_rate(request: Request, user: str = Depends(current_user)):
 
 
 # --- fleet ------------------------------------------------------------------------------
-def filter_devices(devices: list[dict], q: str, dtype: str, status: str, star: str, tag: str) -> list[dict]:
+def filter_devices(devices: list[dict], q: str, dtype: str, status: str, star: str, tag: str, owner: str = "") -> list[dict]:
     out = []
     ql = q.lower().strip()
     for d in devices:
@@ -519,6 +519,8 @@ def filter_devices(devices: list[dict], q: str, dtype: str, status: str, star: s
             continue
         if tag and tag not in (d.get("tags") or []):
             continue
+        if owner and d.get("replicant_code") != owner:
+            continue
         if ql and ql not in json.dumps(d).lower():
             continue
         out.append(d)
@@ -527,7 +529,7 @@ def filter_devices(devices: list[dict], q: str, dtype: str, status: str, star: s
 
 @router.get("/fleet", response_class=HTMLResponse)
 async def fleet(request: Request, q: str = "", type: str = "", status: str = "", star: str = "", tag: str = "",
-                user: str = Depends(current_user)):
+                owner: str = "", user: str = Depends(current_user)):
     st = await load_state(request)
     # a stowed / attached device has no location of its own: show where its carrier is ("in <carrier>")
     by = {d.get("device_code"): d for d in st["devices"]}
@@ -545,13 +547,17 @@ async def fleet(request: Request, q: str = "", type: str = "", status: str = "",
             if (by.get(carrier or "") or {}).get("location"):
                 d = {**d, "location": by[carrier]["location"], "carried_by": carrier}
         shown.append(d)
-    devs = filter_devices(shown, q, type, status, star, tag)
+    devs = filter_devices(shown, q, type, status, star, tag, owner)
+    # owning replicants, by name: e.g. to reassign the devices of one gone into a simulation (change_owner)
+    rnames = {(r.get("replicant_code") or k): (r.get("name") or k) for k, r in (st.get("replicants") or {}).items() if isinstance(r, dict)}
+    owners = sorted(({c: rnames.get(c, c) for c in {d.get("replicant_code") for d in st["devices"]} if c}).items(),
+                    key=lambda x: (str(x[1]).lower(), x[0]))
     types = sorted({d.get("device_type") or "?" for d in st["devices"]})
     stars = sorted({star_of(d.get("location")) for d in shown})
     tags = sorted({t for d in st["devices"] for t in (d.get("tags") or [])})
     from .web_bulk import bulk_commands
-    kw = dict(devices=devs, types=types, stars=stars, tags=tags, bulk_cmds=bulk_commands(devs), dangerous=DANGEROUS,
-              f={"q": q, "type": type, "status": status, "star": star, "tag": tag}, **{k: v for k, v in st.items() if k != "devices"})
+    kw = dict(devices=devs, types=types, stars=stars, tags=tags, owners=owners, bulk_cmds=bulk_commands(devs), dangerous=DANGEROUS,
+              f={"q": q, "type": type, "status": status, "star": star, "tag": tag, "owner": owner}, **{k: v for k, v in st.items() if k != "devices"})
     if request.headers.get("hx-request") and request.headers.get("hx-target") == "fleet-table":
         return partial(request, "partials/fleet_table.html", **kw)
     return await page(request, user, "fleet.html", "fleet", **kw)

@@ -12,6 +12,7 @@
     {% for v, l in [("st-work", "working"), ("st-move", "moving"), ("st-idle", "idle / waiting"), ("st-off", "decommissioning / compacted"), ("st-other", "other")] %}
     <option value="{{ v }}" {{ 'selected' if f.status == v }}>{{ l }}</option>{% endfor %}</select>
   <select name="star"><option value="">all systems</option>{% for s in stars %}<option {{ 'selected' if f.star == s }}>{{ s }}</option>{% endfor %}</select>
+  {% if owners | length > 1 %}<select name="owner" title="the replicant that owns the device"><option value="">any owner</option>{% for c, n in owners %}<option value="{{ c }}" {{ 'selected' if f.owner == c }}>{{ n }}{{ ' (' ~ c ~ ')' if n != c }}</option>{% endfor %}</select>{% endif %}
   {% if tags %}<select name="tag"><option value="">any tag</option>{% for t in tags %}<option {{ 'selected' if f.tag == t }}>{{ t }}</option>{% endfor %}</select>{% endif %}
 </form>
 <div id="bulk-result"></div>

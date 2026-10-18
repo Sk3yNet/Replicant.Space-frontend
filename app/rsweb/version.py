@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.143.0"
+VERSION = "1.144.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.144.0", "2026-10-18", "Device list: filter by owning replicant (by name), e.g. to reassign the devices of a "
+     "replicant gone into a simulation with the bulk change_owner command."),
     ("1.143.0", "2026-10-18", "Terraforming training: a run's console shows and graphs only that run's reports (the "
      "training world keeps its name from run to run), and a run's end clears every report from the virtual galaxy. "
      "Real terraforming is unchanged."),
