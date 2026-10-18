@@ -1812,7 +1812,10 @@ def test_printed_devices_go_home_on_a_surge_platform():
     fleets = [{"id": "aem", "name": "Aem", "home": "AEM", "station": True, "wants": {}},
               {"id": "fal", "name": "Fal", "home": "FAL", "station": True, "wants": {}}]
     p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
-    assert p["returning"] == ["SD1"]
+    assert p["returning"] == ["SD1"] and not p["deliveries"]   # Fal's platform delivers nothing for another fleet
+    devices[1]["tags"] = ["fleet:cab"]                          # a logistics fleet's does
+    fleets.append({"id": "cab", "name": "Cab", "role": "logistics", "home": "FAL"})
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
     assert [(d["carrier"], d["mode"], sorted(d["devices"]), d["to"]) for d in p["deliveries"]] == [("PL000001", "attach", ["SD1", "SD2"], "AEM")]
     bodies = [s["body"] for s in lo.delivery_steps(p["deliveries"][0], p["by_code"], stars, True)]
     assert {"command": "travel", "destination": "FAL-1-L4"} in bodies                    # drones fly to the platform first
@@ -7544,9 +7547,9 @@ def test_device_list_filters_by_owning_replicant(client):
     assert "D2" in t and "D1" not in t
 
 
-def test_a_borrowed_carrier_goes_home_to_its_fleet_not_where_it_was_borrowed():
-    """Live 2026-10-18: Miner 0.5's cargo vessel, left at its old home, carried compute cores for a simulation and then
-    flew back to the old home, fleet members aboard, while the fleet (and its move on) waited elsewhere."""
+def test_only_logistics_carriers_deliver_a_fleets_carrier_only_fetches_its_own():
+    """Live 2026-10-18: Miner 0.5's cargo vessel was borrowed to carry compute cores for a simulation, and flew off with
+    fleet members aboard while the fleet's move waited. Deliveries are the logistics fleets' work (or a spare carrier's)."""
     from rsweb import loadouts as lo
     D = lambda code, t, loc, **kw: {"device_code": code, "device_type": t, "location": loc, "status": "idle",  # noqa: E731
                                     "replicant_code": "R1", **kw}
@@ -7555,7 +7558,7 @@ def test_a_borrowed_carrier_goes_home_to_its_fleet_not_where_it_was_borrowed():
     stars = {s: {"position": {"x": i, "y": 0, "z": 0}, "entry_point": f"{s}-1-L4"} for i, s in enumerate(("FAL", "KEL", "LAR"))}
     fleets = [{"id": "m1", "name": "Miner 1", "home": "LAR", "station": True, "wants": {"mobile_fleet": 1}}]
     p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
-    dl = next(x for x in p["deliveries"] if "CC" in x["devices"])
-    assert dl["carrier"] == "MF" and dl["back_to"] == "LAR"
-    steps = lo.delivery_steps(dl, p["by_code"], stars, True)
-    assert steps[-1]["desc"] == "MF → LAR-1-L4 (home to its fleet in LAR)"
+    assert not any("CC" in x["devices"] for x in p["deliveries"])
+    devices[0]["tags"] = []   # a spare carrier, in no fleet, still delivers
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, devices, [], {}, stars, {}, set(), [], {})
+    assert [x["carrier"] for x in p["deliveries"] if "CC" in x["devices"]] == ["MF"]

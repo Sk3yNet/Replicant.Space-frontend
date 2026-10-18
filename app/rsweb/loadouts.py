@@ -936,6 +936,15 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         grounded_ = any(not can_travel(by_code[x]) for x in rest)
         return (stow_ok or attach_) and not (grounded_ and attach_)
 
+    def may_carry(c: dict, codes_: list[str]) -> bool:
+        """Deliveries are the logistics fleets' work (and a spare carrier's, in no fleet); another fleet's carrier only
+        picks up its own fleet's members (live 2026-10-18: Miner 0.5's cargo vessel was borrowed to carry compute cores
+        and its fleet's move stalled)."""
+        ct = fleet_tag_of(c)
+        if not ct or ct in logistics_tags:
+            return True
+        return all((fleet_tag_of(by_code.get(x) or {}) or assign.get(x)) == ct for x in codes_)
+
     def keeps(c: dict, codes_: list[str]) -> bool:
         """A carrier with passengers bound somewhere only takes on a batch that includes them."""
         mine = carrying.get(c["device_code"])
@@ -950,7 +959,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                                              (c["device_code"] not in replicant_hosts or s["use_replicant_vessels"]))] \
                 if commandable is not None else carriers
             options = [c for c in cpool if star_of(c.get("location")) == here and c["device_code"] not in used and keeps(c, codes)
-                       and same_owner(c, owner) and c["device_code"] not in codes and fits(c, codes)
+                       and same_owner(c, owner) and c["device_code"] not in codes and fits(c, codes) and may_carry(c, codes)
                        ]
             fetched_from = None
             if not options:
@@ -958,7 +967,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 btag = fleet_tag_of(by_code.get(codes[0]) or {}) or assign.get(codes[0])
                 remote = [c for c in cpool if star_of(c.get("location")) not in (here, "") and c["device_code"] not in used and keeps(c, codes)
                           and same_owner(c, owner) and c["device_code"] not in codes and fits(c, codes)
-                          and _free(c, bps, stowed_map) > 0
+                          and may_carry(c, codes) and _free(c, bps, stowed_map) > 0
                           # a borrowed carrier only comes from within the supply range of the pick-up (seen live 2026-10-10:
                           # five carriers flew ~500 ly empty to move one drone each); the fleet's own, or its supplier's, may come from anywhere
                           and (not reach or not (reach < _dist(star_of(c.get("location")), here, pos) < 1e9)
