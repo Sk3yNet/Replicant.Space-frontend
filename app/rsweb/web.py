@@ -3631,6 +3631,47 @@ async def game_event_authorize_prints(request: Request, des: str, user: str = De
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
+@router.post("/game-events/{des}/restart-prints", response_class=HTMLResponse)
+async def game_event_restart_prints(request: Request, des: str, user: str = Depends(current_user)):
+    """Prints that never came out (dropped from a queue, a factory gone): orders no factory still holds are forgotten,
+    then what's short is authorized and printed again."""
+    from . import contractsupply as cs
+    from . import printqueue as pq
+    db = request.app.state.db
+    e, _ = await _event(request, des)
+    if not e:
+        return HTMLResponse('<div class="result err">That event is no longer open.</div>')
+    tag = cs.contract_tag(des)
+    held = Counter()   # this contract's prints still in a factory: queued or printing
+    for f in await db.kv_get("devices", []) or []:
+        its = list(pq.items(f)) if pq.has_queue(f) else []
+        if isinstance(f.get("printing"), dict):
+            its.append(f["printing"])
+        for it in its:
+            if tag in (it.get("tags") or []):
+                held[it.get("device_type")] += int(it.get("quantity") or 1)
+    supply = await db.kv_get("contract_supply", {}) or {}
+    entry = supply.setdefault(des, {})
+    kept = []
+    for o in entry.get("orders") or []:
+        n = min(int(o.get("n") or 1), held[o.get("type")])
+        if n:
+            kept.append({**o, "n": n})
+            held[o.get("type")] -= n
+    entry["orders"], entry["active"] = kept, True
+    await db.kv_set("contract_supply", supply)
+    await _supply_now(request)   # counts again without the lost prints: they show as short
+    supply = await db.kv_get("contract_supply", {}) or {}
+    entry = supply.setdefault(des, {})
+    ok = entry.setdefault("print_ok", {})
+    for r in entry.get("rows") or []:
+        if r.get("short"):
+            ok[r["type"]] = int(r.get("ordered") or 0) + int(r["short"])
+    await db.kv_set("contract_supply", supply)
+    await _supply_now(request)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
 @router.post("/game-events/settings", response_class=HTMLResponse)
 async def game_event_settings(request: Request, fulfil: str = Form(""), user: str = Depends(current_user)):
     s = await request.app.state.db.kv_get("event_settings", {}) or {}

@@ -15,6 +15,8 @@ def test_total_resources_include_the_components():
 def test_a_new_print_queues_its_components_first_with_its_tags(client):  # noqa: F811
     db, e = client.app.state.db, client.app.state.worker.automations
     client.portal.call(db.kv_set, "blueprints", BPS)
+    client.portal.call(db.kv_set, "devices", [{"device_code": "AF00BEEF", "device_type": "autofactory", "location": "SOL-3-L4",
+                                               "status": "idle", "available_commands": ["enqueue_print"]}])   # nothing there yet
     client.portal.call(e.send, "POST", "/devices/AF00BEEF",
                        {"command": "enqueue_print", "device_type": "biosphere_cultivator", "quantity": 1,
                         "tags": ["contract:x-1", "to:kamuyis", "at:kamuyis-4"]}, "test")
@@ -55,3 +57,30 @@ def test_components_print_at_a_factory_in_the_waiting_ones_system_first(client):
     pinned, printed, _ = client.portal.call(e.pin_or_print, "orbital_farm", 1, "SOL-4-L4", devs, set(), "t", None, None, {"AF00CAFE"})
     row = client.portal.call(db.fetchone, "SELECT path FROM actions WHERE body LIKE '%orbital_farm%' ORDER BY rowid DESC LIMIT 1")
     assert row["path"] == "/devices/AF00D00D"   # at the location, though busier than AF00BEEF in another spot
+
+
+def test_a_new_print_uses_components_already_there_and_spares_before_printing(client):  # noqa: F811
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "blueprints", BPS)
+    client.portal.call(db.kv_set, "devices", [
+        {"device_code": "AF1", "device_type": "autofactory", "location": "SOL-3-L4", "status": "idle",
+         "available_commands": ["enqueue_print"], "print_queue": [{"device_type": "hydroponic_bay", "quantity": 1}]},
+        {"device_code": "HB1", "device_type": "hydroponic_bay", "location": "SOL-3-L4", "status": "idle", "tags": []},
+        {"device_code": "OF1", "device_type": "orbital_farm", "location": "ABOTEIN-2", "status": "idle", "tags": ["spare"]}])
+    sent = []
+
+    class Api:
+        async def request(self, method, path, json_body=None, **kw):
+            sent.append((method, path, json_body))
+    body = {"command": "enqueue_print", "device_type": "biosphere_cultivator", "quantity": 1, "tags": ["contract:x-1"]}
+    client.portal.call(comp.before_print, Api(), db, "/devices/AF1", body)
+    # one bay deployed there + one in its queue = the two it needs; the farm is a spare, pinned there: nothing printed
+    assert sent == [("PATCH", "/devices/OF1", {"configuration": {"add_tags": ["contract:x-1", "to:sol", "at:sol-3-l4"]}})]
+    # a second cultivator: the bays are spoken for now that one is queued
+    devs = client.portal.call(db.kv_get, "devices")
+    devs[0]["print_queue"].append({"device_type": "biosphere_cultivator", "quantity": 1})
+    devs[2]["tags"] = ["spare", "at:sol-3-l4"]
+    client.portal.call(db.kv_set, "devices", devs)
+    sent.clear()
+    client.portal.call(comp.before_print, Api(), db, "/devices/AF1", body)
+    assert [(b["device_type"], b["quantity"]) for _, _, b in sent] == [("hydroponic_bay", 2), ("orbital_farm", 1)]

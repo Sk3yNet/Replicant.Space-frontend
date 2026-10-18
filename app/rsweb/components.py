@@ -2,8 +2,9 @@
 1 nutrient synthesizer and 1 orbital farm). The factory uses components deployed at its location, and its queue
 waits at the head until they're there (`waiting_for.components: {type: {have, need}}`, live 2026-10-18).
 
-- A new print (any enqueue_print the app sends) queues its components first, on the same factory, so they're printed
-  there before the item. They carry the item's tags (its reservation: contract, fleet, spare …), with the item's
+- A new print (any enqueue_print the app sends) uses the components already at the factory (deployed there or queued
+  there, less what earlier prints in its queue use up), then pins spare ones from elsewhere to the factory's location,
+  and only queues the rest first, on the same factory, so they're printed there before the item. They carry the item's tags (its reservation: contract, fleet, spare …), with the item's
   to:/at: pins swapped for the factory's location so the loadout pass keeps them there.
 - A factory already waiting for components gets them from spares (pinned to its location) or printed at another
   autofactory (component_pass in the engine).
@@ -69,11 +70,47 @@ async def before_print(api: Any, db: Any, path: str, body: Any, depth: int = 0) 
     if not fac.get("location") or not is_factory(fac):
         return   # a replicant's vessel prints one at a time through the replicant: no queue to put them in
     qty = int(body.get("quantity") or 1)
+    devices = await db.kv_get("devices", []) or []
     tags = component_tags(body.get("tags"), fac["location"])
     for t, n in sorted(need.items()):
-        sub = {"command": "enqueue_print", "device_type": t, "quantity": n * qty, "tags": tags}
+        left = n * qty - free_here(devices, fac, t, bps)
+        for d in spares_elsewhere(devices, fac["location"], t)[:max(0, left)]:   # pinned: the loadout pass brings them
+            try:
+                await api.request("PATCH", f"/devices/{d['device_code']}", json_body={"configuration": {"add_tags": tags}})
+                left -= 1
+            except Exception:  # noqa: BLE001  (not pinned: printed instead)
+                pass
+        if left <= 0:
+            continue
+        sub = {"command": "enqueue_print", "device_type": t, "quantity": left, "tags": tags}
         await before_print(api, db, path, sub, depth + 1)
         await api.request("POST", path, json_body=sub, components_done=True)
+
+
+def free_here(devices: list[dict], fac: dict, device_type: str, bps: dict[str, dict]) -> int:
+    """Components of a type the factory can use for a new print: deployed at its location, plus the ones its queue is
+    printing, minus what the prints already in its queue will use up."""
+    from . import printqueue as pq
+    loc = fac.get("location")
+    n = sum(1 for d in devices if d.get("device_type") == device_type and d.get("location") == loc
+            and not d.get("stowed_in_device_code") and not str(d.get("status") or "").startswith(("stowed", "compact")))
+    queued = list(pq.items(fac)) if pq.has_queue(fac) else []
+    if isinstance(fac.get("printing"), dict):
+        queued.append(fac["printing"])
+    for it in queued:
+        q = int(it.get("quantity") or 1)
+        if it.get("device_type") == device_type:
+            n += q
+        n -= components(bps.get(it.get("device_type"))).get(device_type, 0) * q
+    return max(0, n)
+
+
+def spares_elsewhere(devices: list[dict], location: str, device_type: str) -> list[dict]:
+    """Spare components of a type away from the location and not already pinned there."""
+    from .loadouts import at_tag
+    return sorted((d for d in devices if d.get("device_type") == device_type and "spare" in (d.get("tags") or [])
+                   and d.get("location") != location and at_tag(location) not in (d.get("tags") or [])),
+                  key=lambda d: d.get("device_code") or "")
 
 
 def coming(devices: list[dict], location: str, device_type: str) -> int:

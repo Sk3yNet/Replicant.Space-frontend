@@ -232,12 +232,13 @@ lines or a template).
   `at:<location>` pins it to a spot; `to:<location>` (e.g. `to:sol-3`) is rewritten as `to:sol` + `at:sol-3`.
 
 ### Economy
-- **Component prints**: some blueprints use up component devices (e.g. a biosphere cultivator: 2 hydroponic bays, a nutrient synthesizer, an orbital farm), deployed at the factory. Every print the app queues puts its components ahead of it on the same factory, with the item's tags (its location pins swapped for the factory's). A factory already waiting for components gets spares pinned to it, or the rest printed at another autofactory (every 5 minutes).
+- **Component prints**: some blueprints use up component devices (e.g. a biosphere cultivator: 2 hydroponic bays, a nutrient synthesizer, an orbital farm), deployed at the factory. Every print the app queues (manual ones included) first counts the components already at the factory (deployed there or queued there, less what earlier prints in its queue use up), then pins spare ones from elsewhere to the factory, and only puts the rest ahead of it on the same factory, with the item's tags (its location pins swapped for the factory's). A factory already waiting for components gets spares pinned to it, or the rest printed at another autofactory (every 5 minutes).
 - **Blueprints**: costs (component devices included, with an all-in material total) and print times, what each printer can afford, a production planner that queues prints (spread over
   several autofactories) and can mine or deliver the shortfall.
 - **Contracts**: in-game events with criteria (any one option completes it), rewards and progress; *send replicant*, *deliver
   materials*, *fulfill*. **Deliver devices** sends spare devices to a contract's location; printing what no spare covers waits
-  for **Authorize printing**.
+  for **Authorize printing**. **Restart prints** forgets prints no autofactory still holds (dropped from a queue, a factory
+  gone) and prints what's short again.
 - **Reputation**: account and per-replicant reputation, known species. **Shop** (and a Trades section on **Contracts**): your trade controllers, trades, other traders —
   every replicant's trader directory plus every shop a system scan lists, the newest sighting of each winning (shops can
   move). A trade run paid in devices gets spare ones delivered and deployed at the shop; a failed trade sets that shop

@@ -5938,6 +5938,11 @@ def test_contract_device_delivery_waits_for_print_authorization(client):
     assert len(jobs) == 2                                              # the print counts as coming: nothing more
     row = client.portal.call(db.kv_get, "contract_supply")["AEM-2-EVT-001"]["rows"][0]
     assert (row["coming"], row["printing"], row["short"]) == (["S1"], 1, 0)
+    # the print never came out (no autofactory holds it): Restart prints forgets it and prints it again
+    client.post("/game-events/AEM-2-EVT-001/restart-prints", headers=HX)
+    sup = client.portal.call(db.kv_get, "contract_supply")["AEM-2-EVT-001"]
+    assert len(sup["orders"]) == 1 and sup["print_ok"]["ftl_relay"] == 1
+    assert len([j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts" and "print" in j["title"]]) == 2
     # the contract closes: the leftover relay goes back to spare
     client.portal.call(w.handle_event, {**_ev(998, "event.completed", designation="AEM-2-EVT-001", location="AEM-2"),
                                         "location": "AEM-2"})

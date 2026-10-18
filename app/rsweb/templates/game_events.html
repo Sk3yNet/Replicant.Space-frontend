@@ -69,6 +69,9 @@
         {% if short %}<div style="margin-top:4px">No spare in range covers:
           {% for r in short %}{{ r.short }}× {{ r.type | human }}{% if r.cost %} ({% for k, v in r.cost.items() %}{{ (v * r.short) | num }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}){% endif %}{{ ', ' if not loop.last }}{% endfor %}
           <button class="small" hx-post="/game-events/{{ e.designation }}/authorize-prints" hx-confirm="Print these on the nearest autofactory in range?">Authorize printing</button></div>{% endif %}
+        {% if (sp.rows or []) | selectattr('printing') | list %}<div style="margin-top:4px"><button class="small ghost"
+          hx-post="/game-events/{{ e.designation }}/restart-prints" hx-confirm="Forget prints no autofactory still holds and print what is short again?"
+          title="For prints that never came out: orders no autofactory still has queued or printing are dropped, and what's short is printed again">Restart prints</button></div>{% endif %}
         <div class="muted">Spare or idle fleetless devices in range are tagged for it and the loadouts pass flies them to {{ e.location }}; nothing is printed until you authorize it. Leftovers become spare when the contract closes.</div>
       </div>{% endif %}
       <div class="row" style="margin-top:8px">
