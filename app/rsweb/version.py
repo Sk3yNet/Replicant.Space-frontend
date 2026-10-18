@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.156.0"
+VERSION = "1.157.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.157.0", "2026-10-18", "Long automated trips go via one of your hubs when the game's previews say that is at "
+     "least 10 min and 5 % faster (arriving at your hub is 25 % faster); a refused waypoint goes direct."),
     ("1.156.0", "2026-10-18", "Systems page: a distances from picker (as on Mining prospects), a Distance column, and "
      "the list sorted nearest first."),
     ("1.155.0", "2026-10-18", "Galaxy map: the layer checkboxes, the legend and the info panel fold away (remembered in this "

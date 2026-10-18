@@ -324,7 +324,7 @@ def _trip_eta(resp: dict) -> datetime | None:
     """When a command's answer says it'll be done: arrives_at / final_arrives_at / completes_at, else the route's
     total time (total_time_seconds, time_seconds, or the legs' time_seconds summed) from now."""
     for src in (resp, resp.get("travel") if isinstance(resp.get("travel"), dict) else {}):
-        for k in ("final_arrives_at", "arrives_at", "completes_at"):
+        for k in ("final_arrives_at", "arrives_at", "arrival_time", "completes_at"):
             t = _ts(src.get(k))
             if t:
                 return t
@@ -701,7 +701,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 if far:
                     ok, resp, err = False, None, far
                 else:
+                    await self._hub_via(st, job)
                     ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
+                    if not ok and st.get("hub_via"):   # the waypoint refused: the direct route, as planned
+                        await self.log(job["rule"], f"{job['title']}: via {st['hub_via']} refused ({err}); going direct",
+                                       "warning")
+                        st["body"].pop("via", None)
+                        st["hub_via"] = None
+                        ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
             st["response"] = resp if isinstance(resp, (dict, list)) else None
             if ok and isinstance(resp, dict):
                 # long trips: wait at least until the game's own ETA (+30 min) before giving up — this step, and the
@@ -924,6 +931,47 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         d = by.get(path.split("/")[2])
         target = (st.get("body") or {}).get("device")   # detach / attach name the carried device
         return any(x and in_transit(x, by) for x in (d, by.get(target or "")))
+
+    async def _hub_via(self, st: dict, job: dict) -> None:
+        """A device's trip to another system goes through a hub of ours when the game's previews say that's enough
+        faster (hubroute.py): sets the step's `via` once, before it's first sent. Previews that fail leave it direct."""
+        from . import hubroute
+        from . import wardhub as wh
+        body = st.get("body") or {}
+        path = str(st.get("path") or "")
+        if (body.get("command") != "travel" or "via" in body or body.get("dry_run") or not path.startswith("/devices/")
+                or st.get("hub_checked") or (job.get("meta") or {}).get("sim")):
+            return
+        st["hub_checked"] = True
+        code, dest = path.split("/")[2], str(body.get("destination") or "")
+        devs = await self.devices()
+        d = next((x for x in devs if x.get("device_code") == code), None) or {}
+        hubs = {star_of(x.get("location")) for x in devs if wh.is_hub(x) and wh.active(x)}
+        if not d.get("location") or not hubs:
+            return
+        cat = await self.db.kv_get("stars", {}) or {}
+        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+        cands = hubroute.candidates(star_of(d["location"]), star_of(dest), hubs, pos)
+        if not cands:
+            return
+
+        async def preview(extra: dict) -> float | None:
+            try:
+                return hubroute.total_seconds(await self.api.request("POST", path, json_body={**body, **extra, "dry_run": True},
+                                                                     background=True))
+            except ApiError:
+                return None
+        direct = await preview({})
+        best = None
+        for h in cands:
+            t = await preview({"via": [h]})
+            if hubroute.worth_it(direct, t) and (best is None or t < best[1]):
+                best = (h, t)
+        if best:
+            body["via"], st["hub_via"] = [best[0]], best[0]
+            st["desc"] += f" (via hub {best[0]})"
+            await self.log(job["rule"], f"{job['title']}: {code} → {dest} via your hub at {best[0]}: "
+                                        f"{hubroute.hm(best[1])} instead of {hubroute.hm(direct)}")
 
     async def _too_far(self, st: dict) -> str | None:
         """The one check every automated trip goes through: a drone or AMI controller isn't sent on a long cruise inside

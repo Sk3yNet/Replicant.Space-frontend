@@ -96,6 +96,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   `environment` (temperature, pressure, oxygen, toxicity, hydrosphere, biosphere, tectonic, gravity); the training is for
   Humans (270–300 K, 0.8–1.2 atm, O2 18–25, toxicity 0–5, hydrosphere 40–70, biosphere 30–70, tectonic 5–30). The
   docs' 200–350 K etc. are only the bio seeder preconditions. Ideas not built yet go in TODO.md.
+- Arriving in a system with your own hub is 25 % faster (37.5 s/ly instead of 50 on surges, live 2026-10-18); leaving one
+  gains nothing, and the game's routing never picks a hub: `travel` with `via: ["HUB_STAR"]` does (`hubroute.py`).
 - An active propulsor must be deactivated before it can travel (recall after a diversion: deactivate, then travel).
 - Some blueprints need component devices (blueprint `components`, e.g. biosphere cultivator: 2 hydroponic bays, 1 nutrient
   synthesizer, 1 orbital farm). Without them the factory sits `waiting_for_resources` with

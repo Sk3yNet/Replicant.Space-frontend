@@ -699,6 +699,23 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                 obj["current_thrust_per_hour"] = 4.0 * obj["active_propulsors"]
             world.emit("diversion.activated", d, object_designation=d["location"], size_class="large")
         loop = asyncio.get_running_loop()
+        if cmd == "travel" and body.get("dry_run"):
+            # a preview, like the live game: 50 s/ly between systems, 25 % off a leg into a system with a hub of ours
+            # (live 2026-10-18); `via` adds waypoints. Nothing moves
+            at = {x["designation"]: x["position"] for x in STARS}
+            hubs = {(x.get("location") or "").split("-")[0] for x in world.devices
+                    if x.get("device_type") == "system_hub" and x.get("status") not in ("inactive", "stowed")}
+            stops = [(d.get("location") or "").split("-")[0]] + [str(v).split("-")[0] for v in body.get("via") or []
+                                                                 if body.get("via") != "direct"] + [str(body.get("destination") or "").split("-")[0]]
+            legs = []
+            for a, b in zip(stops, stops[1:]):
+                pa, pb = at.get(a) or {}, at.get(b) or {}
+                ly = sum((float(pa.get(k) or 0) - float(pb.get(k) or 0)) ** 2 for k in "xyz") ** .5
+                legs.append({"leg": len(legs) + 1, "from": a, "to": b, "type": "surge", "distance_ly": round(ly, 4),
+                             "time_seconds": round(ly * 50 * (.75 if b in hubs else 1))})
+            return ok({"status": "preview", "final_destination": body.get("destination"), "route": legs,
+                       "total_distance_ly": sum(x["distance_ly"] for x in legs),
+                       "total_time_seconds": sum(x["time_seconds"] for x in legs)})
         if cmd == "travel":
             secs = world.move_seconds
             arrive = datetime.now(timezone.utc) + timedelta(seconds=secs)
