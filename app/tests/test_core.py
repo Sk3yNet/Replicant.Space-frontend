@@ -7477,7 +7477,7 @@ def test_terraforming_training_controls(client):
     assert _overlay({"device_code": "M0", "status": "idle"}, old)["_on"] is False   # stale command: the game wins
     row = _overlay({"device_code": "A1", "status": "terraforming", "settings": {"direction": "increase"}},
                    {"A1": {"set": {"direction": "decrease"}, "at": _t.time()}})
-    assert row["_set"]["direction"] == "decrease" and row["_pending"]
+    assert row["_set"]["direction"] == "decrease" and row["_pending"] and row["_set_pending"]
     # settings are read from the device list's `settings` (live 2026-10-17), so the console shows what's set
     assert tf.settings_of({"settings": {"direction": "decrease", "strength": 0.5}}) == {"strength": 0.5, "direction": "decrease"}
     sp = tf.spark([1, 2, 3], (2, 4))

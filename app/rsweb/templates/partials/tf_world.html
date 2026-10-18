@@ -83,7 +83,7 @@
           <label class="tf-switch{{ ' pending' if d._pending }}" title="{{ d.status }}{{ ' (commanded, waiting for the game to agree)' if d._pending }}"><input type="checkbox" name="on" value="1" {{ 'checked' if d._on }}><span></span></label></form>
         <a class="mono small" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a>
         {% if t not in ('terraform_monitor', 'atmospheric_regulator') %}
-        <form class="inline tf-set" hx-post="/terraforming/{{ d.device_code }}/settings?{{ sim_q }}" hx-trigger="change" hx-target="#{{ wid }}" hx-swap="outerHTML" hx-sync="#{{ wid }}:queue all">
+        <form class="inline tf-set{{ ' pending' if d._set_pending }}" title="{{ 'commanded, waiting for the game to agree' if d._set_pending }}" hx-post="/terraforming/{{ d.device_code }}/settings?{{ sim_q }}" hx-trigger="change" hx-target="#{{ wid }}" hx-swap="outerHTML" hx-sync="#{{ wid }}:queue all">
           <input type="hidden" name="body" value="{{ w.body }}">
           <input type="range" name="strength" min="0" max="1" step="0.05" value="{{ d._set.strength }}" title="strength {{ d._set.strength }}">
           <span class="small mono">{{ '%.2f' | format(d._set.strength | float) }}</span>

@@ -65,7 +65,7 @@ def _overlay(d: dict, pend: dict) -> dict:
     for k, v in (e.get("set") or {}).items():
         if row["_set"].get(k) != v:
             row["_set"] = {**row["_set"], k: v}
-            row["_pending"] = True
+            row["_pending"] = row["_set_pending"] = True
     return row
 
 

@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.140.0"
+VERSION = "1.141.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.141.0", "2026-10-18", "Terraforming console: sliders no longer snap back. A world card is not redrawn while "
+     "one of its controls is held (touchscreens too); a redraw arriving meanwhile is fetched again on release. A slider's "
+     "number follows it, and a setting the game has not confirmed yet is dashed, like a switch."),
     ("1.140.0", "2026-10-17", "Terraforming console: the monitor and the regulator share one Control card, first; the "
      "device groups follow in order of what they fix (main effect on an out-of-range value, then side effects, then the "
      "rest), each marked with what it fixes."),

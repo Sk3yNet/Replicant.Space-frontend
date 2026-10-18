@@ -76,3 +76,36 @@ function fixDatalists(root) {
 }
 document.addEventListener("DOMContentLoaded", () => fixDatalists());
 document.addEventListener("htmx:afterSettle", () => fixDatalists());
+
+// Terraforming console: a world card isn't redrawn while one of its controls is held (a slider dragged on a touchscreen
+// takes no focus, so the refresh's focus guard misses it); a refresh or another control's answer arriving meanwhile is
+// held back and fetched again once the control is let go. A slider's number follows it while it moves.
+(() => {
+  let busy = null, held = false;
+  document.addEventListener("pointerdown", (e) => {
+    const card = e.target.closest && e.target.closest(".tf-world");
+    if (card && e.target.closest("input, select, label")) busy = card.id;
+  }, true);
+  const release = () => {
+    const id = busy;
+    if (!id) return;
+    setTimeout(() => {
+      if (busy !== id) return;
+      busy = null;
+      const card = document.getElementById(id);
+      if (held && card && window.htmx) htmx.ajax("GET", card.getAttribute("hx-get"), { target: card, swap: "outerHTML" });
+      held = false;
+    }, 600);
+  };
+  document.addEventListener("pointerup", release, true);
+  document.addEventListener("pointercancel", release, true);
+  document.addEventListener("input", (e) => {
+    if (!e.target.matches(".tf-set input[type=range]")) return;
+    const n = e.target.nextElementSibling;
+    if (n) n.textContent = (+e.target.value).toFixed(2);
+  });
+  document.addEventListener("htmx:beforeSwap", (e) => {
+    const t = e.detail.target;
+    if (busy && t && t.id === busy) { e.detail.shouldSwap = false; held = true; }
+  });
+})();

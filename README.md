@@ -85,7 +85,8 @@ rule with an on/off switch, plus the jobs and the log.
   (✓ / ✗) and where each is heading at its current Δ (in range in N ticks, leaves the range, moving away; a tick is
   30 s), each device's strength / direction and on/off, and *all on* / *all off* per kind of device. The monitor and the regulator share one *Control* card, first; the other
   kinds follow in order of what they fix (main effect on an out-of-range value, then a side effect, then the rest), each
-  marked *fixes …*. Each world says whether it's
+  marked *fixes …*. A card is not redrawn while one of its controls is held, and a commanded switch or setting shows
+  dashed until the game reports it (up to 2 min). Each world says whether it's
   *all habitable* or which values are out of range, and since when the atmospheric regulator has been regulating (it
   holds temperature, pressure and hydrosphere still and can be switched off again); switching it on asks first. The engine plays no build order in this scenario.
 - **Simulations** (Economy › Simulations): *Available simulations* lists every replicant interface known (the
