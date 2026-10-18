@@ -780,7 +780,11 @@ def test_deliveries_outside_an_active_network_ride_a_replicant_vessel():
     net = rn.networks(devs, pos)
     assert rn.coverage(net, pos, set())["commandable"] == set() and not net["networks"][0]["active"]   # no replicant: inactive
     cov = rn.coverage(net, pos, {"A"})
-    assert {"A", "B"} <= cov["commandable"] and "Z" not in cov["commandable"] and net["networks"][0]["active"]
+    # a relay's range only links relays: it commands its own system alone (owner, 2026-10-18)
+    assert cov["commandable"] == {"A"} and net["networks"][0]["active"]
+    devs.append(dev("R2", "ftl_relay", "B-4-L4", status="relaying"))
+    net = rn.networks(devs, pos)
+    assert rn.coverage(net, pos, {"A"})["commandable"] == {"A", "B"}   # B linked by its own relay
     from test_core import _lo_world
     cfg, devices, bps, inv, stars = _lo_world()
     p_open = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})

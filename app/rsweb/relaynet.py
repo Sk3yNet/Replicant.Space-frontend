@@ -7,6 +7,10 @@ your network (confirmed by the owner 2026-10-12). Hubs link by distance like rel
 galaxy" isn't what the game does — live 2026-10-15, the SOLARES hub's network listed only nodes within 15 ly, not the
 FALQUORYX hub. Linked nodes form a network; each network gets its own color.
 
+Commands: that range is only for relays talking to each other. A relay or hub delivers commands to its own system only
+(owner, 2026-10-18), so a network commands the systems its nodes are in, and only while one of your replicants is in
+one of them.
+
 Bridges: for each network, the fewest new relays (each a 7.5 ly hop, any system — relays are allowed in warded systems)
 that link it to another of your networks, at most MAX_BRIDGE new relays. One suggestion per pair of networks.
 """
@@ -175,12 +179,12 @@ def dark_stars(devices: list[dict]) -> set[str]:
 
 
 def coverage(net: dict, pos: dict[str, Any], replicant_stars: set[str]) -> dict:
-    """Where you can give commands: {"covered": {net id: systems within its nodes' reach}, "active": {net ids with one of
-    your replicants inside their coverage}, "commandable": systems an active network covers, or where a replicant is}."""
-    _, cells = _grid(pos)
+    """Where you can give commands: {"covered": {net id: the systems its nodes are in}, "active": {net ids with one of
+    your replicants in one of those systems}, "commandable": systems an active network covers, or where a replicant is}.
+    A relay's range only links it to other relays: it delivers commands to its own system alone."""
     covered: dict[int, set[str]] = defaultdict(set)
-    for s, n in net["nodes"].items():
-        covered[net["of"][s]] |= set(_near(cells, n["xyz"], n["range"])) | {s}
+    for s in net["nodes"]:
+        covered[net["of"][s]].add(s)
     active = {i for i, c in covered.items() if c & replicant_stars}
     commandable = set(replicant_stars)
     for i in active:

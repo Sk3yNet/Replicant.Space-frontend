@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.152.0"
+VERSION = "1.153.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.153.0", "2026-10-18", "Comms coverage corrected: a relay's range only links it to other relays, and it delivers "
+     "commands to its own system alone. A system is commandable only with a relay or hub of an active network in it, or "
+     "a replicant. Logistics, rescues, scouting and auto-relocation follow; the relay map's coverage too."),
     ("1.152.0", "2026-10-18", "Comms coverage: a system where your devices report out of comms range (and none in range) "
      "isn't counted as commandable, whatever the relay distances say, so logistics sends a replicant along or doesn't go."),
     ("1.151.0", "2026-10-18", "Component prints: every print the app queues puts its component devices ahead of it on the "

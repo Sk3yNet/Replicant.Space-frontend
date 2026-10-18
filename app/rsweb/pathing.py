@@ -11,8 +11,8 @@ Per fleet (Fleets page, stationed mining fleets):
                    then moves the fleet there, as when the home is changed by hand
     next_home, next_home_at, depleted_since, path_note — state
 
-A system is never chosen when it is: unscanned (no score), outside our relay coverage ("unserved": no relay of ours
-within 7.5 ly, no hub within 15 ly), another fleet's home, another mining fleet's planned next home or mission target,
+A system is never chosen when it is: unscanned (no score), outside our relay coverage ("unserved": no relay or hub of
+ours in the system), another fleet's home, another mining fleet's planned next home or mission target,
 warded by another player, or the fleet's own home.
 """
 from __future__ import annotations
@@ -85,19 +85,15 @@ def heading_from(kind: str, home: tuple | None, target: tuple | None = None, cus
 
 
 def served(star: str, xyz_of: dict[str, tuple], devices: list[dict]) -> bool:
-    """Inside our relay coverage: a deployed relay of ours within 7.5 ly, or a hub within 15 ly."""
-    p = xyz_of.get(star)
+    """Inside our relay coverage: a deployed relay or hub of ours in the system itself (their range only links them to
+    each other; commands reach their own system alone)."""
     for d in devices:
         t = d.get("device_type") or ""
         rng = HUB_LY if t == "system_hub" else RELAY_LY if "relay" in t else None
         if rng is None or not d.get("location") or d.get("stowed_in_device_code") \
                 or str(d.get("status") or "").startswith(("stowed", "compact", "travel", "cruis", "surg")):
             continue
-        s = d["location"].split("-")[0]
-        if s == star:
-            return True
-        q = xyz_of.get(s)
-        if p and q and math.dist(p, q) <= rng + 1e-9:
+        if d["location"].split("-")[0] == star:
             return True
     return False
 

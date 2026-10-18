@@ -2902,8 +2902,9 @@ def test_new_print_bound_elsewhere_is_dispatched_at_once(client):
          "tags": ["home:fal", "taxi"]},
         {"device_code": "NEW1", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "idle",
          "available_commands": ["travel", "stow", "deploy"], "tags": ["to:ith"]},
-        # ITH is commandable: a relay in FAL (1 ly away) with a replicant there makes an active network
+        # ITH is commandable: its relay links to the one in FAL (1 ly away), where a replicant is — an active network
         {"device_code": "RLF", "device_type": "ftl_relay", "location": "FAL-1-L4", "status": "relaying", "tags": []},
+        {"device_code": "RLI", "device_type": "ftl_relay", "location": "ITH-2-L4", "status": "relaying", "tags": []},
     ]
     client.portal.call(db.kv_set, "devices", devices)
     reps = client.portal.call(db.kv_get, "replicants") or {}
@@ -5317,6 +5318,8 @@ def test_auto_scout_surveys_nearest_first_until_worn(client, monkeypatch):
     devices = client.portal.call(db.kv_get, "devices")
     devices.append({"device_code": "TIRED", "device_type": "survey_drone", "location": "SOL-3", "status": "idle",
                     "operational_capacity": 0.8, "tags": ["fleet:x1"]})
+    devices[-1:-1] = [{"device_code": f"RL{s}", "device_type": "ftl_relay", "location": f"{s}-1-L4", "status": "relaying"}
+                      for s in ("NEARA", "NEARB")]   # a relay commands its own system only: scouts go where one is
     client.portal.call(db.kv_set, "devices", devices)
     assert client.portal.call(eng.auto_scout_pass) == []                      # 80 %: not until everything is at 85 %
     assert "below 85 %" in next(x for x in client.portal.call(eng.fleets) if x["id"] == "x1")["scout_note"]
@@ -5328,7 +5331,7 @@ def test_auto_scout_surveys_nearest_first_until_worn(client, monkeypatch):
     nxt, _ = client.portal.call(eng.scout_next, {"id": "x9", "home": "SOL"}, client.portal.call(eng.fleets),
                                 client.portal.call(eng.devices))
     assert nxt == "NEARB"                                                     # NEARA is taken by Scouts
-    # no replicant aboard: FARC / FARD (9 and 12 ly) are outside the relay at SOL (7.5 ly) — never chosen
+    # no replicant aboard: FARC / FARD have no relay of ours — never chosen
     seen, ex = [], {"NEARB"}
     while True:
         nxt, why = client.portal.call(eng.scout_next, {"id": "x9", "home": "SOL"}, client.portal.call(eng.fleets),
@@ -5520,7 +5523,8 @@ def test_pathing_choose_never_picks_an_excluded_system():
     from rsweb import pathing as pa
     xyz = {"HOME": (0, 0, 0), "GOOD": (5, 0, 0), "BEST_BEHIND": (-5, 0, 0), "OTHERS": (4, 1, 0), "NEXT": (4, -1, 0),
            "TARGET": (3, 0, 1), "WARD": (4, 0, 0), "FAR": (12, 0, 0), "UNSCANNED": (2, 0, 0)}
-    relay = [{"device_code": "R1", "device_type": "ftl_relay", "location": "HOME-5-L4", "status": "relaying"}]
+    relay = [{"device_code": f"R{s}", "device_type": "ftl_relay", "location": f"{s}-5-L4", "status": "relaying"}
+             for s in ("HOME", "GOOD", "BEST_BEHIND", "OTHERS", "NEXT", "TARGET", "WARD", "UNSCANNED")]   # not FAR
     fleet = {"id": "me", "name": "Me", "role": "mining", "station": True, "home": "HOME"}
     fleets = [fleet, {"id": "o1", "name": "Other", "role": "mining", "home": "OTHERS"},
               {"id": "o2", "name": "Mover", "role": "mining", "home": "ELSEWHERE", "next_home": "NEXT"},
@@ -5552,6 +5556,8 @@ def test_pathing_pass_prospects_then_relocates(client):
     devices = [{"device_code": "OBS00001", "device_type": "galactic_observatory", "location": "HOMEA-5-L4", "status": "idle",
                 "tags": ["fleet:m1"], "available_commands": ["prospect", "compact", "unfurl"]},
                {"device_code": "REL00001", "device_type": "ftl_relay", "location": "HOMEA-5-L4", "status": "relaying", "tags": []}]
+    devices += [{"device_code": f"REL{s}", "device_type": "ftl_relay", "location": f"{s}-5-L4", "status": "relaying", "tags": []}
+                for s in ("AHEADB", "BEHINDC")]
     client.portal.call(db.kv_set, "devices", devices)
     client.portal.call(eng.save_fleets, [{"id": "m1", "name": "Miner 1", "role": "mining", "home": "HOMEA", "station": True, "wants": {}}])
     r = client.post("/fleets/m1/path", data={"heading_kind": "star", "heading_star": "AHEADB", "cone": "60",

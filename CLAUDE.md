@@ -55,8 +55,10 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   autofactory and no stock. Sol is warded.
 - Mining feeds the location's stockpile. Only transport-feature devices move materials (haulers in a system, cargo
   freighters between systems); a heaven vessel carries devices only.
-- An FTL relay reaches 7.5 ly and a system hub 15 ly (blueprints report the relay range since 2026-10-12). Devices out of range of a relay, with no replicant in their system,
-  can't be commanded. The game allows 25 wards per account, and wards and hubs don't share a system.
+- An FTL relay links to other relays within 7.5 ly and a system hub within 15 ly (blueprints report the relay range since
+  2026-10-12). That range is only relay-to-relay: a relay or hub delivers commands to its own system alone. A system is
+  commandable only with a relay or hub of a network that has a replicant in one of its systems, or with a replicant in it.
+  The game allows 25 wards per account, and wards and hubs don't share a system.
 - The home sector (FALQUORYX, OTHILETH …) is about 500 ly from the Sol zone (SOLARES, FRANZAN …). A surge across that
   gap takes hours, and borrowed carriers must not fly it empty (loadout supply range: 100 ly).
 - Trades and contracts paid in devices need them deployed at the exact location, with a replicant there. Bill
@@ -72,8 +74,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   game warns an hour ahead (`system.impact_warning`). Evacuate before the ETA. The warning names no asteroid: its
   location is where your devices are (KELMORNEA-4-L4 on 2026-10-15); asteroids are named by their STAR-OBJ-n location.
   Diversions never reach 0 % likelihood (1 % counts as diverted enough). An event is over once its ETA passes.
-- The relay distance model can count a system as covered when the game doesn't (RHYBRENEUS, 2026-10-18: 18 logistics
-  devices stranded `out_of_range`). Devices' `in_control_range` is the truth: `relaynet.dark_stars` overrides the model.
+- Devices' `in_control_range` is the game's word on comms: `relaynet.dark_stars` overrides the model with it
+  (RHYBRENEUS, 2026-10-18: 18 logistics devices stranded `out_of_range` when the app still counted relay reach as coverage).
 - Relays never fold (hubs do, and only work at L4/L5). A relay left switched off out of everyone's reach can't be
   commanded: switch it on before the carrier leaves. Out of reach the game lists a relay `out_of_range` whether it's on
   or off. A hub links to relays only within the relay's own 7.5 ly (live list from the SOLARES hub, 2026-10-15).
