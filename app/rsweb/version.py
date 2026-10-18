@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.146.0"
+VERSION = "1.147.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.147.0", "2026-10-18", "Logistics: pick-ups any job still has to make (fleet missions and relocations too), and "
+     "loads made since the last stockpile poll, are reserved; a replicant a job is about to move no longer counts as "
+     "covering its system, so such deliveries get an escort. Asteroid alerts no longer repeat the impact time; a "
+     "stalled prospecting tour no longer reports the move that brought it there."),
     ("1.146.0", "2026-10-18", "Loadouts: deliveries use logistics-fleet carriers (or spare carriers in no fleet); "
      "another fleet's carrier only picks up its own fleet's members and is never borrowed."),
     ("1.145.0", "2026-10-18", "Loadouts: a carrier borrowed away from its fleet's home goes home to its fleet after "

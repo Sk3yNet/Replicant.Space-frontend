@@ -1895,6 +1895,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             here = star_of(obs.get("location") or "")
             if here and here != tour.get("star"):
                 tour.update({"star": here, "since": now_iso(), "alerted": False})
+                tour.pop("note", None)   # "moving to <here>" is over: a later stall alert names what's wrong here
                 changed = True
             if here and (pfrom.get(here) or {}).get("at", "") > (tour.get("since") or ""):
                 tour["since"] = pfrom[here]["at"]   # a prospect here counts as progress
@@ -2360,9 +2361,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 pass
         return out
 
-    async def commandable(self, devices: list[dict], stars: dict | None = None) -> set[str]:
+    async def commandable(self, devices: list[dict], stars: dict | None = None, without: set[str] | None = None) -> set[str]:
         """Systems you can give commands in: an active relay network's coverage (relaynet.coverage), or where one of your
-        replicants is."""
+        replicants is (other than the replicants in `without`)."""
         from . import relaynet
         if stars is None:
             cat = await self.db.kv_get("stars", {}) or {}
@@ -2370,7 +2371,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         else:
             pos = {k: (v or {}).get("position") for k, v in stars.items()}
         reps = await self.db.kv_get("replicants", {}) or {}
-        rstars = relaynet.replicant_stars(reps, devices)
+        rstars = relaynet.replicant_stars({c: r for c, r in reps.items() if c not in (without or ())}, devices)
         from .shapes import normalize_blueprints
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         net = relaynet.networks(devices, {k: v for k, v in pos.items() if v}, bps)
@@ -3220,17 +3221,37 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         by_code0 = {d["device_code"]: d for d in devices}
         hosts = lg.riding_hosts(devices, hosts)
         incoming: dict[str, dict] = {}
+        inv_at = _ts(await self.db.kv_updated("inventory"))
+        leaving: set[str] = set()   # replicants a job is about to move: the system they're in now isn't covered for long
         for j in jobs:
+            if j["status"] not in ("running", "waiting"):
+                continue
             t = (j.get("meta") or {}).get("logistics")
-            if t and j["status"] in ("running", "waiting") and t.get("to"):
+            if t and t.get("to"):
                 incoming[t["to"]] = {r: incoming.get(t["to"], {}).get(r, 0) + q for r, q in (t.get("carry") or {}).items()}
-                # and what it's still going to pick up is spoken for: the stockpile list only drops once it's loaded (seen
-                # live 2026-10-13: four haulers sent to KELMORNEA-3 for what an earlier trip was already fetching)
-                loaded = {(st.get("body") or {}).get("resources") and st["desc"].split(" at ")[-1] for st in j["steps"]
-                          if (st.get("body") or {}).get("command") == "collect_resources" and st.get("status") == "done"}
-                for g in t.get("legs") or []:
-                    if g["pile"] not in loaded:
-                        lg.take_from(inv, g["pile"], g["take"])
+            # what any job (logistics run, fleet mission, relocation) is still going to pick up is spoken for, and so is
+            # what it loaded since the last stockpile poll (seen live 2026-10-13: four haulers sent to KELMORNEA-3 for what
+            # an earlier trip was already fetching; 2026-10-17: three loads at an ALPHARDAN-BELT-1 already emptied)
+            at: dict[str, str] = {}
+            for i, st in enumerate(j["steps"]):
+                b, path = st.get("body") or {}, str(st.get("path") or "")
+                code = path.split("/")[2] if path.startswith("/devices/") else None
+                pending = i >= j.get("idx", 0)
+                if b.get("command") == "travel" and code:
+                    at[code] = b.get("destination")
+                    if pending and code in hosts:
+                        leaving.add(hosts[code])
+                elif path.startswith("/replicants/") and path.endswith("/travel") and pending:
+                    leaving.add(path.split("/")[2])
+                elif b.get("command") == "collect_resources" and code and "(the payout)" not in st["desc"] \
+                        and "(received)" not in st["desc"] and st.get("status") not in ("skipped", "failed"):
+                    sent = _ts(st.get("started_at"))
+                    if st.get("status") == "done" and sent and inv_at and sent < inv_at:
+                        continue   # the stockpile list already shows it gone
+                    named = st["desc"].rsplit(" at ", 1)[1] if " at " in st["desc"] else None   # "…: load 8 silicates at X"
+                    pile = named or at.get(code) or (by_code0.get(code) or {}).get("location")
+                    if pile:
+                        lg.take_from(inv, pile, as_amounts(b.get("resources") or {}))
         taken, mission_stars, away_fleets = set(), set(), set()
         from .fleets import fleet_tag
         for f in items:
@@ -3280,7 +3301,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                    "devices_short": any(there[k] < n for k, n in dneed.items()),
                                    "rewards": (tr.get("rewards") or {}).get("resources") or {},
                                    "reward_devices": fl_counts((tr.get("rewards") or {}).get("devices"))})
-        commandable = await self.commandable(devices, stars)
+        # a replicant about to leave doesn't cover its system for a delivery planned now (seen live 2026-10-17: two
+        # deliveries to RHYBRENEUS-3 sent unescorted found the system out of comms range on arrival)
+        commandable = await self.commandable(devices, stars, without=leaving)
         evac = await self.evacuation_targets(devices, stars)   # piles where an asteroid is due: {location: safe spot}
         drop_raw = lambda s_: lo.drop_point(s_, devices, inv, stars)  # noqa: E731
         homes_now = {f.get("home") for f in items if f.get("home") and f.get("station")}

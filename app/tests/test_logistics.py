@@ -430,6 +430,45 @@ def test_a_pile_already_being_fetched_is_not_planned_again(client):  # noqa: F81
     assert not [j for j in client.portal.call(e.jobs) if j["rule"] == "logistics" and j["id"] != "lg-1"]   # nothing sent twice
 
 
+def test_a_pile_a_fleet_mission_is_fetching_is_not_planned_again(client):  # noqa: F811
+    db, e = client.app.state.db, eng(client)
+    cat = client.portal.call(db.kv_get, "stars") or {"stars": []}
+    cat["stars"] += [{"designation": d, "position": p} for d, p in POS.items()]
+    client.portal.call(db.kv_set, "stars", cat)
+    client.portal.call(db.kv_set, "blueprints", list(BPS.values()))
+    devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=500, **SURGE), dev("F2", "cargo_freighter", "A-1", cargo_capacity=500, **SURGE),
+            dev("RL", "ftl_relay", "A-4-L4", tags=[], status="relaying"), dev("RB", "ftl_relay", "B-4-L4", tags=[], status="relaying")]
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(db.kv_set, "inventory", [{"location": "B-BELT", "items": {"carbon": 200}}])
+    client.portal.call(db.kv_set, "replicants", {"R1": {"location": "A-1"}})
+    items = client.portal.call(e.fleets)
+    client.portal.call(e.save_fleets, items + [{"id": "cab", "name": "Cab", "role": "logistics", "home": "A", "wants": {}},
+                                               {"id": "hub", "name": "Hub", "role": "mining", "home": "A", "station": True,
+                                                "materials": "self", "wants": {}}])
+    jobs = client.portal.call(e.jobs)
+    jobs.append({"id": "fl-1", "rule": "fleets", "title": "a fleet mission", "device": "F2", "status": "running", "idx": 0,
+                 "created_at": "2026-10-13T12:00:00+00:00",
+                 "steps": [{"desc": "F2 → B-BELT", "body": {"command": "travel", "destination": "B-BELT"}, "status": "pending",
+                            "path": "/devices/F2", "method": "POST", "wait": []},
+                           {"desc": "F2: load 200", "body": {"command": "collect_resources", "resources": {"carbon": 200}},
+                            "status": "pending", "path": "/devices/F2", "method": "POST", "wait": []}],
+                 "meta": {"devices": ["F2"]}})
+    client.portal.call(db.kv_set, "automation_jobs", jobs)
+    client.portal.call(e.logistics_pass, True)
+    assert not [j for j in client.portal.call(e.jobs) if j["rule"] == "logistics"]   # the mission's load is spoken for
+
+
+def test_a_replicant_about_to_leave_does_not_cover_its_system(client):  # noqa: F811
+    db, e = client.app.state.db, eng(client)
+    cat = client.portal.call(db.kv_get, "stars") or {"stars": []}
+    cat["stars"] += [{"designation": d, "position": p} for d, p in POS.items()]
+    client.portal.call(db.kv_set, "stars", cat)
+    client.portal.call(db.kv_set, "replicants", {"R1": {"location": "Z-1"}})
+    devs = client.portal.call(e.devices)
+    assert "Z" in client.portal.call(e.commandable, devs)
+    assert "Z" not in client.portal.call(e.commandable, devs, None, {"R1"})
+
+
 def test_a_deals_payout_is_loaded_and_brought_to_the_gather_point():
     devs = world()
     devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None

@@ -544,7 +544,7 @@ class OpsRules:
                 alerted[des] = key
                 if a["threat"] or key in ("diverted", "diverted enough", "too late", "impacted"):
                     from .traffic import notify
-                    eta = f", impact in {a['hours_left']:.1f} h" if (a["hours_left"] or 0) > 0 else ""
+                    eta = f", impact in {a['hours_left']:.1f} h" if (a["hours_left"] or 0) > 0 and "impact in" not in a["verdict"] else ""
                     need = f", needs ~{a['needed']} propulsor(s), have {a['active']}" if a["needed"] is not None and a["threat"] else ""
                     await notify(self.db, self.hub, f"Asteroid {des} → {a['target'] or '?'}: {a['verdict']}{eta}{need}",
                                  "alert" if a["threat"] else "done", "/defence")
