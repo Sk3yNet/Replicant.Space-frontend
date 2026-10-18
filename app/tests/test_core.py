@@ -4897,6 +4897,22 @@ def test_prospects_page_and_mining_targets(client):
     assert "prospect " in f
 
 
+def test_systems_page_sorts_by_distance_from_origin(client):
+    client.portal.call(client.app.state.worker.sync_devices)
+    for s in ("SOL", "FARAWAY", "NEARBY"):
+        client.portal.call(client.app.state.db.execute, "INSERT OR REPLACE INTO systems (star, data, updated_at) "
+                           "VALUES (?, '{}', '2026-10-18T00:00:00+00:00')", (s,))
+    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [
+        {"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}},
+        {"designation": "FARAWAY", "position": {"x": 40, "y": 0, "z": 0}},
+        {"designation": "NEARBY", "position": {"x": 3, "y": 4, "z": 0}}]})
+    page = client.get("/systems?origin=SOL", headers=H).text
+    assert "distances from" in page and "5.0 ly" in page and "40.0 ly" in page
+    assert page.index("/systems/SOL\"") < page.index("/systems/NEARBY\"") < page.index("/systems/FARAWAY\"")
+    page = client.get("/systems?origin=FARAWAY", headers=H).text
+    assert page.index("/systems/FARAWAY\"") < page.index("/systems/NEARBY\"") < page.index("/systems/SOL\"")
+
+
 def test_prospects_page_scores_stationed_homes_for_review(client):
     eng = client.app.state.worker.automations
     client.portal.call(eng.save_fleets, [{"id": "h", "name": "Homers", "role": "mining", "home": "SOL", "station": True,

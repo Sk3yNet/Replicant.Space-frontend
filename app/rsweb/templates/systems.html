@@ -8,6 +8,8 @@
 {% with ids="scan_on_arrival,auto_survey,restart_idle_miners,reopen_sites,salvage_when_depleted,belt_viability" %}{% include "partials/rules_slot.html" %}{% endwith %}
 <div class="card">
   <form class="row small" method="get" action="/systems" style="margin-bottom:6px;gap:12px">
+    <label style="text-transform:none">distances from
+      <select name="origin" onchange="this.form.submit()">{% for o in origins %}<option {{ 'selected' if o == origin }}>{{ o }}</option>{% endfor %}</select></label>
     <label style="text-transform:none"><input type="checkbox" name="outposts" value="1" {{ 'checked' if show_outposts }} onchange="this.form.submit()">
       Wards, beacons &amp; relays</label>
     <label style="text-transform:none" title="Systems lacking your relay, beacon or ward"><input type="checkbox" name="missing" value="1" {{ 'checked' if missing }} onchange="this.form.submit()">
@@ -18,7 +20,7 @@
   <table>
     <tr><th>System</th><th class="num">Devices</th><th title="⌂ homed here · → on a mission here">Fleets</th>
       {% if show_outposts %}{% for k, label in outpost_kinds.items() %}<th title="your {{ label }}s in the system">{{ {'relay': 'Relay', 'beacon': 'Beacon', 'ward': 'Ward'}[k] }}</th>{% endfor %}{% endif %}
-      <th class="num">Locations with presence</th><th class="num">Stockpiled</th><th class="num">Mineable</th><th class="num">Salvage</th><th>Most available</th><th>Scan cached</th></tr>
+      <th class="num">Locations with presence</th><th class="num">Stockpiled</th><th class="num">Mineable</th><th class="num">Salvage</th><th>Most available</th><th>Scan cached</th><th class="num" title="from {{ origin }}; nearest first">Distance</th></tr>
     {% for s, p in rows %}
     <tr><td><a href="/systems/{{ s }}">{{ s }}</a>{% for c in p.civ %} <a href="/traffic" class="{{ 'lv-done' if c.beacon else 'lv-alert' }}"
         title="local civilization at {{ c.location }} · {{ 'your beacon is there' if c.beacon else 'no beacon of yours there yet (a requested beacon goes there)' }}">✦</a>{% endfor %}</td><td class="num">{{ p.devices }}</td><td class="small">{% for n in p.homes %}<span title="home of {{ n }}">⌂ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}{% if p.homes and p.targets %} · {% endif %}{% for n in p.targets %}<span title="{{ n }} is on a mission here">→ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}</td>
@@ -35,8 +37,9 @@
       <td class="num">{{ p.mineable | num if p.mineable else ('?' if p.unknown_sites else '') }}</td>
       <td class="num">{{ p.salvage | num if p.salvage else '' }}</td>
       <td class="small">{% for r, q in p.top %}{{ r }} {{ q | num }}{{ ', ' if not loop.last }}{% endfor %}</td>
-      <td class="small muted">{{ known[s].updated_at | ago if s in known else '—' }}</td></tr>
-    {% else %}<tr><td colspan="12" class="muted">{{ 'Every system has all three.' if missing else 'No presence yet — waiting for sync.' }}</td></tr>{% endfor %}
+      <td class="small muted">{{ known[s].updated_at | ago if s in known else '—' }}</td>
+      <td class="num">{{ (p.distance ~ ' ly') if p.distance is not none else '' }}</td></tr>
+    {% else %}<tr><td colspan="13" class="muted">{{ 'Every system has all three.' if missing else 'No presence yet — waiting for sync.' }}</td></tr>{% endfor %}
   </table>
 </div>
 {% endblock %}

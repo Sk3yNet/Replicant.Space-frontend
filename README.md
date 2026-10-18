@@ -115,7 +115,7 @@ rule with an on/off switch, plus the jobs and the log.
   jobs finishes the next step starts at once rather than on the next engine tick. On a run's galaxy map the star rings
   shrink to fit its tighter star spacing.
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
-- **Systems list**: per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &
+- **Systems list**: nearest first, by **distance** from the system picked under *distances from* (the same choices as Mining prospects; default: where most of your devices are); per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &
   relays* ticked) your ward, FTL relay and FTL beacon with *add* (activate an idle one there, else send a spare, else print
   one in range; a relay is placed at an L4/L5 point) and *remove* (deactivate; it stays deployed) or *cancel* an order.
   ✦ marks a local civilization (green: your beacon is at its body). A beacon requested for such a system goes on to the

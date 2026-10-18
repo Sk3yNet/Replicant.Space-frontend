@@ -1441,13 +1441,17 @@ async def systems_ward(request: Request, star: str, action: str = Form(...), kin
 
 
 @router.get("/systems", response_class=HTMLResponse)
-async def systems(request: Request, user: str = Depends(current_user)):
+async def systems(request: Request, origin: str = "", user: str = Depends(current_user)):
+    """Systems with your presence or a cached scan, nearest first from `origin` (default: the system with most of
+    your devices; the same choices as Mining prospects)."""
+    from .prospects import _dist
     st = await load_state(request)
     known = {r["star"]: r for r in await request.app.state.db.fetchall("SELECT star, updated_at FROM systems")}
     presence: dict[str, dict] = defaultdict(lambda: {"devices": 0, "homes": [], "targets": [], "locations": 0, "resources": 0})
     for d in st["devices"]:
         presence[star_of(d.get("location"))]["devices"] += 1
-    for f in await request.app.state.worker.automations.fleets():   # fleets homed here, and missions headed here
+    fleets = await request.app.state.worker.automations.fleets()
+    for f in fleets:   # fleets homed here, and missions headed here
         name = f.get("name") or f["id"]
         if f.get("home"):
             presence[f["home"]]["homes"].append(name)
@@ -1462,8 +1466,17 @@ async def systems(request: Request, user: str = Depends(current_user)):
         p["resources"] += (info or {}).get("resources") or 0
     for s in known:
         presence[s]
-    rows = sorted(presence.items(), key=lambda kv: (-kv[1]["devices"], kv[0]))
+    count = Counter(star_of(d.get("location")) for d in st["devices"] if d.get("location"))
+    origin = (origin or (count.most_common(1)[0][0] if count else "")).upper()
+    origins = sorted({f["home"] for f in fleets if f.get("home")} | set(count))
     db = request.app.state.db
+    cat = await db.kv_get("stars", {}) or {}
+    pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+    for s, p in presence.items():
+        dist = _dist(pos.get(origin), pos.get(s))
+        p["distance"] = None if dist is None else round(dist, 1)
+    rows = sorted(presence.items(), key=lambda kv: (kv[1]["distance"] is None, kv[1]["distance"] or 0,
+                                                    -kv[1]["devices"], kv[0]))
     for s, p in rows:
         if s:
             r = await system_resources(db, s)
@@ -1487,7 +1500,7 @@ async def systems(request: Request, user: str = Depends(current_user)):
         p["orders"] = {k: orders[k].get(s) for k in wo.KINDS}
         p["working"] = {k: any(wh.active(d) for d in p["outposts"][k]) for k in wo.KINDS}
     return await page(request, user, "systems.html", "systems", rows=out_rows, known=known, show_outposts=show or missing,
-                      missing=missing, outpost_kinds=outposts.LABELS)
+                      missing=missing, outpost_kinds=outposts.LABELS, origin=origin, origins=origins)
 
 
 def _angle(code: str) -> float:

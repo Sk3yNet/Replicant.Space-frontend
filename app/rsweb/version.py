@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.155.0"
+VERSION = "1.156.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.156.0", "2026-10-18", "Systems page: a distances from picker (as on Mining prospects), a Distance column, and "
+     "the list sorted nearest first."),
     ("1.155.0", "2026-10-18", "Galaxy map: the layer checkboxes, the legend and the info panel fold away (remembered in this "
      "browser); selecting a star or measuring opens the info panel again."),
     ("1.154.0", "2026-10-18", "Components (and simulation cores) are printed at an autofactory where they're needed first, "
