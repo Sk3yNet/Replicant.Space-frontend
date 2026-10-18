@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.147.0"
+VERSION = "1.148.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.148.0", "2026-10-18", "Systems: a scan's system objects (megastructures at STAR-OBJ-n, like TWAFFY's Derelict Ring) "
+     "are listed as travel destinations and on the System page."),
     ("1.147.0", "2026-10-18", "Logistics: pick-ups any job still has to make (fleet missions and relocations too), and "
      "loads made since the last stockpile poll, are reserved; a replicant a job is about to move no longer counts as "
      "covering its system, so such deliveries get an escort. Asteroid alerts no longer repeat the impact time; a "

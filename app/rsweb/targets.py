@@ -109,6 +109,10 @@ async def system_targets(db, star: str) -> dict:
         add(o.get("designation"), f"{k.title()} · {o.get('distance_au', '?')} AU")
     if scan.get("entry_point"):
         add(scan["entry_point"], "entry point")
+    for o in scan.get("system_objects") or []:   # megastructures etc. at STAR-OBJ-n (live 2026-10-18: TWAFFY's Derelict Ring)
+        if isinstance(o, dict):
+            add(o.get("location") or o.get("designation"),
+                " · ".join(str(x) for x in [o.get("title"), (o.get("megastructure_type") or o.get("object_type") or "").replace("_", " ")] if x))
 
     # cached location details (resource sites etc.)
     for r in await db.fetchall("SELECT key, value FROM kv WHERE key LIKE ?", (f"loc:{star}%",)):

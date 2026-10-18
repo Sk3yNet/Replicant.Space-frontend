@@ -605,6 +605,19 @@ def test_system_targets_from_scans_details_and_events(client):
     assert t["resources"]["structural"]["level"] == "rich"
 
 
+def test_system_targets_list_a_scans_system_objects(client):
+    import json as _json
+    db = client.app.state.db
+    scan = {"entry_point": "TWAFFY-11-L4", "planets": [{"designation": "TWAFFY-1"}],
+            "system_objects": [{"designation": "DERELICT-RING-001", "location": "TWAFFY-OBJ-1", "title": "Derelict Ring",
+                                "object_type": "megastructure", "megastructure_type": "derelict_ring"}]}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("TWAFFY", _json.dumps(scan), "2026-10-18T00:00:00+00:00"))
+    from rsweb.targets import system_targets
+    codes = {x["code"]: x for x in client.portal.call(system_targets, db, "TWAFFY")["targets"]}
+    assert codes["TWAFFY-OBJ-1"]["category"] == "object" and "Derelict Ring" in codes["TWAFFY-OBJ-1"]["label"]
+
+
 def test_ami_forms_offer_system_targets(client):
     client.post("/ami/TC000001/refresh-targets", headers=HX)
     r = client.get("/ami/TC000001/directive-form?directive=delivery", headers=HX)

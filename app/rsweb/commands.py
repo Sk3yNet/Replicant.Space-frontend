@@ -272,6 +272,9 @@ def build_suggestions(state: dict, blueprints: list[dict], systems: list[dict], 
         for k in ("kuiper", "oort"):
             add(((scan.get("outer_system") or {}).get(k) or {}).get("designation"), k)
         add(scan.get("entry_point"), "entry point")
+        for o in scan.get("system_objects") or []:
+            if isinstance(o, dict):
+                add(o.get("location"), o.get("title") or o.get("object_type") or "object")
     for s in (stars or {}).get("stars") or []:
         add(s.get("designation"), "star")
         add(s.get("entry_point"), "entry point")
