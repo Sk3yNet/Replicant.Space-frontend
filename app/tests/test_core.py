@@ -7422,6 +7422,11 @@ def test_terraforming_training_controls(client):
     devs.append({"device_code": "RG1", "device_type": "atmospheric_regulator", "location": "VIRTCEL-1", "status": "idle"})
     client.portal.call(db.kv_set, "sim:world:7", {"t": time.time(), "rep": "R1", "devices": devs, "stars": [],
                                                   "inventory": [], "replicants": {}, "totals": {}})
+    client.portal.call(db.insert_event, {"id": "tf0", "event": "terraform.status", "location": "VIRTCEL-1",   # an earlier run's
+                                          "created_at": "2026-01-01T00:00:00+00:00",
+                                          "payload": {"body": "VIRTCEL-1", "attributes": {"temperature": {"value": 999}}}})
+    client.portal.call(db.kv_set, sim.KV, {"active": {"id": 7, "name": "Terraforming Training", "scenario": "terraforming_training_1",
+                                                      "started_at": "2026-10-01T00:00:00+00:00"}})
     client.portal.call(db.insert_event, {"id": "tf1", "event": "terraform.status", "location": "VIRTCEL-1",
                                           "payload": {"body": "VIRTCEL-1", "attributes": {"temperature": {"value": 410, "delta": -1},
                                                                                          "oxygen": {"value": 12, "delta": 0}}}})
@@ -7430,6 +7435,7 @@ def test_terraforming_training_controls(client):
     assert "VIRTCEL-1" in t and "0/3 on" in t and "270–300 K" in t and "18–25 %" in t and "2 out of range: temperature, oxygen" in t
     assert 'name="codes" value="M0 M1 M2"' in t and "Not ready: temperature, oxygen" in t and "out of range for Humans" in t
     assert 'class="tf-switch"' in t and 'hx-trigger="every 15s' in t   # a console: switches, refreshes itself
+    assert "999" not in t   # an earlier run's report: neither shown nor graphed
     assert t.index("<b>Control</b>") < t.index("0/3 on") and "fixes" not in t   # mirrors heat: no help at 410 K
     t = client.get("/terraforming?sim=7&species=branthar", headers=H).text   # another species, remembered
     assert "300–340 K" in t and "1 out of range: temperature" in t
@@ -7487,6 +7493,10 @@ def test_terraforming_training_controls(client):
     s = client.portal.call(eng.sim_state)
     s["active"] = {"id": 7, "scenario": "terraforming_training_1", "replicant": "R1", "devices": [], "stars": [], "scans": {}}
     assert client.portal.call(eng.sim_run_pass, s) == []
+    client.portal.call(eng.sim_purge, {"id": 7})   # the run ends: its world's reports go, whatever it recorded
+    assert not client.portal.call(db.fetchall, "SELECT 1 FROM events WHERE location = 'VIRTCEL-1'")
+    client.portal.call(db.kv_set, sim.KV, {})
+    assert "410" not in client.get("/terraforming?sim=7", headers=H).text
 
 
 def test_queueing_a_simulation_checks_its_offer_and_preps_at_once(client):

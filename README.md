@@ -80,7 +80,7 @@ rule with an on/off switch, plus the jobs and the log.
   control updates the console at once; a switch or setting shows what you commanded (dashed while pending) until the game
   reports it, for up to 2 minutes, and a world's controls are sent one after another.
 - **Terraforming training** (a simulation played by hand): its run card links to *Terraforming controls*, the
-  Terraforming page on the run's own world (`/terraforming?sim=<run>`): the monitor's values against a target species' ranges (GET `/species` `environment`; Humans by default, the choice
+  Terraforming page on the run's own world (`/terraforming?sim=<run>`, that run's reports and graphs only; cleared when it ends): the monitor's values against a target species' ranges (GET `/species` `environment`; Humans by default, the choice
   is remembered)
   (✓ / ✗) and where each is heading at its current Δ (in range in N ticks, leaves the range, moving away; a tick is
   30 s), each device's strength / direction and on/off, and *all on* / *all off* per kind of device. The monitor and the regulator share one *Control* card, first; the other

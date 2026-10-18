@@ -532,6 +532,8 @@ class SimMixin:
             await self.db.execute("DELETE FROM events WHERE star=? OR (location >= ? AND location < ?)", (st, f"{st}-", f"{st}."))
             await self.db.execute("DELETE FROM systems WHERE star=?", (st,))
             await self.db.execute("DELETE FROM kv WHERE key >= ? AND key < ?", (f"loc:{st}-", f"loc:{st}."))
+        # anything else that happened at a VIRT… place (a terraforming world's reports, say): no real place is named so
+        await self.db.execute("DELETE FROM events WHERE location >= 'VIRT' AND location < 'VIRU'")
         jobs = [j for j in await self.jobs() if (j.get("meta") or {}).get("sim") != a.get("id")]
         await self.save_jobs(jobs)
         devices = await self.db.kv_get("devices", []) or []

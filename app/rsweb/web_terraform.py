@@ -72,6 +72,14 @@ def _overlay(d: dict, pend: dict) -> dict:
 TARGET_KV = "terraform_species"   # the species the Terraforming page judges worlds for (humans by default)
 
 
+def _ts(v) -> float | None:
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
 async def _ctx(request: Request) -> dict:
     """Everything the Terraforming page shows (the page, and each world's live console partial)."""
     from .sim import is_virtual
@@ -85,9 +93,15 @@ async def _ctx(request: Request) -> dict:
     want = want or await db.kv_get(TARGET_KV, "") or "humans"
     target = next((x for x in species if x.get("species_key") == want), None)
     targets = tf.species_targets(target) or tf.TARGETS   # no species list: the docs' bio seeder ranges
-    rows = await db.fetchall("SELECT payload, location, created_at FROM events WHERE event = 'terraform.status' "
+    rows = await db.fetchall("SELECT payload, location, COALESCE(created_at, received_at) AS created_at FROM events WHERE event = 'terraform.status' "
                              "ORDER BY seq DESC LIMIT 400")
     # a simulation's worlds (VIRT…) only on its own view (?sim=), never among your real ones
+    run_from = None
+    if sid:   # the run's own reports only: none from an earlier run, and none once it has ended
+        from . import sim
+        a = (await db.kv_get(sim.KV, {}) or {}).get("active") or {}
+        run_from = _ts(a.get("started_at")) if str(a.get("id")) == sid else None
+        rows = [r for r in rows if run_from is not None and (_ts(r["created_at"]) or 0) >= run_from - 60]
     bodies = {b: v for b, v in tf.latest_by_body(rows).items() if is_virtual(b) == bool(sid)}
     for d in st["devices"]:   # a running monitor carries its latest report too (terraform_status, live 2026-10-17)
         ts = d.get("terraform_status")
@@ -111,8 +125,10 @@ async def _ctx(request: Request) -> dict:
     for body in sorted(set(bodies) | {d.get("location") for d in devs if d.get("device_type") in tf.DEVICES and d.get("location")}):
         s = bodies.get(body) or {}
         out = tf.out_of_range(s, targets)
-        hist = await db.fetchall("SELECT payload, created_at FROM events WHERE event = 'terraform.status' AND location = ? "
+        hist = await db.fetchall("SELECT payload, COALESCE(created_at, received_at) AS created_at FROM events WHERE event = 'terraform.status' AND location = ? "
                                  "ORDER BY seq DESC LIMIT ?", (body, tf.HISTORY))
+        if sid:   # a training world keeps its name from run to run: graph this run only
+            hist = [r for r in hist if run_from is not None and (_ts(r["created_at"]) or 0) >= run_from - 60]
         series = tf.history(list(reversed(hist)))
         need = tf.needs(s, targets) if s else {}
         groups: dict[str, list[dict]] = defaultdict(list)
