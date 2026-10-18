@@ -161,7 +161,7 @@ lines or a template).
   are sent where they're short (within the supply range, default 100 ly), what's still missing is printed and carried there
   (large devices are compacted first). Placed beacons and relays are never made spare or moved. A borrowed carrier only comes
   from within the supply range of the pick-up (the trip itself can be any length, e.g. a new home across the gap); a fleet's
-  own carriers go anywhere. Spares are only gathered to a depot within range. **Supplied from** (Overview): a hub whose
+  own carriers go anywhere. A fleet's carrier borrowed away from its home goes home to its fleet afterwards. Spares are only gathered to a depot within range. **Supplied from** (Overview): a hub whose
   autofactories print the fleet's shortfalls and whose carriers bring them, at any distance — e.g. a Sol-sector fleet
   supplied from a home-sector printing hub.
 - **Nothing leaves short:** a fleet only sets off with its whole loadout in its home system (aboard, there, or arriving).

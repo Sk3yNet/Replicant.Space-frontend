@@ -999,6 +999,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 dl["stay"] = True   # the carrier's own fleet lives there: it stays home instead of flying back
             elif fleet_tag_of(c) in logistics_tags and commandable is not None and dest in commandable:
                 dl["stay"] = True   # a logistics device waits for its next call where it is, inside the relay network
+            own_home = (by_tag.get(fleet_tag_of(c) or "") or {}).get("home")
+            if not dl.get("stay") and own_home and own_home != star_of(fetched_from or c.get("location")):
+                # its fleet has moved since (seen live 2026-10-18: Miner 0.5's cargo vessel, borrowed at its old home,
+                # flew back there with fleet members aboard): it goes home to its fleet instead
+                dl["back_to"] = own_home
             if fetched_from:
                 # it flies in first and loads where most of them are
                 spots = Counter(by_code[x].get("location") for x in load if can_travel(by_code[x]))
@@ -1303,9 +1308,9 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
             # more (live 2026-10-15: F6A3A357 dropped at KAMUYIS, "out_of_range"); placement takes it to L4/L5 after
             steps.append(activate_step(code))
         steps.append(rehome_step(code, by_code.get(code, {}), dest_star, keep_spare=code in gathering, join=assign.get(code)))
-    back = dl.get("fetch_from") or cloc
-    if carriers_return and back and not dl.get("stay"):
-        steps.append(move(back, "return", star_of(back)))
+    back = destination(dl["back_to"], stars) if dl.get("back_to") else dl.get("fetch_from") or cloc
+    if (carriers_return or dl.get("back_to")) and back and not dl.get("stay"):
+        steps.append(move(back, f"home to its fleet in {dl['back_to']}" if dl.get("back_to") else "return", star_of(back)))
     return steps
 
 
