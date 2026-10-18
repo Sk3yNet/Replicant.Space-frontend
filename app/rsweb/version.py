@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.153.0"
+VERSION = "1.154.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.154.0", "2026-10-18", "Components (and simulation cores) are printed at an autofactory where they're needed first, "
+     "then in that system, before the least busy one elsewhere."),
     ("1.153.0", "2026-10-18", "Comms coverage corrected: a relay's range only links it to other relays, and it delivers "
      "commands to its own system alone. A system is commandable only with a relay or hub of an active network in it, or "
      "a replicant. Logistics, rescues, scouting and auto-relocation follow; the relay map's coverage too."),

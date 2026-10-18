@@ -40,3 +40,18 @@ def test_a_factory_waiting_for_components_gets_them_printed_elsewhere(client):  
     assert out and "2 queued to print" in out[0], out
     q = client.app.state.api.http._transport.app.state.world.queues["AF00BEEF"]   # not the blocked factory
     assert q[-1]["device_type"] == "hydroponic_bay" and "contract:x-1" in q[-1]["tags"] and "at:sol-4-l4" in q[-1]["tags"]
+
+
+def test_components_print_at_a_factory_in_the_waiting_ones_system_first(client):  # noqa: F811
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "blueprints", BPS)
+    devs = client.portal.call(db.kv_get, "devices")
+    af = next(d for d in devs if d["device_code"] == "AF00BEEF")   # SOL-3-L4, empty queue: it would win on load
+    devs += [{**af, "device_code": "AF00CAFE", "location": "SOL-4-L4", "status": "waiting_for_resources",
+              "print_queue": [{"device_type": "biosphere_cultivator", "tags": []}],
+              "waiting_for": {"components": {"orbital_farm": {"have": 0, "need": 1}}}},
+             {**af, "device_code": "AF00D00D", "location": "SOL-4-L4", "print_queue": [{"device_type": "x"}] * 3}]
+    client.portal.call(db.kv_set, "devices", devs)
+    pinned, printed, _ = client.portal.call(e.pin_or_print, "orbital_farm", 1, "SOL-4-L4", devs, set(), "t", None, None, {"AF00CAFE"})
+    row = client.portal.call(db.fetchone, "SELECT path FROM actions WHERE body LIKE '%orbital_farm%' ORDER BY rowid DESC LIMIT 1")
+    assert row["path"] == "/devices/AF00D00D"   # at the location, though busier than AF00BEEF in another spot

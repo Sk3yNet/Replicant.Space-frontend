@@ -299,7 +299,10 @@ class SimMixin:
             facs = [d for d in devices if is_factory(d) and d.get("location") and d.get("device_code") not in busy
                     and d.get("device_code") not in not_at]
             if ctype in bps and facs:
-                f = min(facs, key=lambda d: (len(d.get("print_queue") or []), d["device_code"]))
+                # one at the location itself first, then in its system (live 2026-10-18: components for SOLARES-BELT-1
+                # printed at FALQUORYX, 425 ly away, with an idle autofactory at SOLARES-BELT-1), then the least busy
+                f = min(facs, key=lambda d: (d.get("location") != loc, star_of(d.get("location")) != star_of(loc),
+                                             len(d.get("print_queue") or []), d["device_code"]))
                 ok, _, err = await self.send("POST", f"/devices/{f['device_code']}",
                                              {"command": "enqueue_print", "device_type": ctype, "quantity": left, "tags": tags},
                                              f"{why}: print {left} {ctype} for {loc}")
