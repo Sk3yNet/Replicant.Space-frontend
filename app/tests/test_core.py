@@ -7508,13 +7508,12 @@ def test_queueing_a_simulation_checks_its_offer_and_preps_at_once(client):
     assert "Entry cost: <b>free</b>" in client.get("/simulations", headers=H).text
 
 
-def test_terraforming_groups_are_ordered_by_what_they_fix():
-    """Monitor and regulator share one Control card, first; then groups whose main effect brings an out-of-range value
-    back, then side effects, then the rest."""
+def test_terraforming_groups_keep_a_fixed_order():
+    """Monitor and regulator share one Control card, first; the other kinds follow a fixed order by what they primarily
+    do (never moving while in use); what's out of range is only marked (fixes …)."""
     from rsweb import terraform as tf
     st = {"attributes": {"temperature": {"value": 410}, "oxygen": {"value": 12}, "toxicity": {"value": 2}}}
-    need = tf.needs(st, {"temperature": (270, 300), "oxygen": (18, 25), "toxicity": (0, 5)})
-    assert need == {"temperature": -1, "oxygen": 1}
-    types = ["orbital_mirror", "bio_seeder", "orbital_shade", "atmospheric_regulator", "gas_separator", "aquifer_tap"]
-    assert sorted(types, key=lambda t: tf.priority(t, need)) == [
-        "atmospheric_regulator", "orbital_shade", "gas_separator", "bio_seeder", "orbital_mirror", "aquifer_tap"]
+    assert tf.needs(st, {"temperature": (270, 300), "oxygen": (18, 25), "toxicity": (0, 5)}) == {"temperature": -1, "oxygen": 1}
+    types = ["bio_seeder", "orbital_shade", "atmospheric_regulator", "gas_separator", "orbital_mirror", "cryo_disperser"]
+    assert sorted(types, key=tf.priority) == [
+        "atmospheric_regulator", "orbital_mirror", "orbital_shade", "cryo_disperser", "gas_separator", "bio_seeder"]

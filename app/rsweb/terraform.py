@@ -103,16 +103,17 @@ def needs(status: dict, targets: dict | None = None) -> dict[str, int]:
     return out
 
 
-def priority(device_type: str, need: dict[str, int]) -> tuple[int, int, int]:
-    """Sort key for a world's device groups: the control card first, then groups whose main effect brings an
-    out-of-range attribute back (0), then those whose side effect does (1), then the rest; the docs' order breaks ties."""
+# the console's fixed order, by what each kind primarily does (the habitable attributes in ATTRS order): it never moves
+ORDER = ["orbital_mirror", "orbital_shade", "thermal_lance", "cryo_disperser", "atmo_processor", "gas_separator",
+         "filtration_array", "aquifer_tap", "bio_seeder"]
+
+
+def priority(device_type: str) -> tuple[int, int]:
+    """Sort key for a world's device groups: the Control card first, then ORDER (temperature: gentle warm / cool, then
+    strong; pressure; oxygen; toxicity; hydrosphere; biosphere), anything else last."""
     if device_type in CONTROL:
-        return (0, 0, CONTROL.index(device_type))
-    rank = 3
-    for i, (a, sign) in enumerate(PUSHES.get(device_type, [])):
-        if a in need and (sign == 0 or sign == need[a]):
-            rank = min(rank, 1 if i == 0 else 2)
-    return (1, rank, DEVICES.index(device_type) if device_type in DEVICES else 99)
+        return (0, 0)
+    return (1, ORDER.index(device_type) if device_type in ORDER else 99)
 
 
 def in_range(attr: str, value: Any, targets: dict | None = None) -> bool | None:

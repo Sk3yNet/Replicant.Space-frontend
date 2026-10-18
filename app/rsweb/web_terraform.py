@@ -120,7 +120,7 @@ async def _ctx(request: Request) -> dict:
             groups["control" if d.get("device_type") in tf.CONTROL else d.get("device_type") or "?"].append(d)
         if groups.get("control"):
             groups["control"].sort(key=lambda d: (tf.CONTROL.index(d["device_type"]), d.get("device_code") or ""))
-        order = sorted(groups, key=lambda t: tf.priority("terraform_monitor" if t == "control" else t, need))
+        order = sorted(groups, key=lambda t: tf.priority("terraform_monitor" if t == "control" else t))   # fixed: never moves
         worlds.append({"body": body, "status": s, "coupling": tf.coupling(s) if s else [], "bio": tf.bio_ready(s) if s else [],
                        "devices": by_loc.get(body, []), "out": out,
                        "groups": [{"type": t, "devices": groups[t],
