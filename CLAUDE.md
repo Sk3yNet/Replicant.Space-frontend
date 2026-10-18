@@ -72,6 +72,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   game warns an hour ahead (`system.impact_warning`). Evacuate before the ETA. The warning names no asteroid: its
   location is where your devices are (KELMORNEA-4-L4 on 2026-10-15); asteroids are named by their STAR-OBJ-n location.
   Diversions never reach 0 % likelihood (1 % counts as diverted enough). An event is over once its ETA passes.
+- The relay distance model can count a system as covered when the game doesn't (RHYBRENEUS, 2026-10-18: 18 logistics
+  devices stranded `out_of_range`). Devices' `in_control_range` is the truth: `relaynet.dark_stars` overrides the model.
 - Relays never fold (hubs do, and only work at L4/L5). A relay left switched off out of everyone's reach can't be
   commanded: switch it on before the carrier leaves. Out of reach the game lists a relay `out_of_range` whether it's on
   or off. A hub links to relays only within the relay's own 7.5 ly (live list from the SOLARES hub, 2026-10-15).

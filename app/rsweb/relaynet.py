@@ -158,6 +158,22 @@ def replicant_stars(replicants: dict[str, dict], devices: list[dict]) -> set[str
     return out
 
 
+def dark_stars(devices: list[dict]) -> set[str]:
+    """Systems the game says are out of comms range: a device of yours there reports in_control_range false and none
+    there reports true. The game's word beats the distance model (live 2026-10-18: 18 logistics devices sent to
+    RHYBRENEUS, which the model counted as covered, all out_of_range there)."""
+    dark, lit = set(), set()
+    for d in devices:
+        s = star_of(d.get("location"))
+        if not s or d.get("location_stale") or d.get("stowed_in_device_code") or d.get("attached_to_device_code"):
+            continue
+        if d.get("in_control_range") is False:
+            dark.add(s)
+        elif d.get("in_control_range") is True:
+            lit.add(s)
+    return dark - lit
+
+
 def coverage(net: dict, pos: dict[str, Any], replicant_stars: set[str]) -> dict:
     """Where you can give commands: {"covered": {net id: systems within its nodes' reach}, "active": {net ids with one of
     your replicants inside their coverage}, "commandable": systems an active network covers, or where a replicant is}."""

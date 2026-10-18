@@ -2409,7 +2409,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         from .shapes import normalize_blueprints
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         net = relaynet.networks(devices, {k: v for k, v in pos.items() if v}, bps)
-        return relaynet.coverage(net, {k: v for k, v in pos.items() if v}, rstars)["commandable"]
+        cover = relaynet.coverage(net, {k: v for k, v in pos.items() if v}, rstars)["commandable"]
+        return cover - relaynet.dark_stars(devices)
 
     async def evacuation_inputs(self) -> tuple[dict, set[str], dict]:
         """(tracked objects, objects the game warned us about in the last two hours, system scans by star)."""

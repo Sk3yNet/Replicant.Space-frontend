@@ -543,3 +543,15 @@ def test_logistics_reaches_every_device_nearest_first():
                        incoming={}, replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1")
     assert cargo(next(r for r in plan(())["runs"] if r["req"] == "contract:EV1")) == ["F1"]       # the near one first
     assert cargo(next(r for r in plan({"F1"})["runs"] if r["req"] == "contract:EV1")) == ["F2"]   # 500 ly is no limit
+
+
+def test_a_system_the_game_says_is_out_of_range_is_not_commandable(client):  # noqa: F811
+    from rsweb import relaynet
+    devs = [{"device_code": "F1", "location": "RHY", "in_control_range": False},
+            {"device_code": "F2", "location": "SOL-3", "in_control_range": False},
+            {"device_code": "F3", "location": "SOL-4", "in_control_range": True},
+            {"device_code": "F4", "location": None, "in_control_range": False, "stowed_in_device_code": "F3"}]
+    assert relaynet.dark_stars(devs) == {"RHY"}
+    db, e = client.app.state.db, eng(client)
+    client.portal.call(db.kv_set, "replicants", {"R1": {"location": "RHY-1"}})
+    assert "RHY" not in client.portal.call(e.commandable, devs)   # the game's word beats the model

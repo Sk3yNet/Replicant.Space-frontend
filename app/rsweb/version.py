@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.151.0"
+VERSION = "1.152.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.152.0", "2026-10-18", "Comms coverage: a system where your devices report out of comms range (and none in range) "
+     "isn't counted as commandable, whatever the relay distances say, so logistics sends a replicant along or doesn't go."),
     ("1.151.0", "2026-10-18", "Component prints: every print the app queues puts its component devices ahead of it on the "
      "same factory, tagged like the item; a factory waiting for components gets spares sent or them printed at another "
      "autofactory. Blueprints list component devices and an all-in material cost."),
