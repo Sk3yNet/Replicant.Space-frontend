@@ -21,6 +21,17 @@ if (!OPTS.dataUrl) {
       localStorage.setItem(PREFS_KEY, JSON.stringify(all));
     } catch (e) { /* not saved: fine */ }
   }));
+  // the folding panels (layers, legend, info) remember whether they're open; layers and legend start folded
+  const FOLDS_KEY = "galaxy-map-folds";
+  let folds = {};
+  try { folds = JSON.parse(localStorage.getItem(FOLDS_KEY) || "{}"); } catch (e) { /* defaults */ }
+  document.querySelectorAll("details.map-fold").forEach(d => {
+    d.open = d.id in folds ? !!folds[d.id] : d.id === "map-panel";
+    d.addEventListener("toggle", () => {
+      folds[d.id] = d.open;
+      try { localStorage.setItem(FOLDS_KEY, JSON.stringify(folds)); } catch (e) { /* not saved: fine */ }
+    });
+  });
 }
 // star markers by kind, each with its own checkbox (opt-mark-<kind>)
 const MARKS = { devices: 0x6cb6ff, scanned: 0x4fd18b, hub: 0xf0b64f, replicant: 0xff5fa2, found: 0xfff27a, prospected: 0x7fe3ff };
@@ -66,6 +77,7 @@ function resizeMarks() {
 }
 const el = $("map");
 const info = $("map-info") || document.createElement("div");
+const openInfo = () => { if ($("map-panel")) $("map-panel").open = true; };   // a selected star or a measurement shows itself
 const tip = $("map-tip") || document.createElement("div");
 const fromSel = $("map-from");
 
@@ -620,6 +632,7 @@ function show(s) {
   const dist = from ? pos(from).distanceTo(pos(s)).toFixed(2) : null;
   const rep = fromSel?.value;
   lineGroup.clear();   // no line on a left-click: lines are the right-click measuring tool's
+  openInfo();
   info.innerHTML = `
     <div class="row between"><h2>${esc(s.designation)}</h2><a class="small" href="/systems/${esc(s.designation)}">open system →</a></div>
     ${s.name ? `<div>${esc(s.name)}</div>` : ""}
@@ -693,12 +706,14 @@ function rightClick(ev) {
   if (measure.length === 1 && measure[0] === s) return;
   measure.push(s); measureMark(s);
   if (measure.length === 1) {
+    openInfo();
     info.innerHTML = `<h2>Measure</h2><p>From <b>${esc(s.designation)}</b> — right-click (or long-press) a second star.</p>`;
     return;
   }
   const [a, b] = measure;
   measureGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos(a), pos(b)]),
                                   new THREE.LineBasicMaterial({ color: 0x4fd18b })));
+  openInfo();
   info.innerHTML = `<h2>Measure</h2><p>${esc(a.designation)} ↔ ${esc(b.designation)}: <b>${pos(a).distanceTo(pos(b)).toFixed(2)} ly</b></p>
     <p class="muted small">Right-click (or long-press) again to clear.</p>`;
 }

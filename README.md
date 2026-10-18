@@ -58,7 +58,7 @@ rule with an on/off switch, plus the jobs and the log.
   in a trade or to a contract, consumed by a print, contributed to a megastructure, held in a trade's escrow).
 
 ### Maps
-- **Galaxy**: (every layer and each kind of star marker — mine, scanned, hubs, replicants, new finds, prospected from, my wards, megastructures (violet hexagon), surveying — has its own checkbox; your choices are remembered in this browser) 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
+- **Galaxy**: (every layer and each kind of star marker — mine, scanned, hubs, replicants, new finds, prospected from, my wards, megastructures (violet hexagon), surveying — has its own checkbox under *layers*; your choices are remembered in this browser; *layers*, *legend* and *info* fold away to leave room for the map, and selecting a star opens *info* again) 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
   rest of the catalog after), live: ships in transit, fleets,
   supply lines, mining sparkles and **prospecting cones** (each observatory scan: a wave running out to its reach) redraw as events
   arrive. Relay/hub range, search, distances, route preview; right-click (on touch: long-press) two stars to measure. **Other players** (coral):
