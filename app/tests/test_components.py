@@ -21,8 +21,10 @@ def test_a_new_print_queues_its_components_first_with_its_tags(client):  # noqa:
                        {"command": "enqueue_print", "device_type": "biosphere_cultivator", "quantity": 1,
                         "tags": ["contract:x-1", "to:kamuyis", "at:kamuyis-4"]}, "test")
     q = client.app.state.api.http._transport.app.state.world.queues["AF00BEEF"]
-    assert [x["device_type"] for x in q][-4:] == ["hydroponic_bay", "hydroponic_bay", "orbital_farm", "biosphere_cultivator"]
-    assert q[-4]["tags"] == ["contract:x-1", "to:sol", "at:sol-3-l4"] and "at:kamuyis-4" in q[-1]["tags"]
+    af = next(d for d in client.app.state.api.http._transport.app.state.world.devices if d["device_code"] == "AF00BEEF")
+    started = ["hydroponic_bay"] if af["status"] == "printing (hydroponic_bay)" and len(q) < 4 else []   # an idle factory starts the head
+    assert (started + [x["device_type"] for x in q])[-4:] == ["hydroponic_bay", "hydroponic_bay", "orbital_farm", "biosphere_cultivator"]
+    assert q[-2]["tags"] == ["contract:x-1", "to:sol", "at:sol-3-l4"] and "at:kamuyis-4" in q[-1]["tags"]
     page = client.get("/blueprints", headers={"X-Auth-Request-Email": "joe@example.com"}).text
     assert "component device" in page and "all in: 20 carbon, 7 structural, 4 volatiles" in page
 
@@ -40,7 +42,8 @@ def test_a_factory_waiting_for_components_gets_them_printed_elsewhere(client):  
     assert [(g["type"], g["short"]) for g in gaps] == [("hydroponic_bay", 2)] and "at:sol-4-l4" in gaps[0]["tags"]
     out = client.portal.call(e.component_pass)
     assert out and "2 queued to print" in out[0], out
-    q = client.app.state.api.http._transport.app.state.world.queues["AF00BEEF"]   # not the blocked factory
+    q = client.app.state.api.http._transport.app.state.world.queues["AF00BEEF"]
+    print("Q", [(x["device_type"], x.get("quantity")) for x in q])   # not the blocked factory
     assert q[-1]["device_type"] == "hydroponic_bay" and "contract:x-1" in q[-1]["tags"] and "at:sol-4-l4" in q[-1]["tags"]
 
 
@@ -84,3 +87,25 @@ def test_a_new_print_uses_components_already_there_and_spares_before_printing(cl
     sent.clear()
     client.portal.call(comp.before_print, Api(), db, "/devices/AF1", body)
     assert [(b["device_type"], b["quantity"]) for _, _, b in sent] == [("hydroponic_bay", 2), ("orbital_farm", 1)]
+
+
+def test_a_component_the_game_wont_print_doesnt_block_the_item(client):  # noqa: F811
+    from rsweb.api import ApiError
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "blueprints", [{"device_type": "climate_processor", "resources": {"carbon": 10},
+                                                  "components": {"terraform_monitor": 1}}])
+    client.portal.call(db.kv_set, "devices", [
+        {"device_code": "AF1", "device_type": "autofactory", "location": "SOLARES-BELT-1", "status": "idle",
+         "available_commands": ["enqueue_print"]},
+        {"device_code": "TM1", "device_type": "terraform_monitor", "location": "SOLARES-BELT-1", "status": "idle"}])
+    sent = []
+
+    class Api:
+        async def request(self, method, path, json_body=None, **kw):
+            if json_body["device_type"] == "terraform_monitor":
+                raise ApiError(400, "Blueprint not yet unlocked: terraform_monitor")
+            sent.append(json_body)
+    client.portal.call(comp.before_print, Api(), db, "/devices/AF1",
+                       {"command": "enqueue_print", "device_type": "climate_processor", "quantity": 2, "tags": []})
+    log = client.portal.call(db.kv_get, "automation_log")
+    assert "couldn't queue 1 terraform monitor" in log[-1]["text"] and "not yet unlocked" in log[-1]["text"]

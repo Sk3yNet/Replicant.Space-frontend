@@ -102,6 +102,7 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
 - Some blueprints need component devices (blueprint `components`, e.g. biosphere cultivator: 2 hydroponic bays, 1 nutrient
   synthesizer, 1 orbital farm). Without them the factory sits `waiting_for_resources` with
   `waiting_for.components: {type: {have, need}}` (live 2026-10-18, 9E13498F at SOLARES-BELT-1).
+  A climate processor needs a terraform monitor, whose blueprint is locked ("Blueprint not yet unlocked", 2026-10-19).
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the

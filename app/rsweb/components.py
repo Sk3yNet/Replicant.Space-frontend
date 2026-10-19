@@ -4,7 +4,8 @@ waits at the head until they're there (`waiting_for.components: {type: {have, ne
 
 - A new print (any enqueue_print the app sends) uses the components already at the factory (deployed there or queued
   there, less what earlier prints in its queue use up), then pins spare ones from elsewhere to the factory's location,
-  and only queues the rest first, on the same factory, so they're printed there before the item. They carry the item's tags (its reservation: contract, fleet, spare …), with the item's
+  and only queues the rest first, on the same factory, so they're printed there before the item. A component the game
+  won't print (a locked blueprint) is logged and the item queued anyway: the factory waits for it. They carry the item's tags (its reservation: contract, fleet, spare …), with the item's
   to:/at: pins swapped for the factory's location so the loadout pass keeps them there.
 - A factory already waiting for components gets them from spares (pinned to its location) or printed at another
   autofactory (component_pass in the engine).
@@ -83,8 +84,24 @@ async def before_print(api: Any, db: Any, path: str, body: Any, depth: int = 0) 
         if left <= 0:
             continue
         sub = {"command": "enqueue_print", "device_type": t, "quantity": left, "tags": tags}
-        await before_print(api, db, path, sub, depth + 1)
-        await api.request("POST", path, json_body=sub, components_done=True)
+        try:
+            await before_print(api, db, path, sub, depth + 1)
+            await api.request("POST", path, json_body=sub, components_done=True)
+        except Exception as e:  # noqa: BLE001
+            # live 2026-10-19: climate processors need a terraform monitor, whose blueprint isn't unlocked ("Blueprint
+            # not yet unlocked: terraform_monitor") — that refusal aborted the item's own print. The item is queued
+            # anyway: the factory waits for the component, which can come from a spare or another source
+            await _note(db, f"{m.group(1)}: couldn't queue {left} {t.replace('_', ' ')} for "
+                            f"{str(body.get('device_type')).replace('_', ' ')} ({getattr(e, 'message', e)}); "
+                            f"the {str(body.get('device_type')).replace('_', ' ')} waits for it")
+
+
+async def _note(db: Any, text: str) -> None:
+    """A warning in the automation log (rule "components")."""
+    from .automations import MAX_LOG, now_iso
+    entries = await db.kv_get("automation_log", []) or []
+    entries.append({"at": now_iso(), "rule": "components", "level": "warning", "text": text})
+    await db.kv_set("automation_log", entries[-MAX_LOG:])
 
 
 def free_here(devices: list[dict], fac: dict, device_type: str, bps: dict[str, dict]) -> int:

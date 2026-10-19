@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.158.0"
+VERSION = "1.158.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.158.1", "2026-10-19", "A component the game refuses to print (climate processors need a terraform monitor, "
+     "whose blueprint is locked) no longer blocks the item's own print: it is logged and the item queued."),
     ("1.158.0", "2026-10-18", "A print that needs components uses the ones already at the factory and pins spares "
      "before printing new ones; Contracts: Restart prints for prints that never came out."),
     ("1.157.0", "2026-10-18", "Long automated trips go via one of your hubs when the game's previews say that is at "
