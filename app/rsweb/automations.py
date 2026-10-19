@@ -2052,6 +2052,19 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             await self.save_fleets(fleet_list)
         return out
 
+    async def dark_home(self, f: dict, star: str, devices: list[dict]) -> str | None:
+        """Why a fleet can't move its home to `star`, or None: nothing there could be commanded on arrival (no active
+        relay network covers it and no replicant rides with the fleet). Live 2026-10-19: Miner_4 relocated to OXETH,
+        which neither, and all 30 devices aboard 15DFB014 went out_of_range before they could be unloaded."""
+        from . import fleets as fl
+        star = star_of(star)
+        if not star or star in await self.commandable(devices):
+            return None
+        if fl.fleet_replicant(f, devices, await self.db.kv_get("replicants", {}) or {}):
+            return None
+        return (f"{star} is outside an active relay network and no replicant rides with the fleet: nothing could be "
+                f"commanded there on arrival — get a relay to {star} (or put a replicant aboard) first")
+
     async def start_relocation(self, f: dict, old: str, new: str, devices: list[dict] | None = None) -> str:
         """A stationed mining or explore fleet whose home just changed moves there together, in one relocation mission
         (pack up — large devices compacted — everyone aboard, gather strays, travel, unload), when its carriers' hold slots
@@ -2068,6 +2081,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 # stays homed where it is — the loadout pass fills it there — and moves once complete (pending_home_pass)
                 f["home"], f["pending_home"] = old, new
                 return f"{new} is pending: it moves once its {fl.readiness_text(ready)}"
+        dark = await self.dark_home(f, new, devices) if old and new and old != new \
+            and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped") else None
+        if dark:
+            f["home"], f["pending_home"] = old, new   # it stays; pending_home_pass moves it once it can be commanded there
+            return f"{new} is pending: {dark}"
         f.pop("pending_home", None)
         if old and new and old != new and f.get("materials") == "self":
             # a destination fleet (takes materials in): what's stockpiled at its old home follows it (logistics.py); any
@@ -2109,8 +2127,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         for f in waiting:
             new = f["pending_home"]
             r = fl.readiness_anywhere(f, devices, prefer=f.get("home"), free=fl.solo_flyers(f, devices))
-            if not r["ready"] and not f.get("move_partial"):
-                note = f"{new} pending: {fl.readiness_text(r)}"
+            dark = await self.dark_home(f, new, devices)
+            if dark or (not r["ready"] and not f.get("move_partial")):
+                note = f"{new} pending: {dark or fl.readiness_text(r)}"
                 if f.get("path_note") != note:
                     f["path_note"] = note
                 continue
@@ -3772,6 +3791,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 self._mlog(m, f"{plan['carrier']} collects from " + ", ".join(f"{s_} ({len(ds)})" for s_, ds in plan["tour"]))
             return fl.gather_steps(fleet, plan, stars, radii, far_au), plan["problems"]
         if phase == "travel":
+            dark = await self.dark_home(fleet, target, devices) if m.get("relocate") else None
+            if dark:
+                m["stall"] = True
+                return [], [dark]
             return fl.travel_steps(fleet, devices, target, stars), []
         if phase == "deploy":
             if fleet["role"] == "explore" and target and await self.system_surveyed(target):
@@ -4020,6 +4043,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         stars = {x.get("designation"): x for x in (cat.get("stars") or []) if isinstance(x, dict)}
         sent = m.setdefault("solo_sent", [])
         changed = False
+        if await self.dark_home(fleet, target, devices):
+            return False   # nobody flies there alone into the dark: the travel phase stalls the relocation and says why
         for code in sorted(set(m.get("solo") or []) - set(sent)):
             d = by.get(code)
             if not d or star_of(d.get("location")) == star_of(target):
@@ -4336,6 +4361,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             if any(j["rule"] == "reopen_sites" and j["status"] in ("running", "waiting") and j.get("meta", {}).get("belt") == belt
                    for j in jobs):
                 continue
+            if any(j["rule"] == "reopen_sites" and j.get("meta", {}).get("belt") == belt
+                   and (_ts(j.get("finished_at")) or now) > now - sites.FULL_WAIT
+                   and any("Maximum active sites" in str(st.get("error") or "") for st in j.get("steps") or [])
+                   for j in jobs):
+                continue   # the belt holds the game's most sites (searches under way count): wait for them to come up
             star = star_of(belt)
             have = len(sites.survey_at(devices, belt))
             if have >= per:

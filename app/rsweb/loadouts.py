@@ -992,12 +992,15 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 break
             c = max(options, key=lambda c: (any(stowed_in.get(x) == c["device_code"] for x in codes),   # already aboard
                                             not owner or c.get("replicant_code") == owner, fleet_tag_of(c) in logistics_tags,
-                                            _free(c, bps, stowed_map),
+                                            _free(c, bps, stowed_map, codes),
                                             c["device_code"]))   # a carrier of the devices' own replicant first
-            room = int(_free(c, bps, stowed_map))
+            room = int(_free(c, bps, stowed_map, codes))
             if room <= 0:
                 used.add(c["device_code"])
                 continue
+            on_c = {x.get("device_code") for x in (c.get("attached_devices") or []) + (c.get("stowed_devices") or [])
+                    if isinstance(x, dict)} | set((stowed_map or {}).get(c["device_code"], []))
+            codes = sorted(codes, key=lambda x: x not in on_c)   # already aboard first: they hold their seat (_free)
             load, codes = codes[:room], codes[room:]
             used.add(c["device_code"])
             dl = {"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
@@ -1110,8 +1113,20 @@ def _carrier_cap(d: dict, bps: dict) -> float:
     return {"surge_plate": 1, "surge_platform": 4, "surge_carrier": 9, "mobile_fleet": 36}.get(t, 0)
 
 
-def _free(d: dict, bps: dict, stowed_map: dict) -> float:
-    return _carrier_cap(d, bps) - len((stowed_map or {}).get(d["device_code"], []))
+def _free(d: dict, bps: dict, stowed_map: dict, mine: list[str] | tuple = ()) -> float:
+    """Room left on a carrier: what we stowed in it and what the game lists aboard (attached or stowed, or its
+    attach_used / stow_used counts) take a seat each, except `mine`, the devices it is about to carry anyway (live
+    2026-10-19: two logistics haulers attached to 89D9AB0D weren't counted, and the third attach hit "Carrier is at
+    full capacity (4)")."""
+    kind = "attach" if carry_mode(d, bps) == "attach" else "stow"   # the seats it carries in (_carrier_cap)
+    aboard = set((stowed_map or {}).get(d["device_code"], []))
+    aboard |= {x.get("device_code") for x in (d.get("attached_devices" if kind == "attach" else "stowed_devices") or [])
+               if isinstance(x, dict) and x.get("device_code")}
+    try:
+        counted = int(d.get(f"{kind}_used") or 0)
+    except (TypeError, ValueError):
+        counted = 0
+    return _carrier_cap(d, bps) - max(len(aboard), counted) + len(aboard & set(mine))
 
 
 def destination(star: str, stars: dict[str, dict]) -> str:

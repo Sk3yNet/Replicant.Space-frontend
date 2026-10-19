@@ -5563,6 +5563,10 @@ def test_pathing_choose_never_picks_an_excluded_system():
 def test_pathing_pass_prospects_then_relocates(client):
     from rsweb import prospects
     eng, db = client.app.state.worker.automations, client.app.state.db
+
+    async def commandable(devices, stars=None, without=None):   # a replicant on the relay network: every system it covers
+        return {"HOMEA", "AHEADB", "BEHINDC"}
+    eng.commandable = commandable
     stars = {"HOMEA": (0, 0, 0), "AHEADB": (5, 0, 0), "BEHINDC": (-5, 0, 0)}
     client.portal.call(db.kv_set, "stars", {"stars": [{"designation": k, "position": dict(zip("xyz", v))} for k, v in stars.items()]})
     belt = {"asteroid_belt": {"belts": [{"designation": "X", "density": "dense", "resources": {"structural": "rich", "rares": "high"}}]}}
@@ -6331,6 +6335,10 @@ def test_relocation_only_when_the_carriers_fit_everyone(client):
     ves = {"device_code": "V", "device_type": "cargo_vessel", "location": "AAA-1", "status": "idle", "tags": ["fleet:m"],
            "features": ["surge", "cruise"], "stow_capacity": 2}
     f = {"id": "m", "name": "M", "role": "mining", "home": "BBB", "station": True, "wants": {}}
+
+    async def commandable(devices, stars=None, without=None):
+        return {"AAA", "BBB"}
+    eng.commandable = commandable
     how = client.portal.call(eng.start_relocation, dict(f), "AAA", "BBB", [ves, rider("D1"), rider("D2")])
     assert "relocation mission" in how                                         # 2 riders, 2 hold slots: together
     f2 = dict(f)
@@ -7689,3 +7697,39 @@ def test_relay_rollout_pass_keeps_orders_open_and_skips_failures(client):
     assert st["done"] == 1 and sorted(st["skipped"]) == ["B", "C"] and not st["ordered"] and not st["on"]
     page = client.get("/map/relays", headers=H).text
     assert "Relay rollout" in page and "Retry skipped (2)" in page
+
+
+def test_relocation_waits_for_command_reach_at_the_new_home(client):
+    """Live 2026-10-19: Miner_4 relocated to OXETH (no relay, no replicant aboard) and everything aboard went
+    out_of_range before it could be unloaded."""
+    eng = client.app.state.worker.automations
+    ves = {"device_code": "V", "device_type": "cargo_vessel", "location": "AAA-1", "status": "idle", "tags": ["fleet:m"],
+           "features": ["surge", "cruise"], "stow_capacity": 2}
+    d1 = {"device_code": "D1", "device_type": "survey_drone", "location": "AAA-1", "status": "idle", "tags": ["fleet:m"],
+          "features": ["cruise", "stow"]}
+    f = {"id": "m", "name": "M", "role": "mining", "home": "BBB", "station": True, "wants": {}}
+    reach = {"AAA"}
+
+    async def commandable(devices, stars=None, without=None):
+        return reach
+    eng.commandable = commandable
+    how = client.portal.call(eng.start_relocation, f, "AAA", "BBB", [ves, d1])
+    assert "outside an active relay network" in how and f["home"] == "AAA" and f["pending_home"] == "BBB" and "mission" not in f
+    # a mission already under way stalls before the travel phase
+    m = {"status": "running", "targets": ["BBB"], "idx": 0, "relocate": True, "log": []}
+    steps, problems = client.portal.call(eng.fleet_phase_steps, f, m, "travel", [ves, d1])
+    assert steps == [] and m.get("stall") and "BBB" in problems[0]
+    reach.add("BBB")   # a relay of an active network there now: it goes
+    assert "relocation mission" in client.portal.call(eng.start_relocation, f, "AAA", "BBB", [ves, d1])
+
+
+def test_loadout_carrier_room_counts_what_the_game_lists_aboard():
+    """Live 2026-10-19: 89D9AB0D (4 attach points) had two haulers attached; the plan gave it 3 more."""
+    from rsweb import loadouts as lo
+    c = {"device_code": "C", "device_type": "surge_platform", "attach_capacity": 4, "attach_used": 4,
+         "attached_devices": [{"device_code": x} for x in ("H1", "H2", "A", "B")]}
+    assert lo._free(c, {}, {}) == 0
+    assert lo._free(c, {}, {}, ["A", "B", "X"]) == 2          # the seats A and B already hold: X doesn't fit
+    c2 = {"device_code": "V", "device_type": "cargo_vessel", "stow_capacity": 10, "attach_capacity": 2,
+          "attached_devices": [{"device_code": "H1"}], "stowed_devices": [{"device_code": "S1"}]}
+    assert lo._free(c2, {}, {}) == 9                          # a hold: only what's stowed takes its seats

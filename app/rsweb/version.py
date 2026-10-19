@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.162.0"
+VERSION = "1.162.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.162.1", "2026-10-19", "Fixes from a snapshot: a loadout carrier's room counts what the game lists aboard "
+     "(haulers already attached made attaches fail with full capacity); no belt search for 90 minutes after the game "
+     "refuses one with Maximum active sites; a fleet doesn't relocate (or fly solo) to a home outside an active relay "
+     "network without a replicant aboard: it stays pending, and a relocation under way stalls before traveling."),
     ("1.162.0", "2026-10-19", "Map › Relays: Relay rollout puts a relay in every system around seed systems you name, "
      "nearest first and chained outward, a few orders at a time; failures are skipped until retried."),
     ("1.161.0", "2026-10-19", "Galaxy map: markers get their own shapes (replicant diamond, devices square, hub node, "

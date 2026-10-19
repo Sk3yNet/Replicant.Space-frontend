@@ -7,6 +7,14 @@ def dev(code, t, loc=None, **kw):
             "tags": kw.pop("tags", ["fleet:f"]), **kw}
 
 
+def _reach_everywhere(e):
+    """Every system commandable (a relay network with a replicant everywhere): relocations aren't held for reach."""
+    async def commandable(devices, stars=None, without=None):
+        return {fl.star_of(d.get("location")) for d in devices} | {"SOL", "LERNA", "LYRHYRAN", "FALQUORYX", "A", "B",
+                                                                    "ABOTEIN", "AHEADB"}
+    e.commandable = commandable
+
+
 def test_readiness_counts_only_what_is_in_the_home_system():
     f = {"id": "f", "home": "A", "station": True, "wants": {"mining_drone": 3, "surge_carrier": 1}}
     devs = [dev("C", "surge_carrier", "A-OORT"),
@@ -29,6 +37,7 @@ def _fleet(e, client, devs, **f):
 
 def test_new_home_waits_for_a_complete_loadout(client):
     e = eng(client)
+    _reach_everywhere(e)
     devs = [dev("C", "surge_carrier", "SOL-OORT", features=["surge"], attach_capacity=9),
             dev("M1", "mining_drone", "SOL-BELT-1")]
     _fleet(e, client, devs)
@@ -56,6 +65,7 @@ def test_new_home_moves_from_wherever_the_fleet_is_gathered(client):
     """Seen live 2026-10-11: a fleet back from a mission in LYRHYRAN's direction got a new home and waited for its
     loadout in FALQUORYX, its old home — all in one place anywhere is enough."""
     e = eng(client)
+    _reach_everywhere(e)
     devs = [dev("C", "surge_carrier", "LERNA-OORT", features=["surge"], attach_capacity=9),
             dev("M1", "mining_drone", None, attached_to_device_code="C"), dev("M2", "mining_drone", "LERNA-BELT-1")]
     r = fl.readiness_anywhere({"id": "f", "home": "SOL", "station": True, "wants": {"mining_drone": 2, "surge_carrier": 1}},
@@ -812,6 +822,7 @@ def test_surge_capable_members_fly_to_a_new_home_on_their_own():
 
 def test_solo_flyers_leave_after_their_current_task(client):
     eng = client.app.state.worker.automations
+    _reach_everywhere(eng)
     fleet = {"id": "f", "name": "Miner 1", "home": "B", "station": True}
     m = {"relocate": True, "targets": ["B"], "solo": ["F1", "F2"], "log": []}
     devs = [dev("F1", "cargo_freighter", "A-3", features=["surge"], status="collecting"),
