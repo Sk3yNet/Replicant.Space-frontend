@@ -246,7 +246,7 @@ lines or a template).
 
 ### Activity and tools
 - **Automations**: every rule, jobs step by step with Cancel, and the log. **Events**: full local history with filters.
-  **Messages**: game messages and BobNet channels. **Notifications**: alerts and accomplishments, with toasts and a badge.
+  **Messages**: game messages and BobNet channels (each post shows the system its poster is in; *recent* history includes NPCs). **Notifications**: alerts and accomplishments, with toasts and a badge.
 - **Diagnostics**: a live snapshot (read-only GETs plus the app's state) with a mining diagnosis, downloadable as JSON;
   a **Performance** panel (pages slowest on average, the slowest requests with their queries, game API calls, engine
   lock waits and saved values decoded; engine stage timings and lock holds; table sizes and the largest saved values,

@@ -2796,7 +2796,8 @@ async def bobnet_history(request: Request, channel: str = Form(""), user: str = 
     if not relay:
         return HTMLResponse('<p class="muted small">Reading BobNet history needs an FTL relay.</p>')
     try:
-        body = await request.app.state.api.get(f"/devices/{relay['device_code']}/messages", latest="true", limit=50)
+        body = await request.app.state.api.get(f"/devices/{relay['device_code']}/messages", latest="true", limit=50,
+                                                 include_npcs="true")   # NPCs too (Dash's posts show where the Ark is)
     except ApiError as e:
         return HTMLResponse(f'<div class="result err">{html.escape(e.message)}</div>')
     msgs = [m for m in (body or {}).get("messages") or [] if not channel or m.get("channel") == channel]

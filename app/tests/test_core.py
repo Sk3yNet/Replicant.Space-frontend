@@ -7633,3 +7633,11 @@ def test_dashboard_story_card_shows_the_game_overview(client):
     assert "Alteration Protocol" in page and "The Shattering of Ethirel" in page and "/systems/ETHIREL" in page
     assert "Terraforming the Colony Worlds" in page and "Riker" in page
     assert 'id="story"' in client.get("/", headers=H).text
+
+
+def test_bobnet_feed_shows_where_the_poster_is(client):
+    w = client.app.state.worker
+    client.portal.call(w.handle_event, _ev(9901, "bobnet.new", replicant_name="Dash", replicant_code="D1",
+                                           current_star="ROSALIATE", channel="#general", message="Shop open"))
+    page = client.get("/messages", headers=H).text
+    assert '@ <a href="/systems/ROSALIATE">ROSALIATE</a></span>: Shop open' in page

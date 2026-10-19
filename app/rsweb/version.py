@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.160.0"
+VERSION = "1.160.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.160.1", "2026-10-19", "BobNet: the live feed shows the system each poster is in, and Recent history includes "
+     "NPC posts."),
     ("1.160.0", "2026-10-19", "Season changes: a new season number in /overview pauses automations until you resume them "
      "(banner, Dashboard › Story, or pause by hand); a copy of devices, fleets, loadouts, orders and star positions is "
      "kept every 6 hours and frozen while paused."),
