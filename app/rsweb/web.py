@@ -2038,6 +2038,7 @@ async def relay_overlay(request: Request, st: dict, positions: dict) -> dict:
 async def map_relays(request: Request, user: str = Depends(current_user)):
     """Map › Relays: your relay networks (relaynet.py), relay requests on their way, and bridges between networks."""
     from . import relaynet
+    from . import relayroll as rr
     from . import ward_orders as wo
     st = await load_state(request)
     cat = await request.app.state.db.kv_get("stars", {}) or {}
@@ -2049,8 +2050,38 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
     orders = await request.app.state.db.kv_get(wo.kv_key("relay"), {}) or {}
     for b in br:
         b["ordered"] = [s for s in b["stars"] if s in orders]
+    roll = rr.state(await request.app.state.db.kv_get(rr.KV, {}))
+    up_next = rr.queue(roll["seeds"], pos, set(rn["nodes"]), set(orders) | set(roll["ordered"]), set(roll["skipped"]),
+                       float(roll["radius"]), bool(roll["chained"])) if roll["seeds"] else []
     return await page(request, user, "relays.html", "relays", nets=rn["networks"], nodes=rn["nodes"], bridges=br,
-                      orders=orders, max_new=relaynet.MAX_BRIDGE)
+                      orders=orders, max_new=relaynet.MAX_BRIDGE, roll=roll, up_next=up_next[:15], n_next=len(up_next),
+                      known=set(pos))
+
+
+@router.post("/map/relays/rollout", response_class=HTMLResponse)
+async def map_relays_rollout(request: Request, action: str = Form(...), seeds: str = Form(""), radius: float = Form(50),
+                             at_once: int = Form(3), chained: str = Form(""), user: str = Depends(current_user)):
+    """Relay rollout (relayroll.py): save its settings and start, pause, or retry the skipped systems."""
+    from . import relayroll as rr
+    db = request.app.state.db
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        roll = rr.state(await db.kv_get(rr.KV, {}))
+        if action in ("start", "save"):
+            roll.update(seeds=list(dict.fromkeys(x.strip().upper() for x in seeds.replace(",", " ").split() if x.strip())),
+                        radius=max(1.0, min(1000.0, radius)), at_once=max(1, min(10, at_once)), chained=bool(chained))
+        if action == "start":
+            if not roll["seeds"]:
+                return HTMLResponse('<span class="lv-alert small">Name at least one seed system.</span>')
+            roll.update(on=True, streak=0, by=user)
+        elif action == "stop":
+            roll["on"] = False   # open orders stay; cancel them on the Systems list if you like
+        elif action == "retry":
+            roll.update(skipped={}, streak=0)
+        await db.kv_set(rr.KV, roll)
+        if roll["on"]:
+            await eng.relay_rollout_pass()
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @router.get("/map/relays/{code}/network", response_class=HTMLResponse)

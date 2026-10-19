@@ -7641,3 +7641,51 @@ def test_bobnet_feed_shows_where_the_poster_is(client):
                                            current_star="ROSALIATE", channel="#general", message="Shop open"))
     page = client.get("/messages", headers=H).text
     assert '@ <a href="/systems/ROSALIATE">ROSALIATE</a></span>: Shop open' in page
+
+
+def test_relay_rollout_queue_goes_outward_and_chains():
+    """Owner 2026-10-19: deliver relays to all systems, nearest the designated systems first."""
+    from rsweb import relayroll as rr
+    pos = {s: {"x": x, "y": 0, "z": 0} for s, x in
+           {"S": 0, "A": 5, "B": 10, "C": 3, "FAR": 40, "D": -6, "OUT": 80}.items()}
+    q = rr.queue(["S"], pos, set(), set(), set(), 50, True)
+    assert [x["star"] for x in q] == ["S", "C", "A", "D", "B"]   # FAR: no relay within 7.5 ly of it; OUT: past 50 ly
+    assert q[1] == {"star": "C", "ly": 3.0, "seed": "S"}
+    assert [x["star"] for x in rr.queue(["S"], pos, {"S"}, {"C"}, {"D"}, 50, False)] == ["A", "B", "FAR"]
+    assert [x["star"] for x in rr.queue(["S"], pos, set(), set(), set(), 50, True, limit=2)] == ["S", "C"]
+    assert rr.queue(["NOWHERE"], pos, set(), set(), set(), 50, True) == []
+
+
+def test_relay_rollout_pass_keeps_orders_open_and_skips_failures(client):
+    from rsweb import relayroll as rr
+    from rsweb import ward_orders as wo
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    stars = [{"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in {"S": 0, "A": 4, "B": 8, "C": 10}.items()]
+    client.portal.call(db.kv_set, "stars", {"stars": stars})
+    devs = [{"device_code": "R1", "device_type": "ftl_relay", "location": "S-1-L4", "status": "relaying"}]
+
+    async def devices():
+        return devs
+
+    async def order(kind, star, user=""):
+        if star == "B":
+            return "no spare FTL relay and no autofactory within 100 ly of B"
+        orders = await db.kv_get(wo.kv_key("relay"), {}) or {}
+        orders[star] = {"at": "2026-10-19T00:00:00+00:00", "how": "print"}
+        await db.kv_set(wo.kv_key("relay"), orders)
+        return f"printing a relay for {star}"
+    eng.devices, eng.order_outpost = devices, order
+    r = client.post("/map/relays/rollout", headers=HX, data={"action": "start", "seeds": "s", "radius": "50",
+                                                              "at_once": "2", "chained": "1"})
+    assert r.status_code == 200
+    st = rr.state(client.portal.call(db.kv_get, rr.KV, {}))
+    assert st["on"] and st["seeds"] == ["S"] and sorted(st["ordered"]) == ["A", "C"] and "B" in st["skipped"]
+    # A's relay is up, C's order was dropped: both make room, and nothing is left, so the rollout ends
+    devs.append({"device_code": "R2", "device_type": "ftl_relay", "location": "A-1-L4", "status": "relaying"})
+    client.portal.call(db.kv_set, wo.kv_key("relay"), {})
+    client.portal.call(eng.relay_rollout_pass)
+    st = rr.state(client.portal.call(db.kv_get, rr.KV, {}))
+    assert st["done"] == 1 and sorted(st["skipped"]) == ["B", "C"] and not st["ordered"] and not st["on"]
+    page = client.get("/map/relays", headers=H).text
+    assert "Relay rollout" in page and "Retry skipped (2)" in page

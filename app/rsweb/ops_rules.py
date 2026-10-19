@@ -170,6 +170,61 @@ class OpsRules:
                 await self.db.kv_set(wo.kv_key(kind), orders)
         return out
 
+    async def relay_rollout_pass(self) -> list[str]:
+        """Relay rollout (relayroll.py): keep up to `at_once` relay orders open, nearest the seed systems first; a
+        finished order counts as done, a dropped one is skipped until retried."""
+        from . import relaynet
+        from . import relayroll as rr
+        from . import ward_orders as wo
+        from .shapes import normalize_blueprints
+        st = rr.state(await self.db.kv_get(rr.KV, {}))
+        if not st["on"] and not st["ordered"]:
+            return []
+        devices = await self.devices()
+        cat = await self.db.kv_get("stars", {}) or {}
+        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("position")}
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        have = set(relaynet.nodes(devices, pos, bps))
+        orders = await self.db.kv_get(wo.kv_key("relay"), {}) or {}
+        out: list[str] = []
+        for star in list(st["ordered"]):   # orders the rollout made that are over: up, or dropped
+            if star in orders:
+                continue
+            st["ordered"].pop(star)
+            if star in have:
+                st["done"] += 1
+            else:
+                st["skipped"][star] = "the order was dropped: nothing got there in time"
+                out.append(f"{star}: skipped (the relay order was dropped)")
+        while st["on"] and len(st["ordered"]) < max(1, int(st["at_once"])):
+            nxt = rr.queue(st["seeds"], pos, have, set(orders) | set(st["ordered"]), set(st["skipped"]),
+                           float(st["radius"]), bool(st["chained"]), limit=1)
+            if not nxt:
+                if not st["ordered"]:
+                    st["on"] = False
+                    await self.log("wards", f"relay rollout finished: {st['done']} relays up, {len(st['skipped'])} systems "
+                                   "skipped", notify=True)
+                break
+            star = nxt[0]["star"]
+            msg = await self.order_outpost("relay", star, st["by"] or "relay rollout")
+            orders = await self.db.kv_get(wo.kv_key("relay"), {}) or {}
+            if star in orders:
+                st["ordered"][star] = orders[star].get("at")
+                st["streak"] = 0
+                out.append(f"{star}: {msg}")
+                continue
+            st["skipped"][star] = msg
+            out.append(f"{star}: skipped ({msg})")
+            st["streak"] = st.get("streak", 0) + 1
+            if st["streak"] >= rr.MAX_STREAK:   # nothing works anywhere (no spare, no factory): stop rather than skip all
+                st["on"] = False
+                await self.log("wards", f"relay rollout paused: the last {st['streak']} systems couldn't get a relay "
+                               f"(last: {msg})", "alert", notify=True)
+            if len(out) >= rr.MAX_STREAK:
+                break
+        await self.db.kv_set(rr.KV, st)
+        return out
+
     async def _beacon_to_civ(self, star: str, civ: list[str], devices: list[dict], busy: set[str]) -> str | None:
         """A requested beacon has reached a system with a local civilization: a vessel there carries a beacon of yours
         to the civilization's body and deploys it (traffic.placement: deploy / carry / fetch). Never prints another."""

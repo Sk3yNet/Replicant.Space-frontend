@@ -43,4 +43,31 @@
           hx-target="next .rl-out" hx-confirm="Ask for a relay in {{ b.stars | join(', ') }}?">Add route</button>{% endif %}<span class="rl-out"></span></td></tr>{% endfor %}
   </table>{% endif %}
 </div>
+<div class="card">
+  <h2>Relay rollout</h2>
+  <p class="muted small">A relay in every system, nearest your seed systems first: up to <i>at a time</i> relay orders stay open
+    (as <i>add</i> on the Systems list: an idle one there is switched on, else a spare is sent, else one is printed in range),
+    and each one that's up or dropped makes room for the next. <i>Chained</i>: only a system within 7.5 ly of a working
+    relay or hub of yours, one on order, or a seed comes next, so the network grows outward in one piece. A system that
+    can't get one is skipped until you retry; after five in a row the rollout pauses.</p>
+  <form class="row small" hx-post="/map/relays/rollout" hx-target="next .rr-out">
+    <label>Seeds <input name="seeds" size="30" value="{{ roll.seeds | join(' ') }}" placeholder="e.g. SOL FALQUORYX"></label>
+    <label>within <input name="radius" type="number" min="1" max="1000" step="1" value="{{ roll.radius | int }}" style="width:5em"> ly</label>
+    <label>at a time <input name="at_once" type="number" min="1" max="10" value="{{ roll.at_once }}" style="width:3.5em"></label>
+    <label><input type="checkbox" name="chained" value="1" {{ 'checked' if roll.chained }}> chained</label>
+    {% if roll.on %}<button name="action" value="save">Save</button><button class="ghost" name="action" value="stop">Pause</button>
+    {% else %}<button name="action" value="start">Start</button><button class="ghost" name="action" value="save">Save</button>{% endif %}
+    {% if roll.skipped %}<button class="ghost" name="action" value="retry">Retry skipped ({{ roll.skipped | length }})</button>{% endif %}
+  </form><span class="rr-out"></span>
+  <p class="small">{% if roll.on %}<span class="lv-done">running</span>{% else %}<span class="muted">not running</span>{% endif %}
+    · {{ roll.done }} up · {{ roll.ordered | length }} on order · {{ n_next }} to go{% if roll.skipped %} · {{ roll.skipped | length }} skipped{% endif %}
+    {% for s in roll.seeds if s not in known %}<br><span class="lv-alert">{{ s }} isn't in the star catalog</span>{% endfor %}</p>
+  {% if roll.ordered %}<p class="small">On order: {% for s in roll.ordered %}<a href="/systems/{{ s }}">{{ s }}</a>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+  {% if up_next %}<table class="small"><tr><th>Next</th><th class="num">ly from seed</th><th>Seed</th></tr>
+    {% for x in up_next %}<tr><td><a href="/systems/{{ x.star }}">{{ x.star }}</a></td><td class="num">{{ x.ly }}</td><td>{{ x.seed }}</td></tr>{% endfor %}
+    {% if n_next > up_next | length %}<tr><td colspan="3" class="muted">… and {{ n_next - up_next | length }} more</td></tr>{% endif %}
+  </table>{% endif %}
+  {% if roll.skipped %}<details class="small"><summary>Skipped</summary>
+    {% for s, why in roll.skipped | dictsort %}<a href="/systems/{{ s }}">{{ s }}</a>: {{ why }}<br>{% endfor %}</details>{% endif %}
+</div>
 {% endblock %}
