@@ -1,0 +1,16 @@
+{% set se = ov.season or {} %}
+<div class="row between"><h2>Story{% if se.title %} <span class="muted small">season {{ se.number }}: {{ se.title }}{% if se.in_game_year %} · year {{ se.in_game_year }}{% endif %}</span>{% endif %}</h2>
+  <span><a class="small" href="https://replicant.space/docs/concepts/story/" target="_blank" rel="noopener">about seasons</a>
+  <button class="small ghost" hx-get="/partials/story?refresh=1" hx-target="#story" title="Read the game's overview now (otherwise every 30 minutes)">check now</button></span></div>
+{% if not ov %}<p class="muted small">Not read yet.</p>{% endif %}
+{% if se.tagline %}<p class="small muted" style="margin-top:0">{{ se.tagline }}</p>{% endif %}
+{% macro item(x) %}{% if x is mapping %}<b>{{ x.title or x.name or '' }}</b>{% if x.status %} <span class="pill small {{ 'st-move' if x.status == 'active' else '' }}">{{ x.status }}</span>{% endif %}
+  {% if x.location %} · <a href="/systems/{{ x.location.split('-')[0] }}">{{ x.location }}</a>{% endif %}
+  {% if x.deadline or x.ends_at or x.expires_at %} · <span class="muted">until {{ x.deadline or x.ends_at or x.expires_at }}</span>{% endif %}
+  {% if x.summary %}<div>{{ x.summary }}</div>{% endif %}{% if x.action %}<div class="muted">→ {{ x.action }}</div>{% endif %}
+{% else %}{{ x }}{% endif %}{% endmacro %}
+{% for key, label in [('events', 'Events'), ('storylines', 'Storylines'), ('opportunities', 'Opportunities')] %}{% if ov[key] %}
+<details class="small"{% if key != 'opportunities' %} open{% endif %}><summary><b>{{ label }}</b> ({{ ov[key] | length }})</summary>
+  {% for x in ov[key] %}<div style="margin:4px 0 6px">{{ item(x) }}</div>{% endfor %}</details>{% endif %}{% endfor %}
+{% if ov.npcs is mapping %}<details class="small"><summary><b>NPCs</b> ({{ ov.npcs | length }})</summary>
+  {% for name, d in ov.npcs.items() %}<div><b>{{ name }}</b>: {{ d }}</div>{% endfor %}</details>{% endif %}

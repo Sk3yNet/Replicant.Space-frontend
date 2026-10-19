@@ -773,6 +773,17 @@ class Worker:
             await self.db.kv_set("achievements", ach or {})
         except ApiError:
             pass
+        await self.sync_overview()
+
+    async def sync_overview(self) -> None:
+        """The game's story overview (GET /overview, no auth; docs 2026-10-19): season, storylines, time-limited events,
+        opportunities, NPCs. Shown on the Dashboard's Story card."""
+        try:
+            ov = await self.api.get("/overview", background=True)
+            if isinstance(ov, dict):
+                await self.db.kv_set("overview", ov)
+        except ApiError as e:
+            log.info("overview failed: %s", e)
 
     async def refresh_system(self, star: str) -> dict:
         data = await self.api.get(f"/locations/{star}")

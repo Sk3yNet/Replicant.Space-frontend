@@ -7625,3 +7625,11 @@ def test_a_drone_aboard_a_carrier_at_the_destination_has_arrived(client):
     client.portal.call(db.kv_set, "devices", devs)
     st = {"wait": ["travel.arrived"], "match": {"destination": "SOL-4-L4"}, "wait_device": "SD000009"}
     assert client.portal.call(e._arrived_now, st, {})
+
+
+def test_dashboard_story_card_shows_the_game_overview(client):
+    client.portal.call(client.app.state.worker.sync_overview)
+    page = client.get("/partials/story", headers=H).text
+    assert "Alteration Protocol" in page and "The Shattering of Ethirel" in page and "/systems/ETHIREL" in page
+    assert "Terraforming the Colony Worlds" in page and "Riker" in page
+    assert 'id="story"' in client.get("/", headers=H).text

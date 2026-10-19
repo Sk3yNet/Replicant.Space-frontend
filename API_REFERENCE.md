@@ -187,6 +187,13 @@ Example response: `{"replicant_cooperation": "shared", "name": "Bob", "email": "
 - `GET /v1/replicants/{code}/reputation` and `GET /v1/species` — appear only in the Postman collection; shapes undocumented.
 - `POST /v1/feedback` — `{"type": "typo"|"bug"|"idea", "body": "..."}` → `{"status": "feedback_received"}`
 
+### GET /v1/overview — the season's story (no auth; docs 2026-10-19, /docs/concepts/story/)
+`{server_time, season {number, title, tagline, in_game_year}, storylines [{title, summary, status, action}],
+events [{title, summary, location, action}], opportunities [...], npcs {name: description}}` (shape of opportunities not
+shown). Seasons run a fixed real-world window, then a time skip: devices aren't lost but may move (you may move), location
+events end and asteroids drift away, AMI directives pause, most device activity stops and resolves. Season 3 (v3.5.3):
+Alteration Protocol (terraforming, the Exodus Ark to twelve locations, the Delta wormhole).
+
 ### Webhook
 - `POST /v1/accounts/webhook` `{"url": "https://..."}` → `{"status": "webhook_registered", "verified_at": "...", "webhook_secret": "whsec_..."}`
 - `GET /v1/accounts/webhook` → `{"url": "...", "verified_at": "..."}`

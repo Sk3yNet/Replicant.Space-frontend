@@ -907,6 +907,16 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                                    "scanned": True, "tags": ["rocky"]}, "devices": [], "inventory": [], "resource_sites": []})
         return ok({"error": "No scan data for this system; you need presence or a relay"}, 403)
 
+    @app.get("/v1/overview")
+    async def overview():   # the docs' example (2026-10-19)
+        return ok({"server_time": iso(), "season": {"number": 3, "title": "Alteration Protocol",
+                                                     "tagline": "The Exodus Ark departs to distribute humanity...", "in_game_year": 2160},
+                   "storylines": [{"title": "Terraforming the Colony Worlds", "summary": "Humanity is living on space stations...",
+                                   "status": "active", "action": "Conduct terraforming training at a simulation interface..."}],
+                   "events": [{"title": "The Shattering of Ethirel", "summary": "The Drafel are blowing up a moon...",
+                               "location": "ETHIREL-2", "action": "Print or purchase a vector charge and deliver it..."}],
+                   "opportunities": [], "npcs": {"Riker": "Earth's caretaker...", "Bill": "Chief engineer at the Skunkworks..."}})
+
     @app.get("/v1/stars")
     async def stars():
         return ok({"total": len(STARS), "generated_at": iso(), "stars": STARS})

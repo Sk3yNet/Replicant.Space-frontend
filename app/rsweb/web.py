@@ -484,6 +484,14 @@ async def p_news(request: Request, refresh: str = "", user: str = Depends(curren
     return partial(request, "partials/news.html", n=await request.app.state.db.kv_get(news.KV, {}) or {})
 
 
+@router.get("/partials/story", response_class=HTMLResponse)
+async def p_story(request: Request, refresh: str = "", user: str = Depends(current_user)):
+    """The season's story (GET /overview, synced with the star catalog every 30 minutes)."""
+    if refresh:
+        await request.app.state.worker.sync_overview()
+    return partial(request, "partials/story.html", ov=await request.app.state.db.kv_get("overview", {}) or {})
+
+
 @router.get("/partials/tutorials", response_class=HTMLResponse)
 async def p_tutorials(request: Request, refresh: str = "", user: str = Depends(current_user)):
     return partial(request, "partials/tutorials.html", tut=await tutorials_status(request, force=bool(refresh)))
