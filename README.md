@@ -58,7 +58,7 @@ rule with an on/off switch, plus the jobs and the log.
   in a trade or to a contract, consumed by a print, contributed to a megastructure, held in a trade's escrow).
 
 ### Maps
-- **Galaxy**: (every layer and each kind of star marker — mine, scanned, hubs, replicants, new finds, prospected from, my wards, megastructures (violet hexagon), surveying — has its own checkbox under *layers*; your choices are remembered in this browser; *layers*, *legend* and *info* fold away to leave room for the map, and selecting a star opens *info* again) 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
+- **Galaxy**: (every layer and each kind of star marker — mine, scanned, hubs, replicants, new finds, prospected from, my wards, megastructures (violet hexagon), surveying — has its own checkbox under *layers*; your choices are remembered in this browser; *layers*, *legend* and *info* fold away to leave room for the map, and selecting a star opens *info* again; each marker has its own shape: a pink diamond above the star for a replicant, a blue square to its left for your devices, a gold three-spoke node upper left for a hub, a yellow starburst below for a new find, a green dotted ring when scanned, cyan corner brackets when prospected from; markers, mining sparkles and names shrink and fade with distance from the view's center, gone by 30 ly, and where names crowd, replicants, hubs and your systems keep theirs) 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
   rest of the catalog after), live: ships in transit, fleets,
   supply lines, mining sparkles and **prospecting cones** (each observatory scan: a wave running out to its reach) redraw as events
   arrive. Relay/hub range, search, distances, route preview; right-click (on touch: long-press) two stars to measure. **Other players** (coral):
@@ -112,7 +112,7 @@ rule with an on/off switch, plus the jobs and the log.
   Runs in the game lists every run the game has going: End early on any of yours, and devices / galaxy links that open the
   normal Devices page and Galaxy map on that run's own data (`?sim=<run>`: its devices, stock and the virtual stars
   around its replicant, read live through it and cached for a minute). A run's clock runs faster than real time, so when one of its
-  jobs finishes the next step starts at once rather than on the next engine tick. On a run's galaxy map the star rings
+  jobs finishes the next step starts at once rather than on the next engine tick. On a run's galaxy map the star markers
   shrink to fit its tighter star spacing.
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
 - **Systems list**: nearest first, by **distance** from the system picked under *distances from* (the same choices as Mining prospects; default: where most of your devices are); per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &

@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.160.1"
+VERSION = "1.161.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.161.0", "2026-10-19", "Galaxy map: markers get their own shapes (replicant diamond, devices square, hub node, "
+     "new-find starburst, scanned dotted ring, prospected brackets) instead of nested rings; markers, mining sparkles "
+     "and names shrink and fade with distance from the view's center; crowded star names keep the most important one."),
     ("1.160.1", "2026-10-19", "BobNet: the live feed shows the system each poster is in, and Recent history includes "
      "NPC posts."),
     ("1.160.0", "2026-10-19", "Season changes: a new season number in /overview pauses automations until you resume them "

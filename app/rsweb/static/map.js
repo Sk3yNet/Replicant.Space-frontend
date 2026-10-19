@@ -33,19 +33,22 @@ if (!OPTS.dataUrl) {
     });
   });
 }
-// star markers by kind, each with its own checkbox (opt-mark-<kind>)
+// star markers by kind, each with its own checkbox (opt-mark-<kind>) and its own shape. Scanned and prospected frame
+// the star (a dotted ring, corner brackets); the others are badges at a fixed spot around it, so you learn where to
+// look: replicant above, devices left, hub upper left, a new find below (the right is the name's). dx/dy: the badge's offset on screen, in ly.
 const MARKS = { devices: 0x6cb6ff, scanned: 0x4fd18b, hub: 0xf0b64f, replicant: 0xff5fa2, found: 0xfff27a, prospected: 0x7fe3ff };
-const MARK_ORDER = ["scanned", "devices", "hub", "found", "replicant", "prospected"];   // innermost first
-const markOn = kind => checked("opt-mark-" + kind, true);
-// Each kind of ring has one size on every star: its place among the kinds switched on (innermost first), so the
-// rings stay nested and evenly spaced however many are shown.
-// Rings are sized in light-years. A simulation's virtual galaxy packs its stars far tighter than the real one, so
-// there every ring shrinks with the stars' spacing (ringScale, set when the stars are drawn).
+const BADGE = 0.9, BADGE_AT = 1.7;
+const MARK_SHAPE = {
+  scanned:    { size: 2.2 },
+  prospected: { size: 3.2 },
+  replicant:  { size: BADGE, dx: 0, dy: BADGE_AT },
+  devices:    { size: BADGE, dx: -BADGE_AT, dy: 0 },
+  hub:        { size: BADGE, dx: -BADGE_AT * .75, dy: BADGE_AT * .75 },
+  found:      { size: BADGE, dx: 0, dy: -BADGE_AT },
+};
+// Markers are sized in light-years. A simulation's virtual galaxy packs its stars far tighter than the real one, so
+// there every marker shrinks with the stars' spacing (ringScale, set when the stars are drawn).
 let ringScale = 1;
-function markSize(kind) {
-  const on = MARK_ORDER.filter(markOn);
-  return (2.2 + 0.8 * Math.max(0, on.indexOf(kind))) * ringScale;
-}
 // median distance from a star to its nearest neighbor (a sample of up to 200 stars), in light-years
 function spacing(stars) {
   if (stars.length < 2) return Infinity;
@@ -62,19 +65,22 @@ function spacing(stars) {
 const starSize = s => 1.3 * (s.radius ? Math.min(2.3, Math.max(0.6, Math.pow(s.radius, 0.35))) : 1);
 const WAVE_S = 2.4;          // seconds per survey wave
 const waves = [];            // survey-wave sprites (rebuilt with the markers)
-function waveEdge() {        // the outermost ring switched on: where a wave fades out
-  const on = MARK_ORDER.filter(markOn);
-  return ((on.length ? 2.2 + 0.8 * (on.length - 1) : 2.2) + 0.6) * ringScale;
+const waveEdge = () => (MARK_SHAPE.prospected.size + 0.6) * ringScale;   // where a survey wave fades out
+// Markers shrink (to MARK_MIN) and fade with distance from the point the view is centered on, gone by FADE_FAR:
+// placed again whenever the camera moves or a marker checkbox changes.
+const MARK_MIN = 0.4;
+function placeMarks() {
+  for (const sp of mineGroup.children) {
+    const u = sp.userData;
+    if (!u.mark) continue;
+    const f = fadeAt(sp.position, ringScale), k = MARK_MIN + (1 - MARK_MIN) * f;
+    u.k = k; u.f = f;
+    sp.visible = checked("opt-mark-" + u.mark, true) && f > 0.01;
+    sp.material.opacity = u.op * f;
+    if (u.size) sp.scale.set(u.size * k, u.size * k, 1);
+  }
 }
-function resizeMarks() {
-  mineGroup.children.forEach(sp => {
-    const k = sp.userData.mark;
-    if (!k) return;
-    if (k === "ward" || k === "survey" || k === "mega") { sp.visible = checked("opt-mark-" + k, true); return; }
-    sp.visible = markOn(k);
-    const sz = markSize(k); sp.scale.set(sz, sz, 1);
-  });
-}
+function resizeMarks() { lastCamKey = ""; }   // the next frame places them
 const el = $("map");
 const info = $("map-info") || document.createElement("div");
 const openInfo = () => { if ($("map-panel")) $("map-panel").open = true; };   // a selected star or a measurement shows itself
@@ -150,6 +156,46 @@ const ringTex = (() => {
   g.beginPath(); g.arc(64, 64, 56, 0, Math.PI * 2); g.stroke();
   return new THREE.CanvasTexture(c);
 })();
+// marker shapes (MARK_SHAPE), drawn white on a 64 px canvas and tinted by the sprite's color
+function shapeTex(draw) {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d");
+  g.strokeStyle = g.fillStyle = "rgba(255,255,255,1)"; g.lineJoin = g.lineCap = "round";
+  draw(g);
+  return new THREE.CanvasTexture(c);
+}
+const MARK_TEX = {
+  replicant: shapeTex(g => {   // a filled diamond: the one that matters most
+    g.beginPath(); g.moveTo(32, 4); g.lineTo(56, 32); g.lineTo(32, 60); g.lineTo(8, 32); g.closePath(); g.fill();
+  }),
+  devices: shapeTex(g => {     // a box of hardware
+    g.fillRect(12, 12, 40, 40);
+  }),
+  hub: shapeTex(g => {         // a network node: three spokes with a dot on each end
+    g.lineWidth = 5;
+    for (let i = 0; i < 3; i++) {
+      const a = -Math.PI / 2 + i * 2 * Math.PI / 3, x = 32 + 22 * Math.cos(a), y = 34 + 22 * Math.sin(a);
+      g.beginPath(); g.moveTo(32, 34); g.lineTo(x, y); g.stroke();
+      g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fill();
+    }
+    g.beginPath(); g.arc(32, 34, 7, 0, Math.PI * 2); g.fill();
+  }),
+  found: shapeTex(g => {       // a starburst: something new
+    g.beginPath();
+    for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8, r = i % 2 ? 12 : 30; g.lineTo(32 + r * Math.cos(a), 32 + r * Math.sin(a)); }
+    g.closePath(); g.fill();
+  }),
+  scanned: shapeTex(g => {     // a dotted ring: a scan sweep
+    g.lineWidth = 3; g.setLineDash([5, 5]);
+    g.beginPath(); g.arc(32, 32, 28, 0, Math.PI * 2); g.stroke();
+  }),
+  prospected: shapeTex(g => {  // corner brackets: a target the observatory looked from
+    g.lineWidth = 3;
+    for (const [x, y, sx, sy] of [[4, 4, 1, 1], [60, 4, -1, 1], [4, 60, 1, -1], [60, 60, -1, -1]]) {
+      g.beginPath(); g.moveTo(x, y + sy * 14); g.lineTo(x, y); g.lineTo(x + sx * 14, y); g.stroke();
+    }
+  }),
+};
 
 // four-point sparkle, so production reads differently from the (round) stars
 const sparkTex = (() => {
@@ -259,20 +305,23 @@ function build() {
     if (s.my_ward) {   // your own working ward: the same shield as other players' wards, in your color
       const sh = new THREE.Sprite(new THREE.SpriteMaterial({ map: shieldTex, color: 0x6cb6ff, transparent: true, depthWrite: false }));
       sh.scale.set(1.4 * ringScale, 1.4 * ringScale, 1); sh.position.copy(v).add(new THREE.Vector3(0, 0, 2.2 * ringScale)); sh.userData.mark = "ward";
-      sh.visible = checked("opt-mark-ward", true); mineGroup.add(sh);
+      sh.userData.op = 1; sh.userData.size = 1.4 * ringScale; mineGroup.add(sh);
     }
     if (s.mega) {   // a megastructure in the system: a violet hexagon below the star
       const mg = new THREE.Sprite(new THREE.SpriteMaterial({ map: megaTex, color: 0xc792ff, transparent: true, depthWrite: false }));
       mg.scale.set(1.6 * ringScale, 1.6 * ringScale, 1); mg.position.copy(v).add(new THREE.Vector3(0, 0, -2.2 * ringScale)); mg.userData.mark = "mega";
-      mg.visible = checked("opt-mark-mega", true); mineGroup.add(mg);
+      mg.userData.op = 1; mg.userData.size = 1.6 * ringScale; mineGroup.add(mg);
     }
     if (s.surveying) {   // being surveyed: a wave running out from the star to the edge of its rings (animate)
       const w = ring(0x4fd18b); w.position.copy(v); w.userData.wave = Math.random() * WAVE_S; w.userData.mark = "survey";
-      w.visible = checked("opt-mark-survey", true); mineGroup.add(w); waves.push(w);
+      w.userData.op = 1; mineGroup.add(w); waves.push(w);   // no size: animate grows it
     }
     for (const kind of marks) {
-      const sz = markSize(kind);
-      const sp = ring(MARKS[kind]); sp.scale.set(sz, sz, 1); sp.position.copy(v); sp.userData.mark = kind; sp.visible = markOn(kind);
+      const m = MARK_SHAPE[kind], badge = m.dx !== undefined;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: MARK_TEX[kind], color: MARKS[kind], transparent: true, depthWrite: false }));
+      sp.position.copy(v);
+      if (badge) sp.center.set(0.5 - m.dx / m.size, 0.5 - m.dy / m.size);   // offset on screen, whatever the view angle
+      Object.assign(sp.userData, { mark: kind, size: m.size * ringScale, op: badge ? .95 : .6 });
       mineGroup.add(sp);
     }
     RES_ORDER.forEach((res, k) => {
@@ -292,11 +341,13 @@ function build() {
     if (s.devices > 0 || hasRep || s.has_hub || fresh) {
       const d = document.createElement("div");
       d.className = "small"; d.textContent = s.designation;
-      Object.assign(d.style, { position: "absolute", color: hasRep ? "#ff9fc8" : fresh && !s.devices ? "#fff27a" : "#9fb3d1", pointerEvents: "none", fontFamily: "monospace", fontSize: "11px" });
-      el.appendChild(d); labels.push({ el: d, v });
+      const prio = hasRep ? 0 : s.has_hub || marks.includes("hub") ? 1 : s.devices > 0 ? 2 : 3;   // who keeps a crowded spot
+      Object.assign(d.style, { position: "absolute", color: hasRep ? "#ff9fc8" : fresh && !s.devices ? "#fff27a" : "#9fb3d1", pointerEvents: "none", fontFamily: "monospace", fontSize: "11px", display: "none" });
+      el.appendChild(d); labels.push({ el: d, v, prio });
     }
   }
   coverGroup.visible = checked("opt-cover", OPTS.cover !== false);
+  placeMarks();
 }
 
 // fleets: a ring at each system with fleet members, a label with what the fleet is doing, and a dashed line to the
@@ -328,12 +379,12 @@ function buildFleets() {
     const counts = [f.working && `${f.working} working`, f.moving && `${f.moving} moving`, f.idle && `${f.idle} idle`].filter(Boolean).join(", ");
     const d = document.createElement("div");
     d.innerHTML = `${ROLE_ICON[f.role] || "⚑"} <b>${esc(f.name)}</b> · ${esc(doing)}${to ? ` → ${esc(to.designation)}` : ""}` +
-      (counts ? `<span style="opacity:.65"> · ${counts}</span>` : "");
+      (counts ? `<span class="fl-more" style="opacity:.65"> · ${counts}</span>` : "");
     if (f.note) d.title = f.note;
     Object.assign(d.style, { position: "absolute", color: f.state === "stalled" ? "#ffb74d" : "#8ee8e3", pointerEvents: "none",
                              fontFamily: "monospace", fontSize: "11px", whiteSpace: "nowrap", textShadow: "0 1px 2px #000" });
     el.appendChild(d);
-    fleetLabels.push({ el: d, v: pos(at), dy: 8 + n * 14 });
+    fleetLabels.push({ el: d, v: pos(at), dy: 8 + n * 14, more: d.querySelector(".fl-more") });
   }
 }
 
@@ -473,8 +524,8 @@ const shieldTex = (() => {
   return new THREE.CanvasTexture(c);
 })();
 const faders = [];   // {v, mats: [[material, base opacity]], el, born (ms, arrows only)}
-function fadeAt(v) {
-  const d = v.distanceTo(controls.target);
+function fadeAt(v, scale = 1) {   // scale: ringScale for your own markers, so a simulation's tight galaxy fades in step
+  const d = v.distanceTo(controls.target) / scale;
   return Math.max(0, Math.min(1, (FADE_FAR - d) / (FADE_FAR - FADE_NEAR)));
 }
 function label(text, color, title) {
@@ -749,6 +800,30 @@ function stackLabel(e, x, y) {
   stacked.push({ x, y, w: wd });
   e.style.left = x + "px"; e.style.top = y + "px";
 }
+// Star names: fade with distance like the markers, and where they'd overlap, the more important one keeps the spot
+// (replicant, then hub, then devices, then new finds; nearer the view's center first) and the other is hidden.
+let placedStars = [];   // {x, y, w} of the star names shown
+function placeStarLabels(showLabels, w, h) {
+  placedStars = [];
+  const cand = [];
+  for (const l of labels) {
+    tmp.copy(l.v).project(camera);
+    const f = showLabels ? fadeAt(l.v, ringScale) : 0;
+    if (f > 0.05 && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1)
+      cand.push({ l, f, x: (tmp.x + 1) / 2 * w + 8, y: (1 - tmp.y) / 2 * h - 6 });
+    else if (l.vis) { l.el.style.display = "none"; l.vis = false; }
+  }
+  cand.sort((a, b) => a.l.prio - b.l.prio || b.f - a.f);
+  for (const { l, f, x, y } of cand) {
+    const wd = l.w || 8 + 7 * l.el.textContent.length;   // measured once it has been shown
+    const clash = placedStars.some(p => x < p.x + p.w && p.x < x + wd && Math.abs(p.y - y) < 12);
+    if (clash) { if (l.vis) { l.el.style.display = "none"; l.vis = false; } continue; }
+    if (!l.vis) { l.el.style.display = "block"; l.vis = true; }
+    l.el.style.left = x + "px"; l.el.style.top = y + "px"; l.el.style.opacity = f;
+    if (!l.w) l.w = l.el.offsetWidth || wd;
+    placedStars.push({ x, y, w: l.w });
+  }
+}
 // the wallpaper runs all day: cap it at 30 fps (the Galaxy page renders at full rate)
 const minFrame = OPTS.dataUrl || TOUCH ? 1000 / 30 : 0;   // phones too: 30 fps is smooth enough and keeps them cool
 let lastFrame = 0;
@@ -761,32 +836,33 @@ function animate(t = 0) {
     const edge = waveEdge(), ts = t / 1000;
     for (const w of waves) {
       const ph = ((ts + w.userData.wave) % WAVE_S) / WAVE_S;
-      const sz = 0.4 + ph * (edge - 0.4); w.scale.set(sz, sz, 1); w.material.opacity = 0.85 * (1 - ph);
+      const sz = (0.4 + ph * (edge - 0.4)) * (w.userData.k ?? 1); w.scale.set(sz, sz, 1);
+      w.material.opacity = 0.85 * (1 - ph) * (w.userData.f ?? 1);
     }
   }
   renderer.render(scene, camera);
   const w = el.clientWidth, h = el.clientHeight;
   const readable = h / (2 * camera.position.distanceTo(controls.target) * HALF_FOV) >= TEXT_MIN_PX;
   const showLabels = checked("opt-labels", OPTS.labels !== false) && readable;
-  stacked = [];
-  // star labels only move with the camera: skip them on frames where it stood still (dozens of DOM writes a frame
-  // otherwise, which a phone feels)
+  // star labels and markers only move with the camera: skip them on frames where it stood still (dozens of DOM
+  // writes a frame otherwise, which a phone feels)
   const camKey = camera.matrixWorld.elements.join(",") + w + "x" + h + showLabels + labels.length;
   if (camKey !== lastCamKey) {
     lastCamKey = camKey;
-    for (const l of labels) {
-      tmp.copy(l.v).project(camera);
-      const vis = showLabels && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
-      if (vis !== l.vis) { l.el.style.display = vis ? "block" : "none"; l.vis = vis; }
-      if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6) + "px"; }
-    }
+    placeMarks();
+    placeStarLabels(showLabels, w, h);
   }
+  stacked = placedStars.slice();   // other labels stack below the star names rather than on top of them
   fleetGroup.visible = checked("opt-fleets", OPTS.fleets !== false);
   for (const l of fleetLabels) {
     tmp.copy(l.v).project(camera);
-    const vis = fleetGroup.visible && readable && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
+    const f = fadeAt(l.v, ringScale);
+    const vis = fleetGroup.visible && readable && f > 0.05 && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
     l.el.style.display = vis ? "block" : "none";
-    if (vis) { l.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; l.el.style.top = ((1 - tmp.y) / 2 * h - 6 + l.dy) + "px"; }
+    if (!vis) continue;
+    l.el.style.opacity = f;
+    if (l.more) l.more.style.display = f > 0.6 ? "" : "none";   // further out: just the name and what it's doing
+    stackLabel(l.el, (tmp.x + 1) / 2 * w + 8, (1 - tmp.y) / 2 * h - 6 + l.dy);
   }
   sparkGroup.visible = checked("opt-production", OPTS.production !== false);
   if (sparkGroup.visible) {
@@ -794,7 +870,9 @@ function animate(t = 0) {
     for (const x of sparkles) {
       const a = x.a0 + ts * x.w;
       x.sp.position.set(x.c.x + Math.cos(a) * x.r, x.c.y + Math.sin(a) * x.r, x.c.z + Math.sin(a) * x.r * x.tilt);
-      x.sp.material.opacity = .55 + .45 * Math.sin(ts * 2.3 + x.a0 * 3);   // twinkle
+      const f = fadeAt(x.c, ringScale), k = MARK_MIN + (1 - MARK_MIN) * f;   // fades with distance like the markers
+      x.sp.visible = f > 0.01; x.sp.scale.set(.7 * k, .7 * k, 1);
+      x.sp.material.opacity = (.55 + .45 * Math.sin(ts * 2.3 + x.a0 * 3)) * f;   // twinkle
       x.sp.material.rotation = ts * .6 + x.a0;
     }
   }
