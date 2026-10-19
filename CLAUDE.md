@@ -108,6 +108,9 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   drift away, AMI directives pause. Season 3 (from v3.5.3) is Alteration Protocol.
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
+- Owner's plan (2026-10-19): relays go first (Relay rollout; any logistics vessel with a replicant may escort relays
+  beyond the network); mining stays inside the network, and no automatic assignment goes outside it; survey fleets
+  work at the edge. The owner reassigns replicants and attaches matrices by hand: don't automate those.
 - Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the
   job.
 

@@ -5335,7 +5335,8 @@ def test_auto_scout_surveys_nearest_first_until_worn(client, monkeypatch):
     devices.append({"device_code": "TIRED", "device_type": "survey_drone", "location": "SOL-3", "status": "idle",
                     "operational_capacity": 0.8, "tags": ["fleet:x1"]})
     devices[-1:-1] = [{"device_code": f"RL{s}", "device_type": "ftl_relay", "location": f"{s}-1-L4", "status": "relaying"}
-                      for s in ("NEARA", "NEARB")]   # a relay commands its own system only: scouts go where one is
+                      for s in ("SOL", "NEARA", "NEARB")]   # a relay commands its own system only: scouts go where one is
+    # (SOL's joins them to the replicant there: a network commands only with a replicant in it)
     client.portal.call(db.kv_set, "devices", devices)
     assert client.portal.call(eng.auto_scout_pass) == []                      # 80 %: not until everything is at 85 %
     assert "below 85 %" in next(x for x in client.portal.call(eng.fleets) if x["id"] == "x1")["scout_note"]
@@ -5555,6 +5556,10 @@ def test_pathing_choose_never_picks_an_excluded_system():
     assert pa.choose(fleet, fleets, rows, xyz, relay, None, 60)[0] == "BEST_BEHIND"     # no heading: best anywhere served
     none, reasons = pa.choose(fleet, fleets, [r for r in rows if r["star"] != "GOOD"], xyz, relay, heading, 60)
     assert none is None and any("held by another fleet" in r for r in reasons) and any("outside relay" in r for r in reasons)
+    # owner 2026-10-19: no automatic assignments outside the network — a relay without a replicant on its network
+    # doesn't count, only the commandable systems do
+    assert pa.choose(fleet, fleets, rows, xyz, relay, heading, 60, reach={"HOME", "BEST_BEHIND"})[0] is None
+    assert pa.choose(fleet, fleets, rows, xyz, relay, None, 60, reach={"HOME", "GOOD"})[0] == "GOOD"
     assert pa.dry("HOME", [], [], {"HOME": "x"}, set(), []) and not pa.dry("HOME", [], [], {}, set(), ["HOME-BELT-1"])
     assert pa.dry("HOME", [], [{"star": "HOME", "verdict": "consider moving"}], {}, set(), ["HOME-BELT-1"])
     assert pa.heading_from("outward", (3, 4, 0)) == [0.6, 0.8, 0.0]
@@ -7733,3 +7738,12 @@ def test_loadout_carrier_room_counts_what_the_game_lists_aboard():
     c2 = {"device_code": "V", "device_type": "cargo_vessel", "stow_capacity": 10, "attach_capacity": 2,
           "attached_devices": [{"device_code": "H1"}], "stowed_devices": [{"device_code": "S1"}]}
     assert lo._free(c2, {}, {}) == 9                          # a hold: only what's stowed takes its seats
+
+
+def test_salvage_counts_as_richness_for_a_next_home():
+    """Owner 2026-10-19: salvage is a possible target for mining operations."""
+    from rsweb import prospects as pr
+    bare = pr.score("S", {"planets": []}, {}, [], 2.0, True)
+    salvage = pr.score("S", {"planets": []}, {"salvageable": 5000}, [], 2.0, True)
+    assert salvage["parts"]["richness"] == 20 and salvage["score"] > bare["score"] + 15
+    assert any("salvage" in r for r in salvage["reasons"])

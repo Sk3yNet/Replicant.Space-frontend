@@ -26,6 +26,8 @@ VERDICT = {"ok": 15, "watch": 8, "consider moving": 3}   # anything else (learni
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 
 
+SALVAGE_FULL = 5000   # this much salvage counts like a middling belt (richness 20 of 40)
+
 def star_of(loc: str | None) -> str:
     return (loc or "").split("-")[0]
 
@@ -92,6 +94,9 @@ def score(star: str, scan: dict | None, res: dict | None, viability: list[dict],
         out["reasons"].append(f"{open_sites} open site(s)" + (f", {int(mineable):,} known" if mineable else ""))
     if salvageable:
         out["reasons"].append(f"{int(salvageable):,} salvage")
+        # salvage is mining work too (owner 2026-10-19): a system with plenty of it ranks like a middling belt, so a
+        # salvage-only system can be a fleet's next home
+        parts["richness"] = max(parts["richness"], round(40 * 0.5 * min(1.0, salvageable / SALVAGE_FULL), 1))
     # staying power: belt viability verdicts (unknown counts as middling)
     verdicts = [v.get("verdict") for v in viability if star_of(v.get("belt")) == star]
     parts["staying"] = float(max((VERDICT.get(v, 8) for v in verdicts), default=8))

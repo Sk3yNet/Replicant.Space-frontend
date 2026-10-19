@@ -11,8 +11,9 @@ Per fleet (Fleets page, stationed mining fleets):
                    then moves the fleet there, as when the home is changed by hand
     next_home, next_home_at, depleted_since, path_note — state
 
-A system is never chosen when it is: unscanned (no score), outside our relay coverage ("unserved": no relay or hub of
-ours in the system), another fleet's home, another mining fleet's planned next home or mission target,
+A system is never chosen when it is: unscanned (no score), outside our relay coverage (not commandable: no relay or hub
+of an active network there — one with a replicant in it — and no replicant; owner 2026-10-19: no automatic
+assignments outside the network), another fleet's home, another mining fleet's planned next home or mission target,
 warded by another player, or the fleet's own home.
 """
 from __future__ import annotations
@@ -132,9 +133,10 @@ def dry(home: str, devices: list[dict], viability: list[dict], nothing: dict, wa
 
 
 def choose(fleet: dict, fleets: list[dict], rows: list[dict], xyz_of: dict[str, tuple], devices: list[dict],
-           heading: list[float] | None, cone: float) -> tuple[str | None, list[str]]:
+           heading: list[float] | None, cone: float, reach: set[str] | None = None) -> tuple[str | None, list[str]]:
     """The best next home for the fleet: (star, why) or (None, reasons nothing qualified). `rows` are prospects.rank()
-    rows from the fleet's home (best first)."""
+    rows from the fleet's home (best first). `reach`: the systems that can be commanded (an active relay network or a
+    replicant there); without it, any system with a relay or hub of ours counts."""
     home = fleet.get("home") or ""
     hold = taken(fleet, fleets)
     skipped: dict[str, int] = {}
@@ -146,7 +148,8 @@ def choose(fleet: dict, fleets: list[dict], rows: list[dict], xyz_of: dict[str, 
                "warded" if r.get("status") == "warded" else
                "held by another fleet" if star in hold else
                "behind the heading" if heading and _off(xyz_of.get(home), xyz_of.get(star), heading) > cone else
-               "outside relay coverage" if not served(star, xyz_of, devices) else None)
+               "outside relay coverage" if not (star in reach if reach is not None else served(star, xyz_of, devices))
+               else None)
         if why:
             skipped[why] = skipped.get(why, 0) + 1
             continue

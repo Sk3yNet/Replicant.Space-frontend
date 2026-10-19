@@ -183,7 +183,9 @@ lines or a template).
   drones come back) before it boards. No automation sends a drone or AMI controller on an in-system cruise longer than the
   max cruise (Fleets › settings); a manual Travel that long asks first (surge-capable devices excepted). Every
   automated trip logs its expected arrival; a step refused while something is still on its way waits for that ETA.
-- **Path forward** (stationed mining fleets): a heading; when the home runs dry the fleet picks the best system ahead and moves.
+- **Path forward** (stationed mining fleets): a heading; when the home runs dry the fleet picks the best system ahead and moves. Only
+  systems it can command count (an active relay network there, or a replicant): no automatic assignment goes outside the
+  network. Salvage counts like a belt when ranking systems (5,000 salvage ranks like a middling belt), so a salvage-only system can be next.
 - **Observatories** prospect wherever they're deployed — the heading (else outward from Sol), then 13 other directions — and
   compact when every direction is used up or the fleet is leaving.
 - **Auto-scout** (explore fleets): surveys the nearest unsurveyed systems within 100 ly of home, ring by ring (only inside relay

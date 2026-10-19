@@ -1717,7 +1717,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             if (now - _ts(f["depleted_since"])).total_seconds() < float(f.get("dry_hours") or pa.DRY_FOR_HOURS) * 3600:
                 continue
             rows = (await pr.rank(self.db, self, devices, home, limit_unscanned=0))["rows"]
-            star, note = pa.choose(f, items, rows, xyz_of, devices, heading, cone)
+            star, note = pa.choose(f, items, rows, xyz_of, devices, heading, cone, await self.commandable(devices))
             if star:
                 f["next_home"] = star
                 f["next_home_at"] = (now + timedelta(minutes=float(f.get("grace_minutes") or pa.GRACE_MINUTES))).isoformat(timespec="seconds")
@@ -2157,9 +2157,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         heading = (f.get("heading") or {}).get("vector") or pr.base_heading(None, xyz_of.get(home))
         riding = bool(fl.fleet_replicant(f, devices, await self.db.kv_get("replicants", {}) or {}))
         skip = set(pa.taken(f, fleets)) | set(f.get("advanced_from") or [])
+        reach = await self.commandable(devices, {k: {"position": v} for k, v in pos.items()}) if not riding else set()
         nxt = pa.advance_target(home, xyz_of, heading, float(f.get("cone") or pa.DEFAULT_CONE),
                                 float(f.get("hop_ly") or 30), skip,
-                                (lambda s: True) if riding else (lambda s: pa.served(s, xyz_of, devices)))
+                                (lambda s: True) if riding else (lambda s: s in reach))
         if not nxt:
             note = (f"nothing ahead within {f.get('hop_ly') or 30:g} ly" + ("" if riding else " inside relay coverage")
                     + " — staying in " + home)
@@ -2221,6 +2222,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 for t in (g["mission"].get("targets") or [])}
         skip = busy | (fl.worked_systems(items) - {home}) | wards.foreign(cat, devices) | set(exclude)
         riding = bool(fl.fleet_replicant(f, devices, await self.db.kv_get("replicants", {}) or {}))
+        reach = await self.commandable(devices, {k: {"position": v} for k, v in pos.items()}) if not riding else set()
 
         def done(star: str) -> bool:
             if star not in scans:
@@ -2233,7 +2235,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         here_xyz = xyz_of.get(here or home) or xyz_of[home]
         cands = []
         for s, p in xyz_of.items():
-            if s in skip or done(s) or (not riding and not pa.served(s, xyz_of, devices)):
+            if s in skip or done(s) or (not riding and s not in reach):
                 continue
             dh, dc = math.dist(p, xyz_of[home]), math.dist(p, here_xyz)
             if dh > self.SCOUT_RADIUS_LY:
