@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.159.0"
+VERSION = "1.160.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.160.0", "2026-10-19", "Season changes: a new season number in /overview pauses automations until you resume them "
+     "(banner, Dashboard › Story, or pause by hand); a copy of devices, fleets, loadouts, orders and star positions is "
+     "kept every 6 hours and frozen while paused."),
     ("1.159.0", "2026-10-19", "Dashboard: a Story card from the game's new GET /overview (season, storylines, events "
      "with their location, opportunities, NPCs), read every 30 minutes."),
     ("1.158.1", "2026-10-19", "A component the game refuses to print (climate processors need a terraform monitor, "

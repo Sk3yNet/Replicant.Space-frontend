@@ -782,8 +782,23 @@ class Worker:
             ov = await self.api.get("/overview", background=True)
             if isinstance(ov, dict):
                 await self.db.kv_set("overview", ov)
+                await self.season_check(ov.get("season"))
         except ApiError as e:
             log.info("overview failed: %s", e)
+
+    async def season_check(self, now: dict | None) -> None:
+        """A new season number: hold the engine until you resume (season.py)."""
+        from . import season
+        if not isinstance(now, dict) or now.get("number") is None:
+            return
+        prev = await self.db.kv_get(season.SEASON_KV, None)
+        if season.changed(prev, now) and not await self.db.kv_get(season.HOLD_KV, None):
+            await self.db.kv_set(season.HOLD_KV, {"since": now_iso(), "from": prev, "to": now, "by": "season change"})
+            await self.automations.log("season", f"New season: {season.label(prev)} → {season.label(now)}. Automations "
+                                                 "are paused until you resume them (Dashboard › Story); the copy from "
+                                                 "before the change is kept.", "alert", notify=True)
+        if prev != now:
+            await self.db.kv_set(season.SEASON_KV, {k: now.get(k) for k in ("number", "title", "in_game_year")})
 
     async def refresh_system(self, star: str) -> dict:
         data = await self.api.get(f"/locations/{star}")

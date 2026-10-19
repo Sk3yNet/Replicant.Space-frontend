@@ -614,6 +614,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             plan = "; ".join(st["desc"] for st in steps)
             await self.log(rule, f"[dry run] {title}: {plan}")
             return None
+        if not force and await self.held():
+            await self.log(rule, f"[paused for the season change] not started: {title}")
+            return None
         from .modular import prepare_moves
         from .shapes import normalize_blueprints
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
@@ -622,7 +625,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         jobs = await self.jobs()
         job = {"id": f"{rule}-{int(_now().timestamp() * 1000)}-{len(jobs)}", "rule": rule, "title": title,
                "device": device, "steps": steps, "idx": 0, "status": "running", "created_at": now_iso(),
-               "meta": meta or {}}
+               "meta": meta or {}, "forced": force}
         from .version import RUN_ID, VERSION
         job["v"], job["run"] = VERSION, RUN_ID
         jobs.append(job)
@@ -663,8 +666,24 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 return True
         return False
 
+    async def held(self) -> bool:
+        """Paused for a season change (season.py) until you resume."""
+        from .season import HOLD_KV
+        return bool(await self.db.kv_get(HOLD_KV, None))
+
+    async def season_snapshot_pass(self) -> list[str]:
+        """The pre-change copy (season.py), every few hours; never while held, so it keeps the galaxy as it was."""
+        from . import season
+        snap = await self.db.kv_get(season.SNAP_KV, None) or {}
+        if (_ts(snap.get("at")) or _now() - timedelta(days=1)) > _now() - timedelta(hours=season.SNAP_HOURS):
+            return []
+        await self.db.kv_set(season.SNAP_KV, await season.snapshot(self.db))
+        return []
+
     async def _advance(self, job_id: str) -> None:
         job = await self._get(job_id)
+        if job and not job.get("forced") and await self.held():
+            return   # paused for a season change: picks up again when you resume
         while job and job["status"] in ("running", "waiting"):
             if job["idx"] >= len(job["steps"]):
                 job["status"] = "done"
@@ -1216,7 +1235,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             now = _now()
             self.stage = "jobs"
             await self.note_tick(started=now_iso())
+            held = await self.held()
             for job in await self.jobs():
+                if held and not job.get("forced"):
+                    continue
                 if job["status"] == "running":
                     await self._advance(job["id"])  # e.g. a rate-limited retry
                     continue
@@ -1261,7 +1283,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: '{st['desc']}' timed out, moving on", "alert")
                     await self._advance(job["id"])
-            for stage in ("evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            if held:   # paused for a season change: nothing else runs until you resume
+                self.stage = None
+                await self.note_tick()
+                return
+            for stage in ("season_snapshot_pass", "evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass"):

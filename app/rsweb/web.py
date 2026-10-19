@@ -214,6 +214,7 @@ async def base_ctx(request: Request, user: str, active: str, **kw) -> dict:
         "rate": st.api.rate_status(), "stream_state": st.worker.stream_state,
         "notif_unread": await notify.unread_errors(st.db),   # the badge counts errors only
         "configured": st.api.configured,
+        "season_hold": await st.db.kv_get("season_hold", None),
         **kw,
     }
 
@@ -489,7 +490,26 @@ async def p_story(request: Request, refresh: str = "", user: str = Depends(curre
     """The season's story (GET /overview, synced with the star catalog every 30 minutes)."""
     if refresh:
         await request.app.state.worker.sync_overview()
-    return partial(request, "partials/story.html", ov=await request.app.state.db.kv_get("overview", {}) or {})
+    from . import season
+    db = request.app.state.db
+    return partial(request, "partials/story.html", ov=await db.kv_get("overview", {}) or {},
+                   hold=await db.kv_get(season.HOLD_KV, None), snap=await db.kv_get(season.SNAP_KV, None),
+                   snap_summary=season.summary(await db.kv_get(season.SNAP_KV, None)))
+
+
+@router.post("/season/hold", response_class=HTMLResponse)
+async def season_hold(request: Request, action: str = Form("pause"), user: str = Depends(current_user)):
+    """Pause the engine for a season change, or resume it (only you lift a hold)."""
+    from . import season
+    db, eng = request.app.state.db, request.app.state.worker.automations
+    if action == "resume":
+        await db.kv_set(season.HOLD_KV, None)
+        await eng.log("season", f"automations resumed ({user})")
+    else:
+        await db.kv_set(season.SNAP_KV, await season.snapshot(db))   # a fresh copy of the galaxy as it is now
+        await db.kv_set(season.HOLD_KV, {"since": now_iso(), "by": user})
+        await eng.log("season", f"automations paused for the season change ({user})")
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @router.get("/partials/tutorials", response_class=HTMLResponse)

@@ -259,6 +259,12 @@ lines or a template).
 
 ### How automation works
 
+**Season changes**: a season ends in a time skip (devices may move, events end, AMI directives pause). When `/overview`
+reports a new season number, automations pause: no engine passes, no new automated jobs, and running jobs wait (ones you
+start yourself still run). A banner says so; only **Resume automations** lifts it. **Pause for the season change**
+(Dashboard › Story) does the same by hand. Every 6 hours a copy of device places and states, fleets, loadouts, ward /
+relay / beacon orders, contract deliveries, replicant places and star positions is kept; it's frozen while paused.
+
 **Long trips** (e.g. ~500 ly from the home sector to the Sol zone): a wait for an arrival lasts until the game's own ETA
 (+30 min) and is extended while the device is still moving (up to 48 h); a command the game refuses because something
 is still travelling is retried every 5 min (up to 3 h) while it's still heading where the job sent it. A canceled trip,

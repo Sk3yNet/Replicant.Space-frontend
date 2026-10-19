@@ -55,6 +55,8 @@
   {% if not configured %}
     <div class="banner">No Replicant Space API token configured. {% if TENANT_MODE %}Add yours on <a href="/_tenant/">Your server</a>.{% else %}Set <code>RS_API_TOKEN</code> in the Portainer stack and redeploy.{% endif %}</div>
   {% endif %}
+  {% if season_hold %}<div class="banner">Automations are paused for the season change{% if season_hold.to %} ({{ season_hold.from.title or season_hold.from.number }} → {{ season_hold.to.title or season_hold.to.number }}){% endif %} since {{ season_hold.since | ago }}.
+    Check your devices and fleets, then <button class="small" hx-post="/season/hold" hx-vals='{"action": "resume"}' hx-confirm="Resume all automations?">Resume automations</button></div>{% endif %}
   {% if sim_id %}<div class="banner">Simulation #{{ sim_id }}: the virtual galaxy seen through its replicant, apart from your real one ·
     <a href="/fleet?sim={{ sim_id }}">devices</a> · <a href="/map?sim={{ sim_id }}">galaxy</a> · <a href="/terraforming?sim={{ sim_id }}">terraforming</a> ·
     <a href="?sim={{ sim_id }}&refresh=1">refresh</a> · <a href="/simulations">back to Simulations</a></div>{% endif %}

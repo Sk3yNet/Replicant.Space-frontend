@@ -14,3 +14,9 @@
   {% for x in ov[key] %}<div style="margin:4px 0 6px">{{ item(x) }}</div>{% endfor %}</details>{% endif %}{% endfor %}
 {% if ov.npcs is mapping %}<details class="small"><summary><b>NPCs</b> ({{ ov.npcs | length }})</summary>
   {% for name, d in ov.npcs.items() %}<div><b>{{ name }}</b>: {{ d }}</div>{% endfor %}</details>{% endif %}
+<div class="small" style="margin-top:8px">
+  <span class="muted">Copy of the galaxy before a season change: {{ snap_summary }}{% if snap and snap.at %}, {{ snap.at | ago }}{% endif %} (kept every 6 hours, frozen while paused).</span>
+  {% if hold %}<button class="small" hx-post="/season/hold" hx-vals='{"action": "resume"}' hx-confirm="Resume all automations?">Resume automations</button>
+  {% else %}<button class="small ghost" hx-post="/season/hold" hx-vals='{"action": "pause"}' hx-confirm="Pause all automations for the season change? A fresh copy of the galaxy is kept, and only you can resume."
+    title="Pauses automations now (when the season ends soon) with a fresh copy of the galaxy; a new season pauses them by itself">Pause for the season change</button>{% endif %}
+</div>
