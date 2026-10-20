@@ -8050,3 +8050,18 @@ def test_a_stowable_device_can_be_attached_to_a_carrier_here(client):
     assert "attach me to" in form and f'value="{sp["device_code"]}"' in form
     sent = client.get(f"/devices/{sp['device_code']}/command-form?command=attach", headers=HX).text
     assert f'value="{rl["device_code"]}"' in sent
+
+
+def test_map_hazard_haze(client):
+    """The galaxy map hazes systems an incoming object still threatens (the object's system and its target's), and
+    drops the haze once the object is closed."""
+    db = client.app.state.db
+    client.portal.call(db.insert_event, {"id": "hz1", "event": "system.impact_warning", "location": "SOL-OBJ-1",
+                                          "created_at": "2026-10-20T10:00:00+00:00",
+                                          "payload": {"destination": "SOL-3", "impact_eta": "2099-10-20T11:00:00Z",
+                                                      "device_codes": ["D1"]}})
+    hz = client.get("/api/map.json?part=overlay", headers=H).json()["hazards"]
+    assert list(hz) == ["SOL"] and hz["SOL"]["objects"] == ["SOL-OBJ-1"] and hz["SOL"]["hours_left"] > 0
+    client.portal.call(db.insert_event, {"id": "hz2", "event": "system.object_impacted", "location": "SOL-OBJ-1",
+                                          "payload": {"impact_target": "SOL-3"}})
+    assert client.get("/api/map.json?part=overlay", headers=H).json()["hazards"] == {}

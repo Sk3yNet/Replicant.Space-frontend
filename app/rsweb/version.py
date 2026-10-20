@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.180.4"
+VERSION = "1.181.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.181.0", "2026-10-20", "Galaxy map: a red haze pulses around systems an incoming object still threatens (the object's "
+     "system and its impact target's, from Defence), with its own hazards checkbox; the star's info names the object and "
+     "the time to impact."),
     ("1.180.4", "2026-10-20", "Logistics no longer tries to fulfill a contract or trade while part of its price is still on "
      "its way (Construction Boom at PERHALIEL-4 failed every pass with Event criteria not met): it waits for the deliveries. "
      "Loadouts send only a vessel hosting a replicant to pick up devices in a system outside the relay network, also when "

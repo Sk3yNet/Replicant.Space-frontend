@@ -65,6 +65,8 @@ function spacing(stars) {
 const starSize = s => 1.3 * (s.radius ? Math.min(2.3, Math.max(0.6, Math.pow(s.radius, 0.35))) : 1);
 const WAVE_S = 2.4;          // seconds per survey wave
 const waves = [];            // survey-wave sprites (rebuilt with the markers)
+const hazes = [];            // hazard-haze sprites (rebuilt with the markers): systems an incoming object threatens
+const HAZE_S = 3.2;          // seconds per haze pulse
 const waveEdge = () => (MARK_SHAPE.prospected.size + 0.6) * ringScale;   // where a survey wave fades out
 // Markers shrink (to MARK_MIN) and fade with distance from the point the view is centered on, gone by FADE_FAR:
 // placed again whenever the camera moves or a marker checkbox changes.
@@ -263,7 +265,7 @@ function repStar() {
 
 function build() {
   [starPoints].forEach(o => o && scene.remove(o));
-  mineGroup.clear(); coverGroup.clear(); waves.length = 0;
+  mineGroup.clear(); coverGroup.clear(); waves.length = 0; hazes.length = 0;
   labels.forEach(l => l.el.remove()); labels.length = 0; lastCamKey = "";   // new labels: place them next frame
   const onlyMine = checked("opt-mine", !!OPTS.onlyMine);
   visible = data.stars.filter(s => !onlyMine || s.devices > 0 || data.replicants.some(r => r.star === s.designation));
@@ -311,6 +313,12 @@ function build() {
       const mg = new THREE.Sprite(new THREE.SpriteMaterial({ map: megaTex, color: 0xc792ff, transparent: true, depthWrite: false }));
       mg.scale.set(1.6 * ringScale, 1.6 * ringScale, 1); mg.position.copy(v).add(new THREE.Vector3(0, 0, -2.2 * ringScale)); mg.userData.mark = "mega";
       mg.userData.op = 1; mg.userData.size = 1.6 * ringScale; mineGroup.add(mg);
+    }
+    if (s.hazard) {   // an incoming object threatens the system (Defence): a red haze, pulsing slowly (animate)
+      const hz = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0xff3b30, transparent: true, depthWrite: false }));
+      hz.position.copy(v); hz.renderOrder = -1;
+      Object.assign(hz.userData, { mark: "hazard", size: 6.5 * ringScale, op: .45, haze: Math.random() * HAZE_S });
+      mineGroup.add(hz); hazes.push(hz);
     }
     if (s.surveying) {   // being surveyed: a wave running out from the star to the edge of its rings (animate)
       const w = ring(0x4fd18b); w.position.copy(v); w.userData.wave = Math.random() * WAVE_S; w.userData.mark = "survey";
@@ -709,6 +717,7 @@ function show(s) {
       <dt>Entry point</dt><dd>${esc(s.entry_point || "?")}</dd>
       <dt>Position</dt><dd class="mono">${["x","y","z"].map(k => (s.position?.[k] ?? 0).toFixed(1)).join(", ")}</dd>
       ${dist ? `<dt>From ${esc(from.designation)}</dt><dd>${dist} ly (straight line)</dd>` : ""}
+      ${s.hazard ? `<dt>Hazard</dt><dd style="color:#ff6b5e">threatened by ${s.hazard.objects.map(esc).join(", ")}${s.hazard.hours_left != null ? ` · impact in ${s.hazard.hours_left} h` : ""} · <a href="/defence">Defence →</a></dd>` : ""}
       <dt>Your devices</dt><dd>${s.devices || 0}</dd>
       ${(s.drones || []).length ? `<dt>Drones</dt><dd>${s.drones.map(g => `${g.n} ${esc(g.kind)} <span class="muted">(${g.working} working${g.idle ? `, ${g.idle} idle` : ""}${g.moving ? `, ${g.moving} moving` : ""})</span>`).join("<br>")}</dd>` : ""}
       ${Object.keys(s.mining || {}).length ? `<dt>Mining now</dt><dd>${Object.entries(s.mining).map(([r, n]) => `${n} on ${esc(r)}`).join(", ")}</dd>` : ""}
@@ -797,7 +806,7 @@ $("map-search")?.addEventListener("change", e => {
 });
 ["opt-mine"].forEach(id => $(id)?.addEventListener("change", build));
 $("opt-cover")?.addEventListener("change", e => coverGroup.visible = e.target.checked);
-[...Object.keys(MARKS), "ward", "survey", "mega"].forEach(kind => $("opt-mark-" + kind)?.addEventListener("change", resizeMarks));
+[...Object.keys(MARKS), "ward", "survey", "mega", "hazard"].forEach(kind => $("opt-mark-" + kind)?.addEventListener("change", resizeMarks));
 $("opt-relaynet")?.addEventListener("change", e => relayGroup.visible = e.target.checked);
 $("btn-top")?.addEventListener("click", () => { camera.position.set(controls.target.x, controls.target.y - 0.01, controls.target.z + 160); });
 $("btn-home")?.addEventListener("click", () => { const s = repStar(); if (s) { focus(s); show(s); } });
@@ -855,6 +864,14 @@ function animate(t = 0) {
       const ph = ((ts + w.userData.wave) % WAVE_S) / WAVE_S;
       const sz = (0.4 + ph * (edge - 0.4)) * (w.userData.k ?? 1); w.scale.set(sz, sz, 1);
       w.material.opacity = 0.85 * (1 - ph) * (w.userData.f ?? 1);
+    }
+  }
+  if (hazes.length) {   // hazard haze: breathes between 75 % and 100 % of its size
+    const ts = t / 1000;
+    for (const hz of hazes) {
+      const u = hz.userData, ph = 0.5 + 0.5 * Math.sin(2 * Math.PI * (ts + u.haze) / HAZE_S);
+      const sz = u.size * (u.k ?? 1) * (0.75 + 0.25 * ph); hz.scale.set(sz, sz, 1);
+      hz.material.opacity = u.op * (u.f ?? 1) * (0.6 + 0.4 * ph);
     }
   }
   renderer.render(scene, camera);
@@ -943,7 +960,8 @@ function infoText(d, loadingOverlay) {
 }
 function applyOverlay(o, first) {
   const per = o.per_star || {};
-  for (const s of data.stars) Object.assign(s, per[s.designation] || { drones: [], mining: {} });
+  const hz = o.hazards || {};
+  for (const s of data.stars) Object.assign(s, per[s.designation] || { drones: [], mining: {} }, { hazard: hz[s.designation] || null });
   Object.assign(data, { moving: o.moving || [], fleets: o.fleets || [], supply: o.supply || [], prospects: o.prospects || [],
                         others: o.others || [], traffic: o.traffic || [], trail: o.trail || null,
                         relay_net: o.relay_net || { links: [], nodes: [] } });

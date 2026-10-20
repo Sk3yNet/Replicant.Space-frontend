@@ -2193,6 +2193,21 @@ def star_radius(s: dict, known: float | None = None) -> tuple[float | None, bool
     return (r * 10 if lum and lum.group(1) in ("I", "II", "III") else r), False
 
 
+async def map_hazards(eng) -> dict[str, dict]:
+    """{star: {"objects": [...], "hours_left": soonest}}: systems an incoming object (Defence) still threatens, by the
+    object's own system and its impact target's. The map hazes them in red."""
+    out: dict[str, dict] = {}
+    for a in await eng.defence_report():
+        if not a.get("threat"):
+            continue
+        for star in {star_of(a.get("designation")), star_of(a.get("target"))} - {""}:
+            h = out.setdefault(star, {"objects": [], "hours_left": None})
+            h["objects"].append(a["designation"])
+            if a.get("hours_left") is not None and (h["hours_left"] is None or a["hours_left"] < h["hours_left"]):
+                h["hours_left"] = a["hours_left"]
+    return out
+
+
 async def map_payload(request: Request, part: str = "all") -> dict:
     """The galaxy map's data (the Galaxy page and the desktop wallpaper), in two parts so the map can draw the stars
     first: part="core" — the stars (only the fields the map uses), where your devices are, replicants; part="overlay"
@@ -2316,6 +2331,7 @@ async def map_payload(request: Request, part: str = "all") -> dict:
         out["traffic"] = oth.map_traffic(traffic.get("entries") or [], mine, positions, profiles)
         out["trail"] = oth.map_trail(await db.kv_get("trail", {}) or {}, positions)
         out["relay_net"] = await relay_overlay(request, st, positions)
+        out["hazards"] = {} if sim_view(request) else await map_hazards(request.app.state.worker.automations)
         out.update({"per_star": per_star, "moving": transit.galaxy_movers(transit.trips(st["devices"]), positions),
                     "fleets": [f for f in fleets if f["members"]], "supply": fl.supply_links(items, st["devices"])})
         if part == "all":   # the old shape too: drones / mining on each star
