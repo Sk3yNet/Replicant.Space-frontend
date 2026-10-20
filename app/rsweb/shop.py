@@ -214,7 +214,7 @@ async def known_traders(db) -> dict[str, dict]:
         offer(code, t, t.get("read_at") or read)
     for code, t in (await db.kv_get(POSTED_KV, {}) or {}).items():
         offer(code, t, t.get("read_at") or "")
-    owners = {t.get("owner_replicant_code") for c, t in seen.items() if not c.startswith("post:")}
+    owners = {t.get("owner_replicant_code") for c, t in seen.items() if not c.startswith("post:")} - {None, ""}
     for code in [c for c, t in seen.items() if c.startswith("post:") and t.get("owner_replicant_code") in owners]:
         del seen[code]   # its controller has been seen since: the placeholder from the post is done
     if seen != stored:

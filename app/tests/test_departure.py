@@ -606,6 +606,11 @@ def test_a_shops_bobnet_post_moves_it(client):
     client.portal.call(db.kv_set, "traders_cache", cache)
     known = client.portal.call(shop.known_traders, db)                            # its controller seen: placeholder done
     assert "AN1" in known and "post:NEW00001" not in known
+    cache["X1"] = {"controller_code": "X1", "location": "SOL-OORT", "read_at": "2099-01-01T00:00:00+00:00", "trades": []}
+    client.portal.call(db.kv_set, "traders_cache", cache)                         # a shop with no owner code known
+    client.portal.call(e.shop_post, {**new, "replicant_code": None, "replicant_name": "Zed",
+                                     "message": "Zed Mart is open for shoppers!"})
+    assert "post:zed" in client.portal.call(shop.known_traders, db)               # doesn't sweep a post without one
 
 
 def test_trader_refresh_keeps_shops_out_of_reach(client):
