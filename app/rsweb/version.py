@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.179.0"
+VERSION = "1.180.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.180.0", "2026-10-20", "Stars: one route-from dropdown of replicants above the list and a preview button on each star, "
+     "instead of a button per replicant on every row. Demo galaxy: systems answer scans (planets, a belt) and another "
+     "player's outpost shows up; the System screenshot shows ELNYXOTH."),
     ("1.179.0", "2026-10-20", "Demo galaxy for the mock server (RS_MOCK_DEMO=1): about 2,100 real star positions, 44 systems, "
      "500 devices and 18 replicants shaped like a live account, with made-up names and codes "
      "(tools/make_demo_galaxy.py builds it from a snapshot). The screenshots in docs/screens now show it."),

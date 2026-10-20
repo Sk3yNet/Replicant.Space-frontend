@@ -1,7 +1,9 @@
 """Capture a screenshot of every page into docs/screens (the README's Screenshots section).
 
 Start the mock game server and the app first (README, Local development), give the app half a minute to sync, then:
-    python tools/screenshots.py [--base http://127.0.0.1:8000] [--out docs/screens]
+    python tools/screenshots.py [--base http://127.0.0.1:8000] [--out docs/screens] [--system STAR]
+(the README's screenshots use the demo galaxy, RS_MOCK_DEMO=1, with --system ELNYXOTH: a scanned system with a belt,
+some mining, a trip on its way and another player's outpost)
 Needs Playwright (`pip install playwright`, then `playwright install chromium` or set PW_CHROMIUM to a Chromium binary).
 """
 import argparse
@@ -30,6 +32,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://127.0.0.1:8000")
     ap.add_argument("--out", default="docs/screens")
+    ap.add_argument("--system", help="the star for the system page (default: the busiest one on the tree)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     with sync_playwright() as p:
@@ -38,14 +41,20 @@ def main():
         pg.goto(a.base + "/fleet", wait_until="networkidle")
         html = pg.content()
         pages = list(PAGES)
-        for name, pat in (("device", r'href="(/devices/[0-9A-F]{8})"'), ("replicant", r'href="(/replicants/[0-9A-F]{8})"'),
-                          ("system", r'href="(/systems/[A-Z][A-Z0-9-]+)"')):
+        for name, pat in (("device", r'href="(/devices/[0-9A-F]{8})"'), ("replicant", r'href="(/replicants/[0-9A-F]{8})"')):
             if m := re.search(pat, html):
                 pages.append((name, m.group(1)))
+        pg.goto(a.base + "/tree", wait_until="networkidle")   # the tree lists the busiest system first
+        if a.system or (m := re.search(r'href="/systems/([A-Z][A-Z0-9]+)"', pg.content())):
+            pages.append(("system", f"/systems/{a.system or m.group(1)}"))
         for name, url in pages:
             r = pg.goto(a.base + url, wait_until="networkidle")
             if name == "tree":
                 pg.click("text=Expand all")
+            if name == "system" and pg.locator("text=Scan for other devices").count():
+                pg.click("text=Scan for other devices")   # other players' devices: traffic on the page
+                pg.wait_for_timeout(1500)
+                pg.reload(wait_until="networkidle")
             pg.wait_for_timeout(1200)
             h = min(pg.evaluate("document.documentElement.scrollHeight"), MAX_HEIGHT)
             pg.screenshot(path=f"{a.out}/{name}.jpg", type="jpeg", quality=78, full_page=True,

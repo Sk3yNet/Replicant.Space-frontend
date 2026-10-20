@@ -18,7 +18,9 @@
     <h2>Unexplored stars <span class="muted small">nearest to {{ ref or '—' }} first</span></h2>
     {% if rows %}
     <table class="small">
-      <tr><th>Star</th><th class="num">ly</th><th class="num" title="estimated from the census travel times">ETA</th><th class="num">Planets</th><th>Notes</th><th></th></tr>
+      <tr><th>Star</th><th class="num">ly</th><th class="num" title="estimated from the census travel times">ETA</th><th class="num">Planets</th><th>Notes</th>
+        <th>{% if reps %}<span class="muted" style="text-transform:none">route from</span>
+          <select class="small" id="route-from" aria-label="route from">{% for c, at in reps.items() %}<option value="{{ c }}">{{ rep_names.get(c, c) }}{% if at %} · {{ at }}{% endif %}</option>{% endfor %}</select>{% endif %}</th></tr>
       {% for s in rows %}<tr>
         <td><a href="/systems/{{ s.designation }}"><b>{{ s.designation }}</b></a> <span class="muted">{{ s.color }} {{ s.spectral_type or '' }}{% if s.radius_solar %} · {{ s.radius_solar }} R☉{% endif %}</span></td>
         <td class="num">{{ s.distance if s.distance is not none else '?' }}</td>
@@ -27,17 +29,18 @@
         <td class="small">{% if s.from_census %}<span class="pill small" title="beyond the catalog: found by a census from {{ s.census_from }}">census</span>{% endif %}
           {% if s.has_hub %}<span class="pill small">hub</span>{% endif %}{% if s.has_ward %}<span class="pill small" title="a system ward is active there">ward</span>{% endif %}
           {% if s.has_life %}<span class="pill small">life</span>{% endif %}</td>
-        <td style="white-space:nowrap">{% if reps %}<span class="muted">route from</span>{% endif %}
-          {% for c, at in reps.items() %}<button class="small ghost" hx-post="/replicants/{{ c }}/travel" title="the game's route preview for {{ rep_names.get(c, c) }} (at {{ at or '?' }}) to {{ s.designation }} — nothing moves"
-              hx-vals='{{ {"destination": (s.designation) | string, "dry_run": "1"} | tojson }}' hx-target="#route-{{ loop.index0 }}-{{ s.designation }}">{{ rep_names.get(c, c) }}</button>{% endfor %}</td>
+        <td style="white-space:nowrap">{% if reps %}
+          <button class="small ghost" hx-post="/replicants/{{ reps | first }}/travel" title="the game's route preview to {{ s.designation }} for the replicant chosen above — nothing moves"
+              hx-on:htmx:config-request="event.detail.path = '/replicants/' + document.getElementById('route-from').value + '/travel'"
+              hx-vals='{{ {"destination": (s.designation) | string, "dry_run": "1"} | tojson }}' hx-target="#route-{{ s.designation }}">preview</button>{% endif %}</td>
       </tr>
-      {% for c in reps %}<tr><td colspan="6" id="route-{{ loop.index0 }}-{{ s.designation }}" style="padding:0"></td></tr>{% endfor %}
+      {% if reps %}<tr><td colspan="6" id="route-{{ s.designation }}" style="padding:0"></td></tr>{% endif %}
       {% endfor %}
     </table>
     {% else %}<p class="muted small">None known. Run a census from a vessel (right) to find the stars around it.</p>{% endif %}
     <p class="muted small">Unexplored: the census says nobody has explored it, or it's in the catalog and you haven't scanned it
       or had a device there. ETAs use the census's own travel estimates{% if sec_per_ly %} (≈ {{ sec_per_ly | round(0) | int }} s per ly){% endif %};
-      press a replicant's name under <b>route from</b> for the game's route preview from where that replicant is (nothing moves).</p>
+      pick a replicant under <b>route from</b> and press a star's <b>preview</b> for the game's route from where it is (nothing moves).</p>
   </div>
 
   <div>

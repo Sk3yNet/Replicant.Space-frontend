@@ -3614,6 +3614,7 @@ def test_census_on_arrival_runs_once_per_system(client):
     page = client.get("/stars", headers=H).text
     assert "ZALDANAL" in page and "Census from SOL" in page and 'rules-panel?ids=census_on_arrival"' in page
     assert ">Stars</a>" in page                                   # Map › Stars sub-tab
+    assert page.count('id="route-from"') == 1 and "route-from').value" in page   # one replicant dropdown for the list
     r = client.post("/stars/census", data={"device": "11ADA230"}, headers=HX)
     assert "unexplored: ZALDANAL" in r.text and count() == 2
 

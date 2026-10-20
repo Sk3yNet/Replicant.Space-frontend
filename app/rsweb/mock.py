@@ -260,6 +260,39 @@ def load_demo(world: World, path: str) -> None:
     world.location = next((d["location"] for d in world.devices if d["device_code"] == HOST), None) or world.location
 
 
+def demo_others(star: str) -> list[dict]:
+    """Another player's outpost in a demo system: a beacon, two mining drones and a survey drone (the system page's traffic)."""
+    return [{"device_code": f"5E1F{i:04X}", "device_type": t, "location": loc, "status": st,
+             "owner_replicant_code": "30B93F2F", "owner_name": "Sylphrena"}
+            for i, (t, loc, st) in enumerate([("ftl_beacon", f"{star}-3-L4", "monitoring"), ("mining_drone", f"{star}-BELT-1", "mining (rares)"),
+                                             ("mining_drone", f"{star}-BELT-1", "mining (structural)"), ("survey_drone", f"{star}-2", "scanning")])]
+
+
+def demo_scan(world: World, star: str) -> dict:
+    """A system scan for a demo star, made up the same way every time (seeded by its name), in SOL_SCAN's shape."""
+    rnd = random.Random(star)
+    kinds = ["Barren", "Terrestrial", "Ocean World", "Desert", "Gas Giant", "Ice Giant", "Lava World"]
+    au, planets = 0.3, []
+    for i in range(1, rnd.randint(3, 9) + 1):
+        au *= rnd.uniform(1.4, 2.0)
+        planets.append({"designation": f"{star}-{i}", "type": rnd.choice(kinds[:4] if au < 3 else kinds[4:6]),
+                        "orbital_distance_au": round(au, 2), "moon_count": rnd.randint(0, 3 if au < 3 else 40),
+                        "in_habitable_zone": 0.9 < au < 1.5})
+    grade = ["low", "moderate", "high", "rich"]
+    s = next((x for x in STARS if x["designation"] == star), {})
+    return {"asteroid_belt": {"present": True, "belts": [{"designation": f"{star}-BELT-1", "density": rnd.choice(grade[:3]),
+            "inner_radius_au": 2.1, "outer_radius_au": 3.4,
+            "resources": {r: rnd.choice(grade) for r in ("carbon", "conductive", "rares", "silicates", "structural", "volatiles")}}]},
+            "entry_point": s.get("entry_point") or f"{star}-3-L4", "planets": planets,
+            "outer_system": {"kuiper": {"designation": f"{star}-KUIPER", "distance_au": 40.0}, "oort": {"designation": f"{star}-OORT", "distance_au": 2000.0}},
+            "replicants": {r["name"]: {"replicant_code": r["replicant_code"], "location": r["current_location"], "last_active": iso()}
+                           for r in world.replicants if (r.get("current_star") or "") == star},
+            "star": {"designation": star, "color": s.get("color", "Yellow"), "spectral_type": s.get("spectral_type", "G2"),
+                     "mass_solar": 1.0, "luminosity_solar": 1.0, "temperature_k": 5600, "age_my": 4000,
+                     "habitable_zone": {"inner_au": 0.9, "outer_au": 1.5}, "position": s.get("position", {"x": 0, "y": 0, "z": 0})},
+            "system_tags": []}
+
+
 def create_mock(event_interval: float = 4.0) -> FastAPI:
     world = World()
     if demo := os.environ.get("RS_MOCK_DEMO"):
@@ -552,8 +585,13 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
 
     @app.get("/v1/replicants/{code}/scan/devices")
     async def scan_devices(code: str, device_type: str | None = None):
-        devs = [d for d in world.foreign_devices if not device_type or d["device_type"] == device_type]
-        return ok({"star": "SOL", "device_count": len(devs), "devices": devs, "next_cursor": None})
+        star = "SOL"
+        if world.replicants:   # demo galaxy: the outpost in the scanning replicant's system
+            r = next((r for r in world.replicants if r["replicant_code"] == code), {})
+            star = r.get("current_star") or world.location.split("-")[0]
+        devs = [d for d in (demo_others(star) if world.replicants else world.foreign_devices)
+                if not device_type or d["device_type"] == device_type]
+        return ok({"star": star, "device_count": len(devs), "devices": devs, "next_cursor": None})
 
     @app.get("/v1/replicants/{code}/stars")
     async def nearby(code: str, per_page: int = 10):
@@ -581,10 +619,15 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         dest = body.get("destination", "")
         if not dest:
             return ok({"error": "destination is required"}, 400)
-        legs = [{"leg": 1, "from": world.location, "to": "SOL-OORT", "type": "cruise", "time_seconds": 30, "distance_ly": 0},
-                {"leg": 2, "from": "SOL-OORT", "to": f"{dest.split('-')[0]}-3-L4", "type": "surge", "time_seconds": 600, "distance_ly": 6.4}]
+        oort = f"{world.location.split('-')[0]}-OORT"
+        at = {x["designation"]: x["position"] for x in STARS}
+        a, b = at.get(world.location.split("-")[0]), at.get(dest.split("-")[0])
+        ly = round(sum((a[k] - b[k]) ** 2 for k in "xyz") ** 0.5, 1) if a and b and world.replicants else 6.4   # the demo galaxy measures
+        legs = [{"leg": 1, "from": world.location, "to": oort, "type": "cruise", "time_seconds": 30, "distance_ly": 0},
+                {"leg": 2, "from": oort, "to": f"{dest.split('-')[0]}-3-L4", "type": "surge", "time_seconds": int(ly * 93.75), "distance_ly": ly}]   # 600 s for 6.4 ly
         if body.get("dry_run"):
-            return ok({"status": "preview", "final_destination": dest, "total_distance_ly": 6.4, "total_time_seconds": 630, "route": legs})
+            return ok({"status": "preview", "final_destination": dest, "total_distance_ly": ly,
+                       "total_time_seconds": 30 + legs[1]["time_seconds"], "route": legs})
         secs = world.move_seconds
         arrive = datetime.now(timezone.utc) + timedelta(seconds=secs)
         host = world.devices[0]
@@ -620,6 +663,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
 
     @app.post("/v1/replicants/{code}/scan")
     async def scan(code: str):
+        if world.replicants and not world.location.startswith("SOL-"):
+            return ok(demo_scan(world, world.location.split("-")[0]))
         return ok(SOL_SCAN)
 
     @app.post("/v1/replicants/{code}/mine")
@@ -932,6 +977,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                                              "composition": "ice"}]})
         if code == "SOL":
             return ok(SOL_SCAN)
+        demo_stars = {d["location"].split("-")[0] for d in world.devices if d.get("location")} if world.replicants else set()
+        if code in demo_stars:
+            return ok(demo_scan(world, code))
         if "BELT" in code:
             return ok({"location_type": "belt", "location": code, "belt": SOL_SCAN["asteroid_belt"]["belts"][0],
                        "devices": [], "inventory": [], "resource_sites": [{"designation": f"{code}-SITE-1", "resource_type": "structural", "availability": "high", "quantity": 5200},
@@ -945,7 +993,7 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                        "resource_sites": [{"designation": "SOL-3-1-SAL-1", "name": "Derelict hauler", "site_type": "salvage",
                                            "site_index": 0, "resources_remaining_pct": {"structural": 86.67, "conductive": 93.75}}],
                        "devices": [], "inventory": []})
-        if code.count("-") >= 1 and code.split("-")[0] == "SOL":
+        if code.count("-") >= 1 and (code.split("-")[0] == "SOL" or code.split("-")[0] in demo_stars):
             return ok({"location": code, "planet": {"designation": code, "type": "rocky", "surface_temp_c": 14.0, "mass_earth": 1.0,
                                                    "scanned": True, "tags": ["rocky"]}, "devices": [], "inventory": [], "resource_sites": []})
         return ok({"error": "No scan data for this system; you need presence or a relay"}, 403)

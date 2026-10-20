@@ -466,7 +466,7 @@ pytest -q
 and a saved `/api/map.json?part=core` (zipped is fine) with `python tools/make_demo_galaxy.py <snapshot.json> --stars map.zip`.
 Tests keep using the Sol world.
 
-**Screenshots:** with both servers running (the mock in demo mode) and synced (about a minute), `python tools/screenshots.py` retakes every page into
+**Screenshots:** with both servers running (the mock in demo mode) and synced (about a minute), `python tools/screenshots.py --system ELNYXOTH` retakes every page into
 `docs/screens` (needs `pip install playwright` and a Chromium; point `PW_CHROMIUM` at it if Playwright has none).
 
 **Conventions:** American spelling in all text (UI, logs, comments, docs). The game's own names stay as the API spells them
