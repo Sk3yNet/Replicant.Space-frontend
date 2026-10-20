@@ -2639,17 +2639,27 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             if j["rule"] == "loadouts" and j["status"] == "failed" and fin and (_now() - fin).total_seconds() < 1800:
                 busy.add(j.get("device"))
                 busy.update(j.get("meta", {}).get("devices", []))
-        # an approved shop trade waiting on logistics keeps the logistics vessels with a replicant aboard free for it:
-        # they're the only ones that can fulfill it, and a device run can tie them up for hours (owner 2026-10-20).
+        # an approved shop trade waiting on logistics keeps one logistics vessel with a replicant aboard free for it, the
+        # nearest that can surge: only such a vessel can fulfill it, and a device run can tie it up for hours (owner
+        # 2026-10-20). Holding them all kept every fleet carrier towing a replicant off relay runs (owner 2026-10-20).
         # Contracts don't: a pre-approved civilization's are open nearly all the time.
         from . import logistics as lg
         deals = [r for r in ((await self.db.kv_get(lg.KV_STATE, {}) or {}).get("requests") or [])
                  if r.get("kind") == "trade" and not r.get("skipped")]
         if deals:
             from . import fleets as fl
+            from .loadouts import can_surge
             ltags = {fl.fleet_tag(f["id"]) for f in await self.fleets() if f.get("role") == "logistics"}
             by = {d.get("device_code"): d for d in devices}
-            busy |= {c for c in lg.riding_hosts(devices, hosts) if ltags & set((by.get(c) or {}).get("tags") or [])}
+            pos = {k: v.get("position") for k, v in stars.items() if v.get("position")}
+            vessels = [c for c in lg.riding_hosts(devices, hosts) if c not in busy and can_surge(by.get(c) or {})
+                       and ltags & set((by.get(c) or {}).get("tags") or [])]
+            for r in deals:
+                to = star_of(r.get("to"))
+                pick = min(vessels, key=lambda c: (lg._dist(star_of((by.get(c) or {}).get("location")), to, pos), c), default=None)
+                if pick:
+                    busy.add(pick)
+                    vessels.remove(pick)
         from .loadouts import material_routes
         from .traffic import beacons as _beacons
         civ_locs = {r["location"] for r in await self.civ_coverage() if r.get("completed") or r.get("open")}

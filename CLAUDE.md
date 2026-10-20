@@ -66,7 +66,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   passes through SOL (leaving his shop he can't be followed: he resets to SOL), and he announces moves on BobNet #general ("NOSOXA is in the rear-view mirror"). His shop is his AMI trade controller
   (3BF0ED09 on 2026-10-13, codes may change); a racing vessel and an FTL relay travel with it (all at ALGENIBUS-OORT then).
 - Devices travel stowed (in a hold), attached (towed: the same thing), or compacted and then attached. Cargo freighters
-  can't be: "Cannot attach a large device" (live 2026-10-12), so they fly themselves. Among replicant vessels only the cargo vessel can attach devices; the others fly alongside. A typical
+  can't be: "Cannot attach a large device" (live 2026-10-12), so they fly themselves. Stowable devices attach too (a mobile fleet
+  attached an FTL relay, live 2026-10-20); the carrier sends `attach`, the cargo's own commands don't list it. Among replicant vessels only the cargo vessel can attach devices; the others fly alongside. A typical
   fleet carrier holds a matrix container with the replicant's matrix inside, so the carrier brings that replicant along.
 - Contracts are approved one by one, or pre-approved for a whole civilization. Shop listings are never fulfilled unless
   you approve that one trade.

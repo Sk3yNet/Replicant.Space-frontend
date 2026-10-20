@@ -633,7 +633,7 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
                                                          (dev.get("stowed_in_device_code"), dev.get("attached_to_device_code"))), {})).get("location"))
     return await page(request, user, "device.html", "fleet", carrier=carrier, pq=pq, dev=dev, code=code, err=err, logs=logs, events=events,
                       trip=trip, host_rep=host_rep, decom_queued=dq, decom_factories=dfac,
-                      same_loc=same_loc, commands=order_commands(dev.get("available_commands") or []),
+                      same_loc=same_loc, commands=order_commands(with_attach(dev, same_loc)),
                       dangerous=DANGEROUS)
 
 
@@ -817,6 +817,19 @@ async def print_queue_action(request: Request, code: str, action: str = Form(...
 
 
 DANGEROUS = {"decommission", "change_owner", "deactivate", "withdraw", "clear_queue", "release", "clear_directive"}
+
+
+def with_attach(dev: dict, same_loc: list[dict]) -> list[str]:
+    """The device's commands, plus attach when a carrier with attach points is here: the carrier attaches it (any device,
+    stowable ones too: an FTL relay attached to a mobile fleet, live 2026-10-20), though the game doesn't list attach
+    among the cargo's own commands."""
+    cmds = list(dev.get("available_commands") or [])
+    if "attach" in cmds or dev.get("attached_to_device_code") or dev.get("stowed_in_device_code") \
+            or dev.get("device_type") == "cargo_freighter":
+        return cmds
+    if any(fl.capacity(d) > 0 and "attach" in (d.get("available_commands") or ["attach"]) for d in same_loc):
+        cmds.append("attach")
+    return cmds
 
 
 def order_commands(cmds: list[str]) -> list[str]:

@@ -7839,17 +7839,25 @@ def test_an_approved_trade_keeps_logistics_replicant_vessels_out_of_loadouts(cli
         devices = client.portal.call(db.kv_get, "devices")
         hv = next(d for d in devices if d["device_type"] == "heaven_vessel")
         hv["tags"] = ["fleet:logistics"]
+        # a second one, far away: a fleet carrier towing a replicant's matrix container stays free for relay runs
+        reps = client.portal.call(db.kv_get, "replicants", {}) or {}
+        reps["R9"] = {"hosted_device_code": "MC9", "location": "ALPHA-1"}
+        client.portal.call(db.kv_set, "replicants", reps)
+        devices += [{"device_code": "MF9", "device_type": "mobile_fleet", "location": "ALPHA-1", "status": "idle",
+                     "features": ["surge", "cruise", "attach"], "tags": ["fleet:logistics"]},
+                    {"device_code": "MC9", "device_type": "matrix_container", "location": "ALPHA-1", "status": "idle",
+                     "features": ["cruise", "cradle"], "attached_to_device_code": "MF9"}]
         client.portal.call(db.kv_set, "devices", devices)
         client.portal.call(eng.save_fleets, [{"id": "logistics", "name": "Logistics", "role": "logistics", "home": "SOL",
                                               "wants": {}}])
         for state, held in (({"requests": []}, False),
-                            ({"requests": [{"kind": "trade", "id": "trade:x", "skipped": False}]}, True)):
+                            ({"requests": [{"kind": "trade", "id": "trade:x", "to": hv["location"], "skipped": False}]}, True)):
             client.portal.call(db.kv_set, lg.KV_STATE, state)
             try:
                 client.portal.call(eng.loadout_plan)
             except RuntimeError:
                 pass
-            assert (hv["device_code"] in seen["busy"]) is held
+            assert (hv["device_code"] in seen["busy"]) is held and "MF9" not in seen["busy"]
     finally:
         lo.plan = real
 
@@ -7884,3 +7892,18 @@ def test_blueprints_show_how_a_device_travels_and_what_it_carries(client):
     assert cv == {"ways": ["flies itself", "attached"], "hold": 50, "attach": 3, "cargo": 200}
     page = client.get("/blueprints", headers=H).text
     assert "travels: flies itself or attached · hold 50 devices · attaches 3 devices · cargo 200 materials" in page
+
+
+def test_a_stowable_device_can_be_attached_to_a_carrier_here(client):
+    """Live 2026-10-20: a mobile fleet attached an FTL relay; the relay's own commands don't list attach."""
+    world = client.app.state.api.http._transport.app.state.world
+    sp = next(d for d in world.devices if d["device_type"] == "surge_plate")
+    sp["available_commands"] = sp["available_commands"] + ["attach", "detach"]
+    rl = next(d for d in world.devices if d["device_type"] == "ftl_relay")
+    rl["location"] = sp["location"]
+    client.portal.call(client.app.state.worker.sync_devices)
+    assert '<option value="attach"' in client.get(f"/devices/{rl['device_code']}", headers=H).text
+    form = client.get(f"/devices/{rl['device_code']}/command-form?command=attach", headers=HX).text
+    assert "attach me to" in form and f'value="{sp["device_code"]}"' in form
+    sent = client.get(f"/devices/{sp['device_code']}/command-form?command=attach", headers=HX).text
+    assert f'value="{rl["device_code"]}"' in sent
