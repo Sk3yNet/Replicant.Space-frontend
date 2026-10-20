@@ -223,6 +223,32 @@ async def known_traders(db) -> dict[str, dict]:
     return {c: t for c, t in seen.items() if not closed(c, t)}
 
 
+async def note_scanned(db, api, star: str, devices: list[dict], mine: set[str]) -> list[str]:
+    """Other players' trade controllers in a device scan (system scans don't list shops) go to kv "shops_known" as
+    a fresh sighting, with their trades when the game gives them. Returns the controllers' codes."""
+    from datetime import datetime, timezone
+    from .api import ApiError
+    found = [d for d in devices if isinstance(d, dict) and d.get("device_code") and is_shop(d)
+             and d.get("owner_replicant_code") not in mine]
+    if not found:
+        return []
+    known = await db.kv_get(KNOWN_KV, {}) or {}
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for d in found:
+        code = d["device_code"]
+        try:
+            trades = ((await api.get(f"/devices/{code}/trades")) or {}).get("trades")
+        except ApiError:
+            trades = None
+        new = {"controller_code": code, "location": d.get("location"), "star": star_of(d.get("location")) or star,
+               "owner_name": d.get("owner_name"), "owner_replicant_code": d.get("owner_replicant_code"),
+               "trades": trades, "from_device_scan": True}
+        known[code] = {**(known.get(code) or {}), **{k: v for k, v in new.items() if v is not None}, "seen_at": now}
+        known[code].setdefault("trades", [])
+    await db.kv_set(KNOWN_KV, known)
+    return [d["device_code"] for d in found]
+
+
 async def refresh_directory(db, api, replicants: list[str]) -> tuple[int, str | None]:
     """Every replicant's trader directory (each lists the traders near it) and each trader's trades, at most 20 traders,
     into kv "traders_cache", added to what it held: a shop the directory doesn't list now is out of reach, not gone.

@@ -231,7 +231,9 @@ async def scan_into(db, api, replicant: str, mine: set[str], s: dict | None = No
     t = tl.normalize(await db.kv_get(tl.KV, {}) or {})   # any of the followed replicant's devices seen: a sighting
     if tl.record_sightings(t, devs, star=star):
         await db.kv_set(tl.KV, t)
-    return {**snap, "star": star}
+    from . import shop
+    shops = await shop.note_scanned(db, api, star, devs, mine)
+    return {**snap, "star": star, "shops": shops}
 
 
 async def on_traffic_poll(db, api, entries: list[dict], mine: set[str]) -> dict:

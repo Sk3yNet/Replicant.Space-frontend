@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.172.0"
+VERSION = "1.173.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.173.0", "2026-10-20", "Device scan on arrival (new rule, on by default): a replicant's vessel arriving in another "
+     "system scans its devices at once, not at the next traffic poll. Every device scan now adds other players' trade "
+     "controllers to the shops list, with their trades, since system scans don't list shops."),
     ("1.172.0", "2026-10-20", "New page Map › Terraforming candidates: surveyed planets and moons rated for a species "
      "(picker), ranked by the estimated time to habitable with a kit of n devices of each kind, showing each attribute's "
      "gap, the devices it takes, the distance to your nearest autofactory and whether the system is commandable (both "

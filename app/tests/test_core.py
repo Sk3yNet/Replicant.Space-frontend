@@ -3618,6 +3618,30 @@ def test_census_on_arrival_runs_once_per_system(client):
     assert "unexplored: ZALDANAL" in r.text and count() == 2
 
 
+def test_device_scan_on_arrival_finds_shops(client):
+    from rsweb import shop
+    world = client.app.state.api.http._transport.app.state.world
+    world.foreign_devices = [{"device_code": "TC000001", "device_type": "ami_trade_controller", "location": "SOL-OORT",
+                              "owner_replicant_code": "DA5H0001", "owner_name": "Dash"},
+                             {"device_code": "BB000001", "device_type": "ftl_beacon", "location": "SOL-3",
+                              "owner_replicant_code": "DA5H0001", "owner_name": "Dash"}]
+    world.trades["TC000001"] = [{"trade_id": "t1", "offer": {"resources": {"carbon": 10}}}]
+    client.portal.call(client.app.state.worker.sync_devices)
+    arrival = {"id": "7777777777778-0", "event": "travel.arrived", "category": "travel", "device_code": "11ADA230",
+               "device_type": "heaven_vessel", "location": "SOL-BELT-1", "star": "SOL",
+               "payload": {"destination": "SOL-BELT-1", "origin": "ABOTEIN-OORT", "travel_type": "surge"},
+               "created_at": iso(datetime.now(timezone.utc))}
+    client.portal.call(client.app.state.worker.handle_event, arrival)
+    db = client.app.state.db
+    snap = client.portal.call(db.kv_get, "others")["stars"]["SOL"]
+    assert [d["code"] for d in snap["devices"]] == ["TC000001", "BB000001"]
+    known = client.portal.call(shop.known_traders, db)
+    assert known["TC000001"]["star"] == "SOL" and known["TC000001"]["owner_name"] == "Dash"
+    assert known["TC000001"]["trades"][0]["trade_id"] == "t1"
+    log = client.portal.call(db.kv_get, "automation_log")
+    assert any(e["rule"] == "devices_on_arrival" and "shops: TC000001" in e["text"] for e in log)
+
+
 def test_travel_destination_picker(client):
     client.portal.call(client.app.state.worker.sync_devices)
     client.portal.call(client.app.state.db.kv_set, "census_stars",

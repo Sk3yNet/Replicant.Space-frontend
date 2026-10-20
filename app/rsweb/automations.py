@@ -63,6 +63,11 @@ RULES: list[Rule] = [
     Rule("scan_on_arrival", "System scan on arrival",
          "When a replicant's vessel arrives in a system we have no scan for, run a system scan so the "
          "planets and belts are known (other rules and the Systems page use it)."),
+    Rule("devices_on_arrival", "Device scan on arrival",
+         "When a replicant's vessel arrives in another system, it scans the other devices there at once (GET "
+         "/scan/devices; every arrival, since devices come and go). Other players' fixed devices and drones go to the "
+         "System page and the Galaxy map, and any AMI trade controller to the shops list: system scans don't list "
+         "shops. Read-only. Without it the traffic poll does the same scan, minutes later.", default_on=True),
     Rule("census_on_arrival", "Stellar census on arrival",
          "When a vessel that can run a stellar census (heaven and cargo vessels) arrives in a system that hasn't had one, "
          "it runs `stellar_census`: the stars around it, explored or not, with positions and entry points. They're added "
@@ -3160,6 +3165,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             return
         if "scan_on_arrival" in enabled:
             await self.rule_scan_on_arrival(vessel, star)
+        if "devices_on_arrival" in enabled:
+            await self.rule_devices_on_arrival(vessel, star)
         if "census_on_arrival" in enabled:
             await self.rule_census_on_arrival(vessel, star)
         if "auto_survey" in enabled:
@@ -3182,6 +3189,29 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             await self.log("scan_on_arrival", f"scanned {star}: {len(resp.get('planets') or [])} planets")
         else:
             await self.log("scan_on_arrival", f"scan of {star} failed: {err}", "alert")
+
+    async def rule_devices_on_arrival(self, vessel: str, star: str) -> None:
+        from . import others, traffic as tr
+        from .api import ApiError
+        rep = await self.replicant_for_host(vessel)
+        if not rep:
+            return
+        if (await self.settings())["dry_run"]:
+            await self.log("devices_on_arrival", f"[dry run] would scan the devices in {star} with {rep[1].get('name') or rep[0]}")
+            return
+        mine = tr.my_codes(await self.db.kv_get("account", {}) or {}, await self.db.kv_get("replicants", {}) or {},
+                           await self.db.kv_get("devices", []) or [])
+        try:
+            snap = await others.scan_into(self.db, self.api, rep[0], mine)
+        except ApiError as e:
+            await self.log("devices_on_arrival", f"device scan of {star} failed: {e.message}", "alert")
+            return
+        shops = snap.get("shops") or []
+        await self.log("devices_on_arrival", f"scanned the devices in {snap.get('star') or star}: "
+                       f"{len(snap.get('devices') or [])} fixed, {len(snap.get('drones') or [])} drones of others"
+                       + (f", shops: {', '.join(shops)}" if shops else ""))
+        if self.hub:
+            self.hub.publish("state", "traffic")
 
     async def rule_census_on_arrival(self, vessel: str, star: str) -> None:
         from .census import can_census
