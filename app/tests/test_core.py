@@ -7797,3 +7797,25 @@ def test_loadout_plan_fills_a_carrier_hold_with_relays_for_several_systems():
     devices[-1]["stow_capacity"] = 2   # room for two: the third waits for the next run
     p = lo.plan(cfg, devices, [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"HUB"})
     assert sum(len(d["devices"]) for d in p["deliveries"] if d["carrier"] == "HV") == 2
+
+
+def test_logistics_replicant_vessels_carry_inside_the_network():
+    """Owner 2026-10-20: every vessel in a logistics fleet is there for automation (the old 'use replicant vessels'
+    setting is gone); another fleet's replicant vessel isn't borrowed."""
+    from rsweb import loadouts as lo
+    def dev(c, t, loc, **kw):
+        return {"device_code": c, "device_type": t, "location": loc, "status": "idle", "operational_capacity": 100.0,
+                "features": kw.pop("features", ["cruise", "stow"]), "available_commands": ["travel", "stow", "deploy"], **kw}
+    f = {"id": "m", "name": "M", "role": "mining", "home": "BBB", "station": True, "wants": {"mining_drone": 2}}
+    drones = [dev(c, "mining_drone", "AAA-BELT-1", tags=["fleet:m"]) for c in ("D1", "D2")]
+    hv = dev("HV", "heaven_vessel", "AAA-1", features=["surge", "cruise"], stow_capacity=10,
+             hosting_replicant={"replicant_code": "R1"}, tags=["fleet:logistics"])
+    stars = {s: {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in (("AAA", 0), ("BBB", 5))}
+    cfg = {"phases": [], "systems": {}, "fleets": [f, {"id": "logistics", "name": "L", "role": "logistics", "home": "AAA",
+                                                        "wants": {}},
+                                                   {"id": "s", "name": "S", "role": "explore", "home": "AAA", "wants": {}}]}
+    p = lo.plan(cfg, drones + [hv], [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"AAA", "BBB"})
+    assert [(d["carrier"], d["devices"]) for d in p["deliveries"]] == [("HV", ["D1", "D2"])]
+    other = {**hv, "tags": ["fleet:s"]}
+    p = lo.plan(cfg, drones + [other], [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"AAA", "BBB"})
+    assert not p["deliveries"]

@@ -344,6 +344,8 @@ class OpsRules:
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         rows = await self.civ_coverage()
         keep = {r["location"] for r in rows}
+        from . import fleets as fl
+        logistics = {d["device_code"] for f in await self.fleets() if f.get("role") == "logistics" for d in fl.members(f, devices)}
         lines = []
         for row in rows:
             loc = row["location"]
@@ -354,7 +356,7 @@ class OpsRules:
             if loc in pending or loc in wanted:
                 lines.append(f"{loc}: a beacon is already on its way")
                 continue
-            p = tr.placement(loc, devices, reps, stowed, busy, use_replicant_vessel=manual or bool(cfg.get("use_replicant_vessel")),
+            p = tr.placement(loc, devices, reps, stowed, busy, use_replicant_vessel=manual, logistics=logistics,
                              keep=keep, bps=bps, vessel_print=manual)
             if p["kind"] == "factory" and loc in orders:
                 lines.append(f"{loc}: a beacon is being printed for it — a vessel picks it up once it's out"

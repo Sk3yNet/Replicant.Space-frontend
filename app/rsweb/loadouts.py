@@ -4,7 +4,7 @@ Config (kv "loadouts"):
     phases:  [{id, name, order, wants: {device_type: n}}]     e.g. "1 Survey", "2 Mining outpost"
     systems: {STAR: phase_id}                                 the phase a system is at
     ignore_tags: ["keep", ...]   devices with any of these are invisible to loadouts (never counted, tagged or moved)
-    settings: print_missing, need_stock, carriers_return, use_replicant_vessels, every_minutes
+    settings: print_missing, need_stock, carriers_return, every_minutes
 
 How a pass works (plan() is pure; the engine turns the plan into jobs):
   1. Count each phased system's devices by type. Devices tagged `to:<star>` count for that star.
@@ -33,7 +33,7 @@ SPARE = "spare"
 GATHER = "gather"   # on its way to the spare depot (stays spare on arrival)
 WORKING = ("mining", "searching", "tracking", "scanning", "collecting", "depositing", "printing", "repairing")
 DEFAULT_SETTINGS = {"print_missing": True, "need_stock": True, "carriers_return": True,
-                    "use_replicant_vessels": False, "every_minutes": 15,
+                    "every_minutes": 15,
                     "gather_spares": True, "spare_depot": "",   # "" = automatic (see spare_depot())
                     "max_cruise_au": 30,
                     "max_supply_ly": 100}   # prints and spares only from within this many ly of the fleet (0 = any)   # a device further than this from its carrier (in-system) is fetched, not flown over
@@ -900,7 +900,6 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
 
     carriers = [d for d in devices if d["device_code"] not in busy and can_surge(d) and _carrier_cap(d, bps) > 0
                 and not (ignore & set(d.get("tags") or []))
-                and (s["use_replicant_vessels"] or d["device_code"] not in replicant_hosts or commandable is not None)
                 and not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed"))
                 and not d.get("controller_device_code")    # run by a controller (e.g. a ferry's taxi plates) = busy
                 and (not fleet_tag_of(d) or fleet_tag_of(d) in by_tag or fleet_tag_of(d) in logistics_tags)]   # a fleet on a mission keeps its carriers
@@ -957,9 +956,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         while codes:
             stowable = all("stow" in (by_code[x].get("available_commands") or ["stow"]) for x in codes)
             grounded = any(not can_travel(by_code[x]) for x in codes)   # e.g. a beacon: the carrier picks it up, in its hold
+            # a vessel hosting a replicant carries only as a member of a logistics fleet (owner 2026-10-20: every
+            # logistics vessel is there for automation; another fleet's replicant vessel stays with its fleet), or as
+            # the escort a trip beyond the network needs
             cpool = [c for c in carriers if (c["device_code"] in escorts if outside else
-                                             (c["device_code"] not in replicant_hosts or s["use_replicant_vessels"]))] \
-                if commandable is not None else carriers
+                                             (c["device_code"] not in replicant_hosts or fleet_tag_of(c) in logistics_tags))] \
+                if commandable is not None else [c for c in carriers if c["device_code"] not in replicant_hosts
+                                                 or fleet_tag_of(c) in logistics_tags]
             options = [c for c in cpool if star_of(c.get("location")) == here and c["device_code"] not in used and keeps(c, codes)
                        and same_owner(c, owner) and c["device_code"] not in codes and fits(c, codes) and may_carry(c, codes)
                        ]

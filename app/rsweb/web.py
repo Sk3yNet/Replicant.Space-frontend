@@ -3475,7 +3475,7 @@ async def loadouts_settings(request: Request, user: str = Depends(current_user))
     cfg = await request.app.state.worker.automations.loadout_cfg()
     cfg["ignore_tags"] = sorted({t.strip().lower() for t in re.split(r"[,\s]+", form.get("ignore_tags") or "") if t.strip()}
                                 - {lo.SPARE})
-    for k in ("print_missing", "need_stock", "carriers_return", "use_replicant_vessels", "gather_spares"):
+    for k in ("print_missing", "need_stock", "carriers_return", "gather_spares"):
         cfg["settings"][k] = form.get(k) == "on"
     cfg["settings"]["spare_depot"] = (form.get("spare_depot") or "").strip().upper()
     try:

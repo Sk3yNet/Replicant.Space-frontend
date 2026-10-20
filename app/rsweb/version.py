@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.165.1"
+VERSION = "1.166.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.166.0", "2026-10-20", "Every vessel in a logistics fleet is available to automation, replicant vessels included: "
+     "the loadout setting 'Allow replicant vessels as carriers' and the civ-beacon rule's 'use replicant vessels' option "
+     "are gone. Another fleet's replicant vessel still isn't borrowed inside the network."),
     ("1.165.1", "2026-10-20", "Device page › Carrier: a device too far to cruise over to the carrier is picked up by "
      "the carrier (nearest stop first) instead of being sent on a long cruise that the engine then refused."),
     ("1.165.0", "2026-10-20", "Logistics: an idle carrier drops off leftover cargo and devices unrelated to its work "

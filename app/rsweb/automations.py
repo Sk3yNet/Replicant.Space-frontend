@@ -168,8 +168,6 @@ RULES: list[Rule] = [
          "on a later pass. Never printed on a vessel (Place beacon on the Traffic page can have a replicant print one).",
          [Option("print_beacons", "bool", "Print a beacon on the system's autofactory when none is free", True,
                  help="60 structural + 20 conductive each"),
-          Option("use_replicant_vessel", "bool", "Also use vessels that host your replicant to carry beacons", False,
-                 help="Moves your replicant"),
           Option("spare_redundant", "bool", "Mark beacons a system doesn't need as spare", True,
                  help="Once a system has a beacon at a civilization's body, its other beacons (e.g. Kuiper/Oort) are spare; "
                       "the Loadouts pass gathers spares at the spare depot")]),
