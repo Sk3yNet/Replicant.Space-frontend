@@ -299,11 +299,13 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
     for c in contracts:
         out.append({"id": f"contract:{c['designation']}", "kind": "contract", "to": c["location"], "price": c["price"],
                     "need": _short(c["price"], have(c["location"])), "label": f"contract {c.get('title') or c['designation']}",
+                    "on_way": _short(c["price"], stock.get(c["location"]) or {}),
                     "designation": c["designation"], "devices_short": c.get("devices_short", False),
                     "rewards": as_amounts(c.get("rewards") or {}), "reward_devices": c.get("reward_devices") or {}})
     for t in trades:
         out.append({"id": f"trade:{t['key']}", "kind": "trade", "to": t["location"], "price": t["price"],
                     "need": _short(t["price"], have(t["location"])), "label": f"trade {t.get('name') or t['trade_code']}",
+                    "on_way": _short(t["price"], stock.get(t["location"]) or {}),
                     "controller": t["controller"], "trade_code": t["trade_code"], "once": t.get("once", False),
                     "devices_short": t.get("devices_short", False),
                     "rewards": as_amounts(t.get("rewards") or {}), "reward_devices": t.get("reward_devices") or {}})
@@ -538,6 +540,11 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             if r["kind"] in ("contract", "trade") and r.get("devices_short"):
                 unmet.append({"req": r["id"], "why": f"materials are there; waiting for the devices it asks for at {dest} "
                                                      "(delivered by the contract's device supply)"})
+            elif r["kind"] in ("contract", "trade") and {x: q for x, q in (r.get("on_way") or {}).items() if q >= 1}:
+                # covered only with deliveries still on their way: fulfilling now fails "Event criteria not met"
+                # (live 2026-10-20, Construction Boom at PERHALIEL-4 retried every pass with 0 of 400 there)
+                way = ", ".join(f"{q:g} {x}" for x, q in sorted(r["on_way"].items()) if q >= 1)
+                unmet.append({"req": r["id"], "why": f"waiting for {way} on its way to {dest}"})
             elif r["kind"] in ("contract", "trade"):   # stocked: a replicant fulfills it
                 rep = ready_replicant(r, None, None)
                 esc = None

@@ -961,7 +961,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     taken: set[str] = set()   # relays already given to a carrier's multi-drop run
     for (here, dest, owner), codes in sorted(batches.items(), key=lambda kv: (-len(kv[1]), kv[0][0], kv[0][1], kv[0][2] or "")):
         codes = sorted(x for x in codes if x not in taken)
-        outside = commandable is not None and dest not in commandable   # beyond an active relay network
+        # beyond an active relay network, at either end (live 2026-10-20: a surge platform with no replicant flew into
+        # SOL to pick up a gas separator and was stranded there itself)
+        outside = commandable is not None and (dest not in commandable or bool(here) and here not in commandable)
         while codes:
             # a vessel hosting a replicant carries only as a member of a logistics fleet (owner 2026-10-20: every
             # logistics vessel is there for automation; another fleet's replicant vessel stays with its fleet), or as

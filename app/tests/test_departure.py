@@ -899,6 +899,10 @@ def test_deliveries_outside_an_active_network_ride_a_replicant_vessel():
     carried = lambda p: {c for dl in p["deliveries"] for c in dl["devices"]}  # noqa: E731
     assert all(dl["carrier"] == "HV" for dl in p_shut["deliveries"])   # only the replicant's vessel may go
     assert carried(p_shut) <= carried(p_open)
+    # a pick-up in a system outside the network needs the replicant's vessel too, even bound for a covered one
+    # (live 2026-10-20: a surge platform with no replicant flew into SOL for a gas separator and was stranded there)
+    p_pick = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {}, commandable={"BBB"})
+    assert p_pick["deliveries"] and all(dl["carrier"] == "HV" for dl in p_pick["deliveries"])
 
 
 def test_surge_capable_members_fly_to_a_new_home_on_their_own():

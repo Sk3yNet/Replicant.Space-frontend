@@ -33,6 +33,16 @@ def run_plan(devs, inv, contracts=(), commandable=frozenset({"A", "B"}), prefs=N
                    replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1", prefs=prefs)
 
 
+def test_a_contract_covered_only_by_deliveries_on_their_way_is_not_fulfilled_yet():
+    devs = world()
+    c = {"designation": "EV2", "location": "B-2", "title": "Boom", "price": {"carbon": 400}}
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"B-2": {"carbon": 69}}, pos=POS, commandable={"A", "B"},
+                hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[c], trades=[], incoming={"B-2": {"carbon": 331}},
+                replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1")
+    assert not [r for r in p["runs"] if r["req"] == "contract:EV2"]
+    assert any(u["req"] == "contract:EV2" and "331 carbon on its way" in u["why"] for u in p["unmet"])
+
+
 def test_prints_come_first_and_home_prints_keep_their_reserve():
     devs = world([dev("AH", "autofactory", "A-1", tags=[], status="idle",
                       print_queue=[{"device_type": "mining_drone", "quantity": 5}])])

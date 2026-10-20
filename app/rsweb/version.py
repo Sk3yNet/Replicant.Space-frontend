@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.180.3"
+VERSION = "1.180.4"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.180.4", "2026-10-20", "Logistics no longer tries to fulfill a contract or trade while part of its price is still on "
+     "its way (Construction Boom at PERHALIEL-4 failed every pass with Event criteria not met): it waits for the deliveries. "
+     "Loadouts send only a vessel hosting a replicant to pick up devices in a system outside the relay network, also when "
+     "the destination is covered (a surge platform flew alone into SOL for a gas separator and was stranded there)."),
     ("1.180.3", "2026-10-20", "Fleets: the Templates grid spans the full page width (Settings below it). Blueprints: the Plan "
      "card sits above a full-width blueprint list instead of beside it, so the list no longer ends up squeezed under it on a phone."),
     ("1.180.2", "2026-10-20", "Logistics no longer rescues a device out of command range when its at: tag names the spot "
