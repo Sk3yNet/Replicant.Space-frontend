@@ -10,6 +10,7 @@ in the system the shop is listed in the galactic directory, otherwise it trades 
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .shapes import as_amounts
@@ -133,6 +134,54 @@ async def mark_gone(db, controller: str, location: str | None, at: str, manual: 
     await db.kv_set(GONE_KV, gone)
 
 
+POSTED_KV = "shops_posted"   # {controller or "post:<owner>": the shop as its owner's BobNet post placed it}
+OPEN_RE = re.compile(r"([^:!.]+?)\s+is open for shoppers", re.I)
+SPOT_RE = re.compile(r"\bfind me (?:in|at) the (oort|kuiper)\b", re.I)
+
+
+def open_post(payload: dict, stars: set[str]) -> dict | None:
+    """A shop owner announces where the shop opened on BobNet (seen 2026-10-20, #trade, Dash @ MAZARAR: "Rock Droppers
+    is open for shoppers! … Find me in the Oort."): {"shop_name", "star", "location", "owner_name",
+    "owner_replicant_code", "text"}, else None. The star is the poster's (`current_star`), else a known star the post
+    names; "the Oort" / "the Kuiper" places it at STAR-OORT / STAR-KUIPER, otherwise only the star is known."""
+    text = str(payload.get("message") or "")
+    m = OPEN_RE.search(text)
+    if not m:
+        return None
+    star = str(payload.get("current_star") or "").upper()
+    if not star:
+        named = [w for w in re.findall(r"[A-Z][A-Z0-9]{2,}", text) if w in stars]
+        star = named[0] if named else ""
+    if not star:
+        return None
+    spot = SPOT_RE.search(text)
+    return {"shop_name": m.group(1).strip(), "star": star, "location": f"{star}-{spot.group(1).upper()}" if spot else star,
+            "owner_name": payload.get("replicant_name"), "owner_replicant_code": payload.get("replicant_code"),
+            "text": text}
+
+
+async def shop_opened(db, post: dict, at: str) -> str:
+    """Move the poster's shop (same owner or shop name) to where the post says it opened; a shop you don't know yet is
+    listed under "post:<owner>" until a scan or the directory shows its controller. Returns the shop's key."""
+    def norm(x: Any) -> str:
+        return str(x or "").strip().lower()
+    known = await known_traders(db)
+    mine = [c for c, t in known.items() if not c.startswith("post:") and (
+        (post["owner_replicant_code"] and t.get("owner_replicant_code") == post["owner_replicant_code"])
+        or (norm(t.get("shop_name")) and norm(t.get("shop_name")) == norm(post["shop_name"]))
+        or (norm(t.get("owner_name")) and norm(t.get("owner_name")) == norm(post["owner_name"])))]
+    posted = await db.kv_get(POSTED_KV, {}) or {}
+    key = max(mine, key=lambda c: known[c]["seen_at"]) if mine else f"post:{post['owner_replicant_code'] or norm(post['owner_name'])}"
+    old = {k: v for k, v in (known.get(key) or {}).items() if k not in ("seen_at", "from_scan")}
+    posted[key] = {**old, "controller_code": old.get("controller_code") or (None if key.startswith("post:") else key),
+                   "shop_name": old.get("shop_name") or post["shop_name"], "location": post["location"],
+                   "star": post["star"], "owner_name": old.get("owner_name") or post["owner_name"],
+                   "owner_replicant_code": old.get("owner_replicant_code") or post["owner_replicant_code"],
+                   "trades": old.get("trades") or [], "from_post": post["text"][:200], "read_at": at}
+    await db.kv_set(POSTED_KV, posted)
+    return key
+
+
 async def known_traders(db) -> dict[str, dict]:
     """Every shop you know of: the trader directory (kv "traders_cache", Fleets › Refresh traders), every shop a
     stored system scan lists (scan "shops") and every shop seen before (kv "shops_known") — the newest sighting of each
@@ -163,6 +212,11 @@ async def known_traders(db) -> dict[str, dict]:
     read = await db.kv_updated("traders_cache") or ""
     for code, t in (await db.kv_get("traders_cache", {}) or {}).items():
         offer(code, t, t.get("read_at") or read)
+    for code, t in (await db.kv_get(POSTED_KV, {}) or {}).items():
+        offer(code, t, t.get("read_at") or "")
+    owners = {t.get("owner_replicant_code") for c, t in seen.items() if not c.startswith("post:")}
+    for code in [c for c, t in seen.items() if c.startswith("post:") and t.get("owner_replicant_code") in owners]:
+        del seen[code]   # its controller has been seen since: the placeholder from the post is done
     if seen != stored:
         await db.kv_set(KNOWN_KV, seen)
     gone = await db.kv_get(GONE_KV, {}) or {}

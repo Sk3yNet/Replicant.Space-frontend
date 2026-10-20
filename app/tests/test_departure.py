@@ -579,6 +579,35 @@ def test_shops_stay_listed_until_you_remove_them(client):
     assert "SK2" in client.portal.call(shop.known_traders, db)
 
 
+def test_a_shops_bobnet_post_moves_it(client):
+    from rsweb import shop
+    db, e = client.app.state.db, eng(client)
+    client.portal.call(db.kv_set, "traders_cache", {"RD1": {
+        "controller_code": "RD1", "location": "ROSALIATE-OORT", "shop_name": "Rock Droppers", "owner_name": "Dash",
+        "owner_replicant_code": "DA5H0001", "read_at": "2026-10-20T04:40:00+00:00", "trades": [{"name": "charge"}]}})
+    post = {"replicant_code": "DA5H0001", "replicant_name": "Dash", "current_star": "MAZARAR", "channel": "#trade",
+            "message": "Rock Droppers: Rock Droppers is open for shoppers! Trade propulsors for vector charges. "
+                       "10 propulsors per charge. Find me in the Oort."}
+    assert "open at MAZARAR-OORT" in client.portal.call(e.shop_post, post)
+    t = client.portal.call(shop.known_traders, db)["RD1"]
+    assert t["location"] == "MAZARAR-OORT" and t["star"] == "MAZARAR" and t["trades"] == [{"name": "charge"}]
+    assert client.portal.call(e.shop_post, {**post, "message": "o7"}) is None
+    new = {**post, "replicant_code": "NEW00001", "replicant_name": "Ann", "current_star": "LERNA",
+           "message": "Ann's Bazaar is open for shoppers!"}
+    client.portal.call(e.shop_post, new)                                          # a shop not known yet is listed
+    known = client.portal.call(shop.known_traders, db)
+    assert known["post:NEW00001"]["location"] == "LERNA" and known["post:NEW00001"]["shop_name"] == "Ann's Bazaar"
+    client.post("/shop/forget", data={"controller": "post:NEW00001"}, headers=HX)
+    assert "post:NEW00001" not in client.portal.call(shop.known_traders, db)
+    client.portal.call(e.shop_post, new)                                          # posted again: back
+    cache = client.portal.call(db.kv_get, "traders_cache")
+    cache["AN1"] = {"controller_code": "AN1", "location": "LERNA-OORT", "owner_replicant_code": "NEW00001",
+                    "read_at": "2099-01-01T00:00:00+00:00", "trades": []}
+    client.portal.call(db.kv_set, "traders_cache", cache)
+    known = client.portal.call(shop.known_traders, db)                            # its controller seen: placeholder done
+    assert "AN1" in known and "post:NEW00001" not in known
+
+
 def test_trader_refresh_keeps_shops_out_of_reach(client):
     from rsweb import shop
     db = client.app.state.db

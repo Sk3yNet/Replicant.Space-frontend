@@ -23,8 +23,9 @@ VERSION = "1.170.0"
 CHANGES: list[tuple[str, str, str]] = [
     ("1.170.0", "2026-10-20", "Shops stay listed until you remove them (Remove on the traders table, after you checked): "
      "a failed trade, a trader refresh that no longer lists a shop out of reach, or a system scan without it (it said "
-     "shops: [] at ROSALIATE with a shop there) no longer drops it. Shops with no trades read are listed too. Bill is the "
-     "exception: closed from his BobNet move post until seen again."),
+     "shops: [] at ROSALIATE with a shop there) no longer drops it. Shops with no trades read are listed too. A BobNet post (X is open "
+     "for shoppers! ... Find me in the Oort) moves that owner's shop to the poster's system (STAR-OORT), or lists it "
+     "until its controller is seen. Bill is the exception: closed from his BobNet move post until seen again."),
     ("1.169.1", "2026-10-20", "Logistics: an unmet request says where it loads and where it goes, how many cargo devices "
      "are on jobs, moving or taken by higher requests, and why the nearest free one was passed over; a rescue lists each "
      "vessel with a replicant aboard and what keeps it."),

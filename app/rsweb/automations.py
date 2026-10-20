@@ -1221,6 +1221,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 except Exception as e:
                     log.exception("bill move check failed")
                     await self.log("trail", f"checking Bill's post failed: {e}", "alert")
+                try:
+                    await self.shop_post(p)
+                except Exception as e:
+                    log.exception("shop post check failed")
+                    await self.log("shop", f"checking a shop's BobNet post failed: {e}", "alert")
             if name == "travel.arrived" and not late:
                 try:
                     await self.on_arrival(ev)
@@ -1435,6 +1440,19 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         if shop.get("star"):   # remembered: leaving it, he resets to SOL (trail.resets_from)
             s["shop_stars"] = sorted(set(s.get("shop_stars") or []) | {shop["star"]})
         await self.db.kv_set("traders_cache", cache)
+
+    async def shop_post(self, payload: dict) -> str | None:
+        """A shop owner's BobNet post that the shop is open ("Rock Droppers is open for shoppers! … Find me in the
+        Oort."): move that shop to the system and spot it names (owner, 2026-10-20: Dash announces each move)."""
+        from . import shop as sh
+        cat = await self.db.kv_get("stars", {}) or {}
+        post = sh.open_post(payload, {x.get("designation") for x in cat.get("stars") or [] if isinstance(x, dict)})
+        if not post:
+            return None
+        await sh.shop_opened(self.db, post, now_iso())
+        text = f"{post['shop_name']} ({post['owner_name']}) is open at {post['location']} (BobNet)"
+        await self.log("shop", text)
+        return text
 
     async def bill_moved(self, payload: dict) -> str | None:
         """Bill posted that his Skunkworks moved: set his shop aside where it was, clear the beacon logs, and when you
