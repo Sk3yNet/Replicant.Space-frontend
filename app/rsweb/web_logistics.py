@@ -41,15 +41,26 @@ async def logistics_prefs(request: Request, req: str = Form(...), tier: str = Fo
     db = request.app.state.db
     p = await db.kv_get(lg.KV_PREFS, {}) or {}
     bump, skips = dict(p.get("bump") or {}), set(p.get("skip") or [])
-    if tier.strip() in ("1", "2", "3", "4"):
+    if tier.strip().isdigit() and int(tier) in lg.TIERS:   # every tier, evacuation (0) and rescue (5) too
         bump[req] = int(tier)
     elif tier == "reset":
         bump.pop(req, None)
+    elif tier.strip():
+        return _msg(f"unknown priority {tier}", ok=False)
     if skip == "on":
         skips.add(req)
     elif skip == "off":
         skips.discard(req)
     await db.kv_set(lg.KV_PREFS, {"bump": bump, "skip": sorted(skips)})
+    # shown at once: the page reloads from the last pass's requests, which would show the old priority until the next pass
+    st = await db.kv_get(lg.KV_STATE, {}) or {}
+    for r in st.get("requests") or []:
+        if r.get("id") == req:
+            r["tier"] = bump.get(req, r.get("base_tier", r.get("tier")))
+            r["skipped"] = req in skips
+            st["requests"].sort(key=lambda x: (x.get("tier", 9), not x.get("waiting"), str(x.get("id"))))
+            await db.kv_set(lg.KV_STATE, st)
+            break
     return _msg("saved — the next logistics pass (within two minutes) works to it")
 
 

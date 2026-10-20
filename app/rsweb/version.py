@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.167.1"
+VERSION = "1.167.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.167.2", "2026-10-20", "Logistics: a priority you pick shows at once (it used to wait for the next pass, so the "
+     "reload looked like it was cleared), the menu keeps it selected, and evacuation and rescue are accepted too."),
     ("1.167.1", "2026-10-20", "A device reserved for a system (relays above all) loses its stock tag along with spare; "
      "the stock pass also drops it from devices already taken for a fleet or a system."),
     ("1.167.0", "2026-10-20", "Travel via a waypoint (by hand or a hub route) adds the destination's star when the "

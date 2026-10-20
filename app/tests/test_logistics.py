@@ -605,3 +605,19 @@ def test_an_approved_trade_in_a_warded_system_is_a_request(client):  # noqa: F81
     client.portal.call(e.logistics_pass, True)
     st = client.portal.call(db.kv_get, "logistics_state")
     assert any(r["id"] == "trade:C1:T1" for r in st["requests"])
+
+
+def test_a_priority_shows_at_once_and_every_tier_is_accepted(client):  # noqa: F811
+    db = client.app.state.db
+    client.portal.call(db.kv_set, lg.KV_STATE, {"at": "2026-10-20T10:00:00+00:00", "requests": [
+        {"id": "print:A", "kind": "print", "to": "A-1", "need": {"carbon": 5}, "tier": 1, "base_tier": 1, "label": "print A"},
+        {"id": "rescue:R1", "kind": "rescue", "to": "Z-1", "need": {}, "tier": 5, "base_tier": 5, "label": "rescue R1"}]})
+    r = client.post("/fleets/logistics/prefs", data={"req": "rescue:R1", "tier": "0"}, headers=HX)
+    assert "saved" in r.text
+    assert client.portal.call(db.kv_get, lg.KV_PREFS)["bump"] == {"rescue:R1": 0}
+    st = client.portal.call(db.kv_get, lg.KV_STATE)
+    assert [x["id"] for x in st["requests"]] == ["rescue:R1", "print:A"] and st["requests"][0]["tier"] == 0
+    page = client.get("/fleets/logistics", headers=H).text
+    assert '<option value="0" selected>' in page and "bumped" in page
+    client.post("/fleets/logistics/prefs", data={"req": "rescue:R1", "tier": "reset"}, headers=HX)
+    assert client.portal.call(db.kv_get, lg.KV_STATE)["requests"][1]["tier"] == 5
