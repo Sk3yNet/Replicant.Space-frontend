@@ -39,6 +39,17 @@ def candidates(origin: str, dest: str, hubs: set[str], pos: dict[str, Any]) -> l
     return [h for _, h in sorted(est)[:CANDIDATES]]
 
 
+def waypoints(via: list[str], dest: str) -> list[str]:
+    """`via` as the game takes it: a trip to a body in another system than the last waypoint needs that system's star
+    as one more waypoint (live 2026-10-20: "Cannot travel directly from SOLARES to SOL-3-1 (different systems). Add a
+    star designation as an intermediate waypoint")."""
+    via = [str(v) for v in via if v]
+    star = (dest or "").split("-")[0]
+    if via and "-" in (dest or "") and via[-1].split("-")[0] != star:
+        via.append(star)
+    return via
+
+
 def total_seconds(resp: Any) -> float | None:
     """A travel preview's total time: total_time_seconds, else its legs summed."""
     if not isinstance(resp, dict):

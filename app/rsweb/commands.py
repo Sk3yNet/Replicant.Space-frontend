@@ -422,6 +422,9 @@ def parse_fields(fields: list[Field], form) -> dict:
         else:
             val = raw
         _set(body, f.name, val)
+    if isinstance(body.get("via"), list) and body.get("destination"):
+        from .hubroute import waypoints
+        body["via"] = waypoints(body["via"], str(body["destination"]))
     # oncomplete only makes sense with a command
     oc = body.get("oncomplete")
     if isinstance(oc, dict):

@@ -15,6 +15,13 @@ def test_candidates_only_hubs_that_can_shorten_the_trip():
     assert hr.worth_it(5500, 4200) and not hr.worth_it(5500, 5300) and not hr.worth_it(None, 10)
 
 
+def test_waypoints_end_at_the_destination_star():
+    assert hr.waypoints(["SOLARES"], "SOL-3-1") == ["SOLARES", "SOL"]
+    assert hr.waypoints(["SOLARES"], "SOL") == ["SOLARES"]
+    assert hr.waypoints(["SOLARES", "SOL"], "SOL-3-1") == ["SOLARES", "SOL"]
+    assert hr.waypoints(["SOL-3"], "SOL-3-1") == ["SOL-3"]
+
+
 def _run(client, refuse_via=False):
     from rsweb import automations as au
     e = eng(client)
@@ -26,7 +33,8 @@ def _run(client, refuse_via=False):
     sent = []
 
     async def fake_request(method, path, json_body=None, background=False):   # the game's preview: 50 s/ly, 25 % into a hub
-        stops = ["A"] + list(json_body.get("via") or []) + [json_body["destination"].split("-")[0]]
+        stops = ["A"] + list(json_body.get("via") or [])
+        stops += [json_body["destination"].split("-")[0]] if stops[-1] != json_body["destination"].split("-")[0] else []
         secs = sum(math.dist(*(tuple(POS[s].values()) for s in (a, b))) * 50 * (.75 if b == "HUB" else 1)
                    for a, b in zip(stops, stops[1:]))
         return {"status": "preview", "total_time_seconds": secs}
@@ -44,7 +52,7 @@ def _run(client, refuse_via=False):
 
 def test_a_long_trip_goes_via_our_hub_when_faster(client):
     sent, job = _run(client)
-    assert sent == [{"command": "travel", "destination": "B-3-L4", "via": ["HUB"]}]
+    assert sent == [{"command": "travel", "destination": "B-3-L4", "via": ["HUB", "B"]}]
     assert "via hub HUB" in job["steps"][0]["desc"]
 
 

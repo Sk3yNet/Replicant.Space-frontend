@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.166.2"
+VERSION = "1.167.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.167.0", "2026-10-20", "Travel via a waypoint (by hand or a hub route) adds the destination's star when the "
+     "destination is a body in another system, as the game requires. Logistics fly a carrier that tows a replicant's "
+     "matrix container by the carrier's own travel (the replicant's travel moved the container, which can't surge). AMI "
+     "schedules skip controllers out of comms range. Diagnostics snapshots include the logistics state and jobs."),
     ("1.166.2", "2026-10-20", "Logistics: an approved shop trade in a system warded by someone else (SOL) is a request "
      "again; the ward lock only keeps contracts out, as for missions."),
     ("1.166.1", "2026-10-20", "While an approved shop trade waits on logistics, the loadout pass (device moves, relay "

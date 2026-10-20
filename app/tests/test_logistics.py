@@ -163,6 +163,14 @@ def test_a_fleet_carrier_with_a_nested_matrix_escorts_and_counts_its_replicant()
                 drop=lambda s: f"{s}-1")
     run = next(r for r in p["runs"] if r["req"] == "contract:EV1")
     assert cargo(run) == ["F1"] and not run["ride"] and run["escort"] == "FC" and run["replicant"] == "R1" and run["fulfil"]
+    # the engine passes the riding hosts: the carrier still flies by its own travel, not the replicant's (that moves the
+    # towed container, which can't surge: live 2026-10-20)
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 500}}, pos=POS, commandable={"A", "B"},
+                hosts=lg.riding_hosts(devs, {"MC": "R1"}), busy=set(), reach=100, contracts=[c], trades=[], incoming={},
+                replicants={}, drop=lambda s: f"{s}-1")
+    run = next(r for r in p["runs"] if r["req"] == "contract:EV1")
+    assert run["escort"] == "FC" and "FC" not in run["direct"]
+    assert not any("/replicants/" in st["path"] for st in lg.run_steps(run, {d["device_code"]: d for d in devs}))
     steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
     assert any(s["path"] == "/devices/FC" and (s["body"] or {}).get("command") == "travel" for s in steps)   # flies itself
 

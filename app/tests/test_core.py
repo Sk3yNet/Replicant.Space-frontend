@@ -1516,11 +1516,13 @@ def test_schedule_skips_exhausted_and_salvaging_controllers(client):
         {**base, "device_code": "M1", "ami_directive": {"name": "gather_evenly", "_eval_state": "exhausted:['rares']:X-BELT-1", "config": {}},
          "ami_directive_status": "active"},
         {**base, "device_code": "M2", "ami_directive": {"name": "gather_salvage", "_eval_state": "active", "config": {"location": "X-2"}},
-         "ami_directive_status": "active"}])
+         "ami_directive_status": "active"},
+        {**base, "device_code": "M3", "status": "out_of_range", "in_control_range": False}])
     sched = {"id": "s", "name": "All gather", "target": "kind:mining", "directive": "gather_evenly", "configuration": {},
              "only_idle": True, "adopt": True, "launch": True}
     res = client.portal.call(eng.run_schedule, sched)
     assert any("M1: exhausted" in r for r in res) and any(r.startswith("M2:") and ("salvage" in r or "busy" in r) for r in res)
+    assert "M3: out of comms range — skipped" in res
     assert not [j for j in client.portal.call(eng.jobs) if j["rule"] == "ami_schedules"]
 
 

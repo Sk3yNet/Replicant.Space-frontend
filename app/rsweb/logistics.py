@@ -393,8 +393,12 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                                     home_drop={f["home"]: drop(f["home"]) for f in fleets or [] if f.get("home")
                                                and (f.get("station") or f.get("materials") == "self") and f["home"] in commandable},
                                     no_consolidate=set(no_consolidate), evacuate=evacuate)
-    direct = dict(hosts)                   # the vessel the replicant's matrix is in: it travels as the replicant
     hosts = riding_hosts(devices, hosts)   # a carrier with a replicant's matrix aboard escorts like its host
+    # the vessel the replicant's matrix is in travels as the replicant; a carrier towing that vessel flies by its own travel
+    # (live 2026-10-20: /replicants/…/travel moved the towed matrix container: "Device does not have surge capability")
+    towed = {c: d.get("attached_to_device_code") or d.get("stowed_in_device_code") for d in devices
+             if (c := d.get("device_code")) in hosts}
+    direct = {c: r for c, r in hosts.items() if not any(towed.get(x) == c and hosts[x] == r for x in hosts)}
     ami_free = {c["device_code"]: c for c in ami or []}
     pool = fleet_devices(fleets, devices)
     bpl = list(bps.values())

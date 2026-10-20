@@ -127,7 +127,7 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
     settings = await eng.settings()
     jobs = await eng.jobs()
     mine_rules = ("restart_idle_miners", "ami_schedules", "reopen_sites", "salvage_when_depleted", "loadouts", "fleets", "engine",
-                  "wards", "evacuate", "asteroid_defence")
+                  "wards", "evacuate", "asteroid_defence", "logistics", "contracts", "trail")
     app = {
         # every device in one list: the /devices pages above merged (or the app's cached list when those came back empty)
         "devices": devices,
@@ -149,6 +149,8 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "loadouts_last": await db.kv_get("loadouts_last", {}) or {},
         "loadouts": await db.kv_get("loadouts", {}) or {},              # templates, settings, ignore tags — to replay a pass
         "loadout_orders": await db.kv_get("loadout_orders", []) or [],
+        # the last logistics pass (trades, contracts, rescues): what it asked for, what it sent, what it couldn't do
+        "logistics": {k: v for k, v in (await db.kv_get("logistics_state", {}) or {}).items() if k != "fleet_devices"},
         "stowed_map": await db.kv_get("stowed_map", {}) or {},
         # asteroids: the tracked objects (key = where the warning or detection was) and their raw events
         "objects": await db.kv_get("objects", {}) or {},

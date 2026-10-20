@@ -981,11 +981,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         direct = await preview({})
         best = None
         for h in cands:
-            t = await preview({"via": [h]})
+            t = await preview({"via": hubroute.waypoints([h], dest)})
             if hubroute.worth_it(direct, t) and (best is None or t < best[1]):
                 best = (h, t)
         if best:
-            body["via"], st["hub_via"] = [best[0]], best[0]
+            body["via"], st["hub_via"] = hubroute.waypoints([best[0]], dest), best[0]
             st["desc"] += f" (via hub {best[0]})"
             await self.log(job["rule"], f"{job['title']}: {code} → {dest} via your hub at {best[0]}: "
                                         f"{hubroute.hm(best[1])} instead of {hubroute.hm(direct)}")
@@ -2930,6 +2930,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             code = ctrl["device_code"]
             if code in busy:
                 results.append(f"{code}: already running a job")
+                continue
+            if ctrl.get("in_control_range") is False:   # the game refuses it ("Device is out of comms range"): skip, quietly
+                results.append(f"{code}: out of comms range — skipped")
                 continue
             if "mining" in (ctrl.get("device_type") or "") and star_of(ctrl.get("location")) in warded:
                 results.append(f"{code}: another player's ward or hub in {star_of(ctrl.get('location'))} — no mining there")

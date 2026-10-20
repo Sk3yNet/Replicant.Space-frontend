@@ -286,7 +286,8 @@ nothing is deployed or unloaded anywhere but the destination.
 **Via your hubs**: arriving in a system with your own active hub is 25 % faster, and the game never routes through one
 by itself. Before an automated device trip of 15 ly or more to another system, up to two of your hubs that could shorten
 it are previewed as a waypoint (`via`, dry runs); the fastest is taken when it saves at least 10 min and 5 %. The step
-then reads *(via hub X)* and the log gives both times; if the game refuses the waypoint the trip goes direct.
+then reads *(via hub X)* and the log gives both times; if the game refuses the waypoint the trip goes direct. A trip to a body in another system gets that system's star as
+the last waypoint (the game requires it), for a `via` you type yourself too.
 - Rules run in the app container, so they keep going with the browser closed. Each rule creates **jobs**: ordered game commands,
   some waiting for an event (e.g. `travel.arrived`) before the next. A failing step is logged and skipped; a failing *critical*
   step stops the job with an alert. Jobs are stored in SQLite and survive redeploys.
