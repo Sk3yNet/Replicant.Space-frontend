@@ -221,6 +221,9 @@ lines or a template).
   beacons, wards, hubs and fleets on a mission excepted) is brought home — its fleet's home, else the nearest covered home.
   One that can surge is reached by a replicant in its system or anywhere its dark relay network covers, and commanded
   home; one that can't is picked up from its last known location by a carrier with a free seat, a replicant along.
+  An idle logistics carrier drops off what isn't its work at the nearest receiving point inside the network (a fleet that
+  takes materials in, or one of your system hubs): leftover cargo is deposited, and devices riding it that aren't logistics
+  devices, a replicant or its matrix, or on their way somewhere (`to:` / `at:` tags) are deployed or detached there.
 - **Bootstrap** fleets: from a bare heaven vessel (three mining drones and a replicant aboard) to an autofactory hub with three
   mining outposts. Home: the drones mine the best belt, the vessel mines onboard what they get little of (usually rares and
   volatiles), and the replicant prints survey drones and miners until the hold-sized kit is built (a home another player has

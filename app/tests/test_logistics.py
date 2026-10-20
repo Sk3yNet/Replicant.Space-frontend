@@ -555,3 +555,23 @@ def test_a_system_the_game_says_is_out_of_range_is_not_commandable(client):  # n
     db, e = client.app.state.db, eng(client)
     client.portal.call(db.kv_set, "replicants", {"R1": {"location": "RHY-1"}})
     assert "RHY" not in client.portal.call(e.commandable, devs)   # the game's word beats the model
+
+
+def test_idle_carrier_drops_what_isnt_its_work_at_the_receiving_point():
+    """Owner 2026-10-20: logistics carriers dump extra cargo and devices unrelated to their work at a receiving fleet or hub."""
+    devs = [dev("CV", "cargo_vessel", "B-3", stow_capacity=50, cargo={"carbon": 40}, **SURGE),
+            dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("MX", "matrix_container", None, stowed_in_device_code="CV", tags=[]),               # its escort: stays
+            dev("SD", "survey_drone", None, stowed_in_device_code="CV", tags=["fleet:miner-1"]),    # someone else's: off
+            dev("TD", "transport_drone", None, attached_to_device_code="CV", tags=["fleet:x"]),     # off (detached)
+            dev("BD", "mining_drone", None, stowed_in_device_code="CV", tags=["fleet:x", "to:b"]),  # bound somewhere: stays
+            dev("HL", "transport_hauler", None, attached_to_device_code="CV")]                     # a logistics member
+    p = run_plan(devs, {})
+    run = next(r for r in p["runs"] if r.get("kind") == "dump")
+    assert run["escort"] == "CV" and run["to"] == "A-1" and run["carry"] == {"carbon": 40}
+    assert run["dump"] == [{"code": "SD", "mode": "stow"}, {"code": "TD", "mode": "attach"}]
+    by = {d["device_code"]: d for d in devs}
+    descs = [s["desc"] for s in lg.run_steps(run, by)]
+    assert descs[0] == "CV → A-1 (drop-off)" and "CV: deposit 40 carbon at A-1" in descs
+    assert "deploy SD from CV" in descs and "CV: detach TD" in descs
+    assert set(lg.run_devices(run)) == {"CV", "SD", "TD"}

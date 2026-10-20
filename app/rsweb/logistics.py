@@ -35,6 +35,10 @@ system or anywhere its dark relay network covers (nearest first), and commanded 
 its last known location by a logistics carrier with a free seat, with a replicant alongside unless the carrier hosts one.
 
 Devices go the same way: deliveries of devices (loadouts.plan) take logistics-fleet carriers first.
+
+Drop-offs (owner 2026-10-20): an idle logistics carrier inside the network with leftover cargo, or with devices aboard
+that aren't its work (stray_aboard), goes to the nearest receiving point (a fleet that takes materials in, or a working
+system hub of yours), deposits the cargo and lets those devices off.
 """
 from __future__ import annotations
 
@@ -742,9 +746,29 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         if w:
             runs.append({"req": None, "kind": "reposition", "cargos": [], "escort": c, "legs": [], "to": w, "carry": {},
                          "fulfil": None, "replicant": None, "back": None, "label": f"{c} back to wait in the relay network"})
+    # idle logistics carriers dump what doesn't belong to their work at the nearest receiving point (owner 2026-10-20):
+    # leftover cargo is deposited, and devices aboard that aren't theirs are let off
+    from . import fleets as fl
+    receive = {**gather, **{star_of(d.get("location")): drop(star_of(d.get("location"))) for d in devices
+                            if d.get("device_type") == "system_hub" and d.get("location")
+                            and str(d.get("status") or "").startswith("relaying")}}
+    docks = sorted(s for s in receive if s in commandable and receive[s])
+    own = {d["device_code"] for d in pool}
+    for c, d in sorted(free.items()):
+        here = star_of(d.get("location"))
+        if c in used or here not in commandable or not docks:
+            continue
+        cargo = {r: q for r, q in as_amounts(d.get("cargo")).items() if q > 0}
+        extra = stray_aboard(d, devices, own, busy)
+        if not cargo and not extra:
+            continue
+        to_star = min(docks, key=lambda h: (_dist(here, h, pos), h))
+        used.add(c)
+        runs.append({"req": None, "kind": "dump", "cargos": [], "escort": c, "legs": [], "to": receive[to_star],
+                     "carry": cargo, "dump": extra, "fulfil": None, "replicant": None, "back": None,
+                     "label": f"{c} drops off what isn't its work at {to_star}"})
     # the rest of the idle logistics devices gather at the nearest printing hub (a fleet that takes materials in, inside
     # the network; owner's request 2026-10-17): those that can surge fly there, the others are towed by a free carrier
-    from . import fleets as fl
     hubs = sorted(s for s in gather if s in commandable and gather[s])
     for c, d in sorted(free.items()):
         here = star_of(d.get("location"))
@@ -780,6 +804,24 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                        "location": d.get("location"), "status": d.get("status"), "free": d["device_code"] in free,
                        "replicant": hosts.get(d["device_code"]), "covered": star_of(d.get("location")) in commandable}
                       for d in pool]}
+
+
+def stray_aboard(carrier: dict, devices: list[dict], own: set[str], busy: set[str]) -> list[dict]:
+    """Devices riding a logistics carrier that have nothing to do with its work: not a replicant or its matrix (its
+    escort), not a logistics device, not on its way somewhere (to: / at: / gather tags), not in a job.
+    [{"code", "mode": "attach" | "stow"}]."""
+    from .loadouts import GATHER
+    out = []
+    code = carrier.get("device_code")
+    for d in devices:
+        how = "attach" if d.get("attached_to_device_code") == code else "stow" if d.get("stowed_in_device_code") == code else None
+        tags = d.get("tags") or []
+        if not how or d.get("device_code") in own or d.get("device_code") in busy or d.get("hosting_replicant") \
+                or "matrix" in (d.get("device_type") or "") or GATHER in tags \
+                or any(str(t).startswith(("to:", "at:")) for t in tags):
+            continue
+        out.append({"code": d["device_code"], "mode": how})
+    return out
 
 
 def _deal(r: dict) -> dict | None:
@@ -819,7 +861,8 @@ def ami_steps(run: dict) -> list[dict]:
 
 
 def run_devices(run: dict) -> list[str]:
-    return [c["code"] for c in run.get("cargos") or []] + [c for c in (run.get("ride"), run.get("escort"), run.get("rescued")) if c]
+    return [c["code"] for c in run.get("cargos") or []] + [c for c in (run.get("ride"), run.get("escort"), run.get("rescued")) if c] \
+        + [x["code"] for x in run.get("dump") or []]
 
 
 def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) -> list[dict]:
@@ -848,6 +891,20 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
                      timeout=STEP_TIMEOUT)
             w["wait_device"], w["seq0_from"] = c, i
             steps.append(w)
+    if run.get("kind") == "dump":
+        hop(run["to"], [esc], " (drop-off)")
+        if run.get("carry"):
+            steps.append(step(f"{esc}: deposit {', '.join(f'{q:g} {r}' for r, q in sorted(run['carry'].items()))} at {run['to']}",
+                              f"/devices/{esc}", {"command": "deposit_resources"}))
+        for x in run.get("dump") or []:
+            if x["mode"] == "attach":
+                steps.append(step(f"{esc}: detach {x['code']}", f"/devices/{esc}", {"command": "detach", "device": x["code"]}))
+            else:
+                st = step(f"deploy {x['code']} from {esc}", f"/devices/{x['code']}", {"command": "deploy"},
+                          wait=["device.deployed"], timeout=STEP_TIMEOUT)
+                st["wait_device"] = x["code"]
+                steps.append(st)
+        return steps
     if run.get("kind") == "rescue":
         code, home, point = run["rescued"], run["to"], run["point"]
         if run["mode"] == "self":   # a replicant where the device can hear it, then the device flies itself home
@@ -929,6 +986,11 @@ def describe(run: dict) -> str:
                else f"{run['ride']} picks it up ({run['mode']}) and brings it to {run['to']}"
                + (f", {run['escort']} alongside" if run.get("escort") else ""))
         return f"{run['label']}: {how}"
+    if run.get("kind") == "dump":
+        what_ = [what] if what else []
+        if run.get("dump"):
+            what_.append(", ".join(x["code"] for x in run["dump"]))
+        return f"{run['label']}: {run['escort']} → {run['to']}, leaves {' and '.join(what_)}"
     codes = [c["code"] for c in run.get("cargos") or []]
     who = ", ".join(codes) or run.get("escort") or (f"AMI transport {run['ami']}" if run.get("ami") else "?")
     s = f"{run['label']}: {who}" + (f" carry {what}" if what and len(codes) > 1 else f" carries {what}" if what else "") + f" → {run['to']}"
