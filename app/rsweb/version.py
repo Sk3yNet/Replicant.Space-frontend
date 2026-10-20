@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.180.2"
+VERSION = "1.180.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.180.3", "2026-10-20", "Fleets: the Templates grid spans the full page width (Settings below it). Blueprints: the Plan "
+     "card sits above a full-width blueprint list instead of beside it, so the list no longer ends up squeezed under it on a phone."),
     ("1.180.2", "2026-10-20", "Logistics no longer rescues a device out of command range when its at: tag names the spot "
      "where it is: it was stocked there on purpose (compute cores at MIRFAKA-OBJ-1 sent a heaven vessel to fetch them)."),
     ("1.180.1", "2026-10-20", "Prints the app queues to fill a locker's price, a simulation's cores or missing components are "

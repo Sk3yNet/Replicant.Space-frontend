@@ -12,8 +12,15 @@
 {% if not blueprints %}<p class="muted">Blueprints sync every 5 minutes and when something may have unlocked one; none cached yet.</p>{% endif %}
 
 <form hx-post="/blueprints/plan" hx-target="#plan" hx-trigger="input delay:300ms from:input[type=number], change from:select">
-<div class="grid g2 g2-wide">
-  <div class="card">
+<div class="card" style="margin-bottom:14px">
+  <h2>Plan</h2>
+  <label>Printer</label>
+  <select name="printer">{% for p in printers %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
+  <div class="muted small">Draws on the stock at the printer's location. Autofactories are listed first: they hold queued prints until the materials arrive.</div>
+  <div id="plan"><p class="muted">Enter quantities to see total cost and shortfall.</p></div>
+  <div id="plan-result"></div>
+</div>
+<div class="card" style="overflow-x:auto">
     <table>
       <tr><th>Device</th><th class="num">Print</th><th>Cost</th><th class="afford-col">Can afford at</th><th class="num">Plan qty</th></tr>
       {% for b in blueprints %}
@@ -33,17 +40,6 @@
       </tr>
       {% endfor %}
     </table>
-  </div>
-  <div>
-    <div class="card" style="position:sticky;top:64px">
-      <h2>Plan</h2>
-      <label>Printer</label>
-      <select name="printer">{% for p in printers %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
-      <div class="muted small">Draws on the stock at the printer's location. Autofactories are listed first: they hold queued prints until the materials arrive.</div>
-      <div id="plan"><p class="muted">Enter quantities to see total cost and shortfall.</p></div>
-      <div id="plan-result"></div>
-    </div>
-  </div>
 </div>
 </form>
 {% set factories = printers | selectattr('autofactory') | list %}
