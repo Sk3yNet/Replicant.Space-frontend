@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.164.0"
+VERSION = "1.164.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.164.1", "2026-10-20", "Galaxy map: a label that would cover another fades out where it is instead of jumping "
+     "below it, and fades back in when the spot is clear; crowded star names fade rather than pop."),
     ("1.164.0", "2026-10-20", "Relay rollout: no fixed number of orders at a time; as many stay open as logistics "
      "vessels with a replicant have free hold slots. Loadouts: a carrier fills its free hold with relays bound for "
      "several systems at the same pick-up point and drops them system by system, nearest first."),

@@ -583,9 +583,8 @@ function placeOthers(now, showLabels, w, h) {
     x.el.style.display = vis ? "block" : "none";
     if (vis) {
       if (x.text) x.el.textContent = x.text();
-      x.el.style.opacity = f;
-      if (x.born) stackLabel(x.el, (tmp.x + 1) / 2 * w + 8, (1 - tmp.y) / 2 * h + x.dy);   // an arrow's label
-      else { x.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px"; }
+      if (x.born) stackLabel(x.el, (tmp.x + 1) / 2 * w + 8, (1 - tmp.y) / 2 * h + x.dy, f);   // an arrow's label
+      else { x.el.style.opacity = f; x.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px"; }
     }
   }
 }
@@ -791,17 +790,20 @@ $("btn-home")?.addEventListener("click", () => { const s = repStar(); if (s) { f
 const tmp = new THREE.Vector3();
 // Text is hidden when zoomed out so far that a light-year is under TEXT_MIN_PX pixels on screen (unreadable anyway).
 const TEXT_MIN_PX = 1.5, HALF_FOV = Math.tan(55 * Math.PI / 360);
-// Labels next to arrows (ships in transit, other players' arrivals / departures) that land on top of each other are
-// stacked: each placed below the ones already there, one line apart.
+// Labels next to fleets and arrows (ships in transit, other players' arrivals / departures) stay where they belong:
+// one that would land on top of a label already shown fades out instead of moving (owner 2026-10-20: labels jumping
+// around were worse than a hidden one), and fades back in once the spot is clear.
+const LABEL_FADE = "opacity .35s";
 let stacked = [];
-function stackLabel(e, x, y) {
+function stackLabel(e, x, y, f = 1) {
   const wd = e.offsetWidth || 150;
-  while (stacked.some(p => x < p.x + p.w && p.x < x + wd && Math.abs(p.y - y) < 13)) y += 13;
-  stacked.push({ x, y, w: wd });
-  e.style.left = x + "px"; e.style.top = y + "px";
+  const clash = stacked.some(p => x < p.x + p.w && p.x < x + wd && Math.abs(p.y - y) < 13);
+  if (!clash) stacked.push({ x, y, w: wd });
+  e.style.transition = LABEL_FADE;
+  e.style.left = x + "px"; e.style.top = y + "px"; e.style.opacity = clash ? 0 : f;
 }
 // Star names: fade with distance like the markers, and where they'd overlap, the more important one keeps the spot
-// (replicant, then hub, then devices, then new finds; nearer the view's center first) and the other is hidden.
+// (replicant, then hub, then devices, then new finds; nearer the view's center first) and the other fades out.
 let placedStars = [];   // {x, y, w} of the star names shown
 function placeStarLabels(showLabels, w, h) {
   placedStars = [];
@@ -817,9 +819,9 @@ function placeStarLabels(showLabels, w, h) {
   for (const { l, f, x, y } of cand) {
     const wd = l.w || 8 + 7 * l.el.textContent.length;   // measured once it has been shown
     const clash = placedStars.some(p => x < p.x + p.w && p.x < x + wd && Math.abs(p.y - y) < 12);
-    if (clash) { if (l.vis) { l.el.style.display = "none"; l.vis = false; } continue; }
-    if (!l.vis) { l.el.style.display = "block"; l.vis = true; }
-    l.el.style.left = x + "px"; l.el.style.top = y + "px"; l.el.style.opacity = f;
+    if (!l.vis) { l.el.style.display = "block"; l.el.style.transition = LABEL_FADE; l.vis = true; }
+    l.el.style.left = x + "px"; l.el.style.top = y + "px"; l.el.style.opacity = clash ? 0 : f;
+    if (clash) continue;
     if (!l.w) l.w = l.el.offsetWidth || wd;
     placedStars.push({ x, y, w: l.w });
   }
@@ -860,9 +862,8 @@ function animate(t = 0) {
     const vis = fleetGroup.visible && readable && f > 0.05 && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
     l.el.style.display = vis ? "block" : "none";
     if (!vis) continue;
-    l.el.style.opacity = f;
     if (l.more) l.more.style.display = f > 0.6 ? "" : "none";   // further out: just the name and what it's doing
-    stackLabel(l.el, (tmp.x + 1) / 2 * w + 8, (1 - tmp.y) / 2 * h - 6 + l.dy);
+    stackLabel(l.el, (tmp.x + 1) / 2 * w + 8, (1 - tmp.y) / 2 * h - 6 + l.dy, f);
   }
   sparkGroup.visible = checked("opt-production", OPTS.production !== false);
   if (sparkGroup.visible) {
