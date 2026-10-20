@@ -2014,6 +2014,15 @@ def test_bound_controller_drops_its_work_and_leaves():
     p = lo.plan({"phases": [], "systems": {}}, _bound_controller_world(), [], {}, stars, {}, {"SC000001"}, [], {})
     assert any("SC000001 can't leave FAL yet" in u["why"] for u in p["unmet"])
 
+    # riding a carrier a running job holds: it waits for the carrier, and says so
+    world = _bound_controller_world() + [
+        {"device_code": "MF000001", "device_type": "mobile_fleet", "location": "FAL-BELT-1", "status": "idle",
+         "features": ["surge", "cruise", "attach"], "tags": []}]
+    next(d for d in world if d["device_code"] == "SD000002")["attached_to_device_code"] = "MF000001"
+    p = lo.plan({"phases": [], "systems": {}}, world, [], {}, stars, {}, {"MF000001"}, [], {})
+    assert not any("SD000002" in d["devices"] for d in p["deliveries"])
+    assert any("SD000002 can't leave FAL yet: it rides MF000001" in u["why"] for u in p["unmet"])
+
 
 def test_work_rules_skip_devices_bound_elsewhere():
     from rsweb.ami_schedule import adoptable, targets_of, in_transit
@@ -7032,12 +7041,60 @@ def test_attach_already_attached(client):
             assert j["status"] != "failed" and j["steps"][0]["status"] == "done", (on, carrier)
             if on in ("CAR00001",):   # this carrier, or another of the fleet: done
                 assert sent == [(f"/devices/{carrier}", "attach")], (on, carrier)
-            else:                     # outside the fleet, or unknown: deploy it, then attach again
+            elif on == "CAR00003":    # a carrier outside the fleet: it detaches it, then attach again
+                assert sent[:2] == [(f"/devices/{carrier}", "attach"), ("/devices/CAR00003", "detach")], (on, carrier, sent)
+                assert [s["desc"].split(" ")[0] for s in j["steps"]][:2] == [f"{carrier}:", "CAR00003:"]
+            else:                     # no carrier named: deploy it, then attach again
                 assert sent == [(f"/devices/{carrier}", "attach"), ("/devices/OBS0000A", "deploy")], (on, carrier, sent)  # then waits
                 assert [s["desc"].split(" ")[0] for s in j["steps"]] == [f"{carrier}:", "deploy", f"{carrier}:"]
     finally:
         eng.send = orig
 
+
+def test_return_load_takes_what_is_left(client):
+    from rsweb.automations import step
+    eng = client.app.state.worker.automations
+    sent = []
+
+    async def fake_send(method, path, body, why):
+        sent.append(dict(body.get("resources") or {}))
+        if body.get("resources", {}).get("structural", 0) > 5:
+            return False, None, "Insufficient structural at location: need 18.0, have 5"
+        return True, {}, None
+    orig = eng.send
+    eng.send = fake_send
+    try:
+        for req, want in (("return:X-BELT", "done"), ("contract:EV1", "failed")):
+            sent.clear()
+            job = client.portal.call(eng.create_job, "logistics", f"short load {req}", "F1",
+                                     [step("F1: load 14 conductive, 18 structural at X-BELT", "/devices/F1",
+                                           {"command": "collect_resources", "resources": {"conductive": 14, "structural": 18}},
+                                           critical=True)], {"devices": ["F1"], "logistics": {"req": req}}, True)
+            j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
+            assert j["status"] == want, (req, j["status"])
+            if want == "done":   # a pile going home loads what's there; a contract's price can't come up short
+                assert sent == [{"conductive": 14, "structural": 18}, {"conductive": 14, "structural": 5}]
+    finally:
+        eng.send = orig
+
+def test_unescorted_trip_does_not_leave_for_a_dark_system(client):
+    from rsweb.automations import step
+    eng = client.app.state.worker.automations
+    sent = []
+
+    async def fake_send(method, path, body, why):
+        sent.append(path)
+        return True, {}, None
+    orig = eng.send
+    eng.send = fake_send
+    try:
+        st = step("F1 → NOWHERE-3-1", "/devices/F1", {"command": "travel", "destination": "NOWHERE-3-1"}, critical=True)
+        st["need_comms"] = "NOWHERE"
+        job = client.portal.call(eng.create_job, "logistics", "dark trip", "F1", [st], {"devices": ["F1"]}, True)
+        j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
+        assert j["status"] == "failed" and sent == [] and "NOWHERE is out of comms range" in j["steps"][0]["error"]
+    finally:
+        eng.send = orig
 
 def test_scanning_drone_finishes_its_scan_before_moving():
     from rsweb.automations import step

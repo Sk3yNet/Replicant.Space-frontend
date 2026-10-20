@@ -340,7 +340,9 @@ def _trip_eta(resp: dict) -> datetime | None:
 
 
 def eta_text(t: datetime) -> str:
-    """'21:36 UTC (in 4 h 12 min)' — an expected completion for the logs."""
+    """'21:36 UTC (in 4 h 12 min)' — an expected completion for the logs. The game's times carry its own offset
+    (-04:00, live 2026-10-20): shown in UTC."""
+    t = t.astimezone(timezone.utc)
     mins = max(0, int((t - _now()).total_seconds() // 60))
     span = f"{mins // 60} h {mins % 60} min" if mins >= 60 else f"{mins} min"
     day = "" if t.date() == _now().date() else t.strftime(" %b %d")
@@ -714,7 +716,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     st["timeout"] = max(st.get("timeout", STEP_TIMEOUT), (eta - _now()).total_seconds() + 1800)
                 ok, resp, err = True, None, None
             else:
-                far = await self._too_far(st)
+                far = await self._too_far(st) or await self._dark_destination(st, job)
                 if far:
                     ok, resp, err = False, None, far
                 else:
@@ -789,8 +791,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             if (not ok and (st.get("body") or {}).get("command") == "attach" and "already attached" in (err or "").lower()
                     and str(st.get("path") or "").startswith("/devices/")):
                 # seen live (2026-10-15, Prospector 4, Miner_3): "Target device is already attached to a carrier".
-                # Attached to this carrier or another of its fleet: that's what the step wanted. Attached to a carrier
-                # outside the fleet (or one the device list doesn't name): deploy it there, then attach it again
+                # Attached to this carrier or another of its fleet: that's what the step wanted. Attached to another
+                # carrier: that carrier detaches it (a deploy only frees a stowed device; the game answers "already
+                # deployed", live 2026-10-20 at FALQUORYX). The device list names no carrier: deploy it, then attach again
                 carrier, code = st["path"].split("/")[2], st["body"].get("device")
                 devs_now = await self.devices()
                 by_now = {d.get("device_code"): d for d in devs_now}
@@ -800,10 +803,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     ok, st["note"] = True, f"{err} — already attached to {other}, a carrier of this fleet"
                     st["wait"] = []
                 else:
-                    dep = step(f"deploy {code} out of {other or 'the carrier it is on'} (for {carrier} to attach it)",
-                               f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT,
-                               critical=True)
-                    dep["wait_device"] = code
+                    if other and other in by_now:
+                        dep = step(f"{other}: detach {code} (for {carrier} to attach it)", f"/devices/{other}",
+                                   {"command": "detach", "device": code}, timeout=SHORT_TIMEOUT, critical=True)
+                    else:
+                        dep = step(f"deploy {code} out of {other or 'the carrier it is on'} (for {carrier} to attach it)",
+                                   f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"], timeout=SHORT_TIMEOUT,
+                                   critical=True)
+                        dep["wait_device"] = code
                     again = step(st["desc"], st["path"], dict(st["body"]), wait=list(st.get("wait") or []),
                                  timeout=st.get("timeout", STEP_TIMEOUT), critical=st.get("critical", False))
                     again["wait_device"], again["no_retry_attach"] = st.get("wait_device"), True
@@ -812,7 +819,32 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                         for s2 in job["steps"][job["idx"] + 3:]:
                             if isinstance(s2.get("seq0_from"), int) and s2["seq0_from"] > job["idx"]:
                                 s2["seq0_from"] += 2
-                        ok, st["note"] = True, f"{err} — on {other or 'a carrier outside the fleet'}: deploying it first"
+                        ok, st["note"] = True, (f"{err} — on {other}: detaching it first" if other and other in by_now
+                                                else f"{err} — on {other or 'a carrier outside the fleet'}: deploying it first")
+                        st["wait"] = []
+            m_short = re.search(r"insufficient (\w+) at location: need [\d.]+, have ([\d.]+)", (err or "").lower())
+            if (not ok and m_short and (st.get("body") or {}).get("command") == "collect_resources"
+                    and str(((job.get("meta") or {}).get("logistics") or {}).get("req") or "").startswith(
+                        ("return:", "consolidate:", "evacuate:"))):
+                # moving a pile home: someone took part of it since the plan (an AMI ferry, live 2026-10-20 at
+                # ALPHARDAN-BELT-1). Load what's there instead; stop only when nothing is left to load
+                res = {k: v for k, v in dict(st["body"].get("resources") or {}).items()}
+                key = next((k for k in res if k.lower() == m_short.group(1)), None)
+                if key is not None and (st.get("short_retries") or 0) < 5:
+                    have = math.floor(float(m_short.group(2)))
+                    if have >= 1:
+                        res[key] = have
+                    else:
+                        res.pop(key)
+                    if res:
+                        again = step(st["desc"], st["path"], {**st["body"], "resources": res}, wait=list(st.get("wait") or []),
+                                     timeout=st.get("timeout", STEP_TIMEOUT), critical=st.get("critical", False))
+                        again["wait_device"], again["short_retries"] = st.get("wait_device"), (st.get("short_retries") or 0) + 1
+                        job["steps"][job["idx"] + 1:job["idx"] + 1] = [again]
+                        for s2 in job["steps"][job["idx"] + 2:]:
+                            if isinstance(s2.get("seq0_from"), int) and s2["seq0_from"] > job["idx"]:
+                                s2["seq0_from"] += 1
+                        ok, st["note"] = True, f"{err} — loading what is there"
                         st["wait"] = []
             if not ok and "already at destination" in (err or "").lower():
                 ok, st["note"] = True, err  # nothing to do: count it as done and move on
@@ -989,6 +1021,22 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             st["desc"] += f" (via hub {best[0]})"
             await self.log(job["rule"], f"{job['title']}: {code} → {dest} via your hub at {best[0]}: "
                                         f"{hubroute.hm(best[1])} instead of {hubroute.hm(direct)}")
+
+    async def _dark_destination(self, st: dict, job: dict) -> str | None:
+        """A trip planned unescorted into comms coverage that has since gone dark: don't leave (live 2026-10-20: two
+        trade freighters planned for SOL-3-1 at 13:22 left at 16:03 and arrived out of comms range, cargo aboard)."""
+        star = st.get("need_comms")
+        if not star or (st.get("body") or {}).get("command") != "travel":
+            return None
+        devices = await self.devices()
+        if star in await self.commandable(devices):
+            return None
+        from .logistics import riding_hosts
+        reps = await self.db.kv_get("replicants", {}) or {}
+        hosts = riding_hosts(devices, {r.get("hosted_device_code"): c for c, r in reps.items() if r.get("hosted_device_code")})
+        if set(hosts) & set([job.get("device")] + list((job.get("meta") or {}).get("devices") or [])):
+            return None   # a replicant flies with this job: it brings comms along
+        return f"{star} is out of comms range now (no relay network or replicant there): not leaving without an escort"
 
     async def _too_far(self, st: dict) -> str | None:
         """The one check every automated trip goes through: a drone or AMI controller isn't sent on a long cruise inside
@@ -2634,9 +2682,20 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         hosts = {r.get("hosted_device_code"): code for code, r in reps.items() if r.get("hosted_device_code")}
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
-        for j in jobs:  # a carrier whose delivery just failed (out of comms, mid-surge …) sits out for 30 minutes
+        # a carrier whose delivery just failed (out of comms, mid-surge …) sits out for 30 minutes; one that failed twice
+        # with the same cargo in 6 hours sits out the rest of those 6 hours (live 2026-10-20: five plates failed the
+        # same attach every half hour)
+        fails: dict[tuple, int] = defaultdict(int)
+        for j in jobs:
             fin = _ts(j.get("finished_at") or j.get("created_at"))
-            if j["rule"] == "loadouts" and j["status"] == "failed" and fin and (_now() - fin).total_seconds() < 1800:
+            if j["rule"] == "loadouts" and j["status"] == "failed" and fin and (_now() - fin).total_seconds() < 6 * 3600:
+                fails[(j.get("device"), tuple(sorted(j.get("meta", {}).get("devices", []))))] += 1
+        for j in jobs:
+            fin = _ts(j.get("finished_at") or j.get("created_at"))
+            if j["rule"] != "loadouts" or j["status"] != "failed" or not fin:
+                continue
+            age = (_now() - fin).total_seconds()
+            if age < 1800 or (age < 6 * 3600 and fails[(j.get("device"), tuple(sorted(j.get("meta", {}).get("devices", []))))] >= 2):
                 busy.add(j.get("device"))
                 busy.update(j.get("meta", {}).get("devices", []))
         # an approved shop trade waiting on logistics keeps one logistics vessel with a replicant aboard free for it, the

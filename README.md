@@ -202,7 +202,9 @@ lines or a template).
   (Contracts), trades you approved (Shop: *approve*, used once; plain shop listings are never fulfilled), a home system's
   piles consolidated at its drop point (its autofactory, else its biggest pile; systems the Consolidate rule covers with an
   AMI transport controller are left to it), and stray stockpiles brought back to a gather point (a fleet that takes
-  materials in) — or, where such a fleet moved away, to its new home; with no gather point, the page says so. Deliveries draw on
+  materials in) — or, where such a fleet moved away, to its new home (not from a system an AMI ferry already empties;
+  a return load that finds less than planned takes what is left); with no gather point, the page says so. A trip planned
+  without an escort checks again before it leaves and stays put if its destination has gone out of comms range. Deliveries draw on
   stockpiles beyond the network too while a replicant is free to go along. Priority: queued prints (waiting ones first), local, long-range, returns; bump or skip a request on the Logistics
   page. Home systems keep what their own prints need, but hubs share that reserve so each one's print queue is paid for
   about as many hours ahead (print time over its autofactories): the one with the fewest hours gets what its next print
