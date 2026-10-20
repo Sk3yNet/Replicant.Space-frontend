@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.171.0"
+VERSION = "1.172.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.172.0", "2026-10-20", "New page Map › Terraforming candidates: surveyed planets and moons rated for a species "
+     "(picker), ranked by the estimated time to habitable with a kit of n devices of each kind, showing each attribute's "
+     "gap, the devices it takes, the distance to your nearest autofactory and whether the system is commandable (both "
+     "as filters). Gravity out of range, gas giants and intelligent natives are dropped. Read surveyed bodies reads "
+     "their details (25 a click, again after a week). README caveats updated."),
     ("1.171.0", "2026-10-20", "Shops stay listed until you remove them (Remove on the traders table, after you checked): "
      "a failed trade, a trader refresh that no longer lists a shop out of reach, or a system scan without it (it said "
      "shops: [] at ROSALIATE with a shop there) no longer drops it. Shops with no trades read are listed too. A BobNet post (X is open "

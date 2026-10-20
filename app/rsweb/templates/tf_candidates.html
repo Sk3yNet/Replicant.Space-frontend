@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Terraforming candidates{% endblock %}
+{% block content %}
+<h1>Terraforming candidates <span class="muted small">{{ rows | length }} world(s)</span></h1>
+<p class="muted small">Surveyed planets and moons, quickest to make habitable first. The time is an estimate: each attribute
+  outside the range is worked at once by {{ kit }} device(s) of each kind it takes, at full strength (stacking 1 + ln n),
+  with bio seeders starting once their preconditions hold. Side effects and couplings are left out. A missing value counts
+  as 0 (no atmosphere: no pressure, oxygen or toxicity); an unknown temperature isn't judged (—). One tick is {{ tick_s }} s.</p>
+
+<form class="row small" style="margin-bottom:10px;gap:10px;align-items:flex-end">
+  <label style="text-transform:none">Species
+    <select name="species">{% for x in species %}<option value="{{ x.species_key }}" {{ 'selected' if target and x.species_key == target.species_key }}>{{ x.name }}</option>{% endfor %}
+      {% if not species %}<option>no species list (GET /species failed): the docs' bio seeder ranges</option>{% endif %}</select></label>
+  <label style="text-transform:none">Devices of each kind <input name="kit" type="number" min="1" max="20" value="{{ kit }}" style="width:5em"></label>
+  <label style="text-transform:none">Within ly of an autofactory <input name="max_ly" type="number" min="0" step="any" value="{{ max_ly }}" placeholder="any" style="width:6em"></label>
+  <label style="text-transform:none"><input type="checkbox" name="covered" value="1" {{ 'checked' if covered }}> commandable systems only</label>
+  <button>Show</button>
+</form>
+{% if target %}<p class="muted small">{{ target.name }}: {% for a, r in targets.items() %}{{ a }} {{ r[0] }}–{{ r[1] }}{{ ' · ' if not loop.last }}{% endfor %}</p>{% endif %}
+
+<div class="card small">
+  {% if to_read %}{{ to_read | length }} surveyed body/bodies not read yet.{% else %}Every surveyed body has been read.{% endif %}
+  <button class="small" hx-post="/terraforming/candidates/read" hx-target="next .tc-out">Read surveyed bodies</button>
+  <span class="tc-out"></span>
+  <div class="muted">Reads planets and moons that were surveyed (by hand, auto-survey or an AMI survey controller), up to 25 a click; each is re-read after a week.</div>
+</div>
+
+{% if rows %}
+<table class="small">
+  <tr><th>World</th><th>Time</th>{% for a in attrs %}<th>{{ a }}</th>{% endfor %}<th>Devices</th><th>Autofactory</th><th>Commandable</th></tr>
+  {% for r in rows %}<tr>
+    <td class="mono"><a href="/locations/{{ r.body }}">{{ r.body }}</a> <span class="muted">{{ (r.type or '') | human }}{% if r.life_stage %} · {{ r.life_stage }} life{% endif %}</span></td>
+    <td>{% if r.blocked %}<span class="lv-warning">can't reach: {{ r.blocked | join(', ') }}</span>{% if r.ticks %}<div class="muted">rest {{ r.seconds | duration }}</div>{% endif %}
+      {% elif r.ticks %}{{ r.seconds | duration }}{% else %}✓ habitable{% endif %}</td>
+    {% for a in attrs %}{% set x = r.attrs[a] %}<td>{% if x %}{% if x.gap %}<span class="lv-warning">{{ '%g' % (x.value | round(2)) }}</span>
+      <div class="muted">{{ '+' if x.gap > 0 }}{{ '%g' % (x.gap | round(2)) }}{% if x.ticks %} · {{ (x.ticks * tick_s) | duration }}{% endif %}</div>
+      {% else %}{{ '%g' % (x.value | round(2)) }}{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
+    <td>{% for k in r.devices %}<div>{{ k | human }}</div>{% else %}<span class="muted">none</span>{% endfor %}</td>
+    <td>{% if r.factory_ly is not none %}{{ '%.1f' % r.factory_ly }} ly <span class="muted mono">{{ r.factory }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td>{{ '✓' if r.covered else '' }}</td></tr>{% endfor %}
+</table>
+{% else %}
+<div class="card"><p class="muted">No candidates{% if max_ly or covered %} with these filters{% endif %}. Survey planets and moons, then read them above.</p></div>
+{% endif %}
+
+{% if dropped %}
+<details class="card small"><summary>{{ dropped | length }} not candidates</summary>
+  {% for r in dropped %}<div><span class="mono">{{ r.body }}</span> <span class="muted">{{ r.dropped }}</span></div>{% endfor %}
+</details>{% endif %}
+{% if unsurveyed %}
+<details class="card small"><summary>{{ unsurveyed | length }} read but not surveyed yet</summary>
+  <span class="mono">{{ unsurveyed | join(', ') }}</span></details>{% endif %}
+{% endblock %}

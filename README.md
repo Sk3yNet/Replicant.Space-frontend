@@ -148,6 +148,7 @@ rule with an on/off switch, plus the jobs and the log.
 - **Wards & hubs**: your wards (against the 25 cap), hub shield and upkeep with warnings, `evicted_miners` log. Other players'
   warded systems are left alone by every mining rule and mission.
 - **Terraforming** (Map › Terraforming): each world with a terraform monitor: its latest `terraform.status` (attributes, change per tick, projections +6/+12/+24, what drives them, warnings, anomalies), coupling rules active or close, bio seeder preconditions; your terraforming devices with strength (0–1), direction (reversible ones) and on/off. **Dropping rocks**: detect Kuiper objects, launch one with a vector charge at a planet or moon, set propulsor / trajectory deflector directions; rocks you launch are left alone by asteroid defense.
+- **Terraforming candidates** (Map › Terraforming candidates): surveyed planets and moons rated as terraforming targets for a species you pick, quickest first. For each: the gap per attribute and the time to close it with n devices of each kind (stacking 1 + ln n, side effects left out; bio seeders start once their preconditions hold), the devices it takes, the distance to your nearest autofactory and whether you can command there (both filters). Gravity outside the range, gas giants and intelligent natives are listed apart. *Read surveyed bodies* fetches their details (`GET /locations/<body>`), 25 a click, again after a week.
 - **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Evacuation** (game v3.5.0: what's left at an
   asteroid is destroyed on impact or lost on diversion): within the hour before impact, or at the game's
   `system.impact_warning`, your devices there leave for the system's entry point (propulsors still pushing stay until 30
@@ -531,7 +532,7 @@ How it fits the app:
 
 ## Caveats
 
-The API reference was compiled from the public docs, not from the live API. A few response shapes are undocumented: messages, achievements, reputation, and some device detail fields. The UI copes with missing or unknown fields and shows raw JSON where it can't lay a response out. If something looks off, check the response in the **Console** and adjust the matching template.
+The API reference was compiled from the public docs and checked against the live API and the OpenAPI spec. Messages and achievements are confirmed live; reputation and some device detail fields are still unconfirmed. The UI copes with missing or unknown fields and shows raw JSON where it can't lay a response out. If something looks off, check the response in the **Console** and adjust the matching template.
 
 ### From the OpenAPI spec (1.117.0)
 

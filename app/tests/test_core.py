@@ -7645,6 +7645,48 @@ def test_queueing_a_simulation_checks_its_offer_and_preps_at_once(client):
     assert "Entry cost: <b>free</b>" in client.get("/simulations", headers=H).text
 
 
+def test_terraforming_candidates():
+    """Map › Terraforming candidates: surveyed planets and moons, read on request, rated for a species and ranked by the
+    estimated time to habitable; gravity out of range, gas giants and intelligent natives are dropped."""
+    import json
+    from rsweb import tfcandidates as tc
+    hum = {"temperature": (270, 300), "pressure": (0.8, 1.2), "oxygen": (18, 25), "toxicity": (0, 5),
+           "hydrosphere": (40, 70), "biosphere": (30, 70), "tectonic": (5, 30), "gravity": (0.7, 1.3)}
+    earthish = {"surface_temp_k": 280, "atmo_pressure_atm": 1.0, "atmo_o2_pct": 20, "atmo_toxicity": 1, "hydrosphere_pct": 50,
+                "biosphere_index": 40, "tectonic_index": 10, "surface_gravity": 1.0, "type": "rocky"}
+    r = tc.rate_body(earthish, hum)
+    assert r["ticks"] == 0 and not r["blocked"] and not r["dropped"]
+    cold = {**earthish, "surface_temp_k": 250, "biosphere_index": None}   # 20 K short; no biosphere yet
+    r = tc.rate_body(cold, hum, kit=1)
+    assert r["attrs"]["temperature"]["ticks"] == 37 and r["attrs"]["temperature"]["devices"] == ["orbital_mirror", "thermal_lance"]
+    assert r["attrs"]["biosphere"]["ticks"] == 100 and r["ticks"] == 100   # 250 K meets the bio seeder preconditions already
+    assert tc.rate_body({**earthish, "atmo_toxicity": None, "atmosphere": False, "atmo_pressure_atm": None}, hum)["attrs"]["pressure"]["gap"] == 0.8
+    assert tc.rate_body({**earthish, "biosphere_index": 90}, hum)["blocked"] == ["biosphere"]   # nothing lowers it
+    assert "gravity" in tc.rate_body({**earthish, "surface_gravity": 0.11}, hum)["dropped"]
+    assert tc.rate_body({**earthish, "type": "Gas Giant"}, hum)["dropped"]
+    assert tc.bodies_to_read({"X": {"planets": [{"designation": "X-1", "moon_count": 2}, {"designation": "X-2", "moon_count": 1}]}},
+                             {"X-1": "t", "X-2-1": "t"}, {}) == ["X-1", "X-1-1", "X-1-2", "X-2-1"]
+    assert tc.bodies_to_read({"X": {"planets": [{"designation": "X-1", "moon_count": 0}]}}, {}, {"X": "t"}) == ["X-1"]
+
+
+def test_terraforming_candidates_page(client):
+    import json
+    db = client.app.state.db
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("SOL", json.dumps({"planets": [{"designation": "SOL-3", "moon_count": 1}]}), "2026-10-20T00:00:00+00:00"))
+    client.portal.call(db.kv_set, "surveyed", {"SOL-3": "2026-10-20T00:00:00+00:00"})
+    t = client.get("/terraforming/candidates", headers=H).text
+    assert "2 surveyed body/bodies not read yet" in t and "Terraforming candidates" in t
+    out = client.post("/terraforming/candidates/read", headers=HX).text
+    assert "Read 2 body/bodies" in out
+    assert "Read 0" in client.post("/terraforming/candidates/read", headers=HX).text   # read within the week: left alone
+    t = client.get("/terraforming/candidates?species=humans&kit=3", headers=H).text
+    assert "SOL-3</a>" in t and "Every surveyed body has been read" in t and "270–300" in t
+    assert "1 read but not surveyed yet" not in t
+    t = client.get("/terraforming/candidates?max_ly=5", headers=H).text   # the mock's autofactory is in SOL
+    assert "SOL-3</a>" in t and "0.0 ly" in t
+
+
 def test_terraforming_groups_keep_a_fixed_order():
     """Monitor and regulator share one Control card, first; the other kinds follow a fixed order by what they primarily
     do (never moving while in use); what's out of range is only marked (fixes …)."""

@@ -300,3 +300,109 @@ async def terraforming_detonate(request: Request, code: str, target: str = Form(
         rocks[resp["object_designation"]] = {**resp, "at": now_iso(), "by": user}
         await db.kv_set(LAUNCHED_KV, rocks)
     return render_action(request, r)
+
+
+# --- Map › Terraforming candidates (tfcandidates.py) -------------------------------------------------------------
+async def _candidates(request: Request) -> dict:
+    import json
+    from . import tfcandidates as tc
+    db = request.app.state.db
+    q = request.query_params
+    species = await species_list(request)
+    want = (q.get("species") or "").strip().lower() or await db.kv_get(TARGET_KV, "") or "humans"
+    target = next((x for x in species if x.get("species_key") == want), None)
+    targets = dict(tf.species_targets(target) or tf.TARGETS)
+    g = ((target or {}).get("environment") or {}).get("gravity")
+    if isinstance(g, (list, tuple)) and len(g) == 2:
+        targets["gravity"] = (g[0], g[1])
+    try:
+        kit = max(1, min(20, int(q.get("kit") or tc.DEFAULT_KIT)))
+    except ValueError:
+        kit = tc.DEFAULT_KIT
+    try:
+        max_ly = float(q["max_ly"]) if q.get("max_ly") else None
+    except ValueError:
+        max_ly = None
+    covered_only = bool(q.get("covered"))
+    st = await load_state(request)
+    cat = await db.kv_get("stars", {}) or {}
+    pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+    for r in await db.fetchall("SELECT star, data FROM systems"):   # scanned systems carry their own position
+        if r["star"] not in pos:
+            pos[r["star"]] = ((json.loads(r["data"]) or {}).get("star") or {}).get("position")
+    factories = {star_of(d.get("location")) for d in st["devices"]
+                 if d.get("device_type") == "autofactory" and d.get("location")}
+    commandable = await request.app.state.worker.automations.commandable(st["devices"])
+    rows, dropped, unsurveyed = [], [], []
+    for r in await db.fetchall("SELECT key, value FROM kv WHERE key LIKE 'loc:%'"):
+        try:
+            body = tc.body_of(json.loads(r["value"]))
+        except ValueError:
+            continue
+        code = r["key"][4:]
+        if not body or "-BELT-" in code or "-OBJ-" in code:
+            continue
+        if not body.get("scanned", True):
+            unsurveyed.append(code)
+            continue
+        rated = tc.rate_body(body, targets, kit)
+        star = star_of(code)
+        near = min(((tc.ly(pos.get(star), pos.get(f)), f) for f in factories if tc.ly(pos.get(star), pos.get(f)) is not None),
+                   default=(None, None))
+        row = {"body": code, "star": star, "type": body.get("type") or body.get("location_type"), **rated,
+               "factory_ly": near[0], "factory": near[1], "covered": star in commandable}
+        if rated["dropped"]:
+            dropped.append(row)
+        elif (max_ly is None or (near[0] is not None and near[0] <= max_ly)) and (row["covered"] or not covered_only):
+            rows.append(row)
+    rows.sort(key=lambda x: (bool(x["blocked"]), x["ticks"], x["body"]))
+    scans = {r["star"]: json.loads(r["data"]) for r in await db.fetchall("SELECT star, data FROM systems")}
+    known = tc.bodies_to_read(scans, await db.kv_get("surveyed", {}) or {}, await db.kv_get("ami_surveyed", {}) or {})
+    have = {r["key"][4:] for r in await db.fetchall("SELECT key FROM kv WHERE key LIKE 'loc:%'")}
+    return dict(rows=rows, dropped=sorted(dropped, key=lambda x: x["body"]), unsurveyed=sorted(unsurveyed),
+                to_read=[b for b in known if b not in have], species=species, target=target, targets=targets,
+                attrs=[a for a in tf.ATTRS if a in targets], units=tf.UNITS, kit=kit, max_ly=q.get("max_ly") or "",
+                covered=covered_only, tick_s=tf.TICK_S, factories=factories)
+
+
+@router.get("/terraforming/candidates", response_class=HTMLResponse)
+async def terraforming_candidates(request: Request, user: str = Depends(current_user)):
+    return await page(request, user, "tf_candidates.html", "tfcandidates", **await _candidates(request))
+
+
+@router.post("/terraforming/candidates/read", response_class=HTMLResponse)
+async def terraforming_candidates_read(request: Request, user: str = Depends(current_user)):
+    """Read the details of surveyed planets and moons (GET /locations/<body>), at most READ_CAP a click: unread ones
+    first, then the oldest reads; a body read within READ_EVERY_S is left alone."""
+    import json
+    from datetime import datetime, timezone
+    from .api import ApiError
+    from . import tfcandidates as tc
+    db, api = request.app.state.db, request.app.state.api
+    scans = {r["star"]: json.loads(r["data"]) for r in await db.fetchall("SELECT star, data FROM systems")}
+    known = tc.bodies_to_read(scans, await db.kv_get("surveyed", {}) or {}, await db.kv_get("ami_surveyed", {}) or {})
+    reads = await db.kv_get(tc.READS_KV, {}) or {}
+    now = datetime.now(timezone.utc)
+
+    def age(b: str) -> float:
+        try:
+            return (now - datetime.fromisoformat(reads[b])).total_seconds()
+        except (KeyError, TypeError, ValueError):
+            return float("inf")
+    due = sorted((b for b in known if age(b) > tc.READ_EVERY_S), key=age, reverse=True)
+    n, failed = 0, []
+    for b in due[:tc.READ_CAP]:
+        reads[b] = now_iso()
+        try:
+            data = await api.get(f"/locations/{b}")
+        except ApiError as e:
+            failed.append(f"{b}: {e.message}")
+            continue
+        if isinstance(data, dict) and tc.body_of(data):
+            await db.kv_set(f"loc:{b}", data)
+            n += 1
+    await db.kv_set(tc.READS_KV, reads)
+    left = max(0, len(due) - tc.READ_CAP)
+    msg = f"Read {n} body/bodies." + (f" {left} more to read: click again." if left else "") + \
+          (f" Not read: {html.escape('; '.join(failed[:5]))}{' …' if len(failed) > 5 else ''}" if failed else "")
+    return HTMLResponse(f'<span class="{"lv-warning" if failed else "muted"}">{msg} Reload the page to see them.</span>')
