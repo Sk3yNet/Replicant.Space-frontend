@@ -4,6 +4,7 @@
   <button class="small ghost" hx-get="/partials/story?refresh=1" hx-target="#story" title="Read the game's overview now (otherwise every 30 minutes)">check now</button></span></div>
 {% if not ov %}<p class="muted small">Not read yet.</p>{% endif %}
 {% if se.tagline %}<p class="small muted" style="margin-top:0">{{ se.tagline }}</p>{% endif %}
+{% if season_end %}<p class="small" style="margin-top:0" title="The game names no season end: this is the latest end date of its storylines and events">Season likely ends <b>{{ season_end[0] }}</b>{% if season_end[1] > 0 %} (in {{ season_end[1] }} day{{ 's' if season_end[1] != 1 }}){% elif season_end[1] == 0 %} (today){% else %} (date passed){% endif %}.</p>{% endif %}
 {% macro item(x) %}{% if x is mapping %}<b>{{ x.title or x.name or '' }}</b>{% if x.status %} <span class="pill small {{ 'st-move' if x.status == 'active' else '' }}">{{ x.status }}</span>{% endif %}
   {% if x.location %} · <a href="/systems/{{ x.location.split('-')[0] }}">{{ x.location }}</a>{% endif %}
   {% if x.schedule is mapping and x.schedule.total_stops %} · stop {{ x.schedule.current_stop }}/{{ x.schedule.total_stops }}{% endif %}

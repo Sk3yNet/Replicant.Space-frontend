@@ -492,7 +492,8 @@ async def p_story(request: Request, refresh: str = "", user: str = Depends(curre
         await request.app.state.worker.sync_overview()
     from . import season
     db = request.app.state.db
-    return partial(request, "partials/story.html", ov=await db.kv_get("overview", {}) or {},
+    ov = await db.kv_get("overview", {}) or {}
+    return partial(request, "partials/story.html", ov=ov, season_end=season.likely_end(ov),
                    hold=await db.kv_get(season.HOLD_KV, None), snap=await db.kv_get(season.SNAP_KV, None),
                    snap_summary=season.summary(await db.kv_get(season.SNAP_KV, None)))
 

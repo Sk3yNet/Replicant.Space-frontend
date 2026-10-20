@@ -7785,6 +7785,10 @@ def test_dashboard_story_card_shows_the_game_overview(client):
     assert 'id="story"' in client.get("/", headers=H).text
     # the live spec's fields (2026-10-20): visible_until, reward, locations (names or {name, system}), the Ark's schedule
     assert "until 2026-10-31" in page and "Reward: Blueprint for a mining_rig." in page and "stop 12/12" in page
+    assert "Season likely ends <b>2026-10-31</b>" in page
+    from rsweb import season
+    assert season.likely_end({"events": [{"visible_until": "2026-10-31"}], "storylines": [{"visible_until": "2026-10-20"}]})[0] == "2026-10-31"
+    assert season.likely_end({"season": {"ends_at": "2026-11-30T00:00:00Z"}})[0] == "2026-11-30" and season.likely_end({}) is None
     assert '/systems/TRYNLLYR">TRYNLLYR</a>' in page and '/systems/MIRFAKA">Deep Space Tracking Array (MIRFAKA)</a>' in page
 
 

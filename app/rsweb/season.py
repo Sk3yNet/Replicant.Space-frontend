@@ -32,6 +32,26 @@ def label(season: dict | None) -> str:
     return f"season {s.get('number', '?')}" + (f" ({s['title']})" if s.get("title") else "")
 
 
+def likely_end(ov: dict | None) -> tuple[str, int] | None:
+    """When the season probably ends, and in how many days: the season's own end date if the game ever sends one, else
+    the latest `visible_until` among storylines and events (the overview names no season end; on 2026-10-20 both the
+    Ark's journey and the Ethirel event ran until 2026-10-31)."""
+    ov = ov or {}
+    se = ov.get("season") or {}
+    end = next((se.get(k) for k in ("ends_at", "end", "deadline", "visible_until") if se.get(k)), None)
+    if not end:
+        ends = [x.get("visible_until") for k in ("storylines", "events") for x in ov.get(k) or []
+                if isinstance(x, dict) and x.get("visible_until")]
+        end = max(ends, default=None)
+    if not end:
+        return None
+    try:
+        day = datetime.fromisoformat(str(end)[:10]).date()
+    except ValueError:
+        return None
+    return day.isoformat(), (day - datetime.now(timezone.utc).date()).days
+
+
 async def snapshot(db: Any) -> dict:
     """The state worth comparing after a time skip, small enough for the kv store."""
     devices = await db.kv_get("devices", []) or []

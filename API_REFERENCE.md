@@ -192,7 +192,9 @@ Example response: `{"replicant_cooperation": "shared", "name": "Bob", "email": "
 [star], action, visible_from, visible_until, schedule {current_stop, total_stops}}], events [{title, summary, location,
 visible_from, visible_until, action, reward}], opportunities [{slug, title, summary, location, locations [{name, system}],
 action}], npcs {name: description}}` (spec 2026-10-20; every field optional: the Ark's storyline carries `schedule`, the
-terraforming one a list of twelve stars, the datacenter opportunity `{name, system}` pairs; dates are plain `YYYY-MM-DD`). Seasons run a fixed real-world window, then a time skip: devices aren't lost but may move (you may move), location
+terraforming one a list of twelve stars, the datacenter opportunity `{name, system}` pairs; dates are plain `YYYY-MM-DD`).
+`season` carries no end date: the Story card takes the latest `visible_until` of storylines and events as the likely
+season end (2026-10-31 for season 3: the Ark's journey and the Ethirel event). Seasons run a fixed real-world window, then a time skip: devices aren't lost but may move (you may move), location
 events end and asteroids drift away, AMI directives pause, most device activity stops and resolves. Season 3 (v3.5.3):
 Alteration Protocol (terraforming, the Exodus Ark to twelve locations, the Delta wormhole).
 

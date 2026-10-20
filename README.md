@@ -34,7 +34,7 @@ rule with an on/off switch, plus the jobs and the log.
 
 ### Dashboard and devices
 - **Dashboard**: a *while you were away* digest (a gap of 30 min starts a new visit; `/digest?hours=N` for any window), open
-  alerts, replicants, tutorial progress (the current tutorial's steps and the next step's hint), achievements (earned, with XP and when, and the ones still to earn), game news (the official changelog and blog, read every 6 hours; new versions and posts ring the bell), the season's **Story** (`/overview`, every 30 minutes: season, storylines, time-limited events with their location, end date and reward, the stars or datacenters involved, the Ark's stop, opportunities, NPCs), live countdowns, fleet summary, stockpiles with a 48 h trend, live event feed.
+  alerts, replicants, tutorial progress (the current tutorial's steps and the next step's hint), achievements (earned, with XP and when, and the ones still to earn), game news (the official changelog and blog, read every 6 hours; new versions and posts ring the bell), the season's **Story** (`/overview`, every 30 minutes: season and its likely end, storylines, time-limited events with their location, end date and reward, the stars or datacenters involved, the Ark's stop, opportunities, NPCs), live countdowns, fleet summary, stockpiles with a 48 h trend, live event feed.
 - **Tree**: system → device type → device, with stowed devices nested in their carrier; each device opens its command panel.
 - **Device list** (`/fleet`): every device, filterable by type, status, system, owning replicant, tag or text. Tick devices (or all listed) to send
   them one command, or to **add tags** / **remove tags**; the ones that can't take it — command not available, in use by an
