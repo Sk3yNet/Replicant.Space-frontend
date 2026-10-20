@@ -544,7 +544,8 @@ The API reference was compiled from the public docs, not from the live API. A fe
   type in the Templates grid, which the template's fleets follow): that many more of a type are kept as spares at the
   fleet's home, beyond its loadout. Spares in that system (and stock prints under way) count; what's missing is printed
   one at a time on an autofactory there that has nothing printing or queued, tagged `spare` and `stock`, so any fleet or
-  ward / relay order can take it (wards are only printed, never activated). Stock prints are low priority: logistics
+  ward / relay order can take it (wards are only printed, never activated); once taken for a fleet or a system it loses
+  both tags. Stock prints are low priority: logistics
   supplies them last, and a waiting stock print is moved behind any other print.
 - **Materials** (Fleets overview): a fleet is *receiving* (takes materials in) or *supplying the nearest receiver*: its
   materials go to the receiving fleet nearest its home (recomputed whenever fleets change), and a mission that ferries

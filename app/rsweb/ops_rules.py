@@ -72,7 +72,7 @@ class OpsRules:
         else:
             spare = wo.spare_ward(devices, star, busy, pos, reach, dtype)
             if spare:
-                rem = [t for t in spare.get("tags") or [] if t == lo.SPARE or t.startswith(("home:", "at:"))]
+                rem = [t for t in spare.get("tags") or [] if t in (lo.SPARE, lo.STOCK) or t.startswith(("home:", "at:"))]
                 await self.create_job("wards", f"{label} {spare['device_code']} → {star}", spare["device_code"],
                                       [lo.tag_step(spare["device_code"], [lo.to_tag(star)], rem or None)],
                                       {"devices": [spare["device_code"]]}, force=True)
@@ -265,7 +265,7 @@ class OpsRules:
         spare = wo.spare_ward(devices, star, busy, pos, reach, dtype)
         if not spare:
             return None
-        rem = [t for t in spare.get("tags") or [] if t == lo.SPARE or t.startswith(("home:", "at:"))]
+        rem = [t for t in spare.get("tags") or [] if t in (lo.SPARE, lo.STOCK) or t.startswith(("home:", "at:"))]
         await self.create_job("wards", f"{label} {spare['device_code']} → {star} (instead of the print on {f['device_code']})",
                               spare["device_code"],
                               [step(f"{f['device_code']}: drop the queued {label} for {star}", f"/devices/{f['device_code']}",

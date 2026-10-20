@@ -7852,3 +7852,21 @@ def test_an_approved_trade_keeps_logistics_replicant_vessels_out_of_loadouts(cli
             assert (hv["device_code"] in seen["busy"]) is held
     finally:
         lo.plan = real
+
+
+def test_a_reserved_stock_relay_loses_its_stock_tag(client):
+    from rsweb import loadouts as lo
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    sent = []
+
+    async def fake_send(method, path, body, label):
+        sent.append((path, body))
+        return True, {}, None
+    eng.send = fake_send
+    client.portal.call(db.kv_set, "devices", [
+        {"device_code": "R1", "device_type": "ftl_relay", "location": "SOL-3", "tags": ["fleet:hub", "stock", "to:ALPHA"]},
+        {"device_code": "R2", "device_type": "ftl_relay", "location": "SOL-3", "tags": ["spare", "stock"]}])
+    client.portal.call(eng.stock_pass)
+    assert sent == [("/devices/R1", {"configuration": {"remove_tags": ["stock"]}})]   # R2 is still a spare in stock
+    st = lo.self_move_steps("R2", "ALPHA", {}, {"device_code": "R2", "tags": ["spare", "stock"], "location": "SOL-3"})
+    assert st[0]["body"]["configuration"] == {"add_tags": [lo.to_tag("ALPHA")], "remove_tags": ["spare", "stock"]}

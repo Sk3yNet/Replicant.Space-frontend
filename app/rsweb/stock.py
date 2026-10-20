@@ -145,11 +145,25 @@ class StockMixin:
         """Keep-in-stock printing at the homes of fleets whose loadout has stock, and stock prints kept behind every
         other print there."""
         from . import printqueue as pq
-        hubs = [f for f in await self.fleets() if f.get("stock") and f.get("home")]
-        if not hubs:
-            return []
         devices = await self.devices()
         out: list[str] = []
+        # a stock print taken for a fleet or a system (no longer spare, or bound somewhere) isn't stock any more
+        # (owner 2026-10-20: fleet relays reserved for a system kept the tag)
+        busy = self.busy_devices(await self.jobs())
+        for d in devices:
+            tags = d.get("tags") or []
+            if STOCK_TAG in tags and d.get("device_code") not in busy \
+                    and (SPARE_TAG not in tags or any(t.startswith(("to:", "fleet:")) for t in tags)):
+                ok, _, err = await self.send("PATCH", f"/devices/{d['device_code']}",
+                                             {"configuration": {"remove_tags": [STOCK_TAG]}}, "auto: drop the stock tag")
+                if ok:
+                    d["tags"] = [t for t in tags if t != STOCK_TAG]
+                    out.append(f"{d['device_code']}: no longer stock (reserved)")
+        hubs = [f for f in await self.fleets() if f.get("stock") and f.get("home")]
+        if not hubs:
+            for line in out:
+                await self.log("stock", line)
+            return out
         orders = await self.db.kv_get(ORDERS_KV, {}) or {}
         t_now = datetime.now(timezone.utc)
 

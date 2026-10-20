@@ -30,6 +30,7 @@ from .automations import SHORT_TIMEOUT, STEP_TIMEOUT, step
 from .shapes import as_amounts
 
 SPARE = "spare"
+STOCK = "stock"     # a keep-in-stock print (stock.py); dropped with `spare` once it's reserved for a system
 GATHER = "gather"   # on its way to the spare depot (stays spare on arrival)
 WORKING = ("mining", "searching", "tracking", "scanning", "collecting", "depositing", "printing", "repairing")
 DEFAULT_SETTINGS = {"print_missing": True, "need_stock": True, "carriers_return": True,
@@ -1236,11 +1237,11 @@ def self_move_steps(code: str, dest_star: str, stars: dict, d: dict, managed: di
     incoming from then on."""
     tags = set(d.get("tags") or [])
     steps = leave_steps(d, managed)
-    drop_spare = SPARE in tags and not gathering
+    drop = sorted({SPARE, STOCK} & tags) if not gathering else []
     add = ([to_tag(dest_star)] if to_tag(dest_star) not in tags else []) + ([GATHER] if gathering else []) \
         + ([join] if join and join not in tags else [])
-    if add or drop_spare:
-        steps.append(tag_step(code, add or None, [SPARE] if drop_spare else None))
+    if add or drop:
+        steps.append(tag_step(code, add or None, drop or None))
     dest = destination(dest_star, stars)
     st = step(f"{code} → {dest}", f"/devices/{code}", {"command": "travel", "destination": dest},
               wait=["travel.arrived"], match={"destination": dest_star}, critical=True)
@@ -1314,7 +1315,7 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         add = ([to] if to not in tags else []) + ([GATHER] if code in gathering else []) \
             + ([assign[code]] if assign.get(code) and assign[code] not in tags else [])
         add = add or None
-        rem = [SPARE] if SPARE in tags and code not in gathering else None
+        rem = (sorted({SPARE, STOCK} & tags) or None) if code not in gathering else None
         if add or rem:
             steps.append(tag_step(code, add, rem))
     first = len(steps)

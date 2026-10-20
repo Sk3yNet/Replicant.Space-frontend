@@ -169,7 +169,7 @@ def factory_for(t: str, n: int, devices: list[dict], star: str, busy: set[str], 
 
 def send_steps(d: dict, e: dict) -> list[dict]:
     """Tag a device for the contract: the loadouts pass then delivers it to the system and the exact location."""
-    rem = [x for x in d.get("tags") or [] if x == lo.SPARE or x.startswith(("home:", "at:"))]
+    rem = [x for x in d.get("tags") or [] if x in (lo.SPARE, lo.STOCK) or x.startswith(("home:", "at:"))]
     return [lo.tag_step(d["device_code"], [lo.to_tag(e["star"]), lo.at_tag(e["location"]), contract_tag(e["designation"])], rem)]
 
 
