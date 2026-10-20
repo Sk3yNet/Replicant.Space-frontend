@@ -7669,8 +7669,9 @@ def test_relay_rollout_queue_goes_outward_and_chains():
     assert rr.queue(["NOWHERE"], pos, set(), set(), set(), 50, True) == []
 
 
-def test_relay_rollout_pass_keeps_orders_open_and_skips_failures(client):
+def test_relay_rollout_pass_keeps_orders_open_and_skips_failures(client, monkeypatch):
     from rsweb import relayroll as rr
+    monkeypatch.setattr(rr, "capacity", lambda *a: 2)   # two free hold slots on logistics vessels with a replicant
     from rsweb import ward_orders as wo
     db = client.app.state.db
     eng = client.app.state.worker.automations
@@ -7690,7 +7691,7 @@ def test_relay_rollout_pass_keeps_orders_open_and_skips_failures(client):
         return f"printing a relay for {star}"
     eng.devices, eng.order_outpost = devices, order
     r = client.post("/map/relays/rollout", headers=HX, data={"action": "start", "seeds": "s", "radius": "50",
-                                                              "at_once": "2", "chained": "1"})
+                                                              "chained": "1"})
     assert r.status_code == 200
     st = rr.state(client.portal.call(db.kv_get, rr.KV, {}))
     assert st["on"] and st["seeds"] == ["S"] and sorted(st["ordered"]) == ["A", "C"] and "B" in st["skipped"]
@@ -7747,3 +7748,52 @@ def test_salvage_counts_as_richness_for_a_next_home():
     salvage = pr.score("S", {"planets": []}, {"salvageable": 5000}, [], 2.0, True)
     assert salvage["parts"]["richness"] == 20 and salvage["score"] > bare["score"] + 15
     assert any("salvage" in r for r in salvage["reasons"])
+
+
+def test_relay_rollout_capacity_is_free_hold_on_logistics_vessels_with_a_replicant():
+    """Owner 2026-10-20: no hard cap; what each carrier takes stays within its free stowage."""
+    from rsweb import relayroll as rr
+    from rsweb.loadouts import _free
+    devs = [{"device_code": "HV", "device_type": "heaven_vessel", "tags": ["fleet:logistics"], "features": ["surge"],
+             "stow_capacity": 10, "hosting_replicant": {"replicant_code": "R1"},
+             "stowed_devices": [{"device_code": "M"}, {"device_code": "X"}]},
+            {"device_code": "CV", "device_type": "cargo_vessel", "tags": ["fleet:logistics"], "features": ["surge"],
+             "stow_capacity": 50},                                                   # no replicant aboard: not an escort
+            {"device_code": "MV", "device_type": "heaven_vessel", "tags": ["fleet:miner-1"], "features": ["surge"],
+             "stow_capacity": 10, "hosting_replicant": {"replicant_code": "R2"}}]    # not logistics
+    assert rr.capacity(devs, {"fleet:logistics"}, lambda d: _free(d, {}, {})) == 8
+
+
+def test_a_relay_run_drops_relays_system_by_system():
+    from rsweb import loadouts as lo
+    by = {c: {"device_code": c, "device_type": "ftl_relay", "location": None, "stowed_in_device_code": "HV",
+              "tags": [f"to:{t.lower()}"]} for c, t in (("R1", "AAA"), ("R2", "BBB"), ("R3", "BBB"))}
+    by["HV"] = {"device_code": "HV", "device_type": "heaven_vessel", "location": "HUB-1"}
+    dl = {"carrier": "HV", "carrier_loc": "HUB-1", "from": "HUB", "to": "AAA", "devices": ["R1", "R2", "R3"],
+          "mode": "stow", "dest_of": {"R2": "BBB", "R3": "BBB"}, "stops": ["BBB"], "stay": True}
+    descs = [s["desc"] for s in lo.delivery_steps(dl, by, {}, False)]
+    moves = [d for d in descs if d.startswith("HV → ")]
+    assert moves == ["HV → AAA (deliver 1 to AAA)", "HV → BBB (deliver 2 to BBB)"]
+    assert descs.index("deploy R1 in AAA") < descs.index("HV → BBB (deliver 2 to BBB)") < descs.index("deploy R3 in BBB")
+
+
+def test_loadout_plan_fills_a_carrier_hold_with_relays_for_several_systems():
+    """Owner 2026-10-20: a carrier takes as many relays as its free stowage holds, nearest drop first."""
+    from rsweb import loadouts as lo
+    def dev(code, t, loc, **kw):
+        return {"device_code": code, "device_type": t, "location": loc, "status": "idle", "operational_capacity": 100.0,
+                "features": kw.pop("features", ["cruise", "stow"]), "available_commands": ["travel", "stow", "deploy"], **kw}
+    devices = [dev(f"R{t}", "ftl_relay", "HUB-1", tags=[f"to:{t.lower()}"]) for t in ("AAA", "BBB", "CCC")]
+    devices.append(dev("HV", "heaven_vessel", "HUB-1", features=["surge", "cruise"], stow_capacity=3,
+                       hosting_replicant={"replicant_code": "R1"}, tags=["fleet:logistics"]))
+    stars = {s: {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in
+             (("HUB", 0), ("AAA", 5), ("BBB", 9), ("CCC", 2))}
+    cfg = {"phases": [], "systems": {}, "fleets": [{"id": "logistics", "name": "Logistics", "role": "logistics",
+                                                    "home": "HUB", "wants": {}}]}
+    p = lo.plan(cfg, devices, [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"HUB"})
+    dl = [d for d in p["deliveries"] if d["carrier"] == "HV"]
+    assert len(dl) == 1 and sorted(dl[0]["devices"]) == ["RAAA", "RBBB", "RCCC"]   # 2 slots left after the first: all go
+    assert dl[0]["to"] == "AAA" and dl[0]["stops"] == ["CCC", "BBB"]               # then nearest first: CCC 3 ly, BBB 4 ly
+    devices[-1]["stow_capacity"] = 2   # room for two: the third waits for the next run
+    p = lo.plan(cfg, devices, [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"HUB"})
+    assert sum(len(d["devices"]) for d in p["deliveries"] if d["carrier"] == "HV") == 2

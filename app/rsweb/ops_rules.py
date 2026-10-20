@@ -171,8 +171,9 @@ class OpsRules:
         return out
 
     async def relay_rollout_pass(self) -> list[str]:
-        """Relay rollout (relayroll.py): keep up to `at_once` relay orders open, nearest the seed systems first; a
-        finished order counts as done, a dropped one is skipped until retried."""
+        """Relay rollout (relayroll.py): keep as many relay orders open as the logistics vessels with a replicant have
+        free hold slots (relayroll.capacity), nearest the seed systems first; a finished order counts as done, a
+        dropped one is skipped until retried."""
         from . import relaynet
         from . import relayroll as rr
         from . import ward_orders as wo
@@ -196,7 +197,12 @@ class OpsRules:
             else:
                 st["skipped"][star] = "the order was dropped: nothing got there in time"
                 out.append(f"{star}: skipped (the relay order was dropped)")
-        while st["on"] and len(st["ordered"]) < max(1, int(st["at_once"])):
+        from . import fleets as fl
+        from .loadouts import _free
+        ltags = {fl.fleet_tag(f["id"]) for f in await self.fleets() if f.get("role") == "logistics"}
+        cap = rr.capacity(devices, ltags, lambda d: _free(d, bps, {}))
+        st["capacity"] = cap
+        while st["on"] and len(st["ordered"]) < max(1, cap):
             nxt = rr.queue(st["seeds"], pos, have, set(orders) | set(st["ordered"]), set(st["skipped"]),
                            float(st["radius"]), bool(st["chained"]), limit=1)
             if not nxt:

@@ -2060,7 +2060,7 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
 
 @router.post("/map/relays/rollout", response_class=HTMLResponse)
 async def map_relays_rollout(request: Request, action: str = Form(...), seeds: str = Form(""), radius: float = Form(50),
-                             at_once: int = Form(3), chained: str = Form(""), user: str = Depends(current_user)):
+                             chained: str = Form(""), user: str = Depends(current_user)):
     """Relay rollout (relayroll.py): save its settings and start, pause, or retry the skipped systems."""
     from . import relayroll as rr
     db = request.app.state.db
@@ -2069,7 +2069,7 @@ async def map_relays_rollout(request: Request, action: str = Form(...), seeds: s
         roll = rr.state(await db.kv_get(rr.KV, {}))
         if action in ("start", "save"):
             roll.update(seeds=list(dict.fromkeys(x.strip().upper() for x in seeds.replace(",", " ").split() if x.strip())),
-                        radius=max(1.0, min(1000.0, radius)), at_once=max(1, min(10, at_once)), chained=bool(chained))
+                        radius=max(1.0, min(1000.0, radius)), chained=bool(chained))
         if action == "start":
             if not roll["seeds"]:
                 return HTMLResponse('<span class="lv-alert small">Name at least one seed system.</span>')

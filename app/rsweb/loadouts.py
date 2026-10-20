@@ -949,8 +949,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         """A carrier with passengers bound somewhere only takes on a batch that includes them."""
         mine = carrying.get(c["device_code"])
         return not mine or bool(mine & set(codes_))
+    relay_only = lambda xs: bool(xs) and all((by_code.get(x) or {}).get("device_type") == "ftl_relay" for x in xs)  # noqa: E731
+    taken: set[str] = set()   # relays already given to a carrier's multi-drop run
     for (here, dest, owner), codes in sorted(batches.items(), key=lambda kv: (-len(kv[1]), kv[0][0], kv[0][1], kv[0][2] or "")):
-        codes = sorted(codes)
+        codes = sorted(x for x in codes if x not in taken)
         outside = commandable is not None and dest not in commandable   # beyond an active relay network
         while codes:
             stowable = all("stow" in (by_code[x].get("available_commands") or ["stow"]) for x in codes)
@@ -1002,6 +1004,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     if isinstance(x, dict)} | set((stowed_map or {}).get(c["device_code"], []))
             codes = sorted(codes, key=lambda x: x not in on_c)   # already aboard first: they hold their seat (_free)
             load, codes = codes[:room], codes[room:]
+            taken.update(load)
             used.add(c["device_code"])
             dl = {"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
                   "devices": load, "replicant": replicant_hosts.get(c["device_code"]), "mode": carry_mode(c, bps)}
@@ -1016,6 +1019,31 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 # its fleet has moved since (seen live 2026-10-18: Miner 0.5's cargo vessel, borrowed at its old home,
                 # flew back there with fleet members aboard): it goes home to its fleet instead
                 dl["back_to"] = own_home
+            left = room - len(load)
+            if left > 0 and not codes and relay_only(load):
+                # relays: the carrier fills its hold with more relays waiting at the same pick-up point and drops them
+                # system by system, nearest first (owner 2026-10-20: as many as its free stowage holds)
+                dest_of, cur, stops = {}, dest, []
+                more = {k: [x for x in v if x not in taken and x not in load] for k, v in batches.items()
+                        if k[0] == here and k[1] != dest and relay_only(v)
+                        and (not k[2] or not c.get("replicant_code") or k[2] == c["replicant_code"])
+                        and (commandable is None or k[1] in commandable or c["device_code"] in escorts)
+                        and may_carry(c, v) and fits(c, v)}
+                while left > 0:
+                    nxt = min((k for k, v in more.items() if v), key=lambda k: (_dist(cur, k[1], pos), k[1]), default=None)
+                    if nxt is None:
+                        break
+                    extra = more[nxt][:left]
+                    more[nxt] = more[nxt][left:]
+                    left -= len(extra)
+                    dl["devices"] = dl["devices"] + extra
+                    dest_of.update({x: nxt[1] for x in extra})
+                    if nxt[1] not in stops:
+                        stops.append(nxt[1])
+                    taken.update(extra)
+                    cur = nxt[1]
+                if stops:
+                    dl.update(dest_of=dest_of, stops=stops)
             if fetched_from:
                 # it flies in first and loads where most of them are
                 spots = Counter(by_code[x].get("location") for x in load if can_travel(by_code[x]))
@@ -1239,7 +1267,7 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
     `max_cruise_au` of cruising) are fetched by the carrier afterwards, nearest first."""
     assign = assign or {}
     carrier, cloc, dest_star = dl["carrier"], dl["carrier_loc"], dl["to"]
-    dest = destination(dest_star, stars)
+    dest_of = dl.get("dest_of") or {}   # a relay run: the system each relay goes to (the rest go to dest_star)
     rep = dl.get("replicant")
     travel_path = f"/replicants/{rep}/travel" if rep else f"/devices/{carrier}"
 
@@ -1279,7 +1307,8 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         steps += leave_steps(by_code.get(code, {}) or {"device_code": code}, managed, set(dl["devices"]))
     for code in dl["devices"]:  # mark them as on their way (and not spare any more, unless just being gathered)
         tags = set(by_code.get(code, {}).get("tags") or [])
-        add = ([to_tag(dest_star)] if to_tag(dest_star) not in tags else []) + ([GATHER] if code in gathering else []) \
+        to = to_tag(dest_of.get(code, dest_star))
+        add = ([to] if to not in tags else []) + ([GATHER] if code in gathering else []) \
             + ([assign[code]] if assign.get(code) and assign[code] not in tags else [])
         add = add or None
         rem = [SPARE] if SPARE in tags and code not in gathering else None
@@ -1317,21 +1346,23 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         cur = loc
         for code in codes:
             steps.append(fl.board_step(carrier, code, "stow" if code in grounded or not attach else "attach"))
-    steps.append(move(dest, f"deliver {len(dl['devices'])} to {dest_star}", dest_star))
-    for code in dl["devices"]:
-        if attach:
-            st = step(f"{carrier}: detach {code} in {dest_star}", f"/devices/{carrier}", {"command": "detach", "device": code},
-                      critical=True)
-        else:
-            st = step(f"deploy {code} in {dest_star}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
-                      timeout=SHORT_TIMEOUT, critical=True)
-            st["wait_device"] = code
-        steps.append(st)
-        if (by_code.get(code) or {}).get("device_type") == "ftl_relay" and code not in gathering:
-            # switched on while the carrier is still there: left off out of everyone's reach it can't be commanded any
-            # more (live 2026-10-15: F6A3A357 dropped at KAMUYIS, "out_of_range"); placement takes it to L4/L5 after
-            steps.append(activate_step(code))
-        steps.append(rehome_step(code, by_code.get(code, {}), dest_star, keep_spare=code in gathering, join=assign.get(code)))
+    for stop in [dest_star] + list(dl.get("stops") or []):   # a relay run (dest_of / stops) drops system by system
+        here_codes = [c for c in dl["devices"] if dest_of.get(c, dest_star) == stop]
+        steps.append(move(destination(stop, stars), f"deliver {len(here_codes)} to {stop}", stop))
+        for code in here_codes:
+            if attach:
+                st = step(f"{carrier}: detach {code} in {stop}", f"/devices/{carrier}", {"command": "detach", "device": code},
+                          critical=True)
+            else:
+                st = step(f"deploy {code} in {stop}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
+                          timeout=SHORT_TIMEOUT, critical=True)
+                st["wait_device"] = code
+            steps.append(st)
+            if (by_code.get(code) or {}).get("device_type") == "ftl_relay" and code not in gathering:
+                # switched on while the carrier is still there: left off out of everyone's reach it can't be commanded
+                # any more (live 2026-10-15: F6A3A357 dropped at KAMUYIS, "out_of_range"); placement takes it to L4/L5 after
+                steps.append(activate_step(code))
+            steps.append(rehome_step(code, by_code.get(code, {}), stop, keep_spare=code in gathering, join=assign.get(code)))
     back = destination(dl["back_to"], stars) if dl.get("back_to") else dl.get("fetch_from") or cloc
     if (carriers_return or dl.get("back_to")) and back and not dl.get("stay"):
         steps.append(move(back, f"home to its fleet in {dl['back_to']}" if dl.get("back_to") else "return", star_of(back)))
@@ -1427,7 +1458,7 @@ def describe(p: dict) -> list[str]:
     for dl in p["deliveries"]:
         how = "attaches" if dl.get("mode") == "attach" else "stows"
         came = f" (flies in from {star_of(dl['fetch_from'])} to pick them up at {dl['carrier_loc']})" if dl.get("fetch_from") else ""
-        out.append(f"{dl['carrier']} {how} {', '.join(dl['devices'])} and carries them from {dl['from']} to {dl['to']}{came}")
+        out.append(f"{dl['carrier']} {how} {', '.join(dl['devices'])} and carries them from {dl['from']} to {', '.join([dl['to']] + list(dl.get('stops') or []))}{came}")
     if p.get("gathering"):
         out.append(f"gather {len(p['gathering'])} idle spare(s) at the depot {p.get('depot')}: {', '.join(p['gathering'])}")
     for code in p.get("returning") or []:

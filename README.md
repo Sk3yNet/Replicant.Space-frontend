@@ -69,7 +69,8 @@ rule with an on/off switch, plus the jobs and the log.
   (15 ly) that reach each other — each in its own color, **active** when one of your replicants is within reach (only then
   can what it covers be commanded), with suggested bridges (the fewest new relays, at most 10, joining two networks) and
   *Add route* to order them. **Relay rollout**: a relay in every system within a radius of seed systems you name, nearest
-  first, a few orders open at a time (each as *add* on the Systems list); *chained* (default) only goes to a system within
+  first, as many orders open as your logistics vessels with a replicant aboard have free hold slots (each as *add* on the
+  Systems list; a carrier fills its hold with relays for several systems and drops them nearest first); *chained* (default) only goes to a system within
   7.5 ly of a relay or hub of yours, one on order, or a seed, so the network grows outward in one piece; a system that
   can't get one is skipped until *Retry skipped*, and five failures in a row pause the rollout. On the galaxy map (*relay network* option, off by default) links are curves, solid for active
   networks and dashed for ones without a replicant; relays on order are white rings, suggested bridges dashed gray.

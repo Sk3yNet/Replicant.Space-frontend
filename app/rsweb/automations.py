@@ -2727,7 +2727,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                                   {"devices": [code], "star": dest}, force=manual))
         for dl in p["deliveries"]:
             started += bool(await self.create_job(
-                "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']}", dl["carrier"],
+                "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {' → '.join([dl['to']] + list(dl.get('stops') or []))}", dl["carrier"],
                 lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
                                                   gathering=set(p.get("gathering") or []), assign=p.get("assign"),
                                                   radii=radii, max_cruise_au=far_au),
@@ -2860,7 +2860,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 ready.discard(code), pend.pop(code, None)
         for dl in p["deliveries"]:
             if ready & set(dl["devices"]):
-                if await self.create_job("loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {dl['to']} "
+                if await self.create_job("loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → {' → '.join([dl['to']] + list(dl.get('stops') or []))} "
                                          "(just printed)", dl["carrier"],
                                          lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
                                                   gathering=set(p.get("gathering") or []), assign=p.get("assign"),

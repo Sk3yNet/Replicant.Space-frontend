@@ -1,13 +1,15 @@
 """Relay rollout (Map › Relays): a relay in every system, nearest the designated seed systems first.
 
-The engine stage relay_rollout_pass keeps up to `at_once` relay orders open (ward_orders.py does the work: activate an
-idle one there, else send a spare, else print one in range). When one finishes or fails it orders the next system in
+The engine stage relay_rollout_pass keeps as many relay orders open as the logistics vessels with a replicant aboard
+have free hold slots (capacity; at least one), with no other cap (owner 2026-10-20). ward_orders.py does the work:
+activate an idle one there, else send a spare, else print one in range; the loadout pass then fills a carrier's hold
+with relays bound for several systems and drops them nearest first. When one finishes or fails it orders the next system in
 line. Chained (the default), only a system within 7.5 ly of a working relay or hub of yours, a relay on order or a seed
 is next in line, so the network grows outward in one piece. A system whose order fails (no spare and no factory in
 range, or nothing got there before the order expired) is skipped until you retry it; after MAX_STREAK failures in a row the rollout pauses (nothing can get a relay
 anywhere).
 
-State in kv "relay_rollout": {on, seeds: [star], radius, at_once, chained, ordered: {star: at}, skipped: {star: why},
+State in kv "relay_rollout": {on, seeds: [star], radius, chained, capacity (last seen), ordered: {star: at}, skipped: {star: why},
 done: int, streak: failures in a row, by}.
 """
 from __future__ import annotations
@@ -19,7 +21,7 @@ from .relaynet import RELAY_LY, _grid, _near
 
 KV = "relay_rollout"
 MAX_STREAK = 5
-DEFAULTS = {"on": False, "seeds": [], "radius": 50.0, "at_once": 3, "chained": True, "ordered": {}, "skipped": {},
+DEFAULTS = {"on": False, "seeds": [], "radius": 50.0, "chained": True, "capacity": 0, "ordered": {}, "skipped": {},
             "done": 0, "streak": 0, "by": ""}
 
 
@@ -77,3 +79,15 @@ def queue(seeds: list[str], pos: dict[str, Any], have: set[str], ordered: set[st
     if limit is not None:
         out = out[:limit]
     return [{"star": s, "ly": round(todo[s][1], 2), "seed": todo[s][0]} for s in out]
+
+
+def capacity(devices: list[dict], logistics_tags: set[str], free) -> int:
+    """Free hold slots on logistics vessels with a replicant aboard (hosted, or its matrix riding in them): the relays
+    that can be on their way at once. `free(device)` gives a carrier's free slots (loadouts._free)."""
+    from .logistics import riding_hosts
+    hosts = {d["device_code"]: (d.get("hosting_replicant") or {}).get("replicant_code") or "?" for d in devices
+             if d.get("hosting_replicant")}
+    escorts = riding_hosts(devices, hosts)
+    return sum(max(0, int(free(d))) for d in devices
+               if d.get("device_code") in escorts and logistics_tags & set(d.get("tags") or [])
+               and "surge" in (d.get("features") or []))
