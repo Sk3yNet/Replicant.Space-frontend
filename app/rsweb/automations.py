@@ -1269,6 +1269,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 except Exception as e:
                     log.exception("bill move check failed")
                     await self.log("trail", f"checking Bill's post failed: {e}", "alert")
+                try:
+                    await self.shop_post(p)
+                except Exception as e:
+                    log.exception("shop post check failed")
+                    await self.log("shop", f"checking a shop's BobNet post failed: {e}", "alert")
             if name == "travel.arrived" and not late:
                 try:
                     await self.on_arrival(ev)
@@ -1484,11 +1489,24 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             s["shop_stars"] = sorted(set(s.get("shop_stars") or []) | {shop["star"]})
         await self.db.kv_set("traders_cache", cache)
 
+    async def shop_post(self, payload: dict) -> str | None:
+        """A shop owner's BobNet post that the shop is open ("Rock Droppers is open for shoppers! … Find me in the
+        Oort."): move that shop to the system and spot it names (owner, 2026-10-20: Dash announces each move)."""
+        from . import shop as sh
+        cat = await self.db.kv_get("stars", {}) or {}
+        post = sh.open_post(payload, {x.get("designation") for x in cat.get("stars") or [] if isinstance(x, dict)})
+        if not post:
+            return None
+        await sh.shop_opened(self.db, post, now_iso())
+        text = f"{post['shop_name']} ({post['owner_name']}) is open at {post['location']} (BobNet)"
+        await self.log("shop", text)
+        return text
+
     async def bill_moved(self, payload: dict) -> str | None:
         """Bill posted that his Skunkworks moved: set his shop aside where it was, clear the beacon logs, and when you
         follow him, pick the trail up at SOL (leaving his shop he can't be followed: he resets to SOL)."""
         from . import trail as tl
-        from .shop import known_traders, mark_gone
+        from .shop import is_bills, known_traders, mark_gone
         cat = await self.db.kv_get("stars", {}) or {}
         stars = {x.get("designation") for x in cat.get("stars") or [] if isinstance(x, dict)}
         mv = tl.bill_move_post(payload, stars)
@@ -1503,10 +1521,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             await refresh_directory(self.db, self.api, list(await self.db.kv_get("replicants", {}) or {}))
         except Exception:
             log.exception("trader directory refresh after Bill's post failed")
+        closed = now_iso()   # after the refresh: his shop is closed until it's seen again (owner, 2026-10-20)
         for code, t in (await known_traders(self.db)).items():   # his shop isn't where we last saw it any more
-            if (t.get("owner_replicant_code") == tl.BILL_CODE or str(t.get("owner_name") or "").lower() == "bill") \
-                    and (not frm or tl.star_of(t.get("location")) == frm):
-                await mark_gone(self.db, code, t.get("location"), now)
+            if is_bills(t) and (tl.star_of(t.get("location")) == frm if frm else t["seen_at"] < now):
+                await mark_gone(self.db, code, t.get("location"), closed)
         text = "Bill is on the move" + (f" — left {frm}" if frm else "") + f": “{mv['text'][:160]}”"
         if tl.is_bill(s):
             fo = s.get("follow") or {}
@@ -4178,13 +4196,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 changed = True
                 continue
             if j and j["status"] == "failed" and m.get("trade") and m.get("phase") == "trade":
-                # shops move (Bill's about daily): a failed trade may mean it isn't where we last saw it
-                from .shop import mark_gone
+                # a failed trade doesn't prove the shop is gone (owner, 2026-10-20): it stays listed until a scan of
+                # its system doesn't show it
                 dl = fl.deal(m)
-                await mark_gone(self.db, dl.get("controller") or "", dl.get("location"), now_iso())
                 m["status"] = "stalled"
                 self._mlog(m, f"stalled in trade: {err or 'the trade failed'} — the shop may have moved from "
-                              f"{dl.get('location')}: scan the system it's in now, or Fleets › Refresh traders, then Retry")
+                              f"{dl.get('location')}: scan that system to check, or Fleets › Refresh traders, then Retry")
                 await self.log("fleets", f"{fleet['name']}: trade at {dl.get('location')} failed ({err}) — the shop may "
                                          "have moved", "alert", notify=True)
                 changed = True

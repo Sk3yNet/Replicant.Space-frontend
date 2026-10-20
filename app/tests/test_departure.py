@@ -551,17 +551,80 @@ def test_bills_trail_can_be_picked_up_at_sol(client):
     assert "Follow to the end" in live and "Departures" in live and "SOL" in live
 
 
-def test_newest_sighting_of_a_shop_wins_and_a_failed_trade_sets_it_aside(client):
+def test_shops_stay_listed_until_you_remove_them(client):
     import json
     from rsweb import shop
     db = client.app.state.db
-    for star, at in (("LERNA", "2026-10-10T00:00:00+00:00"), ("ABOTEIN", "2026-10-11T00:00:00+00:00")):
-        scan = {"shops": [{"controller_code": "SK1", "location": f"{star}-OORT", "trades": []}]}
+
+    def scan(star, at, shops=None):
+        data = {"planets": []} if shops is None else {"shops": [{"controller_code": c, "location": f"{star}-OORT",
+                                                                  "shop_name": c, "trades": []} for c in shops]}
         client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
-                           (star, json.dumps(scan), at))
-    assert client.portal.call(shop.known_traders, db)["SK1"]["location"] == "ABOTEIN-OORT"   # an old scan stays usable
-    client.portal.call(shop.mark_gone, db, "SK1", "ABOTEIN-OORT", "2026-10-11T12:00:00+00:00")
-    assert "SK1" not in client.portal.call(shop.known_traders, db)                            # until seen again
+                           (star, json.dumps(data), at))
+    scan("LERNA", "2026-10-10T00:00:00+00:00", ["SK1"])
+    scan("ABOTEIN", "2026-10-11T00:00:00+00:00", ["SK1", "SK2"])
+    known = client.portal.call(shop.known_traders, db)
+    assert known["SK1"]["location"] == "ABOTEIN-OORT" and "SK2" in known       # the newest sighting wins
+    client.portal.call(shop.mark_gone, db, "SK2", "ABOTEIN-OORT", "2026-10-11T12:00:00+00:00")
+    assert "SK2" in client.portal.call(shop.known_traders, db)                  # only Bill closes on his own
+    scan("ABOTEIN", "2026-10-12T00:00:00+00:00")                                # a re-read without shops proves nothing
+    scan("ABOTEIN", "2026-10-13T00:00:00+00:00", [])                            # nor does `shops: []` (live 2026-10-20)
+    client.portal.call(db.kv_set, "traders_cache", {})                         # nor a directory without them
+    assert {"SK1", "SK2"} <= set(client.portal.call(shop.known_traders, db))
+    assert "Remove" in client.get("/shop", headers=H).text   # listed without trades
+    client.post("/shop/forget", data={"controller": "SK2"}, headers=HX)
+    known = client.portal.call(shop.known_traders, db)
+    assert "SK2" not in known and "SK1" in known                                # removed by hand
+    scan("ABOTEIN", "2099-01-01T00:00:00+00:00", ["SK2"])                       # until it's seen again
+    assert "SK2" in client.portal.call(shop.known_traders, db)
+
+
+def test_a_shops_bobnet_post_moves_it(client):
+    from rsweb import shop
+    db, e = client.app.state.db, eng(client)
+    client.portal.call(db.kv_set, "traders_cache", {"RD1": {
+        "controller_code": "RD1", "location": "ROSALIATE-OORT", "shop_name": "Rock Droppers", "owner_name": "Dash",
+        "owner_replicant_code": "DA5H0001", "read_at": "2026-10-20T04:40:00+00:00", "trades": [{"name": "charge"}]}})
+    post = {"replicant_code": "DA5H0001", "replicant_name": "Dash", "current_star": "MAZARAR", "channel": "#trade",
+            "message": "Rock Droppers: Rock Droppers is open for shoppers! Trade propulsors for vector charges. "
+                       "10 propulsors per charge. Find me in the Oort."}
+    assert "open at MAZARAR-OORT" in client.portal.call(e.shop_post, post)
+    t = client.portal.call(shop.known_traders, db)["RD1"]
+    assert t["location"] == "MAZARAR-OORT" and t["star"] == "MAZARAR" and t["trades"] == [{"name": "charge"}]
+    assert client.portal.call(e.shop_post, {**post, "message": "o7"}) is None
+    new = {**post, "replicant_code": "NEW00001", "replicant_name": "Ann", "current_star": "LERNA",
+           "message": "Ann's Bazaar is open for shoppers!"}
+    client.portal.call(e.shop_post, new)                                          # a shop not known yet is listed
+    known = client.portal.call(shop.known_traders, db)
+    assert known["post:NEW00001"]["location"] == "LERNA" and known["post:NEW00001"]["shop_name"] == "Ann's Bazaar"
+    client.post("/shop/forget", data={"controller": "post:NEW00001"}, headers=HX)
+    assert "post:NEW00001" not in client.portal.call(shop.known_traders, db)
+    client.portal.call(e.shop_post, new)                                          # posted again: back
+    cache = client.portal.call(db.kv_get, "traders_cache")
+    cache["AN1"] = {"controller_code": "AN1", "location": "LERNA-OORT", "owner_replicant_code": "NEW00001",
+                    "read_at": "2099-01-01T00:00:00+00:00", "trades": []}
+    client.portal.call(db.kv_set, "traders_cache", cache)
+    known = client.portal.call(shop.known_traders, db)                            # its controller seen: placeholder done
+    assert "AN1" in known and "post:NEW00001" not in known
+    cache["X1"] = {"controller_code": "X1", "location": "SOL-OORT", "read_at": "2099-01-01T00:00:00+00:00", "trades": []}
+    client.portal.call(db.kv_set, "traders_cache", cache)                         # a shop with no owner code known
+    client.portal.call(e.shop_post, {**new, "replicant_code": None, "replicant_name": "Zed",
+                                     "message": "Zed Mart is open for shoppers!"})
+    assert "post:zed" in client.portal.call(shop.known_traders, db)               # doesn't sweep a post without one
+
+
+def test_trader_refresh_keeps_shops_out_of_reach(client):
+    from rsweb import shop
+    db = client.app.state.db
+
+    class Api:
+        async def get(self, path):
+            return {"traders": [{"controller_code": "NEW", "location": "X-OORT"}]} if path.endswith("/traders") \
+                else {"trades": []}
+    client.portal.call(db.kv_set, "traders_cache", {"OLD": {"controller_code": "OLD", "location": "Y-OORT",
+                                                            "read_at": "2026-10-01T00:00:00+00:00", "trades": []}})
+    assert client.portal.call(shop.refresh_directory, db, Api(), ["R1"]) == (1, None)
+    assert {"OLD", "NEW"} <= set(client.portal.call(shop.known_traders, db))
 
 
 def test_gather_doesnt_fetch_spares_beyond_the_supply_range():
@@ -706,7 +769,7 @@ def test_bills_move_post_restarts_the_trail_at_sol(client):
     s = client.portal.call(db.kv_get, tl.KV)
     assert s["follow"]["active"] and s["follow"]["star"] == "SOL" and s["moved"]["from"] == "NOSOXA"
     assert s["audit"]["B1"] == [] and "B1" in s["beacons"]   # his logs are dropped (leaving the shop he resets to SOL), the beacon kept
-    assert "3BF0ED09" not in client.portal.call(shop.known_traders, db)        # set aside until seen again
+    assert "3BF0ED09" not in client.portal.call(shop.known_traders, db)        # closed until seen again
     assert client.portal.call(e.bill_moved, {**post, "message": "o7 all"}) is None
     assert client.portal.call(e.bill_moved, {**post, "replicant_code": "X", "replicant_name": "Ann"}) is None
 

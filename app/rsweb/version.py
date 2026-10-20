@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.170.0"
+VERSION = "1.171.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.171.0", "2026-10-20", "Shops stay listed until you remove them (Remove on the traders table, after you checked): "
+     "a failed trade, a trader refresh that no longer lists a shop out of reach, or a system scan without it (it said "
+     "shops: [] at ROSALIATE with a shop there) no longer drops it. Shops with no trades read are listed too. A BobNet post (X is open "
+     "for shoppers! ... Find me in the Oort) moves that owner's shop to the poster's system (STAR-OORT), or lists it "
+     "until its controller is seen. Bill is the exception: closed from his BobNet move post until seen again."),
     ("1.170.0", "2026-10-20", "Galaxy map: the dashed routes of ships in transit and of fleets move toward where they are "
      "going (still when the system asks for reduced motion). Fixes from a code review: lookbacks over game events (devices "
      "given away in trades, canceled prints) compare real times, not text in the game's -04:00 offset, which cut 4 hours "

@@ -274,6 +274,18 @@ async def shop_buy(request: Request, user: str = Depends(current_user)):
     return render_action(request, out, note)
 
 
+@router.post("/shop/forget", response_class=HTMLResponse)
+async def shop_forget(request: Request, user: str = Depends(current_user)):
+    """You've checked a shop is gone: leave it off the list until a scan or the trader directory shows it again."""
+    from . import shop as sh
+    ctrl = ((await request.form()).get("controller") or "").strip()
+    ctrl = ctrl if ctrl.startswith("post:") else ctrl.upper()   # post:<owner>: a shop only its BobNet post placed
+    db = request.app.state.db
+    t = (await sh.known_traders(db)).get(ctrl) or {}
+    await sh.mark_gone(db, ctrl, t.get("location"), now_iso(), manual=True)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
 # =====================================================================================
 # lost equipment
 # =====================================================================================

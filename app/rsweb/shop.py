@@ -10,6 +10,7 @@ in the system the shop is listed in the galactic directory, otherwise it trades 
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .shapes import as_amounts
@@ -111,24 +112,81 @@ def describe_side(side: dict | None) -> str:
     return ", ".join(parts) or "nothing"
 
 
-GONE_KV = "shops_gone"   # {controller: {"at": iso, "location": where a trade there failed}}
+GONE_KV = "shops_gone"   # {controller: {"at": iso, "location": where it was, "manual": you removed it}}
+KNOWN_KV = "shops_known"  # {controller: the newest sighting}: a shop is kept until you remove it (or Bill moves)
 
 
-async def mark_gone(db, controller: str, location: str | None, at: str) -> None:
-    """A trade at this shop failed (it may have moved, as Bill's does about daily): its known location isn't offered
-    again until a newer system scan or directory read shows the shop."""
+def is_bills(t: dict) -> bool:
+    from .trail import BILL_CODE
+    return t.get("owner_replicant_code") == BILL_CODE or str(t.get("owner_name") or "").strip().lower() == "bill"
+
+
+async def mark_gone(db, controller: str, location: str | None, at: str, manual: bool = False) -> None:
+    """The shop counts as closed until it's seen again after `at`: Bill's after his BobNet post that he moved, any
+    other only when you remove it (manual). Neither a system scan (`shops: []` with a shop there, ROSALIATE-OORT
+    2026-10-20) nor a device scan nor a failed trade proves a shop is gone (owner, 2026-10-20)."""
     gone = await db.kv_get(GONE_KV, {}) or {}
-    gone[controller] = {"at": at, "location": location}
+    gone[controller] = {"at": at, "location": location, **({"manual": True} if manual else {})}
     await db.kv_set(GONE_KV, gone)
 
 
+POSTED_KV = "shops_posted"   # {controller or "post:<owner>": the shop as its owner's BobNet post placed it}
+OPEN_RE = re.compile(r"([^:!.]+?)\s+is open for shoppers", re.I)
+SPOT_RE = re.compile(r"\bfind me (?:in|at) the (oort|kuiper)\b", re.I)
+
+
+def open_post(payload: dict, stars: set[str]) -> dict | None:
+    """A shop owner announces where the shop opened on BobNet (seen 2026-10-20, #trade, Dash @ MAZARAR: "Rock Droppers
+    is open for shoppers! … Find me in the Oort."): {"shop_name", "star", "location", "owner_name",
+    "owner_replicant_code", "text"}, else None. The star is the poster's (`current_star`), else a known star the post
+    names; "the Oort" / "the Kuiper" places it at STAR-OORT / STAR-KUIPER, otherwise only the star is known."""
+    text = str(payload.get("message") or "")
+    m = OPEN_RE.search(text)
+    if not m:
+        return None
+    star = str(payload.get("current_star") or "").upper()
+    if not star:
+        named = [w for w in re.findall(r"[A-Z][A-Z0-9]{2,}", text) if w in stars]
+        star = named[0] if named else ""
+    if not star:
+        return None
+    spot = SPOT_RE.search(text)
+    return {"shop_name": m.group(1).strip(), "star": star, "location": f"{star}-{spot.group(1).upper()}" if spot else star,
+            "owner_name": payload.get("replicant_name"), "owner_replicant_code": payload.get("replicant_code"),
+            "text": text}
+
+
+async def shop_opened(db, post: dict, at: str) -> str:
+    """Move the poster's shop (same owner or shop name) to where the post says it opened; a shop you don't know yet is
+    listed under "post:<owner>" until a scan or the directory shows its controller. Returns the shop's key."""
+    def norm(x: Any) -> str:
+        return str(x or "").strip().lower()
+    known = await known_traders(db)
+    mine = [c for c, t in known.items() if not c.startswith("post:") and (
+        (post["owner_replicant_code"] and t.get("owner_replicant_code") == post["owner_replicant_code"])
+        or (norm(t.get("shop_name")) and norm(t.get("shop_name")) == norm(post["shop_name"]))
+        or (norm(t.get("owner_name")) and norm(t.get("owner_name")) == norm(post["owner_name"])))]
+    posted = await db.kv_get(POSTED_KV, {}) or {}
+    key = max(mine, key=lambda c: known[c]["seen_at"]) if mine else f"post:{post['owner_replicant_code'] or norm(post['owner_name'])}"
+    old = {k: v for k, v in (known.get(key) or {}).items() if k not in ("seen_at", "from_scan")}
+    posted[key] = {**old, "controller_code": old.get("controller_code") or (None if key.startswith("post:") else key),
+                   "shop_name": old.get("shop_name") or post["shop_name"], "location": post["location"],
+                   "star": post["star"], "owner_name": old.get("owner_name") or post["owner_name"],
+                   "owner_replicant_code": old.get("owner_replicant_code") or post["owner_replicant_code"],
+                   "trades": old.get("trades") or [], "from_post": post["text"][:200], "read_at": at}
+    await db.kv_set(POSTED_KV, posted)
+    return key
+
+
 async def known_traders(db) -> dict[str, dict]:
-    """Every shop you know of: the trader directory (kv "traders_cache", Fleets › Refresh traders) and every shop a
-    stored system scan lists (scan "shops") — the newest sighting of each shop wins, so a re-scan or a refresh moves it
-    (seen live 2026-10-11: Bill's Skunkworks at NOSOXA-OORT, which moves about daily; other shops may stay put). A shop
-    whose trade failed (mark_gone) is left out until it's seen again after that."""
+    """Every shop you know of: the trader directory (kv "traders_cache", Fleets › Refresh traders), every shop a
+    stored system scan lists (scan "shops") and every shop seen before (kv "shops_known") — the newest sighting of each
+    shop wins, so a re-scan or a refresh moves it. A shop stays listed until you remove it (owner, 2026-10-20: a scan
+    that doesn't show it, a directory that no longer lists it or a failed trade prove nothing). Bill is the
+    exception: after his BobNet post that he moved his shop is closed until it's seen again (mark_gone)."""
     import json
-    seen: dict[str, dict] = {}
+    stored = await db.kv_get(KNOWN_KV, {}) or {}
+    seen: dict[str, dict] = {c: t for c, t in stored.items() if isinstance(t, dict) and t.get("seen_at")}
 
     def offer(code: str, entry: dict, at: str) -> None:
         if code and at >= (seen.get(code) or {}).get("seen_at", ""):
@@ -138,7 +196,9 @@ async def known_traders(db) -> dict[str, dict]:
             scan = json.loads(r["data"] or "{}")
         except ValueError:
             continue
-        for s in scan.get("shops") or []:
+        if not isinstance(scan, dict) or not isinstance(scan.get("shops"), list):
+            continue
+        for s in scan["shops"]:
             if isinstance(s, dict):
                 offer(s.get("controller_code"), {
                     "controller_code": s.get("controller_code"), "location": s.get("location"),
@@ -148,13 +208,25 @@ async def known_traders(db) -> dict[str, dict]:
     read = await db.kv_updated("traders_cache") or ""
     for code, t in (await db.kv_get("traders_cache", {}) or {}).items():
         offer(code, t, t.get("read_at") or read)
+    for code, t in (await db.kv_get(POSTED_KV, {}) or {}).items():
+        offer(code, t, t.get("read_at") or "")
+    owners = {t.get("owner_replicant_code") for c, t in seen.items() if not c.startswith("post:")} - {None, ""}
+    for code in [c for c, t in seen.items() if c.startswith("post:") and t.get("owner_replicant_code") in owners]:
+        del seen[code]   # its controller has been seen since: the placeholder from the post is done
+    if seen != stored:
+        await db.kv_set(KNOWN_KV, seen)
     gone = await db.kv_get(GONE_KV, {}) or {}
-    return {c: t for c, t in seen.items() if t["seen_at"] > (gone.get(c) or {}).get("at", "")}
+
+    def closed(c: str, t: dict) -> bool:
+        g = gone.get(c) or {}
+        return bool(g) and (is_bills(t) or g.get("manual")) and t["seen_at"] <= g.get("at", "")
+    return {c: t for c, t in seen.items() if not closed(c, t)}
 
 
 async def refresh_directory(db, api, replicants: list[str]) -> tuple[int, str | None]:
     """Every replicant's trader directory (each lists the traders near it) and each trader's trades, at most 20 traders,
-    into kv "traders_cache". Returns (traders read, the last error)."""
+    into kv "traders_cache", added to what it held: a shop the directory doesn't list now is out of reach, not gone.
+    Returns (traders read, the last error)."""
     from datetime import datetime, timezone
     from .api import ApiError
     traders, err = {}, None
@@ -167,13 +239,13 @@ async def refresh_directory(db, api, replicants: list[str]) -> tuple[int, str | 
             err = e.message
     if not traders:
         return 0, err
-    out, now = {}, datetime.now(timezone.utc).isoformat(timespec="seconds")
+    out, now = await db.kv_get("traders_cache", {}) or {}, datetime.now(timezone.utc).isoformat(timespec="seconds")
     for t in list(traders.values())[:20]:
         code = t.get("controller_code")
         try:
             trades = ((await api.get(f"/devices/{code}/trades")) or {}).get("trades") or []
         except ApiError:
-            trades = []
+            trades = (out.get(code) or {}).get("trades") or []
         out[code] = {**t, "trades": trades, "read_at": now}
     await db.kv_set("traders_cache", out)
-    return len(out), err
+    return min(len(traders), 20), err

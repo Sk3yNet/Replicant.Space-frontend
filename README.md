@@ -144,7 +144,7 @@ rule with an on/off switch, plus the jobs and the log.
   target relocates. Bill (A8F48B26) always passes through SOL: with nothing to follow, or a cold trail, the follow picks
   him up there, and *restart from SOL* clears the trail and starts over. Leaving his shop he can't be followed (he resets to SOL), so a departure
   from his shop's system sends the follow to SOL. His BobNet posts about moving ("NOSOXA is in the rear-view mirror")
-  clear the beacon logs, restart the follow at SOL and set his old shop location aside.
+  clear the beacon logs, restart the follow at SOL and close his shop until it's seen again.
 - **Wards & hubs**: your wards (against the 25 cap), hub shield and upkeep with warnings, `evicted_miners` log. Other players'
   warded systems are left alone by every mining rule and mission.
 - **Terraforming** (Map › Terraforming): each world with a terraform monitor: its latest `terraform.status` (attributes, change per tick, projections +6/+12/+24, what drives them, warnings, anomalies), coupling rules active or close, bio seeder preconditions; your terraforming devices with strength (0–1), direction (reversible ones) and on/off. **Dropping rocks**: detect Kuiper objects, launch one with a vector charge at a planet or moon, set propulsor / trajectory deflector directions; rocks you launch are left alone by asteroid defense.
@@ -255,8 +255,10 @@ lines or a template).
   gone) and prints what's short again.
 - **Reputation**: account and per-replicant reputation, known species. **Shop** (and a Trades section on **Contracts**): your trade controllers, trades, other traders —
   every replicant's trader directory plus every shop a system scan lists, the newest sighting of each winning (shops can
-  move). A trade run paid in devices gets spare ones delivered and deployed at the shop; a failed trade sets that shop
-  aside until it's seen again.
+  move). A shop stays listed until you remove it (*Remove*, once you checked it's gone): scans
+  can miss shops, and a failed trade only stalls the run. An owner's BobNet post that the shop "is open for shoppers"
+  (with "Find me in the Oort") moves it to the poster's system and spot, or lists it until its controller is seen. Bill is the exception: his BobNet post that he moved closes his shop until it's seen again. A trade
+  run paid in devices gets spare ones delivered and deployed at the shop.
 
 ### Activity and tools
 - **Automations**: every rule, jobs step by step with Cancel, and the log. **Events**: full local history with filters.
