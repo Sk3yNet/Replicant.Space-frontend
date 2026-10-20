@@ -45,6 +45,7 @@ def test_prints_come_first_and_home_prints_keep_their_reserve():
     assert cargo(run) == ["F1"] and run["carry"] == {"carbon": 80} and not run["escort"]
     steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
     assert [s["body"]["command"] for s in steps if s["body"]] == ["collect_resources", "travel", "deposit_resources"]
+    assert [s.get("need_comms") for s in steps if s["body"]] == [None, "B", None]   # checked again before leaving
 
 
 def test_outside_the_network_a_replicant_flies_alongside_fulfills_and_both_come_back():
@@ -79,6 +80,11 @@ def test_stray_piles_return_to_the_gather_point_last_and_skip_works():
     assert any(x["req"] == "return:B-BELT" and cargo(x) == ["F1"] for x in p["runs"])
     p = run_plan(devs, inv, prefs={"skip": ["return:B-BELT"]})
     assert not any(x["req"] == "return:B-BELT" for x in p["runs"])
+    # an AMI ferry already empties B: no return trip there
+    ferry = {"device_code": "TC000001", "device_type": "ami_transport_controller", "location": "B-2-L4",
+             "status": "coordinating", "tags": ["ferry"]}
+    p = run_plan(devs + [ferry], inv)
+    assert not any(x["id"] == "return:B-BELT" for x in p["requests"])
 
 
 def test_logistics_page_and_trade_approval(client):  # noqa: F811

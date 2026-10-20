@@ -344,6 +344,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             busy = set(busy) | {d.get("device_code")}
         if d.get("location_stale"):  # last known position only (partial snapshot): count it, don't command it
             busy = set(busy) | {d.get("device_code")}
+    on_busy: dict[str, str] = {}   # aboard a carrier a running job holds: it goes where the carrier goes, not before
+    for d in devices:
+        c = d.get("attached_to_device_code") or d.get("stowed_in_device_code")
+        if c and c in job_busy and d.get("device_code") not in job_busy:
+            on_busy[d["device_code"]] = c
+            busy = set(busy) | {d.get("device_code")}
 
     def ctrl_star(d: dict) -> str | None:
         c = d.get("controller_device_code")
@@ -854,7 +860,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             return "its position is unknown right now"
         if st.startswith(("tracking", "searching")):
             return f"it is {st} (moving it would close the site)"
-        return "a running job is using it (see Automations)"
+        if d.get("device_code") in on_busy:
+            return f"it rides {on_busy[d['device_code']]}, which a running job is using (see Automations)"
+        return "a running job is using it, or its last delivery failed lately (see Automations)"
 
     from .modular import compacted as _compacted, folded as _folded, is_modular
     compact: list[tuple[str, str]] = []   # large devices to compact now, before any carrier is assigned

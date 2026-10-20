@@ -320,6 +320,11 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
                         "label": f"evacuate the {loc} stockpile to {to} before impact"})
     asked = {r["to"] for r in out} | set(costs) | set(evacuate or {})
     homes = {f.get("home") for f in fleets if f.get("home") and (f.get("station") or f.get("materials") == "self")}
+    # systems an AMI ferry (Loadouts › materials) already empties: a return trip there finds the pile gone (live
+    # 2026-10-20, ALPHARDAN-BELT-1: six freighters arrived after the ferry's hauler)
+    ferried = {star_of(d.get("location")) for d in devices if "transport" in (d.get("device_type") or "")
+               and "controller" in (d.get("device_type") or "") and d.get("location")
+               and ("ferry" in (d.get("tags") or []) or (d.get("ami_directive") or {}).get("name") == "ferry")}
     for loc, items in sorted(stock.items()):
         total = sum(items.values())
         star = star_of(loc)
@@ -334,6 +339,8 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
                         "need": {r: q for r, q in items.items() if q >= 1}, "tier": 4,
                         "waiting": bool(lacks & set(items)),   # holds what the system's prints lack: first
                         "label": f"consolidate the {loc} stockpile at {to}"})
+            continue
+        if star in ferried:
             continue
         if star in moved:   # a fleet moved away from here: its stock follows it to the new home
             to_star, to = moved[star]
@@ -993,7 +1000,12 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
             hop(g["pile"], [c["code"]] + ([esc] if esc and outside_pickup else []), " (pick up)")
             steps.append(step(f"{c['code']}: load {', '.join(f'{q:g} {r}' for r, q in g['take'].items())} at {g['pile']}",
                               f"/devices/{c['code']}", {"command": "collect_resources", "resources": g["take"]}, critical=True))
+    n0 = len(steps)
     go(run["to"])
+    if not esc:   # planned inside comms coverage: check again before leaving (automations._dark_destination)
+        for st in steps[n0:]:
+            if (st.get("body") or {}).get("command") == "travel" and st["body"].get("destination") == run["to"]:
+                st["need_comms"] = star_of(run["to"])
     for c in cargos:
         if c.get("carry"):
             steps.append(step(f"{c['code']}: deposit at {run['to']}", f"/devices/{c['code']}", {"command": "deposit_resources"},

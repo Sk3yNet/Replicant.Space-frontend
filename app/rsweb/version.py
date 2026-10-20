@@ -26,6 +26,11 @@ CHANGES: list[tuple[str, str, str]] = [
      "shops: [] at ROSALIATE with a shop there) no longer drops it. Shops with no trades read are listed too. A BobNet post (X is open "
      "for shoppers! ... Find me in the Oort) moves that owner's shop to the poster's system (STAR-OORT), or lists it "
      "until its controller is seen. Bill is the exception: closed from his BobNet move post until seen again."),
+    ("1.169.2", "2026-10-20", "Fixes from the 17:08 snapshot alerts: an attach that finds the device on another carrier "
+     "has that carrier detach it (a deploy only frees stowed devices); cargo on a carrier a running job holds waits for "
+     "it; a delivery that failed twice sits out 6 hours; no return trip for a pile an AMI ferry already moves, and a "
+     "return load takes what is left; an unescorted trip does not leave for a system gone out of comms range; ETAs in "
+     "the log are real UTC."),
     ("1.169.1", "2026-10-20", "Logistics: an unmet request says where it loads and where it goes, how many cargo devices "
      "are on jobs, moving or taken by higher requests, and why the nearest free one was passed over; a rescue lists each "
      "vessel with a replicant aboard and what keeps it."),
