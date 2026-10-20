@@ -913,10 +913,17 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         return ok({"server_time": iso(), "season": {"number": 3, "title": "Alteration Protocol",
                                                      "tagline": "The Exodus Ark departs to distribute humanity...", "in_game_year": 2160},
                    "storylines": [{"title": "Terraforming the Colony Worlds", "summary": "Humanity is living on space stations...",
-                                   "status": "active", "action": "Conduct terraforming training at a simulation interface..."}],
+                                   "status": "active", "action": "Conduct terraforming training at a simulation interface...",
+                                   "locations": ["ROSALIATE", "TRYNLLYR"], "visible_from": "2026-10-01"},
+                                  {"title": "The Ark Journey", "summary": "The Exodus Ark is distributing humanity...", "status": "complete",
+                                   "location": "ROSALIATE-3", "schedule": {"current_stop": 12, "total_stops": 12},
+                                   "visible_from": "2026-09-02", "visible_until": "2026-10-31"}],
                    "events": [{"title": "The Shattering of Ethirel", "summary": "The Drafel are blowing up a moon...",
-                               "location": "ETHIREL-2", "action": "Print or purchase a vector charge and deliver it..."}],
-                   "opportunities": [], "npcs": {"Riker": "Earth's caretaker...", "Bill": "Chief engineer at the Skunkworks..."}})
+                               "location": "ETHIREL-2", "action": "Print or purchase a vector charge and deliver it...",
+                               "reward": "Blueprint for a mining_rig.", "visible_from": "2026-09-26", "visible_until": "2026-10-31"}],
+                   "opportunities": [{"title": "Training Simulations", "summary": "Practice gameplay scenarios...",
+                                      "locations": [{"name": "Deep Space Tracking Array", "system": "MIRFAKA"}],
+                                      "action": "Travel to a datacenter and start a simulation..."}], "npcs": {"Riker": "Earth's caretaker...", "Bill": "Chief engineer at the Skunkworks..."}})
 
     @app.get("/v1/stars")
     async def stars():

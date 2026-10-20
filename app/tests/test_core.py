@@ -7783,6 +7783,9 @@ def test_dashboard_story_card_shows_the_game_overview(client):
     assert "Alteration Protocol" in page and "The Shattering of Ethirel" in page and "/systems/ETHIREL" in page
     assert "Terraforming the Colony Worlds" in page and "Riker" in page
     assert 'id="story"' in client.get("/", headers=H).text
+    # the live spec's fields (2026-10-20): visible_until, reward, locations (names or {name, system}), the Ark's schedule
+    assert "until 2026-10-31" in page and "Reward: Blueprint for a mining_rig." in page and "stop 12/12" in page
+    assert '/systems/TRYNLLYR">TRYNLLYR</a>' in page and '/systems/MIRFAKA">Deep Space Tracking Array (MIRFAKA)</a>' in page
 
 
 def test_bobnet_feed_shows_where_the_poster_is(client):

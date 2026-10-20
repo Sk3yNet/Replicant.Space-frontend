@@ -188,9 +188,11 @@ Example response: `{"replicant_cooperation": "shared", "name": "Bob", "email": "
 - `POST /v1/feedback` — `{"type": "typo"|"bug"|"idea", "body": "..."}` → `{"status": "feedback_received"}`
 
 ### GET /v1/overview — the season's story (no auth; docs 2026-10-19, /docs/concepts/story/)
-`{server_time, season {number, title, tagline, in_game_year}, storylines [{title, summary, status, action}],
-events [{title, summary, location, action}], opportunities [...], npcs {name: description}}` (shape of opportunities not
-shown). Seasons run a fixed real-world window, then a time skip: devices aren't lost but may move (you may move), location
+`{server_time, season {number, title, tagline, in_game_year}, storylines [{title, summary, status, location, locations
+[star], action, visible_from, visible_until, schedule {current_stop, total_stops}}], events [{title, summary, location,
+visible_from, visible_until, action, reward}], opportunities [{slug, title, summary, location, locations [{name, system}],
+action}], npcs {name: description}}` (spec 2026-10-20; every field optional: the Ark's storyline carries `schedule`, the
+terraforming one a list of twelve stars, the datacenter opportunity `{name, system}` pairs; dates are plain `YYYY-MM-DD`). Seasons run a fixed real-world window, then a time skip: devices aren't lost but may move (you may move), location
 events end and asteroids drift away, AMI directives pause, most device activity stops and resolves. Season 3 (v3.5.3):
 Alteration Protocol (terraforming, the Exodus Ark to twelve locations, the Delta wormhole).
 
@@ -1021,6 +1023,14 @@ Settled by the docs:
 - `tracking_site_id` → `tracking_site`: the designation of the belt site a survey drone tracks (shown on the device page
   and in the diagnostics belt rows).
 - Fixed: Kuiper objects being launched into other systems.
+
+## Live spec diff, 2026-10-20
+The live spec (https://api.replicant.space/swagger/openapi.json, still `info.version` v1) against the 2026-10-16 copy:
+one new endpoint, nothing removed, no existing endpoint changed. `openapi.json` in the repo root is now this copy.
+- New `GET /v1/overview` (tag `overview`, no auth) with seven `app_schemas_overview_*` schemas (see the section above).
+  The app has read it since 1.159.0 (from the docs); 1.176.0 also shows `visible_until`, `reward`, `locations` and the
+  Ark's `schedule` on the Story card.
+- `MessageSettingsSchema.subscribed`: the same four categories (social, simulation, alert, progression), only reordered.
 
 ## v3.5.2 (2026-10-16), reviewed 2026-10-16
 - `print.started` lists the devices a print uses up: `component_device_codes`. The Lost page counts them as "used in

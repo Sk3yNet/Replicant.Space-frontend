@@ -6,8 +6,11 @@
 {% if se.tagline %}<p class="small muted" style="margin-top:0">{{ se.tagline }}</p>{% endif %}
 {% macro item(x) %}{% if x is mapping %}<b>{{ x.title or x.name or '' }}</b>{% if x.status %} <span class="pill small {{ 'st-move' if x.status == 'active' else '' }}">{{ x.status }}</span>{% endif %}
   {% if x.location %} · <a href="/systems/{{ x.location.split('-')[0] }}">{{ x.location }}</a>{% endif %}
-  {% if x.deadline or x.ends_at or x.expires_at %} · <span class="muted">until {{ x.deadline or x.ends_at or x.expires_at }}</span>{% endif %}
+  {% if x.schedule is mapping and x.schedule.total_stops %} · stop {{ x.schedule.current_stop }}/{{ x.schedule.total_stops }}{% endif %}
+  {% if x.visible_until %} · <span class="muted">until {{ x.visible_until }}</span>{% endif %}
+  {% if x.locations %}<div class="muted">{% for l in x.locations %}{% set sy = l.system if l is mapping else l %}<a href="/systems/{{ sy.split('-')[0] }}">{{ l.name ~ ' (' ~ sy ~ ')' if l is mapping and l.name else sy }}</a>{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
   {% if x.summary %}<div>{{ x.summary }}</div>{% endif %}{% if x.action %}<div class="muted">→ {{ x.action }}</div>{% endif %}
+  {% if x.reward %}<div class="muted">Reward: {{ x.reward }}</div>{% endif %}
 {% else %}{{ x }}{% endif %}{% endmacro %}
 {% for key, label in [('events', 'Events'), ('storylines', 'Storylines'), ('opportunities', 'Opportunities')] %}{% if ov[key] %}
 <details class="small"{% if key != 'opportunities' %} open{% endif %}><summary><b>{{ label }}</b> ({{ ov[key] | length }})</summary>

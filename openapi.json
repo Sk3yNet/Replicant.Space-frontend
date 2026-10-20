@@ -233,10 +233,10 @@
             "items": {
               "type": "string",
               "enum": [
-                "social",
                 "simulation",
-                "alert",
-                "progression"
+                "progression",
+                "social",
+                "alert"
               ]
             },
             "nullable": true
@@ -4761,6 +4761,175 @@
           "published_at": {
             "type": "string",
             "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_overview_SeasonSchema": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "tagline": {
+            "type": "string"
+          },
+          "in_game_year": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_overview_ArkScheduleSchema": {
+        "type": "object",
+        "properties": {
+          "current_stop": {
+            "type": "integer"
+          },
+          "total_stops": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_overview_StorylineSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "locations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "action": {
+            "type": "string"
+          },
+          "visible_from": {
+            "type": "string"
+          },
+          "visible_until": {
+            "type": "string"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/app_schemas_overview_ArkScheduleSchema"
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_overview_EventSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "visible_from": {
+            "type": "string"
+          },
+          "visible_until": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "reward": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_overview_DatacenterLocationSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "system": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_overview_OpportunitySchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "locations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/app_schemas_overview_DatacenterLocationSchema"
+            }
+          },
+          "action": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_overview_OverviewResponseSchema": {
+        "type": "object",
+        "properties": {
+          "server_time": {
+            "type": "string",
+            "description": "Current server time in UTC ISO format"
+          },
+          "season": {
+            "$ref": "#/components/schemas/app_schemas_overview_SeasonSchema"
+          },
+          "storylines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/app_schemas_overview_StorylineSchema"
+            }
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/app_schemas_overview_EventSchema"
+            }
+          },
+          "opportunities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/app_schemas_overview_OpportunitySchema"
+            }
+          },
+          "npcs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false
@@ -10475,6 +10644,30 @@
         ]
       }
     },
+    "/v1/overview": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_overview_OverviewResponseSchema"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "summary": "Current state of the game world: active storylines, events, and opportunities.",
+        "tags": [
+          "overview"
+        ],
+        "security": []
+      }
+    },
     "/v1/admin/message": {
       "post": {
         "responses": {
@@ -10750,6 +10943,10 @@
     {
       "name": "blog",
       "description": "Blog"
+    },
+    {
+      "name": "overview",
+      "description": "Game overview"
     },
     {
       "name": "admin",
