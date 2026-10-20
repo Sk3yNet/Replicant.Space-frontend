@@ -551,17 +551,44 @@ def test_bills_trail_can_be_picked_up_at_sol(client):
     assert "Follow to the end" in live and "Departures" in live and "SOL" in live
 
 
-def test_newest_sighting_of_a_shop_wins_and_a_failed_trade_sets_it_aside(client):
+def test_shops_stay_listed_until_a_scan_shows_them_gone(client):
     import json
     from rsweb import shop
     db = client.app.state.db
-    for star, at in (("LERNA", "2026-10-10T00:00:00+00:00"), ("ABOTEIN", "2026-10-11T00:00:00+00:00")):
-        scan = {"shops": [{"controller_code": "SK1", "location": f"{star}-OORT", "trades": []}]}
+
+    def scan(star, at, shops=None):
+        data = {"planets": []} if shops is None else {"shops": [{"controller_code": c, "location": f"{star}-OORT",
+                                                                  "trades": []} for c in shops]}
         client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
-                           (star, json.dumps(scan), at))
-    assert client.portal.call(shop.known_traders, db)["SK1"]["location"] == "ABOTEIN-OORT"   # an old scan stays usable
-    client.portal.call(shop.mark_gone, db, "SK1", "ABOTEIN-OORT", "2026-10-11T12:00:00+00:00")
-    assert "SK1" not in client.portal.call(shop.known_traders, db)                            # until seen again
+                           (star, json.dumps(data), at))
+    scan("LERNA", "2026-10-10T00:00:00+00:00", ["SK1"])
+    scan("ABOTEIN", "2026-10-11T00:00:00+00:00", ["SK1", "SK2"])
+    known = client.portal.call(shop.known_traders, db)
+    assert known["SK1"]["location"] == "ABOTEIN-OORT" and "SK2" in known       # the newest sighting wins
+    client.portal.call(shop.mark_gone, db, "SK2", "ABOTEIN-OORT", "2026-10-11T12:00:00+00:00")
+    assert "SK2" in client.portal.call(shop.known_traders, db)                  # only Bill is ever set aside
+    scan("ABOTEIN", "2026-10-12T00:00:00+00:00")                                # a re-read without shops proves nothing
+    client.portal.call(db.kv_set, "traders_cache", {})                         # nor does a directory without them
+    assert {"SK1", "SK2"} <= set(client.portal.call(shop.known_traders, db))
+    scan("ABOTEIN", "2026-10-13T00:00:00+00:00", ["SK1"])                       # verified: SK2 isn't there any more
+    known = client.portal.call(shop.known_traders, db)
+    assert "SK2" not in known and known["SK1"]["location"] == "ABOTEIN-OORT"
+    scan("ABOTEIN", "2026-10-14T00:00:00+00:00", [])                            # nor SK1
+    assert client.portal.call(shop.known_traders, db) == {}
+
+
+def test_trader_refresh_keeps_shops_out_of_reach(client):
+    from rsweb import shop
+    db = client.app.state.db
+
+    class Api:
+        async def get(self, path):
+            return {"traders": [{"controller_code": "NEW", "location": "X-OORT"}]} if path.endswith("/traders") \
+                else {"trades": []}
+    client.portal.call(db.kv_set, "traders_cache", {"OLD": {"controller_code": "OLD", "location": "Y-OORT",
+                                                            "read_at": "2026-10-01T00:00:00+00:00", "trades": []}})
+    assert client.portal.call(shop.refresh_directory, db, Api(), ["R1"]) == (1, None)
+    assert {"OLD", "NEW"} <= set(client.portal.call(shop.known_traders, db))
 
 
 def test_gather_doesnt_fetch_spares_beyond_the_supply_range():
@@ -706,7 +733,7 @@ def test_bills_move_post_restarts_the_trail_at_sol(client):
     s = client.portal.call(db.kv_get, tl.KV)
     assert s["follow"]["active"] and s["follow"]["star"] == "SOL" and s["moved"]["from"] == "NOSOXA"
     assert s["audit"]["B1"] == [] and "B1" in s["beacons"]   # his logs are dropped (leaving the shop he resets to SOL), the beacon kept
-    assert "3BF0ED09" not in client.portal.call(shop.known_traders, db)        # set aside until seen again
+    assert "3BF0ED09" not in client.portal.call(shop.known_traders, db)        # closed until seen again
     assert client.portal.call(e.bill_moved, {**post, "message": "o7 all"}) is None
     assert client.portal.call(e.bill_moved, {**post, "replicant_code": "X", "replicant_name": "Ann"}) is None
 
