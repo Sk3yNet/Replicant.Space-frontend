@@ -3430,8 +3430,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             for tr in t.get("trades") or []:
                 key = f"{ctrl}:{tr.get('trade_code')}"
                 once = key in (ok.get("trades") or {})   # only a trade you approved: shop listings are never fulfilled
-                if not once or key in taken or not t.get("location") \
-                        or star_of(t["location"]) in locked or tr.get("current_stock") == 0:
+                # a ward's species lock stops other players completing location events (contracts) in its system, not a
+                # shop's trades: Bill's shop is often at SOL, which is warded (owner 2026-10-20: an approved SOL trade was
+                # left out of the requests)
+                if not once or key in taken or not t.get("location") or tr.get("current_stock") == 0:
                     continue
                 price = as_amounts((tr.get("criteria") or {}).get("resources") or {})
                 dneed = fl_counts((tr.get("criteria") or {}).get("devices"))

@@ -575,3 +575,25 @@ def test_idle_carrier_drops_what_isnt_its_work_at_the_receiving_point():
     assert descs[0] == "CV → A-1 (drop-off)" and "CV: deposit 40 carbon at A-1" in descs
     assert "deploy SD from CV" in descs and "CV: detach TD" in descs
     assert set(lg.run_devices(run)) == {"CV", "SD", "TD"}
+
+
+def test_an_approved_trade_in_a_warded_system_is_a_request(client):  # noqa: F811
+    """Owner 2026-10-20: an approved trade at SOL (warded) was missing from the requests; a ward's lock stops contracts,
+    not shop trades."""
+    db, e = client.app.state.db, eng(client)
+    cat = client.portal.call(db.kv_get, "stars") or {"stars": []}
+    cat["stars"] += [{"designation": d, "position": p, **({"has_ward": True} if d == "B" else {})} for d, p in POS.items()]
+    client.portal.call(db.kv_set, "stars", cat)
+    client.portal.call(db.kv_set, "devices", world())
+    client.portal.call(db.kv_set, "inventory", [{"location": "A-1", "items": {"carbon": 300}}])
+    client.portal.call(db.kv_set, "replicants", {"R1": {"location": "A-1", "hosted_device_code": "HV"}})
+    client.portal.call(db.kv_set, "traders_cache", {"C1": {"controller_code": "C1", "location": "B-3", "star": "B",
+                                                           "read_at": "2026-10-20T00:00:00+00:00",
+                                                           "trades": [{"trade_code": "T1", "name": "Widget",
+                                                                       "criteria": {"resources": {"carbon": 50}}}]}})
+    client.post("/shop/approve", data={"controller": "C1", "trade_code": "T1", "on": "on"}, headers=HX)
+    items = client.portal.call(e.fleets)
+    client.portal.call(e.save_fleets, items + [{"id": "cab", "name": "Cab", "role": "logistics", "home": "A", "wants": {}}])
+    client.portal.call(e.logistics_pass, True)
+    st = client.portal.call(db.kv_get, "logistics_state")
+    assert any(r["id"] == "trade:C1:T1" for r in st["requests"])

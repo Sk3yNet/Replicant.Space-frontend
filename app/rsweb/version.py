@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.166.1"
+VERSION = "1.166.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.166.2", "2026-10-20", "Logistics: an approved shop trade in a system warded by someone else (SOL) is a request "
+     "again; the ward lock only keeps contracts out, as for missions."),
     ("1.166.1", "2026-10-20", "While an approved shop trade waits on logistics, the loadout pass (device moves, relay "
      "runs) leaves the logistics vessels with a replicant aboard free, so one can fulfill the trade before it expires."),
     ("1.166.0", "2026-10-20", "Every vessel in a logistics fleet is available to automation, replicant vessels included: "
