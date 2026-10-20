@@ -350,6 +350,21 @@ function build() {
   placeMarks();
 }
 
+// a dashed line whose dashes march from its first point to its last, so the direction of travel shows at a glance
+// (still for anyone who asked their system for reduced motion)
+const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)");
+const flowDash = { value: 0 };
+function flowingDash(opts) {
+  const mat = new THREE.LineDashedMaterial(opts);
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.dashOffset = flowDash;
+    sh.fragmentShader = "uniform float dashOffset;\n" +
+      sh.fragmentShader.replace("mod( vLineDistance, totalSize )", "mod( vLineDistance - dashOffset, totalSize )");
+  };
+  mat.customProgramCacheKey = () => "flowingDash";
+  return mat;
+}
+
 // fleets: a ring at each system with fleet members, a label with what the fleet is doing, and a dashed line to the
 // system its mission is headed for
 const FLEET = 0x3fd0c9;
@@ -369,7 +384,7 @@ function buildFleets() {
     const to = f.target && f.target !== at.designation ? byName[f.target] : null;
     if (to) {
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos(at), pos(to)]),
-        new THREE.LineDashedMaterial({ color: FLEET, dashSize: .35, gapSize: .7, transparent: true, opacity: .55 }));
+        flowingDash({ color: FLEET, dashSize: .35, gapSize: .7, transparent: true, opacity: .55 }));
       line.computeLineDistances(); fleetGroup.add(line);
       const tg = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: FLEET, transparent: true, opacity: .45, depthWrite: false }));
       tg.scale.set(3.4, 3.4, 1); tg.position.copy(pos(to)); fleetGroup.add(tg);
@@ -640,7 +655,7 @@ function buildMovers() {
     const pts = [];
     m.segs.forEach((sg, i) => { if (i === 0) pts.push(pos({ position: sg.a })); pts.push(pos({ position: sg.b })); });
     const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineDashedMaterial({ color: MOVE, dashSize: .6, gapSize: .5, transparent: true, opacity: .75 }));
+      flowingDash({ color: MOVE, dashSize: .6, gapSize: .5, transparent: true, opacity: .75 }));
     line.computeLineDistances();
     moveGroup.add(line);
     const cone = new THREE.Mesh(new THREE.ConeGeometry(.45, 1.4, 12), new THREE.MeshBasicMaterial({ color: MOVE }));
@@ -886,6 +901,7 @@ function animate(t = 0) {
     x.el.style.display = vis ? "block" : "none";
     if (vis) { x.el.style.left = ((tmp.x + 1) / 2 * w) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px"; }
   }
+  if (!REDUCED_MOTION.matches) flowDash.value = t / 1000 * .8;   // map units a second
   placeMovers(Date.now());
   placeOthers(Date.now(), showLabels, w, h);
   placeTrail(showLabels, w, h);

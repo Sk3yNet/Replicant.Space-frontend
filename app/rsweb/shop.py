@@ -112,10 +112,6 @@ def describe_side(side: dict | None) -> str:
     return ", ".join(parts) or "nothing"
 
 
-def star_of(loc: str | None) -> str:
-    return (loc or "").split("-")[0]
-
-
 GONE_KV = "shops_gone"   # {controller: {"at": iso, "location": where it was, "manual": you removed it}}
 KNOWN_KV = "shops_known"  # {controller: the newest sighting}: a shop is kept until you remove it (or Bill moves)
 

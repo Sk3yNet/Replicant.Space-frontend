@@ -48,7 +48,7 @@ async def returned_by_cancel(db, since: str) -> dict[str, str]:
     """v3.5.2: a canceled print hands its components back (print.cancelled returned_device_codes): {code: when}."""
     import json as _json
     out: dict[str, str] = {}
-    for r in await db.fetchall("SELECT payload, created_at FROM events WHERE event='print.cancelled' AND created_at >= ?",
+    for r in await db.fetchall("SELECT payload, created_at FROM events WHERE event='print.cancelled' AND julianday(created_at) >= julianday(?)",
                                (since,)):
         try:
             p = _json.loads(r["payload"] or "{}") or {}
@@ -89,7 +89,7 @@ async def reasons(db, codes: list[str]) -> dict[str, str]:
         since = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat(timespec="seconds")
         back = await returned_by_cancel(db, since)
         for r in await db.fetchall(f"SELECT event, payload, created_at FROM events WHERE event IN ({','.join('?' * len(DEAL_REASON))}) "
-                                   "AND created_at >= ? ORDER BY seq DESC", (*DEAL_REASON, since)):
+                                   "AND julianday(created_at) >= julianday(?) ORDER BY seq DESC", (*DEAL_REASON, since)):
             text = r["payload"] or ""
             for c in [c for c in left if c not in out and c in text
                       and not (r["event"] == "print.started" and back.get(c, "") >= str(r["created_at"] or ""))]:
@@ -211,7 +211,7 @@ async def given_away(db, missing: dict[str, tuple[str | None, str | None]], hour
     from .fleets import device_counts
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
     rows = await db.fetchall(f"SELECT event, payload, location, created_at FROM events WHERE event IN ({','.join('?' * len(DEAL_EVENTS))}) "
-                             "AND created_at >= ?", (*DEAL_EVENTS, since))
+                             "AND julianday(created_at) >= julianday(?)", (*DEAL_EVENTS, since))
     back = await returned_by_cancel(db, since)   # a canceled print's components came back: not used up
     out: set[str] = set()
     for r in rows:

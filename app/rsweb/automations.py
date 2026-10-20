@@ -1525,7 +1525,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         for code, t in (await known_traders(self.db)).items():   # his shop isn't where we last saw it any more
             if is_bills(t) and (tl.star_of(t.get("location")) == frm if frm else t["seen_at"] < now):
                 await mark_gone(self.db, code, t.get("location"), closed)
-        text = f"Bill is on the move" + (f" — left {frm}" if frm else "") + f": “{mv['text'][:160]}”"
+        text = "Bill is on the move" + (f" — left {frm}" if frm else "") + f": “{mv['text'][:160]}”"
         if tl.is_bill(s):
             fo = s.get("follow") or {}
             if fo.get("job"):
@@ -1645,7 +1645,6 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
     async def fleet_rename_pass(self) -> list[str]:
         """A renamed fleet's devices still carrying the old fleet: tag in the game (marked `_retag` by
         fleets.apply_renames): one PATCH each, swapping the old tag for the new; tried again every 10 minutes."""
-        from . import fleets as fl
         devices = await self.devices()
         todo = [d for d in devices if d.get("_retag")]
         if not todo:
@@ -1723,7 +1722,6 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         prospects along the heading when few systems lie ahead; when the home has been dry for a while the fleet picks
         its next home (best-ranked system ahead that nothing excludes), announces it, and after the grace period makes
         it its home — the loadout pass then moves the fleet. Every 5 minutes."""
-        from . import fleets as fl
         from . import pathing as pa
         from . import prospects as pr
         last = _ts(await self.db.kv_get("pathing_at", None))
@@ -1738,8 +1736,6 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         devices = await self.devices()
         inp = await pr.rank_inputs(self.db, self, devices)
         xyz_of = inp["xyz"]
-        busy = self.busy_devices(await self.jobs())
-        scanned = set(inp["scanned"])
         out, changed, now = [], False, _now()
         nothing = ((await self.db.kv_get("salvage_state", {}) or {}).get("nothing") or {})
         # the salvage rule re-marks "nothing to mine" every 24 h while it's still true; an older mark is out of date
@@ -2353,7 +2349,6 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         """Mining and survey fleets (auto-scouting ones have their own rule): a member at or below 50 % sends the fleet
         home — a mission in its watch phase recalls now (then returns and unloads as usual). Back home, members below
         85 % still aboard a vessel there are deployed, once each, so the maintenance drone can repair them."""
-        from . import fleets as fl
         items = await self.fleets()
         devices = await self.devices()
         out, changed = [], False
@@ -4256,7 +4251,6 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     self._mlog(m, f"{here} surveyed — returning home " + (f"for repairs ({', '.join(weak)} at or below "
                                                                            f"{self.SCOUT_MIN_CAPACITY:g} %)" if weak else f"({why})"))
                 changed = True
-            phases = fl.PHASES[fleet["role"]]
             if m.get("phase") == "wait":
                 gate, note = await self._deal_gate(fleet, m, devices)
                 if gate == "wait":
@@ -4489,7 +4483,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             if ctrl:
                 mine = [d for d, c in managed.items() if c == ctrl["device_code"]]
                 adopt = [d["device_code"] for d in idle if d["device_code"] not in managed][:max(0, per - len(mine))]
-                job = await self.create_job("reopen_sites", f"re-open sites at {belt} with {ctrl['device_code']} ({why})",
+                await self.create_job("reopen_sites", f"re-open sites at {belt} with {ctrl['device_code']} ({why})",
                                             ctrl["device_code"], sites.ami_steps(ctrl, belt, adopt), {"devices": adopt, "belt": belt})
                 done.append(f"{ctrl['device_code']} → belt_search {belt}")
             else:

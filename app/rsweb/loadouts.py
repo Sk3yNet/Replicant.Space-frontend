@@ -963,8 +963,6 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         codes = sorted(x for x in codes if x not in taken)
         outside = commandable is not None and dest not in commandable   # beyond an active relay network
         while codes:
-            stowable = all("stow" in (by_code[x].get("available_commands") or ["stow"]) for x in codes)
-            grounded = any(not can_travel(by_code[x]) for x in codes)   # e.g. a beacon: the carrier picks it up, in its hold
             # a vessel hosting a replicant carries only as a member of a logistics fleet (owner 2026-10-20: every
             # logistics vessel is there for automation; another fleet's replicant vessel stays with its fleet), or as
             # the escort a trip beyond the network needs

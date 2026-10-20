@@ -7279,6 +7279,18 @@ def test_print_components_used_and_returned(client):
     assert "On graduation:" in body and "graduate: 100 XP" in body
 
 
+def test_lookbacks_compare_real_times_not_the_games_offset(client):
+    """The game stamps events in -04:00 (live 2026-10-20): a print 46 h ago is inside the 48 h window, though its text
+    sorts before a UTC cutoff."""
+    from rsweb import lost
+    db, w = client.app.state.db, client.app.state.worker
+    at = (datetime.now(timezone.utc) - timedelta(hours=46)).astimezone(timezone(timedelta(hours=-4)))
+    ev = {**_ev(2101, "print.started", device="FAC00002", device_type="ami_mining_controller",
+                component_device_codes=["OLD00001"]), "created_at": at.isoformat(timespec="seconds")}
+    client.portal.call(w.handle_event, ev)
+    assert client.portal.call(lost.reasons, db, ["OLD00001"]) == {"OLD00001": "used in a print"}
+
+
 def test_spec_endpoints_pages_and_cards(client):
     t = client.get("/leaderboards", headers=H).text
     assert 'hx-get="/partials/leaderboard/xp"' in t and "Distance" in t
