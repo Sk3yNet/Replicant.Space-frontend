@@ -7870,3 +7870,17 @@ def test_a_reserved_stock_relay_loses_its_stock_tag(client):
     assert sent == [("/devices/R1", {"configuration": {"remove_tags": ["stock"]}})]   # R2 is still a spare in stock
     st = lo.self_move_steps("R2", "ALPHA", {}, {"device_code": "R2", "tags": ["spare", "stock"], "location": "SOL-3"})
     assert st[0]["body"]["configuration"] == {"add_tags": [lo.to_tag("ALPHA")], "remove_tags": ["spare", "stock"]}
+
+
+def test_blueprints_show_how_a_device_travels_and_what_it_carries(client):
+    from rsweb import fleets as fl
+    assert fl.carry_info({"device_type": "mining_drone", "features": ["cruise", "mine", "stow"]})["ways"] == ["stowed", "attached"]
+    assert fl.carry_info({"device_type": "transport_hauler", "features": ["cruise", "transport"]})["ways"] == ["attached"]
+    assert fl.carry_info({"device_type": "cargo_freighter", "features": ["surge", "cruise", "transport"],
+                          "cargo_capacity": 500})["ways"] == ["flies itself"]
+    assert fl.carry_info({"device_type": "autofactory", "features": ["print", "modular"]})["ways"] == ["compacted, then attached"]
+    cv = fl.carry_info({"device_type": "cargo_vessel", "features": ["surge", "cruise", "attach"], "stow_capacity": 50,
+                        "attach_capacity": 3, "cargo_capacity": 200})
+    assert cv == {"ways": ["flies itself", "attached"], "hold": 50, "attach": 3, "cargo": 200}
+    page = client.get("/blueprints", headers=H).text
+    assert "travels: flies itself or attached · hold 50 devices · attaches 3 devices · cargo 200 materials" in page

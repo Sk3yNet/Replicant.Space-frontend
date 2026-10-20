@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.167.3"
+VERSION = "1.168.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.168.0", "2026-10-20", "Blueprints: each device says how it travels between systems (flies itself, stowed, "
+     "attached, or compacted then attached) and what it carries (hold and attach slots, cargo)."),
     ("1.167.3", "2026-10-20", "Notes only: travel via a waypoint to a body in another system is confirmed live (the "
      "game flies the final leg once the destination star is the last waypoint)."),
     ("1.167.2", "2026-10-20", "Logistics: a priority you pick shows at once (it used to wait for the next pass, so the "

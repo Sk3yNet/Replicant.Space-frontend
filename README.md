@@ -245,7 +245,7 @@ lines or a template).
 
 ### Economy
 - **Component prints**: some blueprints use up component devices (e.g. a biosphere cultivator: 2 hydroponic bays, a nutrient synthesizer, an orbital farm), deployed at the factory. Every print the app queues (manual ones included) first counts the components already at the factory (deployed there or queued there, less what earlier prints in its queue use up), then pins spare ones from elsewhere to the factory, and only puts the rest ahead of it on the same factory (one the game won't print, a locked blueprint, is logged and the item queued anyway), with the item's tags (its location pins swapped for the factory's). A factory already waiting for components gets spares pinned to it, or the rest printed at another autofactory (every 5 minutes).
-- **Blueprints**: costs (component devices included, with an all-in material total) and print times, what each printer can afford, a production planner that queues prints (spread over
+- **Blueprints**: how each device travels between systems (flies itself, stowed, attached, or compacted then attached) and what it carries (hold and attach slots, cargo), costs (component devices included, with an all-in material total) and print times, what each printer can afford, a production planner that queues prints (spread over
   several autofactories) and can mine or deliver the shortfall.
 - **Contracts**: in-game events with criteria (any one option completes it), rewards and progress; *send replicant*, *deliver
   materials*, *fulfill*. **Deliver devices** sends spare devices to a contract's location; printing what no spare covers waits

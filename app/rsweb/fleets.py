@@ -135,6 +135,26 @@ def is_carrier(d: dict) -> bool:
         or hold(d) > 0
 
 
+def carry_info(bp: dict) -> dict:
+    """How a device type gets between systems, and what it carries (Blueprints page). `ways`: its own surge; stowed in
+    a hold (the `stow` feature); attached (towed: every device but a large one, e.g. a cargo freighter, "Cannot attach a
+    large device", live 2026-10-12); a modular device is compacted first. `hold` / `attach`: device slots it offers,
+    `cargo`: materials it holds."""
+    from .modular import modular_type
+    t, f = bp.get("device_type") or "", bp.get("features") or []
+    ways = []
+    if "surge" in f:
+        ways.append("flies itself")
+    if modular_type(t, {t: bp}):
+        ways.append("compacted, then attached")
+    else:
+        if stowable({"features": f}):
+            ways.append("stowed")
+        if t != "cargo_freighter":
+            ways.append("attached")
+    return {"ways": ways, "hold": hold(bp), "attach": capacity(bp), "cargo": _int(bp.get("cargo_capacity"))}
+
+
 def flies_itself(d: dict) -> bool:
     return "surge" in (d.get("features") or []) and not is_carrier(d)
 

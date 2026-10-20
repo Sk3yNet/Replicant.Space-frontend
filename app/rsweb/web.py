@@ -2389,6 +2389,7 @@ async def blueprints(request: Request, q: str = "", feature: str = "", user: str
     by_type = {b["device_type"]: b for b in bps}
     for b in bps:
         b["_components"] = comp.components(b)
+        b["_carry"] = fl.carry_info(b)
         b["_total"] = comp.total_resources(b["device_type"], by_type) if b["_components"] else b["resources"]
         # a print with components is printed with them (components.py): it's affordable when the lot is
         b["_afford"] = {p["code"]: affordable(b["_total"], inv.get(p["location"], {})) for p in prs}

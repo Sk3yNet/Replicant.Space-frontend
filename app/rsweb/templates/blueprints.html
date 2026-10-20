@@ -20,7 +20,9 @@
       <tr class="bp-row" data-name="{{ (b.device_type ~ ' ' ~ (b.device_type | human) ~ ' ' ~ (b.short_description or '')) | lower }}"
           data-features="{{ (b.features or []) | join(' ') }}">
         <td><strong>{{ b.device_type | human }}</strong>{% if b.device_type in recent %} <span class="pill st-work">new</span>{% endif %}<div class="muted small">{{ b.short_description }}</div>
-          <div class="small">{{ (b.features or []) | join(', ') }}{% if b.directives %} · directives: {{ b.directives | join(', ') }}{% endif %}</div></td>
+          <div class="small">{{ (b.features or []) | join(', ') }}{% if b.directives %} · directives: {{ b.directives | join(', ') }}{% endif %}</div>
+          {% set ci = b._carry %}<div class="small bp-carry" title="how it gets to another system, and what it can carry">travels: {{ ci.ways | join(' or ') if ci.ways else 'can’t move' }}
+            {%- if ci.hold %} · hold {{ ci.hold }} devices{% endif %}{% if ci.attach %} · attaches {{ ci.attach }} devices{% endif %}{% if ci.cargo %} · cargo {{ ci.cargo }} materials{% endif %}</div></td>
         <td class="num mono">{{ ((b.print_time or 0) / 60) | round(1) }}m</td>
         <td class="small" style="white-space:nowrap">{% for r, v in (b.resources or {}) | dictsort %}{{ v }} {{ r }}<br>{% endfor %}
           {% for t, n in (b._components or {}) | dictsort %}<span title="component device: used up by the print">{{ n }}× {{ t | human }}</span><br>{% endfor %}
