@@ -229,7 +229,7 @@ lines or a template).
   trade, that replicant fulfills it, and the convoy loads the payout there and brings it to the nearest gather point
   (devices paid out are sent there as deliveries). Afterwards everyone waits inside the network. Device deliveries (and fleet moves done
   piecemeal) take logistics carriers first. **Rescues** (last priority): a device out of command range (placed relays and
-  beacons, wards, hubs and fleets on a mission excepted) is brought home — its fleet's home, else the nearest covered home.
+  beacons, wards, hubs, fleets on a mission and devices tagged `at:` the spot where they are — stocked there on purpose — excepted) is brought home — its fleet's home, else the nearest covered home.
   One that can surge is reached by a replicant in its system or anywhere its dark relay network covers, and commanded
   home; one that can't is picked up from its last known location by a carrier with a free seat, a replicant along.
   An idle logistics carrier drops off what isn't its work at the nearest receiving point inside the network (a fleet that

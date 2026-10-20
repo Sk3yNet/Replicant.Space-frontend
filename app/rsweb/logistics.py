@@ -714,13 +714,14 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     # A device that can surge home is reached by a replicant (in its system, or anywhere its own dark relay network
     # covers, nearest first) and commanded home; one that can't is picked up by a carrier, with a replicant along.
     from . import fleets as fl
-    from .loadouts import placed
+    from .loadouts import at_tag, placed
     fleet_home = {fl.fleet_tag(f["id"]): f.get("home") for f in fleets or [] if f.get("id")}
     rescue_reqs = []
     for d in devices:
         code, loc = d.get("device_code"), d.get("location")
         tag = next((t for t in d.get("tags") or [] if t.startswith("fleet:")), None)
         if (not loc or code in hosts or code in busy or code in used or placed(d) or (d.get("device_type") or "") in KEPT_OUT
+                or at_tag(loc) in (d.get("tags") or [])    # stocked there on purpose (an at: tag for where it is)
                 or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or tag in away_fleets
                 or str(d.get("status") or "").lower().startswith(MOVING)):
             continue

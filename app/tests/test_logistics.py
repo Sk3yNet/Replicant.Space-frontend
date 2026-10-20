@@ -272,6 +272,16 @@ def test_a_stranded_device_that_can_surge_is_commanded_home_from_its_dark_networ
     assert sends[0].startswith("HV → Y-1") and sends[1].startswith("SV → A-1") and sends[-1].startswith("HV → A-1")
 
 
+def test_a_device_pinned_where_it_is_is_not_rescued():
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("PL", "surge_platform", "A-1", **SURGE),
+            dev("CC", "compute_core", "Z-5", tags=["at:z-5"], in_control_range=False, available_commands=["travel"]),
+            dev("TD", "transport_drone", "Z-5", tags=["at:a-1"], in_control_range=False, available_commands=["travel"])]
+    p = _rescue_plan(devs)
+    assert not any(r["id"] == "rescue:CC" for r in p["requests"])                       # stocked at Z-5 on purpose
+    assert any(r["req"] == "rescue:TD" for r in p["runs"])                              # pinned elsewhere: still stranded
+
+
 def test_a_stranded_drone_is_picked_up_by_a_carrier_with_a_replicant_along():
     devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
             dev("PL", "surge_platform", "A-1", **SURGE),
