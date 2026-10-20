@@ -621,3 +621,25 @@ def test_a_priority_shows_at_once_and_every_tier_is_accepted(client):  # noqa: F
     assert '<option value="0" selected>' in page and "bumped" in page
     client.post("/fleets/logistics/prefs", data={"req": "rescue:R1", "tier": "reset"}, headers=HX)
     assert client.portal.call(db.kv_get, lg.KV_STATE)["requests"][1]["tier"] == 5
+
+
+def test_an_unmet_reason_says_where_it_loads_where_it_goes_and_whats_in_the_way():
+    devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE),
+            dev("F2", "cargo_freighter", "Z-1", cargo_capacity=100, **SURGE)]
+    c = {"designation": "EV1", "location": "B-3", "title": "Help", "price": {"carbon": 50}}
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 500}}, pos=POS, commandable={"A", "B", "Z"},
+                hosts={}, busy={"F1"}, reach=20, contracts=[c], trades=[], incoming={}, replicants={},
+                drop=lambda s: f"{s}-1")
+    why = next(u["why"] for u in p["unmet"] if u["req"] == "contract:EV1")
+    assert why == ("no logistics cargo device free to load at A-1 for B-3 (2 cargo devices: 1 on jobs); the nearest free "
+                   "one, F2 (cargo freighter): it is 60 ly away, beyond the 20 ly reach")
+
+
+def test_a_rescue_reason_names_each_replicant_vessel_and_what_keeps_it():
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE), dev("MC", "matrix_container", "A-1", features=["cruise"]),
+            dev("P1", "surge_plate", "Z-1", in_control_range=False, **SURGE)]
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=POS, commandable={"A", "B"},
+                hosts={"HV": "R1", "MC": "R2"}, busy={"HV"}, reach=100, contracts=[], trades=[], incoming={},
+                replicants={}, drop=lambda s: f"{s}-1")
+    why = next(u["why"] for u in p["unmet"] if u["req"] == "rescue:P1")
+    assert why.endswith("— HV (heaven vessel): on a job; MC (matrix container): can't surge")

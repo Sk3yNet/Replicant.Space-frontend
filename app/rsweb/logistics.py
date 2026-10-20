@@ -415,6 +415,51 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     def held(d: dict) -> dict[str, float]:
         return cg.used_of(d, None)[1]
 
+    def no_cargo_why(first: str, fstar: str, dest: str, same: bool) -> str:
+        """Why no cargo device could take a request: counts of the logistics cargo devices that are on jobs, moving or
+        taken by a higher request this pass, and why the nearest free one was passed over."""
+        carriers = [d for d in pool if (cg.capacity_of(d, bpl, None) or 0) > 0]
+        head = f"no logistics cargo device free to load at {first} for {dest}"
+        if not carriers:
+            return f"{head}: your logistics fleets have no cargo devices (freighter, cargo vessel or hauler)"
+        on_job = [d for d in carriers if d["device_code"] in busy]
+        away = [d for d in carriers if d["device_code"] not in busy and d["device_code"] not in free]
+        taken = [d for d in carriers if d["device_code"] in used]
+        parts = [f"{len(on_job)} on jobs" if on_job else "", f"{len(away)} moving, stowed or attached" if away else "",
+                 f"{len(taken)} taken by higher requests this pass" if taken else ""]
+        rest = [d for d in carriers if d["device_code"] in free and d["device_code"] not in used]
+        out = f"{head} ({len(carriers)} cargo devices: " + ", ".join(x for x in parts if x) + ")" if any(parts) else head
+        if rest:
+            d = min(rest, key=lambda d: (_dist(star_of(d.get("location")), fstar, pos), d["device_code"]))
+            at, ly = star_of(d.get("location")), _dist(star_of(d.get("location")), fstar, pos)
+            if room(d) < 1 and not held(d):
+                why = "its hold is full"
+            elif at not in commandable and d["device_code"] not in hosts:
+                why = f"it is at {at}, outside the relay network"
+            elif ly > reach:
+                why = f"it is {ly:.0f} ly away, beyond the {reach:g} ly reach"
+            elif not can_surge(d):
+                why = f"it can't surge and is at {at}" + ("" if same else ", with no free carrier there to tow it")
+            else:
+                why = "nothing else fits"
+            out += f"; the nearest free one, {d['device_code']} ({(d.get('device_type') or '').replace('_', ' ')}): {why}"
+        return out
+
+    def no_escort_why(star: str) -> str:
+        """Why no logistics device hosting a replicant could go to `star`: each one and what keeps it."""
+        mine = [d for d in pool if d["device_code"] in hosts]
+        head = f"no free logistics device hosting a replicant to reach {star} or its relay network"
+        if not mine:
+            return f"{head}: none of your logistics fleets' devices has a replicant aboard"
+        notes = []
+        for d in sorted(mine, key=lambda d: (_dist(star_of(d.get("location")), star, pos), d["device_code"]))[:4]:
+            c, ly = d["device_code"], _dist(star_of(d.get("location")), star, pos)
+            why = ("on a job" if c in busy else "taken by a higher request this pass" if c in used
+                   else "moving, stowed or attached" if c not in free else "can't surge" if not can_surge(d)
+                   else f"{ly:.0f} ly away, beyond the {reach:g} ly reach" if ly > reach else "free")
+            notes.append(f"{c} ({(d.get('device_type') or '').replace('_', ' ')}): {why}")
+        return f"{head} — " + "; ".join(notes)
+
     def attach_free(d: dict) -> int:
         from . import fleets as fl
         return fl.seats(d, devices)["attach"]   # attach_used (v3.5.1) or what our list shows attached
@@ -599,8 +644,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 group.append({"code": code, "legs": legs, "carry": carry, "rides": rides_it, "dev": cargo, "room": room(cargo)})
             if not group:
                 if not assigned:
-                    unmet.append({"req": r["id"], "why": f"no free logistics cargo device (freighter, cargo vessel, or a hauler in {fstar} "
-                                                         f"with a logistics carrier to tow it) {_within(reach, first)}"})
+                    unmet.append({"req": r["id"], "why": no_cargo_why(first, fstar, dest, same)})
                 break
             if ride and not any(g["rides"] for g in group):
                 ride = None
@@ -705,8 +749,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                     if dd <= reach and (best is None or dd < best[0]):
                         best = (dd, e, sp)
             if not best:
-                unmet.append({"req": r["id"], "why": f"no free logistics device hosting a replicant {_within(reach, star)} "
-                                                     "or its relay network"})
+                unmet.append({"req": r["id"], "why": no_escort_why(star)})
                 continue
             _, esc, sp = best
             used.add(esc["device_code"])
