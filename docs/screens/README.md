@@ -1,7 +1,7 @@
 # Screenshots
 
-Every page of the app, taken from the mock game server (`app/rsweb/mock.py`), so the data is the mock's small
-Sol-only galaxy, not a real account. Long pages are cut at 1800 px. Take them again with `tools/screenshots.py`
+Every page of the app, taken from the mock game server's demo galaxy (`RS_MOCK_DEMO=1`): real star positions, with
+systems, devices and replicants shaped like a live account but every name and code made up. Long pages are cut at 1800 px. Take them again with `tools/screenshots.py`
 (see the README, Local development).
 
 ## Dashboard

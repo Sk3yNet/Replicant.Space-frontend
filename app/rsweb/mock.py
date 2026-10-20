@@ -1,6 +1,7 @@
 """A small fake Replicant Space API for local development and tests.
 
 Run:  uvicorn rsweb.mock:app --port 9000
+(RS_MOCK_DEMO=1 serves the demo galaxy in demo_galaxy.json instead of the small Sol one: tools/make_demo_galaxy.py)
 then point the client at it:  RS_API_BASE=http://localhost:9000/v1 RS_API_TOKEN=dev
 It emits a plausible event every few seconds on /v1/events/stream.
 """
@@ -8,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -149,6 +152,7 @@ class World:
         self.profile_patches: list[dict] = []         # PATCH /replicants/{code} bodies
         self.evict_next: list = []                    # what the next ward activate reports as evicted_miners
         self.xp = 87340
+        self.replicants: list[dict] = []             # the demo galaxy's replicants (load_demo)
 
     def af_next(self, af: dict) -> None:
         """Autofactory: if idle, start the head of its queue (the printing item leaves the queue)."""
@@ -177,13 +181,18 @@ class World:
         ev = {"id": f"{self.seq}-0", "version": 1, "category": event.split(".")[0], "event": event,
               "replicant_code": REP, "device_code": device["device_code"] if device else None,
               "device_type": device["device_type"] if device else None,
-              "star": (device or {}).get("location", "SOL").split("-")[0], "location": (device or {}).get("location"),
+              "star": ((device or {}).get("location") or "SOL").split("-")[0], "location": (device or {}).get("location"),
               "payload": payload, "created_at": iso()}
         self.events.append(ev)
         self.events = self.events[-10000:]
         return ev
 
     def random_event(self) -> dict:
+        if self.replicants:   # demo galaxy: the events below assume the Sol world's devices and stockpile
+            if random.random() < 0.5:
+                return self.emit("experience.gained", None, source="mining", amount=random.choice([5, 10, 25]))
+            return self.emit("bobnet.new", None, id=self.seq, replicant_name="Sylphrena", replicant_code="30B93F2F",
+                             current_star="SOL", channel="#general", message=random.choice(["anyone out past the rim?", "o7"]))
         d = random.choice(self.devices[1:5])
         roll = random.random()
         if roll < 0.35:
@@ -224,8 +233,37 @@ class World:
                          distance_au=0.6, travel_time_seconds=(arrive - datetime.now(timezone.utc)).seconds, arrives_at=iso(arrive))
 
 
+def load_demo(world: World, path: str) -> None:
+    """Swap the world for the demo galaxy: its stars, devices, replicants and stockpiles, every timestamp moved by the
+    time since it was captured so trips and scans are still under way."""
+    doc = json.load(open(path))
+    shift = datetime.now(timezone.utc) - datetime.fromisoformat(doc["captured_at"])
+    stamp = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")
+
+    def move(v):
+        if isinstance(v, dict):
+            return {k: move(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [move(x) for x in v]
+        if isinstance(v, str) and stamp.match(v):
+            try:
+                return (datetime.fromisoformat(v) + shift).isoformat(timespec="seconds")
+            except ValueError:
+                return v
+        return v
+
+    doc = move(doc)
+    STARS[:] = [s for s in STARS if s["designation"] == "SOL"] + [s for s in doc["stars"] if s["designation"] != "SOL"]
+    world.devices = doc["devices"]
+    world.replicants = doc["replicants"]
+    world.inventory = {i["location"]: {it["resource_type"]: float(it["quantity"]) for it in i["items"]} for i in doc["inventory"]}
+    world.location = next((d["location"] for d in world.devices if d["device_code"] == HOST), None) or world.location
+
+
 def create_mock(event_interval: float = 4.0) -> FastAPI:
     world = World()
+    if demo := os.environ.get("RS_MOCK_DEMO"):
+        load_demo(world, demo if demo.endswith(".json") else os.path.join(os.path.dirname(__file__), "demo_galaxy.json"))
     app = FastAPI(title="mock replicant space")
     app.state.world = world
 
@@ -436,7 +474,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         return ok({"name": "bob", "email": "bob@example.com", "email_verified": True, "created_at": iso(),
                    "experience_points_total": world.xp, "status": "active", "timezone": "America/New_York",
                    "unread_message_count": 1, "bobnet_channels": list(world.channels),
-                   "replicants": [{"replicant_code": REP, "name": "bob-1", "current_location": world.location, "current_star": "SOL",
+                   "replicants": [{**r, "experience_points": 1245, "created_at": iso()} for r in world.replicants] or
+                                 [{"replicant_code": REP, "name": "bob-1", "current_location": world.location, "current_star": "SOL",
                                    "hosted_device_code": HOST, "device_count": len(world.devices), "experience_points": 1245,
                                    "created_at": iso()}]})
 
@@ -469,6 +508,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     async def replicant(code: str):
         if code in world.profiles:
             return ok(world.profiles[code])
+        if r := next((r for r in world.replicants if r["replicant_code"] == code and code != REP), None):
+            return ok({"name": r["name"], "replicant_code": code, "hosted_device_code": r["hosted_device_code"],
+                       "location": r["current_location"], "status": "stationary", "experience_points": 1245})
         return ok({"name": "bob-1", "replicant_code": code, "hosted_device_code": HOST, "location": world.location,
                    "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "status": "stationary", "experience_points": 1245,
                    "stowed_devices": [{"device_code": "3CA5D7E4", "device_type": "replicant_matrix"}]})

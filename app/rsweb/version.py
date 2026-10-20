@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.178.0"
+VERSION = "1.179.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.179.0", "2026-10-20", "Demo galaxy for the mock server (RS_MOCK_DEMO=1): about 2,100 real star positions, 44 systems, "
+     "500 devices and 18 replicants shaped like a live account, with made-up names and codes "
+     "(tools/make_demo_galaxy.py builds it from a snapshot). The screenshots in docs/screens now show it."),
     ("1.178.0", "2026-10-20", "Screenshots of every page in docs/screens, shown in the README (taken from the mock game "
      "server); tools/screenshots.py takes them again."),
     ("1.177.0", "2026-10-20", "Story card: the season's likely end (the latest end date among storylines and events, "

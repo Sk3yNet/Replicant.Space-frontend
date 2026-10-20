@@ -379,3 +379,16 @@ def test_carrier_flies_in_from_another_system_to_move_devices():
     moves = [s["body"]["destination"] for s in steps if s["path"] == "/devices/PL1" and (s["body"] or {}).get("command") == "travel"]
     assert moves == ["AEM-5-L4", "AEM-BELT-1", "LOR", "FAL-1-L4"]       # fly in, pick up, deliver, go back
     assert any("flies in from FAL" in x for x in lo.describe(p))
+
+
+def test_mock_demo_galaxy(monkeypatch):
+    """RS_MOCK_DEMO=1 serves the bundled demo galaxy: its stars, devices and replicants, with trips moved to now."""
+    from rsweb import mock as m
+    monkeypatch.setattr(m, "STARS", list(m.STARS))   # load_demo swaps the stars in place
+    monkeypatch.setenv("RS_MOCK_DEMO", "1")
+    world = create_mock().state.world
+    assert len(world.devices) > 100 and len(world.replicants) > 1 and len(m.STARS) > 100
+    assert any(s["designation"] == "SOL" for s in m.STARS)
+    assert next(d for d in world.devices if d["device_code"] == m.HOST)["location"] == world.location
+    trips = [d["travel"]["arrives_at"] for d in world.devices if (d.get("travel") or {}).get("arrives_at")]
+    assert trips and max(datetime.fromisoformat(t) for t in trips) > datetime.now(timezone.utc) - timedelta(hours=1)

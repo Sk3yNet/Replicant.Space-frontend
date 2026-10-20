@@ -17,7 +17,7 @@ Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─�
 
 ## Screenshots
 
-Every page is in [docs/screens](docs/screens/README.md), taken from the mock game server.
+Every page is in [docs/screens](docs/screens/README.md), taken from the mock game server's demo galaxy (made-up names and codes).
 
 | Dashboard | Galaxy map | Device tree |
 |---|---|---|
@@ -461,7 +461,12 @@ RS_API_BASE=http://127.0.0.1:9000/v1 RS_API_TOKEN=dev DEV_USER=you@example.com u
 pytest -q
 ```
 
-**Screenshots:** with both servers running and synced (half a minute), `python tools/screenshots.py` retakes every page into
+**Demo galaxy:** `RS_MOCK_DEMO=1 uvicorn rsweb.mock:app --port 9000` serves `rsweb/demo_galaxy.json` instead of the small Sol world: about
+2,100 real star positions with 44 systems, 500 devices and 18 replicants, every name and code made up. Rebuild it from a Diagnostics snapshot
+and a saved `/api/map.json?part=core` (zipped is fine) with `python tools/make_demo_galaxy.py <snapshot.json> --stars map.zip`.
+Tests keep using the Sol world.
+
+**Screenshots:** with both servers running (the mock in demo mode) and synced (about a minute), `python tools/screenshots.py` retakes every page into
 `docs/screens` (needs `pip install playwright` and a Chromium; point `PW_CHROMIUM` at it if Playwright has none).
 
 **Conventions:** American spelling in all text (UI, logs, comments, docs). The game's own names stay as the API spells them
