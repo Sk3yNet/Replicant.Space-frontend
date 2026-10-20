@@ -276,10 +276,12 @@ class SimMixin:
 
     async def pin_or_print(self, ctype: str, n: int, loc: str, devices: list[dict], busy: set[str], why: str,
                            skip: list[dict] | None = None, tags: list[str] | None = None,
-                           not_at: set[str] | frozenset = frozenset()) -> tuple[list[str], int, str | None]:
+                           not_at: set[str] | frozenset = frozenset(),
+                           load: dict[str, float] | None = None) -> tuple[list[str], int, str | None]:
         """Get n devices of `ctype` to `loc`: spare ones anywhere are pinned there first (the loadout pass delivers to: /
         at: tagged devices), the rest are printed at the least busy autofactory with those tags (logistics brings the
-        materials). `tags` replaces the to: / at: pins as the tags to add; factories in `not_at` don't print. Returns (codes
+        materials), split over the autofactories at that factory's stockpile. `tags` replaces the to: / at: pins as the tags
+        to add; factories in `not_at` don't print; `load` (code -> queued seconds) balances successive calls. Returns (codes
         pinned, how many queued to print, note on what failed)."""
         from .loadouts import at_tag, is_factory, to_tag
         tags = tags or [to_tag(star_of(loc)), at_tag(loc)]
@@ -294,7 +296,9 @@ class SimMixin:
                 pinned.append(d["device_code"])
         left = n - len(pinned)
         if left > 0:
-            bps = {b.get("device_type") for b in await self.db.kv_get("blueprints", []) or [] if isinstance(b, dict)}
+            from . import printqueue
+            from .shapes import normalize_blueprints
+            bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
             facs = [d for d in devices if is_factory(d) and d.get("location") and d.get("device_code") not in busy
                     and d.get("device_code") not in not_at]
             if ctype in bps and facs:
@@ -302,13 +306,24 @@ class SimMixin:
                 # printed at FALQUORYX, 425 ly away, with an idle autofactory at SOLARES-BELT-1), then the least busy
                 f = min(facs, key=lambda d: (d.get("location") != loc, star_of(d.get("location")) != star_of(loc),
                                              len(d.get("print_queue") or []), d["device_code"]))
-                ok, _, err = await self.send("POST", f"/devices/{f['device_code']}",
-                                             {"command": "enqueue_print", "device_type": ctype, "quantity": left, "tags": tags},
-                                             f"{why}: print {left} {ctype} for {loc}")
-                if ok:
-                    printed = left
-                else:
-                    note = f"couldn't queue the {ctype} print: {err}"
+                # the autofactories at that stockpile share the prints, evenly by print time (a locker's 4 devices all
+                # went on one of two autofactories, 2026-10-20); `load` carries the balance across calls
+                peers = [d for d in facs if d.get("location") == f.get("location")]
+                if load is None:
+                    load = {}
+                for d in peers:
+                    load.setdefault(d["device_code"], printqueue.load_seconds(d, bps))
+                errs = []
+                for g, k in printqueue.split(peers, ctype, left, bps, load):
+                    ok, _, err = await self.send("POST", f"/devices/{g['device_code']}",
+                                                 {"command": "enqueue_print", "device_type": ctype, "quantity": k, "tags": tags},
+                                                 f"{why}: print {k} {ctype} for {loc}")
+                    if ok:
+                        printed += k
+                    else:
+                        errs.append(str(err))
+                if errs:
+                    note = f"couldn't queue the {ctype} print: {'; '.join(dict.fromkeys(errs))}"
             else:
                 note = f"no {ctype} blueprint or no free autofactory to print one"
         return pinned, printed, note

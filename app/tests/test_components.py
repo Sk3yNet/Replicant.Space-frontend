@@ -109,3 +109,22 @@ def test_a_component_the_game_wont_print_doesnt_block_the_item(client):  # noqa:
                        {"command": "enqueue_print", "device_type": "climate_processor", "quantity": 2, "tags": []})
     log = client.portal.call(db.kv_get, "automation_log")
     assert "couldn't queue 1 terraform monitor" in log[-1]["text"] and "not yet unlocked" in log[-1]["text"]
+
+
+def test_prints_split_over_the_autofactories_at_the_stockpile(client):  # noqa: F811
+    # a locker's devices all went on one of two autofactories at the same stockpile (2026-10-20)
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "blueprints", BPS)
+    devs = client.portal.call(db.kv_get, "devices")
+    af = next(d for d in devs if d["device_code"] == "AF00BEEF")
+    devs += [{**af, "device_code": "AF00CAFE", "print_queue": []}]
+    client.portal.call(db.kv_set, "devices", devs)
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices.append({**next(d for d in world.devices if d["device_code"] == "AF00BEEF"), "device_code": "AF00CAFE"})
+    load: dict = {}
+    pinned, printed, note = client.portal.call(e.pin_or_print, "orbital_farm", 4, af["location"], devs, set(), "locker x",
+                                               None, None, frozenset(), load)
+    assert printed == 4 and note is None, note
+    rows = client.portal.call(db.fetchall, "SELECT path, body FROM actions WHERE body LIKE '%orbital_farm%'")
+    assert sorted(r["path"] for r in rows) == ["/devices/AF00BEEF", "/devices/AF00CAFE"], rows
+    assert set(load) == {"AF00BEEF", "AF00CAFE"}

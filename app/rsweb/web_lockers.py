@@ -53,6 +53,7 @@ async def lockers_deliver(request: Request, location: str = Form(...), user: str
     devices = await eng.devices()
     busy = eng.busy_devices(await eng.jobs())
     out = []
+    load: dict[str, float] = {}   # shared, so the locker's types balance across the autofactories
     for t, n in k["price"].items():
         have = [d for d in devices if d.get("device_type") == t and (at_tag(location) in (d.get("tags") or [])
                 or (d.get("location") == location and not d.get("stowed_in_device_code")))]
@@ -60,7 +61,8 @@ async def lockers_deliver(request: Request, location: str = Form(...), user: str
         if short <= 0:
             out.append(f"{n} {t.replace('_', ' ')} already there or on the way")
             continue
-        pinned, printed, note = await eng.pin_or_print(t, short, location, devices, busy, f"locker {location}", have)
+        pinned, printed, note = await eng.pin_or_print(t, short, location, devices, busy, f"locker {location}", have,
+                                                     load=load)
         out.append(f"{t.replace('_', ' ')}: {len(pinned)} spare(s) sent, {printed} queued to print" + (f" ({note})" if note else ""))
     return HTMLResponse(f'<span class="result">{html.escape("; ".join(out))}</span>')
 

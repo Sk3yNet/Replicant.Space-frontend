@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.180.0"
+VERSION = "1.180.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.180.1", "2026-10-20", "Prints the app queues to fill a locker's price, a simulation's cores or missing components are "
+     "spread over the autofactories at the chosen stockpile, evenly by print time, instead of all going on one of them."),
     ("1.180.0", "2026-10-20", "Stars: one route-from dropdown of replicants above the list and a preview button on each star, "
      "instead of a button per replicant on every row. Demo galaxy: systems answer scans (planets, a belt) and another "
      "player's outpost shows up; the System screenshot shows ELNYXOTH."),
