@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.177.0"
+VERSION = "1.178.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.178.0", "2026-10-20", "Screenshots of every page in docs/screens, shown in the README (taken from the mock game "
+     "server); tools/screenshots.py takes them again."),
     ("1.177.0", "2026-10-20", "Story card: the season's likely end (the latest end date among storylines and events, "
      "2026-10-31 for season 3) with days left; the game's own season end date wins if it ever sends one."),
     ("1.176.0", "2026-10-20", "Live API spec checked (one new endpoint, GET /overview, already read; repo openapi.json "

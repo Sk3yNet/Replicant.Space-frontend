@@ -15,6 +15,14 @@ Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─�
 - **One process talks to the game.** It keeps one connection to the event stream, polls on a schedule, and paces every call under the game's limits (120 reads + 60 actions per minute), keeping some budget in reserve for your clicks.
 - **Full event history.** The game only keeps about the last 10,000 events. The app stores everything it sees in SQLite on a named volume.
 
+## Screenshots
+
+Every page is in [docs/screens](docs/screens/README.md), taken from the mock game server.
+
+| Dashboard | Galaxy map | Device tree |
+|---|---|---|
+| [![Dashboard](docs/screens/dashboard.jpg)](docs/screens/README.md#dashboard) | [![Galaxy map](docs/screens/galaxy-map.jpg)](docs/screens/README.md#galaxy-map) | [![Device tree](docs/screens/tree.jpg)](docs/screens/README.md#tree) |
+
 ## Features
 
 Six tabs, each with sub-tabs; every page keeps its own URL. Account, Diagnostics and Console are in the menu under your name.
@@ -452,6 +460,9 @@ uvicorn rsweb.mock:app --port 9000 &
 RS_API_BASE=http://127.0.0.1:9000/v1 RS_API_TOKEN=dev DEV_USER=you@example.com uvicorn rsweb.main:app --port 8000
 pytest -q
 ```
+
+**Screenshots:** with both servers running and synced (half a minute), `python tools/screenshots.py` retakes every page into
+`docs/screens` (needs `pip install playwright` and a Chromium; point `PW_CHROMIUM` at it if Playwright has none).
 
 **Conventions:** American spelling in all text (UI, logs, comments, docs). The game's own names stay as the API spells them
 (e.g. the `travel.cancelled` event, the `travelling` status).
