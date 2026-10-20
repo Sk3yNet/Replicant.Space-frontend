@@ -18,4 +18,9 @@
       <td><button class="small" hx-post="/shop/buy" hx-vals='{{ {"controller": (code) | string, "trade_code": (tr.trade_code) | string} | tojson }}' hx-target="next .sh-b"
         hx-confirm="Buy {{ tr.name }} at {{ t.location }}: pay {{ trade_side(tr.criteria) }}, get {{ trade_side(tr.rewards) }}?">Buy</button><span class="sh-b"></span></td></tr>{% endfor %}{% endfor %}
   </table>
-  {% else %}<p class="muted small">No traders read yet.</p>{% endif %}
+  {% else %}<p class="muted small">No shops known yet.</p>{% endif %}
+  {% if traders_last %}<p class="muted small">Directory read {{ traders_last.at | ago }}: asked {{ traders_last.asked }} replicants,
+    {{ traders_last.found }} traders listed{% if traders_last.error_count %}, {{ traders_last.error_count }} errors
+    ({% for e in traders_last.errors %}{{ e.replicant }}: {{ e.error }}{{ '; ' if not loop.last }}{% endfor %}){% endif %}.
+    The game lists the shops in each replicant's own system, and others only where the owner has an FTL relay and that
+    replicant's system has one of yours. Shops also come from device scans (System page, and on arrival) and BobNet "open for shoppers" posts.</p>{% endif %}

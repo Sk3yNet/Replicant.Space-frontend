@@ -866,9 +866,13 @@ async def fleets_traders(request: Request, user: str = Depends(current_user)):
         return HTMLResponse('<span class="lv-alert small">No replicant to ask.</span>')
     from .shop import refresh_directory
     n, err = await refresh_directory(request.app.state.db, api, list(st["replicants"]))
-    if not n and err:
-        return HTMLResponse(f'<span class="lv-alert small">{html.escape(err)}</span>')
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
+    if n:
+        return HTMLResponse("", headers={"HX-Refresh": "true"})
+    asked = len(st["replicants"])
+    if err:
+        return HTMLResponse(f'<span class="lv-alert small">Asked {asked} replicants, no traders: {html.escape(err)}</span>')
+    return HTMLResponse(f'<span class="muted small">Asked {asked} replicants: the game lists no traders for any of them '
+                        '(only shops in their own systems, or where the owner has an FTL relay and you have one).</span>')
 
 
 @router.post("/fleets/{fid}/fill", response_class=HTMLResponse)

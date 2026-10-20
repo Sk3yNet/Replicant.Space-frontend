@@ -258,7 +258,9 @@ lines or a template).
   every replicant's trader directory plus every shop a system scan lists, the newest sighting of each winning (shops can
   move). A shop stays listed until you remove it (*Remove*, once you checked it's gone): scans
   can miss shops, and a failed trade only stalls the run. An owner's BobNet post that the shop "is open for shoppers"
-  (with "Find me in the Oort") moves it to the poster's system and spot, or lists it until its controller is seen. Bill is the exception: his BobNet post that he moved closes his shop until it's seen again. A trade
+  (with "Find me in the Oort") moves it to the poster's system and spot, or lists it until its controller is seen.
+  *Refresh traders* says how many replicants it asked and how many traders the game listed: the game's directory has
+  the shops in each replicant's own system, and others only where the owner has an FTL relay and you have one there. Bill is the exception: his BobNet post that he moved closes his shop until it's seen again. A trade
   run paid in devices gets spare ones delivered and deployed at the shop.
 
 ### Activity and tools

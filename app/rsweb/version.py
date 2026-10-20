@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.173.0"
+VERSION = "1.174.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.174.0", "2026-10-20", "Refresh traders says what it found: how many replicants it asked, how many traders the "
+     "game listed, and any errors (it used to show nothing when the directory was empty). The traders table shows the "
+     "last directory read and what the game's directory covers."),
     ("1.173.0", "2026-10-20", "Device scan on arrival (new rule, on by default): a replicant's vessel arriving in another "
      "system scans its devices at once, not at the next traffic poll. Every device scan now adds other players' trade "
      "controllers to the shops list, with their trades, since system scans don't list shops."),

@@ -249,13 +249,19 @@ async def note_scanned(db, api, star: str, devices: list[dict], mine: set[str]) 
     return [d["device_code"] for d in found]
 
 
+LAST_KV = "traders_last"   # the last directory read: {at, asked, found, errors: [{replicant, error}]}
+
+
 async def refresh_directory(db, api, replicants: list[str]) -> tuple[int, str | None]:
-    """Every replicant's trader directory (each lists the traders near it) and each trader's trades, at most 20 traders,
-    into kv "traders_cache", added to what it held: a shop the directory doesn't list now is out of reach, not gone.
+    """Every replicant's trader directory and each trader's trades, at most 20 traders, into kv "traders_cache", added
+    to what it held: a shop the directory doesn't list now is out of reach, not gone. The game lists the traders in the
+    replicant's own system, and others only where the shop's owner has an FTL relay when the replicant's system has one
+    of yours (docs, GET /replicants/{code}/traders). What the read found goes to kv "traders_last".
     Returns (traders read, the last error)."""
     from datetime import datetime, timezone
     from .api import ApiError
-    traders, err = {}, None
+    traders, err, errors = {}, None, []
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     for rep in replicants:
         try:
             for t in ((await api.get(f"/replicants/{rep}/traders")) or {}).get("traders") or []:
@@ -263,9 +269,12 @@ async def refresh_directory(db, api, replicants: list[str]) -> tuple[int, str | 
                     traders.setdefault(t["controller_code"], t)
         except ApiError as e:
             err = e.message
+            errors.append({"replicant": rep, "error": e.message})
+    await db.kv_set(LAST_KV, {"at": now, "asked": len(replicants), "found": len(traders), "errors": errors[:5],
+                              "error_count": len(errors)})
     if not traders:
         return 0, err
-    out, now = await db.kv_get("traders_cache", {}) or {}, datetime.now(timezone.utc).isoformat(timespec="seconds")
+    out = await db.kv_get("traders_cache", {}) or {}
     for t in list(traders.values())[:20]:
         code = t.get("controller_code")
         try:

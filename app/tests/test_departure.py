@@ -579,6 +579,13 @@ def test_shops_stay_listed_until_you_remove_them(client):
     assert "SK2" in client.portal.call(shop.known_traders, db)
 
 
+def test_trader_refresh_says_what_it_found(client):
+    r = client.post("/fleets/traders", headers=HX).text                          # the mock has no directory: an error
+    assert "replicants" in r and ("no traders" in r or "lists no traders" in r) and "HX-Refresh" not in r
+    page = client.get("/shop", headers=H).text
+    assert "Directory read" in page and "0 traders listed" in page and 'hx-target="next .tr-r"' in page
+
+
 def test_a_shops_bobnet_post_moves_it(client):
     from rsweb import shop
     db, e = client.app.state.db, eng(client)

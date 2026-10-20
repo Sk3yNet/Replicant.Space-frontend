@@ -243,7 +243,7 @@
             <div class="muted small">The freighters pick up what the site is short of from the nearest stockpiles and deposit it there.
               Once everything is at the site (short, and nothing on its way: it gathers again) and the fleet's own replicant is there (a fleet vessel hosting one goes along; without one, any replicant at the site), the contract or trade is fulfilled; the
               rewards are loaded and taken to the nearest system whose fleet takes materials in, then the fleet goes home.</div>
-            <button type="button" class="small ghost" hx-post="/fleets/traders" hx-swap="none">Refresh traders</button>
+            <button type="button" class="small ghost" hx-post="/fleets/traders" hx-target="next .tr-r" hx-indicator="this">Refresh traders</button><span class="tr-r"></span>
           {% else %}
             <input name="targets" placeholder="{{ 'systems to explore, in order: KELMONENT, LORSELAN' if f.role == 'explore' else 'target system, e.g. KELMONENT' }}" style="width:100%" list="fl-stars-{{ f.id }}">
             <datalist id="fl-stars-{{ f.id }}">{% for o in f.target_options %}<option value="{{ o.value }}">{{ o.group }}{% if o.label %} · {{ o.label }}{% endif %}</option>{% endfor %}</datalist>
