@@ -2,11 +2,11 @@
   {% if traders %}
   <table class="small"><tr><th>Shop</th><th>Where</th><th>Trade</th><th>You pay</th><th>You get</th><th class="num">Stock</th><th title="approved: the logistics service delivers the price and executes the trade, once">Logistics</th><th></th></tr>
     {% for code, t in traders.items() %}
-    {% set where %}{{ t.location }}{% if t.seen_at %}<div class="muted">seen {{ t.seen_at | ago }}{% if t.from_scan %} (scan){% endif %}</div>{% endif %}
+    {% set where %}{{ t.location or 'location not given' }}{% if t.seen_at %}<div class="muted">seen {{ t.seen_at | ago }}{% if t.from_scan %} (scan){% endif %}</div>{% endif %}
       <button class="small ghost" hx-post="/shop/forget" hx-vals='{{ {"controller": (code) | string} | tojson }}' hx-swap="none"
         hx-confirm="Remove {{ t.shop_name or code }} from the list? It comes back when a scan or the trader directory shows it again." title="you checked it is gone">Remove</button>{% endset %}
     {% set who %}{{ t.shop_name or '—' }} <span class="muted">{{ t.owner_name }}</span>{% if t.owner_replicant_code in mine %} <span class="pill small">yours</span>{% endif %}{% endset %}
-    {% if not t.trades %}<tr><td>{{ who }}</td><td>{{ where }}</td><td colspan="6" class="muted">no trades read</td></tr>{% endif %}
+    {% if not t.trades %}<tr><td>{{ who }}</td><td>{{ where }}</td><td colspan="6" class="muted">{% if t.trade_count is not none %}{{ t.trade_count }} trades, {{ t.total_stock or 0 }} in stock (its trades couldn't be read){% else %}no trades read{% endif %}</td></tr>{% endif %}
     {% for tr in t.trades %}<tr>
       <td>{{ who }}</td>
       <td>{% if loop.first %}{{ where }}{% else %}{{ t.location }}{% endif %}</td><td>{{ tr.name }}</td><td>{{ trade_side(tr.criteria) }}</td><td>{{ trade_side(tr.rewards) }}</td>

@@ -23,7 +23,8 @@ VERSION = "1.174.0"
 CHANGES: list[tuple[str, str, str]] = [
     ("1.174.0", "2026-10-20", "Refresh traders says what it found: how many replicants it asked, how many traders the "
      "game listed, and any errors (it used to show nothing when the directory was empty). The traders table shows the "
-     "last directory read and what the game's directory covers."),
+     "last directory read and what the game's directory covers. A shop whose trades can't be read shows its trade "
+     "count and stock, and a directory entry without a location (Bill's) keeps the last known one."),
     ("1.173.0", "2026-10-20", "Device scan on arrival (new rule, on by default): a replicant's vessel arriving in another "
      "system scans its devices at once, not at the next traffic poll. Every device scan now adds other players' trade "
      "controllers to the shops list, with their trades, since system scans don't list shops."),

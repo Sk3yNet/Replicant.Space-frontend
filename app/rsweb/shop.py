@@ -189,8 +189,9 @@ async def known_traders(db) -> dict[str, dict]:
     seen: dict[str, dict] = {c: t for c, t in stored.items() if isinstance(t, dict) and t.get("seen_at")}
 
     def offer(code: str, entry: dict, at: str) -> None:
-        if code and at >= (seen.get(code) or {}).get("seen_at", ""):
-            seen[code] = {**entry, "seen_at": at}
+        if code and at >= (seen.get(code) or {}).get("seen_at", ""):   # what this sighting leaves out stays known
+            old = {k: v for k, v in (seen.get(code) or {}).items() if not k.startswith("from_")}
+            seen[code] = {**old, **{k: v for k, v in entry.items() if v is not None}, "seen_at": at}
     for r in await db.fetchall("SELECT star, data, updated_at FROM systems"):
         try:
             scan = json.loads(r["data"] or "{}")

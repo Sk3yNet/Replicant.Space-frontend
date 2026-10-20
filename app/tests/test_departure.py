@@ -586,6 +586,33 @@ def test_trader_refresh_says_what_it_found(client):
     assert "Directory read" in page and "0 traders listed" in page and 'hx-target="next .tr-r"' in page
 
 
+def test_directory_shops_show_on_the_shop_page(client):
+    """Live 2026-10-20: the directory listed 5 shops (Bill's without a location) and the Shop page showed none."""
+    from rsweb import shop
+    from rsweb.api import ApiError
+    db = client.app.state.db
+    client.portal.call(db.kv_set, shop.KNOWN_KV, {"3BF0ED09": {"controller_code": "3BF0ED09", "location": "NOSOXA-OORT",
+                                                              "owner_name": "Bill", "seen_at": "2026-10-11T00:00:00+00:00"}})
+    listed = [{"controller_code": "3BF0ED09", "is_local": False, "location": None, "owner_name": "Bill",
+               "owner_replicant_code": "A8F48B26", "shop_name": "The Skunkworks", "star": None, "total_stock": 6,
+               "trade_count": 2},
+              {"controller_code": "17E8A0EE", "is_local": False, "location": "MAZARAR-OORT", "owner_name": "Dash",
+               "owner_replicant_code": "340E4CA3", "shop_name": "Rock Droppers", "star": "MAZARAR", "total_stock": 20,
+               "trade_count": 2}]
+
+    class Api:
+        async def get(self, path):
+            if path.endswith("/traders"):
+                return {"traders": listed}
+            raise ApiError(403, "not here")
+    assert client.portal.call(shop.refresh_directory, db, Api(), ["R1"]) == (2, None)
+    known = client.portal.call(shop.known_traders, db)
+    assert known["3BF0ED09"]["location"] == "NOSOXA-OORT"                       # no location given: the last one stays
+    page = client.get("/shop", headers=H).text
+    assert "The Skunkworks" in page and "Rock Droppers" in page and "MAZARAR-OORT" in page
+    assert "2 trades, 20 in stock" in page
+
+
 def test_a_shops_bobnet_post_moves_it(client):
     from rsweb import shop
     db, e = client.app.state.db, eng(client)
