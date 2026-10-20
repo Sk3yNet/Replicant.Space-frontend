@@ -21,9 +21,10 @@ VERSION = "1.170.0"
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
-    ("1.170.0", "2026-10-20", "Shops stay listed until verified gone: only a newer system scan there that does not show "
-     "them removes them. A failed trade, a trader refresh that no longer lists a shop out of reach, or a re-read of the "
-     "system without shops no longer drops it. Bill is the exception: closed from his BobNet move post until seen again."),
+    ("1.170.0", "2026-10-20", "Shops stay listed until you remove them (Remove on the traders table, after you checked): "
+     "a failed trade, a trader refresh that no longer lists a shop out of reach, or a system scan without it (it said "
+     "shops: [] at ROSALIATE with a shop there) no longer drops it. Shops with no trades read are listed too. Bill is the "
+     "exception: closed from his BobNet move post until seen again."),
     ("1.169.1", "2026-10-20", "Logistics: an unmet request says where it loads and where it goes, how many cargo devices "
      "are on jobs, moving or taken by higher requests, and why the nearest free one was passed over; a rescue lists each "
      "vessel with a replicant aboard and what keeps it."),

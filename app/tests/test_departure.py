@@ -551,14 +551,14 @@ def test_bills_trail_can_be_picked_up_at_sol(client):
     assert "Follow to the end" in live and "Departures" in live and "SOL" in live
 
 
-def test_shops_stay_listed_until_a_scan_shows_them_gone(client):
+def test_shops_stay_listed_until_you_remove_them(client):
     import json
     from rsweb import shop
     db = client.app.state.db
 
     def scan(star, at, shops=None):
         data = {"planets": []} if shops is None else {"shops": [{"controller_code": c, "location": f"{star}-OORT",
-                                                                  "trades": []} for c in shops]}
+                                                                  "shop_name": c, "trades": []} for c in shops]}
         client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
                            (star, json.dumps(data), at))
     scan("LERNA", "2026-10-10T00:00:00+00:00", ["SK1"])
@@ -566,15 +566,17 @@ def test_shops_stay_listed_until_a_scan_shows_them_gone(client):
     known = client.portal.call(shop.known_traders, db)
     assert known["SK1"]["location"] == "ABOTEIN-OORT" and "SK2" in known       # the newest sighting wins
     client.portal.call(shop.mark_gone, db, "SK2", "ABOTEIN-OORT", "2026-10-11T12:00:00+00:00")
-    assert "SK2" in client.portal.call(shop.known_traders, db)                  # only Bill is ever set aside
+    assert "SK2" in client.portal.call(shop.known_traders, db)                  # only Bill closes on his own
     scan("ABOTEIN", "2026-10-12T00:00:00+00:00")                                # a re-read without shops proves nothing
-    client.portal.call(db.kv_set, "traders_cache", {})                         # nor does a directory without them
+    scan("ABOTEIN", "2026-10-13T00:00:00+00:00", [])                            # nor does `shops: []` (live 2026-10-20)
+    client.portal.call(db.kv_set, "traders_cache", {})                         # nor a directory without them
     assert {"SK1", "SK2"} <= set(client.portal.call(shop.known_traders, db))
-    scan("ABOTEIN", "2026-10-13T00:00:00+00:00", ["SK1"])                       # verified: SK2 isn't there any more
+    assert "Remove" in client.get("/shop", headers=H).text   # listed without trades
+    client.post("/shop/forget", data={"controller": "SK2"}, headers=HX)
     known = client.portal.call(shop.known_traders, db)
-    assert "SK2" not in known and known["SK1"]["location"] == "ABOTEIN-OORT"
-    scan("ABOTEIN", "2026-10-14T00:00:00+00:00", [])                            # nor SK1
-    assert client.portal.call(shop.known_traders, db) == {}
+    assert "SK2" not in known and "SK1" in known                                # removed by hand
+    scan("ABOTEIN", "2099-01-01T00:00:00+00:00", ["SK2"])                       # until it's seen again
+    assert "SK2" in client.portal.call(shop.known_traders, db)
 
 
 def test_trader_refresh_keeps_shops_out_of_reach(client):

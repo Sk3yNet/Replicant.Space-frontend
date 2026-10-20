@@ -253,8 +253,8 @@ lines or a template).
   gone) and prints what's short again.
 - **Reputation**: account and per-replicant reputation, known species. **Shop** (and a Trades section on **Contracts**): your trade controllers, trades, other traders —
   every replicant's trader directory plus every shop a system scan lists, the newest sighting of each winning (shops can
-  move). A shop stays listed until it's verified gone: a newer scan of its system that doesn't show it. A failed trade
-  only stalls the run. Bill is the exception: his BobNet post that he moved closes his shop until it's seen again. A trade
+  move). A shop stays listed until you remove it (*Remove*, once you checked it's gone): scans
+  can miss shops, and a failed trade only stalls the run. Bill is the exception: his BobNet post that he moved closes his shop until it's seen again. A trade
   run paid in devices gets spare ones delivered and deployed at the shop.
 
 ### Activity and tools

@@ -115,8 +115,8 @@ def star_of(loc: str | None) -> str:
     return (loc or "").split("-")[0]
 
 
-GONE_KV = "shops_gone"   # {controller: {"at": iso, "location": where Bill was when he posted that he moved}}
-KNOWN_KV = "shops_known"  # {controller: the newest sighting}: kept until a newer scan of its system doesn't show it
+GONE_KV = "shops_gone"   # {controller: {"at": iso, "location": where it was, "manual": you removed it}}
+KNOWN_KV = "shops_known"  # {controller: the newest sighting}: a shop is kept until you remove it (or Bill moves)
 
 
 def is_bills(t: dict) -> bool:
@@ -124,25 +124,24 @@ def is_bills(t: dict) -> bool:
     return t.get("owner_replicant_code") == BILL_CODE or str(t.get("owner_name") or "").strip().lower() == "bill"
 
 
-async def mark_gone(db, controller: str, location: str | None, at: str) -> None:
-    """Bill posted on BobNet that his Skunkworks moved: his shop counts as closed until it's seen again after that.
-    Only Bill's shop is ever set aside this way (owner, 2026-10-20: other shops stay until verified gone)."""
+async def mark_gone(db, controller: str, location: str | None, at: str, manual: bool = False) -> None:
+    """The shop counts as closed until it's seen again after `at`: Bill's after his BobNet post that he moved, any
+    other only when you remove it (manual). Neither a system scan (`shops: []` with a shop there, ROSALIATE-OORT
+    2026-10-20) nor a device scan nor a failed trade proves a shop is gone (owner, 2026-10-20)."""
     gone = await db.kv_get(GONE_KV, {}) or {}
-    gone[controller] = {"at": at, "location": location}
+    gone[controller] = {"at": at, "location": location, **({"manual": True} if manual else {})}
     await db.kv_set(GONE_KV, gone)
 
 
 async def known_traders(db) -> dict[str, dict]:
     """Every shop you know of: the trader directory (kv "traders_cache", Fleets › Refresh traders), every shop a
     stored system scan lists (scan "shops") and every shop seen before (kv "shops_known") — the newest sighting of each
-    shop wins, so a re-scan or a refresh moves it. A shop stays listed until it's verified gone: a system scan of its
-    system newer than its sighting that lists shops but not this one (owner, 2026-10-20). A directory that no longer
-    lists it, a failed trade or a re-read of the system without shops prove nothing. Bill is the exception: after his
-    BobNet post that he moved (mark_gone) his shop is closed until it's seen again."""
+    shop wins, so a re-scan or a refresh moves it. A shop stays listed until you remove it (owner, 2026-10-20: a scan
+    that doesn't show it, a directory that no longer lists it or a failed trade prove nothing). Bill is the
+    exception: after his BobNet post that he moved his shop is closed until it's seen again (mark_gone)."""
     import json
     stored = await db.kv_get(KNOWN_KV, {}) or {}
     seen: dict[str, dict] = {c: t for c, t in stored.items() if isinstance(t, dict) and t.get("seen_at")}
-    scans: dict[str, tuple[str, set[str]]] = {}   # star → (scanned at, the shops that scan lists)
 
     def offer(code: str, entry: dict, at: str) -> None:
         if code and at >= (seen.get(code) or {}).get("seen_at", ""):
@@ -154,8 +153,6 @@ async def known_traders(db) -> dict[str, dict]:
             continue
         if not isinstance(scan, dict) or not isinstance(scan.get("shops"), list):
             continue
-        listed = {s.get("controller_code") for s in scan["shops"] if isinstance(s, dict)}
-        scans[r["star"]] = (r["updated_at"] or "", listed)
         for s in scan["shops"]:
             if isinstance(s, dict):
                 offer(s.get("controller_code"), {
@@ -166,14 +163,14 @@ async def known_traders(db) -> dict[str, dict]:
     read = await db.kv_updated("traders_cache") or ""
     for code, t in (await db.kv_get("traders_cache", {}) or {}).items():
         offer(code, t, t.get("read_at") or read)
-    for code, t in list(seen.items()):
-        at, listed = scans.get(t.get("star") or star_of(t.get("location")), ("", None))
-        if listed is not None and at > t["seen_at"] and code not in listed:
-            del seen[code]   # verified: a newer scan of its system doesn't show it
     if seen != stored:
         await db.kv_set(KNOWN_KV, seen)
     gone = await db.kv_get(GONE_KV, {}) or {}
-    return {c: t for c, t in seen.items() if not is_bills(t) or t["seen_at"] > (gone.get(c) or {}).get("at", "")}
+
+    def closed(c: str, t: dict) -> bool:
+        g = gone.get(c) or {}
+        return bool(g) and (is_bills(t) or g.get("manual")) and t["seen_at"] <= g.get("at", "")
+    return {c: t for c, t in seen.items() if not closed(c, t)}
 
 
 async def refresh_directory(db, api, replicants: list[str]) -> tuple[int, str | None]:
