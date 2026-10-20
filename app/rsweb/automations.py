@@ -1493,6 +1493,17 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         if shop.get("star"):   # remembered: leaving it, he resets to SOL (trail.resets_from)
             s["shop_stars"] = sorted(set(s.get("shop_stars") or []) | {shop["star"]})
         await self.db.kv_set("traders_cache", cache)
+        from . import shop as sh
+        wanted = await self.db.kv_get(sh.LISTING_KV, {}) or {}
+        if shop["code"] in wanted:   # you asked for his listing: the follower is in the system now
+            try:
+                trades = await sh.read_listing(self.db, self.api, shop["code"])
+            except ApiError as e:
+                log.info("reading %s's trades failed: %s", shop["code"], e.message)
+            else:
+                wanted.pop(shop["code"])
+                await self.db.kv_set(sh.LISTING_KV, wanted)
+                await self.log("shop", f"listing of {shop['code']} at {shop['location']}: {len(trades)} trades read")
 
     async def shop_post(self, payload: dict) -> str | None:
         """A shop owner's BobNet post that the shop is open ("Rock Droppers is open for shoppers! … Find me in the
@@ -3447,6 +3458,41 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 await self.log("fleets", line)
         return out
 
+    async def listing_requests(self, reps: dict) -> tuple[list[str], list[dict]]:
+        """Shop listings you asked for (Shop › Get listing): read now where a replicant of yours is in the shop's system
+        (the game answers only then), else hand them to the logistics plan. Bill's waits on his trail being followed.
+        Returns (log lines, listings for lg.plan)."""
+        from . import shop as sh
+        wanted = await self.db.kv_get(sh.LISTING_KV, {}) or {}
+        if not wanted:
+            return [], []
+        known = await sh.known_traders(self.db)
+        here = {star_of((r or {}).get("location") or (r or {}).get("current_location")) for r in reps.values()} - {""}
+        live = {j["id"] for j in await self.jobs() if j["status"] in ("running", "waiting")}
+        lines, todo = [], []
+        for ctrl, rq in list(wanted.items()):
+            t = known.get(ctrl) or {}
+            name = t.get("shop_name") or ctrl
+            star = t.get("star") or star_of(t.get("location"))
+            if star and star in here:
+                try:
+                    trades = await sh.read_listing(self.db, self.api, ctrl)
+                except ApiError as e:
+                    rq["tries"] = int(rq.get("tries") or 0) + 1
+                    if rq["tries"] < 3:
+                        continue
+                    lines.append(f"listing of {name} at {t.get('location')}: reading it failed 3 times ({e.message}) — dropped")
+                else:
+                    lines.append(f"listing of {name} at {t.get('location')}: {len(trades)} trades read")
+                wanted.pop(ctrl)
+                continue
+            if rq.get("trail") or not t.get("location") or rq.get("job") in live:
+                continue
+            todo.append({"controller": ctrl, "location": t["location"],
+                         "label": f"get the listing of {name} at {t['location']}"})
+        await self.db.kv_set(sh.LISTING_KV, wanted)
+        return lines, todo
+
     async def logistics_pass(self, force: bool = False) -> list[str]:
         """The logistics service (logistics.py): every couple of minutes, track what prints, approved contracts and approved trades
         need, and send free logistics-fleet devices with it — priority: queued prints, local, long-range, stockpile returns."""
@@ -3597,13 +3643,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                                    f"/devices/{c}", {"command": "release", "devices": [d["device_code"]]})],
                                              {"devices": [d["device_code"], c]}):
                         busy |= {d["device_code"], c}
+        out, listings = await self.listing_requests(reps)
+        wanted = None
         p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
                     busy=busy, contracts=contracts, trades=trades, incoming=incoming,
                     replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),
                     busy_stars=mission_stars,
                     prefs=await self.db.kv_get(lg.KV_PREFS, {}) or {}, ami=ami, moved=moved,
                     dark_nets=await self.dark_networks(devices, pos, bps, reps), away_fleets=away_fleets,
-                    no_consolidate=no_consolidate, evacuate=evac)
+                    no_consolidate=no_consolidate, evacuate=evac, listings=listings)
         by_code = by_code0
         pickups = await self.db.kv_get(lg.KV_PICKUPS, {}) or {}
         # devices a deal paid out: once they're at the site (fleetless, going nowhere), they're sent to the gather point,
@@ -3626,7 +3674,6 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             else:
                 pk["types"] = left
         template = ((await self.db.kv_get("event_settings", {}) or {}).get("fulfil") or "").strip() or None
-        out = []
         for run in p["runs"]:
             steps = lg.run_steps(run, by_code, template)
             if not steps:
@@ -3638,6 +3685,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                                                          "legs": legs}})
             if job:
                 run["job"] = job["id"]
+                if run["kind"] == "listing":
+                    from .shop import LISTING_KV
+                    wanted = wanted if wanted is not None else await self.db.kv_get(LISTING_KV, {}) or {}
+                    if run["controller"] in wanted:
+                        wanted[run["controller"]]["job"] = job["id"]
                 if run.get("ami"):
                     sent[run["ami"]] = {"to": run["to"], "carry": run["carry"], "at": now_iso(), "req": run.get("req"),
                                         "legs": legs}
@@ -3649,6 +3701,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     ok.setdefault("trades", {}).pop(key, None)
                     ok.setdefault("done", {})[key] = now_iso()
                     await self.db.kv_set(lg.KV_TRADES, ok)
+        if wanted is not None:
+            from .shop import LISTING_KV
+            await self.db.kv_set(LISTING_KV, wanted)
         await self.db.kv_set("logistics_ami", sent)
         await self.db.kv_set(lg.KV_PICKUPS, pickups)
         await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": p["requests"], "runs": p["runs"], "unmet": p["unmet"],

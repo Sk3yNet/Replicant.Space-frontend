@@ -199,6 +199,7 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
             await _read_trades(request, s["code"])
     return await page(request, user, "shop.html", "shop", shops=await _shops(request), traders=traders,
                       traders_last=await request.app.state.db.kv_get(sh.LAST_KV),
+                      listing_wanted=await request.app.state.db.kv_get(sh.LISTING_KV, {}) or {},
                       trade_ok=await request.app.state.db.kv_get("trade_approvals", {}) or {},
                       resources=sh.RESOURCES, describe=sh.describe_side, trade_side=sh.describe_side, device_types=types,
                       mine=set(st["replicants"]))
@@ -273,6 +274,46 @@ async def shop_buy(request: Request, user: str = Depends(current_user)):
     if not out["ok"]:
         note = "Trades are paid from what you hold at the shop's location — bring the payment there first."
     return render_action(request, out, note)
+
+
+@router.post("/shop/listing", response_class=HTMLResponse)
+async def shop_listing(request: Request, user: str = Depends(current_user)):
+    """Get a shop's trades: read now if a replicant of yours is in its system, else a low-priority logistics request
+    sends one there (owner, 2026-10-20). Bill's shop moves: his trail is followed once from SOL instead."""
+    from . import shop as sh
+    from . import trail as tl
+    ctrl = ((await request.form()).get("controller") or "").strip().upper()
+    db = request.app.state.db
+    t = (await sh.known_traders(db)).get(ctrl) or {}
+    name = html.escape(t.get("shop_name") or ctrl)
+    try:
+        trades = await sh.read_listing(db, request.app.state.api, ctrl)
+    except ApiError:
+        pass
+    else:
+        return HTMLResponse(f'<span class="small">{len(trades)} trades read.</span>', headers={"HX-Refresh": "true"})
+    wanted = await db.kv_get(sh.LISTING_KV, {}) or {}
+    rq = {"at": now_iso(), "by": user}
+    if sh.is_bills(t):
+        s = tl.normalize(await db.kv_get(tl.KV, {}) or {})
+        if not tl.is_bill(s):
+            return HTMLResponse('<span class="lv-alert small">The trail follows someone else: set it to Bill (Trail) '
+                                'to find his shop.</span>')
+        rq["trail"] = True
+        wanted[ctrl] = rq
+        await db.kv_set(sh.LISTING_KV, wanted)
+        from .web_trail import trail_follow
+        resp = await trail_follow(request, action="sol", user=user)
+        if b'class="result err"' in resp.body:   # the follow didn't start: nothing is on its way
+            wanted.pop(ctrl, None)
+            await db.kv_set(sh.LISTING_KV, wanted)
+        return resp
+    if not t.get("location"):
+        return HTMLResponse(f'<span class="lv-alert small">Where {name} is isn\'t known.</span>')
+    wanted[ctrl] = rq
+    await db.kv_set(sh.LISTING_KV, wanted)
+    return HTMLResponse(f'<span class="small">Asked logistics (lowest priority) to bring a replicant to '
+                        f'{html.escape(t["location"])}; the trades are read once one is in the system.</span>')
 
 
 @router.post("/shop/forget", response_class=HTMLResponse)

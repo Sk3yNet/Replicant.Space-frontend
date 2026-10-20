@@ -260,7 +260,9 @@ lines or a template).
   can miss shops, and a failed trade only stalls the run. An owner's BobNet post that the shop "is open for shoppers"
   (with "Find me in the Oort") moves it to the poster's system and spot, or lists it until its controller is seen.
   *Refresh traders* says how many replicants it asked and how many traders the game listed: the game's directory has
-  the shops in each replicant's own system, and others only where the owner has an FTL relay and you have one there. Bill is the exception: his BobNet post that he moved closes his shop until it's seen again. A trade
+  the shops in each replicant's own system, and others only where the owner has an FTL relay and you have one there.
+  *Get listing* reads a shop's trades (the game shows them only to a replicant in the shop's system): at once if one
+  of yours is there, else logistics brings one at the lowest priority (tier 6); for Bill it follows his trail from SOL. Bill is the exception: his BobNet post that he moved closes his shop until it's seen again. A trade
   run paid in devices gets spare ones delivered and deployed at the shop.
 
 ### Activity and tools

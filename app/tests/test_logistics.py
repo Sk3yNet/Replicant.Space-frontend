@@ -649,3 +649,51 @@ def test_a_rescue_reason_names_each_replicant_vessel_and_what_keeps_it():
                 replicants={}, drop=lambda s: f"{s}-1")
     why = next(u["why"] for u in p["unmet"] if u["req"] == "rescue:P1")
     assert why.endswith("— HV (heaven vessel): on a job; MC (matrix container): can't surge")
+
+
+def test_a_shop_listing_sends_a_replicant_last_of_all():
+    devs = world()
+    li = [{"controller": "SH1", "location": "Z-OORT", "label": "get the listing of Shop at Z-OORT"}]
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=POS, commandable={"A", "B"}, hosts={"HV": "R1"},
+                busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={"R1": {"location": "A-1"}},
+                drop=lambda s: f"{s}-1", listings=li)
+    run = next(r for r in p["runs"] if r["req"] == "listing:SH1")
+    assert run["escort"] == "HV" and run["kind"] == "listing"                  # only a device hosting a replicant
+    assert [s["desc"] for s in lg.run_steps(run, {d["device_code"]: d for d in devs})][0] == "HV → Z-OORT (to read the shop's trades)"
+    req = next(r for r in p["requests"] if r["id"] == "listing:SH1")
+    assert req["tier"] == 6
+    p2 = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=POS, commandable={"A", "B"}, hosts={"HV": "R1"},
+                 busy={"HV"}, reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1",
+                 listings=li)
+    assert any(u["req"] == "listing:SH1" for u in p2["unmet"])
+
+
+def test_get_listing_reads_now_or_asks_logistics(client):
+    from rsweb import shop
+    from rsweb.api import ApiError
+    db, e = client.app.state.db, eng(client)
+    client.portal.call(db.kv_set, "traders_cache", {"SH1": {"controller_code": "SH1", "location": "Z-OORT", "shop_name": "Shop",
+                                                            "read_at": "2026-10-20T00:00:00+00:00", "trades": []}})
+    api = client.app.state.api
+    calls = {"ok": False}
+    orig = api.get
+
+    async def get(path, **kw):
+        if path == "/devices/SH1/trades":
+            if not calls["ok"]:
+                raise ApiError(403, "no replicant in that system")
+            return {"trades": [{"name": "t1", "trade_code": "T1"}]}
+        return await orig(path, **kw)
+    api.get = get
+    try:
+        r = client.post("/shop/listing", data={"controller": "SH1"}, headers=HX).text
+        assert "Asked logistics" in r and "SH1" in client.portal.call(db.kv_get, shop.LISTING_KV)
+        assert "listing asked" in client.get("/shop", headers=H).text
+        reps = {"R9": {"location": "Z-1"}}                                     # a replicant reached the system
+        calls["ok"] = True
+        lines, todo = client.portal.call(e.listing_requests, reps)
+        assert "1 trades read" in lines[0] and todo == []
+        assert client.portal.call(db.kv_get, shop.LISTING_KV) == {}
+        assert client.portal.call(shop.known_traders, db)["SH1"]["trades"][0]["trade_code"] == "T1"
+    finally:
+        api.get = orig

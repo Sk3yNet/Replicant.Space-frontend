@@ -41,7 +41,7 @@ async def logistics_prefs(request: Request, req: str = Form(...), tier: str = Fo
     db = request.app.state.db
     p = await db.kv_get(lg.KV_PREFS, {}) or {}
     bump, skips = dict(p.get("bump") or {}), set(p.get("skip") or [])
-    if tier.strip().isdigit() and int(tier) in lg.TIERS:   # every tier, evacuation (0) and rescue (5) too
+    if tier.strip().isdigit() and int(tier) in lg.TIERS:   # every tier, evacuation (0), rescue (5) and shop listing (6) too
         bump[req] = int(tier)
     elif tier == "reset":
         bump.pop(req, None)

@@ -56,7 +56,7 @@ KV_MOVES = "logistics_moves"   # {old home star: {"to": new home star, "fleet", 
 KV_TRADES = "trade_approvals"  # {"trades": {controller:trade_code: iso}, "done": {key: iso}}
 ROLE = "logistics"
 MIN_RETURN = 25.0              # a stray pile smaller than this isn't worth a trip
-TIERS = {0: "evacuation", 1: "queued prints", 2: "local delivery", 3: "long-range transfer", 4: "stockpile return", 5: "rescue"}
+TIERS = {0: "evacuation", 1: "queued prints", 2: "local delivery", 3: "long-range transfer", 4: "stockpile return", 5: "rescue", 6: "shop listing"}
 KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like placed relays and beacons: never "rescued"
 MIN_LOAD = 0.25               # a cross-system print delivery leaves with its hold at least this full (or all that's wanted)
 LONG_HAUL_LY = 15.0            # beyond this a part load waits even when a print is stalled for materials
@@ -387,9 +387,12 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
          drop: Any, busy_stars: set[str] | frozenset = frozenset(), prefs: dict | None = None,
          ami: list[dict] | None = None, moved: dict[str, str] | None = None,
          dark_nets: list[set[str]] | None = None, away_fleets: set[str] | frozenset = frozenset(),
-         no_consolidate: set[str] | frozenset = frozenset(), evacuate: dict[str, str] | None = None) -> dict:
+         no_consolidate: set[str] | frozenset = frozenset(), evacuate: dict[str, str] | None = None,
+         listings: list[dict] | None = None) -> dict:
     """What the logistics devices do this pass. `hosts`: device → the replicant it hosts. `drop(star)`: where materials land in a
-    system. Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices"}."""
+    system. `listings`: shops whose trades you asked for ({controller, location, label}): a logistics device hosting a
+    replicant goes there, last of all (the engine reads the trades once a replicant is in the system).
+    Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices"}."""
     from . import cargo as cg
     from .loadouts import can_surge
     gather = {f["home"]: drop(f["home"]) for f in fleets or [] if f.get("materials") == "self" and f.get("home")}
@@ -792,6 +795,32 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         runs.append({"req": r["id"], "kind": "rescue", "cargos": [], "ride": c, "escort": esc and esc["device_code"],
                      "rescued": code, "mode": mode, "point": loc, "to": home_loc, "carry": {}, "back": None, "label": r["label"]})
 
+    # shop listings you asked for: a replicant to the shop's system, lowest priority (owner, 2026-10-20)
+    for li in listings or []:
+        rid = f"listing:{li['controller']}"
+        req = {"id": rid, "kind": "listing", "to": li["location"], "need": {}, "tier": 6, "base_tier": 6,
+               "controller": li["controller"], "label": li["label"]}
+        if rid in ((prefs or {}).get("bump") or {}):
+            req["tier"] = int(prefs["bump"][rid])
+        req["skipped"] = rid in set((prefs or {}).get("skip") or [])
+        reqs.append(req)
+        if req["skipped"]:
+            continue
+        star = star_of(li["location"])
+        best = None
+        for c, e in free.items():
+            if c in used or c not in hosts or not can_surge(e):
+                continue
+            dd = _dist(star_of(e.get("location")), star, pos)
+            if dd <= reach and (best is None or (dd, c) < best[:2]):
+                best = (dd, c, e)
+        if not best:
+            unmet.append({"req": rid, "why": f"no free logistics device hosting a replicant {_within(reach, star)}"})
+            continue
+        used.add(best[1])
+        runs.append({"req": rid, "kind": "listing", "cargos": [], "escort": best[1], "point": li["location"],
+                     "to": li["location"], "carry": {}, "controller": li["controller"], "label": li["label"]})
+
     # logistics devices hosting a replicant idle outside the network come back to wait in it (the rest can't be commanded there)
     for c, d in free.items():
         if c in used or star_of(d.get("location")) in commandable or c not in hosts or not can_surge(d):
@@ -959,6 +988,9 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
                 st["wait_device"] = x["code"]
                 steps.append(st)
         return steps
+    if run.get("kind") == "listing":   # the engine reads the shop's trades once the replicant is in its system
+        hop(run["point"], [esc], " (to read the shop's trades)")
+        return steps
     if run.get("kind") == "rescue":
         code, home, point = run["rescued"], run["to"], run["point"]
         if run["mode"] == "self":   # a replicant where the device can hear it, then the device flies itself home
@@ -1045,6 +1077,8 @@ def describe(run: dict) -> str:
                else f"{run['ride']} picks it up ({run['mode']}) and brings it to {run['to']}"
                + (f", {run['escort']} alongside" if run.get("escort") else ""))
         return f"{run['label']}: {how}"
+    if run.get("kind") == "listing":
+        return f"{run['label']}: {run['escort']} → {run['point']}"
     if run.get("kind") == "dump":
         what_ = [what] if what else []
         if run.get("dump"):

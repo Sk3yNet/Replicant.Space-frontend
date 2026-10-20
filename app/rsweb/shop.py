@@ -250,6 +250,23 @@ async def note_scanned(db, api, star: str, devices: list[dict], mine: set[str]) 
     return [d["device_code"] for d in found]
 
 
+LISTING_KV = "shop_listing_requests"   # {controller: {"at", "by", "trail": Bill's (his trail is followed), "job"}}
+
+
+async def read_listing(db, api, controller: str) -> list[dict]:
+    """A shop's trades (the game answers only with a replicant of yours in its system), into kv "traders_cache".
+    Raises ApiError."""
+    from datetime import datetime, timezone
+    trades = ((await api.get(f"/devices/{controller}/trades")) or {}).get("trades") or []
+    known = (await known_traders(db)).get(controller) or {}
+    cache = await db.kv_get("traders_cache", {}) or {}
+    e = {k: v for k, v in {**known, **(cache.get(controller) or {})}.items() if k != "seen_at" and not k.startswith("from_")}
+    cache[controller] = {**e, "controller_code": controller, "trades": trades,
+                         "read_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    await db.kv_set("traders_cache", cache)
+    return trades
+
+
 LAST_KV = "traders_last"   # the last directory read: {at, asked, found, errors: [{replicant, error}]}
 
 

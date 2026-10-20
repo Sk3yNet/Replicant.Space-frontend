@@ -3570,7 +3570,8 @@ async def game_events_ctx(request: Request) -> dict:
     quiet_rows = sorted(quiet.values(), key=lambda q: (q["approval"]["on"], q["location"]))
     from . import shop as sh
     return {"open": open_, "closed": closed[:30], "replicants": st["replicants"], "settings": settings, "quiet": quiet_rows,
-            "traders": await sh.known_traders(db), "traders_last": await db.kv_get(sh.LAST_KV), "mine": set(st["replicants"]), "trade_side": sh.describe_side,
+            "traders": await sh.known_traders(db), "traders_last": await db.kv_get(sh.LAST_KV),
+            "listing_wanted": await db.kv_get(sh.LISTING_KV, {}) or {}, "mine": set(st["replicants"]), "trade_side": sh.describe_side,
             "trade_ok": await db.kv_get("trade_approvals", {}) or {}}
 
 
