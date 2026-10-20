@@ -108,11 +108,15 @@ def carrier_rows(vessel: dict, stowed: list[dict], devices: list[dict], can_hold
 
 
 def plan(vessel_code: str, vessel_loc: str, rows: list[dict], launch: set[str], stow: set[str], recall: set[str],
-         travel_path: str, travel_body_key: str = "command", return_after: bool = True) -> list[dict]:
+         travel_path: str, travel_body_key: str = "command", return_after: bool = True,
+         radii: dict[str, float] | None = None, max_cruise_au: float | None = None) -> list[dict]:
     """Steps for the selected launches / pick-ups / recalls.
 
     travel_path: where to POST a vessel move (a device path, or /replicants/{code}/travel for a replicant's host).
+    A device that can travel but is too far to cruise over (more than `max_cruise_au`, as loadout deliveries judge it:
+    fleets.far_apart) is picked up by the carrier like one that can't travel, instead of being sent on a long cruise.
     """
+    from . import fleets as fl
     by = {r["code"]: r for r in rows}
     steps: list[dict] = []
 
@@ -149,8 +153,10 @@ def plan(vessel_code: str, vessel_loc: str, rows: list[dict], launch: set[str], 
             steps.append(step(f"recall {code}", f"/devices/{code}", {"command": "recall"}))
     picks = [by[c] for c in sorted(stow) if c in by and by[c]["can_stow"]]
     here = [r for r in picks if r["same_loc"]]
-    fly_in = [r for r in picks if not r["same_loc"] and r["mobile"]]
-    fetch = [r for r in picks if not r["same_loc"] and not r["mobile"]]
+    far = [r for r in picks if not r["same_loc"] and r["mobile"]
+           and fl.far_apart(r.get("location"), vessel_loc, radii, max_cruise_au)]
+    fly_in = [r for r in picks if not r["same_loc"] and r["mobile"] and r not in far]
+    fetch = [r for r in picks if not r["same_loc"] and (not r["mobile"] or r in far)]
     # 3. things already here: stow now
     for r in here:
         steps.append(stow_step(r["code"]))
@@ -167,14 +173,17 @@ def plan(vessel_code: str, vessel_loc: str, rows: list[dict], launch: set[str], 
         w["seq0_from"] = first + i  # arrivals that happen while other steps run still count
         steps.append(w)
         steps.append(stow_step(r["code"]))
-    # 5. devices that can't move: the vessel goes to each location in turn
+    # 5. devices that can't move, or are too far to cruise over: the vessel goes to each location in turn, nearest first
     by_loc: dict[str, list[dict]] = {}
     for r in fetch:
         by_loc.setdefault(r["location"], []).append(r)
-    for loc in sorted(by_loc):
+    cur, todo = vessel_loc, dict(by_loc)
+    while todo:
+        loc = min(todo, key=lambda x: (fl.cruise_au(cur, x, radii), x))
         steps.append(vessel_move(loc, "pick-up"))
-        for r in by_loc[loc]:
+        for r in todo.pop(loc):
             steps.append(stow_step(r["code"]))
+        cur = loc
     if by_loc and return_after:
         steps.append(vessel_move(vessel_loc, "return"))
     return steps

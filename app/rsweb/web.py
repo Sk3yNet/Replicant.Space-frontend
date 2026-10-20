@@ -1115,7 +1115,12 @@ async def device_carrier(request: Request, code: str, user: str = Depends(curren
     launch, stow, recall = set(form.getlist("launch")), set(form.getlist("stow")), set(form.getlist("recall"))
     if not (launch or stow or recall):
         return HTMLResponse('<div class="result err">Tick at least one launch, stow or recall box.</div>')
-    needs_move = any(r["code"] in stow and not r["same_loc"] and not r["mobile"] for r in ctx["rows"])
+    eng = request.app.state.worker.automations
+    radii, far_au = await eng.cruise_radii(), await eng.max_cruise_au()
+    from .fleets import far_apart
+    needs_move = any(r["code"] in stow and not r["same_loc"]
+                     and (not r["mobile"] or far_apart(r.get("location"), dev.get("location"), radii, far_au))
+                     for r in ctx["rows"])
     if needs_move and not ctx["travel_path"]:
         return HTMLResponse('<div class="result err">Some picked devices can\'t travel, and this vessel has no travel command to go and get them.</div>')
     mode = {r["code"]: r["mode"] for r in ctx["rows"]}
@@ -1127,7 +1132,8 @@ async def device_carrier(request: Request, code: str, user: str = Depends(curren
         if after > room:
             return HTMLResponse(f'<div class="result err">That would put {after} devices {what} {int(room)}.</div>')
     steps = carrier_mod.plan(code, dev.get("location"), ctx["rows"], launch, stow, recall,
-                             ctx["travel_path"] or f"/devices/{code}", return_after=form.get("return_after") == "on")
+                             ctx["travel_path"] or f"/devices/{code}", return_after=form.get("return_after") == "on",
+                             radii=radii, max_cruise_au=far_au)
     if not steps:
         return HTMLResponse('<div class="result err">Nothing to do for that selection.</div>')
     bits = [f"{len(launch)} launch" if launch else "", f"{len(stow)} pick-up" if stow else "", f"{len(recall - stow)} recall" if recall - stow else ""]

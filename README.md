@@ -43,7 +43,7 @@ rule with an on/off switch, plus the jobs and the log.
   cancel travel. Autofactories get a **print queue** card (add with an optional *deliver to*, remove, clear, and move a waiting print
   to the front, up or down: the game can't reorder a queue, so the waiting prints from that place down are taken off and queued
   again in the new order, tags and destinations kept; the print running now can't be moved); carrier vessels
-  a **carrier** card on every carrier (launch / stow / recall for a hold, detach / attach for attach points); stow, deploy, attach and detach work from either side (the carrier's
+  a **carrier** card on every carrier (launch / stow / recall for a hold, detach / attach for attach points; devices too far to cruise over are picked up by the carrier, nearest first); stow, deploy, attach and detach work from either side (the carrier's
   page lists its hold / attachments, the cargo's page lists carriers here — only the side the device fits); *Decommission at an autofactory* takes a device there so the autofactory learns
   its blueprint. `enqueue_print` on a replicant's vessel is sent as the replicant's own print (one at a time).
 - **Replicant page**: route preview and travel (with *then, on arrival…* follow-ups), nearest stars, scan, mining, vessel

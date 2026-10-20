@@ -894,3 +894,19 @@ def test_civ_beacon_pass_never_prints_on_the_vessel_of_a_replicant_at_the_body()
     assert tr.placement("LOR-3", [hv, af], reps, {}, set(), use_replicant_vessel=False, vessel_print=False)["factory"] == "AF1"
     assert tr.placement("LOR-3", [hv], reps, {}, set(), use_replicant_vessel=False, vessel_print=False)["kind"] == "none"
     assert tr.placement("LOR-3", [hv], reps, {}, set())["kind"] == "print"      # manual: still allowed
+
+
+def test_carrier_card_fetches_far_devices_instead_of_a_long_cruise():
+    """Owner 2026-10-20: a stow that would send a device on a very long cruise uses the carrier to pick it up."""
+    from rsweb import carrier as cm
+    hv = dev("HV", "heaven_vessel", "SOL-BELT-1", features=["surge"], stow_capacity=10)
+    devs = [hv, dev("N1", "survey_drone", "SOL-3", features=["cruise", "stow"]),          # near: flies in
+            dev("F1", "survey_drone", "SOL-OORT", features=["cruise", "stow"]),           # ~2000 AU out: fetched
+            dev("B1", "ftl_beacon", "SOL-4", features=["stow"])]                         # can't travel: fetched
+    rows = cm.carrier_rows(hv, [], devs)
+    steps = cm.plan("HV", "SOL-BELT-1", rows, set(), {"N1", "F1", "B1"}, set(), "/devices/HV",
+                    radii={"SOL-3": 1.5, "SOL-4": 5.2, "SOL-BELT-1": 2.8}, max_cruise_au=30)
+    descs = [s["desc"] for s in steps]
+    assert "N1 → SOL-BELT-1 (to be picked up)" in descs and not any(d.startswith("F1 →") for d in descs)
+    moves = [d for d in descs if d.startswith("vessel → ")]
+    assert moves == ["vessel → SOL-4 (pick-up)", "vessel → SOL-OORT (pick-up)", "vessel → SOL-BELT-1 (return)"]

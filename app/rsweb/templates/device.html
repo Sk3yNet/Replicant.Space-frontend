@@ -96,8 +96,8 @@
       <label style="text-transform:none"><input type="checkbox" name="return_after" checked> return here after collecting devices that can't travel</label>
       <button>Run selected</button>
     </div>
-    <p class="muted small">Launches and detaches go first. Devices elsewhere that can travel fly here and are {{ 'stowed' if carrier.can_hold else 'attached' }} as they arrive; for ones that can't,
-      the carrier {{ 'travels' if carrier.travel_path else '(no travel command — not possible)' }} to each location in turn and picks them up. Progress shows on the Automations page.</p>
+    <p class="muted small">Launches and detaches go first. Devices nearby that can travel fly here and are {{ 'stowed' if carrier.can_hold else 'attached' }} as they arrive; for ones that can't, or that are too far to cruise over,
+      the carrier {{ 'travels' if carrier.travel_path else '(no travel command — not possible)' }} to each location in turn, nearest first, and picks them up. Progress shows on the Automations page.</p>
   </form>
   {% endif %}
   <div id="carrier-result"></div>

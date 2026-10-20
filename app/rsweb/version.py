@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.165.0"
+VERSION = "1.165.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.165.1", "2026-10-20", "Device page › Carrier: a device too far to cruise over to the carrier is picked up by "
+     "the carrier (nearest stop first) instead of being sent on a long cruise that the engine then refused."),
     ("1.165.0", "2026-10-20", "Logistics: an idle carrier drops off leftover cargo and devices unrelated to its work "
      "(not logistics devices, its replicant or matrix, or devices bound somewhere) at the nearest receiving fleet or hub."),
     ("1.164.1", "2026-10-20", "Galaxy map: a label that would cover another fades out where it is instead of jumping "
