@@ -24,7 +24,6 @@ Saving an order checks that every print's materials are mined by some step befor
 from __future__ import annotations
 
 import re
-from typing import Any
 
 EXPAND_NAME = "Mining Rush: spread out"
 EXPAND = """# Mining Rush, spreading out: every system mined counts toward the quota

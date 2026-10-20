@@ -647,7 +647,6 @@ async def print_queue_ctx(request: Request, code: str, dev: dict, outcome: dict 
     cmds = dev.get("available_commands") or []
     # docs (autofactories): cancel the current print with {"command": "deactivate"}
     cancel_cmd = next((c for c in ("deactivate", "cancel_print", "cancel") if c in cmds), None)
-    cat = await db.kv_get("stars", {}) or {}
     st = await load_state(request)
     known = {star_of(d.get("location")) for d in st["devices"] if d.get("location")}
     known |= {r["star"] for r in await db.fetchall("SELECT star FROM systems")}

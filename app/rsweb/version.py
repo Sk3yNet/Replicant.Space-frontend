@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.169.2"
+VERSION = "1.170.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.170.0", "2026-10-20", "Galaxy map: the dashed routes of ships in transit and of fleets move toward where they are "
+     "going (still when the system asks for reduced motion). Fixes from a code review: lookbacks over game events (devices "
+     "given away in trades, canceled prints) compare real times, not text in the game's -04:00 offset, which cut 4 hours "
+     "off each window; two unused reads dropped and dead code cleaned up."),
     ("1.169.2", "2026-10-20", "Fixes from the 17:08 snapshot alerts: an attach that finds the device on another carrier "
      "has that carrier detach it (a deploy only frees stowed devices); cargo on a carrier a running job holds waits for "
      "it; a delivery that failed twice sits out 6 hours; no return trip for a pile an AMI ferry already moves, and a "

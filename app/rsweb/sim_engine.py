@@ -4,7 +4,6 @@ ready, start it on your say-so, play it with the bootstrap logic, and when it en
 Stage sim_pass (every tick): prep while a run is queued, the ready nag, the run itself while one is active."""
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -131,7 +130,7 @@ class SimMixin:
         s["active"].update(order=steps, order_name=name, order_idx=0, order_done=[])
 
     async def sim_prep_pass(self, s: dict) -> list[str]:
-        from .loadouts import at_tag, is_factory, to_tag
+        from .loadouts import at_tag
         prep = s["prep"]
         loc = prep.get("location") or sim.DATACENTER
         sc = sim.scenario(s, prep["scenario"])

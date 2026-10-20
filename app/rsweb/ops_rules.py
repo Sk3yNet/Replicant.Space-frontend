@@ -559,7 +559,6 @@ class OpsRules:
         from .api import ApiError
         from .shapes import normalize_blueprints
         objs = await self.defence_objects()
-        now = _now()
         read = 0
         for des, o in list(objs.items()):   # a warning not matched to an object yet: the system's scan names it
             if o.get("unresolved") and not o.get("closed") and not (only and des != only):

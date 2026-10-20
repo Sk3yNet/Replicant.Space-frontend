@@ -8,8 +8,7 @@ from fastapi.responses import HTMLResponse
 
 from .api import ApiError
 from .db import now_iso
-from .shapes import as_amounts, normalize_blueprints, normalize_inventory
-from .web import call_action, current_user, load_state, page, partial, render_action, star_of
+from .web import call_action, current_user, load_state, page, render_action
 from . import traffic as tr
 
 router = APIRouter()
