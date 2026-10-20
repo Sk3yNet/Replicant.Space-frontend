@@ -2639,6 +2639,17 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             if j["rule"] == "loadouts" and j["status"] == "failed" and fin and (_now() - fin).total_seconds() < 1800:
                 busy.add(j.get("device"))
                 busy.update(j.get("meta", {}).get("devices", []))
+        # an approved shop trade waiting on logistics keeps the logistics vessels with a replicant aboard free for it:
+        # they're the only ones that can fulfill it, and a device run can tie them up for hours (owner 2026-10-20).
+        # Contracts don't: a pre-approved civilization's are open nearly all the time.
+        from . import logistics as lg
+        deals = [r for r in ((await self.db.kv_get(lg.KV_STATE, {}) or {}).get("requests") or [])
+                 if r.get("kind") == "trade" and not r.get("skipped")]
+        if deals:
+            from . import fleets as fl
+            ltags = {fl.fleet_tag(f["id"]) for f in await self.fleets() if f.get("role") == "logistics"}
+            by = {d.get("device_code"): d for d in devices}
+            busy |= {c for c in lg.riding_hosts(devices, hosts) if ltags & set((by.get(c) or {}).get("tags") or [])}
         from .loadouts import material_routes
         from .traffic import beacons as _beacons
         civ_locs = {r["location"] for r in await self.civ_coverage() if r.get("completed") or r.get("open")}

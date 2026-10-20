@@ -225,7 +225,7 @@ lines or a template).
   takes materials in, or one of your system hubs): leftover cargo is deposited, and devices riding it that aren't logistics
   devices, a replicant or its matrix, or on their way somewhere (`to:` / `at:` tags) are deployed or detached there.
   Every vessel in a logistics fleet is available to automation, replicant vessels included (moves of stationed mining
-  fleets, deliveries, beacons); another fleet's replicant vessel is only used as the escort a trip beyond the network needs.
+  fleets, deliveries, beacons; while an approved shop trade waits, device runs leave those with a replicant free for it); another fleet's replicant vessel is only used as the escort a trip beyond the network needs.
 - **Bootstrap** fleets: from a bare heaven vessel (three mining drones and a replicant aboard) to an autofactory hub with three
   mining outposts. Home: the drones mine the best belt, the vessel mines onboard what they get little of (usually rares and
   volatiles), and the replicant prints survey drones and miners until the hold-sized kit is built (a home another player has

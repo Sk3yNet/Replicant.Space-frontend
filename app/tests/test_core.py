@@ -7819,3 +7819,34 @@ def test_logistics_replicant_vessels_carry_inside_the_network():
     other = {**hv, "tags": ["fleet:s"]}
     p = lo.plan(cfg, drones + [other], [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"AAA", "BBB"})
     assert not p["deliveries"]
+
+
+def test_an_approved_trade_keeps_logistics_replicant_vessels_out_of_loadouts(client):
+    """Owner 2026-10-20: a shop trade must complete before it expires; device runs mustn't tie up its only escorts."""
+    from rsweb import logistics as lg
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    seen = {}
+
+    def fake_plan(*a, **kw):
+        seen["busy"] = set(a[6])
+        raise RuntimeError("stop")
+    import rsweb.loadouts as lo
+    real = lo.plan
+    lo.plan = fake_plan
+    try:
+        devices = client.portal.call(db.kv_get, "devices")
+        hv = next(d for d in devices if d["device_type"] == "heaven_vessel")
+        hv["tags"] = ["fleet:logistics"]
+        client.portal.call(db.kv_set, "devices", devices)
+        client.portal.call(eng.save_fleets, [{"id": "logistics", "name": "Logistics", "role": "logistics", "home": "SOL",
+                                              "wants": {}}])
+        for state, held in (({"requests": []}, False),
+                            ({"requests": [{"kind": "trade", "id": "trade:x", "skipped": False}]}, True)):
+            client.portal.call(db.kv_set, lg.KV_STATE, state)
+            try:
+                client.portal.call(eng.loadout_plan)
+            except RuntimeError:
+                pass
+            assert (hv["device_code"] in seen["busy"]) is held
+    finally:
+        lo.plan = real
