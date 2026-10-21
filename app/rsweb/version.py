@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.191.0"
+VERSION = "1.192.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.192.0", "2026-10-21", "Lighter engine pass: lookups over the star catalog (positions, wards, place tags, "
+     "prospecting) are built once per catalog update instead of copying the whole catalog several times a pass, and the "
+     "season copy (megabytes) is no longer read every pass just to check its age. A pass on a 42,000-star catalog went "
+     "from 1.6 s to 0.4 s in testing, so pages wait less behind it."),
     ("1.191.0", "2026-10-21", "A spare given a destination is no longer spare: pinning one (locker delivery, components, "
      "simulation prep) drops its spare and stock tags, and the loadout pass drops the spare tag from any device with a "
      "to: or at: pin that is not just being gathered at the spare depot."),

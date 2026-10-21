@@ -679,8 +679,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
     async def season_snapshot_pass(self) -> list[str]:
         """The pre-change copy (season.py), every few hours; never while held, so it keeps the galaxy as it was."""
         from . import season
-        snap = await self.db.kv_get(season.SNAP_KV, None) or {}
-        if (_ts(snap.get("at")) or _now() - timedelta(days=1)) > _now() - timedelta(hours=season.SNAP_HOURS):
+        # the copy is megabytes: its row's write time says how old it is without reading it
+        if (_ts(await self.db.kv_updated(season.SNAP_KV)) or _now() - timedelta(days=1)) > _now() - timedelta(hours=season.SNAP_HOURS):
             return []
         await self.db.kv_set(season.SNAP_KV, await season.snapshot(self.db))
         return []
@@ -1736,13 +1736,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         so the loadout pass delivers them to the system and then to the spot."""
         from . import loadouts as lo
         devices = await self.devices()
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {x.get("designation") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("designation")}
-        stars |= {star_of(d.get("location")) for d in devices if d.get("location")}
+        if not any(t.startswith("to:") for d in devices for t in d.get("tags") or []):
+            return []
+        slugs = await self.star_lookup("slugs")
+        extra = lo.star_slugs({star_of(d.get("location")) for d in devices if d.get("location")})
+        if set(extra) - set(slugs):
+            slugs = {**slugs, **extra}
         fleet_ids = {f.get("id") for f in await self.fleets() if f.get("id")}
         busy = self.busy_devices(await self.jobs())
         out = []
-        slugs = lo.star_slugs(stars)
         for d in devices:
             fix = lo.place_tag_fix(d, slugs, fleet_ids)
             if not fix or d["device_code"] in busy:
@@ -1970,8 +1972,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         runs = await self.db.kv_get("observatory_runs", {}) or {}
         lmoves = await self.db.kv_get("loadout_moves", {}) or {}
         lfresh = bool(_ts(lmoves.get("at")) and (_now() - _ts(lmoves["at"])).total_seconds() < 3600)
-        cat = await self.db.kv_get("stars", {}) or {}
-        pos = {x.get("designation"): x.get("position") or {} for x in cat.get("stars") or [] if isinstance(x, dict)}
+        pos = await self.star_lookup("pos_all")   # shared: read only
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         out: list[str] = []
         for o in obs:
@@ -2085,7 +2086,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             dirs = pr.directions(pr.base_heading((f.get("heading") or {}).get("vector"), pa.xyz(pos.get(here))))
             if not (f.get("heading") or {}).get("vector"):
                 # one prospect per star: emptiest hemisphere first (a fleet's set heading still goes first)
-                dirs = pr.rank_directions(dirs, pa.xyz(pos.get(here)), {s: pa.xyz(p) for s, p in pos.items() if p})
+                dirs = pr.rank_directions(dirs, pa.xyz(pos.get(here)), await self.star_lookup("xyz"))
             v = dirs[nxt]
             seq0 = (await self.db.fetchone("SELECT max(seq) AS s FROM events") or {"s": 0})["s"] or 0
             job = await self.create_job("observatory", f"{f['name']}: prospect from {here} (direction {nxt + 1} of {len(dirs)})",
@@ -2120,9 +2121,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         devices = await self.devices()
         jobs = {j["id"]: j for j in await self.jobs()}
         busy = self.busy_devices(list(jobs.values()))
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
-        xyz_all = {s: pa.xyz(x.get("position")) for s, x in stars.items() if x.get("position")}
+        stars = await self.star_lookup("by")      # shared: read only
+        xyz_all = await self.star_lookup("xyz")
         runs = await self.db.kv_get("observatory_runs", {}) or {}
         pfrom = await self.db.kv_get("prospected_from", {}) or {}
         allowed = await self.commandable(devices)
@@ -2659,16 +2659,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         replicants is (other than the replicants in `without`)."""
         from . import relaynet
         if stars is None:
-            cat = await self.db.kv_get("stars", {}) or {}
-            pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+            pos = await self.star_lookup("pos")   # shared, positions only
         else:
-            pos = {k: (v or {}).get("position") for k, v in stars.items()}
+            pos = {k: (v or {}).get("position") for k, v in stars.items() if (v or {}).get("position")}
         reps = await self.db.kv_get("replicants", {}) or {}
         rstars = relaynet.replicant_stars({c: r for c, r in reps.items() if c not in (without or ())}, devices)
         from .shapes import normalize_blueprints
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
-        net = relaynet.networks(devices, {k: v for k, v in pos.items() if v}, bps)
-        cover = relaynet.coverage(net, {k: v for k, v in pos.items() if v}, rstars)["commandable"]
+        net = relaynet.networks(devices, pos, bps)
+        cover = relaynet.coverage(net, pos, rstars)["commandable"]
         return cover - relaynet.dark_stars(devices)
 
     async def evacuation_inputs(self) -> tuple[dict, set[str], dict]:
@@ -3182,7 +3181,25 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
     async def warded(self, devices: list[dict] | None = None) -> set[str]:
         """Systems another player has warded (wards.foreign): the mining rules leave them alone."""
         from . import wards
-        return wards.foreign(await self.db.kv_get("stars", {}) or {}, devices if devices is not None else await self.devices())
+        return wards.foreign({"stars": await self.star_lookup("flagged")}, devices if devices is not None else await self.devices())
+
+    async def star_lookup(self, name: str) -> Any:
+        """Lookups over the star catalog, built once per catalog update and shared (don't change them): "pos"
+        {star: position} for stars with one, "pos_all" (every star, {} without one), "by" {star: record}, "xyz" {star: (x, y, z)}, "names" (set), "slugs"
+        (loadouts.star_slugs), "flagged" (records flagged has_ward / has_hub)."""
+        from . import loadouts as lo
+        from . import pathing as pa
+
+        def recs(cat):
+            return [x for x in (cat or {}).get("stars") or [] if isinstance(x, dict)]
+        fns = {"pos": lambda c: {x.get("designation"): x["position"] for x in recs(c) if x.get("position")},
+               "pos_all": lambda c: {x.get("designation"): x.get("position") or {} for x in recs(c)},
+               "by": lambda c: {x.get("designation"): x for x in recs(c)},
+               "xyz": lambda c: {x.get("designation"): pa.xyz(x["position"]) for x in recs(c) if x.get("position")},
+               "names": lambda c: {x["designation"] for x in recs(c) if x.get("designation")},
+               "slugs": lambda c: lo.star_slugs({x["designation"] for x in recs(c) if x.get("designation")}),
+               "flagged": lambda c: [x for x in recs(c) if x.get("has_ward") or x.get("has_hub")]}
+        return await self.db.kv_derived("stars", name, fns[name], {})
 
     async def replicant_for_host(self, device_code: str) -> tuple[str, dict] | None:
         reps = await self.db.kv_get("replicants", {}) or {}
@@ -3508,9 +3525,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         keep = [{k: v for k, v in f.items() if k not in derived} for f in items]
         if any(f.get("materials") == "supply" or f.get("supply_to") for f in keep):   # nearest receiver, by home
             from .fleets import resolve_supply
-            cat = await self.db.kv_get("stars", {}) or {}
-            resolve_supply(keep, {x.get("designation"): x.get("position") or {} for x in cat.get("stars") or []
-                                  if isinstance(x, dict)})
+            resolve_supply(keep, await self.star_lookup("pos_all"))
         # a stationed fleet that changed home: its replicants' vessels follow it there (rider_pass)
         before = {f.get("id"): f.get("home") for f in await self.db.kv_get("fleets", []) or [] if f.get("station")}
         moved = {f["id"]: f["home"] for f in keep if stationed(f) and f.get("home") and before.get(f["id"])
@@ -4785,8 +4800,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
     async def viability_report(self) -> list[dict]:
         from . import viability as via
         state = await self.db.kv_get("viability", {}) or {}
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
+        stars = await self.star_lookup("by")   # shared: read only
         known: dict[str, int] = {}
         for r in await self.db.fetchall("SELECT key, value FROM kv WHERE key LIKE 'loc:%-BELT-%'"):
             b = via.belt_of(r["key"][4:])

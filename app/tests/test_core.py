@@ -8184,3 +8184,20 @@ def test_fleet_pages_keep_plans_until_an_edit_or_recompute(client):
     client.post("/fleets/nope/station", data={"station": "on"}, headers=HX)   # any change under /fleets clears them too
     client.get("/fleets/overview", headers=HX)
     assert len(calls) == 3
+
+
+# --- 1.192.0: star catalog lookups are built once per catalog update ----------------------------------------------------
+
+def test_star_lookups_are_shared_until_the_catalog_changes(client):
+    """The engine read and copied the whole star catalog (tens of thousands of stars) several times a pass."""
+    eng, db = client.app.state.worker.automations, client.app.state.db
+
+    async def go():
+        a = await eng.star_lookup("pos")
+        assert a and await eng.star_lookup("pos") is a
+        cat = await db.kv_get("stars", {})
+        cat["stars"] = [{"designation": "NEWSTAR", "position": {"x": 1, "y": 2, "z": 3}}]
+        await db.kv_set("stars", cat)
+        b = await eng.star_lookup("pos")
+        assert b == {"NEWSTAR": {"x": 1, "y": 2, "z": 3}} and await eng.star_lookup("names") == {"NEWSTAR"}
+    client.portal.call(go)

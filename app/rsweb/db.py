@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import aiosqlite
 
@@ -129,6 +129,7 @@ class DB:
         self.path = path
         self.conn: aiosqlite.Connection | None = None
         self._cache: dict[str, Any] = {}
+        self._derived: dict[tuple[str, str], Any] = {}
         self._sim_split: set[str] = set()
 
     async def open(self) -> None:
@@ -200,6 +201,8 @@ class DB:
 
     async def _kv_write(self, key: str, value: Any) -> None:
         self._cache.pop(key, None)
+        for k in [k for k in self._derived if k[0] == key]:
+            del self._derived[k]
         await self.execute(
             "INSERT INTO kv(key, value, updated_at) VALUES(?,?,?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
@@ -221,6 +224,18 @@ class DB:
             value = _copy(value)
         perf.note_kv(key, len(row["value"]), (time.perf_counter() - t0) * 1000)   # read + decode
         return value
+
+    async def kv_derived(self, key: str, name: str, fn: Callable[[Any], Any], default: Any = None) -> Any:
+        """fn(value of `key`), worked out once and shared until the key is next written. Callers must not change the
+        result. For the hot readers of the star catalog (tens of thousands of stars, read every pass): copying it on each
+        read and rebuilding the same lookups was most of an engine pass (2026-10-21)."""
+        if (key, name) not in self._derived:
+            row = await self.fetchone("SELECT value FROM kv WHERE key=?", (key,)) if key not in self._cache else None
+            src = self._cache[key] if key in self._cache else (json.loads(row["value"]) if row else default)
+            if key in CACHED and row:
+                self._cache[key] = src
+            self._derived[(key, name)] = fn(src)
+        return self._derived[(key, name)]
 
     async def kv_updated(self, key: str) -> str | None:
         row = await self.fetchone("SELECT updated_at FROM kv WHERE key=?", (key,))
