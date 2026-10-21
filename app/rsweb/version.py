@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.185.0"
+VERSION = "1.186.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.186.0", "2026-10-21", "Fleet missions board anyone not aboard before every leg and before the trip home, not "
+     "only before the first departure (a survey fleet left AINELRAMU for PHEVENIA without its survey controller, which "
+     "the recall had withdrawn but never boarded)."),
     ("1.185.0", "2026-10-21", "A fleet's new home no longer waits for a complete loadout: it moves now and the loadout "
      "pass fills it there. A survey fleet still collects every member it has first, from other systems too. A new home "
      "stays pending only while nothing could be commanded there."),

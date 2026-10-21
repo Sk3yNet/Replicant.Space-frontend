@@ -333,6 +333,8 @@ RELOCATE_PHASES = ["assemble", "gather", "travel", "deploy"]
 def next_phase(role: str, m: dict) -> str | None:
     """The phase after m["phase"] (mutates m["idx"] when an explore fleet moves on to its next target)."""
     cur = m.get("phase")
+    if cur == "board":   # stragglers boarded before a later leg (automations.run_fleets): that leg comes next
+        return m.pop("board_next", None) or "travel"
     if m.get("relocate"):   # a stationed fleet moving home together: pack up, gather, travel, unload — then done
         seq = RELOCATE_PHASES
         i = seq.index(cur) if cur in seq else -1
@@ -346,7 +348,7 @@ def next_phase(role: str, m: dict) -> str | None:
         if cur == "recall":
             if m.get("idx", 0) + 1 < len(m.get("targets") or []):
                 m["idx"] = m.get("idx", 0) + 1
-                return "travel"   # recall already re-boarded everyone
+                return "travel"   # anyone the recall didn't get aboard boards first (run_fleets)
             return "return"
         return {"return": "unload"}.get(cur)
     seq = PHASES[role]

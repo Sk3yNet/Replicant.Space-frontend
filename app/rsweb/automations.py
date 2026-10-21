@@ -3957,7 +3957,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             devices = [{**d, "tags": [x for x in d.get("tags") or [] if x != ftag]} if d.get("device_code") in solo else d
                        for d in devices]
         radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
-        if phase == "assemble":
+        if phase in ("assemble", "board"):   # board: boarding stragglers before a later leg (next_phase)
             return fl.assemble_steps(fleet, devices, radii, far_au)
         if phase == "gather":
             plan = fl.gather_plan(fleet, devices, stars, self.busy_devices(await self.jobs()), await self.supply_reach())
@@ -4361,7 +4361,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     self._mlog(m, "mission complete")
                     await self.log("fleets", f"{fleet['name']}: mission complete", notify=True)
                     break
-                if nxt == "travel" and not m.get("departed"):
+                if nxt == "travel" and not m.get("departed"):   # first departure: the loadout (or members) all in one place
                     # all in one place: a relocation waits for every member, not for a complete loadout
                     r = (fl.together if m.get("relocate") else fl.readiness_anywhere)(
                         fleet, devices, prefer=m.get("from") or fleet.get("home"),
@@ -4383,6 +4383,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                                          "fleet": fleet["id"]}, force=True)
                             m["job"] = job["id"] if job else None
                         break
+                if nxt == "travel" or (nxt == "return" and m.get("departed")):
+                    # every leg, not only the first (live 2026-10-21: a survey fleet left AINELRAMU for PHEVENIA while
+                    # its recall withdrew survey controller 769B37CC, which had not boarded yet: it stayed behind)
                     loose = [d["device_code"] for d in fl.roster(fleet, devices)["loose"]]
                     partial = (m.get("opts") or {}).get("partial")
                     board_steps, board_problems = (await self.fleet_phase_steps(fleet, m, "assemble", devices)
@@ -4400,7 +4403,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                         for p_ in problems:
                             self._mlog(m, p_)
                         if steps:
-                            m["phase"] = "assemble"
+                            if m.get("departed"):   # a later leg: board, then this same leg (next_phase)
+                                m["phase"], m["board_next"] = "board", nxt
+                            else:
+                                m["phase"] = "assemble"
                             job = await self.create_job("fleets", f"{fleet['name']}: board before leaving", None, steps,
                                                         {"devices": [d["device_code"] for d in fl.members(fleet, devices)],
                                                          "fleet": fleet["id"]}, force=True)

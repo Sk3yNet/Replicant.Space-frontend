@@ -1021,3 +1021,24 @@ def test_survey_fleet_collects_every_member_before_moving(client):
     assert steps[0]["desc"] == "C → LERNA (pick up 1)"                        # C fetches M2 from LERNA
     devs[2]["location"] = "SOL-BELT-1"
     assert fl.together(f, devs, prefer="SOL")["ready"]                        # all together: it leaves, one short
+
+
+def test_later_leg_boards_stragglers_before_traveling(client):
+    """Live 2026-10-21: a survey fleet left AINELRAMU for PHEVENIA without its survey controller (withdrawn by the
+    recall, never boarded): every leg now boards anyone not aboard first."""
+    e = eng(client)
+    _reach_everywhere(e)
+    devs = [dev("C", "surge_carrier", "AAA-OORT", features=["surge"], attach_capacity=9),
+            dev("SC", "survey_controller", "AAA-3"),
+            dev("D", "survey_drone", None, attached_to_device_code="C")]
+    client.portal.call(client.app.state.db.kv_set, "devices", devs)
+    m = {"status": "running", "phase": "recall", "idx": 0, "targets": ["AAA", "BBB"], "departed": True, "log": [],
+         "job": None, "started_at": "2026-10-20T00:00:00+00:00"}
+    client.portal.call(e.save_fleets, [{"id": "f", "name": "F", "role": "explore", "home": "HOME", "wants": {},
+                                        "mission": m}])
+    client.portal.call(e.run_fleets)
+    m = client.portal.call(e.fleets)[0]["mission"]
+    assert m["phase"] == "board" and m["board_next"] == "travel" and m["idx"] == 1
+    job = next(j for j in client.portal.call(e.jobs) if j["id"] == m["job"])
+    assert any((s.get("body") or {}).get("device") == "SC" or "SC" in s["path"] for s in job["steps"])
+    assert fl.next_phase("explore", m) == "travel" and m["idx"] == 1          # then the same leg, to BBB
