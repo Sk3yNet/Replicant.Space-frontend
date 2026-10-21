@@ -2914,6 +2914,33 @@ def test_pinned_devices_reach_their_spot():
     assert "at:ithvalai-3" in rh["body"]["configuration"]["remove_tags"]
 
 
+def test_a_grounded_pinned_device_is_carried_to_its_spot():
+    """Live 2026-10-21: 3 compute cores for the TWAFFY-OORT locker were dropped at TWAFFY's entry point (TWAFFY-11-L4)
+    and could not fly to their pin on their own."""
+    from rsweb import loadouts as lo
+    core = lambda c, loc, tags: {"device_code": c, "device_type": "compute_core", "location": loc, "status": "idle",  # noqa: E731
+                                 "features": ["stow"], "available_commands": ["deploy", "stow"], "tags": tags}
+    cv = {"device_code": "CV1", "device_type": "cargo_vessel", "location": "TWAFFY-11-L4", "status": "idle",
+          "features": ["surge", "transport"], "available_commands": ["travel", "stow"], "stow_capacity": 9, "tags": []}
+    devs = [core("C1", "TWAFFY-11-L4", ["at:twaffy-oort"]), core("C2", "TWAFFY-11-L4", ["at:twaffy-oort"]), cv]
+    stars = {"TWAFFY": {"entry_point": "TWAFFY-11-L4"}}
+    p = lo.plan({"phases": [], "systems": {}}, devs, [], {}, stars, {}, set(), [], {})
+    dl = p["deliveries"]
+    assert len(dl) == 1 and sorted(dl[0]["devices"]) == ["C1", "C2"] and dl[0]["to"] == "TWAFFY"
+    bodies = [s["body"] for s in lo.delivery_steps(dl[0], p["by_code"], stars, False)]
+    i = bodies.index({"command": "travel", "destination": "TWAFFY-OORT"})
+    assert {"command": "deploy"} in bodies[i:] and {"command": "travel", "destination": "TWAFFY-11-L4"} not in bodies[:i]
+    # arriving on its own somewhere else in the system, a grounded device doesn't try to fly to its pin
+    assert not any((s["body"] or {}).get("command") == "travel" for s in lo.arrived_steps("C1", devs[0], {}))
+    # from another system, a pinned device is dropped at its pin, not at the entry point
+    devs2 = [core("C3", "FAL-BELT-1", ["to:twaffy", "at:twaffy-oort"]), {**cv, "location": "FAL-1-L4"}]
+    stars2 = {**stars, "FAL": {"entry_point": "FAL-1-L4"}}
+    p2 = lo.plan({"phases": [], "systems": {}}, devs2, [], {}, stars2, {}, set(), [], {})
+    bodies2 = [s["body"] for s in lo.delivery_steps(p2["deliveries"][0], p2["by_code"], stars2, False)]
+    assert {"command": "travel", "destination": "TWAFFY-OORT"} in bodies2
+    assert {"command": "travel", "destination": "TWAFFY-11-L4"} not in bodies2
+
+
 def test_new_print_bound_elsewhere_is_dispatched_at_once(client):
     eng = client.app.state.worker.automations
     db = client.app.state.db

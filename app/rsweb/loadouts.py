@@ -948,6 +948,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if dest and star_of(d.get("location")) == dest and d["device_code"] not in busy and d["device_code"] not in arrived \
                 and not in_transit(d, by_code, stowed_in):
             arrived.append(d["device_code"])
+    for d in pool:  # pinned to a spot in the system it is in, but elsewhere there, and it can't fly: a carrier takes it
+        code, pin, here = d["device_code"], pinned_at(d), star_of(d.get("location"))
+        if (pin and here and star_of(pin) == here and d.get("location") != pin and not can_travel(d)
+                and code not in busy and code not in moves and code not in arrived and not bound_for(d, known_stars, fleet_homes)
+                and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code") and not d.get("location_stale")
+                and str(d.get("status") or "").startswith(("idle", "inactive"))):
+            batches[(here, here, d.get("replicant_code"))].append(code)
 
     carriers = [d for d in devices if d["device_code"] not in busy and can_surge(d) and _carrier_cap(d, bps) > 0
                 and not (ignore & set(d.get("tags") or []))
@@ -1403,10 +1410,9 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         cur = loc
         for code in codes:
             steps.append(fl.board_step(carrier, code, "stow" if code in grounded or not attach else "attach"))
-    for stop in [dest_star] + list(dl.get("stops") or []):   # a relay run (dest_of / stops) drops system by system
-        here_codes = [c for c in dl["devices"] if dest_of.get(c, dest_star) == stop]
-        steps.append(move(destination(stop, stars), f"deliver {len(here_codes)} to {stop}", stop))
-        for code in here_codes:
+    def drop_steps(codes_: list[str], stop: str) -> list[dict]:
+        out = []
+        for code in codes_:
             if attach:
                 st = step(f"{carrier}: detach {code} in {stop}", f"/devices/{carrier}", {"command": "detach", "device": code},
                           critical=True)
@@ -1414,12 +1420,28 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
                 st = step(f"deploy {code} in {stop}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
                           timeout=SHORT_TIMEOUT, critical=True)
                 st["wait_device"] = code
-            steps.append(st)
+            out.append(st)
             if (by_code.get(code) or {}).get("device_type") == "ftl_relay" and code not in gathering:
                 # switched on while the carrier is still there: left off out of everyone's reach it can't be commanded
                 # any more (live 2026-10-15: F6A3A357 dropped at KAMUYIS, "out_of_range"); placement takes it to L4/L5 after
-                steps.append(activate_step(code))
-            steps.append(rehome_step(code, by_code.get(code, {}), stop, keep_spare=code in gathering, join=assign.get(code)))
+                out.append(activate_step(code))
+            out.append(rehome_step(code, by_code.get(code, {}), stop, keep_spare=code in gathering, join=assign.get(code)))
+        return out
+
+    for stop in [dest_star] + list(dl.get("stops") or []):   # a relay run (dest_of / stops) drops system by system
+        here_codes = [c for c in dl["devices"] if dest_of.get(c, dest_star) == stop]
+        # a device pinned to a spot in this system (`at:`, e.g. a locker's price) is dropped right there: one that can't
+        # fly can't get there on its own (live 2026-10-21: 3 compute cores for the TWAFFY-OORT locker left at TWAFFY-11-L4)
+        spots: dict[str, list[str]] = {}
+        for code in here_codes:
+            pin = pinned_at(by_code.get(code) or {})
+            spots.setdefault(pin if pin and star_of(pin) == stop else "", []).append(code)
+        for spot in sorted(spots):
+            if spot:
+                steps.append(move(spot, f"deliver {len(spots[spot])} to {spot}", spot))
+            else:
+                steps.append(move(destination(stop, stars), f"deliver {len(spots[spot])} to {stop}", stop))
+            steps += drop_steps(spots[spot], stop)
     back = destination(dl["back_to"], stars) if dl.get("back_to") else dl.get("fetch_from") or cloc
     if (carriers_return or dl.get("back_to")) and back and not dl.get("stay"):
         steps.append(move(back, f"home to its fleet in {dl['back_to']}" if dl.get("back_to") else "return", star_of(back)))
@@ -1457,7 +1479,7 @@ def arrived_steps(code: str, d: dict, stowed_in: dict, join: str | None = None) 
         return steps
     pin = pinned_at(d)
     spot = d.get("location")
-    if pin and star_of(pin) == dest and d.get("location") != pin:
+    if pin and star_of(pin) == dest and d.get("location") != pin and can_travel(d):   # (a grounded one waits for a carrier)
         steps.append(pin_step(code, pin))   # delivered to the system: now the exact spot it was ordered for
         spot = pin
     if relay_ready_at(d, spot):
