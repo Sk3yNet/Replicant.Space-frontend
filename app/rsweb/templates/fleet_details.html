@@ -2,7 +2,7 @@
 {% block title %}Fleet details{% endblock %}
 {% block content %}
 <div class="row between"><h1>Fleet details <span class="muted small">{{ fleets | length }} fleets</span></h1>
-  <a href="/fleets" class="small">← fleet status &amp; templates</a></div>
+  <span>{% include "partials/plans_age.html" %} · <a href="/fleets" class="small">← fleet status &amp; templates</a></span></div>
 {% for f in fleets %}{% set r = f.roster %}{% set m = f.mission or {} %}
 {% if f.role == 'bootstrap' and f.boot %}{% include "partials/bootstrap_card.html" %}{% else %}
 <div class="card" id="fleet-{{ f.id }}" style="margin-bottom:14px">

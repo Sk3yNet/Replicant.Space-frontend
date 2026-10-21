@@ -1,0 +1,2 @@
+<span class="small muted">plans{% if plans_age %} from {{ plans_age }} min ago{% else %} just computed{% endif %}, kept an hour
+  <button class="small ghost" hx-post="/fleets/recompute" hx-swap="none" title="Recompute the loadout plan, prospects and destination lists now">Recompute</button></span>

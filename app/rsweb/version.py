@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.189.0"
+VERSION = "1.190.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.190.0", "2026-10-21", "Faster Fleets pages: the loadout plan, prospect rankings and destination lists are kept "
+     "for an hour instead of recomputed on every load (Fleet details took 31 s live); a fleet or loadout edit or the "
+     "Recompute button refreshes them."),
     ("1.189.0", "2026-10-21", "A device's page says what it's doing: a fleet member shows its fleet's status (mission, "
      "phase and latest step, stationed, relocating), a logistics vessel its current task and step, any device the "
      "automation job working it."),

@@ -90,6 +90,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     app.add_exception_handler(web.AuthError, web.auth_error_handler)
     from . import perf
     app.add_middleware(perf.Middleware)
+    from . import pagecache
+    app.add_middleware(pagecache.ClearOnEdit)
     return app
 
 

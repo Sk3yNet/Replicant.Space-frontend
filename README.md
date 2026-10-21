@@ -170,7 +170,9 @@ A fleet is a named group of devices tagged `fleet:<id>`, with a role (mining / e
 lines or a template).
 - **Fleets** (the landing page) shows each fleet's status against its loadout, loaded just after the page, and the templates
   and loadout settings. **Fleet details** has the slower parts: each fleet's card (members, loadout, missions), what the next
-  loadout pass would do, the tags & controllers check, and what's spare or on the way.
+  loadout pass would do, the tags & controllers check, and what's spare or on the way. Both pages keep the loadout plan,
+  prospects and destination lists for an hour (the engine still plans for itself every pass); any fleet or loadout edit
+  and the **Recompute** button refresh them.
 - **Stationed** fleets are kept at their loadout in their home system by the **loadout pass**: extras become `spare`, spares
   are sent where they're short (within the supply range, default 100 ly), what's still missing is printed and carried there
   (large devices are compacted first). Placed beacons and relays are never made spare or moved. A borrowed carrier only comes

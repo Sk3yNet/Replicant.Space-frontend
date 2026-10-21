@@ -3448,7 +3448,8 @@ async def loadout_ctx(request: Request) -> dict:
     bps = normalize_blueprints(await db.kv_get("blueprints", []))
     types = sorted({b["device_type"] for b in bps} | {d.get("device_type") for d in st["devices"] if d.get("device_type")}
                    - {"heaven_vessel"})
-    p = await eng.loadout_plan()
+    from . import pagecache
+    p = await pagecache.get(request, "loadout_plan", eng.loadout_plan)
     present = Counter(lo.star_of(d.get("location")) for d in st["devices"])
     jobs = [j for j in await eng.jobs() if j["rule"] == "loadouts"]
     tagged = defaultdict(list)
@@ -3465,7 +3466,7 @@ async def loadout_ctx(request: Request) -> dict:
                                                       set(p.get("moves") or {}), set(cfg.get("ignore_tags") or []), limit=200)}
     audit = lo.audit(cfg, st["devices"], star_cat, p, pending_handoffs, hosts)
     from . import consolidate as co
-    consolidation = [co.describe(x) for x in await eng.consolidate_plan()]
+    consolidation = [co.describe(x) for x in await pagecache.get(request, "consolidate_plan", eng.consolidate_plan)]
     consolidate_on = bool(((await eng.settings())["rules"].get("consolidate") or {}).get("enabled"))
     return {"cfg": cfg, "types": types, "plan": p, "lines": lo.describe(p), "present": present, "audit": audit,
             "depot": lo.spare_depot(cfg, st["devices"]),

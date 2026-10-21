@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse
 from . import automations as auto
 from . import fleets as fl
 from . import loadouts as lo
-from . import printqueue
+from . import pagecache, printqueue
 from .db import now_iso
 from .shapes import normalize_blueprints
 from .web import current_user, load_state, loadout_ctx, page, partial, star_of, start_chain
@@ -62,13 +62,16 @@ async def fleets_ctx(request: Request) -> dict:
     dests: dict[str, list[dict]] = {}   # home -> destination list (fleets sharing a home share it)
     for f in items:
         if f.get("home") not in dests:
-            dests[f.get("home")] = [o for o in destination_systems(cat, scanned | yours, yours, f.get("home"), limit=300)
-                                    if o["value"] not in homes]
+            async def dl(h=f.get("home")) -> list[dict]:
+                return destination_systems(cat, scanned | yours, yours, h, limit=300)
+            dests[f.get("home")] = [o for o in await pagecache.get(request, f"dests:{f.get('home')}", dl) if o["value"] not in homes]
         f["target_options"] = [dict(o) for o in dests[f.get("home")]]
         if f.get("role") == "mining":   # mining targets: best prospects first, with their score and why
             o_star = f.get("home") or ""
             if o_star not in ranks:
-                ranks[o_star] = {r["star"]: r for r in (await _pr.rank(request.app.state.db, eng, st["devices"], o_star))["rows"]}
+                async def rk(o=o_star) -> dict:
+                    return {r["star"]: r for r in (await _pr.rank(request.app.state.db, eng, st["devices"], o))["rows"]}
+                ranks[o_star] = await pagecache.get(request, f"ranks:{o_star}", rk)
             pr = ranks[o_star]
             for o in f["target_options"]:
                 r = pr.get(o["value"])
@@ -125,7 +128,7 @@ async def fleets_ctx(request: Request) -> dict:
     obs_fleets = {fl.fleet_of(d) for d in st["devices"] if d.get("device_type") == "galactic_observatory" and fl.fleet_of(d)}
     obs_fleets |= {f["id"] for f in items if (fl.station_wants(f) or {}).get("galactic_observatory")}   # or its loadout wants one
     from . import bootstrap as _bt
-    return {**lctx, "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
+    return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
             "types": types, "free": sorted(free, key=lambda d: (bool(d["_fleet"]), (d["_fleet_name"] or "").lower(), star_of(d.get("location")),
                                                  d.get("device_type") or "", d.get("device_code") or "")),
             "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders,
@@ -162,14 +165,21 @@ async def fleets_overview(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     items = sorted(await eng.fleets(), key=fleet_order)
     cfg = await eng.loadout_cfg()
-    p = await eng.loadout_plan()
+    p = await pagecache.get(request, "loadout_plan", eng.loadout_plan)
     for f in items:
         f["report"] = p["report"].get(f["id"])
         f["route"] = next((r for r in p.get("routes") or [] if r.get("fleet_id") == f["id"]), None)
         f["sends_to"] = fl.materials_target(f, items)
         f["takes_from"] = [x for x in items if (fl.materials_target(x, items) or {}).get("id") == f["id"]]
     return partial(request, "partials/fleets_overview.html", fleets=items, templates=cfg["phases"],
-                   present=Counter(lo.star_of(d.get("location")) for d in st["devices"]))
+                   present=Counter(lo.star_of(d.get("location")) for d in st["devices"]), plans_age=pagecache.age_minutes(request))
+
+
+@router.post("/fleets/recompute", response_class=HTMLResponse)
+async def fleets_recompute(request: Request, user: str = Depends(current_user)):
+    """Recompute the kept plans (pagecache): the POST itself clears them (main.py); the page reloads to show fresh ones."""
+    pagecache.clear(request.app)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @router.get("/fleets/details", response_class=HTMLResponse)

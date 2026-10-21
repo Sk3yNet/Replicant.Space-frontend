@@ -8161,3 +8161,26 @@ def test_device_page_shows_fleet_status_and_current_task(client):
 
 def fleet_member_code(devices):
     return next(d["device_code"] for d in devices if any(t.startswith("fleet:prospector") for t in d.get("tags") or []))
+
+
+# --- 1.190.0: Fleets pages keep their plans for an hour ---------------------------------------------------------------
+
+def test_fleet_pages_keep_plans_until_an_edit_or_recompute(client):
+    """Joe 2026-10-21: the loadout plan, prospects and destination lists only need rerunning every hour or two."""
+    eng = client.app.state.worker.automations
+    calls = []
+    real = eng.loadout_plan
+
+    async def counted(*a, **k):
+        calls.append(1)
+        return await real(*a, **k)
+    eng.loadout_plan = counted
+    assert client.get("/fleets/overview", headers=HX).status_code == 200
+    page = client.get("/fleets/details", headers=H).text
+    assert len(calls) == 1 and "kept an hour" in page and "Recompute" in page
+    client.post("/fleets/recompute", headers=HX)
+    client.get("/fleets/overview", headers=HX)
+    assert len(calls) == 2
+    client.post("/fleets/nope/station", data={"station": "on"}, headers=HX)   # any change under /fleets clears them too
+    client.get("/fleets/overview", headers=HX)
+    assert len(calls) == 3
