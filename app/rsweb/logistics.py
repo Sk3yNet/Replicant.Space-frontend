@@ -897,6 +897,17 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                       for d in pool]}
 
 
+def holds_replicant(d: dict, devices: list[dict]) -> bool:
+    """A replicant's vessel, a matrix (filled or empty), a matrix container (the `cradle` feature), or anything with a
+    matrix inside it. The drop-off never lets these off: a replicant stays with its carrier (owner 2026-10-21)."""
+    if d.get("hosting_replicant") or "matrix" in (d.get("device_type") or "") \
+            or {"matrix", "cradle"} & set(d.get("features") or []):
+        return True
+    code = d.get("device_code")
+    return any("matrix" in (x.get("device_type") or "") for x in devices
+               if code and code in (x.get("stowed_in_device_code"), x.get("attached_to_device_code")))
+
+
 def stray_aboard(carrier: dict, devices: list[dict], own: set[str], busy: set[str]) -> list[dict]:
     """Devices riding a logistics carrier that have nothing to do with its work: not a replicant or its matrix (its
     escort), not a logistics device, not on its way somewhere (to: / at: / gather tags), not in a job.
@@ -907,9 +918,8 @@ def stray_aboard(carrier: dict, devices: list[dict], own: set[str], busy: set[st
     for d in devices:
         how = "attach" if d.get("attached_to_device_code") == code else "stow" if d.get("stowed_in_device_code") == code else None
         tags = d.get("tags") or []
-        if not how or d.get("device_code") in own or d.get("device_code") in busy or d.get("hosting_replicant") \
-                or "matrix" in (d.get("device_type") or "") or GATHER in tags \
-                or any(str(t).startswith(("to:", "at:")) for t in tags):
+        if not how or d.get("device_code") in own or d.get("device_code") in busy or holds_replicant(d, devices) \
+                or GATHER in tags or any(str(t).startswith(("to:", "at:")) for t in tags):
             continue
         out.append({"code": d["device_code"], "mode": how})
     return out

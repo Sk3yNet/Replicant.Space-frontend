@@ -8120,3 +8120,14 @@ def test_map_star_tags(client):
                        ("SOL", json.dumps({"system_tags": ["resource_rich", "anomaly"]}), "2026-10-21T00:00:00+00:00"))
     sol = next(s for s in client.get("/api/map.json?part=core", headers=H).json()["stars"] if s["designation"] == "SOL")
     assert sol["tags"] == ["resource_rich", "anomaly"] and "hazardous" not in sol
+
+
+def test_logistics_drop_off_keeps_replicants_aboard():
+    from rsweb.logistics import stray_aboard
+    devs = [{"device_code": "M1", "device_type": "replicant_matrix", "features": ["stow", "matrix"], "stowed_in_device_code": "LV"},
+            {"device_code": "C1", "device_type": "matrix_container", "features": ["cruise", "cradle"], "attached_to_device_code": "LV"},
+            {"device_code": "M2", "device_type": "replicant_matrix", "stowed_in_device_code": "C1"},
+            {"device_code": "P1", "device_type": "odd_pod", "features": [], "stowed_in_device_code": "LV"},
+            {"device_code": "M3", "device_type": "empty_replicant_matrix", "stowed_in_device_code": "P1"},
+            {"device_code": "D1", "device_type": "survey_drone", "features": ["stow"], "stowed_in_device_code": "LV"}]
+    assert stray_aboard({"device_code": "LV"}, devs, set(), set()) == [{"code": "D1", "mode": "stow"}]
