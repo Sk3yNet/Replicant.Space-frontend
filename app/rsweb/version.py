@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.192.0"
+VERSION = "1.193.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.193.0", "2026-10-21", "Survey missions: a member too far to cruise to its work spot (over the Fleets › settings "
+     "limit) rides the fleet's carrier there instead of stalling, and a survey crew is never dropped at the Kuiper belt "
+     "or Oort cloud: with nothing known inside the system yet it stays aboard until the work phase takes it in."),
     ("1.192.0", "2026-10-21", "Lighter engine pass: lookups over the star catalog (positions, wards, place tags, "
      "prospecting) are built once per catalog update instead of copying the whole catalog several times a pass, and the "
      "season copy (megabytes) is no longer read every pass just to check its age. A pass on a 42,000-star catalog went "

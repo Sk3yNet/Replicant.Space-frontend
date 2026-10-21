@@ -4103,6 +4103,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             geo = pl.geography(target or "", devices, await self.system_scan(target) if target else None,
                                (stars.get(target) or {}).get("entry_point"))
             spot = fl.deploy_spot(geo)
+            if not spot and fleet["role"] == "explore" and fl.loaded_outer(fleet, devices):
+                # never drop a survey crew at the Kuiper belt or Oort cloud (owner 2026-10-21): the work phase takes
+                # the carrier inside once the system's bodies are known
+                self._mlog(m, f"nothing known inside {target} yet (no scan): the crew stays aboard for now")
+                return [], []
             if not spot:
                 self._mlog(m, f"nothing known inside {target} yet (no scan): unloading where the carrier is")
             # survey crews no longer drop relays or beacons (2026-10-11): ask for one on the Systems page instead
@@ -4124,9 +4129,18 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                         m["stall"] = True
                         return [], [f"the survey controller {ctrl['device_code']} is in {where}, not in {star_of(target or '')} "
                                     "with the fleet — bring it aboard (Fleets: end mission & board, or move it), then retry"]
-                spot = pl.target("ami_survey_controller", geo) if ctrl and not pl.ok("ami_survey_controller",
-                                                                                     ctrl.get("location"), geo) else None
-                return fl.explore_work_steps(fleet, devices, spot)
+                pre, at = [], ctrl.get("location") if ctrl else None
+                if fl.loaded_outer(fleet, devices):   # still aboard at the Kuiper belt / Oort cloud (the deploy phase)
+                    drop = fl.deploy_spot(geo) or pl.target("ami_survey_controller", geo)
+                    pre = fl.unload_steps(fleet, devices, drop)
+                    at = at or drop
+                spot = pl.target("ami_survey_controller", geo) if ctrl and not pl.ok("ami_survey_controller", at, geo) \
+                    else None
+                steps, problems = fl.explore_work_steps(fleet, devices, spot, radii, far_au)
+                for st in steps:
+                    if isinstance(st.get("seq0_from"), int):
+                        st["seq0_from"] += len(pre)
+                return pre + steps, problems
             belt = fl.richest_belt(target, await self.system_scan(target))
             sal = None
             if not belt:   # no belt here: salvage is the only work

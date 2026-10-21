@@ -816,6 +816,13 @@ def deploy_spot(geo: dict) -> str | None:
     return (lp or geo.get("inner") or [None])[0]
 
 
+def loaded_outer(fleet: dict, devices: list[dict]) -> bool:
+    """A fleet carrier at the Kuiper belt or Oort cloud with fleet members still aboard."""
+    r = roster(fleet, devices)
+    out = {c["device_code"] for c in r["carriers"] if any(o in (c.get("location") or "") for o in OUTER)}
+    return any(aboard(d, out) for d in r["members"] if d.get("device_type") not in ("ftl_relay", "ftl_beacon"))
+
+
 def unload_steps(fleet: dict, devices: list[dict], spot: str | None = None) -> list[dict]:
     """Deploy / detach every passenger. `spot`: carriers in the outer system fly there first."""
     r = roster(fleet, devices)
@@ -919,9 +926,52 @@ def mining_work_steps(fleet: dict, devices: list[dict], belt: str | None, delive
     return steps, problems
 
 
-def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None) -> tuple[list[dict], list[str]]:
+def ferry_steps(fleet: dict, devices: list[dict], codes: list[str], spot: str) -> tuple[list[dict], list[str]]:
+    """The fleet's own carrier takes `codes` to `spot` (a cruise too long for them, owner 2026-10-21: BELZHORII-KUIPER →
+    BELZHORII-1 is ≈190 AU): it picks them up where they are, flies there and lets them off. Returns (steps, left over)."""
+    r = roster(fleet, devices)
+    carriers = sorted(r["carriers"], key=lambda c: (-(hold(c) + capacity(c)), c["device_code"]))
+    by = {d.get("device_code"): d for d in devices}
+    free = {c["device_code"]: seats(c, devices) for c in carriers}
+    rides: dict[str, list[tuple[str, str]]] = {}                     # carrier -> [(device, mode)]
+    stops: dict[str, dict[str, list[tuple[str, str]]]] = {}          # carrier -> pick-up spot -> [(device, mode)]
+    left = []
+    for code in codes:
+        d = by.get(code) or {}
+        here = [c for c in carriers if c.get("location") and star_of(c["location"]) == star_of(d.get("location"))]
+        here.sort(key=lambda c: (c.get("location") != d.get("location"), -(hold(c) + capacity(c)), c["device_code"]))
+        c, mode = None, None
+        for cand in here:
+            mode = take_seat(free[cand["device_code"]], d)
+            if mode:
+                c = cand
+                break
+        if not c:
+            left.append(code)
+            continue
+        rides.setdefault(c["device_code"], []).append((code, mode))
+        stops.setdefault(c["device_code"], {}).setdefault(d["location"], []).append((code, mode))
+    steps: list[dict] = []
+    for car in sorted(stops):
+        tour, cur = pickup_tour(car, by[car].get("location"), stops[car])
+        steps += tour
+        if cur != spot:
+            st = step(f"{car} → {spot} (ferry {', '.join(c for c, _ in rides[car])})", f"/devices/{car}",
+                      {"command": "travel", "destination": spot}, wait=["travel.arrived"], match={"destination": spot},
+                      critical=True)
+            st["wait_device"] = car
+            steps.append(st)
+        steps += let_off_steps(car, [{"code": c, "mode": m} for c, m in rides[car]])
+    for st in steps:   # these are the fleet's own devices
+        st["desc"] = st["desc"].replace(" (not its fleet's)", "")
+    return steps, left
+
+
+def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None, radii: dict[str, float] | None = None,
+                       limit: float | None = None) -> tuple[list[dict], list[str]]:
     """`spot`: where the survey controller should work (the belt, or the inner system without one — placement.py);
-    the controller and its drones go there first."""
+    the controller and its drones go there first. One that's too far to cruise there (more than `limit` AU) rides
+    the fleet's carrier instead."""
     r = roster(fleet, devices)
     ms = [d for d in r["members"] if not is_carrier(d)]
     ctrl = next((d for d in ms if kind(d) == "survey_controller"), None)
@@ -935,12 +985,22 @@ def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None
     steps = []
     if spot:
         go = [d for d in [ctrl] + [x for x in ms if x["device_code"] in drones] if d.get("location") != spot]
+        far = [d["device_code"] for d in go if d.get("location") and not flies_itself(d)
+               and far_apart(d["location"], spot, radii, limit)]
+        if far:
+            ferry, left = ferry_steps(fleet, devices, far, spot)
+            if left:
+                return [], [f"{', '.join(left)} would cruise too far to {spot} and no fleet carrier there has room "
+                            "to take them: bring a carrier, or raise the cruise limit in Fleets › settings"]
+            steps += ferry
+            go = [d for d in go if d["device_code"] not in far]
+        first = len(steps)
         for d in go:
             steps.append(step(f"{d['device_code']} → {spot}", f"/devices/{d['device_code']}",
                               {"command": "travel", "destination": spot}, critical=d is ctrl))
         for i, d in enumerate(go):
             w = _wait_arrive(d["device_code"], spot)
-            w["seq0_from"] = i
+            w["seq0_from"] = first + i
             steps.append(w)
     if drones:
         steps.append(step(f"{code}: adopt {len(drones)}", f"/devices/{code}", {"command": "adopt", "devices": drones}))

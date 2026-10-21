@@ -8201,3 +8201,38 @@ def test_star_lookups_are_shared_until_the_catalog_changes(client):
         b = await eng.star_lookup("pos")
         assert b == {"NEWSTAR": {"x": 1, "y": 2, "z": 3}} and await eng.star_lookup("names") == {"NEWSTAR"}
     client.portal.call(go)
+
+
+def test_survey_carrier_ferries_members_too_far_to_cruise():
+    """Live 2026-10-21: 769B37CC stalled at BELZHORII-KUIPER, ≈190 AU from BELZHORII-1; the fleet's carrier takes it."""
+    from rsweb import fleets as fl
+    fleet = {"id": "s", "name": "S", "role": "explore", "home": "AAA"}
+    devs = [{"device_code": "HV", "device_type": "heaven_vessel", "location": "BBB-KUIPER", "status": "idle",
+             "features": ["surge"], "stow_capacity": 10, "tags": ["fleet:s"]},
+            {"device_code": "SC", "device_type": "ami_survey_controller", "location": "BBB-KUIPER", "status": "idle",
+             "features": ["stow"], "tags": ["fleet:s"]},
+            {"device_code": "SD", "device_type": "survey_drone", "location": "BBB-KUIPER", "status": "idle",
+             "features": ["stow"], "tags": ["fleet:s"]}]
+    steps, problems = fl.explore_work_steps(fleet, devs, "BBB-1", {"BBB-1": 1.0, "BBB-KUIPER": 190.0}, 30)
+    assert not problems
+    cmds = [(s_["path"], (s_["body"] or {}).get("command")) for s_ in steps]
+    assert cmds[:5] == [("/devices/SC", "stow"), ("/devices/SD", "stow"), ("/devices/HV", "travel"),
+                        ("/devices/SC", "deploy"), ("/devices/SD", "deploy")]
+    assert steps[2]["body"]["destination"] == "BBB-1"
+    assert not any(c == "travel" and p != "/devices/HV" for p, c in cmds)
+    # no fleet carrier in the system: say so instead of sending them on the long cruise
+    devs[0]["location"] = "CCC-1"
+    steps, problems = fl.explore_work_steps(fleet, devs, "BBB-1", {"BBB-1": 1.0, "BBB-KUIPER": 190.0}, 30)
+    assert not steps and "no fleet carrier" in problems[0]
+
+
+def test_survey_crew_stays_aboard_at_the_kuiper_belt():
+    from rsweb import fleets as fl
+    fleet = {"id": "s", "name": "S", "role": "explore", "home": "AAA"}
+    devs = [{"device_code": "HV", "device_type": "heaven_vessel", "location": "BBB-KUIPER", "status": "idle",
+             "features": ["surge"], "stow_capacity": 10, "tags": ["fleet:s"]},
+            {"device_code": "SC", "device_type": "ami_survey_controller", "location": None, "stowed_in_device_code": "HV",
+             "status": "stowed", "tags": ["fleet:s"]}]
+    assert fl.loaded_outer(fleet, devs)
+    devs[0]["location"] = "BBB-1-L4"
+    assert not fl.loaded_outer(fleet, devs)

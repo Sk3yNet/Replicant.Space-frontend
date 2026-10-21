@@ -196,7 +196,9 @@ lines or a template).
   crew stays aboard at home). Trade fleets are retired: the logistics service does their work, and each one becomes a logistics
   fleet (same members and loadout) once its last run ends. A recall withdraws a launched AMI controller (its
   drones come back) before it boards. No automation sends a drone or AMI controller on an in-system cruise longer than the
-  max cruise (Fleets › settings); a manual Travel that long asks first (surge-capable devices excepted). Every
+  max cruise (Fleets › settings); a manual Travel that long asks first (surge-capable devices excepted). A survey
+  member that far from its work spot rides the fleet's carrier there, and survey crews are never dropped at the Kuiper
+  belt or Oort cloud (with the system still unknown they stay aboard until the work phase). Every
   automated trip logs its expected arrival; a step refused while something is still on its way waits for that ETA.
 - **Path forward** (stationed mining fleets): a heading; when the home runs dry the fleet picks the best system ahead and moves. Only
   systems it can command count (an active relay network there, or a replicant): no automatic assignment goes outside the
