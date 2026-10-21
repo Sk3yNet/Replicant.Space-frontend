@@ -541,6 +541,16 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             if SPARE not in tags:
                 tag_add[code].add(SPARE)
             tag_remove[code].update(x for x in tags if x.startswith("home:"))
+    # an extra relay where one of yours already relays (e.g. a second one delivered for an order that expired and was
+    # placed again): spare, so the next relay order sends it on instead of printing another (owner 2026-10-21)
+    relaying = relaying_stars(devices)
+    for d in devices:
+        code, tags = d["device_code"], set(d.get("tags") or [])
+        if (d.get("device_type") == "ftl_relay" and d.get("location") and star_of(d["location"]) in relaying
+                and str(d.get("status") or "").startswith(("idle", "inactive")) and SPARE not in tags
+                and not any(t.startswith(("fleet:", "to:", "at:", "contract:", "boot:")) for t in tags)
+                and code not in busy and code not in protect and not d.get("stowed_in_device_code")):
+            tag_add[code].add(SPARE)
 
     def fleet_now(code: str) -> str | None:
         d = by_code_all.get(code) or {}

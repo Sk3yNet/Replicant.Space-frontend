@@ -45,6 +45,19 @@ def bound_to(devices: list[dict], star: str, dtype: str = "system_ward") -> dict
     return sorted(ds, key=lambda d: d.get("device_code") or "")[0] if ds else None
 
 
+def printing_for(devices: list[dict], star: str, dtype: str = "system_ward") -> dict | None:
+    """A factory of yours already printing (or with one waiting in its queue) a device of this type tagged to:<star>:
+    a new order waits for that print instead of queueing another (owner 2026-10-21)."""
+    from . import printqueue as pq
+    tag = lo.to_tag(star)
+    for f in devices:
+        pr = f.get("printing") if isinstance(f.get("printing"), dict) else {}
+        its = (list(pq.items(f)) if pq.has_queue(f) else []) + ([pr] if pr else [])
+        if any(it.get("device_type") == dtype and tag in (it.get("tags") or []) for it in its):
+            return f
+    return None
+
+
 def spare_ward(devices: list[dict], star: str, busy: set[str], pos: dict, reach: float,
                dtype: str = "system_ward") -> dict | None:
     """A device of this type that isn't working and belongs to no fleet or contract, nearest first, within reach."""

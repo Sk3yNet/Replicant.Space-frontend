@@ -8251,3 +8251,27 @@ def test_a_new_relay_order_sends_the_relay_already_tagged_there():
             {"device_code": "R2", "device_type": "ftl_relay", "location": "FAB-BELT-1", "status": "inactive", "tags": ["to:valyra"]}]
     assert wo.bound_to(devs, "MOLURNA", "ftl_relay")["device_code"] == "R1"
     assert wo.bound_to(devs, "TIMIRIS", "ftl_relay") is None
+
+
+def test_a_new_relay_order_waits_for_a_print_already_queued_for_it():
+    from rsweb import ward_orders as wo
+    fab = {"device_code": "F1", "device_type": "autofactory", "location": "FAB-BELT-1", "available_commands": ["enqueue_print"],
+           "print_queue": [{"device_type": "ftl_relay", "tags": ["to:molurna"]}]}
+    assert wo.printing_for([fab], "MOLURNA", "ftl_relay")["device_code"] == "F1"
+    assert wo.printing_for([fab], "VALYRA", "ftl_relay") is None
+    fab2 = {"device_code": "F2", "device_type": "autofactory", "print_queue": [],
+            "printing": {"device_type": "ftl_relay", "tags": ["to:valyra"]}}
+    assert wo.printing_for([fab, fab2], "VALYRA", "ftl_relay")["device_code"] == "F2"
+
+
+def test_an_extra_relay_where_one_already_relays_is_made_spare():
+    """Owner 2026-10-21: a second relay delivered to a system with a working one becomes a spare."""
+    from rsweb import loadouts as lo
+    def dev(code, status, **kw):
+        return {"device_code": code, "device_type": "ftl_relay", "location": "AAA-1-L4", "status": status,
+                "operational_capacity": 100.0, "features": ["stow"], "available_commands": ["travel", "stow", "deploy"], **kw}
+    devices = [dev("R1", "relaying"), dev("R2", "inactive"), dev("R3", "inactive", tags=["to:bbb"])]
+    stars = {s: {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in (("AAA", 0), ("BBB", 5))}
+    p = lo.plan({"phases": [], "systems": {}, "fleets": []}, devices, [], {}, stars, {}, set(), [], {})
+    assert "spare" in p["tag_add"].get("R2", set()) and "spare" not in p["tag_add"].get("R3", set())
+    assert "spare" not in p["tag_add"].get("R1", set())

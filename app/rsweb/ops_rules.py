@@ -72,6 +72,9 @@ class OpsRules:
         elif (bound := wo.bound_to(devices, star, dtype)):
             order.update(how="send", device=bound["device_code"])
             msg = f"{label} {bound['device_code']} is already on its way to {star} (the loadout pass carries it)"
+        elif (fab := wo.printing_for(devices, star, dtype)):
+            order.update(how="print", factory=fab["device_code"])
+            msg = f"a {label} for {star} is already in the print queue of {fab['device_code']} (the loadout pass then carries it)"
         else:
             spare = wo.spare_ward(devices, star, busy, pos, reach, dtype)
             if spare:
