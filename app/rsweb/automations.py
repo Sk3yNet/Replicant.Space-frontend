@@ -4093,6 +4093,21 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 m["stall"] = True
                 return [], [dark]
             return fl.travel_steps(fleet, devices, target, stars), []
+        if phase in ("deploy", "work") and target:
+            behind = fl.left_behind(fleet, devices, target)
+            if behind:
+                # the travel leg didn't take the crew there: fly again rather than unload or survey in the wrong system
+                where = ", ".join(f"{c['device_code']} in {star_of(c['location'])}" for c in behind)
+                tries = m.setdefault("retravel", {})
+                key = str(m.get("idx", 0))
+                if tries.get(key, 0) >= 2:
+                    m["stall"] = True
+                    return [], [f"the fleet's carrier is still not in {star_of(target)} ({where}) after two more trips — "
+                                "check its route, then retry"]
+                tries[key] = tries.get(key, 0) + 1
+                self._mlog(m, f"{where} with the crew aboard, not in {star_of(target)}: travelling again")
+                m["phase"] = "gather"   # the loop's next phase is travel
+                return [], []
         if phase == "deploy":
             if fleet["role"] == "explore" and target and await self.system_surveyed(target):
                 # nothing left to survey there: don't unload, move on (the survey phase is skipped too)

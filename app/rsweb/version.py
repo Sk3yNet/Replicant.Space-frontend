@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.193.0"
+VERSION = "1.194.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.194.0", "2026-10-21", "Fleet missions: a carrier still outside the target system with the crew aboard "
+     "(the trip there did not take it) flies again before unloading or working, instead of stalling on \"the survey "
+     "controller is in another system\" at every resume; it stalls with the reason after two more tries."),
     ("1.193.0", "2026-10-21", "Survey missions: a member too far to cruise to its work spot (over the Fleets › settings "
      "limit) rides the fleet's carrier there instead of stalling, and a survey crew is never dropped at the Kuiper belt "
      "or Oort cloud: with nothing known inside the system yet it stays aboard until the work phase takes it in."),

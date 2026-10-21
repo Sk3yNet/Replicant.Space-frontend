@@ -370,6 +370,16 @@ def roster(fleet: dict, devices: list[dict]) -> dict:
                       and not aboard(d, {c["device_code"] for c in carriers})]}
 
 
+def left_behind(fleet: dict, devices: list[dict], star: str) -> list[dict]:
+    """The fleet's carriers with members aboard that stand outside `star` (not on their way anywhere): the trip there
+    didn't take them (live 2026-10-21: Surveyor 2's vessel sat in XANTETHUS with the whole crew aboard for two days
+    while the mission, bound for HYRDALEL, stalled in its work phase)."""
+    r = roster(fleet, devices)
+    loaded = set(r["riding"].values())
+    return [c for c in r["carriers"] if c["device_code"] in loaded and c.get("location") and star
+            and star_of(c["location"]) != star_of(star) and not str(c.get("status") or "").lower().startswith(MOVING)]
+
+
 RELOCATE_PHASES = ["assemble", "gather", "travel", "deploy"]
 
 

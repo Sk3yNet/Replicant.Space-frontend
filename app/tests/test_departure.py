@@ -1042,3 +1042,27 @@ def test_later_leg_boards_stragglers_before_traveling(client):
     job = next(j for j in client.portal.call(e.jobs) if j["id"] == m["job"])
     assert any((s.get("body") or {}).get("device") == "SC" or "SC" in s["path"] for s in job["steps"])
     assert fl.next_phase("explore", m) == "travel" and m["idx"] == 1          # then the same leg, to BBB
+
+
+def test_a_crew_left_behind_travels_again_instead_of_stalling(client):
+    """Live 2026-10-21: Surveyor 2's vessel sat in XANTETHUS with the whole crew aboard while the mission, bound for
+    HYRDALEL, stalled in work ('the survey controller is in XANTETHUS') at every resume — no new travel order."""
+    e = eng(client)
+    devs = [dev("V", "heaven_vessel", "LERNA-4", features=["surge"], stow_capacity=10),
+            dev("SC", "ami_survey_controller", None, status="stowed", stowed_in_device_code="V"),
+            dev("D1", "survey_drone", None, status="stowed", stowed_in_device_code="V")]
+    assert [c["device_code"] for c in fl.left_behind({"id": "f"}, devs, "SOL")] == ["V"]
+    assert not fl.left_behind({"id": "f"}, devs, "LERNA")
+    m = {"status": "stalled", "phase": "work", "idx": 1, "targets": ["LERNA", "SOL"], "log": [], "opts": {},
+         "departed": True}
+    _fleet(e, client, devs, role="explore", wants={"ami_survey_controller": 1, "heaven_vessel": 1, "survey_drone": 1},
+           mission=m)
+    client.post("/fleets/f/control", data={"action": "resume"}, headers=HX)
+    m = client.portal.call(e.fleets)[0]["mission"]
+    assert m["phase"] == "travel" and m["status"] == "running" and "travelling again" in m["log"][-2]["text"]
+    job = client.portal.call(e._get, m["job"])
+    assert any((s.get("body") or {}).get("command") == "travel" and s["path"] == "/devices/V" for s in job["steps"])
+    # a crew that still doesn't get there stalls with the reason, not on the controller
+    m2 = {"status": "running", "idx": 1, "targets": ["LERNA", "SOL"], "log": [], "retravel": {"1": 2}}
+    steps, problems = client.portal.call(e.fleet_phase_steps, client.portal.call(e.fleets)[0], m2, "work", devs)
+    assert not steps and m2.get("stall") and "still not in SOL" in problems[0]
