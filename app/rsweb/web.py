@@ -625,6 +625,8 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
     from . import fleets as _fl
     trip = _fl.in_flight(dev) if dev else None
     host_rep = next((c for c, r in st["replicants"].items() if r.get("hosted_device_code") == code), None)
+    eng = request.app.state.worker.automations
+    doing = _fl.device_doing(code, dev, await eng.fleets(), await eng.jobs()) if dev else None
     from . import decommission as _dc
     dq = (await request.app.state.db.kv_get(_dc.KV, {}) or {}).get(code)
     cat = await request.app.state.db.kv_get("stars", {}) or {}
@@ -633,7 +635,7 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
                            dev.get("location") or (next((x for x in st["devices"] if x.get("device_code") in
                                                          (dev.get("stowed_in_device_code"), dev.get("attached_to_device_code"))), {})).get("location"))
     return await page(request, user, "device.html", "fleet", carrier=carrier, pq=pq, dev=dev, code=code, err=err, logs=logs, events=events,
-                      trip=trip, host_rep=host_rep, decom_queued=dq, decom_factories=dfac,
+                      trip=trip, doing=doing, host_rep=host_rep, decom_queued=dq, decom_factories=dfac,
                       same_loc=same_loc, commands=order_commands(with_attach(dev, same_loc)),
                       dangerous=DANGEROUS)
 

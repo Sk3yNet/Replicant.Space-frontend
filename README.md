@@ -47,7 +47,8 @@ rule with an on/off switch, plus the jobs and the log.
 - **Device list** (`/fleet`): every device, filterable by type, status, system, owning replicant, tag or text. Tick devices (or all listed) to send
   them one command, or to **add tags** / **remove tags**; the ones that can't take it — command not available, in use by an
   automation, a deploy/detach while the carrier is between systems — are listed and skipped.
-- **Device page**: live detail, any available command with its fields (destructive ones ask first), tags, history and game log,
+- **Device page**: what it's doing (its fleet's status for a fleet member, the current task and step for a logistics
+  vessel or any device an automation job is working), live detail, any available command with its fields (destructive ones ask first), tags, history and game log,
   cancel travel. Autofactories get a **print queue** card (add with an optional *deliver to*, remove, clear, and move a waiting print
   to the front, up or down: the game can't reorder a queue, so the waiting prints from that place down are taken off and queued
   again in the new order, tags and destinations kept; the print running now can't be moved); carrier vessels

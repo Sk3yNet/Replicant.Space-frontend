@@ -1722,3 +1722,61 @@ def stray_reason(s: dict) -> str:
     if s["busy"]:
         return "in a job"
     return "nothing is bringing it home"
+
+
+def job_touches(job: dict, code: str) -> bool:
+    """A job works this device: it's the job's device, listed in its meta, or a step commands it or names it."""
+    if code in (job.get("device"), *((job.get("meta") or {}).get("devices") or [])):
+        return True
+    for s in job.get("steps") or []:
+        body = s.get("body") if isinstance(s.get("body"), dict) else {}
+        if f"/devices/{code}" in str(s.get("path") or "") or code in (body.get("device"), body.get("target")):
+            return True
+    return False
+
+
+def job_now(job: dict) -> dict:
+    """A job's title and the step it's on, for a one-line "what it's doing"."""
+    steps = job.get("steps") or []
+    i = min(int(job.get("idx") or 0), max(len(steps) - 1, 0))
+    title = str(job.get("title") or job.get("rule") or "job")
+    if job.get("rule") == "logistics" and title.startswith("logistics: "):
+        title = title[len("logistics: "):]
+    return {"id": job.get("id"), "rule": job.get("rule"), "title": title, "status": job.get("status"),
+            "step": (steps[i].get("desc") if steps else None), "n": i + 1, "of": len(steps)}
+
+
+def device_doing(code: str, dev: dict, fleets: list[dict], jobs: list[dict]) -> dict | None:
+    """What a device is doing (Device page): its fleet's status for fleet members, the task it's on (a logistics run, a
+    mission's step, any other automation job). None when it's in no fleet and no job."""
+    live = [j for j in jobs if j.get("status") in ("running", "waiting") and job_touches(j, code)]
+    task = job_now(live[-1]) if live else None
+    fid = fleet_of(dev)
+    f = next((x for x in fleets if x.get("id") == fid), None) if fid else None
+    if not f and not task:
+        return None
+    out: dict = {"task": task}
+    if f:
+        m, role = f.get("mission") or {}, f.get("role") or ""
+        tgt = (m.get("targets") or [None])[min(int(m.get("idx") or 0), max(len(m.get("targets") or []) - 1, 0))] \
+            if m.get("targets") else None
+        if m.get("status") in ("running", "stalled", "stopped"):
+            if m.get("status") != "running":
+                what = f"mission {m.get('status')}" + (f" ({tgt})" if tgt else "")
+            else:
+                what = f"relocating {m.get('from') or f.get('home')} → {tgt}" if m.get("relocate") \
+                    else "on a mission" + (f" to {tgt}" if tgt else "")
+                what += f" ({m['phase']} phase)" if m.get("phase") else ""
+            last = ((m.get("log") or [{}])[-1] or {}).get("text")
+        elif role == "logistics":
+            what, last = ("logistics service: " + ("on a run" if task else "idle, waiting for a task")), None
+        elif role == "prospector" and (f.get("tour") or {}).get("note"):
+            what, last = f"prospecting: {f['tour']['note']}", None
+        elif f.get("station"):
+            where = star_of(dev.get("location"))
+            what = f"stationed at {f.get('home')}" + ("" if not where or where == f.get("home") else f" (this device is at {where})")
+            last = f.get("scout_note")
+        else:
+            what, last = f"at {f.get('home') or 'no home'}, not stationed", None
+        out["fleet"] = {"id": f.get("id"), "name": f.get("name") or f.get("id"), "role": role, "status": what, "last": last}
+    return out

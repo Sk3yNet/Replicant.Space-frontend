@@ -4,6 +4,13 @@
 <h1>{{ dev.device_type | human }} <span class="mono muted">{{ code }}</span>
   <span class="pill {{ dev.status | status_class }}">{{ dev.status }}</span>
   {% if dev.tracking_site %}<span class="small muted">holding site <a href="/locations/{{ dev.tracking_site }}">{{ dev.tracking_site }}</a></span>{% endif %}</h1>
+{% if doing %}<div class="card small" id="doing">
+  {% if doing.fleet %}<div><b>Fleet <a href="/fleets/details#fleet-{{ doing.fleet.id }}">{{ doing.fleet.name }}</a></b>
+    <span class="muted">{{ doing.fleet.role }}</span>: {{ doing.fleet.status }}{% if doing.fleet.last %} <span class="muted">· {{ doing.fleet.last }}</span>{% endif %}</div>{% endif %}
+  {% if doing.task %}<div><b>{{ 'Current task' if doing.task.rule == 'logistics' else 'Working on' }}:</b> {{ doing.task.title }}
+    {% if doing.task.step %}<span class="muted">· step {{ doing.task.n }}/{{ doing.task.of }}: {{ doing.task.step }}{% if doing.task.status == 'waiting' %} (waiting){% endif %}</span>{% endif %}
+    <a class="muted" href="/automations">jobs</a></div>{% endif %}
+</div>{% endif %}
 {% if err %}<div class="banner">Live fetch failed ({{ err }}); showing the last synced copy.</div>{% endif %}
 {% if trip %}<div class="card row between" style="align-items:center">
   <div class="small">Traveling to <b>{{ trip.destination }}</b>{% if trip.seconds_left %} · {{ (trip.seconds_left / 60) | round(0) | int }} min left{% endif %}</div>

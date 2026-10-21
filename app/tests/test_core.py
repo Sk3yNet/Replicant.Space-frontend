@@ -8131,3 +8131,33 @@ def test_logistics_drop_off_keeps_replicants_aboard():
             {"device_code": "M3", "device_type": "empty_replicant_matrix", "stowed_in_device_code": "P1"},
             {"device_code": "D1", "device_type": "survey_drone", "features": ["stow"], "stowed_in_device_code": "LV"}]
     assert stray_aboard({"device_code": "LV"}, devs, set(), set()) == [{"code": "D1", "mode": "stow"}]
+
+
+# --- 1.189.0: a device's page says what it's doing ------------------------------------------------------------------
+
+def test_device_page_shows_fleet_status_and_current_task(client):
+    """Joe 2026-10-21: a fleet member's page shows its fleet's status, a logistics vessel's its current task."""
+    eng = client.app.state.worker.automations
+    fleet, devices = _fleet_world()
+    devices.append({"device_code": "LV000001", "device_type": "cargo_freighter", "location": "AEM-5-L4", "status": "idle",
+                    "tags": ["fleet:haulers"], "available_commands": ["travel"]})
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    fleet["mission"] = {"status": "running", "phase": "work", "idx": 0, "targets": ["XYZ"], "job": "fleets-1-0",
+                        "log": [{"at": "2026-10-21T09:00:00+00:00", "text": "mining XYZ-BELT-1"}]}
+    client.portal.call(eng.save_fleets, [fleet, {"id": "haulers", "name": "Haulers", "role": "logistics", "home": "AEM"}])
+    client.portal.call(eng.save_jobs, [{"id": "logistics-1-0", "rule": "logistics", "title": "logistics: run 3: LV000001 carries 50 iron → BOB",
+                                        "device": "LV000001", "idx": 1, "status": "running", "meta": {},
+                                        "steps": [{"desc": "LV000001: load 50 iron", "path": "/devices/LV000001", "body": {}},
+                                                  {"desc": "LV000001: travel to BOB", "path": "/devices/LV000001", "body": {}}]}])
+    page = client.get(f"/devices/{fleet_member_code(devices)}", headers=H).text
+    assert 'id="doing"' in page and "on a mission to XYZ (work phase)" in page and "mining XYZ-BELT-1" in page
+    page = client.get("/devices/LV000001", headers=H).text
+    assert "Current task:</b> run 3: LV000001 carries 50 iron → BOB" in page and "step 2/2: LV000001: travel to BOB" in page
+    assert "logistics service: on a run" in page
+    client.portal.call(eng.save_jobs, [])
+    page = client.get("/devices/LV000001", headers=H).text
+    assert "idle, waiting for a task" in page and "Current task" not in page
+
+
+def fleet_member_code(devices):
+    return next(d["device_code"] for d in devices if any(t.startswith("fleet:prospector") for t in d.get("tags") or []))
