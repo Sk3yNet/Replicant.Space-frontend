@@ -2211,14 +2211,19 @@ def star_radius(s: dict, known: float | None = None) -> tuple[float | None, bool
     return (r * 10 if lum and lum.group(1) in ("I", "II", "III") else r), False
 
 
-def hazard_tags(tags: Any) -> list[str]:
-    """The system tags of a scan (system_tags, a list or its JSON text) that mark the system hazardous."""
+def scan_tag_list(tags: Any) -> list[str]:
+    """A scan's system tags (system_tags, a list or its JSON text)."""
     if isinstance(tags, str):
         try:
             tags = json.loads(tags)
         except ValueError:
             return []
-    return [str(t) for t in tags if "hazard" in str(t).lower()] if isinstance(tags, list) else []
+    return [str(t) for t in tags] if isinstance(tags, list) else []
+
+
+def hazard_tags(tags: Any) -> list[str]:
+    """The system tags of a scan that mark the system hazardous."""
+    return [t for t in scan_tag_list(tags) if "hazard" in t.lower()]
 
 
 async def map_hazards(eng) -> dict[str, dict]:
@@ -2266,6 +2271,7 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                 reach[s_] = {"ly": r, "hub": "hub" in t}
         radii: dict[str, Any] = {}   # star -> the radius its scan reports (radius_solar)
         hazardous: dict[str, list[str]] = {}   # star -> the scan's system tags that call it hazardous
+        tags_of: dict[str, list[str]] = {}     # star -> all its scan's system tags (resource_rich, anomaly …)
         if sim_view(request):
             scanned = {x.get("designation") for x in cat["stars"] if x.get("explored")}
             a = (await request.app.state.worker.automations.sim_state()).get("active") or {}
@@ -2278,6 +2284,7 @@ async def map_payload(request: Request, part: str = "all") -> dict:
             scanned = {r["star"] for r in rows}
             radii = {r["star"]: r["r"] for r in rows if r["r"] is not None}
             hazardous = {r["star"]: hz for r in rows if (hz := hazard_tags(r["tags"]))}
+            tags_of = {r["star"]: tg for r in rows if (tg := scan_tag_list(r["tags"]))}
         from .census import observatory_stars
         prospected, _ = await observatory_stars(db)   # stars our observatories found: highlighted until scanned
         pfrom = await db.kv_get("prospected_from", {}) or {}   # stars an observatory has prospected from (once each)
@@ -2305,7 +2312,8 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                              if d in prospected else {}),
                           **({"prospected_from": pfrom[d]} if d in pfrom else {}),
                           **({"mega": mega[d]} if d in mega else {}),
-                          **({"hazardous": hazardous[d]} if d in hazardous else {})})
+                          **({"hazardous": hazardous[d]} if d in hazardous else {}),
+                          **({"tags": tags_of[d]} if d in tags_of else {})})
             rad, measured = star_radius(s, radii.get(d))
             if rad is not None:
                 stars[-1].update({"radius": round(rad, 3), "radius_measured": measured})

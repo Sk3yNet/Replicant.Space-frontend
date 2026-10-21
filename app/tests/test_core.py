@@ -8092,3 +8092,13 @@ def test_systems_page_lists_scan_tags(client):
     body = client.get("/systems", headers=H).text
     assert 'id="system-tags"' in body and 'href="/systems/KELM">KELM</a>' in body
     assert body.index(">hazardous<") < body.index(">binary system<")   # most common first
+
+
+def test_map_star_tags(client):
+    """The galaxy map gets each scanned system's tags (resource_rich and anomaly have their own markers)."""
+    import json
+    db = client.app.state.db
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("SOL", json.dumps({"system_tags": ["resource_rich", "anomaly"]}), "2026-10-21T00:00:00+00:00"))
+    sol = next(s for s in client.get("/api/map.json?part=core", headers=H).json()["stars"] if s["designation"] == "SOL")
+    assert sol["tags"] == ["resource_rich", "anomaly"] and "hazardous" not in sol
