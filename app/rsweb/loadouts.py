@@ -1046,7 +1046,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 dest_of, cur, stops = {}, dest, []
                 more = {k: [x for x in v if x not in taken and x not in load] for k, v in batches.items()
                         if k[0] == here and k[1] != dest and relay_only(v)
-                        and (not k[2] or not c.get("replicant_code") or k[2] == c["replicant_code"])
+                        # another replicant's relays are handed over as they board, like the first batch (live
+                        # 2026-10-21: 40 relays at SOLARES owned by the factory's replicant went one per trip)
+                        and (not k[2] or not c.get("replicant_code") or k[2] == c["replicant_code"]
+                             or not any((by_code.get(x) or {}).get("hosting_replicant") for x in v))
                         and (commandable is None or k[1] in commandable or c["device_code"] in escorts)
                         and may_carry(c, v) and fits(c, v)}
                 while left > 0:

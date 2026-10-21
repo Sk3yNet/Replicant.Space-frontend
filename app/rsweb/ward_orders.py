@@ -37,6 +37,14 @@ def ward_here(devices: list[dict], star: str, dtype: str = "system_ward") -> dic
     return sorted(ws, key=lambda d: (not wh.active(d), d.get("device_code") or ""))[0] if ws else None
 
 
+def bound_to(devices: list[dict], star: str, dtype: str = "system_ward") -> dict | None:
+    """One of yours of this type already tagged to:<star> and not working (e.g. printed for an order that expired, live
+    2026-10-21: MOLURNA re-ordered while its relay still waited at the factory): a new order sends that one."""
+    tag = lo.to_tag(star)
+    ds = [d for d in devices if d.get("device_type") == dtype and tag in (d.get("tags") or []) and not wh.active(d)]
+    return sorted(ds, key=lambda d: d.get("device_code") or "")[0] if ds else None
+
+
 def spare_ward(devices: list[dict], star: str, busy: set[str], pos: dict, reach: float,
                dtype: str = "system_ward") -> dict | None:
     """A device of this type that isn't working and belongs to no fleet or contract, nearest first, within reach."""

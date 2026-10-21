@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.194.0"
+VERSION = "1.195.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.195.0", "2026-10-21", "Relay deliveries: a carrier fills its hold with relays for several systems even when "
+     "another replicant printed them (they are handed over as they board); before, those went one per trip and many "
+     "orders expired. A new relay, ward or beacon order sends one already tagged for that system instead of printing "
+     "another. Diagnostics snapshots list every device past 500, plus the relay orders and rollout state."),
     ("1.194.0", "2026-10-21", "Fleet missions: a carrier still outside the target system with the crew aboard "
      "(the trip there did not take it) flies again before unloading or working, instead of stalling on \"the survey "
      "controller is in another system\" at every resume; it stalls with the reason after two more tries."),

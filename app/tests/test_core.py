@@ -7963,6 +7963,11 @@ def test_loadout_plan_fills_a_carrier_hold_with_relays_for_several_systems():
     devices[-1]["stow_capacity"] = 2   # room for two: the third waits for the next run
     p = lo.plan(cfg, devices, [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"HUB"})
     assert sum(len(d["devices"]) for d in p["deliveries"] if d["carrier"] == "HV") == 2
+    devices[-1].update(stow_capacity=3, replicant_code="R1")
+    for d in devices[:3]:
+        d["replicant_code"] = "FAB"   # printed by another replicant's factory (live 2026-10-21): handed over as they board
+    p = lo.plan(cfg, devices, [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"HUB"})
+    assert sorted(x for d in p["deliveries"] if d["carrier"] == "HV" for x in d["devices"]) == ["RAAA", "RBBB", "RCCC"]
 
 
 def test_logistics_replicant_vessels_carry_inside_the_network():
@@ -8236,3 +8241,13 @@ def test_survey_crew_stays_aboard_at_the_kuiper_belt():
     assert fl.loaded_outer(fleet, devs)
     devs[0]["location"] = "BBB-1-L4"
     assert not fl.loaded_outer(fleet, devs)
+
+
+def test_a_new_relay_order_sends_the_relay_already_tagged_there():
+    """Live 2026-10-21: MOLURNA's order expired with its relay still at the factory; the new order printed another."""
+    from rsweb import ward_orders as wo
+    devs = [{"device_code": "R1", "device_type": "ftl_relay", "location": "FAB-BELT-1", "status": "inactive",
+             "tags": ["to:molurna"]},
+            {"device_code": "R2", "device_type": "ftl_relay", "location": "FAB-BELT-1", "status": "inactive", "tags": ["to:valyra"]}]
+    assert wo.bound_to(devs, "MOLURNA", "ftl_relay")["device_code"] == "R1"
+    assert wo.bound_to(devs, "TIMIRIS", "ftl_relay") is None

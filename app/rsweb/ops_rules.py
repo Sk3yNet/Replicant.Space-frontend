@@ -69,6 +69,9 @@ class OpsRules:
         if here:
             order.update(how="activate", device=here["device_code"])
             msg = f"activating {here['device_code']} in {star} ({label})"
+        elif (bound := wo.bound_to(devices, star, dtype)):
+            order.update(how="send", device=bound["device_code"])
+            msg = f"{label} {bound['device_code']} is already on its way to {star} (the loadout pass carries it)"
         else:
             spare = wo.spare_ward(devices, star, busy, pos, reach, dtype)
             if spare:

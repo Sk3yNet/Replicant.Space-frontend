@@ -73,7 +73,7 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
 
     # 1. every device (page by hand, like the sync: an empty first page with a cursor = partial snapshot)
     devices, cursor, partial = [], None, False
-    for _ in range(10):
+    for _ in range(20):
         body = await get("/devices", limit=50, cursor=cursor) or {}
         page = body.get("devices") or []
         cursor = body.get("next_cursor")
@@ -81,8 +81,9 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         devices.extend(page)
         if not cursor:
             break
-    if not devices:  # partial / failed: fall back on the app's cached list for choosing what else to read
-        devices = await db.kv_get("devices", []) or []
+    if not devices or cursor:  # partial / failed / cut short: the app's cached list (every page) when it holds more
+        cached = await db.kv_get("devices", []) or []   # (live 2026-10-21: ten pages stopped at 500 devices)
+        devices = cached if len(cached) > len(devices) else devices
     in_scope = [d for d in devices if not stars or star_of(d.get("location")) in stars]
 
     # 2. stockpiles
@@ -132,6 +133,8 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         # every device in one list: the /devices pages above merged (or the app's cached list when those came back empty)
         "devices": devices,
         "ward_orders": await db.kv_get("ward_orders", {}) or {},
+        "relay_requests": await db.kv_get("relay_requests", {}) or {},
+        "relay_rollout": await db.kv_get("relay_rollout", {}) or {},
         "rules": {k: v for k, v in (settings.get("rules") or {}).items()},
         "dry_run": settings.get("dry_run"),
         "schedules": await eng.schedules(),
