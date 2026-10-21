@@ -8065,3 +8065,15 @@ def test_map_hazard_haze(client):
     client.portal.call(db.insert_event, {"id": "hz2", "event": "system.object_impacted", "location": "SOL-OBJ-1",
                                           "payload": {"impact_target": "SOL-3"}})
     assert client.get("/api/map.json?part=overlay", headers=H).json()["hazards"] == {}
+
+
+def test_map_hazardous_tag(client):
+    """A system whose scan tags it hazardous (system_tags) is hazed on the galaxy map too."""
+    import json
+    from rsweb.web import hazard_tags
+    db = client.app.state.db
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("SOL", json.dumps({"system_tags": ["binary_system", "hazardous"]}), "2026-10-21T00:00:00+00:00"))
+    sol = next(s for s in client.get("/api/map.json?part=core", headers=H).json()["stars"] if s["designation"] == "SOL")
+    assert sol["hazardous"] == ["hazardous"]
+    assert hazard_tags('["radiation_hazard", "binary_system"]') == ["radiation_hazard"] and hazard_tags(None) == []

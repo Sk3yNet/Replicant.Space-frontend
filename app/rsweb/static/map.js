@@ -314,7 +314,7 @@ function build() {
       mg.scale.set(1.6 * ringScale, 1.6 * ringScale, 1); mg.position.copy(v).add(new THREE.Vector3(0, 0, -2.2 * ringScale)); mg.userData.mark = "mega";
       mg.userData.op = 1; mg.userData.size = 1.6 * ringScale; mineGroup.add(mg);
     }
-    if (s.hazard) {   // an incoming object threatens the system (Defence): a red haze, pulsing slowly (animate)
+    if (s.hazard || s.hazardous) {   // the scan tags it hazardous, or an incoming object threatens it (Defence): a red haze, pulsing slowly (animate)
       const hz = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0xff3b30, transparent: true, depthWrite: false }));
       hz.position.copy(v); hz.renderOrder = -1;
       Object.assign(hz.userData, { mark: "hazard", size: 6.5 * ringScale, op: .45, haze: Math.random() * HAZE_S });
@@ -717,6 +717,7 @@ function show(s) {
       <dt>Entry point</dt><dd>${esc(s.entry_point || "?")}</dd>
       <dt>Position</dt><dd class="mono">${["x","y","z"].map(k => (s.position?.[k] ?? 0).toFixed(1)).join(", ")}</dd>
       ${dist ? `<dt>From ${esc(from.designation)}</dt><dd>${dist} ly (straight line)</dd>` : ""}
+      ${s.hazardous ? `<dt>Hazardous</dt><dd style="color:#ff6b5e">${s.hazardous.map(t => esc(t.replace(/_/g, " "))).join(", ")}</dd>` : ""}
       ${s.hazard ? `<dt>Hazard</dt><dd style="color:#ff6b5e">threatened by ${s.hazard.objects.map(esc).join(", ")}${s.hazard.hours_left != null ? ` · impact in ${s.hazard.hours_left} h` : ""} · <a href="/defence">Defence →</a></dd>` : ""}
       <dt>Your devices</dt><dd>${s.devices || 0}</dd>
       ${(s.drones || []).length ? `<dt>Drones</dt><dd>${s.drones.map(g => `${g.n} ${esc(g.kind)} <span class="muted">(${g.working} working${g.idle ? `, ${g.idle} idle` : ""}${g.moving ? `, ${g.moving} moving` : ""})</span>`).join("<br>")}</dd>` : ""}

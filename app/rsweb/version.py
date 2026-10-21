@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.181.0"
+VERSION = "1.181.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.181.1", "2026-10-21", "Galaxy map: the hazard haze also marks systems whose scan tags them hazardous (the tags "
+     "shown next to a system page's name); the star's info lists those tags."),
     ("1.181.0", "2026-10-20", "Galaxy map: a red haze pulses around systems an incoming object still threatens (the object's "
      "system and its impact target's, from Defence), with its own hazards checkbox; the star's info names the object and "
      "the time to impact."),

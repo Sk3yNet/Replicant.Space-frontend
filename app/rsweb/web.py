@@ -2193,6 +2193,16 @@ def star_radius(s: dict, known: float | None = None) -> tuple[float | None, bool
     return (r * 10 if lum and lum.group(1) in ("I", "II", "III") else r), False
 
 
+def hazard_tags(tags: Any) -> list[str]:
+    """The system tags of a scan (system_tags, a list or its JSON text) that mark the system hazardous."""
+    if isinstance(tags, str):
+        try:
+            tags = json.loads(tags)
+        except ValueError:
+            return []
+    return [str(t) for t in tags if "hazard" in str(t).lower()] if isinstance(tags, list) else []
+
+
 async def map_hazards(eng) -> dict[str, dict]:
     """{star: {"objects": [...], "hours_left": soonest}}: systems an incoming object (Defence) still threatens, by the
     object's own system and its impact target's. The map hazes them in red."""
@@ -2237,6 +2247,7 @@ async def map_payload(request: Request, part: str = "all") -> dict:
             if r and r > (reach.get(s_) or {}).get("ly", 0):
                 reach[s_] = {"ly": r, "hub": "hub" in t}
         radii: dict[str, Any] = {}   # star -> the radius its scan reports (radius_solar)
+        hazardous: dict[str, list[str]] = {}   # star -> the scan's system tags that call it hazardous
         if sim_view(request):
             scanned = {x.get("designation") for x in cat["stars"] if x.get("explored")}
             a = (await request.app.state.worker.automations.sim_state()).get("active") or {}
@@ -2244,9 +2255,11 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                 radii = {k: (v.get("star") or {}).get("radius_solar") for k, v in (a.get("scans") or {}).items()
                          if isinstance(v, dict)}
         else:
-            rows = await db.fetchall("SELECT star, CASE WHEN json_valid(data) THEN json_extract(data, '$.star.radius_solar') END AS r FROM systems")
+            rows = await db.fetchall("SELECT star, CASE WHEN json_valid(data) THEN json_extract(data, '$.star.radius_solar') END AS r, "
+                                     "CASE WHEN json_valid(data) THEN json_extract(data, '$.system_tags') END AS tags FROM systems")
             scanned = {r["star"] for r in rows}
             radii = {r["star"]: r["r"] for r in rows if r["r"] is not None}
+            hazardous = {r["star"]: hz for r in rows if (hz := hazard_tags(r["tags"]))}
         from .census import observatory_stars
         prospected, _ = await observatory_stars(db)   # stars our observatories found: highlighted until scanned
         pfrom = await db.kv_get("prospected_from", {}) or {}   # stars an observatory has prospected from (once each)
@@ -2273,7 +2286,8 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                           **({"prospected": prospected[d].get("found_at"), "found_by": prospected[d].get("found_by")}
                              if d in prospected else {}),
                           **({"prospected_from": pfrom[d]} if d in pfrom else {}),
-                          **({"mega": mega[d]} if d in mega else {})})
+                          **({"mega": mega[d]} if d in mega else {}),
+                          **({"hazardous": hazardous[d]} if d in hazardous else {})})
             rad, measured = star_radius(s, radii.get(d))
             if rad is not None:
                 stars[-1].update({"radius": round(rad, 3), "radius_measured": measured})
