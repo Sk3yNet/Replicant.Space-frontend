@@ -2150,14 +2150,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         from . import fleets as fl
         from .shapes import normalize_blueprints
         devices = devices if devices is not None else await self.devices()
-        if f.get("station") and old != new and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped") \
-                and [d for d in fl.members(f, devices) if star_of(d.get("location")) != new]:
-            ready = fl.readiness_anywhere(f, devices, prefer=old, free=fl.solo_flyers(f, devices))
-            if not ready["ready"] and not f.get("move_partial"):
-                # nothing leaves short (seen live 2026-10-10: a move filled piecemeal at the new home, across ~500 ly): it
-                # stays homed where it is — the loadout pass fills it there — and moves once complete (pending_home_pass)
-                f["home"], f["pending_home"] = old, new
-                return f"{new} is pending: it moves once its {fl.readiness_text(ready)}"
+        # a new home never waits for a complete loadout (owner 2026-10-21): the loadout pass fills the fleet there
         dark = await self.dark_home(f, new, devices) if old and new and old != new \
             and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped") else None
         if dark:
@@ -2172,7 +2165,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             moves[old] = {"to": new, "fleet": f.get("id"), "at": now_iso()}
             await self.db.kv_set(KV_MOVES, moves)
         solo = fl.solo_flyers(f, devices)
-        here = fl.readiness_anywhere(f, devices, prefer=old, free=solo)
+        here = fl.together(f, devices, prefer=old, free=solo)
         start = here["at"] if here["ready"] else old   # where it's gathered: it leaves from there
         if f.get("role") != "explore" or not f.get("station") or old == new \
                 or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
@@ -2193,7 +2186,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         return "moving together in one relocation mission (everyone aboard before anything leaves)"
 
     async def pending_home_pass(self) -> list[str]:
-        """Fleets with a new home waiting for a complete loadout (start_relocation): move once it's complete."""
+        """Fleets with a new home nothing could be commanded at yet (start_relocation): move once it can be."""
         from . import fleets as fl
         items = await self.fleets()
         waiting = [f for f in items if f.get("pending_home")]
@@ -2203,10 +2196,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         out = []
         for f in waiting:
             new = f["pending_home"]
-            r = fl.readiness_anywhere(f, devices, prefer=f.get("home"), free=fl.solo_flyers(f, devices))
             dark = await self.dark_home(f, new, devices)
-            if dark or (not r["ready"] and not f.get("move_partial")):
-                note = f"{new} pending: {dark or fl.readiness_text(r)}"
+            if dark:
+                note = f"{new} pending: {dark}"
                 if f.get("path_note") != note:
                     f["path_note"] = note
                 continue
@@ -2216,7 +2208,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             how = await self.start_relocation(f, old, new, devices)
             f["path_note"] = f"moving home {old} → {new} — {how}"
             out.append(f"{f['name']}: {old} → {new}")
-            await self.log("fleets", f"{f['name']}: loadout complete — moving home {old} → {new}: {how}", notify=True)
+            await self.log("fleets", f"{f['name']}: {new} reachable — moving home {old} → {new}: {how}", notify=True)
         await self.save_fleets(items)
         return out
 
@@ -4370,10 +4362,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     await self.log("fleets", f"{fleet['name']}: mission complete", notify=True)
                     break
                 if nxt == "travel" and not m.get("departed"):
-                    r = fl.readiness_anywhere(fleet, devices, prefer=m.get("from") or fleet.get("home"),   # all in one place
-                                              free=set(m.get("solo") or []) if m.get("relocate") else None)
+                    # all in one place: a relocation waits for every member, not for a complete loadout
+                    r = (fl.together if m.get("relocate") else fl.readiness_anywhere)(
+                        fleet, devices, prefer=m.get("from") or fleet.get("home"),
+                        free=set(m.get("solo") or []) if m.get("relocate") else None)
                     if not r["ready"] and not (m.get("opts") or {}).get("partial"):
-                        note = f"waiting to leave: {fl.readiness_text(r)} — Launch anyway sends it short"
+                        note = (f"waiting to leave: members still to collect into {r['at']}: "
+                                + ", ".join(c for cs in r["elsewhere"].values() for c in cs) if m.get("relocate") else
+                                f"waiting to leave: {fl.readiness_text(r)}") + " — Launch anyway sends it short"
                         if m.get("watch_note") != note:
                             m["watch_note"] = note
                             self._mlog(m, note)

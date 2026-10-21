@@ -12,8 +12,7 @@
       at <b>{{ tr.star or '?' }}</b>{% if tr.target and tr.job %} → {{ tr.target }}{% endif %}{% if tr.left is not none and tr.left is defined %} · {{ tr.left }} star(s) left{% endif %}
       {% if tr.note %}<span class="{{ 'lv-alert' if tr.alerted else 'muted' }}"> · {{ tr.note }}</span>{% endif %}
       <span class="muted"> · since {{ tr.since | ago }}</span></div>{% endif %}
-    {% if f.pending_home %}<div class="small lv-alert">Moving to {{ f.pending_home }} once its whole loadout is together in one system — {{ f.path_note or '' }}
-      <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "partial"}' hx-confirm="Move {{ f.name }} to {{ f.pending_home }} now, short?">Move anyway</button></div>{% endif %}
+    {% if f.pending_home %}<div class="small lv-alert">Moving to {{ f.pending_home }} once it can be commanded there — {{ f.path_note or '' }}</div>{% endif %}
     <span>{% if m.status %}<span class="pill {{ {'running': 'st-work', 'done': 'lv-done', 'stalled': 'lv-alert', 'ended': 'lv-done'}.get(m.status, '') }}">{{ m.status }}{% if m.status == 'running' %}: {{ m.phase }}{% endif %}</span>{% endif %}</span>
   </div>
   <div class="grid g2">

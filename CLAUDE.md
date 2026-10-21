@@ -114,7 +114,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
 - Owner's plan (2026-10-19): relays go first (Relay rollout; any logistics vessel with a replicant may escort relays
   beyond the network); mining stays inside the network, and no automatic assignment goes outside it; survey fleets
   work at the edge. The owner reassigns replicants and attaches matrices by hand: don't automate those.
-- Fleets never leave with a partial loadout. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the
+- Fleets never leave on a mission with a partial loadout, but a new home never waits for one (owner 2026-10-21): mining
+  fleets trickle over as carriers fill, survey fleets collect every member first and move together. Long trips wait on the game's ETA, and a canceled or misrouted trip stops the
   job.
 
 ## Writing character texts (replicant profiles)

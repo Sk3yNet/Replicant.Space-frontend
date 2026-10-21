@@ -1283,6 +1283,16 @@ def readiness_anywhere(fleet: dict, devices: list[dict], prefer: str | None = No
     return min(rs, key=lambda r: (not r["ready"], sum(r["short"].values())))
 
 
+def together(fleet: dict, devices: list[dict], prefer: str | None = None, free: set[str] | None = None) -> dict:
+    """readiness_anywhere() with the fleet's own members as its loadout: are they all in one place, whatever the
+    loadout asks for (a relocation waits for its members, not for a complete loadout: owner 2026-10-21)?"""
+    have: dict[str, int] = {}
+    for d in members(fleet, devices):
+        if d.get("device_code") not in (free or ()):
+            have[d.get("device_type") or "device"] = have.get(d.get("device_type") or "device", 0) + 1
+    return readiness_anywhere({**fleet, "station": False, "wants": have}, devices, prefer=prefer, free=free)
+
+
 def readiness_text(r: dict) -> str:
     parts = [f"{n}× {t.replace('_', ' ')}" + (f" ({len(r['elsewhere'][t])} elsewhere)" if r["elsewhere"].get(t) else "")
              for t, n in sorted(r["short"].items())]

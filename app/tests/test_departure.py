@@ -35,30 +35,17 @@ def _fleet(e, client, devs, **f):
     client.portal.call(e.save_fleets, [{**base, **f}])
 
 
-def test_new_home_waits_for_a_complete_loadout(client):
+def test_new_home_does_not_wait_for_a_complete_loadout(client):
+    """Owner 2026-10-21: the loadout is no barrier to moving; the loadout pass fills the fleet at its new home."""
     e = eng(client)
     _reach_everywhere(e)
     devs = [dev("C", "surge_carrier", "SOL-OORT", features=["surge"], attach_capacity=9),
             dev("M1", "mining_drone", "SOL-BELT-1")]
     _fleet(e, client, devs)
-    items = client.portal.call(e.fleets)
-    f = items[0]
+    f = client.portal.call(e.fleets)[0]
     f["home"] = "ABOTEIN"
     how = client.portal.call(e.start_relocation, f, "SOL", "ABOTEIN", devs)
-    assert "pending" in how and f["home"] == "SOL" and f["pending_home"] == "ABOTEIN" and not f.get("mission")
-    client.portal.call(e.save_fleets, items)
-    client.portal.call(e.pending_home_pass)
-    assert client.portal.call(e.fleets)[0]["pending_home"] == "ABOTEIN"           # still short: stays
-    devs.append(dev("M2", "mining_drone", "SOL-BELT-1"))
-    client.portal.call(client.app.state.db.kv_set, "devices", devs)
-    client.portal.call(e.pending_home_pass)
-    f = client.portal.call(e.fleets)[0]
-    assert f["home"] == "ABOTEIN" and not f.get("pending_home")
-    # Move anyway
-    _fleet(e, client, devs[:2], pending_home="ABOTEIN")
-    client.post("/fleets/f/control", data={"action": "partial"}, headers=HX)
-    client.portal.call(e.pending_home_pass)
-    assert client.portal.call(e.fleets)[0]["home"] == "ABOTEIN"
+    assert "pending" not in how and f["home"] == "ABOTEIN" and not f.get("pending_home")
 
 
 def test_new_home_moves_from_wherever_the_fleet_is_gathered(client):
@@ -1018,22 +1005,19 @@ def test_carrier_card_fetches_far_devices_instead_of_a_long_cruise():
 
 def test_survey_fleet_collects_every_member_before_moving(client):
     """Owner 2026-10-21: a survey fleet moves only once all its members are together; one in another system is
-    collected first (the loadout pass brings it to the fleet while the new home stays pending)."""
+    collected first (the relocation's gather phase fetches it), whatever its loadout still lacks."""
     e = eng(client)
     _reach_everywhere(e)
     devs = [dev("C", "surge_carrier", "SOL-OORT", features=["surge"], attach_capacity=9),
             dev("M1", "survey_drone", "SOL-BELT-1"), dev("M2", "survey_drone", "LERNA-BELT-1")]
-    _fleet(e, client, devs, role="explore", wants={"survey_drone": 2, "surge_carrier": 1})
-    items = client.portal.call(e.fleets)
-    f = items[0]
+    _fleet(e, client, devs, role="explore", wants={"survey_drone": 3, "surge_carrier": 1})   # one drone short
+    f = client.portal.call(e.fleets)[0]
     f["home"] = "ABOTEIN"
     how = client.portal.call(e.start_relocation, f, "SOL", "ABOTEIN", devs)
-    assert "pending" in how and "elsewhere" in how and f["home"] == "SOL" and not f.get("mission")
-    client.portal.call(e.save_fleets, items)
-    p = client.portal.call(e.loadout_plan)
-    assert p["moves"] == {"M2": "SOL"} and p["deliveries"][0]["devices"] == ["M2"]   # fetched from LERNA by C
-    devs[2]["location"] = "SOL-BELT-1"                                      # collected
-    client.portal.call(client.app.state.db.kv_set, "devices", devs)
-    client.portal.call(e.pending_home_pass)
-    f = client.portal.call(e.fleets)[0]
-    assert f["home"] == "ABOTEIN" and f["mission"]["relocate"]             # all together: one move
+    assert "relocation mission" in how and f["home"] == "ABOTEIN" and f["mission"]["from"] == "SOL"
+    r = fl.together(f, devs, prefer="SOL")
+    assert not r["ready"] and r["elsewhere"] == {"survey_drone": ["M2"]}       # the travel gate waits for M2
+    steps, _ = client.portal.call(e.fleet_phase_steps, f, f["mission"], "gather", devs)
+    assert steps[0]["desc"] == "C → LERNA (pick up 1)"                        # C fetches M2 from LERNA
+    devs[2]["location"] = "SOL-BELT-1"
+    assert fl.together(f, devs, prefer="SOL")["ready"]                        # all together: it leaves, one short
