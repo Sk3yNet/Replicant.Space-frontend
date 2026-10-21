@@ -338,6 +338,27 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             d = {**d, "tags": [t for t in d.get("tags") or [] if t != to_tag(dest)] + [to_tag(f["home"])]}
         fixed.append(d)
     devices = fixed
+    # a relay bound for a system that already has one relaying, or a second one bound for the same system, isn't sent:
+    # it's made spare where it waits (owner 2026-10-21: mark them before they're delivered). One already on a running
+    # job, or already aboard a carrier, keeps its trip (spared on arrival instead).
+    unbind: dict[str, str] = {}
+    relaying_now = relaying_stars(devices)
+    bound_relays: dict[str, list[dict]] = defaultdict(list)
+    for d in devices:
+        dest = bound_for(d, known_stars, fleet_homes)
+        if (dest and (d.get("device_type") or "") == "ftl_relay" and not fleet_tag_of(d) and to_tag(dest) in (d.get("tags") or [])
+                and not str(d.get("status") or "").startswith("relaying")):
+            bound_relays[dest].append(d)
+    for dest, ds in bound_relays.items():
+        moving_ = lambda x: x["device_code"] in busy or bool(x.get("stowed_in_device_code") or x.get("attached_to_device_code"))  # noqa: E731
+        ds = sorted(ds, key=lambda x: (not moving_(x), star_of(x.get("location")) != dest, x["device_code"]))  # there first
+        for i, d in enumerate(ds):
+            if moving_(d) or (dest not in relaying_now and i == 0):
+                continue
+            unbind[d["device_code"]] = to_tag(dest)
+    if unbind:
+        devices = [{**d, "tags": [t for t in d.get("tags") or [] if t != unbind[d["device_code"]]] + [SPARE]}
+                   if d["device_code"] in unbind else d for d in devices]
     pool = [d for d in devices if visible(d)]
     stale = [d for d in pool if d.get("location_stale") or not (d.get("location") or d.get("stowed_in_device_code")
                                                                    or d.get("attached_to_device_code"))]
@@ -404,6 +425,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     for code, (old_t, new_t) in retag.items():
         tag_remove[code].add(old_t)
         tag_add[code].add(new_t)
+    for code, old_t in unbind.items():
+        tag_remove[code].add(old_t)
+        tag_add[code].add(SPARE)
     assign: dict[str, str] = {}       # device -> fleet tag it joins (set by its move, or straight away)
     unmet: list[dict] = []
 

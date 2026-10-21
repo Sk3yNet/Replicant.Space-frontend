@@ -8275,3 +8275,25 @@ def test_an_extra_relay_where_one_already_relays_is_made_spare():
     p = lo.plan({"phases": [], "systems": {}, "fleets": []}, devices, [], {}, stars, {}, set(), [], {})
     assert "spare" in p["tag_add"].get("R2", set()) and "spare" not in p["tag_add"].get("R3", set())
     assert "spare" not in p["tag_add"].get("R1", set())
+
+
+def test_relays_bound_for_a_covered_system_or_twice_for_one_are_made_spare_before_delivery():
+    """Owner 2026-10-21: an extra relay is marked spare where it waits instead of being delivered."""
+    from rsweb import loadouts as lo
+    def dev(code, t, loc, **kw):
+        return {"device_code": code, "device_type": t, "location": loc, "status": kw.pop("status", "inactive"),
+                "operational_capacity": 100.0, "features": kw.pop("features", ["cruise", "stow"]),
+                "available_commands": ["travel", "stow", "deploy"], **kw}
+    devices = [dev("W1", "ftl_relay", "AAA-1-L4", status="relaying"),
+               dev("R1", "ftl_relay", "HUB-1", tags=["to:aaa"]),                       # AAA already relays
+               dev("R2", "ftl_relay", "HUB-1", tags=["to:bbb"]), dev("R3", "ftl_relay", "HUB-1", tags=["to:bbb"]),
+               dev("HV", "heaven_vessel", "HUB-1", features=["surge", "cruise"], stow_capacity=5,
+                   hosting_replicant={"replicant_code": "X"}, tags=["fleet:logistics"])]
+    stars = {s: {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in (("HUB", 0), ("AAA", 5), ("BBB", 9))}
+    cfg = {"phases": [], "systems": {}, "fleets": [{"id": "logistics", "name": "Logistics", "role": "logistics",
+                                                    "home": "HUB", "wants": {}}]}
+    p = lo.plan(cfg, devices, [], {}, stars, {"HV": "X"}, set(), [], {}, commandable={"HUB", "AAA"})
+    for code, tag in (("R1", "to:aaa"), ("R3", "to:bbb")):
+        assert "spare" in p["tag_add"][code] and tag in p["tag_remove"][code]
+    sent = {x for d in p["deliveries"] for x in d["devices"]}
+    assert "R2" in sent and not sent & {"R1", "R3"}

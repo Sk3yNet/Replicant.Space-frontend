@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.196.0"
+VERSION = "1.197.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.197.0", "2026-10-21", "Extra relays are marked spare before delivery: a relay waiting to go to a system where "
+     "one of yours already relays, or a second one bound for the same system, loses its to: tag and becomes spare "
+     "where it is. One already aboard a carrier or on a running job keeps its trip and is spared on arrival."),
     ("1.196.0", "2026-10-21", "Relay, ward and beacon orders never print a second one for a system when a print "
      "tagged for it is already printing or waiting in a factory queue. An extra relay idle in a system where one of "
      "yours already relays is marked spare, so the next order sends it on."),
