@@ -42,4 +42,9 @@
     {% else %}<tr><td colspan="13" class="muted">{{ 'Every system has all three.' if missing else 'No presence yet — waiting for sync.' }}</td></tr>{% endfor %}
   </table>
 </div>
+<details class="card" id="system-tags" style="margin-top:14px"><summary><b>System tags</b> <span class="muted small">from {{ known | length }} cached scans · {{ system_tags | length }} tags</span></summary>
+  {% for t, stars in system_tags %}<div class="small" style="margin:4px 0"><span class="pill {{ 'lv-alert' if 'hazard' in t | lower }}">{{ t | human }}</span>
+    <span class="muted">{{ stars | length }}</span> {% for s in stars %}<a href="/systems/{{ s }}">{{ s }}</a>{{ ', ' if not loop.last }}{% endfor %}</div>
+  {% else %}<p class="muted small">No cached scan has system tags yet.</p>{% endfor %}
+</details>
 {% endblock %}

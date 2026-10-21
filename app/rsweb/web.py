@@ -1494,6 +1494,9 @@ async def systems(request: Request, origin: str = "", user: str = Depends(curren
     from .prospects import _dist
     st = await load_state(request)
     known = {r["star"]: r for r in await request.app.state.db.fetchall("SELECT star, updated_at FROM systems")}
+    tag_rows = await request.app.state.db.fetchall(
+        "SELECT star, CASE WHEN json_valid(data) THEN json_extract(data, '$.system_tags') END AS tags FROM systems")
+    system_tags = scan_tags(tag_rows)
     presence: dict[str, dict] = defaultdict(lambda: {"devices": 0, "homes": [], "targets": [], "locations": 0, "resources": 0})
     for d in st["devices"]:
         presence[star_of(d.get("location"))]["devices"] += 1
@@ -1547,7 +1550,22 @@ async def systems(request: Request, origin: str = "", user: str = Depends(curren
         p["orders"] = {k: orders[k].get(s) for k in wo.KINDS}
         p["working"] = {k: any(wh.active(d) for d in p["outposts"][k]) for k in wo.KINDS}
     return await page(request, user, "systems.html", "systems", rows=out_rows, known=known, show_outposts=show or missing,
-                      missing=missing, outpost_kinds=outposts.LABELS, origin=origin, origins=origins)
+                      missing=missing, outpost_kinds=outposts.LABELS, origin=origin, origins=origins,
+                      system_tags=system_tags)
+
+
+def scan_tags(rows) -> list[tuple[str, list[str]]]:
+    """[(tag, [stars])]: every system tag in the cached scans (system_tags), with the systems carrying it, most common
+    first."""
+    by: dict[str, set[str]] = defaultdict(set)
+    for r in rows:
+        try:
+            tags = json.loads(r["tags"]) if r["tags"] else []
+        except ValueError:
+            continue
+        for t in tags if isinstance(tags, list) else []:
+            by[str(t)].add(r["star"])
+    return sorted(((t, sorted(v)) for t, v in by.items()), key=lambda x: (-len(x[1]), x[0]))
 
 
 def _angle(code: str) -> float:

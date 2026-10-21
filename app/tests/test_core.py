@@ -8077,3 +8077,15 @@ def test_map_hazardous_tag(client):
     sol = next(s for s in client.get("/api/map.json?part=core", headers=H).json()["stars"] if s["designation"] == "SOL")
     assert sol["hazardous"] == ["hazardous"]
     assert hazard_tags('["radiation_hazard", "binary_system"]') == ["radiation_hazard"] and hazard_tags(None) == []
+
+
+def test_systems_page_lists_scan_tags(client):
+    """The Systems page lists every system tag in the cached scans with the systems carrying it."""
+    import json
+    db = client.app.state.db
+    for star, tags in (("SOL", ["binary_system", "hazardous"]), ("KELM", ["hazardous"])):
+        client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                           (star, json.dumps({"system_tags": tags}), "2026-10-21T00:00:00+00:00"))
+    body = client.get("/systems", headers=H).text
+    assert 'id="system-tags"' in body and 'href="/systems/KELM">KELM</a>' in body
+    assert body.index(">hazardous<") < body.index(">binary system<")   # most common first
