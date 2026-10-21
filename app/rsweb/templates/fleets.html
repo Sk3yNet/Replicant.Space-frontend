@@ -31,6 +31,21 @@
 <div class="card" id="fleets-overview" style="margin-bottom:14px;overflow-x:auto" hx-get="/fleets/overview" hx-trigger="load" hx-swap="innerHTML">
   <h2>Overview</h2><p class="muted small">Loading fleet status…</p></div>
 
+{% if strays or home_moves %}
+<div class="card" id="strays" style="margin-bottom:14px;overflow-x:auto">
+  <h2>Strays <span class="muted small">(members away from their fleet's home)</span></h2>
+  {% for fid, m in home_moves.items() %}{% set f = fleets | selectattr("id", "equalto", fid) | first %}
+  <p class="small">{{ f.name if f else fid }}: moving {{ m["from"] }} → {{ m.to }} since {{ m.at | ago }},
+    {{ strays | selectattr("fleet", "equalto", fid) | list | length }} member(s) not there yet.</p>{% endfor %}
+  {% if strays %}<table class="small"><tr><th>Device</th><th>Fleet</th><th>In</th><th>Home</th><th>Why</th><th>Since</th></tr>
+  {% for s in strays %}<tr><td><a href="/devices/{{ s.code }}">{{ s.code }}</a> <span class="muted">{{ (s.type or "") | replace("_", " ") }}</span></td>
+    <td>{{ s.name }}</td><td>{{ s.star }}</td><td>{{ s.home }}</td><td>{{ stray_reason(s) }}</td><td>{{ s.since | ago }}</td></tr>{% endfor %}
+  </table>{% else %}<p class="muted small">Everyone's home.</p>{% endif %}
+  <p class="muted small">Checked every tick: a member riding another fleet's idle carrier is let off so the loadout pass brings it
+    home; one stuck away an hour with nothing bringing it is reported once.</p>
+</div>
+{% endif %}
+
 <div class="card" id="templates" style="margin-bottom:14px">
     <h2>Templates <span class="muted small">(phases)</span></h2>
     <p class="muted small">A template (phase) is a loadout fleets can share, e.g. a stage of a system's development: how many of each device

@@ -1668,3 +1668,57 @@ def deal_affordable(price: dict, inventory: dict[str, dict]) -> bool:
         for r, q in as_amounts(items).items():
             have[r] = have.get(r, 0.0) + q
     return all(have.get(r, 0.0) >= q for r, q in as_amounts(price).items())
+
+
+STRAY_ALERT_MINUTES = 60   # a member away from its stationed fleet's home this long, with nothing bringing it, is reported
+
+
+def where_star(d: dict, by: dict[str, dict]) -> str:
+    """The system a device is in: its own location, or the location of what it rides (up the stow / attach chain)."""
+    seen, c = set(), d
+    while c and not c.get("location"):
+        up = c.get("stowed_in_device_code") or c.get("attached_to_device_code")
+        if not up or up in seen:
+            return ""
+        seen.add(up)
+        c = by.get(up) or {}
+    return star_of((c or {}).get("location"))
+
+
+def strays(fleets: list[dict], devices: list[dict], busy: set[str]) -> list[dict]:
+    """Members of a stationed fleet that aren't in its home system (owner 2026-10-21): a fleet's devices are carried off
+    or left behind on a move. Leaves out spares, placed relays and beacons, replicants and their matrices (moved by
+    hand), and members on a mission. [{"code", "type", "fleet", "name", "home", "star", "riding", "riding_fleet",
+    "moving", "busy"}] — `moving`: traveling or tagged for home; `busy`: in a job."""
+    from .loadouts import SPARE, placed, to_tag
+    from .logistics import holds_replicant
+    by = {d.get("device_code"): d for d in devices}
+    out = []
+    for f in fleets or []:
+        if not stationed(f):
+            continue
+        home = f["home"]
+        for d in members(f, devices):
+            tags = d.get("tags") or []
+            if SPARE in tags or placed(d) or holds_replicant(d, devices):
+                continue
+            star = where_star(d, by)
+            if not star or star == home:
+                continue
+            ride = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
+            st = str(d.get("status") or "").lower()
+            out.append({"code": d["device_code"], "type": d.get("device_type"), "fleet": f["id"], "name": f.get("name"),
+                        "home": home, "star": star, "riding": ride, "riding_fleet": fleet_of(by.get(ride) or {}) if ride else None,
+                        "moving": st.startswith(("travel", "cruis", "surg")) or to_tag(home) in tags,
+                        "busy": d["device_code"] in busy})
+    return out
+
+
+def stray_reason(s: dict) -> str:
+    if s["riding"]:
+        return f"riding {s['riding']}" + (f" (fleet {s['riding_fleet']})" if s.get("riding_fleet") else "")
+    if s["moving"]:
+        return "on its way"
+    if s["busy"]:
+        return "in a job"
+    return "nothing is bringing it home"

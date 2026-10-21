@@ -242,6 +242,11 @@ lines or a template).
   Before any carrier leaves on a trip, members of another fleet riding it that the trip would take away from their fleet
   (not going to their fleet's home, not named in the job, not the job's or the carrier's fleet, not a replicant or a
   matrix) are let off where it is first; the loadout pass then brings them home.
+  Strays (Fleets page): every tick the app lists members of stationed fleets that aren't in their home system (spares,
+  placed relays and beacons, replicants and matrices left out), with where they are and why. One riding another fleet's
+  idle carrier is let off there so the loadout pass can bring it home (logistics carriers bring them home themselves);
+  one away an hour with nothing bringing it is reported once. A fleet's move to a new home stays open until every
+  member is there: reported when complete, and once if members are still missing after two hours.
   Every vessel in a logistics fleet is available to automation, replicant vessels included (moves of stationed mining
   fleets, deliveries, beacons; while an approved shop trade waits, device runs leave those with a replicant free for it); another fleet's replicant vessel is only used as the escort a trip beyond the network needs.
 - **Bootstrap** fleets: from a bare heaven vessel (three mining drones and a replicant aboard) to an autofactory hub with three

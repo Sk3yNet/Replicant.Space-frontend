@@ -1376,7 +1376,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             for stage in ("season_snapshot_pass", "evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass"):
                 self.stage = stage
                 await asyncio.sleep(0)   # let waiting page requests run between stages
                 t_stage = time.perf_counter()
@@ -1619,6 +1619,72 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 (None, "mention", text, None, "/trail", now_iso()))
             self.hub.publish("notify", {"id": cur.lastrowid, "level": "mention", "title": text, "link": "/trail"})
             out.append(text)
+        return out
+
+    async def stray_pass(self) -> list[str]:
+        """Members of stationed fleets away from home (fleets.strays), owner 2026-10-21. One riding another fleet's idle
+        carrier (not a logistics one: the logistics pass brings those home) is let off where it is, so the loadout pass
+        can bring it home. One stuck away for an hour with nothing bringing it is reported once. A fleet's move to a new
+        home stays open (home_moves) until every member is there: reported when it's complete, and once if members are
+        still missing after two hours."""
+        from . import fleets as fl
+        items = await self.fleets()
+        devices = await self.devices()
+        busy = self.busy_devices(await self.jobs())
+        prev = await self.db.kv_get("fleet_strays", {}) or {}
+        cur = fl.strays(items, devices, busy)
+        now = _now()
+        logistics = {fl.fleet_tag(f["id"])[6:] for f in items if f.get("role") == "logistics"}
+        commandable = await self.commandable(devices)
+        out, alerts, state = [], [], {}
+        for s in cur:
+            p = prev.get(s["code"]) or {}
+            e = {**s, "since": p.get("since") or now_iso(), "alerted": p.get("alerted"), "let_off": p.get("let_off", 0)}
+            state[s["code"]] = e
+            car = s["riding"]
+            if car and not s["busy"] and car not in busy and s["riding_fleet"] != fl.fleet_tag(s["fleet"])[6:] \
+                    and s["riding_fleet"] not in logistics and s["star"] in commandable and e["let_off"] < 2:
+                d = next((x for x in devices if x.get("device_code") == s["code"]), {})
+                mode = "attach" if d.get("attached_to_device_code") == car else "stow"
+                job = await self.create_job("fleets", f"{s['name']}: {car} lets off {s['code']} (its fleet is in {s['home']})",
+                                            car, fl.let_off_steps(car, [{"code": s["code"], "mode": mode}]),
+                                            {"devices": [car, s["code"]], "fleet": s["fleet"]})
+                if job:
+                    e["let_off"] += 1
+                    busy.add(car)
+                    out.append(f"{car} lets off {s['code']}")
+            age = (now - (_ts(e["since"]) or now)).total_seconds() / 60
+            if age >= fl.STRAY_ALERT_MINUTES and not e["alerted"] and not s["moving"] and not s["busy"]:
+                e["alerted"] = now_iso()
+                alerts.append(f"{s['code']} ({(s['type'] or 'device').replace('_', ' ')}, {s['name']}) in {s['star']}, "
+                              f"home {s['home']}: {fl.stray_reason(s)}")
+        if alerts:
+            await self.log("fleets", "away from their fleet for an hour or more: " + "; ".join(alerts), "alert", notify=True)
+        back = [c for c, p in prev.items() if c not in state and p.get("alerted")]
+        if back:
+            await self.log("fleets", f"back with their fleet: {', '.join(sorted(back))}")
+        await self.db.kv_set("fleet_strays", state)
+        moves = await self.db.kv_get("home_moves", {}) or {}
+        if moves:
+            names = {f["id"]: f for f in items}
+            for fid, m in list(moves.items()):
+                f = names.get(fid)
+                if not f or f.get("home") != m["to"]:
+                    moves.pop(fid)   # the fleet is gone or moved on (that move made its own entry)
+                    continue
+                left = [s for s in cur if s["fleet"] == fid]
+                hours = (now - (_ts(m["at"]) or now)).total_seconds() / 3600
+                if not left:
+                    await self.log("fleets", f"{f.get('name')}: move to {m['to']} complete, every member is there", notify=True)
+                    moves.pop(fid)
+                elif hours >= 2 and not m.get("alerted"):
+                    m["alerted"] = now_iso()
+                    await self.log("fleets", f"{f.get('name')}: move to {m['to']} still missing "
+                                   + "; ".join(f"{s['code']} in {s['star']} ({fl.stray_reason(s)})" for s in left),
+                                   "alert", notify=True)
+                elif hours >= 48:
+                    moves.pop(fid)   # two days: the stray list and its alerts carry on without it
+            await self.db.kv_set("home_moves", moves)
         return out
 
     async def rider_pass(self) -> list[str]:
@@ -3454,6 +3520,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             for fid, home in moved.items():
                 pending[fid] = {"home": home, "at": now_iso(), "sent": []}
             await self.db.kv_set("rider_moves", pending)
+            hm = await self.db.kv_get("home_moves", {}) or {}   # open until every member is there (stray_pass)
+            for fid, home in moved.items():
+                hm[fid] = {"from": before[fid], "to": home, "at": now_iso()}
+            await self.db.kv_set("home_moves", hm)
         await self.db.kv_set("fleets", keep)
         set_stationed({fleet_tag(f["id"]): f["home"] for f in items if stationed(f)})
 

@@ -148,6 +148,8 @@ async def fleets_page(request: Request, user: str = Depends(current_user)):
     stars = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")} | {f["home"] for f in items if f.get("home")})
     return await page(request, user, "fleets.html", "fleets", fleets=items, cfg=cfg, templates=cfg["phases"], types=types,
                       stars=stars, roles=fl.ROLES, last=await db.kv_get("loadouts_last", {}) or {},
+                      strays=sorted((await db.kv_get("fleet_strays", {}) or {}).values(), key=lambda x: (x.get("name") or "", x["code"])),
+                      home_moves=await db.kv_get("home_moves", {}) or {}, stray_reason=fl.stray_reason,
                       depot=lo.spare_depot(cfg, st["devices"]),
                       all_tags=sorted({t for d in st["devices"] for t in (d.get("tags") or [])}),
                       boot_reps=[(c, r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")])
