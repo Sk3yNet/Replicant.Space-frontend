@@ -717,3 +717,38 @@ def test_get_listing_reads_now_or_asks_logistics(client):
         assert client.portal.call(shop.known_traders, db)["SH1"]["trades"][0]["trade_code"] == "T1"
     finally:
         api.get = orig
+
+
+def test_idle_carrier_brings_another_fleets_member_home_not_to_a_drop_off():
+    """Owner 2026-10-21: a fleet member aboard a logistics carrier goes to its fleet's home, never a drop-off point."""
+    fleets = FLEETS + [{"id": "far", "name": "Far", "role": "mining", "home": "B"}]
+    devs = [dev("CV", "cargo_vessel", "A-3", stow_capacity=50, cargo={"carbon": 40}, **SURGE),
+            dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("MD", "mining_drone", None, stowed_in_device_code="CV", tags=["fleet:far"]),
+            dev("SD", "survey_drone", None, stowed_in_device_code="CV", tags=["fleet:gone"])]
+    p = lg.plan(fleets=fleets, devices=devs, bps=BPS, inventory={}, pos=POS, commandable={"A", "B"},
+                hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[], incoming={},
+                replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1")
+    run = next(r for r in p["runs"] if r.get("kind") == "dump")
+    assert run["to"] == "B-1" and run["dump"] == [{"code": "MD", "mode": "stow"}] and run["carry"] == {}
+    assert "home to B" in run["label"]
+
+
+def test_a_carrier_lets_other_fleets_members_off_before_it_leaves():
+    from rsweb import fleets as fl
+    fleets = [{"id": "a", "home": "AAA"}, {"id": "b", "home": "BBB"}, {"id": "m", "home": "MMM"}]
+    devs = [{"device_code": "CAR", "tags": ["fleet:a"]},
+            {"device_code": "OWN", "tags": ["fleet:a"], "stowed_in_device_code": "CAR"},       # its own fleet: stays
+            {"device_code": "B1", "tags": ["fleet:b"], "attached_to_device_code": "CAR"},      # carried away: off
+            {"device_code": "B2", "tags": ["fleet:b"], "stowed_in_device_code": "CAR"},        # carried away: off
+            {"device_code": "M1", "tags": ["fleet:m"], "stowed_in_device_code": "CAR"},        # the job's fleet: stays
+            {"device_code": "B3", "tags": ["fleet:b"], "stowed_in_device_code": "CAR"},        # named in the job: stays
+            {"device_code": "B4", "tags": ["fleet:b", "to:ccc"], "stowed_in_device_code": "CAR"},  # bound there: stays
+            {"device_code": "MX", "device_type": "replicant_matrix", "tags": ["fleet:b"], "stowed_in_device_code": "CAR"},
+            {"device_code": "X1", "tags": [], "stowed_in_device_code": "CAR"}]                 # fleetless: not this rule
+    job = {"meta": {"fleet": "m"}, "steps": [{"path": "/devices/B3", "body": {"command": "stow", "target": "CAR"}}]}
+    assert fl.foreign_riders("CAR", "CCC-2", devs, fleets, job) == [{"code": "B1", "mode": "attach"},
+                                                                    {"code": "B2", "mode": "stow"}]
+    assert fl.foreign_riders("CAR", "BBB-1", devs, fleets, job) == []   # going to their home: they ride along
+    descs = [s["desc"] for s in fl.let_off_steps("CAR", [{"code": "B1", "mode": "attach"}, {"code": "B2", "mode": "stow"}])]
+    assert descs == ["CAR: detach B1 (not its fleet's)", "deploy B2 from CAR (not its fleet's)"]

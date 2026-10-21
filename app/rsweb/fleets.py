@@ -196,6 +196,49 @@ def take_seat(free: dict, d: dict) -> str | None:
     return None
 
 
+def foreign_riders(carrier: str, dest: str, devices: list[dict], fleets: list[dict], job: dict | None = None) -> list[dict]:
+    """Members of another fleet riding `carrier` that a trip to `dest` would carry away from their fleet (owner
+    2026-10-21): not a replicant or its matrix, not the carrier's own fleet or the job's fleet, not named anywhere in the
+    job (it boarded them on purpose), not bound for `dest` (their fleet's home, or a to: / at: tag there).
+    [{"code", "mode": "attach" | "stow"}]: let them off before the carrier leaves."""
+    import json
+    from .logistics import holds_replicant
+    by = {d.get("device_code"): d for d in devices}
+    car = by.get(carrier) or {}
+    homes = {fleet_tag(f["id"]): f.get("home") for f in fleets or [] if f.get("id")}
+    by_id = {fleet_tag(f["id"]): f.get("id") for f in fleets or [] if f.get("id")}
+    star = star_of(dest)
+    said = json.dumps({"steps": (job or {}).get("steps"), "meta": (job or {}).get("meta")}, default=str)
+    meta_fleet = ((job or {}).get("meta") or {}).get("fleet")
+    out = []
+    for d in devices:
+        code = d.get("device_code")
+        how = "attach" if d.get("attached_to_device_code") == carrier else "stow" if d.get("stowed_in_device_code") == carrier else None
+        own = fleet_of(d)
+        if not how or not own or ("fleet:" + own) not in homes or own == fleet_of(car) or by_id["fleet:" + own] == meta_fleet \
+                or code in said or holds_replicant(d, devices) or star_of(homes["fleet:" + own]) == star:
+            continue
+        if any(str(t)[3:].split("-")[0] == star.lower() for t in d.get("tags") or [] if str(t).startswith(("to:", "at:"))):
+            continue
+        out.append({"code": code, "mode": how})
+    return out
+
+
+def let_off_steps(carrier: str, riders: list[dict]) -> list[dict]:
+    """Let riders off where the carrier is: an attached one is detached by the carrier, a stowed one deploys itself."""
+    out = []
+    for x in riders:
+        if x["mode"] == "attach":
+            out.append(step(f"{carrier}: detach {x['code']} (not its fleet's)", f"/devices/{carrier}",
+                            {"command": "detach", "device": x["code"]}))
+        else:
+            st = step(f"deploy {x['code']} from {carrier} (not its fleet's)", f"/devices/{x['code']}", {"command": "deploy"},
+                      wait=["device.deployed"], timeout=SHORT_TIMEOUT)
+            st["wait_device"] = x["code"]
+            out.append(st)
+    return out
+
+
 def board_step(carrier: str, code: str, mode: str) -> dict:
     if mode == "stow":   # the cargo stows itself into the carrier
         st = step(f"stow {code} in {carrier}", f"/devices/{code}", {"command": "stow", "target": carrier},

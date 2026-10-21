@@ -237,6 +237,11 @@ lines or a template).
   An idle logistics carrier drops off what isn't its work at the nearest receiving point inside the network (a fleet that
   takes materials in, or one of your system hubs): leftover cargo is deposited, and devices riding it that aren't logistics
   devices, a replicant, a matrix, a matrix container or anything with a matrix inside, or on their way somewhere (`to:` / `at:` tags) are deployed or detached there.
+  Members of another fleet aboard are never dropped there: the carrier takes them to their fleet's home (one home per
+  trip, the nearest) and lets them off.
+  Before any carrier leaves on a trip, members of another fleet riding it that the trip would take away from their fleet
+  (not going to their fleet's home, not named in the job, not the job's or the carrier's fleet, not a replicant or a
+  matrix) are let off where it is first; the loadout pass then brings them home.
   Every vessel in a logistics fleet is available to automation, replicant vessels included (moves of stationed mining
   fleets, deliveries, beacons; while an approved shop trade waits, device runs leave those with a replicant free for it); another fleet's replicant vessel is only used as the escort a trip beyond the network needs.
 - **Bootstrap** fleets: from a bare heaven vessel (three mining drones and a replicant aboard) to an autofactory hub with three

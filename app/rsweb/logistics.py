@@ -845,13 +845,31 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                             and str(d.get("status") or "").startswith("relaying")}}
     docks = sorted(s for s in receive if s in commandable and receive[s])
     own = {d["device_code"] for d in pool}
+    tag_of = {e.get("device_code"): next((t for t in e.get("tags") or [] if str(t).startswith("fleet:")), None)
+              for e in devices}
     for c, d in sorted(free.items()):
         here = star_of(d.get("location"))
-        if c in used or here not in commandable or not docks:
+        if c in used or here not in commandable:
             continue
         cargo = {r: q for r, q in as_amounts(d.get("cargo")).items() if q > 0}
         extra = stray_aboard(d, devices, own, busy)
-        if not cargo and not extra:
+        # another fleet's members aboard go to their fleet's home, never to a drop-off point (owner 2026-10-21); one
+        # home per trip, the nearest (a tag of a fleet that's gone counts as none); members of a fleet away on a mission or with a dark home stay aboard for now
+        homes: dict[str, list[dict]] = {}
+        for x in [x for x in extra if fleet_home.get(tag_of.get(x["code"]) or "")]:
+            extra.remove(x)
+            tag = tag_of[x["code"]]
+            h = fleet_home.get(tag)
+            if h and h in commandable and tag not in away_fleets:
+                homes.setdefault(h, []).append(x)
+        if homes:
+            h = min(homes, key=lambda h: (_dist(here, h, pos), h))
+            used.add(c)
+            runs.append({"req": None, "kind": "dump", "cargos": [], "escort": c, "legs": [], "to": drop(h),
+                         "carry": cargo if h in receive else {}, "dump": homes[h], "fulfil": None, "replicant": None,
+                         "back": None, "label": f"{c} brings {', '.join(x['code'] for x in homes[h])} home to {h}"})
+            continue
+        if (not cargo and not extra) or not docks:
             continue
         to_star = min(docks, key=lambda h: (_dist(here, h, pos), h))
         used.add(c)

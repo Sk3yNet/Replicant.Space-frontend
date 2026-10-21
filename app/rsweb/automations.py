@@ -685,6 +685,34 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         await self.db.kv_set(season.SNAP_KV, await season.snapshot(self.db))
         return []
 
+    async def _let_off_riders(self, st: dict, job: dict) -> bool:
+        """Before a carrier's trip: members of another fleet riding it that this trip would carry away from their fleet
+        (fleets.foreign_riders) are let off where it is first; the loadout pass then brings them home. True when steps
+        were added ahead of this one (it runs after them)."""
+        from . import fleets as fl
+        body, path = st.get("body") or {}, str(st.get("path") or "")
+        if st.get("riders_checked") or not body.get("destination") or not (
+                (body.get("command") == "travel" and path.startswith("/devices/")) or path.endswith("/travel")):
+            return False
+        st["riders_checked"] = True
+        carrier = path.split("/")[2] if path.startswith("/devices/") else st.get("wait_device") or job.get("device")
+        if not carrier:
+            return False
+        riders = fl.foreign_riders(carrier, body["destination"], await self.devices(), await self.fleets(), job)
+        if not riders:
+            return False
+        add = fl.let_off_steps(carrier, riders)
+        i = job["idx"]
+        for s2 in job["steps"][i:]:
+            if isinstance(s2.get("seq0_from"), int) and s2["seq0_from"] >= i:
+                s2["seq0_from"] += len(add)
+        job["steps"][i:i] = add
+        st["tries"] -= 1
+        await self.log(job["rule"], f"{job['title']}: {carrier} lets off {', '.join(x['code'] for x in riders)} before "
+                                    f"leaving for {body['destination']} (another fleet's members)", "warning")
+        await self._update(job)
+        return True
+
     async def _advance(self, job_id: str) -> None:
         job = await self._get(job_id)
         if job and not job.get("forced") and await self.held():
@@ -721,6 +749,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     st["timeout"] = max(st.get("timeout", STEP_TIMEOUT), (eta - _now()).total_seconds() + 1800)
                 ok, resp, err = True, None, None
             else:
+                if await self._let_off_riders(st, job):
+                    continue   # other fleets' members get off first; this trip goes out after them
                 far = await self._too_far(st) or await self._dark_destination(st, job)
                 if far:
                     ok, resp, err = False, None, far
