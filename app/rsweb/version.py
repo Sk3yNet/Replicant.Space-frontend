@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.186.0"
+VERSION = "1.186.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.186.1", "2026-10-21", "Auto survey on arrival leaves a fleet's vessel and its passengers alone away from the "
+     "fleet's station (Surveyor 1's heaven vessel, flown into PHEVENIA, had its survey controller and a drone deployed "
+     "and sent off while the fleet was boarding them)."),
     ("1.186.0", "2026-10-21", "Fleet missions board anyone not aboard before every leg and before the trip home, not "
      "only before the first departure (a survey fleet left AINELRAMU for PHEVENIA without its survey controller, which "
      "the recall had withdrawn but never boarded)."),

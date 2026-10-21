@@ -3260,7 +3260,13 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             return
         if star in (await self.db.kv_get("ami_surveyed", {}) or {}):
             return  # an AMI survey_system already covered every body
-        for d in await self.devices():
+        # a fleet's vessel and its passengers away from its station are the fleet's (live 2026-10-21: Surveyor 1's heaven
+        # vessel flown into PHEVENIA had its survey controller and a drone deployed and sent off while the fleet boarded)
+        by = {d.get("device_code"): d for d in await self.devices()}
+        if _reserved(by.get(vessel) or {}):
+            return
+        stowed = [i for i in stowed if not _reserved({**(by.get(i.get("device_code")) or i), "location": vessel_loc})]
+        for d in by.values():
             st_ = str(((d.get("ami_directive") or {}).get("_eval_state")) or "")
             if "survey" in (d.get("device_type") or "") and star_of(d.get("location")) == star and st_.startswith("no_targets"):
                 await self.mark_system_surveyed(star, d["device_code"])  # the controller says there's nothing left to survey

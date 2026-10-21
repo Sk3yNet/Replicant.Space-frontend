@@ -868,6 +868,24 @@ def test_auto_survey_uses_carried_ami_survey_controller(client):
     assert final["directive"] == "survey_system" and final["configuration"] == {"planets": "all", "moons": "none", "recall": True}
 
 
+def test_auto_survey_leaves_fleet_passengers_aboard(client):
+    """Live 2026-10-21: Surveyor 1's heaven vessel was flown into PHEVENIA and auto survey deployed the fleet's survey
+    controller and a drone out of it while the fleet was boarding them for the trip home."""
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices.append({"device_code": "SC000002", "device_type": "ami_survey_controller", "location": "SOL-BELT-1",
+                          "status": "stowed", "replicant_code": "77F75255", "features": ["cruise", "ami", "stow"],
+                          "tags": ["fleet:surveyor-x"], "available_commands": ["deploy", "adopt", "set_directive", "launch", "stow"]})
+    world.move_seconds = 0.03
+    client._seen = len(world.events)
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.post("/automations/rules/auto_survey", data={"enabled": "on", "use_ami": "on", "include_belts": "on",
+                                                        "max_targets": "5", "return_and_stow": "on"}, headers=HX)
+    _arrive(client, 8)
+    eng = client.app.state.worker.automations
+    steps = [s["path"] for j in client.portal.call(eng.jobs) if j["rule"] == "auto_survey" for s in j["steps"]]
+    assert steps and "/devices/SC000002" not in steps, steps
+
+
 def test_idle_miners_handed_to_mining_controller(client):
     eng = client.app.state.worker.automations
     client.post("/automations/rules/restart_idle_miners", data={"enabled": "on", "prefer_ami": "on", "resource": "same",
