@@ -290,7 +290,8 @@ class SimMixin:
         pinned: list[str] = []
         printed, note = 0, None
         for d in spares[:n]:
-            ok, _, err = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": {"add_tags": tags}},
+            ok, _, err = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": {"add_tags": tags,
+                                         "remove_tags": [t for t in ("spare", "stock") if t in (d.get("tags") or []) and t not in tags]}},
                                          f"{why}: {d['device_code']} to {loc}")
             if ok:
                 pinned.append(d["device_code"])

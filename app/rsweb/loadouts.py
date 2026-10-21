@@ -227,6 +227,13 @@ def fill_rank(device_type: str | None) -> int:
 PLACED_TYPES = ("ftl_beacon", "ftl_relay")
 
 
+def assigned(d: dict) -> bool:
+    """A device given a destination (a `to:` / `at:` pin, e.g. by a locker request) that isn't just being gathered at
+    the spare depot: it's no longer spare."""
+    tags = d.get("tags") or []
+    return GATHER not in tags and any(t.startswith(("to:", "at:")) for t in tags)
+
+
 def placed(d: dict) -> bool:
     """A beacon or relay deployed and working at a location (monitoring / relaying): it stays where it is — never
     spare, never sent to fill a shortfall or gathered at the depot. Stowed ones (a survey crew's next drops) count as usual."""
@@ -379,7 +386,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     tag_remove: dict[str, set] = defaultdict(set)
     moves: dict[str, str] = {}        # device -> destination star
     for d in devices:   # leftover spare tags on placed beacons / relays go (seen live 2026-10-08: 13 working beacons tagged spare)
-        if placed(d) and SPARE in (d.get("tags") or []) and not (ignore & set(d.get("tags") or [])):
+        tags = d.get("tags") or []
+        if SPARE in tags and not (ignore & set(tags)) and (placed(d) or assigned(d)):
             tag_remove[d["device_code"]].add(SPARE)
     # an explore fleet's relay switched on at home (before survey_cargo kept them aboard) stays as the system's relay and
     # leaves the fleet — the first one where no other relay of ours works; the others go with the fleet next mission

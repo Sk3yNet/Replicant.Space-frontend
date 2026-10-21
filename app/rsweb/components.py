@@ -77,7 +77,8 @@ async def before_print(api: Any, db: Any, path: str, body: Any, depth: int = 0) 
         left = n * qty - free_here(devices, fac, t, bps)
         for d in spares_elsewhere(devices, fac["location"], t)[:max(0, left)]:   # pinned: the loadout pass brings them
             try:
-                await api.request("PATCH", f"/devices/{d['device_code']}", json_body={"configuration": {"add_tags": tags}})
+                await api.request("PATCH", f"/devices/{d['device_code']}", json_body={"configuration": {
+                    "add_tags": tags, "remove_tags": [t for t in ("spare", "stock") if t in (d.get("tags") or []) and t not in tags]}})
                 left -= 1
             except Exception:  # noqa: BLE001  (not pinned: printed instead)
                 pass

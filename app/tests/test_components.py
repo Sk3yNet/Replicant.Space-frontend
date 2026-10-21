@@ -78,7 +78,8 @@ def test_a_new_print_uses_components_already_there_and_spares_before_printing(cl
     body = {"command": "enqueue_print", "device_type": "biosphere_cultivator", "quantity": 1, "tags": ["contract:x-1"]}
     client.portal.call(comp.before_print, Api(), db, "/devices/AF1", body)
     # one bay deployed there + one in its queue = the two it needs; the farm is a spare, pinned there: nothing printed
-    assert sent == [("PATCH", "/devices/OF1", {"configuration": {"add_tags": ["contract:x-1", "to:sol", "at:sol-3-l4"]}})]
+    assert sent == [("PATCH", "/devices/OF1", {"configuration": {"add_tags": ["contract:x-1", "to:sol", "at:sol-3-l4"],
+                                                                  "remove_tags": ["spare"]}})]
     # a second cultivator: the bays are spoken for now that one is queued
     devs = client.portal.call(db.kv_get, "devices")
     devs[0]["print_queue"].append({"device_type": "biosphere_cultivator", "quantity": 1})
@@ -128,3 +129,19 @@ def test_prints_split_over_the_autofactories_at_the_stockpile(client):  # noqa: 
     rows = client.portal.call(db.fetchall, "SELECT path, body FROM actions WHERE body LIKE '%orbital_farm%'")
     assert sorted(r["path"] for r in rows) == ["/devices/AF00BEEF", "/devices/AF00CAFE"], rows
     assert set(load) == {"AF00BEEF", "AF00CAFE"}
+
+
+def test_a_pinned_spare_is_no_longer_spare(client):  # noqa: F811
+    # a locker request pinned spares but left their spare tag on (2026-10-21)
+    from rsweb.loadouts import assigned
+    e = client.app.state.worker.automations
+    world = client.app.state.api.http._transport.app.state.world
+    src = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    spare = {**src, "device_code": "FA00F00D", "device_type": "orbital_farm", "tags": ["spare", "stock"],
+             "location": "SOL-4-L4", "print_queue": []}
+    world.devices.append(spare)
+    pinned, printed, _ = client.portal.call(e.pin_or_print, "orbital_farm", 1, "SOL-3-1", [dict(spare)], set(), "locker x")
+    assert pinned == ["FA00F00D"] and printed == 0
+    tags = next(d for d in world.devices if d["device_code"] == "FA00F00D")["tags"]
+    assert "spare" not in tags and "stock" not in tags and "at:sol-3-1" in tags, tags
+    assert assigned({"tags": ["spare", "at:sol-3-1"]}) and not assigned({"tags": ["spare", "to:sol", "gather"]})
