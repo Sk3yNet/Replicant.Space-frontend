@@ -244,12 +244,56 @@ const starTex = (() => {
   return new THREE.CanvasTexture(c);
 })();
 
+// region backgrounds: a wide, soft glow round every star, tinted by its galactic region
+const glowTex = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d"); const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, "rgba(255,255,255,1)"); grd.addColorStop(.5, "rgba(255,255,255,.35)"); grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+// One color per region (by name, in order), clear of the markers' red haze, orange gem and magenta spiral.
+const REGION_COLORS = [0x3d7bff, 0x2ec4a6, 0x8bc34a, 0x7c5cff, 0x00b8ff, 0xc9c24b, 0x4f9d7a, 0x9fa8ff, 0x5c7cba, 0x6fd3ff];
+const REGION_OP = .09;        // each glow's opacity; where stars crowd they add up
+const REGION_FADE = 60;       // ly beyond the nearest region's stars over which another region's color comes in fully
+const regions = [];           // {pts, v: [star positions]}
+// The region the view is centered on has no color; the others fade in with their distance from the view's center
+// (from their nearest star), beyond that of the region you're in.
+function placeRegions() {
+  regionGroup.visible = checked("opt-regions", OPTS.regions !== false);
+  if (!regionGroup.visible || !regions.length) return;
+  const t = controls.target;
+  for (const r of regions) { r.d = Infinity; for (const v of r.v) r.d = Math.min(r.d, v.distanceTo(t)); }
+  const near = Math.min(...regions.map(r => r.d));
+  for (const r of regions) r.pts.material.opacity = REGION_OP * Math.max(0, Math.min(1, (r.d - near) / (REGION_FADE * ringScale)));
+}
+function buildRegions() {
+  regionGroup.clear(); regions.length = 0;
+  const by = {};
+  for (const s of data.stars) if (s.region) (by[s.region] ||= []).push(pos(s));
+  const names = Object.keys(by).sort();
+  if (names.length < 2) return;   // one region (a simulation's virtual galaxy): nothing to tell apart
+  const size = Math.max(8, 6 * spacing(data.stars)) * ringScale;
+  names.forEach((n, i) => {
+    const v = by[n], g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(v.flatMap(x => [x.x, x.y, x.z])), 3));
+    const pts = new THREE.Points(g, new THREE.PointsMaterial({ size, map: glowTex, color: REGION_COLORS[i % REGION_COLORS.length],
+      transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
+    pts.material.onBeforeCompile = sh => {   // zoomed far out, a glow keeps a few pixels so the regions still show
+      sh.vertexShader = sh.vertexShader.replace("#include <logdepthbuf_vertex>", "gl_PointSize = max(gl_PointSize, 14.0);\n#include <logdepthbuf_vertex>");
+    };
+    pts.renderOrder = -1;   // behind the stars and markers
+    regionGroup.add(pts); regions.push({ pts, v });
+  });
+}
+
 // faint reference grid on the galactic plane
 const grid = new THREE.PolarGridHelper(80, 8, 8, 64, 0x1c2638, 0x141b28);
 grid.rotation.x = Math.PI / 2;
 scene.add(grid);
 
 let data = { stars: [], replicants: [] };
+const regionGroup = new THREE.Group(); scene.add(regionGroup);
 let starPoints, mineGroup = new THREE.Group(), coverGroup = new THREE.Group(), lineGroup = new THREE.Group();
 const moveGroup = new THREE.Group(), fleetGroup = new THREE.Group(), supplyGroup = new THREE.Group();
 const prospectGroup = new THREE.Group();
@@ -371,7 +415,8 @@ function build() {
     }
   }
   coverGroup.visible = checked("opt-cover", OPTS.cover !== false);
-  placeMarks();
+  buildRegions();
+  placeMarks(); placeRegions();
 }
 
 // a dashed line whose dashes march from its first point to its last, so the direction of travel shows at a glance
@@ -824,6 +869,7 @@ $("map-search")?.addEventListener("change", e => {
 ["opt-mine"].forEach(id => $(id)?.addEventListener("change", build));
 $("opt-cover")?.addEventListener("change", e => coverGroup.visible = e.target.checked);
 [...Object.keys(MARKS), "ward", "survey", "mega", "hazard"].forEach(kind => $("opt-mark-" + kind)?.addEventListener("change", resizeMarks));
+$("opt-regions")?.addEventListener("change", resizeMarks);
 $("opt-relaynet")?.addEventListener("change", e => relayGroup.visible = e.target.checked);
 $("btn-top")?.addEventListener("click", () => { camera.position.set(controls.target.x, controls.target.y - 0.01, controls.target.z + 160); });
 $("btn-home")?.addEventListener("click", () => { const s = repStar(); if (s) { focus(s); show(s); } });
@@ -900,7 +946,7 @@ function animate(t = 0) {
   const camKey = camera.matrixWorld.elements.join(",") + w + "x" + h + showLabels + labels.length;
   if (camKey !== lastCamKey) {
     lastCamKey = camKey;
-    placeMarks();
+    placeMarks(); placeRegions();
     placeStarLabels(showLabels, w, h);
   }
   stacked = placedStars.slice();   // other labels stack below the star names rather than on top of them

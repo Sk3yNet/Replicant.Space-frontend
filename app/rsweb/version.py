@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.197.0"
+VERSION = "1.198.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.198.0", "2026-10-21", "Galaxy map: each galactic region gets its own background color, a soft glow round "
+     "its stars. The region the view is centered on has none; the others fade in with their distance from the view's "
+     "center. A region colors checkbox under layers turns it off."),
     ("1.197.0", "2026-10-21", "Extra relays are marked spare before delivery: a relay waiting to go to a system where "
      "one of yours already relays, or a second one bound for the same system, loses its to: tag and becomes spare "
      "where it is. One already aboard a carrier or on a running job keeps its trip and is spared on arrival."),
