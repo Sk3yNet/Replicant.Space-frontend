@@ -185,6 +185,9 @@ lines or a template).
   *Move anyway*. Surge-capable members don't hold a move up unless the fleet needs them as carriers: each flies straight
   to the new home from wherever it is, once it has finished its current task. A new home outside an active relay network stays pending too
   (unless a replicant rides with the fleet) until a relay there joins one: nothing could be commanded there on arrival.
+  Once it moves, a **mining fleet** has no assembly stage: its own carriers and the logistics fleets' each load as many
+  members as they hold and leave as they fill. A **survey fleet** first collects every member (from other systems too),
+  then moves together in one relocation mission when its carriers seat everyone.
 - **Missions** run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*,
   *Stop*, *End mission & board* and *Recall*. Mining works the richest belt (or salvage); explore surveys each target (it no
   longer leaves relays or beacons: ask for those on the Systems list; an already-surveyed target is skipped, and the

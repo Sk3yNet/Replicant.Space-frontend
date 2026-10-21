@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.182.0"
+VERSION = "1.183.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.183.0", "2026-10-21", "Mining fleets moving to a new home no longer assemble first: their own carriers and the "
+     "logistics fleets' each load as many members as they hold and leave as they fill. Survey fleets still collect every "
+     "member, from other systems too, and move together."),
     ("1.182.0", "2026-10-21", "Systems page: a System tags section lists every tag in the cached system scans with the "
      "systems carrying it, most common first; hazardous tags in red."),
     ("1.181.1", "2026-10-21", "Galaxy map: the hazard haze also marks systems whose scan tags them hazardous (the tags "

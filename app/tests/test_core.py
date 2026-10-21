@@ -6381,6 +6381,9 @@ def test_relocation_only_when_the_carriers_fit_everyone(client):
         return {"AAA", "BBB"}
     eng.commandable = commandable
     how = client.portal.call(eng.start_relocation, dict(f), "AAA", "BBB", [ves, rider("D1"), rider("D2")])
+    assert "loadout pass" in how                         # a mining fleet never assembles (owner 2026-10-21): piecemeal
+    f = {**f, "role": "explore"}
+    how = client.portal.call(eng.start_relocation, dict(f), "AAA", "BBB", [ves, rider("D1"), rider("D2")])
     assert "relocation mission" in how                                         # 2 riders, 2 hold slots: together
     f2 = dict(f)
     how = client.portal.call(eng.start_relocation, f2, "AAA", "BBB", [ves, rider("D1"), rider("D2"), rider("D3"), rider("D4"), rider("D5"), rider("D6")])
@@ -7858,7 +7861,7 @@ def test_relocation_waits_for_command_reach_at_the_new_home(client):
            "features": ["surge", "cruise"], "stow_capacity": 2}
     d1 = {"device_code": "D1", "device_type": "survey_drone", "location": "AAA-1", "status": "idle", "tags": ["fleet:m"],
           "features": ["cruise", "stow"]}
-    f = {"id": "m", "name": "M", "role": "mining", "home": "BBB", "station": True, "wants": {}}
+    f = {"id": "m", "name": "M", "role": "explore", "home": "BBB", "station": True, "wants": {}}
     reach = {"AAA"}
 
     async def commandable(devices, stars=None, without=None):

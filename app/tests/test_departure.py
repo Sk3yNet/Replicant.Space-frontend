@@ -77,6 +77,9 @@ def test_new_home_moves_from_wherever_the_fleet_is_gathered(client):
     f["home"] = "ABOTEIN"
     how = client.portal.call(e.start_relocation, f, "SOL", "ABOTEIN", devs)
     assert "pending" not in how and f["home"] == "ABOTEIN" and not f.get("pending_home")
+    assert "loadout pass" in how and not f.get("mission")   # a mining fleet: no assembly, carriers bring it over
+    f = {**f, "role": "explore", "home": "ABOTEIN"}
+    client.portal.call(e.start_relocation, f, "SOL", "ABOTEIN", devs)
     assert f["mission"]["from"] == "LERNA"
 
 
@@ -1011,3 +1014,26 @@ def test_carrier_card_fetches_far_devices_instead_of_a_long_cruise():
     assert "N1 → SOL-BELT-1 (to be picked up)" in descs and not any(d.startswith("F1 →") for d in descs)
     moves = [d for d in descs if d.startswith("vessel → ")]
     assert moves == ["vessel → SOL-4 (pick-up)", "vessel → SOL-OORT (pick-up)", "vessel → SOL-BELT-1 (return)"]
+
+
+def test_survey_fleet_collects_every_member_before_moving(client):
+    """Owner 2026-10-21: a survey fleet moves only once all its members are together; one in another system is
+    collected first (the loadout pass brings it to the fleet while the new home stays pending)."""
+    e = eng(client)
+    _reach_everywhere(e)
+    devs = [dev("C", "surge_carrier", "SOL-OORT", features=["surge"], attach_capacity=9),
+            dev("M1", "survey_drone", "SOL-BELT-1"), dev("M2", "survey_drone", "LERNA-BELT-1")]
+    _fleet(e, client, devs, role="explore", wants={"survey_drone": 2, "surge_carrier": 1})
+    items = client.portal.call(e.fleets)
+    f = items[0]
+    f["home"] = "ABOTEIN"
+    how = client.portal.call(e.start_relocation, f, "SOL", "ABOTEIN", devs)
+    assert "pending" in how and "elsewhere" in how and f["home"] == "SOL" and not f.get("mission")
+    client.portal.call(e.save_fleets, items)
+    p = client.portal.call(e.loadout_plan)
+    assert p["moves"] == {"M2": "SOL"} and p["deliveries"][0]["devices"] == ["M2"]   # fetched from LERNA by C
+    devs[2]["location"] = "SOL-BELT-1"                                      # collected
+    client.portal.call(client.app.state.db.kv_set, "devices", devs)
+    client.portal.call(e.pending_home_pass)
+    f = client.portal.call(e.fleets)[0]
+    assert f["home"] == "ABOTEIN" and f["mission"]["relocate"]             # all together: one move

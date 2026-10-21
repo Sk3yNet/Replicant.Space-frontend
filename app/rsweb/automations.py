@@ -2142,10 +2142,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 f"commanded there on arrival — get a relay to {star} (or put a replicant aboard) first")
 
     async def start_relocation(self, f: dict, old: str, new: str, devices: list[dict] | None = None) -> str:
-        """A stationed mining or explore fleet whose home just changed moves there together, in one relocation mission
-        (pack up — large devices compacted — everyone aboard, gather strays, travel, unload), when its carriers' hold slots
-        and attach points cover every rider. Otherwise (or for a trade fleet) the loadout pass carries it piecemeal.
-        Returns what happens, for the log."""
+        """A stationed explore fleet whose home just changed moves there together, in one relocation mission (pack up —
+        large devices compacted — everyone aboard, gather strays, travel, unload), when its carriers' hold slots and
+        attach points cover every rider. Otherwise, and always for a mining fleet (owner 2026-10-21: no assembly stage),
+        the loadout pass carries it piecemeal: its own and the logistics fleets' carriers each take as many as they hold
+        and leave as they fill. Returns what happens, for the log."""
         from . import fleets as fl
         from .shapes import normalize_blueprints
         devices = devices if devices is not None else await self.devices()
@@ -2173,7 +2174,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         solo = fl.solo_flyers(f, devices)
         here = fl.readiness_anywhere(f, devices, prefer=old, free=solo)
         start = here["at"] if here["ready"] else old   # where it's gathered: it leaves from there
-        if f.get("role") not in ("mining", "explore") or not f.get("station") or old == new \
+        if f.get("role") != "explore" or not f.get("station") or old == new \
                 or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
             f.pop("move_partial", None)
             return "the loadout pass moves it"
