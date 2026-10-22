@@ -758,6 +758,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         if (not loc or code in hosts or code in busy or code in used or placed(d) or (d.get("device_type") or "") in KEPT_OUT
                 or at_tag(loc) in (d.get("tags") or [])    # stocked there on purpose (an at: tag for where it is)
                 or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or tag in away_fleets
+                or any(t.startswith("boot:") for t in d.get("tags") or [])   # a bootstrap's own: out there on purpose
                 or str(d.get("status") or "").lower().startswith(MOVING)):
             continue
         out_of_range = d.get("in_control_range") is False or (d.get("in_control_range") is None and star_of(loc) not in commandable)

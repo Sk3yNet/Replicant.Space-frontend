@@ -131,7 +131,7 @@ async def fleets_ctx(request: Request) -> dict:
     return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
             "types": types, "free": sorted(free, key=lambda d: (bool(d["_fleet"]), (d["_fleet_name"] or "").lower(), star_of(d.get("location")),
                                                  d.get("device_type") or "", d.get("device_code") or "")),
-            "stars": stars_all, "roles": fl.ROLES, "phases": fl.PHASES, "traders": traders,
+            "stars": stars_all, "roles": fl.ROLE_CHOICES, "phases": fl.PHASES, "traders": traders,
             "boot_reps": [(c, r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")],
             "stages": _bt.STAGES, "labels": _bt.LABEL}
 
@@ -249,13 +249,19 @@ async def fleets_bootstrap_new(request: Request, name: str = Form(...), replican
 @router.post("/fleets/{fid}/to-bootstrap", response_class=HTMLResponse)
 @_fleet_locked
 async def fleets_to_bootstrap(request: Request, fid: str, user: str = Depends(current_user)):
-    """Convert a fleet into a bootstrap (keeping its id, so its fleet: tag still names its members): it needs a member
-    vessel hosting a replicant; every member is tagged boot:<id>, and it starts from where that vessel is."""
-    from . import bootstrap as bt
     eng, items = await _fleets(request)
     f = next((x for x in items if x["id"] == fid), None)
     if not f or f.get("role") == "bootstrap":
         return HTMLResponse('<div class="result err">No such fleet, or it already is a bootstrap.</div>')
+    return await _to_bootstrap(request, eng, items, f, user)
+
+
+async def _to_bootstrap(request: Request, eng: Any, items: list[dict], f: dict, user: str) -> HTMLResponse:
+    """Convert a fleet into a bootstrap (keeping its id, so its fleet: tag still names its members): it needs a member
+    vessel hosting a replicant; every member is tagged boot:<id>, and it starts from where that vessel is. Picking the
+    bootstrap role in a fleet's Save row does this too."""
+    from . import bootstrap as bt
+    fid = f["id"]
     if (f.get("mission") or {}).get("status") in fl.AWAY:
         return HTMLResponse('<div class="result err">It is on a mission: end it first.</div>')
     st = await load_state(request)
@@ -323,7 +329,8 @@ async def fleets_bootstrap_control(request: Request, fid: str, user: str = Depen
             home = homes.most_common(1)[0][0] if homes else (f.get("home") or b.get("home"))
             for k in ("boot",):
                 f.pop(k, None)
-            f.update({"role": "mining", "home": home, "station": True, "template": None,
+            role = form.get("role") if form.get("role") in fl.ROLES else "mining"
+            f.update({"role": role, "home": home, "station": True, "template": None,
                       "wants": dict(Counter(d.get("device_type") for d in others if d.get("device_type")))})
             for x in items:
                 if x.get("parent") == fid:
@@ -407,6 +414,8 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
         if new_name != f["name"]:
             await rename_fleet(request, f, items, new_name)
         f["name"] = new_name
+        if form.get("role") == "bootstrap" and f.get("role") != "bootstrap":
+            return await _to_bootstrap(request, eng, items, f, user)
         old_home = f.get("home")
         f["home"] = (form.get("home") or f["home"]).upper()
         f["role"] = form.get("role") if form.get("role") in fl.ROLES else f["role"]

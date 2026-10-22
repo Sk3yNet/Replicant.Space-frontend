@@ -264,8 +264,10 @@ lines or a template).
   your OK), and send their materials to the hub by cargo freighter. The hub and every outpost get an AMI mining controller
   (`maintain_ratios`: the mix the bootstrap's missing devices cost) and an AMI survey controller (`belt_search`); while the
   salvage rule has one on salvage or resting at a dry belt, the bootstrap leaves it alone. Start one with *New bootstrap*
-  (a replicant's vessel and what's aboard), or *Convert to bootstrap* on an existing fleet that has a replicant's vessel;
-  *Back to a normal fleet* makes it a stationed fleet again, homed where most of its devices are. A ward goes up where it costs under 6 hours of the
+  (a replicant's vessel and what's aboard), or pick the *bootstrap* role on an existing fleet that has a replicant's vessel
+  and Save; *Back to a normal fleet* (with the role you pick) makes it a stationed fleet again, homed where most of its
+  devices are. The Fleets overview shows a bootstrap's stage. Its devices are never rescued home when out of range (it
+  leaves drones mining behind on purpose), and the home kit leaves hold room for what else rides aboard (a matrix, a slingshot). A ward goes up where it costs under 6 hours of the
   system's output, or at once when another player's drones mine there. Everything it prints is tagged `boot:<id>`: the
   loadout pass never lends it others' spares, factories or carriers, nor lends its own.
 - Also: owner hand-over (`change_owner`), materials (*send to* / *takes materials in*), *fill from spares*, carrying budget,

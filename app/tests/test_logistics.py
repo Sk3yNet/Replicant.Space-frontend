@@ -294,6 +294,14 @@ def test_a_device_pinned_where_it_is_is_not_rescued():
     assert any(r["req"] == "rescue:TD" for r in p["runs"])                              # pinned elsewhere: still stranded
 
 
+def test_a_bootstrap_device_out_of_range_is_not_rescued():
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("PL", "surge_platform", "A-1", **SURGE),
+            dev("MD", "mining_drone", "Z-5", tags=["boot:b1", "fleet:b1"], in_control_range=False, available_commands=["travel"])]
+    p = _rescue_plan(devs)
+    assert not any(r["id"] == "rescue:MD" for r in p["requests"])                       # left mining there by its bootstrap
+
+
 def test_a_stranded_drone_is_picked_up_by_a_carrier_with_a_replicant_along():
     devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
             dev("PL", "surge_platform", "A-1", **SURGE),

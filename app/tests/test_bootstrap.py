@@ -78,6 +78,20 @@ def test_home_deploys_mines_and_prints():
     assert ev["actions"] == [{"kind": "travel", "device": "V1", "to": "HOME-BELT-1"}]
 
 
+def test_the_home_kit_leaves_room_for_what_else_rides_aboard():
+    # Delta 2026-10-22: a heaven vessel (stows 10) holding a replicant matrix and a slingshot has room for 8 drones
+    scans = {"HOME": scan_for("HOME", STRUCT)}
+    v = dict(vessel("HOME-BELT-1"), stow_capacity=10)
+    rides = [dict(drone("MX", "replicant_matrix", aboard=True)), dict(drone("SL", "ftl_slingshot", aboard=True))]
+    devs = [v] + rides + [drone(f"M{i}", "mining_drone", "HOME-BELT-1", status="mining") for i in range(5)] + \
+        [drone(f"S{i}", "survey_drone", "HOME-BELT-1", status="searching") for i in range(3)]
+    f = fleet()
+    assert bt.hold_cap(f, world(devs, scans)) == 8
+    bt.evaluate(f, world(devs, scans))
+    assert f["boot"]["stage"] != "home"                                                  # 8 drones: the kit is done
+    assert bt.hold_cap(f, world([v] + devs[3:], scans)) == 10
+
+
 def test_warded_home_goes_straight_to_survey_then_hub_choice():
     f = fleet()
     devs = [vessel("HOME-BELT-1")] + [drone(f"M{i}", "mining_drone", aboard=True) for i in range(3)]
@@ -138,6 +152,8 @@ def test_bootstrap_fleet_create_decide_and_card(client):
     client.portal.call(e.bootstrap_pass)
     f = next(x for x in client.portal.call(e.fleets) if x["role"] == "bootstrap")
     assert f["boot"].get("status", {}).get("stage")
+    assert "Back to a normal fleet" in client.get("/fleets/details", headers=H).text
+    assert "bootstrap: Home: compounding" in client.get("/fleets/overview", headers=HX).text   # its stage in the overview
     # a decision
     items = client.portal.call(e.fleets)
     b = next(x for x in items if x["role"] == "bootstrap")["boot"]
@@ -265,7 +281,7 @@ def test_convert_a_fleet_to_a_bootstrap(client):
     client.portal.call(e.save_fleets, [{"id": "old", "name": "Old", "role": "mining", "home": "SOL", "station": True,
                                         "wants": {"mining_drone": 3}},
                                        {"id": "x", "name": "X", "role": "mining", "home": "ABOTEIN", "materials": "old"}])
-    r = client.post("/fleets/old/to-bootstrap", headers=HX)
+    r = client.post("/fleets/old/edit", data={"name": "Old", "role": "bootstrap", "home": "SOL"}, headers=HX)
     assert r.status_code == 200 and "err" not in r.text
     fleets = client.portal.call(e.fleets)
     f = next(x for x in fleets if x["id"] == "old")
@@ -324,10 +340,10 @@ def test_back_to_a_normal_fleet(client):
     devs = [vessel("SOL-BELT-1"), drone("M1", "mining_drone", "ABOTEIN-BELT-1"), drone("M2", "mining_drone", "ABOTEIN-BELT-1"),
             drone("S1", "survey_drone", "SOL-BELT-1")]
     e = _setup(client, "home", devs)
-    r = client.post("/fleets/p/bootstrap", data={"action": "normal"}, headers=HX)
+    r = client.post("/fleets/p/bootstrap", data={"action": "normal", "role": "explore"}, headers=HX)
     assert r.status_code == 200
     f = next(x for x in client.portal.call(e.fleets) if x["id"] == "p")
-    assert f["role"] == "mining" and f["station"] and f["home"] == "ABOTEIN" and "boot" not in f
+    assert f["role"] == "explore" and f["station"] and f["home"] == "ABOTEIN" and "boot" not in f
     assert f["wants"] == {"mining_drone": 2, "survey_drone": 1}
     job = next(j for j in client.portal.call(e.jobs) if "back to a normal fleet" in j["title"])
     assert all(s["body"]["configuration"] == {"add_tags": ["fleet:p"], "remove_tags": ["boot:p"]} for s in job["steps"])

@@ -22,7 +22,9 @@
         {% if f.route %}<div class="muted">ferry {{ f.route.controller }}: {{ f.route.source }} → {{ f.route.dest }}</div>{% endif %}
         {% if f.takes_from %}<div class="muted">from {{ f.takes_from | map(attribute='name') | join(', ') }}</div>{% endif %}
         {% if f.materials == 'supply' %}<div class="muted">{% if f.sends_to %}to {{ f.sends_to.name }} ({{ f.sends_to.home }}), the nearest{% else %}no fleet is receiving yet{% endif %}</div>{% endif %}</td>
-      <td>{% if m.status in ('running', 'stalled', 'ended', 'stopped') %}<span class="pill small {{ 'lv-alert' if m.status == 'stalled' else 'st-work' }}">mission: {{ m.status }}{% if m.status == 'running' %} · {{ m.phase }}{% endif %}</span>
+      <td>{% if f.role == 'bootstrap' and f.boot %}{% set bs = f.boot.status or {} %}<span class="pill small {{ 'lv-alert' if f.boot.paused or bs.blocked else ('st-move' if f.boot.decision else 'st-work') }}">bootstrap: {{ bs.label or f.boot.stage }}</span>
+          {% if f.boot.paused %}<span class="muted">paused</span>{% elif f.boot.decision %}<span class="muted">waiting for your OK</span>{% endif %}
+        {% elif m.status in ('running', 'stalled', 'ended', 'stopped') %}<span class="pill small {{ 'lv-alert' if m.status == 'stalled' else 'st-work' }}">mission: {{ m.status }}{% if m.status == 'running' %} · {{ m.phase }}{% endif %}</span>
         {% elif not f.station %}<span class="muted">not stationed</span>
         {% elif not rep %}<span class="muted">—</span>
         {% elif not rep.short and not rep.surplus %}<span class="lv-done">✓ matches</span>

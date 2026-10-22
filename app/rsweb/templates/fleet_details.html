@@ -66,7 +66,7 @@
         </div>
         <div class="small muted" id="ls-{{ f.id }}" style="min-height:1.2em"></div>
         <div class="row" style="margin-top:6px">
-          <input name="name" value="{{ f.name }}" size="14"><select name="role">{% for ro in roles %}<option {{ 'selected' if ro == f.role }}>{{ ro }}</option>{% endfor %}</select>
+          <input name="name" value="{{ f.name }}" size="14"><select name="role" title="bootstrap: Save converts it — its replicant's heaven vessel and every member become the bootstrap's own (boot:{{ f.id }}); it stops being stationed and starts from where its vessel is">{% for ro in roles %}<option {{ 'selected' if ro == f.role }}>{{ ro }}</option>{% endfor %}</select>
           <select name="home">{% for s in stars %}<option {{ 'selected' if s == f.home }}>{{ s }}</option>{% endfor %}</select>
           <button class="small">Save</button>
           {% if f.report %}<button type="button" class="small" hx-post="/loadouts/apply" hx-vals='{{ {"fleet": (f.id) | string} | tojson }}' hx-target="#fp-{{ f.id }}"
@@ -74,9 +74,6 @@
           {% elif r.rows | selectattr('short') | list %}<button type="button" class="small" hx-post="/fleets/{{ f.id }}/fill" hx-target="#fp-{{ f.id }}" title="Take idle spares of the missing types, nearest first">Fill from spares</button>
             <button type="button" class="small" hx-post="/fleets/{{ f.id }}/print" hx-target="#fp-{{ f.id }}">Print what's missing</button>{% endif %}
           <button class="small ghost" name="delete" value="1" hx-confirm="Delete fleet {{ f.name }}? Its devices lose the fleet's tag and become fleetless.">Delete</button>
-          <button type="button" class="small ghost" hx-post="/fleets/{{ f.id }}/to-bootstrap" hx-target="#fp-{{ f.id }}"
-            title="Turn this fleet into a bootstrap: its replicant's heaven vessel and every member become the bootstrap's own"
-            hx-confirm="Convert {{ f.name }} into a bootstrap fleet? Its members become the bootstrap's own (boot:{{ f.id }}); it stops being stationed and starts from where its vessel is.">Convert to bootstrap</button>
         </div>
       </form>
       <div id="fp-{{ f.id }}"></div>

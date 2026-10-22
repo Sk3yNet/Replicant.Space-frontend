@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.209.3"
+VERSION = "1.210.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.210.0", "2026-10-22", "Bootstrap is a fleet role: pick it in a fleet's role select and Save to convert the fleet "
+               "(the Convert button is gone); Back to a normal fleet takes the role to return to. The Fleets overview shows a "
+               "bootstrap's stage. Logistics never rescues a bootstrap's devices (out of range on purpose: drones left mining "
+               "while the vessel surveys; seen at DELTA). The home kit counts what else is aboard (matrix, slingshot) against "
+               "the hold, so no drones are left behind at the move."),
     ("1.209.3", "2026-10-22", "The system page shows an object (STAR-OBJ-n) only while it exists: an asteroid still "
                "open on the Defense page, or a structure in the latest scan. Past asteroids stay in Defense › Concluded."),
     ("1.209.2", "2026-10-22", "Beacons with a destination (to: / at:, a fleet or a contract), e.g. printed beacons waiting "

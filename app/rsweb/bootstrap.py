@@ -144,6 +144,17 @@ def compound_target(miners: int, surveys: int, cap: int, per_miner: float, autof
     return None
 
 
+def hold_cap(f: dict, w: dict) -> int:
+    """How many drones the home kit can hold: the hold setting (at most the vessel's stow capacity), less the room what
+    else rides aboard takes (a replicant matrix, a slingshot …) — else drones are left behind at the move."""
+    b, s = f["boot"], settings(f["boot"])
+    v = next((d for d in w["devices"] if d.get("device_code") == b.get("vessel")), None) or {}
+    cap = min(int(s["hold"]), int(v.get("stow_capacity") or s["hold"]))
+    other = [d for d in w["devices"] if d.get("stowed_in_device_code") == b.get("vessel")
+             and d.get("device_type") not in ("mining_drone", "survey_drone")]
+    return max(1, cap - len(other))
+
+
 def compound(f: dict, w: dict, star: str, cap: int, autofactory: bool) -> dict:
     """One step of compounding in `star`: {actions, gate, next, done}."""
     b, s = f["boot"], settings(f["boot"])
@@ -330,7 +341,7 @@ def evaluate(f: dict, w: dict) -> dict:
         if home not in w["scans"]:
             return done(stage, gate=f"{home} scanned", next=f"system scan of {home}",
                         actions=[{"kind": "scan", "star": home}] if here == home else [{"kind": "travel", "device": v["device_code"], "to": home}])
-        c = compound(f, w, home, s["hold"], autofactory=False)
+        c = compound(f, w, home, hold_cap(f, w), autofactory=False)
         stock = c.get("stock") or {}
         if c.get("done"):
             b["stage"] = "survey"
