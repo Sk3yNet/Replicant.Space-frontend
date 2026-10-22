@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from rsweb import logistics as lg
 
 
@@ -782,3 +784,24 @@ def test_a_carrier_lets_other_fleets_members_off_before_it_leaves():
     assert fl.foreign_riders("CAR", "BBB-1", devs, fleets, job) == []   # going to their home: they ride along
     descs = [s["desc"] for s in fl.let_off_steps("CAR", [{"code": "B1", "mode": "attach"}, {"code": "B2", "mode": "stow"}])]
     assert descs == ["CAR: detach B1 (not its fleet's)", "deploy B2 from CAR (not its fleet's)"]
+
+
+def test_a_rescue_of_more_than_a_day_waits_for_your_ok():
+    """Owner 2026-10-22: a heaven vessel was sent from SOLARES to DELTA to rescue a stranded vessel, well over a day of
+    travel. A rescue that long waits for Confirm on the Logistics page; the OK holds for two days."""
+    pos = {**POS, "F": {"x": 700, "y": 0, "z": 0}}
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE), dev("P1", "surge_plate", "F-1", in_control_range=False, **SURGE)]
+
+    def go(prefs):
+        return lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=pos, commandable={"A", "B"},
+                       hosts={"HV": "R1"}, busy=set(), contracts=[], trades=[], incoming={}, replicants={},
+                       drop=lambda s: f"{s}-1", prefs=prefs)
+    p = go({})
+    req = next(r for r in p["requests"] if r["id"] == "rescue:P1")
+    assert req["confirm"] and req["trip_h"] > 24 and not p["runs"]
+    assert "waits for your OK" in next(u["why"] for u in p["unmet"] if u["req"] == "rescue:P1")
+    now = datetime.now(timezone.utc)
+    assert go({"confirm": {"rescue:P1": now.isoformat()}})["runs"][0]["rescued"] == "P1"
+    assert not go({"confirm": {"rescue:P1": (now - timedelta(days=3)).isoformat()}})["runs"]   # an old OK has run out
+    pos["F"]["x"] = 60
+    assert go({})["runs"]                                                                       # a short one just goes

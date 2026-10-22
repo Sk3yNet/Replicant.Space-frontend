@@ -7,7 +7,7 @@ planet's orbit by themselves. The game warns an hour ahead (`system.impact_warni
 Each pass (engine stage evacuate_pass, every minute, and at once on the warning), for every tracked object that isn't
 closed and is due within EVAC_MINUTES:
   • devices at its location leave for a safe spot in the system (its entry point, else a body that isn't the impact
-    target); propulsors still pushing it stay until DIVERTER_MINUTES before the ETA, then go too. Once it's diverted
+    target); propulsors still pushing it stay until DIVERTER_MINUTES (a rule setting, 45) before the ETA, then go too. Once it's diverted
     enough (or off_target, v3.6.0) the propulsors leave at once, the rest (mining rigs) still at the hour
   • a device that can't fly is stowed or attached by a carrier there with a free seat, which then leaves
   • a stockpile there is an evacuation request for logistics (top priority, see logistics.py)
@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 EVAC_MINUTES = 60       # the game's warning comes an hour ahead
-DIVERTER_MINUTES = 30   # propulsors keep pushing until then
+DIVERTER_MINUTES = 45   # propulsors keep pushing until then (asteroid defense rule setting; owner 2026-10-22: 30 lost one)
 MOVING = ("travel", "cruis", "surg", "moving", "recall")
 
 
@@ -100,7 +100,8 @@ def safe_spot(star: str, target: str | None, stars: dict[str, dict], scan: dict 
 
 def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], busy: set[str],
          hosts: set[str] | frozenset = frozenset(), scans: dict[str, dict] | None = None, now: float | None = None,
-         warned: set[str] | frozenset = frozenset(), pct: float = DIVERTED_PCT) -> dict:
+         warned: set[str] | frozenset = frozenset(), pct: float = DIVERTED_PCT,
+         diverter_minutes: float = DIVERTER_MINUTES) -> dict:
     """{"moves": [{code, from, to, why}], "boards": [{carrier, code, mode, to}], "stuck": [{code, location, why}],
     "piles": {location: minutes left}}."""
     from . import fleets as fl
@@ -130,7 +131,7 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
             if enough and left is not None and left > EVAC_MINUTES and "propulsor" not in (d.get("device_type") or ""):
                 continue   # owner, 2026-10-22: only the propulsors leave early; rigs keep mining a diverted rock until the hour
             if "propulsor" in (d.get("device_type") or "") and any(k in st for k in DIVERTING) \
-                    and left is not None and left > DIVERTER_MINUTES and not enough:
+                    and left is not None and left > diverter_minutes and not enough:
                 continue   # still pushing it off course
             if "travel" in (d.get("available_commands") or ["travel"]) and "cruise" in (d.get("features") or ["cruise"]):
                 why = ("diverted enough — recalled before the swing-past" if enough

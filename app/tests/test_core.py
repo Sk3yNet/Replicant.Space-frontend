@@ -1777,6 +1777,25 @@ def test_fleet_devices_are_left_alone_by_loadouts_and_ami():
     assert adoptable(devices, fleet_ctrl, {}) == ["MD000001"]     # its own fleet's idle drone at its location
 
 
+def test_a_mission_stalled_out_of_comms_range_resumes_once_back_in_range(client):
+    """Live 2026-10-22: Surveyor 2's heaven vessel left ALFOLEN, the recall failed on 'Device is out of comms range'
+    and the mission sat stalled. Now it waits and re-runs the phase once every member is in range again."""
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    devs = [{"device_code": "SC1", "device_type": "ami_survey_controller", "location": "ALF", "status": "out_of_range",
+             "in_control_range": False, "tags": ["fleet:s2"]}]
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(eng.save_fleets, [{"id": "s2", "name": "S2", "role": "explore", "home": "FAL", "wants": {},
+                                          "mission": {"status": "stalled", "phase": "recall", "comms_wait": True,
+                                                      "targets": ["ALF"], "idx": 0, "log": []}}])
+    client.portal.call(eng.run_fleets)
+    assert client.portal.call(eng.fleets)[0]["mission"]["status"] == "stalled"
+    devs[0]["in_control_range"] = True
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(eng.run_fleets)
+    m = client.portal.call(eng.fleets)[0]["mission"]
+    assert "comms_wait" not in m and any("back in comms range" in x["text"] for x in m["log"])
+
+
 def test_fleet_pages_and_mission_launch(client):
     eng = client.app.state.worker.automations
     r = client.post("/fleets", data={"name": "Prospector 1", "role": "mining", "home": "SOL"}, headers=HX)
@@ -6691,6 +6710,25 @@ def test_game_news_from_the_changelog_and_blog(client, monkeypatch):
     assert bell["title"].startswith("Game update v3.5.1 (alteration): A patch.") and bell["link"].endswith("#v3.5.1")
     body = client.get("/partials/news", headers=HX).text
     assert "v3.5.1" in body and "new" in body and "Crystal Growth" in body
+
+
+def test_a_reused_designation_is_not_closed_by_the_former_rocks_event(client):
+    """Live 2026-10-22: FALQUORYX-OBJ-2 impacted on 10-13; a new rock with the same name came on 10-21 and the old
+    impact event closed it again, so it was neither read nor evacuated (a propulsor was lost)."""
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.insert_event, {"id": "r1", "event": "system.object_detected", "location": "FAL-OBJ-2",
+                                          "created_at": "2026-10-12T10:00:00+00:00", "payload": {"impact_target": "FAL-5"}})
+    client.portal.call(db.insert_event, {"id": "r2", "event": "system.object_impacted", "location": "FAL-OBJ-2",
+                                          "created_at": "2026-10-13T12:27:00+00:00", "payload": {"impact_target": "FAL-5"}})
+    assert client.portal.call(eng.defence_objects)["FAL-OBJ-2"]["closed"] == "impacted"
+    client.portal.call(db.insert_event, {"id": "r3", "event": "system.object_detected", "location": "FAL-OBJ-2",
+                                          "created_at": "2026-10-21T11:28:00+00:00",
+                                          "payload": {"impact_target": "FAL-5", "impact_eta": "2099-10-22T10:28:00Z"}})
+    o = client.portal.call(eng.defence_objects)["FAL-OBJ-2"]
+    assert not o.get("closed") and o["impact_eta"] == "2099-10-22T10:28:00Z"
+    client.portal.call(db.kv_set, "objects", {"FAL-OBJ-2": {**o, "closed": "impacted",   # saved closed by 1.208.0
+                                                            "closed_at": "2026-10-13T12:27:00+00:00"}})
+    assert not client.portal.call(eng.defence_objects)["FAL-OBJ-2"].get("closed")
 
 
 def test_docs_review_2026_10_13_fixes(client):

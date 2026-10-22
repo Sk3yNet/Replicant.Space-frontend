@@ -36,11 +36,11 @@ async def logistics_page(request: Request, user: str = Depends(current_user)):
 
 @router.post("/fleets/logistics/prefs", response_class=HTMLResponse)
 async def logistics_prefs(request: Request, req: str = Form(...), tier: str = Form(""), skip: str = Form(""),
-                     user: str = Depends(current_user)):
-    """Bump a request to another tier ("" = its own), or skip it / take it back."""
+                     confirm: str = Form(""), user: str = Depends(current_user)):
+    """Bump a request to another tier ("" = its own), skip it / take it back, or confirm a rescue of more than a day."""
     db = request.app.state.db
     p = await db.kv_get(lg.KV_PREFS, {}) or {}
-    bump, skips = dict(p.get("bump") or {}), set(p.get("skip") or [])
+    bump, skips, oks = dict(p.get("bump") or {}), set(p.get("skip") or []), dict(p.get("confirm") or {})
     if tier.strip().isdigit() and int(tier) in lg.TIERS:   # every tier, evacuation (0), rescue (5) and shop listing (6) too
         bump[req] = int(tier)
     elif tier == "reset":
@@ -51,13 +51,20 @@ async def logistics_prefs(request: Request, req: str = Form(...), tier: str = Fo
         skips.add(req)
     elif skip == "off":
         skips.discard(req)
-    await db.kv_set(lg.KV_PREFS, {"bump": bump, "skip": sorted(skips)})
+    if confirm == "on":
+        from datetime import datetime, timezone
+        oks[req] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    elif confirm == "off":
+        oks.pop(req, None)
+    await db.kv_set(lg.KV_PREFS, {"bump": bump, "skip": sorted(skips), "confirm": oks})
     # shown at once: the page reloads from the last pass's requests, which would show the old priority until the next pass
     st = await db.kv_get(lg.KV_STATE, {}) or {}
     for r in st.get("requests") or []:
         if r.get("id") == req:
             r["tier"] = bump.get(req, r.get("base_tier", r.get("tier")))
             r["skipped"] = req in skips
+            if confirm == "on":
+                r["confirm"] = False
             st["requests"].sort(key=lambda x: (x.get("tier", 9), not x.get("waiting"), str(x.get("id"))))
             await db.kv_set(lg.KV_STATE, st)
             break

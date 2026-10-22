@@ -14,7 +14,7 @@ STARS = {"A": {"entry_point": "A-OORT"}}
 
 
 def test_devices_leave_an_object_due_within_the_hour_propulsors_last_grounded_ones_board():
-    objs = {"A-OBJ-1": {"impact_eta": iso(45), "impact_target": "A-3"}, "A-OBJ-2": {"impact_eta": iso(300)}}
+    objs = {"A-OBJ-1": {"impact_eta": iso(50), "impact_target": "A-3"}, "A-OBJ-2": {"impact_eta": iso(300)}}
     devs = [dev("PR", "propulsor_plate", "A-OBJ-1", status="diverting", available_commands=["travel"], features=["cruise"]),
             dev("MD", "mining_drone", "A-OBJ-1", available_commands=["travel"], features=["cruise"]),
             dev("BC", "ftl_beacon", "A-OBJ-1", available_commands=["stow"], features=["stow"]),
@@ -24,11 +24,18 @@ def test_devices_leave_an_object_due_within_the_hour_propulsors_last_grounded_on
     moved = {m["code"]: m["to"] for m in p["moves"]}
     assert moved == {"MD": "A-OORT", "SC": "A-OORT"}                      # PR keeps pushing; FAR's object isn't due
     assert p["boards"] == [{"carrier": "SC", "code": "BC", "mode": "attach", "to": "A-OORT"}]
-    objs["A-OBJ-1"]["impact_eta"] = iso(20)
+    objs["A-OBJ-1"]["impact_eta"] = iso(44)   # owner 2026-10-22: one leaving at 18 min was lost; 45 by default
     assert "PR" in {m["code"] for m in ev.plan(objs, devs, STARS, set())["moves"]}
     assert "FAR" in {m["code"] for m in ev.plan(objs, devs, STARS, set(), warned={"A-OBJ-2"})["moves"]}   # the game warned
     objs["A-OBJ-1"]["closed"] = "diverted"
     assert not {m["code"] for m in ev.plan(objs, devs, STARS, set())["moves"]} & {"MD", "PR"}
+
+
+def test_the_propulsor_margin_is_a_setting():
+    objs = {"A-OBJ-1": {"impact_eta": iso(55), "impact_target": "A-3"}}
+    devs = [dev("PR", "propulsor_plate", "A-OBJ-1", status="diverting", available_commands=["travel"], features=["cruise"])]
+    assert not ev.plan(objs, devs, STARS, set())["moves"]
+    assert ev.plan(objs, devs, STARS, set(), diverter_minutes=60)["moves"][0]["deactivate"]
 
 
 def test_a_pile_at_a_due_object_is_evacuated_first():

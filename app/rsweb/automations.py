@@ -188,6 +188,8 @@ RULES: list[Rule] = [
           Option("diverted_pct", "float", "Diverted enough at an impact likelihood of (%)", 1.0,
                  help="The likelihood never reaches 0 %. At or below this, more thrust is wasted: the propulsors are recalled "
                       "before the swing-past"),
+          Option("leave_minutes", "int", "Propulsors still pushing leave this long before the impact (minutes)", 45,
+                 help="Everything else leaves at the hour; under 30 is raised to 30"),
           Option("recheck_minutes", "int", "Read an asteroid with propulsors on it every (minutes)", 5,
                  help="Others are read every 15 minutes")],
          default_on=True),
@@ -2726,7 +2728,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
 
     async def evacuate_pass(self, force: bool = False) -> list[str]:
         """Evacuation before impact (evacuate.py): devices at an object due within the hour leave for a safe spot in
-        the system (propulsors still pushing at 30 minutes), grounded ones board a carrier there; piles go via logistics."""
+        the system (propulsors still pushing at the rule's leave_minutes, 45), grounded ones board a carrier there; piles go via logistics."""
         from . import evacuate as ev
         from . import loadouts as lo
         objs, warned, scans = await self.evacuation_inputs()
@@ -2739,7 +2741,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         reps = await self.db.kv_get("replicants", {}) or {}
         hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
         busy = self.busy_devices(await self.jobs())
-        p = ev.plan(objs, devices, stars, busy, hosts, scans, warned=warned, pct=pct)
+        try:
+            lv = float(((await self.settings())["rules"].get("asteroid_defence") or {}).get("leave_minutes") or ev.DIVERTER_MINUTES)
+        except (TypeError, ValueError):
+            lv = ev.DIVERTER_MINUTES
+        p = ev.plan(objs, devices, stars, busy, hosts, scans, warned=warned, pct=pct,
+                    diverter_minutes=min(max(lv, 30.0), ev.EVAC_MINUTES))
         from . import fleets as fl
         out = []
         boards: dict[str, list[dict]] = {}
@@ -3796,6 +3803,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     prefs=await self.db.kv_get(lg.KV_PREFS, {}) or {}, ami=ami, moved=moved,
                     dark_nets=await self.dark_networks(devices, pos, bps, reps), away_fleets=away_fleets,
                     no_consolidate=no_consolidate, evacuate=evac, listings=listings)
+        for r in p["requests"]:   # a rescue of more than a day waits for your OK (owner 2026-10-22): one alert each
+            key = f"rescue-ok:{r['id']}"
+            if r.get("confirm") and key not in self.stage_errors:
+                self.stage_errors[key] = "asked"
+                await self.log("logistics", f"{r['label']}: about {r['trip_h']:.0f} h of travel — waits for your Confirm "
+                                            "on Fleets › Logistics", "alert", notify=True)
         by_code = by_code0
         pickups = await self.db.kv_get(lg.KV_PICKUPS, {}) or {}
         # devices a deal paid out: once they're at the site (fleetless, going nowhere), they're sent to the gather point,
@@ -4420,13 +4433,28 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
     async def run_fleets(self) -> None:
         from . import fleets as fl
         items = await self.fleets()
-        if not any((f.get("mission") or {}).get("status") == "running" for f in items):
+        if not any((f.get("mission") or {}).get("status") == "running"
+                   or (f.get("mission") or {}).get("comms_wait") for f in items):
             return
         jobs = {j["id"]: j for j in await self.jobs()}
         devices = await self.devices()
         changed = False
         for fleet in items:
             m = fleet.get("mission") or {}
+            if m.get("status") == "stalled" and m.get("comms_wait"):
+                # stalled because members were out of comms range (live 2026-10-22: Surveyor 2's heaven vessel left
+                # ALFOLEN, its controller and drones went dark): resumes by itself once every member is back in range
+                if any(d.get("in_control_range") is False for d in fl.members(fleet, devices)):
+                    continue
+                m.pop("comms_wait")
+                m["status"] = "running"
+                ph = fl.PHASES[fleet["role"]]
+                cur = m.get("phase")
+                m["phase"] = ph[ph.index(cur) - 1] if cur in ph and ph.index(cur) > 0 else None
+                if m["phase"] == "watch":
+                    m["recall_now"] = True
+                self._mlog(m, "back in comms range — resumed")
+                changed = True
             if m.get("status") != "running":
                 continue
             if m.get("relocate") and "solo" not in m and not m.get("departed"):
@@ -4466,8 +4494,18 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 continue
             if j and j["status"] == "failed":
                 m["status"] = "stalled"
-                self._mlog(m, f"stalled in {m.get('phase')}: {next((s.get('error') for s in j['steps'] if s['status'] == 'failed'), 'a step failed')}")
-                await self.log("fleets", f"{fleet['name']}: stalled in {m.get('phase')}", "alert", notify=True)
+                why = next((s.get('error') for s in j['steps'] if s['status'] == 'failed'), 'a step failed')
+                dark = "comms range" in str(err or why).lower() \
+                    and any(d.get("in_control_range") is False for d in fl.members(fleet, devices))
+                if dark:
+                    m["comms_wait"] = True
+                else:
+                    m.pop("comms_wait", None)
+                self._mlog(m, f"stalled in {m.get('phase')}: {why}"
+                              + (" — resumes by itself once its members are back in comms range" if dark else ""))
+                await self.log("fleets", f"{fleet['name']}: stalled in {m.get('phase')}"
+                                         + (" (out of comms range; resumes once back in range)" if dark else ""),
+                               "alert", notify=True)
                 changed = True
                 continue
             if m.get("end_here"):

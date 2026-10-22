@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.208.1"
+VERSION = "1.209.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.209.0", "2026-10-22", "A logistics rescue with more than a day of travel waits for your Confirm on Fleets › "
+               "Logistics (one alert; the OK holds two days). An asteroid whose name a former rock used is no longer "
+               "closed by that rock's old impact event (FALQUORYX-OBJ-2 went unread and unevacuated). Propulsors still "
+               "pushing leave 45 minutes before the impact (was 30; a Defense rule setting). A fleet mission stalled "
+               "on 'out of comms range' resumes by itself once its members are back in range."),
     ("1.208.1", "2026-10-22", "A slingshot stowed in a vessel counts as being where the vessel is: firing it with the "
                "replicant (or its matrix) in the same hold, and linking it to a matrix in that hold, now work."),
     ("1.208.0", "2026-10-22", "Bill's BobNet move post no longer sends a replicant after him: it stops an ongoing follow, "

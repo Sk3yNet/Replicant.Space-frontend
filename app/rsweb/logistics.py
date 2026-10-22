@@ -33,6 +33,8 @@ system; placed relays and beacons, wards, hubs and fleets on a mission excepted 
 else the nearest covered system). One that can surge is reached by a logistics device hosting a replicant, in its own
 system or anywhere its dark relay network covers (nearest first), and commanded home; one that can't is picked up from
 its last known location by a logistics carrier with a free seat, with a replicant alongside unless the carrier hosts one.
+A rescue whose trips add up to more than a day (CONFIRM_RESCUE_H, at the game's surge pace) waits for your Confirm on
+the Logistics page (owner 2026-10-22).
 
 Devices go the same way: deliveries of devices (loadouts.plan) take logistics-fleet carriers first.
 
@@ -44,13 +46,16 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any
 
 from .automations import STEP_TIMEOUT, step
 from .shapes import as_amounts
 
 KV_STATE = "logistics_state"        # the last pass: requests, runs, unmet
-KV_PREFS = "logistics_prefs"        # {"bump": {request id: tier}, "skip": [request ids]}
+KV_PREFS = "logistics_prefs"        # {"bump": {request id: tier}, "skip": [request ids], "confirm": {request id: iso}}
+SURGE_S_PER_LY = 50.0               # the game's surge pace between systems (hubroute: 37.5 into a hub of ours)
+CONFIRM_RESCUE_H = 24.0             # owner 2026-10-22: a rescue with more travel than this waits for your OK
 KV_PICKUPS = "logistics_pickups"   # {deal location: {"types": {type: n}, "to": gather star, "at"}} — devices paid out
 KV_MOVES = "logistics_moves"   # {old home star: {"to": new home star, "fleet", "at"}} — a destination fleet's stock follows it
 KV_TRADES = "trade_approvals"  # {"trades": {controller:trade_code: iso}, "done": {key: iso}}
@@ -84,6 +89,29 @@ def _dist(a: str, b: str, pos: dict[str, Any]) -> float:
     if not pa or not pb:
         return 1e9
     return math.dist([float(pa.get(k) or 0) for k in "xyz"], [float(pb.get(k) or 0) for k in "xyz"])
+
+
+def _trip_hours(legs: list[tuple[str | None, str | None]], pos: dict[str, Any]) -> float:
+    """Hours of surging for (from star, to star) legs at the game's pace (an unknown position counts as nothing)."""
+    ly = sum(d for a, b in legs if a and b and (d := _dist(a, b, pos)) < 1e9)
+    return ly * SURGE_S_PER_LY / 3600
+
+
+def _needs_ok(req: dict, hours: float, prefs: dict | None, unmet: list[dict]) -> bool:
+    """A rescue whose trips add up to more than CONFIRM_RESCUE_H waits for your OK on the Logistics page (owner
+    2026-10-22: a heaven vessel was sent from SOLARES toward DELTA, the round trip was well over a day)."""
+    req["trip_h"] = round(hours, 1)
+    ok = ((prefs or {}).get("confirm") or {}).get(req["id"])
+    try:   # an OK holds for two days: a device stranded again later asks again
+        fresh = bool(ok) and (datetime.now(timezone.utc) - datetime.fromisoformat(ok)).total_seconds() < 2 * 86400
+    except (TypeError, ValueError):
+        fresh = False
+    if hours <= CONFIRM_RESCUE_H or fresh:
+        return False
+    req["confirm"] = True
+    unmet.append({"req": req["id"], "why": f"waits for your OK: about {hours:.0f} h of travel (more than "
+                                           f"{CONFIRM_RESCUE_H:.0f} h); Confirm to send it"})
+    return True
 
 
 def _short(price: dict, have: dict) -> dict[str, float]:
@@ -770,11 +798,15 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 unmet.append({"req": r["id"], "why": no_escort_why(star)})
                 continue
             _, esc, sp = best
-            used.add(esc["device_code"])
             point = loc if sp == star else drop(sp)
+            back = wait_point(esc, sp) if star_of(point) not in commandable else None
+            hours = _trip_hours([(star_of(esc.get("location")), sp), (sp, star_of(home_loc)), (sp, star_of(back) if back else sp)], pos)
+            if _needs_ok(r, hours, prefs, unmet):
+                continue
+            used.add(esc["device_code"])
             runs.append({"req": r["id"], "kind": "rescue", "cargos": [], "ride": None, "escort": esc["device_code"],
                          "rescued": code, "mode": "self", "point": point, "to": home_loc, "carry": {},
-                         "back": wait_point(esc, sp) if star_of(point) not in commandable else None, "label": r["label"]})
+                         "back": back, "label": r["label"]})
             continue
         # it can't fly home: a carrier picks it up (stowed or attached; large devices are compacted first)
         cands = []
@@ -791,6 +823,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             continue
         cands.sort(key=lambda x: (not x[0], x[1], x[2]))   # one hosting a replicant needs no escort
         _, _, c, carrier, mode = cands[0]
+        if _needs_ok(r, _trip_hours([(star_of(carrier.get("location")), star), (star, star_of(home_loc))], pos), prefs, unmet):
+            continue
         esc = None
         if c not in hosts:
             esc = escort_for([loc, home_loc], {c})

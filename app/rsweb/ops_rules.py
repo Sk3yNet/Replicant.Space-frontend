@@ -25,6 +25,17 @@ def _ts(v):
     return ts(v)
 
 
+def _after(a, b) -> bool:
+    """Time a is later than time b (both known)."""
+    ta, tb = _ts(a), _ts(b)
+    return bool(ta and tb and ta > tb)
+
+
+def _born(o: dict):
+    """When this rock was first seen: an object's designation is reused by a later rock."""
+    return o.get("detected_at") or o.get("discovered_at")
+
+
 class OpsRules:
     # --- ward, relay and beacon orders (Map › Prospects, Systems) --------------------------------------------------
     async def order_ward(self, star: str, user: str = "") -> str:
@@ -486,7 +497,9 @@ class OpsRules:
             if not des:
                 continue
             if r["event"] == "system.object_detected":
-                if des not in objs:
+                old = objs.get(des)
+                if old is None or (old.get("closed") and _after(r["created_at"], old.get("closed_at"))):
+                    # designations are reused (live 2026-10-22: FALQUORYX-OBJ-2 impacted on 10-13, a new one came 10-21)
                     objs[des] = {**dfn.from_detected(p, des), "detected_at": r["created_at"]}
             elif r["event"] == "system.impact_warning":
                 # {destination, impact_eta, device_codes}: one hour out, to accounts with devices at risk — it may be the
@@ -517,9 +530,14 @@ class OpsRules:
                 if des not in objs:   # matched by its target when the location isn't the object's
                     des = next((k for k, o in objs.items() if not o.get("closed") and p.get("impact_target")
                                 and o.get("impact_target") == p.get("impact_target")), des)
-                if des in objs and p.get("outcome") != "partial":   # partial: still a threat
+                if des in objs and p.get("outcome") != "partial" \
+                        and not _after(_born(objs[des]), r["created_at"]):   # partial: still a threat; older: a former rock
                     objs[des]["closed"] = dfn.closed_as(r["event"])
                     objs[des].setdefault("closed_at", r["created_at"])
+        for o in objs.values():   # closed by a former rock's event before 1.209.0 (FALQUORYX-OBJ-2, 2026-10-22)
+            if o.get("closed") in ("diverted", "impacted") and _after(_born(o), o.get("closed_at")):
+                o.pop("closed")
+                o.pop("closed_at", None)
         mine = await self.db.kv_get("launched_rocks", {}) or {}   # rocks you launched (Terraforming): not a threat
         for k, o in objs.items():
             if k in mine:
