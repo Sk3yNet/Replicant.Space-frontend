@@ -7813,6 +7813,10 @@ def test_lockers_deliver_and_show_on_the_system_page(client):
     r = client.post("/lockers/deliver", data={"location": "TWAFFY-OORT"}, headers=HX).text
     assert "compute core: 1 spare(s) sent" in r, r
     assert "TWAFFY-OORT" in client.get("/systems/TWAFFY", headers=H).text
+    # retrieve straight from the locker's code (docs: POST /devices/{locker_code}/retrieve)
+    r = client.post("/lockers/retrieve", data={"code": " 70c835ac "}, headers=HX).text
+    assert "retrieved" in r and "HV2E8F3A" in r, r
+    assert "not a device code" in client.post("/lockers/retrieve", data={"code": "../x"}, headers=HX).text
 
 
 def test_a_drone_aboard_a_carrier_at_the_destination_has_arrived(client):

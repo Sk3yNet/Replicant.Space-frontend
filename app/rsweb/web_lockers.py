@@ -71,10 +71,15 @@ async def lockers_deliver(request: Request, location: str = Form(...), user: str
 async def lockers_scan(request: Request, rep: str, user: str = Depends(current_user)):
     from .api import ApiError
     try:
-        b = await request.app.state.api.get(f"/replicants/{rep}/scan/devices", device_type="equipment_locker") or {}
+        # every page, and an unfiltered scan if the filtered one finds nothing (2026-10-22: the TWAFFY-OORT locker had to be
+        # retrieved by hand)
+        devs = await request.app.state.api.paged(f"/replicants/{rep}/scan/devices", "devices", background=False,
+                                                 device_type="equipment_locker")
+        if not devs:
+            devs = await request.app.state.api.paged(f"/replicants/{rep}/scan/devices", "devices", background=False)
     except ApiError as e:
         return HTMLResponse(f'<span class="result err">{html.escape(e.message)}</span>')
-    devs = b.get("devices") or []
+    devs = [d for d in devs if "locker" in str(d.get("device_type") or "")]
     if not devs:
         return HTMLResponse('<span class="muted small">No equipment locker where this replicant is.</span>')
     out = []
@@ -90,4 +95,13 @@ async def lockers_scan(request: Request, rep: str, user: str = Depends(current_u
 
 @router.post("/lockers/{code}/retrieve", response_class=HTMLResponse)
 async def lockers_retrieve(request: Request, code: str, user: str = Depends(current_user)):
+    return await run_action(request, user, "POST", f"/devices/{code}/retrieve", None, f"retrieve from locker {code}")
+
+
+@router.post("/lockers/retrieve", response_class=HTMLResponse)
+async def lockers_retrieve_code(request: Request, code: str = Form(...), user: str = Depends(current_user)):
+    """Retrieve by the locker's device code (docs: POST /devices/{locker_code}/retrieve), when you know it."""
+    code = code.strip().upper()
+    if not code.isalnum():
+        return HTMLResponse('<span class="result err">That is not a device code.</span>')
     return await run_action(request, user, "POST", f"/devices/{code}/retrieve", None, f"retrieve from locker {code}")
