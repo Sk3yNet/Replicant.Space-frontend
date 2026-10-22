@@ -719,6 +719,36 @@ def test_get_listing_reads_now_or_asks_logistics(client):
         api.get = orig
 
 
+def test_bills_listing_goes_to_logistics_not_his_trail(client):
+    """Owner 2026-10-22: following Bill is started by hand on the Trail page only; his shop's listing is a logistics job."""
+    from rsweb import shop, trail as tl
+    from rsweb.api import ApiError
+    db, e = client.app.state.db, eng(client)
+    client.portal.call(db.kv_set, tl.KV, {"target_name": "Bill", "target_code": tl.BILL_CODE, "scanner": "REP1"})
+    client.portal.call(db.kv_set, "traders_cache", {"BS1": {"controller_code": "BS1", "location": "Z-OORT", "owner_name": "Bill",
+                                                            "owner_replicant_code": tl.BILL_CODE,
+                                                            "read_at": "2026-10-20T00:00:00+00:00", "trades": []}})
+    api = client.app.state.api
+    orig = api.get
+
+    async def get(path, **kw):
+        if path == "/devices/BS1/trades":
+            raise ApiError(403, "no replicant in that system")
+        return await orig(path, **kw)
+    api.get = get
+    try:
+        r = client.post("/shop/listing", data={"controller": "BS1"}, headers=HX).text
+        assert "Asked logistics" in r
+        assert not (client.portal.call(db.kv_get, tl.KV).get("follow") or {}).get("active")   # nobody follows him
+        lines, todo = client.portal.call(e.listing_requests, {})
+        assert [x["controller"] for x in todo] == ["BS1"]
+        client.portal.call(shop.mark_gone, db, "BS1", "Z-OORT", "2099-01-01T00:00:00+00:00")   # he moved it
+        r = client.post("/shop/listing", data={"controller": "BS1"}, headers=HX).text
+        assert "once the shop is seen again" in r
+        assert client.portal.call(e.listing_requests, {})[1] == []            # waits until his shop is seen
+    finally:
+        api.get = orig
+
 def test_idle_carrier_brings_another_fleets_member_home_not_to_a_drop_off():
     """Owner 2026-10-21: a fleet member aboard a logistics carrier goes to its fleet's home, never a drop-off point."""
     fleets = FLEETS + [{"id": "far", "name": "Far", "role": "mining", "home": "B"}]

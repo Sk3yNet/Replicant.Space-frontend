@@ -5,9 +5,9 @@
     {% set where %}{{ t.location or 'location not given' }}{% if t.seen_at %}<div class="muted">seen {{ t.seen_at | ago }}{% if t.from_scan %} (scan){% endif %}</div>{% endif %}
       <button class="small ghost" hx-post="/shop/forget" hx-vals='{{ {"controller": (code) | string} | tojson }}' hx-swap="none"
         hx-confirm="Remove {{ t.shop_name or code }} from the list? It comes back when a scan or the trader directory shows it again." title="you checked it is gone">Remove</button>
-      {% if code in (listing_wanted or {}) %}<span class="pill small" title="a replicant is on its way, or Bill's trail is followed">listing asked</span>{% else %}
+      {% if code in (listing_wanted or {}) %}<span class="pill small" title="logistics brings a replicant (for a moved shop of Bill's, once it is seen again)">listing asked</span>{% else %}
       <button class="small ghost" hx-post="/shop/listing" hx-vals='{{ {"controller": (code) | string} | tojson }}' hx-target="next .sh-l"
-        title="read its trades: now if a replicant of yours is in its system, else logistics sends one (lowest priority); Bill's: his trail is followed once from SOL">Get listing</button><span class="sh-l"></span>{% endif %}{% endset %}
+        title="read its trades: now if a replicant of yours is in its system, else logistics sends one (lowest priority); Bill's too (his trail is followed only by hand, on Trail)">Get listing</button><span class="sh-l"></span>{% endif %}{% endset %}
     {% set who %}{{ t.shop_name or '—' }} <span class="muted">{{ t.owner_name }}</span>{% if t.owner_replicant_code in mine %} <span class="pill small">yours</span>{% endif %}{% endset %}
     {% if not t.trades %}<tr><td>{{ who }}</td><td>{{ where }}</td><td colspan="6" class="muted">{% if t.trade_count is not none %}{{ t.trade_count }} trades, {{ t.total_stock or 0 }} in stock (its trades couldn't be read){% else %}no trades read{% endif %}</td></tr>{% endif %}
     {% for tr in t.trades %}<tr>

@@ -770,7 +770,7 @@ def test_carrier_card_on_an_attach_carrier():
                                                        ("/devices/MF", {"command": "attach", "device": "D1"})]
 
 
-def test_bills_move_post_restarts_the_trail_at_sol(client):
+def test_bills_move_post_stops_following_him(client):
     from rsweb import shop, trail as tl
     e = eng(client)
     db = client.app.state.db
@@ -783,15 +783,18 @@ def test_bills_move_post_restarts_the_trail_at_sol(client):
     new_row = {**old_row, "logged_at": fresh}
     client.portal.call(db.kv_set, tl.KV, {"target_name": "Bill", "target_code": tl.BILL_CODE, "scanner": "REP1",
                                           "beacons": {"B1": {"star": "SOL"}}, "audit": {"B1": [old_row, new_row]},
-                                          "follow": {"active": False}})
+                                          "follow": {"active": True, "replicant": "REP1", "star": "NOSOXA"}})
     client.portal.call(db.kv_set, "traders_cache", {"3BF0ED09": {"location": "NOSOXA-OORT", "owner_name": "Bill",
                                                                  "owner_replicant_code": tl.BILL_CODE, "trades": []}})
     post = {"replicant_code": tl.BILL_CODE, "replicant_name": "Bill", "channel": "#general",
             "message": "Skunkworks is on the move. NOSOXA is in the rear-view mirror. Tell no one."}
     text = client.portal.call(e.bill_moved, post)
-    assert "left NOSOXA" in text and "following him again from SOL" in text   # leaving his shop he resets to SOL
+    assert "left NOSOXA" in text and "stopped following him" in text   # following him is for the Trail page only
     s = client.portal.call(db.kv_get, tl.KV)
-    assert s["follow"]["active"] and s["follow"]["star"] == "SOL" and s["moved"]["from"] == "NOSOXA"
+    assert not s["follow"]["active"] and s["moved"]["from"] == "NOSOXA"
+    s["follow"] = {}
+    client.portal.call(db.kv_set, tl.KV, s)
+    assert "following" not in client.portal.call(e.bill_moved, post)   # nothing followed: nothing starts
     assert s["audit"]["B1"] == [] and "B1" in s["beacons"]   # his logs are dropped (leaving the shop he resets to SOL), the beacon kept
     assert "3BF0ED09" not in client.portal.call(shop.known_traders, db)        # closed until seen again
     assert client.portal.call(e.bill_moved, {**post, "message": "o7 all"}) is None

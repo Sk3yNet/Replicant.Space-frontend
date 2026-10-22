@@ -283,9 +283,8 @@ async def shop_buy(request: Request, user: str = Depends(current_user)):
 @router.post("/shop/listing", response_class=HTMLResponse)
 async def shop_listing(request: Request, user: str = Depends(current_user)):
     """Get a shop's trades: read now if a replicant of yours is in its system, else a low-priority logistics request
-    sends one there (owner, 2026-10-20). Bill's shop moves: his trail is followed once from SOL instead."""
+    sends one there (owner, 2026-10-20), Bill's too: following his trail is for the Trail page only (owner, 2026-10-22)."""
     from . import shop as sh
-    from . import trail as tl
     ctrl = ((await request.form()).get("controller") or "").strip().upper()
     db = request.app.state.db
     t = (await sh.known_traders(db)).get(ctrl) or {}
@@ -298,20 +297,11 @@ async def shop_listing(request: Request, user: str = Depends(current_user)):
         return HTMLResponse(f'<span class="small">{len(trades)} trades read.</span>', headers={"HX-Refresh": "true"})
     wanted = await db.kv_get(sh.LISTING_KV, {}) or {}
     rq = {"at": now_iso(), "by": user}
-    if sh.is_bills(t):
-        s = tl.normalize(await db.kv_get(tl.KV, {}) or {})
-        if not tl.is_bill(s):
-            return HTMLResponse('<span class="lv-alert small">The trail follows someone else: set it to Bill (Trail) '
-                                'to find his shop.</span>')
-        rq["trail"] = True
-        wanted[ctrl] = rq
+    if not t.get("location") and ctrl in (await db.kv_get(sh.GONE_KV, {}) or {}):   # Bill moved it: no trail follow
+        wanted[ctrl] = rq                                                             # (owner, 2026-10-22)
         await db.kv_set(sh.LISTING_KV, wanted)
-        from .web_trail import trail_follow
-        resp = await trail_follow(request, action="sol", user=user)
-        if b'class="result err"' in resp.body:   # the follow didn't start: nothing is on its way
-            wanted.pop(ctrl, None)
-            await db.kv_set(sh.LISTING_KV, wanted)
-        return resp
+        return HTMLResponse(f'<span class="small">{name} has moved: logistics brings a replicant once the shop is seen '
+                            'again (follow the trail by hand on the Trail page to find it sooner).</span>')
     if not t.get("location"):
         return HTMLResponse(f'<span class="lv-alert small">Where {name} is isn\'t known.</span>')
     wanted[ctrl] = rq

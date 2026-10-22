@@ -1592,6 +1592,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         for code, t in (await known_traders(self.db)).items():   # his shop isn't where we last saw it any more
             if is_bills(t) and (tl.star_of(t.get("location")) == frm if frm else t["seen_at"] < now):
                 await mark_gone(self.db, code, t.get("location"), closed)
+        from .shop import LISTING_KV
+        wanted = await self.db.kv_get(LISTING_KV, {}) or {}
+        known = await known_traders(self.db)
+        for code, rq in wanted.items():   # a listing of his old shop: logistics goes once his shop is seen again
+            if code not in known and rq.get("job"):
+                await self.cancel(rq.pop("job"))
+        if wanted:
+            await self.db.kv_set(LISTING_KV, wanted)
         text = "Bill is on the move" + (f" — left {frm}" if frm else "") + f": “{mv['text'][:160]}”"
         if tl.is_bill(s):
             fo = s.get("follow") or {}
@@ -1602,13 +1610,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             # 2026-10-13): drop the beacon logs; the beacons stay known and are read again for the new route
             s["audit"] = {b: [] for b in s["audit"]}
             s["trail_reset_at"] = now
-            rep = fo.get("replicant") or s.get("scanner")
-            if rep and (fo or s.get("scanner")):   # you've been following him: pick the trail up at SOL
-                start = tl.BILL_HOME
-                s["follow"] = {"active": True, "replicant": rep, "state": "travel", "star": start, "alts": [], "job": None,
-                               "visited": [], "started_at": now, "by": "Bill's post", "sol_tried": start == tl.BILL_HOME,
-                               "log": [{"at": now, "text": f"{text} — picking the trail up at {start}"}]}
-                text += f" — following him again from {start}"
+            if fo.get("active"):   # following him is started by hand on the Trail page only (owner, 2026-10-22)
+                fo.update(active=False, job=None, result="stopped: Bill moved his shop")
+                fo.setdefault("log", []).append({"at": now, "text": f"{text} — stopped (follow him again from Trail)"})
+                s["follow"] = fo
+                text += " — stopped following him (start it again on the Trail page)"
             s.pop("polled_at", None)   # re-read his beacons on the next pass
             await self.db.kv_set(tl.KV, s)
             self.hub.publish("state", "trail")
@@ -3598,7 +3604,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
 
     async def listing_requests(self, reps: dict) -> tuple[list[str], list[dict]]:
         """Shop listings you asked for (Shop › Get listing): read now where a replicant of yours is in the shop's system
-        (the game answers only then), else hand them to the logistics plan. Bill's waits on his trail being followed.
+        (the game answers only then), else hand them to the logistics plan. Bill's too: it waits until his shop is seen.
         Returns (log lines, listings for lg.plan)."""
         from . import shop as sh
         wanted = await self.db.kv_get(sh.LISTING_KV, {}) or {}
@@ -3624,7 +3630,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     lines.append(f"listing of {name} at {t.get('location')}: {len(trades)} trades read")
                 wanted.pop(ctrl)
                 continue
-            if rq.get("trail") or not t.get("location") or rq.get("job") in live:
+            if not t.get("location") or rq.get("job") in live:   # Bill's too: a logistics member goes (2026-10-22)
                 continue
             todo.append({"controller": ctrl, "location": t["location"],
                          "label": f"get the listing of {name} at {t['location']}"})
