@@ -847,6 +847,35 @@ def test_ami_schedule_add_run_and_idle_check(client):
     assert "MC91FF22: started" in r.text and "last directive completed" in r.text
 
 
+def test_print_needs_tilt_drones_toward_what_waiting_prints_lack():
+    from rsweb import prospects as pr
+    short = pr.print_short({"silicates": 100, "carbon": 900}, [{"silicates": 400, "carbon": 50}])
+    assert short["silicates"] > 0.8 and short["carbon"] == 0
+    scan = {"asteroid_belt": {"belts": [{"designation": "X-BELT-1", "resources": {"silicates": "low", "carbon": "rich"}}]}}
+    assert pr.belt_resources(scan, "X-BELT-1") == ["carbon", "silicates"]
+    r = pr.print_ratios(["carbon", "silicates"], short)
+    assert r["silicates"] > 0.7 and r["carbon"] < 0.3
+    assert pr.print_ratios(["carbon"], short) is None        # the belt has none of it: gather_evenly as before
+
+
+def test_a_gather_evenly_schedule_leans_toward_print_needs(client):
+    import json as _j
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("SOL", _j.dumps({"asteroid_belt": {"belts": [{"designation": "SOL-BELT-1",
+                                                                      "resources": {"carbon": "rich", "silicates": "low"}}]}}),
+                        "2026-10-22T00:00:00+00:00"))
+
+    async def needs(devices):
+        return {"silicates": 1.0}
+    eng.print_needs = needs
+    ctrl = {"device_code": "MC91FF22", "device_type": "ami_mining_controller", "location": "SOL-BELT-1"}
+    use = client.portal.call(eng.print_tilt, {"directive": "gather_evenly"}, ctrl, [])
+    assert use["directive"] == "maintain_ratios" and use["configuration"]["silicates"] > use["configuration"]["carbon"]
+    assert client.portal.call(eng.print_tilt, {"directive": "gather_evenly"}, {**ctrl, "tags": ["boot:x"]}, [])["directive"] \
+        == "gather_evenly"
+
+
 def test_ami_schedules_need_master_switch_and_respect_interval(client):
     eng = client.app.state.worker.automations
     client.post("/automations/schedules", data={"target": "TC000001", "directive": "consolidate", "f.deliver": "SOL-3-L4",

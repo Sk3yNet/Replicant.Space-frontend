@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.233.1"
+VERSION = "1.233.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.233.2", "2026-10-22", "The Prospects page scores stay put again (no stock weighting; it's where wards are chosen); "
+     "only a mining fleet picking its next home weighs what waiting prints lack. Drones lean that way too: a gather_evenly "
+     "AMI schedule on a mining controller runs maintain_ratios toward the resources waiting prints lack (among what its belt "
+     "has), and Restart idle miners starts a drone on the most-needed one. Bootstraps are left out both ways."),
     ("1.233.1", "2026-10-22", "Prospect scores (a mining fleet's next home, bootstrap choices) weigh what waiting prints lack "
      "much more: up to 4× instead of 1.35×, so a belt rich in it beats a richer belt without it."),
     ("1.233.0", "2026-10-22", "System map: working drones orbit the site they work (a survey drone's tracking site, a "

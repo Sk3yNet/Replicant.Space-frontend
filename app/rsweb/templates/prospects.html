@@ -9,8 +9,8 @@
 <div class="card">
   <p class="muted small" style="margin-top:0">Score out of 100: <b>richness</b> (belt resource levels × density, ≤40) +
     <b>proven</b> (known site quantities, open sites, salvage, ≤25) + <b>staying power</b> (belt viability, ≤15) +
-    <b>access</b> (distance; −5 without a relay of yours, ≤20). Resources you're short of or a waiting print needs tip
-    the richness slightly{% if p.wanted %} — now: {% for r, v in p.wanted.items() %}{{ r }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}.
+    <b>access</b> (distance; −5 without a relay of yours, ≤20). These scores don't change with your stock. When a mining
+    fleet picks its next home, what waiting prints lack weighs up to 4× more{% if p.wanted %} (now: {% for r, v in p.wanted.items() %}{{ r }}{{ ', ' if not loop.last }}{% endfor %}){% endif %}.
     Systems with another player's ward or hub aren't scored. A stationed fleet's home is scored for review (marked
     <i>home</i>) but is never a mining mission's target. ⚑: a fleet of yours is homed there.
     <b>Ward:</b> ⛨ yours / ⛨ theirs. <i>Add ward</i> activates an idle ward of yours there, else sends a spare one, else prints

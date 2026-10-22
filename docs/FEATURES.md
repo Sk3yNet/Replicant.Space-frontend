@@ -204,8 +204,10 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
 
 ### Prospects
 - Scores every scanned system out of 100: each resource's yield (scarce 1 to rich 10) × belt density, weighted by
-  rarity (rares 3, volatiles 2.5 … structural 1). A resource that waiting prints lack weighs up to 4× more (a low or
-  falling stockpile counts too), so mining fleets choose their next home by what the prints need.
+  rarity (rares 3, volatiles 2.5 … structural 1). These scores don't change with your stock. When a mining fleet picks
+  its next home, a resource that waiting prints lack weighs up to 4× more (a low or falling stockpile counts too).
+  Bootstraps score at full potential, unweighted. AMI mining schedules set to *gather evenly* run *maintain ratios*
+  leaning toward what waiting prints lack (when the belt has it), and *Restart idle miners* picks that resource.
 - A stationed fleet's home is scored for review only, marked *home*; ⚑ marks systems where a fleet of yours is homed.
 - **Ward** column, ⛨ yours / ⛨ theirs:
   - *add ward*: activates an idle ward of yours there, else sends a spare, else prints one in range on the autofactory

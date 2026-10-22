@@ -70,7 +70,7 @@ async def fleets_ctx(request: Request) -> dict:
             o_star = f.get("home") or ""
             if o_star not in ranks:
                 async def rk(o=o_star) -> dict:
-                    return {r["star"]: r for r in (await _pr.rank(request.app.state.db, eng, st["devices"], o))["rows"]}
+                    return {r["star"]: r for r in (await _pr.rank(request.app.state.db, eng, st["devices"], o, weigh=True))["rows"]}
                 ranks[o_star] = await pagecache.get(request, f"ranks:{o_star}", rk)
             pr = ranks[o_star]
             for o in f["target_options"]:

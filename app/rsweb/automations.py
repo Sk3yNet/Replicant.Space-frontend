@@ -2075,7 +2075,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 continue
             if (now - _ts(f["depleted_since"])).total_seconds() < float(f.get("dry_hours") or pa.DRY_FOR_HOURS) * 3600:
                 continue
-            rows = (await pr.rank(self.db, self, devices, home, limit_unscanned=0))["rows"]
+            rows = (await pr.rank(self.db, self, devices, home, limit_unscanned=0, weigh=True))["rows"]
             star, note = pa.choose(f, items, rows, xyz_of, devices, heading, cone, await self.commandable(devices))
             if star:
                 f["next_home"] = star
@@ -3346,8 +3346,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     results.append(f"{code}: exhausted on {sched['directive']} at {place or '?'} — re-sending it won't help until sites re-open")
                     continue
             adopt = adoptable(devices, ctrl, managed) if sched.get("adopt", True) else []
-            job = await self.create_job("ami_schedules", f"{sched.get('name') or sched['directive']} → {code}", code,
-                                        schedule_steps(ctrl, sched, adopt), {"schedule": sched.get("id"), "devices": adopt},
+            use = await self.print_tilt(sched, ctrl, devices)
+            job = await self.create_job("ami_schedules", f"{use.get('name') or use['directive']} → {code}", code,
+                                        schedule_steps(ctrl, use, adopt), {"schedule": sched.get("id"), "devices": adopt},
                                         force=manual)
             results.append(f"{code}: {'started' if job else 'planned (dry run)'}"
                            + (f", adopting {len(adopt)}" if adopt else "") + f" ({why})")
@@ -3356,6 +3357,28 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         sched["last_run"] = _now().isoformat(timespec="seconds")
         sched["last_result"] = "; ".join(results)
         return results
+
+    async def print_needs(self, devices: list[dict]) -> dict[str, float]:
+        """What waiting prints lack, per resource (prospects.print_short), and the system scans (kept a minute)."""
+        from . import prospects as pr
+        inp = await pr.rank_inputs(self.db, self, devices)
+        return inp.get("short") or {}
+
+    async def print_tilt(self, sched: dict, ctrl: dict, devices: list[dict]) -> dict:
+        """A gather_evenly schedule on a mining controller turns into maintain_ratios leaning toward what waiting prints
+        lack, among what its belt offers (owner 2026-10-22). Bootstrap controllers keep their own ratios."""
+        from . import prospects as pr
+        from .salvage import belt_of
+        if sched.get("directive") != "gather_evenly" or "mining" not in (ctrl.get("device_type") or "") \
+                or any(t.startswith("boot:") for t in ctrl.get("tags") or []):
+            return sched
+        row = await self.db.fetchone("SELECT data FROM systems WHERE star=?", (star_of(ctrl.get("location")),))
+        offered = pr.belt_resources(json.loads(row["data"] or "{}") if row else {}, belt_of(ctrl.get("location")))
+        ratios = pr.print_ratios(offered, await self.print_needs(devices))
+        if not ratios:
+            return sched
+        return {**sched, "directive": "maintain_ratios", "configuration": ratios,
+                "name": f"{sched.get('name') or 'gather_evenly'}, leaning to what prints wait on"}
 
     # --- helpers for rules ------------------------------------------------------------------------
     def busy_devices(self, jobs: list[dict]) -> set[str]:
@@ -5458,6 +5481,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     or "BELT" not in (d.get("location") or "") or code in busy or code in managed
                     or "start_mining" not in (d.get("available_commands") or ["start_mining"])):
                 continue
+            from . import prospects as pr_
             from .salvage import belt_of
             if belt_of(d.get("location")) in dry_belts:
                 continue  # nothing left to mine there: the salvage rule moves it
@@ -5477,6 +5501,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     "ORDER BY seq DESC LIMIT 1", (code,))
                 pl = json.loads(row["payload"]) if row else {}
                 resource = pl.get("resource_type") or pl.get("new_resource") or "structural"
+                # what waiting prints lack, if its belt has it (owner 2026-10-22)
+                srow = await self.db.fetchone("SELECT data FROM systems WHERE star=?", (star_of(d.get("location")),))
+                offered = pr_.belt_resources(json.loads(srow["data"] or "{}") if srow else {}, belt_of(d.get("location")))
+                short = {r: q for r, q in (await self.print_needs(devices)).items() if q > 0 and r in offered}
+                if short:
+                    resource = max(short, key=lambda r: (short[r], r == resource, r))
             attempts[code] = now.isoformat(timespec="seconds")
             if dry:
                 await self.log("restart_idle_miners", f"[dry run] would restart {code} on {resource}")

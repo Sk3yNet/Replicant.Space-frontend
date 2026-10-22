@@ -118,8 +118,8 @@ def score(star: str, scan: dict | None, res: dict | None, viability: list[dict],
     return out
 
 
-def wanted_from(totals: dict[str, float], series: dict[str, list[float]], waiting_costs: list[dict[str, float]]) -> dict[str, float]:
-    """How much you want each resource, 0–1: what waiting prints need beyond your stock, then a falling or low stockpile."""
+def print_short(totals: dict[str, float], waiting_costs: list[dict[str, float]]) -> dict[str, float]:
+    """What waiting prints need beyond your stock, 0.4–1 per resource short (0 when not short)."""
     want = {r: 0.0 for r in RESOURCES}
     need: dict[str, float] = {}
     for cost in waiting_costs:
@@ -129,6 +129,32 @@ def wanted_from(totals: dict[str, float], series: dict[str, list[float]], waitin
         have = float(totals.get(r) or 0)
         if q > have:
             want[r] = max(want.get(r, 0.0), min(1.0, (q - have) / max(q, 1)) * 0.6 + 0.4)
+    return want
+
+
+def belt_resources(scan: dict | None, belt: str | None = None) -> list[str]:
+    """The resources a system's belt offers (any level), from its scan: `belt`'s own, else every belt's."""
+    belts = ((scan or {}).get("asteroid_belt") or {}).get("belts") or []
+    mine = [b for b in belts if b.get("designation") == belt] or belts
+    return sorted({r for b in mine for r, lv in (b.get("resources") or {}).items() if lv in YIELD})
+
+
+DRONE_TILT = 3.0   # a fully short resource gets this much more of a controller's maintain_ratios share than the rest
+
+
+def print_ratios(offered: list[str], short: dict[str, float]) -> dict[str, float] | None:
+    """maintain_ratios for a mining controller whose belt offers `offered`: every resource a share, the ones waiting
+    prints lack (print_short) up to DRONE_TILT more (owner 2026-10-22). None when the belt has none of them."""
+    if not any((short.get(r) or 0) > 0 for r in offered):
+        return None
+    w = {r: 1 + DRONE_TILT * float(short.get(r) or 0) for r in offered}
+    tot = sum(w.values())
+    return {r: round(v / tot, 2) for r, v in sorted(w.items())}
+
+
+def wanted_from(totals: dict[str, float], series: dict[str, list[float]], waiting_costs: list[dict[str, float]]) -> dict[str, float]:
+    """How much you want each resource, 0–1: what waiting prints need beyond your stock, then a falling or low stockpile."""
+    want = print_short(totals, waiting_costs)
     vals = [float(totals.get(r) or 0) for r in RESOURCES]
     mid = sorted(vals)[len(vals) // 2] if vals else 0
     for r in RESOURCES:
@@ -168,7 +194,9 @@ async def rank_inputs(db, eng, devices: list[dict]) -> dict:
     bps = {b["device_type"]: b for b in normalize_blueprints(await db.kv_get("blueprints", []))}
     waiting = []
     for d in devices:
-        if str(d.get("status") or "").startswith("waiting_for_resources"):
+        # a bootstrap's vessel prints from its own mining: its needs don't steer the others
+        if str(d.get("status") or "").startswith("waiting_for_resources") \
+                and not any(t.startswith("boot:") for t in d.get("tags") or []):
             cur = await printqueue.current(db, d)
             cost = (bps.get((cur or {}).get("device_type") or "") or {}).get("resources") or {}
             if cost:
@@ -188,6 +216,7 @@ async def rank_inputs(db, eng, devices: list[dict]) -> dict:
             except (TypeError, ValueError):
                 pass
     out = {"pos": pos, "xyz": xyz, "warded": warded, "homes": homes, "viability": viability, "wanted": wanted_from(totals, series, waiting),
+           "short": print_short(totals, waiting),
            "scanned": scanned, "resources": {star: await system_resources(db, star) for star in scanned}}
     _INPUTS[id(db)] = (time.monotonic(), db, sig, out)
     return out
@@ -201,23 +230,26 @@ def forget_inputs(db=None) -> None:
         _INPUTS.pop(id(db), None)
 
 
-async def rank(db, eng, devices: list[dict], origin: str | None, limit_unscanned: int = 8) -> dict:
-    """Every scanned system scored (best first), plus the nearest unscanned catalog stars as "survey first"."""
+async def rank(db, eng, devices: list[dict], origin: str | None, limit_unscanned: int = 8, weigh: bool = False) -> dict:
+    """Every scanned system scored (best first), plus the nearest unscanned catalog stars as "survey first". `weigh`:
+    what waiting prints lack and low stocks count more (a mining fleet choosing where to go); without it the scores
+    stay put (owner 2026-10-22: the Prospects page is where wards are chosen)."""
     from . import outposts
     inp = await rank_inputs(db, eng, devices)
     pos, warded, homes, viability, wanted, scanned = (inp["pos"], inp["warded"], inp["homes"], inp["viability"],
                                                       inp["wanted"], inp["scanned"])
     origin = star_of(origin)
+    tilt = wanted if weigh else None
     rows = []
     for star, scan in scanned.items():
         rows.append(score(star, scan, inp["resources"][star], viability, _dist(pos.get(origin), pos.get(star)),
-                          bool(outposts.deployed_in(devices, star, "relay")), wanted, star in warded, homes.get(star)))
+                          bool(outposts.deployed_in(devices, star, "relay")), tilt, star in warded, homes.get(star)))
     import heapq
     xyz, o = inp["xyz"], inp["xyz"].get(origin)
     unscanned = heapq.nsmallest(limit_unscanned, (s for s in pos if s not in scanned and pos.get(s)),
                                 key=lambda s: math.dist(o, xyz[s]) if o and s in xyz else 0)
     for star in unscanned:
-        rows.append(score(star, None, None, [], _dist(pos.get(origin), pos.get(star)), False, wanted, star in warded,
+        rows.append(score(star, None, None, [], _dist(pos.get(origin), pos.get(star)), False, tilt, star in warded,
                           homes.get(star)))
     order = {"ok": 0, "unscanned": 1, "stationed": 2, "warded": 3}
     rows.sort(key=lambda r: (order[r["status"]], -(r["score"] or 0), r["distance"] if r["distance"] is not None else 1e9))
