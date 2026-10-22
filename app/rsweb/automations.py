@@ -1077,14 +1077,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         code, dest = path.split("/")[2], str(body.get("destination") or "")
         devs = await self.devices()
         d = next((x for x in devs if x.get("device_code") == code), None) or {}
-        cat = await self.db.kv_get("stars", {}) or {}
-        recs = [x for x in cat.get("stars") or [] if isinstance(x, dict)]
         # a hub slows every ship arriving in its system, whoever owns it (owner 2026-10-22)
-        hubs = ({star_of(x.get("location")) for x in devs if wh.is_hub(x) and wh.active(x)}
-                | {x["designation"] for x in recs if x.get("has_hub") and x.get("designation")})
+        hubs = {star_of(x.get("location")) for x in devs if wh.is_hub(x) and wh.active(x)} | await self.star_lookup("hubs")
         if not d.get("location") or not hubs:
             return
-        pos = {x.get("designation"): x.get("position") for x in recs}
+        pos = await self.star_lookup("pos")
         cands = hubroute.candidates(star_of(d["location"]), star_of(dest), hubs, pos)
         if not cands:
             return
@@ -3382,7 +3379,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
     async def star_lookup(self, name: str) -> Any:
         """Lookups over the star catalog, built once per catalog update and shared (don't change them): "pos"
         {star: position} for stars with one, "pos_all" (every star, {} without one), "by" {star: record}, "xyz" {star: (x, y, z)}, "names" (set), "slugs"
-        (loadouts.star_slugs), "flagged" (records flagged has_ward / has_hub)."""
+        (loadouts.star_slugs), "flagged" (records flagged has_ward / has_hub), "hubs" (set of stars flagged has_hub)."""
         from . import loadouts as lo
         from . import pathing as pa
 
@@ -3394,7 +3391,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                "xyz": lambda c: {x.get("designation"): pa.xyz(x["position"]) for x in recs(c) if x.get("position")},
                "names": lambda c: {x["designation"] for x in recs(c) if x.get("designation")},
                "slugs": lambda c: lo.star_slugs({x["designation"] for x in recs(c) if x.get("designation")}),
-               "flagged": lambda c: [x for x in recs(c) if x.get("has_ward") or x.get("has_hub")]}
+               "flagged": lambda c: [x for x in recs(c) if x.get("has_ward") or x.get("has_hub")],
+               "hubs": lambda c: {x["designation"] for x in recs(c) if x.get("has_hub") and x.get("designation")}}
         return await self.db.kv_derived("stars", name, fns[name], {})
 
     async def replicant_for_host(self, device_code: str) -> tuple[str, dict] | None:
