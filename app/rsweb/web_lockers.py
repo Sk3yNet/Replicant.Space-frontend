@@ -37,7 +37,7 @@ async def lockers_page(request: Request, user: str = Depends(current_user)):
             coming = sum(1 for d in st["devices"] if d.get("device_type") == t and at_tag(k["location"]) in (d.get("tags") or [])
                          and d.get("location") != k["location"])
             price.append({"type": t, "need": n, "there": there, "coming": coming})
-        known.append({**k, "progress": price})
+        known.append({**k, "progress": price, "ready": bool(price) and all(x["there"] >= x["need"] for x in price)})
     return await page(request, user, "lockers.html", "lockers", reps=reps, known=known)
 
 
@@ -95,6 +95,36 @@ async def lockers_scan(request: Request, rep: str, user: str = Depends(current_u
 
 @router.post("/lockers/{code}/retrieve", response_class=HTMLResponse)
 async def lockers_retrieve(request: Request, code: str, user: str = Depends(current_user)):
+    return await run_action(request, user, "POST", f"/devices/{code}/retrieve", None, f"retrieve from locker {code}")
+
+
+def reps_at(st: dict, location: str) -> list[str]:
+    """Your replicants at that exact location: their own record, or the device hosting them."""
+    out = [c for c, r in st["replicants"].items() if (r.get("location") or r.get("current_location")) == location]
+    out += [h["replicant_code"] for d in st["devices"] if d.get("location") == location
+            for h in [d.get("hosting_replicant") or {}] if h.get("replicant_code") and h["replicant_code"] not in out]
+    return out
+
+
+@router.post("/lockers/retrieve_at", response_class=HTMLResponse)
+async def lockers_retrieve_at(request: Request, location: str = Form(...), user: str = Depends(current_user)):
+    """The Known lockers row's Retrieve, once the price is there: scan from a replicant at the locker, then retrieve."""
+    from .api import ApiError
+    st = await load_state(request)
+    reps = reps_at(st, location)
+    if not reps:
+        return HTMLResponse(f'<span class="result err">No replicant of yours is at {html.escape(location)}: the locker '
+                            'only hands out to a replicant at its location.</span>')
+    try:
+        devs = await request.app.state.api.paged(f"/replicants/{reps[0]}/scan/devices", "devices", background=False)
+    except ApiError as e:
+        return HTMLResponse(f'<span class="result err">{html.escape(e.message)}</span>')
+    lk = next((d for d in devs if "locker" in str(d.get("device_type") or "") and d.get("location") == location), None) \
+        or next((d for d in devs if "locker" in str(d.get("device_type") or "")), None)
+    if not lk:
+        return HTMLResponse(f'<span class="result err">The scan from {html.escape(reps[0])} found no locker. Retrieve '
+                            'by its code instead (the Retrieve box below).</span>')
+    code = str(lk["device_code"])
     return await run_action(request, user, "POST", f"/devices/{code}/retrieve", None, f"retrieve from locker {code}")
 
 

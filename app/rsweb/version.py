@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.200.0"
+VERSION = "1.201.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.201.0", "2026-10-22", "Lockers: once a locker's price is all on site, its row offers Retrieve instead of Deliver; "
+     "it scans from your replicant at the locker and retrieves."),
     ("1.200.0", "2026-10-22", "Lockers: retrieve straight from a locker's code (the docs' POST /devices/{code}/retrieve); "
      "the scan for lockers reads every page and falls back to an unfiltered scan."),
     ("1.199.0", "2026-10-21", "A device pinned to a spot (at: tag, e.g. a locker's price) is dropped right at that spot by "

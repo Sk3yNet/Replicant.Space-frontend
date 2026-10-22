@@ -7817,6 +7817,25 @@ def test_lockers_deliver_and_show_on_the_system_page(client):
     r = client.post("/lockers/retrieve", data={"code": " 70c835ac "}, headers=HX).text
     assert "retrieved" in r and "HV2E8F3A" in r, r
     assert "not a device code" in client.post("/lockers/retrieve", data={"code": "../x"}, headers=HX).text
+    # all 50 on site: the row offers Retrieve, which scans from the replicant there and retrieves (2026-10-22: the row
+    # kept offering Deliver, which never retrieves)
+    world = client.app.state.api.http._transport.app.state.world
+    cores = [{"device_code": f"CC{i:06d}", "device_type": "compute_core", "location": "TWAFFY-OORT", "status": "idle",
+              "tags": []} for i in range(50)]
+    client.portal.call(db.kv_set, "devices", devs + cores)
+    r = client.post("/lockers/retrieve_at", data={"location": "TWAFFY-OORT"}, headers=HX).text
+    assert "No replicant of yours is at TWAFFY-OORT" in r
+    client.portal.call(db.kv_set, "devices", devs + cores + [
+        {"device_code": "CV000001", "device_type": "cargo_vessel", "location": "TWAFFY-OORT", "status": "idle",
+         "hosting_replicant": {"name": "Percival", "replicant_code": "8EC42FBA"}}])
+    page = client.get("/lockers", headers=H).text
+    assert "50 of 50 compute core there" in page and "/lockers/retrieve_at" in page
+    world.foreign_devices = [{"device_code": "70C835AC", "device_type": "equipment_locker", "location": "TWAFFY-OORT"}]
+    try:
+        r = client.post("/lockers/retrieve_at", data={"location": "TWAFFY-OORT"}, headers=HX).text
+    finally:
+        world.foreign_devices = []
+    assert "retrieved" in r and "HV2E8F3A" in r, r
 
 
 def test_a_drone_aboard_a_carrier_at_the_destination_has_arrived(client):
