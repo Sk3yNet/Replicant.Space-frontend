@@ -24,14 +24,14 @@ DONE_EVENTS = {
     "print.completed", "travel.arrived", "scan.completed", "search.completed", "directive.completed",
     "event.completed", "trade.completed", "prospect.completed", "teleport.completed",
     "story.awakened", "megastructure.contributed", "relay.activated", "hub.activated",
-    "diversion.diverted", "system.object_diverted", "salvage.discovered", "event.discovered", "triangulation.complete",
+    "diversion.diverted", "system.object_diverted", "system.object_off_target", "salvage.discovered", "event.discovered", "triangulation.complete",
     "simulation.completed", "device.decommissioned", "ward.activated",
 }
 # Done-events that also raise a notification (the rest just go in the digest/feed).
 NOTIFY_DONE = {
     "print.completed", "directive.completed", "event.completed", "trade.completed", "prospect.completed",
     "teleport.completed", "story.awakened", "salvage.discovered", "event.discovered",
-    "triangulation.complete", "simulation.completed", "hub.activated", "relay.activated",
+    "triangulation.complete", "simulation.completed", "hub.activated", "relay.activated", "system.object_off_target",
 }
 # Info-level events that still raise a notification.
 NOTIFY_INFO = {"multiplayer.replicant_entered", "hub.maintained", "trade.created", "trade.deleted"}
@@ -103,9 +103,14 @@ def describe(ev: dict) -> str:
             n = len(p.get("device_codes") or [])
             return (f"Impact warning at {loc or '?'}: hits {p.get('destination', '?')} at {p.get('impact_eta', '?')}"
                     + (f" — {n} of your devices there" if n else "") + "; anything left is destroyed")
-        case "system.object_impacted":
+        case "system.object_impacted":   # v3.6.0 adds description, composition, approach_speed/angle, depleted
             fx = p.get("terraform_effects")
-            return f"Object {loc} impacted {p.get('impact_target', '?')}" + (f" ({fx})" if fx else "")
+            what = p.get("description") or (f"{p.get('composition')} impact" if p.get("composition") else "")
+            return (f"Object {p.get('object_designation') or loc} impacted {p.get('impact_target', '?')}" + (f": {what}" if what else "")
+                    + (" (mined out: no terraform effect)" if p.get("depleted") else f" ({fx})" if fx else ""))
+        case "system.object_off_target":   # v3.6.0: will miss; minable until flung out of the system at the ETA
+            return (f"Object {p.get('object_designation') or loc} is off target: it will miss {p.get('impact_target', '?')} "
+                    "and be flung out of the system (anything left there is lost)")
         case "system.object_diverted":
             return (f"Object {loc} diverted from {p.get('impact_target', '?')}" if p.get("outcome") != "partial"
                     else f"Object {loc} only partly diverted: {p.get('impact_target', '?')} is still threatened")

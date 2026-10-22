@@ -89,3 +89,21 @@ def test_never_evacuates_to_where_the_devices_already_are():
     objs["K-4-L4"]["impact_eta"] = iso(-30)   # owner: once the impact time has passed it's over, nothing more is sent
     assert ev.plan(objs, devs, stars, set(), warned={"K-4-L4"})["moves"] == []
     assert ev.safe_spot("K", "K-4", stars, {"planets": [{"designation": "K-4"}, {"designation": "K-5"}]}, here="K-4-L4") == "K-5"
+
+
+def test_off_target_objects_v360_are_evacuated_not_pushed_and_show_resources_left():
+    from rsweb import defence as dfn
+    from rsweb import notify
+    o = {"designation": "A-OBJ-1", "status": "off_target", "impact_eta": iso(300), "impact_target": "A-3",
+         "impact_likelihood": 40, "required_strength": 100, "progress_pct": 50,
+         "resource_sites": [{"designation": "A-OBJ-1-SITE-0", "resources_remaining_pct": {"carbon": 72, "rares": 100}}]}
+    assert "A-OBJ-1" in ev.due({"A-OBJ-1": o})   # flung out at the ETA: everything leaves
+    a = dfn.assess(o, [], {})
+    assert a["verdict"] == "diverted" and not a["threat"]
+    assert a["resources_left"] == {"carbon": 72.0, "rares": 100.0}
+    t = notify.describe({"event": "system.object_impacted", "location": "A-OBJ-1",
+                         "payload": {"object_designation": "A-OBJ-1", "impact_target": "A-3", "description": "Fast steep rock impact",
+                                     "depleted": True}})
+    assert "Fast steep rock impact" in t and "no terraform effect" in t
+    assert "off target" in notify.describe({"event": "system.object_off_target", "location": "A-OBJ-1",
+                                            "payload": {"object_designation": "A-OBJ-1", "impact_target": "A-3"}})

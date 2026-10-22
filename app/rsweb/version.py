@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.201.1"
+VERSION = "1.202.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.202.0", "2026-10-22", "Game v3.6.0: an off_target asteroid (system.object_off_target) counts as diverted, so no more "
+               "propulsors are sent or printed for it, and its devices are evacuated (it is flung out at the ETA; before, "
+               "evacuation skipped it). Defense shows the resources left on an asteroid; impact alerts give the "
+               "description and say when a mined-out rock had no terraform effect."),
     ("1.201.1", "2026-10-22", "Lockers: the Retrieve-by-code card from 1.200.0 is gone (the row's Retrieve does it)."),
     ("1.201.0", "2026-10-22", "Lockers: once a locker's price is all on site, its row offers Retrieve instead of Deliver; "
      "it scans from your replicant at the locker and retrieves."),

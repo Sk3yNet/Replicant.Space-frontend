@@ -44,6 +44,8 @@ def diverted_enough(o: dict, pct: float = DIVERTED_PCT) -> bool:
         except (TypeError, ValueError):
             return None
     lk, pg = num(o.get("impact_likelihood")), num(o.get("progress_pct"))
+    if o.get("status") == "off_target":   # v3.6.0: the game says it will miss; flung out of the system at the ETA
+        return True
     return (lk is not None and lk <= pct) or (pg is not None and pg >= 100)
 
 
@@ -54,7 +56,7 @@ def due(objects: dict[str, dict], now: float | None = None, minutes: float = EVA
     now = now if now is not None else datetime.now(timezone.utc).timestamp()
     out = {}
     for des, o in (objects or {}).items():
-        if o.get("closed") or str(o.get("status") or "active") not in ("active", ""):
+        if o.get("closed") or str(o.get("status") or "active") not in ("active", "", "off_target"):
             continue
         eta = _ts(o.get("impact_eta"))
         left = (eta - now) / 60 if eta else None

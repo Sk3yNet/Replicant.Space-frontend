@@ -478,7 +478,7 @@ class OpsRules:
         objs = await self.db.kv_get("objects", {}) or {}
         rows = await self.db.fetchall("SELECT event, payload, location, created_at FROM events WHERE event='system.object_detected' "
                                       "OR event LIKE 'diversion.%' OR event IN ('system.object_diverted', 'system.object_impacted', "
-                                      "'system.impact_warning') ORDER BY seq")
+                                      "'system.impact_warning', 'system.object_off_target') ORDER BY seq")
         for r in rows:
             p = _json.loads(r["payload"] or "{}")
             # v3.5.0 events carry no designation: the envelope's location is the object (docs catalogue)
@@ -510,6 +510,9 @@ class OpsRules:
                 o["impact_target"] = o.get("impact_target") or p.get("destination")
                 o["destination"] = p.get("destination") or o.get("destination")
                 o["warned_at"] = r["created_at"]
+            elif r["event"] == "system.object_off_target":   # v3.6.0: it will miss; minable until flung out at the ETA
+                if des in objs and not objs[des].get("closed"):
+                    objs[des]["status"] = dfn.OFF_TARGET
             elif r["event"] in dfn.CLOSED_EVENTS:
                 if des not in objs:   # matched by its target when the location isn't the object's
                     des = next((k for k, o in objs.items() if not o.get("closed") and p.get("impact_target")
@@ -595,6 +598,8 @@ class OpsRules:
             if reading:
                 objs[des] = dfn.merge_reading(o, reading, now_iso())
                 objs[des].pop("read_error", None)
+                if isinstance(body.get("resource_sites"), list):   # v3.6.0: asteroids are minable, % left per resource
+                    objs[des]["resource_sites"] = body["resource_sites"]
                 read += 1
         await self.db.kv_set("objects", objs)
         s = await self.settings()

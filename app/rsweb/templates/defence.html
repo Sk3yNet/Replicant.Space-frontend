@@ -38,6 +38,8 @@
     <tr><th>Object</th><td>{{ a.mass_class or o.size_class or '' }} {{ a.composition or '' }} · status {{ a.status }}{% if o.closed %} · closed: {{ o.closed }}{% endif %}
       {% if o.read_error %}<span class="lv-alert">read failed: {{ o.read_error }}</span>{% endif %}
       · propulsor blueprint: {{ a.diverter_types | join(', ') if a.diverter_types else 'none known' }}</td></tr>
+    {% if a.resources_left %}<tr><th>Resources left</th><td>{% for r, v in a.resources_left.items() %}{{ r }} {{ v | num }} %{% if not loop.last %} · {% endif %}{% endfor %}
+      <span class="muted">(mining rigs only; a mined-out rock has no terraform effect)</span></td></tr>{% endif %}
   </table>
 </div>
 {% else %}
