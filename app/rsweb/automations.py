@@ -775,6 +775,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             else:
                 if await self._let_off_riders(st, job):
                     continue   # other fleets' members get off first; this trip goes out after them
+                if await self._hop_first(st, job):
+                    continue   # a surge hop to the Oort / Kuiper / entry point nearest the destination goes first
                 far = await self._too_far(st) or await self._dark_destination(st, job)
                 if far:
                     ok, resp, err = False, None, far
@@ -905,6 +907,13 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                 s2["seq0_from"] += 1
                         ok, st["note"] = True, f"{err} — loading what is there"
                         st["wait"] = []
+            if not ok and st.get("hop"):
+                # the game refused the surge hop: no wait for it, the planned trip goes as it was
+                ok, st["note"], st["wait"] = True, f"surge hop refused ({err}): cruising instead", []
+                nxt = job["steps"][job["idx"] + 1] if job["idx"] + 1 < len(job["steps"]) else {}
+                if nxt.get("method") == "WAIT" and nxt.get("status") == "pending":
+                    nxt["status"], nxt["note"] = "skipped", "no surge hop"
+                await self.log(job["rule"], f"{job['title']}: {st['note']}", "warning")
             if not ok and "already at destination" in (err or "").lower():
                 ok, st["note"] = True, err  # nothing to do: count it as done and move on
                 st["wait"] = []
@@ -1096,6 +1105,50 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         if set(hosts) & set([job.get("device")] + list((job.get("meta") or {}).get("devices") or [])):
             return None   # a replicant flies with this job: it brings comms along
         return f"{star} is out of comms range now (no relay network or replicant there): not leaving without an escort"
+
+    async def _hop_first(self, st: dict, job: dict) -> bool:
+        """The surge hop: inside a system, a surge-capable device standing at a surge-capable place (the Oort cloud, the
+        Kuiper belt, the entry point) hops in seconds to another one, then cruises the rest. A trip whose destination is
+        much nearer another of them than to where the device is gets that hop first, as two steps put in before this one
+        (Delta Force 2026-10-22: 499 AU, 57 min of cruise from ISOLITHOR-1-L4 to a belt next to the Kuiper belt).
+        Returns whether steps were put in."""
+        from .fleets import _wait_arrive, cruise_au
+        body, path = st.get("body") or {}, str(st.get("path") or "")
+        if body.get("command") != "travel" or st.get("hopped") or body.get("via") or not path.startswith("/devices/"):
+            return False
+        st["hopped"] = True
+        code, dest = path.split("/")[2], str(body.get("destination") or "").upper()
+        d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
+        here, star = str(d.get("location") or "").upper(), star_of(dest)
+        if "surge" not in (d.get("features") or []) or not here or here == dest or star_of(here) != star:
+            return False
+        cat = await self.db.kv_get("stars", {}) or {}
+        entry = next((str(x.get("entry_point") or "").upper() for x in cat.get("stars") or []
+                      if isinstance(x, dict) and x.get("designation") == star), "")
+        radii = await self.cruise_radii()
+        mine = [x.upper() for x in radii if star_of(x) == star]
+        planets = [x for x in mine if re.fullmatch(rf"{re.escape(star)}-\d+", x)]
+        spots = {x for x in mine if x.endswith(("-OORT", "-KUIPER"))} | ({entry} - {""}) | \
+            {f"{p_}-{lp}" for p_ in planets for lp in ("L4", "L5")}   # a planet's L4 / L5 too (owner 2026-10-22)
+        if here not in spots and not re.fullmatch(rf"{re.escape(star)}-\d+-L[45]", here):
+            return False
+        now_au = cruise_au(here, dest, radii)
+        hop = min(spots - {here}, key=lambda x: (cruise_au(x, dest, radii), x), default=None)
+        if not hop or now_au - cruise_au(hop, dest, radii) < max(30.0, now_au / 4):
+            return False
+        i = job["idx"]
+        add = [step(f"{code} → {hop} (surge hop)", path, {"command": "travel", "destination": hop}), _wait_arrive(code, hop)]
+        add[0]["hop"] = add[0]["hopped"] = True
+        add[1]["seq0_from"] = i
+        for later in job["steps"][i:]:
+            if isinstance(later.get("seq0_from"), int) and later["seq0_from"] >= i:
+                later["seq0_from"] += 2
+        st["tries"], st["started_at"] = 0, None
+        job["steps"][i:i] = add
+        await self.log(job["rule"], f"{job['title']}: surge hop {here} → {hop}, then cruise ≈{cruise_au(hop, dest, radii):.0f} AU "
+                                    f"to {dest} (instead of ≈{now_au:.0f} AU)")
+        await self._update(job)
+        return True
 
     async def _too_far(self, st: dict) -> str | None:
         """The one check every automated trip goes through: a drone or AMI controller isn't sent on a long cruise inside

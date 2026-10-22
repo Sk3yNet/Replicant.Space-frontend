@@ -325,6 +325,9 @@ by itself. Before an automated device trip of 15 ly or more to another system, u
 it are previewed as a waypoint (`via`, dry runs); the fastest is taken when it saves at least 10 min and 5 %. The step
 then reads *(via hub X)* and the log gives both times; if the game refuses the waypoint the trip goes direct. A trip to a body in another system gets that system's star as
 the last waypoint (the game requires it), for a `via` you type yourself too.
+**Surge hops**: inside a system, a surge-capable device standing at the Oort cloud, the Kuiper belt, the entry point or a
+planet's L4/L5 hops first to whichever of those is nearest its destination (when that saves at least 30 AU and a quarter
+of the cruise), then cruises the rest; the step reads *(surge hop)*. If the game refuses the hop, the trip cruises as planned.
 - Rules run in the app container, so they keep going with the browser closed. Each rule creates **jobs**: ordered game commands,
   some waiting for an event (e.g. `travel.arrived`) before the next. A failing step is logged and skipped; a failing *critical*
   step stops the job with an alert. Jobs are stored in SQLite and survive redeploys.
