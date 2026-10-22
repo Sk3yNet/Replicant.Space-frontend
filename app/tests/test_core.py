@@ -3322,7 +3322,7 @@ def test_rules_live_on_their_pages_and_nav_is_grouped(client):
     assert "Asteroid defense" in page and 'href="/defence">Map › Defense →' in page
     assert 'name="max_prints"' not in page                       # the settings cards moved out
     # each page loads its own rules' cards
-    assert 'rules-panel?ids=asteroid_defence"' in client.get("/defence", headers=H).text
+    assert 'rules-panel?ids=asteroid_defence,asteroid_mining"' in client.get("/defence", headers=H).text
     r = client.get("/automations/rules-panel?ids=asteroid_defence,nope", headers=HX)
     assert 'hx-post="/automations/rules/asteroid_defence"' in r.text and 'name="max_prints"' in r.text and "nope" not in r.text
     assert "Survey this system now" in client.get("/automations/rules-panel?ids=auto_survey", headers=HX).text

@@ -7,7 +7,8 @@ planet's orbit by themselves. The game warns an hour ahead (`system.impact_warni
 Each pass (engine stage evacuate_pass, every minute, and at once on the warning), for every tracked object that isn't
 closed and is due within EVAC_MINUTES:
   • devices at its location leave for a safe spot in the system (its entry point, else a body that isn't the impact
-    target); propulsors still pushing it stay until DIVERTER_MINUTES before the ETA, then go too
+    target); propulsors still pushing it stay until DIVERTER_MINUTES before the ETA, then go too. Once it's diverted
+    enough (or off_target, v3.6.0) the propulsors leave at once, the rest (mining rigs) still at the hour
   • a device that can't fly is stowed or attached by a carrier there with a free seat, which then leaves
   • a stockpile there is an evacuation request for logistics (top priority, see logistics.py)
 """
@@ -126,6 +127,8 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
             if code in busy or st.startswith(MOVING) or code in hosts:
                 continue   # on its way already, or a replicant's vessel (the game evacuates those to orbit)
             enough = diverted_enough(obj_at.get(loc) or {}, pct)
+            if enough and left is not None and left > EVAC_MINUTES and "propulsor" not in (d.get("device_type") or ""):
+                continue   # owner, 2026-10-22: only the propulsors leave early; rigs keep mining a diverted rock until the hour
             if "propulsor" in (d.get("device_type") or "") and any(k in st for k in DIVERTING) \
                     and left is not None and left > DIVERTER_MINUTES and not enough:
                 continue   # still pushing it off course

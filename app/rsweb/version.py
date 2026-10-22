@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.204.0"
+VERSION = "1.205.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.205.0", "2026-10-22", "Asteroid mining rule (game v3.6.0, off by default, on Map › Defense): fracture rigs mine "
+               "asteroids one resource at a time in your priority order, idle rigs in the system go to a rock with a free "
+               "slot, rocks you launched keep a share of each resource for their terraform effect, a survey drone scans "
+               "rocks for exact amounts, and the stockpile is hauled out while they mine. A diverted or off-target rock "
+               "now recalls only the propulsors early; rigs keep mining until the hour before the ETA."),
     ("1.204.0", "2026-10-22", "Console: every preset has a short description, and a new Lockers group finds equipment "
                "lockers and retrieves one (POST /devices/{locker}/retrieve). Duplicate presets removed."),
     ("1.202.0", "2026-10-22", "Game v3.6.0: an off_target asteroid (system.object_off_target) counts as diverted, so no more "

@@ -128,7 +128,7 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
     settings = await eng.settings()
     jobs = await eng.jobs()
     mine_rules = ("restart_idle_miners", "ami_schedules", "reopen_sites", "salvage_when_depleted", "loadouts", "fleets", "engine",
-                  "wards", "evacuate", "asteroid_defence", "logistics", "contracts", "trail")
+                  "wards", "evacuate", "asteroid_defence", "asteroid_mining", "logistics", "contracts", "trail")
     app = {
         # every device in one list: the /devices pages above merged (or the app's cached list when those came back empty)
         "devices": devices,

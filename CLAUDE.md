@@ -107,6 +107,10 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   `waiting_for.components: {type: {have, need}}` (live 2026-10-18, 9E13498F at SOLARES-BELT-1).
   A climate processor needs a terraform monitor. A locked blueprint ("Blueprint not yet unlocked") is unlocked by
   decommissioning a device of that type (the terraform monitor, 2026-10-19).
+- v3.6.0 (2026-10-21): asteroids (STAR-OBJ-n) are resource sites, mined only by `fracture` devices (mining rigs) with
+  `start_mining`; slots small 1 / medium 2 / large 5, shared by all players. The location lists `resource_sites` with
+  `resources_remaining_pct`; a survey drone's scan there gives exact amounts. A mined-out rock has no terraform effect.
+  A diverted rock turns `off_target` (`system.object_off_target`) and stays minable until it's flung out at the ETA.
 - Seasons (`GET /overview`, Dashboard › Story) end in a time skip: devices may move, location events end, asteroids
   drift away, AMI directives pause. Season 3 (from v3.5.3) is Alteration Protocol.
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.

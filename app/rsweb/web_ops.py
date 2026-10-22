@@ -97,7 +97,11 @@ async def defence_page(request: Request, user: str = Depends(current_user)):
     eng = _eng(request)
     s = await eng.settings()
     objs = await eng.defence_objects()
+    rigs: dict[str, list] = {}
+    for code, st in (await eng.db.kv_get("rock_mining", {}) or {}).items():
+        rigs.setdefault(st.get("rock"), []).append({"code": code, **st})
     return await page(request, user, "defence.html", "defence", report=await eng.defence_report(), objs=objs,
+                      rock_scans=await eng.rock_scans(), rock_rigs=rigs,
                       cfg=s["rules"].get("asteroid_defence") or {}, read_at=max((o.get("read_at") or "" for o in objs.values()), default=""))
 
 

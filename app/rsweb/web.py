@@ -3244,7 +3244,7 @@ RULE_HOME = {
     "restart_idle_miners": ("Map › Systems", "/systems"), "reopen_sites": ("Map › Systems", "/systems"),
     "salvage_when_depleted": ("Map › Systems", "/systems"), "belt_viability": ("Map › Systems", "/systems"),
     "visitor_alerts": ("Map › Traffic", "/traffic"), "civ_beacons": ("Map › Traffic", "/traffic"),
-    "asteroid_defence": ("Map › Defense", "/defence"), "maintenance": ("Map › Upkeep", "/maintenance"),
+    "asteroid_defence": ("Map › Defense", "/defence"), "asteroid_mining": ("Map › Defense", "/defence"), "maintenance": ("Map › Upkeep", "/maintenance"),
     "ami_schedules": ("Devices › AMI", "/ami"), "loadouts": ("Fleets", "/fleets"),
     "fleet_fill": ("Fleets", "/fleets"),
     "consolidate": ("Economy › Blueprints", "/blueprints"), "contracts": ("Economy › Contracts", "/game-events"),

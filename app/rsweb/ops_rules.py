@@ -658,6 +658,97 @@ class OpsRules:
         except Exception:  # noqa: BLE001
             log.exception("asteroid sync failed")
 
+    # --- asteroid mining (game v3.6.0) --------------------------------------------------------------------------
+    async def rock_scans(self) -> dict[str, dict]:
+        """{rock: {at, amounts}} from the latest survey scan of each asteroid (scan.completed)."""
+        import json as _json
+        from . import rockmining as rm
+        from .defence import is_object
+        out: dict[str, dict] = {}
+        for r in await self.db.fetchall("SELECT payload, location, created_at FROM events WHERE event='scan.completed' "
+                                        "AND (location LIKE '%-OBJ-%' OR payload LIKE '%-OBJ-%') ORDER BY seq"):
+            p = _json.loads(r["payload"] or "{}")
+            rock = str(p.get("scan_target") or p.get("target") or r["location"] or "").upper()
+            if is_object(rock):
+                out[rock] = {"at": r["created_at"], "amounts": rm.amounts(p.get("report") or p)}
+        return out
+
+    async def rock_mining_pass(self) -> list[str]:
+        """See rockmining.py. Returns what it did."""
+        from . import rockmining as rm
+        from .automations import step
+        from .loadouts import at_tag, tag_step
+        cfg = await self.rule_cfg("asteroid_mining")
+        if not cfg:
+            return []
+        objs = await self.defence_objects()
+        state = await self.db.kv_get("rock_mining", {}) or {}
+        flying = rm.open_rocks(objs)
+        state = {c: s for c, s in state.items() if s.get("rock") in flying}
+        full = {r: t for r, t in (await self.db.kv_get("rock_full", {}) or {}).items()
+                if _ts(t) and (_now() - _ts(t)).total_seconds() < 3600}
+        devices = await self.devices()
+        reps = await self.db.kv_get("replicants", {}) or {}
+        hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
+        busy = self.busy_devices(await self.jobs())
+        where = {d["device_code"]: d.get("location") for d in devices}
+        state = {c: s for c, s in state.items() if where.get(c) == s.get("rock") or c in busy}   # evacuated, or the trip failed
+        scans = await self.rock_scans()
+        p = rm.plan(objs, devices, cfg, busy, state, hosts, set(full), {r: s["at"] for r, s in scans.items()})
+        dry = (await self.settings())["dry_run"]
+        out: list[str] = []
+        for kind, body in (("start", "start_mining"), ("retarget", "retarget"), ("stop", "deactivate")):
+            for x in p[kind]:
+                code, rock, res = x["code"], x["rock"], x["resource"]
+                what = f"{code} at {rock}: " + (f"{kind} {res}" if res else "stop (mined down to what is kept)")
+                if dry:
+                    out.append("[dry run] " + what)
+                    continue
+                cmd = {"command": body, **({"resource_type": res} if res else {})}
+                ok, _, err = await self.send("POST", f"/devices/{code}", cmd, f"auto: asteroid mining {code}")
+                if ok:
+                    if res:
+                        state[code] = {"rock": rock, "resource": res, "at": now_iso()}
+                    else:
+                        state.pop(code, None)
+                    out.append(what)
+                else:
+                    if any(w in (err or "").lower() for w in ("slot", "full", "no room", "capacity")):
+                        full[rock] = now_iso()
+                    out.append(f"{what} failed: {err}")
+        for x in p["send"]:
+            code, rock, res = x["code"], x["rock"], x["resource"]
+            tr = step(f"{code}: travel → {rock}", f"/devices/{code}", {"command": "travel", "destination": rock},
+                      wait=["travel.arrived"], critical=True, match={"destination": rock})
+            tr["wait_device"] = code
+            steps = [tag_step(code, add=[at_tag(rock)]), tr,
+                     step(f"{code}: mine {res} at {rock}", f"/devices/{code}", {"command": "start_mining", "resource_type": res})]
+            if await self.create_job("asteroid_mining", f"asteroid mining: {code} → {rock} ({res})", code, steps, {"devices": [code]}):
+                state[code] = {"rock": rock, "resource": res, "at": now_iso(), "sent": True}
+                out.append(f"{code} → {rock} to mine {res}")
+        for x in p["scan"]:
+            code, rock = x["code"], x["rock"]
+            tr = step(f"{code}: travel → {rock}", f"/devices/{code}", {"command": "travel", "destination": rock},
+                      wait=["travel.arrived"], critical=True, match={"destination": rock})
+            tr["wait_device"] = code
+            sc = step(f"{code}: scan {rock}", f"/devices/{code}", {"command": "scan"}, wait=["scan.completed"], timeout=3600)
+            sc["wait_device"] = code
+            steps = [tr, sc]
+            if x.get("back"):
+                steps.append(step(f"{code}: back → {x['back']}", f"/devices/{code}", {"command": "travel", "destination": x["back"]}))
+            if await self.create_job("asteroid_mining", f"asteroid mining: {code} scans {rock}", code, steps, {"devices": [code]}):
+                out.append(f"{code} → {rock} to scan it")
+        await self.db.kv_set("rock_mining", state)
+        await self.db.kv_set("rock_full", full)
+        for note in p["notes"]:
+            key = f"rock-note:{note}"
+            if self.stage_errors.get(key) != note:
+                self.stage_errors[key] = note
+                await self.log("asteroid_mining", note, "alert")
+        for line in out:
+            await self.log("asteroid_mining", line)
+        return out
+
     # --- maintenance --------------------------------------------------------------------------------------------
     async def maintenance_pass(self, manual: bool = False, star: str | None = None) -> list[str]:
         from . import printqueue as pq, upkeep as up

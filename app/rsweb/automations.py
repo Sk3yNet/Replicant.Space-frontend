@@ -43,7 +43,7 @@ def _reserved(d: dict) -> bool:
 @dataclass
 class Option:
     name: str
-    kind: str  # bool | int | float | choice
+    kind: str  # bool | int | float | choice | text
     label: str
     default: Any
     options: list = field(default_factory=list)
@@ -191,6 +191,27 @@ RULES: list[Rule] = [
           Option("recheck_minutes", "int", "Read an asteroid with propulsors on it every (minutes)", 5,
                  help="Others are read every 15 minutes")],
          default_on=True),
+    Rule("asteroid_mining", "Asteroid mining",
+         "Game v3.6.0: incoming asteroids are resource sites, mined only by devices with the fracture feature (mining "
+         "rigs). Slots are shared with other players: small 1, medium 2, large 5. Rigs at an asteroid mine one resource "
+         "at a time, your priority first (yields taper, so the first one is the most likely to be finished), then the "
+         "rest until it's dust. Idle rigs that can fly go to an asteroid in their system with a free slot. Rocks you "
+         "launched (Terraforming) keep some of every resource, so the impact still has its terraform effect. The rigs "
+         "are pulled out an hour before the ETA (also when it's diverted or off target), and logistics hauls the "
+         "stockpile out while they work. An idle survey drone in the system scans a rock being mined for exact amounts.",
+         [Option("priority", "text", "Resource priority", "rares, conductive, volatiles",
+                 help="Mined in this order, comma separated (structural, conductive, silicates, carbon, volatiles, rares); "
+                      "the ones left out come after, on asteroids that aren't yours"),
+          Option("launched_resources", "text", "Mine on rocks you launched", "",
+                 help="Only these on your own launched rocks (empty: the priority list)"),
+          Option("keep_pct", "float", "Leave on rocks you launched (%)", 5.0,
+                 help="Of every resource, so the rock isn't mined dry: a mined-out rock has no terraform effect"),
+          Option("send_idle", "bool", "Send idle rigs in the system to an asteroid", True),
+          Option("min_hours", "float", "Send rigs only with this many hours left", 2.0,
+                 help="They leave again an hour before the ETA"),
+          Option("scan_rocks", "bool", "Scan rocks being mined with an idle survey drone", True,
+                 help="A scan gives exact amounts (the location only shows % left); the drone comes back after"),
+          Option("scan_hours", "float", "Scan a rock again after (hours)", 6.0)]),
     Rule("maintenance", "Keep maintenance drones patrolling",
          "A maintenance drone only repairs on the `patrol` directive (it then fixes the most worn device in its system, one "
          "after another). Every N minutes, any maintenance drone sitting in a system without patrol gets it (fleet members "
@@ -1373,7 +1394,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 self.stage = None
                 await self.note_tick()
                 return
-            for stage in ("season_snapshot_pass", "evacuate_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass"):
@@ -2690,6 +2711,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         objs, warned, scans = await self.evacuation_inputs()
         hot = ev.due(objs, warned=warned, pct=await self.diverted_pct())
         obj_at = ev.at_location(objs)
+        from .rockmining import open_rocks   # v3.6.0: a rock being mined has its pile hauled out while the rigs work
+        worked = {s.get("rock") for s in (await self.db.kv_get("rock_mining", {}) or {}).values()} & set(open_rocks(objs))
+        hot = {**{r: 0.0 for r in worked}, **hot}
         return {loc: ev.safe_spot(star_of(loc), (obj_at.get(loc) or {}).get("impact_target"), stars, scans.get(star_of(loc)),
                                   here=loc, avoid=set(hot))
                 for loc in hot}

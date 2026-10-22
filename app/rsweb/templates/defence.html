@@ -7,7 +7,7 @@
     <button class="small" hx-post="/defence/read" hx-target="#df-msg">Read objects now</button></span>
 </div>
 <div id="df-msg"></div>
-{% with ids="asteroid_defence" %}{% include "partials/rules_slot.html" %}{% endwith %}
+{% with ids="asteroid_defence,asteroid_mining" %}{% include "partials/rules_slot.html" %}{% endwith %}
 <p class="small muted">Asteroids on a collision course are diverted by taking propulsors to the asteroid, deploying and activating them; each
   running propulsor builds thrust until impact likelihood reaches 0 %. Required strength grows as impact gets closer, so act early.
   Rule <a href="#" onclick="document.querySelector('.rules-panel').open=true;return false">Asteroid defense</a> is <b>{{ 'on' if cfg.enabled else 'off' }}</b>
@@ -40,6 +40,9 @@
       · propulsor blueprint: {{ a.diverter_types | join(', ') if a.diverter_types else 'none known' }}</td></tr>
     {% if a.resources_left %}<tr><th>Resources left</th><td>{% for r, v in a.resources_left.items() %}{{ r }} {{ v | num }} %{% if not loop.last %} · {% endif %}{% endfor %}
       <span class="muted">(mining rigs only; a mined-out rock has no terraform effect)</span></td></tr>{% endif %}
+    {% set sc = rock_scans.get(a.designation) %}{% if sc and sc.amounts %}<tr><th>Survey scan</th><td>{% for r, v in sc.amounts.items() %}{{ r }} {{ v | num }}{% if not loop.last %} · {% endif %}{% endfor %}
+      <span class="muted">({{ sc.at | local }})</span></td></tr>{% endif %}
+    {% if rock_rigs.get(a.designation) %}<tr><th>Your rigs</th><td>{% for x in rock_rigs[a.designation] %}<a class="mono" href="/devices/{{ x.code }}">{{ x.code }}</a> {{ x.resource }}{% if x.sent %} (sent){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</td></tr>{% endif %}
   </table>
 </div>
 {% else %}
