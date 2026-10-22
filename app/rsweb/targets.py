@@ -170,6 +170,15 @@ async def system_targets(db, star: str) -> dict:
         if loc == star or loc.startswith(star + "-"):
             here_devices[loc] += 1
             add(loc)
+    # owner 2026-10-22: an object (STAR-OBJ-n) shows only while it exists: an incoming asteroid still open on the Defense
+    # page, or a structure in the system's latest scan. Past encounters stay in the Defense page's Concluded list.
+    tracked = await db.kv_get("objects", {}) or {}
+    live = {c for o in scan.get("system_objects") or [] if isinstance(o, dict)
+            and (c := o.get("location") or o.get("designation")) not in tracked
+            and "asteroid" not in str(o.get("object_type") or "")}   # a scan can be older than the rock's end
+    live |= {des for des, o in tracked.items() if in_star(des, star) and not o.get("closed")}
+    for code in [c for c, t in found.items() if t["category"] == "object" and c not in live and not here_devices.get(c)]:
+        found.pop(code)
     for code, t in found.items():
         t["devices"] = here_devices.get(code, 0)
         bits = [t["note"]] if t["note"] else []

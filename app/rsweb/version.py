@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.209.2"
+VERSION = "1.209.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.209.3", "2026-10-22", "The system page shows an object (STAR-OBJ-n) only while it exists: an asteroid still "
+               "open on the Defense page, or a structure in the latest scan. Past asteroids stay in Defense › Concluded."),
     ("1.209.2", "2026-10-22", "Beacons with a destination (to: / at:, a fleet or a contract), e.g. printed beacons waiting "
                "at a belt for their civilization's system, are no longer marked redundant and spare. A working fleetless "
                "beacon the civ beacon pass marks spare keeps the tag; before, that pass and Loadouts flipped it every few minutes."),

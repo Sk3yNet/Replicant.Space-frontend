@@ -618,6 +618,22 @@ def test_system_targets_list_a_scans_system_objects(client):
     assert codes["TWAFFY-OBJ-1"]["category"] == "object" and "Derelict Ring" in codes["TWAFFY-OBJ-1"]["label"]
 
 
+def test_system_targets_show_only_objects_that_still_exist(client):
+    """Owner 2026-10-22: the system page shows active asteroids only; past ones stay on the Defense page."""
+    import json as _json
+    db = client.app.state.db
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("KELX", _json.dumps({"planets": [{"designation": "KELX-1"}]}), "2026-10-18T00:00:00+00:00"))
+    for i, loc in enumerate(["KELX-OBJ-1", "KELX-OBJ-2"]):
+        client.portal.call(db.insert_event, {"id": f"od{i}", "event": "system.object_detected", "location": loc,
+                                              "payload": {"object_designation": loc}})
+    client.portal.call(db.kv_set, "objects", {"KELX-OBJ-1": {"designation": "KELX-OBJ-1", "status": "active"},
+                                              "KELX-OBJ-2": {"designation": "KELX-OBJ-2", "closed": "impacted"}})
+    from rsweb.targets import system_targets
+    codes = {x["code"] for x in client.portal.call(system_targets, db, "KELX")["targets"]}
+    assert "KELX-OBJ-1" in codes and "KELX-OBJ-2" not in codes
+
+
 def test_ami_forms_offer_system_targets(client):
     client.post("/ami/TC000001/refresh-targets", headers=HX)
     r = client.get("/ami/TC000001/directive-form?directive=delivery", headers=HX)
