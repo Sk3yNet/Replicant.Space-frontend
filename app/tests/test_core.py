@@ -3217,7 +3217,8 @@ def test_replicant_slingshot_link_and_fire(client):
 
 def test_slingshot_stowed_with_the_replicant_counts_as_here(client):
     """1.208.1 (live 2026-10-22: slingshot 7DBF642C and replicant 8EC42FBA's matrix in the same hold of 939E7168):
-    a stowed slingshot has no location of its own; it is where its carrier is, for firing and linking."""
+    a stowed slingshot has no location of its own; it is where its carrier is. Linking works there; firing needs it
+    deployed (1.209.1: the game answers 400 "Slingshot must be deployed"), so the page says so instead."""
     from rsweb.mock import REP
     world = client.app.state.api.http._transport.app.state.world
     vs = {"device_code": "VS000001", "device_type": "cargo_vessel", "location": "SOL-BELT-1", "status": "idle",
@@ -3234,9 +3235,14 @@ def test_slingshot_stowed_with_the_replicant_counts_as_here(client):
     assert "must be together" not in r.text and sl["linked_device"] == "MX000003"
     client.portal.call(client.app.state.worker.sync_devices)
     page = client.get(f"/replicants/{REP}", headers=H).text
-    assert '<option value="SL000003">' in page
+    assert '<option value="SL000003">' not in page and "SL000003 is stowed in" in page
     r = client.post(f"/replicants/{REP}/slingshot", data={"slingshot": "SL000003"}, headers=HX)
-    assert "go to the slingshot first" not in r.text and world.teleports == [(REP, "SL000003")]
+    assert "deploy it first" in r.text and not world.teleports   # live: 400 "Slingshot must be deployed"
+    sl.update(location="SOL-BELT-1", status="idle", stowed_in_device_code=None)
+    client.portal.call(client.app.state.worker.sync_devices)
+    assert '<option value="SL000003">' in client.get(f"/replicants/{REP}", headers=H).text
+    client.post(f"/replicants/{REP}/slingshot", data={"slingshot": "SL000003"}, headers=HX)
+    assert world.teleports == [(REP, "SL000003")]
 
 
 def test_late_events_are_kept_quiet_and_summarised(tmp_path):

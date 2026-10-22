@@ -1301,6 +1301,9 @@ async def replicant_slingshot(request: Request, code: str, slingshot: str = Form
     if sl and here and sl_at != here:
         return refuse(f"{slingshot} is at {sl_at or sl.get('status')}, the replicant is at {here} — "
                       "go to the slingshot first")
+    if sl.get("status") == "stowed":   # live 2026-10-22: 400 "Slingshot must be deployed"
+        return refuse(f"{slingshot} is stowed in {sl.get('stowed_in_device_code') or 'a vessel'} — "
+                      "the game fires only a deployed slingshot: deploy it first")
     cap = capacity(sl.get("operational_capacity"))   # sometimes a 0–1 fraction
     if cap is not None and cap < SLINGSHOT_MIN_CAPACITY:
         return refuse(f"{slingshot} is at {cap:.0f}% — it needs at least {SLINGSHOT_MIN_CAPACITY:.0f}% "

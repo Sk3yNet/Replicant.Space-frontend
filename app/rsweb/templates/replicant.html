@@ -116,8 +116,12 @@
         <td class="num {% if (s.operational_capacity or 0) < SLINGSHOT_MIN %}lv-alert{% endif %}">{{ (s.operational_capacity or 0) | round(0) | int }}%</td>
         <td class="mono">{{ s.linked_device or "—" }}</td></tr>{% endfor %}
     </table>
-    {% set here_sl = slingshots | selectattr("_at", "equalto", loc) | list %}
+    {% set here_all = slingshots | selectattr("_at", "equalto", loc) | list %}
+    {% set here_sl = here_all | rejectattr("status", "equalto", "stowed") | list %}
     <h3>Fire</h3>
+    {% for s in here_all if s.status == "stowed" %}<div class="muted small">{{ s.device_code }} is stowed in
+      <a class="mono" href="/devices/{{ s.stowed_in_device_code }}">{{ s.stowed_in_device_code or "a vessel" }}</a>: the game fires only a deployed
+      slingshot, so <a href="/devices/{{ s.device_code }}">deploy it</a> first.</div>{% endfor %}
     {% if here_sl %}
     <form hx-post="/replicants/{{ code }}/slingshot" hx-target="#sling-result"
           hx-confirm="Send {{ rep.name or code }} through the slingshot to its linked matrix?">
@@ -126,7 +130,7 @@
         <button>Slingshot</button>
       </div>
     </form>
-    {% else %}<div class="muted small">No slingshot at {{ loc }} — the replicant fires one where it is.</div>{% endif %}
+    {% elif not here_all %}<div class="muted small">No slingshot at {{ loc }} — the replicant fires one where it is.</div>{% endif %}
     <h3>Link to a matrix</h3>
     {% if matrices %}
     {% for s in slingshots if s._at %}{% set ms = matrices | selectattr("_at", "equalto", s._at) | list %}{% if ms %}
