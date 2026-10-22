@@ -3080,51 +3080,77 @@ async def diagnostics_download(request: Request, user: str = Depends(current_use
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
-# (group, method, path template, JSON body). {replicant} {device} {relay} {controller} {interface} {beacon} {location}
-# {star} {tag} … are filled from pickers on the page (or typed); the path stays editable before it's sent.
+# (group, method, path template, JSON body, what it does). {replicant} {device} {relay} {controller} {interface} {beacon}
+# {locker} {location} {star} {tag} … are filled from pickers on the page (or typed); the path stays editable before it's sent.
 CONSOLE_PRESETS = [
-    ("Account", "GET", "/accounts/me", ""), ("Account", "GET", "/accounts/achievements", ""),
-    ("Account", "GET", "/accounts/reputation", ""), ("Account", "GET", "/accounts/events?status=active", ""),
-    ("Account", "GET", "/accounts/simulations", ""), ("Account", "GET", "/accounts/webhook", ""),
-    ("Account", "GET", "/messages", ""), ("Account", "GET", "/tutorials", ""), ("Account", "GET", "/achievements", ""), ("Account", "GET", "/accounts/achievements", ""), ("Account", "GET", "/tutorials/{slug}", ""),
-    ("Account", "PATCH", "/accounts/me", '{"events": {"ami_digest_interval": 3}}'),
-    ("Replicants", "GET", "/replicants/{replicant}", ""), ("Replicants", "GET", "/replicants/{replicant}/devices", ""),
-    ("Replicants", "GET", "/replicants/{replicant}/inventory", ""),
-    ("Replicants", "GET", "/replicants/{replicant}/stars?per_page=20", ""),
-    ("Replicants", "GET", "/replicants/{replicant}/stars/{star}", ""),
-    ("Replicants", "GET", "/replicants/{replicant}/scan/devices", ""),
-    ("Replicants", "GET", "/replicants/{replicant}/traders", ""), ("Replicants", "GET", "/replicants?per_page=20", ""),
-    ("Replicants", "POST", "/replicants/{replicant}/travel", '{"destination": "{location}", "dry_run": true}'),
-    ("Devices", "GET", "/devices?limit=50", ""), ("Devices", "GET", "/devices/{device}", ""),
-    ("Devices", "GET", "/devices/{device}/logs", ""), ("Devices", "GET", "/devices/tags/{tag}", ""),
-    ("Devices", "GET", "/devices/{beacon}/audit", ""), ("Devices", "GET", "/devices/{relay}/network", ""),
-    ("Devices", "GET", "/devices/{relay}/channels", ""), ("Devices", "GET", "/devices/{relay}/messages", ""),
-    ("Devices", "GET", "/devices/{controller}/trades", ""), ("Devices", "GET", "/devices/{interface}/research", ""),
-    ("Devices", "POST", "/devices/{device}", '{"command": "travel", "destination": "{location}", "dry_run": true}'),
-    ("Devices", "PATCH", "/devices/{device}", '{"configuration": {"add_tags": ["spare"]}}'),
-    ("Places", "GET", "/locations", ""), ("Places", "GET", "/locations/{location}", ""), ("Places", "GET", "/inventory", ""),
-    ("Places", "GET", "/stars", ""), ("Places", "GET", "/blueprints", ""), ("Places", "GET", "/species", ""),
-    ("Events", "GET", "/events?limit=20", ""), ("Events", "GET", "/events?limit=20&event={event}", ""),
-    ("Simulations", "GET", "/devices/{interface}/simulate", ""), ("Simulations", "GET", "/devices/{interface}/simulate/active", ""),
-    ("Simulations", "GET", "/leaderboards/simulations", ""), ("Simulations", "GET", "/leaderboards/simulations/{scenario}", ""),
-    ("Public", "GET", "/achievements", ""), ("Public", "GET", "/achievements/{achievement}", ""),
-    ("Public", "GET", "/leaderboards/megastructure", ""), ("Public", "GET", "/blog", ""),
-    ("Public", "GET", "/leaderboards", ""), ("Public", "GET", "/leaderboards/xp", ""), ("Public", "GET", "/health", ""),
-    ("Places", "GET", "/locations/{star}/stars", ""), ("Places", "GET", "/locations/{star}/events", ""),
-    ("Places", "GET", "/locations/{location}/inventory", ""),
-    ("Replicants", "GET", "/replicants/{replicant}/events?latest=true&limit=20&exclude_mining_cycles=true", ""),
-    ("Devices", "GET", "/devices/{device}/permissions", ""),
+    ("Account", "GET", "/accounts/me", "", "Your account: name, settings and event preferences"),
+    ("Account", "PATCH", "/accounts/me", '{"events": {"ami_digest_interval": 3}}', "Change account settings, such as the AMI digest interval"),
+    ("Account", "GET", "/accounts/achievements", "", "Achievements you have earned"),
+    ("Account", "GET", "/accounts/reputation", "", "Your standing with each civilization"),
+    ("Account", "GET", "/accounts/events?status=active", "", "Account events still running"),
+    ("Account", "GET", "/accounts/simulations", "", "Your simulation runs and results"),
+    ("Account", "GET", "/accounts/webhook", "", "The webhook the game calls with your events"),
+    ("Account", "GET", "/messages", "", "Your game messages (salvage, AMI notes, news)"),
+    ("Account", "GET", "/tutorials", "", "All tutorials and your progress in them"),
+    ("Account", "GET", "/tutorials/{slug}", "", "One tutorial and its steps"),
+    ("Replicants", "GET", "/replicants?per_page=20", "", "Your replicants, one page at a time"),
+    ("Replicants", "GET", "/replicants/{replicant}", "", "One replicant: location, status, profile"),
+    ("Replicants", "GET", "/replicants/{replicant}/devices", "", "Devices this replicant owns"),
+    ("Replicants", "GET", "/replicants/{replicant}/inventory", "", "Materials the replicant can reach where it is"),
+    ("Replicants", "GET", "/replicants/{replicant}/stars?per_page=20", "", "Stars this replicant has charted"),
+    ("Replicants", "GET", "/replicants/{replicant}/stars/{star}", "", "What the replicant knows of one star system"),
+    ("Replicants", "GET", "/replicants/{replicant}/scan/devices", "", "Scan for every device at the replicant's location, yours or not"),
+    ("Replicants", "GET", "/replicants/{replicant}/traders", "", "Traders and shops the replicant can deal with"),
+    ("Replicants", "GET", "/replicants/{replicant}/events?latest=true&limit=20&exclude_mining_cycles=true", "", "The replicant's latest events, without mining cycles"),
+    ("Replicants", "POST", "/replicants/{replicant}/travel", '{"destination": "{location}", "dry_run": true}', "Plan a trip for the replicant (dry run: route and ETA only)"),
+    ("Devices", "GET", "/devices?limit=50", "", "Your devices, one page at a time"),
+    ("Devices", "GET", "/devices/{device}", "", "One device: status, location, configuration"),
+    ("Devices", "GET", "/devices/{device}/logs", "", "A device's recent log lines"),
+    ("Devices", "GET", "/devices/{device}/permissions", "", "Who may command or use a device"),
+    ("Devices", "GET", "/devices/tags/{tag}", "", "Your devices carrying a tag"),
+    ("Devices", "POST", "/devices/{device}", '{"command": "travel", "destination": "{location}", "dry_run": true}', "Send a device a command (here a dry-run trip)"),
+    ("Devices", "PATCH", "/devices/{device}", '{"configuration": {"add_tags": ["spare"]}}', "Change a device's configuration or tags"),
+    ("Devices", "GET", "/devices/{beacon}/audit", "", "A trade beacon's audit log"),
+    ("Devices", "GET", "/devices/{relay}/network", "", "A relay's live links to other relays and hubs"),
+    ("Devices", "GET", "/devices/{relay}/channels", "", "Message channels on a relay"),
+    ("Devices", "GET", "/devices/{relay}/messages", "", "Messages posted on a relay"),
+    ("Devices", "GET", "/devices/{controller}/trades", "", "Trades listed by a trade controller (shop)"),
+    ("Devices", "GET", "/devices/{interface}/research", "", "Research offered at a replicant interface"),
+    ("Lockers", "GET", "/replicants/{replicant}/scan/devices?device_type=equipment_locker", "", "Find equipment lockers at the replicant's location"),
+    ("Lockers", "POST", "/devices/{locker}/retrieve", "", "Open an equipment locker and take its contents (its price must be on site)"),
+    ("Places", "GET", "/locations", "", "Locations where you have devices"),
+    ("Places", "GET", "/locations/{location}", "", "One location: bodies, resource sites, status"),
+    ("Places", "GET", "/locations/{location}/inventory", "", "The stockpile at a location"),
+    ("Places", "GET", "/locations/{star}/stars", "", "Stars near a star system"),
+    ("Places", "GET", "/locations/{star}/events", "", "Events in a star system (impacts, storms)"),
+    ("Places", "GET", "/inventory", "", "Your stockpiles at every location"),
+    ("Places", "GET", "/stars", "", "Known star systems"),
+    ("Places", "GET", "/blueprints", "", "Blueprints: what each device costs and needs"),
+    ("Places", "GET", "/species", "", "Species and their habitable ranges"),
+    ("Events", "GET", "/events?limit=20", "", "Your latest game events"),
+    ("Events", "GET", "/events?limit=20&event={event}", "", "Latest events of one type (e.g. travel.completed)"),
+    ("Simulations", "GET", "/devices/{interface}/simulate", "", "Scenarios a replicant interface can run"),
+    ("Simulations", "GET", "/devices/{interface}/simulate/active", "", "The simulation running at an interface"),
+    ("Simulations", "GET", "/leaderboards/simulations", "", "Simulation leaderboards"),
+    ("Simulations", "GET", "/leaderboards/simulations/{scenario}", "", "The leaderboard of one scenario"),
+    ("Public", "GET", "/achievements", "", "Every achievement in the game"),
+    ("Public", "GET", "/achievements/{achievement}", "", "One achievement and how to earn it"),
+    ("Public", "GET", "/leaderboards", "", "All leaderboards"),
+    ("Public", "GET", "/leaderboards/xp", "", "The XP leaderboard"),
+    ("Public", "GET", "/leaderboards/megastructure", "", "Megastructure contributions by player"),
+    ("Public", "GET", "/blog", "", "Game news and release notes"),
+    ("Public", "GET", "/health", "", "Whether the game API is up"),
 ]
 CONSOLE_FIELDS = {"replicant": "rep", "device": "dev", "beacon": "dev", "relay": "dev", "controller": "dev",
-                  "interface": "dev", "location": "loc", "star": "star", "tag": "tag"}
+                  "interface": "dev", "locker": "dev", "location": "loc", "star": "star", "tag": "tag"}
 
 
 @router.get("/console", response_class=HTMLResponse)
 async def console(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     groups: dict[str, list] = {}
-    for g, m, p_, b in CONSOLE_PRESETS:
-        groups.setdefault(g, []).append((m, p_, b))
+    for g, m, p_, b, d in CONSOLE_PRESETS:
+        groups.setdefault(g, []).append((m, p_, b, d))
     devs = sorted(st["devices"], key=lambda d: (d.get("device_type") or "", d.get("device_code") or ""))
     locs = sorted({d.get("location") for d in devs if d.get("location")} | set(st["locations"] or {}))
     return await page(request, user, "console.html", "console", preset_groups=groups, fields=CONSOLE_FIELDS,

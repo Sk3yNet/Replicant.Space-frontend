@@ -21,7 +21,7 @@
   <div class="card">
     <h2>Presets</h2>
     {% for g, items in preset_groups.items() %}<details{{ ' open' if loop.first }}><summary><b>{{ g }}</b> <span class="muted small">{{ items | length }}</span></summary>
-      {% for m, p, b in items %}<div><a href="#" class="mono small c-preset" data-m="{{ m }}" data-p="{{ p }}" data-b="{{ b }}">{{ m }} {{ p }}</a></div>{% endfor %}
+      {% for m, p, b, d in items %}<div style="margin:3px 0"><a href="#" class="mono small c-preset" data-m="{{ m }}" data-p="{{ p }}" data-b="{{ b }}">{{ m }} {{ p }}</a><br><span class="muted small">{{ d }}</span></div>{% endfor %}
     </details>{% endfor %}
   </div>
 </div>

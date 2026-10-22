@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.202.0"
+VERSION = "1.204.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.204.0", "2026-10-22", "Console: every preset has a short description, and a new Lockers group finds equipment "
+               "lockers and retrieves one (POST /devices/{locker}/retrieve). Duplicate presets removed."),
     ("1.202.0", "2026-10-22", "Game v3.6.0: an off_target asteroid (system.object_off_target) counts as diverted, so no more "
                "propulsors are sent or printed for it, and its devices are evacuated (it is flung out at the ETA; before, "
                "evacuation skipped it). Defense shows the resources left on an asteroid; impact alerts give the "

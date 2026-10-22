@@ -6759,6 +6759,7 @@ def test_console_presets_relay_links_matrix_moves_and_megastructures(client):
     from rsweb import fleets as fl
     page = client.get("/console", headers=H).text
     assert 'data-p="/devices/{relay}/network"' in page and 'id="c-dev"' in page and "Simulations" in page
+    assert 'data-p="/devices/{locker}/retrieve"' in page and "Open an equipment locker" in page   # 1.204.0
     r = client.get("/map/relays/AAAA1111/network", headers=HX).text
     assert "relaying" in r and "MUROPE" in r
     r = client.post("/replicants/77F75255/move-to", data={"target": "b22a1198", "how": "transfer"}, headers=HX)
