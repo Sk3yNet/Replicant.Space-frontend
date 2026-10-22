@@ -746,6 +746,8 @@ class OpsRules:
             sc = step(f"{code}: scan {rock}", f"/devices/{code}", {"command": "scan"}, wait=["scan.completed"], timeout=3600)
             sc["wait_device"] = code
             steps = [sc] if x.get("here") else [tr, sc]
+            if x.get("stop"):   # searching a belt for a new site: called off first
+                steps.insert(0, step(f"{code}: stop searching", f"/devices/{code}", {"command": "deactivate"}))
             if await self.create_job("asteroid_mining", f"asteroid mining: {code} scans {rock}", code, steps, {"devices": [code]}):
                 out.append(f"{code} scans {rock}" if x.get("here") else f"{code} → {rock} to stay and scan it")
         await self.db.kv_set("rock_mining", state)

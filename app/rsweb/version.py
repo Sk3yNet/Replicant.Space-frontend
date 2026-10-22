@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.206.0"
+VERSION = "1.206.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.206.1", "2026-10-22", "Asteroid mining: the scanning drone is an idle survey drone, else one searching a belt for a "
+               "new site (called off first); never one tracking a site."),
     ("1.206.0", "2026-10-22", "Console: presets for the rest of the live API (webhook, overview, replicant profile, "
                "scan, mine, print, transfer, teleport, cancel travel, relay posts, permissions, trades, research, simulations, "
                "location events, megastructure contributions, all leaderboards, blog posts), each with a description."),

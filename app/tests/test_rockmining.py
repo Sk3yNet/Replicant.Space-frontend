@@ -54,9 +54,12 @@ def test_launched_rocks_keep_some_of_each_and_late_rocks_get_no_new_rigs():
 def test_scan_with_an_idle_survey_drone_not_one_at_a_belt():
     sd = {"device_code": "SD", "device_type": "survey_drone", "location": "A-2", "status": "idle", "tags": [],
           "features": ["cruise"], "available_commands": ["travel", "scan"]}
-    belt = {**sd, "device_code": "SB", "location": "A-BELT-1"}
-    p = rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), belt, sd], CFG, set(), {})
-    assert p["scan"] == [{"code": "SD", "rock": "A-OBJ-1", "here": False}]
+    track = {**sd, "device_code": "SA", "location": "A-BELT-1", "status": "tracking", "tracking_site_id": 7}
+    search = {**sd, "device_code": "SB", "location": "A-BELT-1", "status": "searching"}
+    p = rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), track, search, sd], CFG, set(), {})
+    assert p["scan"] == [{"code": "SD", "rock": "A-OBJ-1", "here": False, "stop": False}]   # idle first
+    p = rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), track, search], CFG, set(), {})
+    assert p["scan"] == [{"code": "SB", "rock": "A-OBJ-1", "here": False, "stop": True}]    # never the tracking one
     there = {**sd, "location": "A-OBJ-1"}   # it stays and scans every 30 minutes
     assert rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), there], CFG, set(), {}, scanned={"A-OBJ-1": iso(-20)})["scan"] == []
     assert rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), there], CFG, set(), {}, scanned={"A-OBJ-1": iso(-31)})["scan"] \

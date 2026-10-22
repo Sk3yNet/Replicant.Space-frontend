@@ -178,11 +178,14 @@ def plan(objs: dict[str, dict], devices: list[dict], cfg: dict, busy: set[str], 
                 continue
             if r not in rocks:
                 continue
-            drone = next((d for d in surveyors if star_of(d.get("location")) == star_of(r) and idle(d) and can_fly(d)
-                          and "BELT" not in (d.get("location") or "") and d["device_code"] not in taken), None)
-            if drone:   # not one at a belt: an idle one there may be about to search (moving it loses its site)
+            # owner 2026-10-22: an idle drone, else one searching a belt for a new site; never one tracking a site
+            spare = [d for d in surveyors if star_of(d.get("location")) == star_of(r) and can_fly(d) and free(d)
+                     and d["device_code"] not in taken and not d.get("tracking_site_id")
+                     and (idle(d) or str(d.get("status") or "").lower().startswith("searching"))]
+            drone = min(spare, key=lambda d: (not idle(d), d["device_code"]), default=None)
+            if drone:
                 taken.add(drone["device_code"])
-                out["scan"].append({"code": drone["device_code"], "rock": r, "here": False})
+                out["scan"].append({"code": drone["device_code"], "rock": r, "here": False, "stop": not idle(drone)})
     return out
 
 
