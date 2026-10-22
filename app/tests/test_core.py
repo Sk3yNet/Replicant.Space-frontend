@@ -5093,10 +5093,15 @@ def test_mining_prospects_score():
     # far away and no relay costs access
     far = pr.score("A", rich, {}, [], 40.0, False)
     assert far["parts"]["access"] == 0 and any("replicant must ride" in x for x in far["reasons"])
-    # what you're short of tips it, lightly: never more than ~15 % of the richness
+    # what waiting prints lack weighs clearly (owner 2026-10-22): a belt rich in it gains, and beats a richer one without it
     tilted = pr.score("A", rich, {}, [], 3.0, True, wanted={"carbon": 1.0})
     plain = pr.score("A", rich, {}, [], 3.0, True)
-    assert plain["parts"]["richness"] < tilted["parts"]["richness"] <= plain["parts"]["richness"] * 1.15
+    assert tilted["parts"]["richness"] > plain["parts"]["richness"] * 1.15
+    sil = {"asteroid_belt": {"belts": [{"designation": "S-BELT-1", "density": "dense",
+                                        "resources": {"silicates": "rich", "carbon": "low"}}]}}
+    assert pr.score("S", sil, {}, [], 3.0, True)["score"] < plain["score"]
+    assert pr.score("S", sil, {}, [], 3.0, True, wanted={"silicates": 1.0})["score"] > \
+        pr.score("A", rich, {}, [], 3.0, True, wanted={"silicates": 1.0})["score"]
     assert any("short of (carbon)" in x for x in tilted["reasons"])
     # not scored: warded, a stationed fleet's home, unscanned
     assert pr.score("A", rich, {}, [], 3.0, True, warded=True)["status"] == "warded"

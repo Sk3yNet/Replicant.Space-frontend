@@ -3,7 +3,7 @@
 score (0–100) = richness (≤40)  the best belt's mining rate: each resource's yield (scarce 1 … rich 10, the game's "up
                                  to 10× more") × the belt's density (fewer gaps between mining cycles), weighted by how
                                  scarce the resource usually is (rares 3, volatiles 2.5 … structural 1: rare-rich belts
-                                 rate high); a resource you're short of or a waiting print needs counts a little more
+                                 rate high); a resource waiting prints need (or you're short of) weighs up to 4× (WANT_WEIGHT)
               + proven (≤25)    known site quantities, open sites, salvage
               + staying (≤15)   belt viability: can survey drones re-open sites as fast as they close
               + access (≤20)    distance from where the fleet starts; −5 without a relay of yours there (a replicant
@@ -23,6 +23,9 @@ DENSITY = {"dense": 1.0, "moderate": 0.85, "sparse": 0.65}   # guesses: the game
 YIELD = {"scarce": 1, "low": 2, "moderate": 4, "high": 7, "rich": 10}   # per mining tick, relative ("up to 10×")
 RARITY = {"structural": 1.0, "silicates": 1.2, "carbon": 1.2, "conductive": 1.5, "volatiles": 2.5, "rares": 3.0}
 VERDICT = {"ok": 15, "watch": 8, "consider moving": 3}   # anything else (learning, untracked…) is unknown: 8
+# how much more a wanted resource weighs at full want (owner 2026-10-22: fleets should go where the materials the
+# waiting prints lack are; it was 0.35)
+WANT_WEIGHT = 3.0
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 
 
@@ -57,13 +60,13 @@ def score(star: str, scan: dict | None, res: dict | None, viability: list[dict],
         out.update(status="unscanned", reasons=["no scan yet — survey first"])
         return out
     wanted = wanted or {}
-    # richness: the best belt's rate, every resource's yield weighted by its rarity × (1 + 0.35 × how much you want it)
+    # richness: the best belt's rate, every resource's yield weighted by its rarity × (1 + WANT_WEIGHT × how much you want it)
     rich, best_belt = 0.0, None
     for b in belts:
         lv = {r: YIELD[l] for r, l in (b.get("resources") or {}).items() if l in YIELD}
         if not lv:
             continue
-        w = {r: RARITY.get(r, 1.0) * (1 + 0.35 * min(1.0, max(0.0, wanted.get(r, 0.0)))) for r in set(RARITY) | set(lv)}
+        w = {r: RARITY.get(r, 1.0) * (1 + WANT_WEIGHT * min(1.0, max(0.0, wanted.get(r, 0.0)))) for r in set(RARITY) | set(lv)}
         val = sum(lv.get(r, 0) * w[r] for r in w) / (10 * sum(w.values())) * DENSITY.get(str(b.get("density") or ""), 0.85)
         if val > rich:
             rich, best_belt = val, b
