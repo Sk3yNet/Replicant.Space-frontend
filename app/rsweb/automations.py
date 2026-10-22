@@ -4513,11 +4513,28 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 changed = True
         return changed
 
+    @staticmethod
+    def _retry_due(m: dict) -> bool:
+        at = _ts((m.get("auto_retry") or {}).get("at"))
+        return m.get("status") == "stalled" and not m.get("comms_wait") and bool(at) and _now() >= at
+
+    def _plan_retry(self, m: dict) -> tuple[str, bool]:
+        """A mission stalled: schedule its own retry. Returns the note for the logs and whether to skip the
+        notification (a retry that stalled again on the same thing: Joe heard about it the first time)."""
+        from . import fleets as fl
+        again = int((m.get("auto_retry") or {}).get("n") or 0) > 0 \
+            and (m.get("auto_retry") or {}).get("spot") == [m.get("idx", 0), m.get("phase")]
+        at = fl.plan_retry(m, _now())
+        if at:
+            return f" — retries by itself at {at[11:16]} UTC (try {m['auto_retry']['n'] + 1} of {fl.RETRY_TRIES})", again
+        return f" — no more automatic retries ({fl.RETRY_TRIES} tried): press Retry once it is sorted out", False
+
     async def run_fleets(self) -> None:
         from . import fleets as fl
         items = await self.fleets()
         if not any((f.get("mission") or {}).get("status") == "running"
-                   or (f.get("mission") or {}).get("comms_wait") for f in items):
+                   or (f.get("mission") or {}).get("comms_wait") or self._retry_due(f.get("mission") or {})
+                   for f in items):
             return
         jobs = {j["id"]: j for j in await self.jobs()}
         devices = await self.devices()
@@ -4532,13 +4549,16 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 if any(d.get("in_control_range") is False for d in fl.members(fleet, devices)):
                     continue
                 m.pop("comms_wait")
-                m["status"] = "running"
-                ph = fl.PHASES[fleet["role"]]
-                cur = m.get("phase")
-                m["phase"] = ph[ph.index(cur) - 1] if cur in ph and ph.index(cur) > 0 else None
-                if m["phase"] == "watch":
-                    m["recall_now"] = True
+                fl.rewind(fleet, m)
                 self._mlog(m, "back in comms range — resumed")
+                changed = True
+            elif self._retry_due(m):
+                # stalled on something that may clear by itself (a member still on its way, a scan not in yet, a busy
+                # device): try the stalled phase again, backing off (fleets.plan_retry)
+                m["auto_retry"]["n"] = int(m["auto_retry"].get("n") or 0) + 1
+                m["auto_retry"]["at"] = None
+                fl.rewind(fleet, m)
+                self._mlog(m, f"retrying by itself (try {m['auto_retry']['n']} of {fl.RETRY_TRIES})")
                 changed = True
             if m.get("status") != "running":
                 continue
@@ -4571,10 +4591,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 # its system doesn't show it
                 dl = fl.deal(m)
                 m["status"] = "stalled"
+                again, quiet = self._plan_retry(m)
                 self._mlog(m, f"stalled in trade: {err or 'the trade failed'} — the shop may have moved from "
-                              f"{dl.get('location')}: scan that system to check, or Fleets › Refresh traders, then Retry")
+                              f"{dl.get('location')}: scan that system to check, or Fleets › Refresh traders, then Retry"
+                              + again)
                 await self.log("fleets", f"{fleet['name']}: trade at {dl.get('location')} failed ({err}) — the shop may "
-                                         "have moved", "alert", notify=True)
+                                         "have moved" + again, "alert", notify=not quiet)
                 changed = True
                 continue
             if j and j["status"] == "failed":
@@ -4582,15 +4604,18 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 why = next((s.get('error') for s in j['steps'] if s['status'] == 'failed'), 'a step failed')
                 dark = "comms range" in str(err or why).lower() \
                     and any(d.get("in_control_range") is False for d in fl.members(fleet, devices))
+                again, quiet = "", False
                 if dark:
                     m["comms_wait"] = True
+                    m.pop("auto_retry", None)
                 else:
                     m.pop("comms_wait", None)
+                    again, quiet = self._plan_retry(m)
                 self._mlog(m, f"stalled in {m.get('phase')}: {why}"
-                              + (" — resumes by itself once its members are back in comms range" if dark else ""))
+                              + (" — resumes by itself once its members are back in comms range" if dark else again))
                 await self.log("fleets", f"{fleet['name']}: stalled in {m.get('phase')}"
-                                         + (" (out of comms range; resumes once back in range)" if dark else ""),
-                               "alert", notify=True)
+                                         + (" (out of comms range; resumes once back in range)" if dark else again),
+                               "alert", notify=not quiet)
                 changed = True
                 continue
             if m.get("end_here"):
@@ -4661,6 +4686,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 nxt = fl.next_phase(fleet["role"], m)
                 if not nxt:
                     m["status"], m["job"] = "done", None
+                    m.pop("auto_retry", None)
                     self._mlog(m, "mission complete")
                     await self.log("fleets", f"{fleet['name']}: mission complete", notify=True)
                     break
@@ -4719,6 +4745,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     m.pop("watch_note", None)
                 m["phase"], m["phase_at"] = nxt, now_iso()
                 if nxt == "watch":
+                    m.pop("auto_retry", None)   # got past whatever stalled it
                     self._mlog(m, "on station — watching until the work is done")
                     break
                 if nxt == "wait":
@@ -4735,7 +4762,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     self._mlog(m, f"{nxt}: {pr}")
                 if m.pop("stall", False):
                     m["status"], m["job"] = "stalled", None
-                    await self.log("fleets", f"{fleet['name']}: stalled in {nxt}: {'; '.join(problems)}", "alert", notify=True)
+                    again, quiet = self._plan_retry(m)
+                    if again:
+                        self._mlog(m, again.lstrip(" —"))
+                    await self.log("fleets", f"{fleet['name']}: stalled in {nxt}: {'; '.join(problems)}" + again, "alert",
+                                   notify=not quiet)
                     break
                 if not steps:
                     continue

@@ -146,7 +146,8 @@
                   title="Stop work, bring every device back aboard its carriers, stay in this system">End mission &amp; board</button>
           <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "recall"}' hx-swap="none"
                   title="Finish up: recall, fly home and unload">Recall &amp; return home</button>
-          {% if m.status == 'stalled' %}<button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "resume"}' hx-swap="none">Retry</button>{% endif %}
+          {% if m.status == 'stalled' %}<button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "resume"}' hx-swap="none">Retry</button>
+            {% if m.auto_retry and m.auto_retry.at and not m.comms_wait %}<span class="small muted" title="A stalled mission tries again by itself, waiting longer each time">retries by itself at {{ m.auto_retry.at[11:16] }} UTC</span>{% endif %}{% endif %}
           <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "stop"}' hx-swap="none" hx-confirm="Stop the mission? Devices stay where they are.">Stop</button>
         </div>
       {% elif m.status in ('ended', 'stopped') %}

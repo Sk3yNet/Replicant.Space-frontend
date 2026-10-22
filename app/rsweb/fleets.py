@@ -385,6 +385,39 @@ def left_behind(fleet: dict, devices: list[dict], star: str) -> list[dict]:
 RELOCATE_PHASES = ["assemble", "gather", "travel", "deploy"]
 
 
+RETRY_FIRST_MIN = 15   # a stalled mission retries by itself after this, doubling each time (owner 2026-10-22)
+RETRY_MAX_MIN = 360    # at most this long between tries
+RETRY_TRIES = 8        # then it waits for Retry (15 min … 6 h: about a day of tries)
+
+
+def rewind(fleet: dict, m: dict) -> None:
+    """Back to running, set up to re-run the phase that stalled (Retry, the comms-range resume, the auto retry)."""
+    m["status"] = "running"
+    if m.get("end_here"):
+        m.pop("end_started", None)   # re-run the recall & board
+        return
+    ph = PHASES[fleet["role"]]
+    cur = m.get("phase")
+    m["phase"] = ph[ph.index(cur) - 1] if cur in ph and ph.index(cur) > 0 else None
+    if m["phase"] == "watch":
+        m["recall_now"] = True   # re-run the recall itself, not the wait before it (seen live 2026-10-11: Surveyors)
+
+
+def plan_retry(m: dict, now) -> str | None:
+    """A mission just stalled: when it tries again by itself (ISO time), or None once its tries are used up.
+    The same stall (phase and target) backs off; a stall somewhere else starts over."""
+    from datetime import timedelta
+    spot = [m.get("idx", 0), m.get("phase")]
+    r = m.get("auto_retry") or {}
+    n = int(r.get("n") or 0) if r.get("spot") == spot else 0
+    if n >= RETRY_TRIES:
+        m["auto_retry"] = {"spot": spot, "n": n, "at": None}
+        return None
+    at = (now + timedelta(minutes=min(RETRY_MAX_MIN, RETRY_FIRST_MIN * 2 ** n))).isoformat(timespec="seconds")
+    m["auto_retry"] = {"spot": spot, "n": n, "at": at}
+    return at
+
+
 def next_phase(role: str, m: dict) -> str | None:
     """The phase after m["phase"] (mutates m["idx"] when an explore fleet moves on to its next target)."""
     cur = m.get("phase")

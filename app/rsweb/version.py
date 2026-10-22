@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.217.0"
+VERSION = "1.218.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.218.0", "2026-10-22", "Stalled fleet missions retry by themselves: the stalled phase runs again after 15 min, then "
+               "30 min, 1 h … up to 6 h apart, eight tries in all, before waiting for Retry. A stall at a new spot starts "
+               "over; only the first stall at a spot notifies. The fleet card shows the next try; comms-range stalls keep "
+               "resuming once back in range."),
     ("1.217.0", "2026-10-22", "Galaxy map relay networks: each network has its own color (a new palette clear of the "
                "hazard red, resource orange and anomaly magenta), and a hub's links are a darker shade of it."),
     ("1.216.3", "2026-10-22", "Surge hops go in the trip's own `via` (one travel command, as the game takes it) instead of "

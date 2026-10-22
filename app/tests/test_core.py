@@ -8476,3 +8476,47 @@ def test_relays_bound_for_a_covered_system_or_twice_for_one_are_made_spare_befor
         assert "spare" in p["tag_add"][code] and tag in p["tag_remove"][code]
     sent = {x for d in p["deliveries"] for x in d["devices"]}
     assert "R2" in sent and not sent & {"R1", "R3"}
+
+
+def test_a_stalled_mission_retries_by_itself_with_backoff(client):
+    """Owner 2026-10-22: a stalled fleet tries the stalled phase again by itself, waiting longer each time
+    (Surveyor 3 sat stalled for hours on a survey controller left in LYRRERARN)."""
+    from datetime import datetime, timedelta, timezone
+    from rsweb import fleets as fl
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    devs = [{"device_code": "SC1", "device_type": "ami_survey_controller", "location": "LYR-1-L4", "status": "idle",
+             "tags": ["fleet:s3"]},
+            {"device_code": "HV1", "device_type": "heaven_vessel", "location": "ARF-1-L4", "status": "idle",
+             "tags": ["fleet:s3"]}]
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(eng.save_fleets, [{"id": "s3", "name": "S3", "role": "explore", "home": "FAL", "wants": {},
+                                          "mission": {"status": "running", "phase": "deploy", "targets": ["ARF"],
+                                                      "idx": 0, "departed": True, "log": []}}])
+    client.portal.call(eng.run_fleets)
+    m = client.portal.call(eng.fleets)[0]["mission"]
+    assert m["status"] == "stalled" and m["auto_retry"]["n"] == 0 and m["auto_retry"]["spot"] == [0, "work"]
+    first = datetime.fromisoformat(m["auto_retry"]["at"])
+    assert timedelta(minutes=14) < first - datetime.now(timezone.utc) <= timedelta(minutes=15)
+    assert "retries by itself at" in client.get("/fleets/details", headers=H).text
+    client.portal.call(eng.run_fleets)   # not due yet: stays put
+    assert client.portal.call(eng.fleets)[0]["mission"]["auto_retry"]["n"] == 0
+    items = client.portal.call(eng.fleets)
+    items[0]["mission"]["auto_retry"]["at"] = "2026-01-01T00:00:00+00:00"
+    client.portal.call(eng.save_fleets, items)
+    client.portal.call(eng.run_fleets)   # due: tries again, stalls again on the same thing, waits twice as long
+    m = client.portal.call(eng.fleets)[0]["mission"]
+    assert m["status"] == "stalled" and m["auto_retry"]["n"] == 1
+    assert any("retrying by itself (try 1 of" in x["text"] for x in m["log"])
+    assert datetime.fromisoformat(m["auto_retry"]["at"]) - datetime.now(timezone.utc) > timedelta(minutes=29)
+    # used up: it waits for Retry
+    items = client.portal.call(eng.fleets)
+    items[0]["mission"]["auto_retry"].update(n=fl.RETRY_TRIES - 1, at="2026-01-01T00:00:00+00:00")
+    client.portal.call(eng.save_fleets, items)
+    client.portal.call(eng.run_fleets)
+    m = client.portal.call(eng.fleets)[0]["mission"]
+    assert m["status"] == "stalled" and m["auto_retry"]["at"] is None
+    assert "no more automatic retries" in m["log"][-1]["text"]
+    # Retry by hand starts the count over
+    client.post("/fleets/s3/control", data={"action": "resume"}, headers=HX)
+    m = client.portal.call(eng.fleets)[0]["mission"]
+    assert m["auto_retry"]["n"] == 0 and m["auto_retry"]["at"]

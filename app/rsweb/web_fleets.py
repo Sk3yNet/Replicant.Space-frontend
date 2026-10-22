@@ -761,19 +761,9 @@ async def fleets_control(request: Request, fid: str, action: str = Form(...), us
             if f["role"] == "explore":
                 m["targets"] = (m.get("targets") or [])[:m.get("idx", 0) + 1]  # no further targets
             eng._mlog(m, "recall ordered")
-        elif action == "resume" and m.get("end_here"):
-            m["status"] = "running"
-            m.pop("end_started", None)   # re-run the recall & board
-            eng._mlog(m, "resumed (end mission & board)")
         elif action == "resume":
-            m["status"] = "running"
-            # re-run the phase that stalled
-            ph = fl.PHASES[f["role"]]
-            cur = m.get("phase")
-            m["phase"] = ph[ph.index(cur) - 1] if cur in ph and ph.index(cur) > 0 else None
-            if m["phase"] == "watch":
-                m["recall_now"] = True   # re-run the recall itself, not the wait before it (seen live 2026-10-11: Surveyors)
-            eng._mlog(m, "resumed")
+            fl.rewind(f, m)   # re-run the phase that stalled
+            eng._mlog(m, "resumed (end mission & board)" if m.get("end_here") else "resumed")
         elif action == "stop":
             m["status"] = "stopped"
             eng._mlog(m, "stopped (devices stay where they are)")
@@ -782,6 +772,7 @@ async def fleets_control(request: Request, fid: str, action: str = Form(...), us
             eng._mlog(m, "back to station: the loadout pass brings its devices home" if f.get("station")
                       else "mission cleared")
         m["job"] = None
+        m.pop("auto_retry", None)   # a hand on it: automatic retries start over at the next stall
         await eng.save_fleets(items)
         await eng.run_fleets()
     return HTMLResponse("", headers={"HX-Refresh": "true"})

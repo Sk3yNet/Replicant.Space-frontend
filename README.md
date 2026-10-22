@@ -191,7 +191,9 @@ lines or a template).
   members as they hold and leave as they fill. A **survey fleet** first collects every member it has (from other systems too),
   then moves together in one relocation mission when its carriers seat everyone.
 - **Missions** run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*,
-  *Stop*, *End mission & board* and *Recall*. Mining works the richest belt (or salvage); explore surveys each target (it no
+  *Stop*, *End mission & board* and *Recall*. A stalled mission retries the stalled phase by itself after 15 min, doubling
+  the wait each time up to 6 h, eight tries in all (then it waits for *Retry*; one stalled out of comms range resumes once
+  back in range instead). Only the first stall at a spot notifies. Mining works the richest belt (or salvage); explore surveys each target (it no
   longer leaves relays or beacons: ask for those on the Systems list; an already-surveyed target is skipped, and the
   crew stays aboard at home). Trade fleets are retired: the logistics service does their work, and each one becomes a logistics
   fleet (same members and loadout) once its last run ends. A recall withdraws a launched AMI controller (its
