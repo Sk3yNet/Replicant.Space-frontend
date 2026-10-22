@@ -21,7 +21,7 @@
       <td>{% if r.skipped %}skipped{% elif on_way.get(r.id) %}<span class="lv-done">on its way</span> <span class="muted">{{ on_way[r.id].title }}</span>{% elif why.get(r.id) %}<span class="lv-alert">{{ why[r.id] }}</span>{% elif r.need %}queued{% else %}—{% endif %}</td>
       <td><form hx-post="/fleets/logistics/prefs" hx-target="next .tx-r" style="display:inline"><input type="hidden" name="req" value="{{ r.id }}">
         <select name="tier" onchange="this.form.requestSubmit()"><option value="">priority…</option>{% for t, n in tiers.items() %}<option value="{{ t }}"{% if r.tier != r.base_tier and r.tier == t %} selected{% endif %}>{{ t }} {{ n }}</option>{% endfor %}<option value="reset">its own</option></select>
-        {% if r.confirm %}<button class="small" name="confirm" value="on" title="about {{ r.trip_h | round(0) | int }} h of travel">Confirm</button>{% endif %}
+        {% if r.confirm %}<button class="small" name="confirm" value="on" title="{{ ('about %d h of travel' % r.trip_h) if r.trip_h is not none else 'trip of unknown length' }}">Confirm</button>{% endif %}
         <button class="small" name="skip" value="{{ 'off' if r.skipped else 'on' }}">{{ 'Resume' if r.skipped else 'Skip' }}</button></form><span class="tx-r"></span></td></tr>{% endfor %}
   </table>{% else %}<p class="muted">Nothing requested right now.</p>{% endif %}
   {% for u in st.unmet or [] %}{% if not u.req %}<p class="lv-alert small">{{ u.why }}</p>{% endif %}{% endfor %}

@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.210.0"
+VERSION = "1.210.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.210.1", "2026-10-22", "A rescue to a star whose position the app doesn't know (DELTA) waits for your Confirm too: "
+               "its distance counted as nothing before, so it went without asking."),
     ("1.210.0", "2026-10-22", "Bootstrap is a fleet role: pick it in a fleet's role select and Save to convert the fleet "
                "(the Convert button is gone); Back to a normal fleet takes the role to return to. The Fleets overview shows a "
                "bootstrap's stage. Logistics never rescues a bootstrap's devices (out of range on purpose: drones left mining "

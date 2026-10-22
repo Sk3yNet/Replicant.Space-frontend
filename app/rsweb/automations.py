@@ -3808,7 +3808,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             key = f"rescue-ok:{r['id']}"
             if r.get("confirm") and key not in self.stage_errors:
                 self.stage_errors[key] = "asked"
-                await self.log("logistics", f"{r['label']}: about {r['trip_h']:.0f} h of travel — waits for your Confirm "
+                await self.log("logistics", f"{r['label']}: " + (f"about {r['trip_h']:.0f} h of travel" if r.get("trip_h") is not None
+                                                                     else "trip of unknown length") + " — waits for your Confirm "
                                             "on Fleets › Logistics", "alert", notify=True)
         by_code = by_code0
         pickups = await self.db.kv_get(lg.KV_PICKUPS, {}) or {}

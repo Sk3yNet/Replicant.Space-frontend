@@ -813,3 +813,6 @@ def test_a_rescue_of_more_than_a_day_waits_for_your_ok():
     assert not go({"confirm": {"rescue:P1": (now - timedelta(days=3)).isoformat()}})["runs"]   # an old OK has run out
     pos["F"]["x"] = 60
     assert go({})["runs"]                                                                       # a short one just goes
+    pos.pop("F")                                                    # DELTA, 2026-10-22: not in the catalog → it asks
+    p = go({})
+    assert not p["runs"] and next(r for r in p["requests"] if r["id"] == "rescue:P1")["trip_h"] is None

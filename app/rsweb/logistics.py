@@ -92,15 +92,16 @@ def _dist(a: str, b: str, pos: dict[str, Any]) -> float:
 
 
 def _trip_hours(legs: list[tuple[str | None, str | None]], pos: dict[str, Any]) -> float:
-    """Hours of surging for (from star, to star) legs at the game's pace (an unknown position counts as nothing)."""
-    ly = sum(d for a, b in legs if a and b and (d := _dist(a, b, pos)) < 1e9)
-    return ly * SURGE_S_PER_LY / 3600
+    """Hours of surging for (from star, to star) legs at the game's pace. A star with no known position makes it
+    infinite: that trip asks for your OK (live 2026-10-22: DELTA, about 28,900 ly from SOLARES, isn't in the catalog)."""
+    ly = sum(_dist(a, b, pos) for a, b in legs if a and b)
+    return math.inf if ly >= 1e9 else ly * SURGE_S_PER_LY / 3600
 
 
 def _needs_ok(req: dict, hours: float, prefs: dict | None, unmet: list[dict]) -> bool:
     """A rescue whose trips add up to more than CONFIRM_RESCUE_H waits for your OK on the Logistics page (owner
     2026-10-22: a heaven vessel was sent from SOLARES toward DELTA, the round trip was well over a day)."""
-    req["trip_h"] = round(hours, 1)
+    req["trip_h"] = round(hours, 1) if math.isfinite(hours) else None
     ok = ((prefs or {}).get("confirm") or {}).get(req["id"])
     try:   # an OK holds for two days: a device stranded again later asks again
         fresh = bool(ok) and (datetime.now(timezone.utc) - datetime.fromisoformat(ok)).total_seconds() < 2 * 86400
@@ -109,8 +110,9 @@ def _needs_ok(req: dict, hours: float, prefs: dict | None, unmet: list[dict]) ->
     if hours <= CONFIRM_RESCUE_H or fresh:
         return False
     req["confirm"] = True
-    unmet.append({"req": req["id"], "why": f"waits for your OK: about {hours:.0f} h of travel (more than "
-                                           f"{CONFIRM_RESCUE_H:.0f} h); Confirm to send it"})
+    long = (f"about {hours:.0f} h of travel (more than {CONFIRM_RESCUE_H:.0f} h)" if math.isfinite(hours)
+            else "a trip of unknown length (a star's position isn't known)")
+    unmet.append({"req": req["id"], "why": f"waits for your OK: {long}; Confirm to send it"})
     return True
 
 
