@@ -182,7 +182,9 @@ def plan(objs: dict[str, dict], devices: list[dict], cfg: dict, busy: set[str], 
             spare = [d for d in surveyors if star_of(d.get("location")) == star_of(r) and can_fly(d) and free(d)
                      and d["device_code"] not in taken and not d.get("tracking_site_id")
                      and (idle(d) or str(d.get("status") or "").lower().startswith("searching"))]
-            drone = min(spare, key=lambda d: (not idle(d), d["device_code"]), default=None)
+            # owner 2026-10-22: of the searching ones, the search that started last (it has the least to lose)
+            started = lambda d: -(_ts(((d.get("scan") or {}).get("started_at"))) or 0)   # noqa: E731
+            drone = min(spare, key=lambda d: (not idle(d), started(d), d["device_code"]), default=None)
             if drone:
                 taken.add(drone["device_code"])
                 out["scan"].append({"code": drone["device_code"], "rock": r, "here": False, "stop": not idle(drone)})

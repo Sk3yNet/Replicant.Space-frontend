@@ -60,6 +60,10 @@ def test_scan_with_an_idle_survey_drone_not_one_at_a_belt():
     assert p["scan"] == [{"code": "SD", "rock": "A-OBJ-1", "here": False, "stop": False}]   # idle first
     p = rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), track, search], CFG, set(), {})
     assert p["scan"] == [{"code": "SB", "rock": "A-OBJ-1", "here": False, "stop": True}]    # never the tracking one
+    older = {**search, "device_code": "SC", "scan": {"started_at": iso(-90)}}
+    newer = {**search, "device_code": "SZ", "scan": {"started_at": iso(-10)}}
+    p = rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), older, newer], CFG, set(), {})
+    assert p["scan"][0]["code"] == "SZ"                                                       # the latest search
     there = {**sd, "location": "A-OBJ-1"}   # it stays and scans every 30 minutes
     assert rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), there], CFG, set(), {}, scanned={"A-OBJ-1": iso(-20)})["scan"] == []
     assert rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), there], CFG, set(), {}, scanned={"A-OBJ-1": iso(-31)})["scan"] \
