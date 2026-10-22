@@ -7836,6 +7836,27 @@ def test_lockers_deliver_and_show_on_the_system_page(client):
     assert "retrieved" in r and "HV2E8F3A" in r, r
 
 
+def test_device_scans_keep_lockers(client):
+    """Arrival / traffic device scans record equipment lockers (2026-10-22): the Lockers and System pages list them
+    with their code, and the row's Retrieve uses it without another scan."""
+    from rsweb import others as oth
+    db = client.app.state.db
+    s = oth.normalize({})
+    scanned = [{"device_code": "70C835AC", "device_type": "equipment_locker", "location": "TWAFFY-OORT",
+                "owner_name": "Bill", "owner_replicant_code": "A8F48B26"},
+               {"device_code": "EL000002", "device_type": "equipment_locker", "location": "NOVA-OORT", "owner_name": "Bill"}]
+    oth.record_scan(s, "TWAFFY", scanned, set())
+    oth.prune(s)
+    assert s["lockers"]["TWAFFY-OORT"]["code"] == "70C835AC" and "NOVA-OORT" in s["lockers"]
+    assert any(d["type"] == "equipment_locker" for d in s["stars"]["TWAFFY"]["devices"])
+    client.portal.call(db.kv_set, oth.KV, s)
+    page = client.get("/lockers", headers=H).text
+    assert "70C835AC" in page and "NOVA-OORT" in page and "EL000002" in page
+    assert "NOVA-OORT" in client.get("/systems/NOVA", headers=H).text
+    r = client.post("/lockers/retrieve_at", data={"location": "TWAFFY-OORT"}, headers=HX).text
+    assert "retrieved" in r and "HV2E8F3A" in r, r
+
+
 def test_a_drone_aboard_a_carrier_at_the_destination_has_arrived(client):
     db, e = client.app.state.db, client.app.state.worker.automations
     devs = client.portal.call(db.kv_get, "devices") or []

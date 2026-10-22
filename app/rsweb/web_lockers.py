@@ -18,9 +18,26 @@ KNOWN = [{"location": "SOL-OORT", "gives": "an FTL slingshot pair and a heaven v
           "cost": "50 compute cores deployed at TWAFFY-OORT (used up)", "price": {"compute_core": 50}}]
 
 
-def in_system(star: str) -> list[dict]:
-    """The known lockers in a system (the System page links them here)."""
-    return [k for k in KNOWN if k["location"].split("-")[0] == star]
+def all_lockers(found: dict | None) -> list[dict]:
+    """KNOWN, with each locker's code where a device scan saw it, plus lockers scans found that KNOWN lacks
+    (others.py keeps every one an arrival or traffic scan sees, under "lockers")."""
+    found = found or {}
+    out = [{**k, **({"code": found[k["location"]]["code"]} if k["location"] in found else {})} for k in KNOWN]
+    have = {k["location"] for k in KNOWN}
+    out += [{"location": loc, "code": f["code"], "gives": "unknown (not in the docs' list)",
+             "cost": "unknown" + (f", owner {f['owner_name']}" if f.get("owner_name") else "")}
+            for loc, f in sorted(found.items()) if loc not in have]
+    return out
+
+
+async def found_lockers(db) -> dict:
+    from . import others as oth
+    return oth.normalize(await db.kv_get(oth.KV, {}))["lockers"]
+
+
+def in_system(star: str, found: dict | None = None) -> list[dict]:
+    """The lockers in a system (the System page links them here)."""
+    return [k for k in all_lockers(found) if k["location"].split("-")[0] == star]
 
 
 @router.get("/lockers", response_class=HTMLResponse)
@@ -28,7 +45,7 @@ async def lockers_page(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     reps = [(c, r.get("name") or c, r.get("location") or r.get("current_location")) for c, r in st["replicants"].items()]
     known = []
-    for k in KNOWN:   # how much of the price is there, or on its way (pinned to the locker's location)
+    for k in all_lockers(await found_lockers(request.app.state.db)):   # how much of the price is there, or on its way (pinned to the locker's location)
         from .loadouts import at_tag
         price = []
         for t, n in (k.get("price") or {}).items():
@@ -37,7 +54,7 @@ async def lockers_page(request: Request, user: str = Depends(current_user)):
             coming = sum(1 for d in st["devices"] if d.get("device_type") == t and at_tag(k["location"]) in (d.get("tags") or [])
                          and d.get("location") != k["location"])
             price.append({"type": t, "need": n, "there": there, "coming": coming})
-        known.append({**k, "progress": price, "ready": bool(price) and all(x["there"] >= x["need"] for x in price)})
+        known.append({**k, "progress": price, "ready": all(x["there"] >= x["need"] for x in price)})
     return await page(request, user, "lockers.html", "lockers", reps=reps, known=known)
 
 
@@ -110,6 +127,9 @@ def reps_at(st: dict, location: str) -> list[str]:
 async def lockers_retrieve_at(request: Request, location: str = Form(...), user: str = Depends(current_user)):
     """The Known lockers row's Retrieve, once the price is there: scan from a replicant at the locker, then retrieve."""
     from .api import ApiError
+    code = next((k.get("code") for k in all_lockers(await found_lockers(request.app.state.db)) if k["location"] == location), None)
+    if code:   # seen by a device scan: no need to scan again
+        return await run_action(request, user, "POST", f"/devices/{code}/retrieve", None, f"retrieve from locker {code}")
     st = await load_state(request)
     reps = reps_at(st, location)
     if not reps:

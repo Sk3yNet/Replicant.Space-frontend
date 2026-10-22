@@ -26,7 +26,7 @@ KV = "others"
 KEEP_DAYS = 7
 RAW_MAX = 500
 ARROW_HOURS = 1.0
-FIXED = ("beacon", "relay", "ward", "hub", "factory", "observatory", "controller", "slingshot")
+FIXED = ("beacon", "relay", "ward", "hub", "factory", "observatory", "controller", "slingshot", "locker")
 MOVING = ("vessel", "drone", "plate", "propulsor")
 
 
@@ -55,6 +55,7 @@ def normalize(s: dict | None) -> dict:
     s = dict(s or {})
     s.setdefault("stars", {})
     s.setdefault("rep_at", {})
+    s.setdefault("lockers", {})   # {LOCATION: {code, type, owner, owner_name, seen_at}}: equipment lockers seen, kept
     return s
 
 
@@ -70,6 +71,11 @@ def record_scan(s: dict, star: str, scanned: list[dict], mine: set[str], by: str
                "owner": d.get("owner_replicant_code"), "owner_name": d.get("owner_name"), "status": d.get("status")}
               for d in scanned if isinstance(d, dict) and "drone" in str(d.get("device_type") or "")
               and d.get("owner_replicant_code") not in mine and star_of(d.get("location")) == star]
+    for d in scanned:   # equipment lockers stay where they are: kept past the snapshot (the Lockers page retrieves by code)
+        if isinstance(d, dict) and "locker" in str(d.get("device_type") or "") and d.get("location") and d.get("device_code"):
+            s.setdefault("lockers", {})[str(d["location"]).upper()] = {
+                "code": d["device_code"], "type": d.get("device_type"), "owner": d.get("owner_replicant_code"),
+                "owner_name": d.get("owner_name"), "seen_at": now.isoformat(timespec="seconds")}
     s["stars"][star] = {"scanned_at": now.isoformat(timespec="seconds"), "by": by, "devices": devs, "drones": drones,
                         "raw": [d for d in scanned if isinstance(d, dict)][:RAW_MAX]}   # the scan as the game answered
     return s["stars"][star]

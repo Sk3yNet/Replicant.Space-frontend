@@ -6,7 +6,7 @@
   account. Send a replicant there, scan, then retrieve.</p>
 <div class="card"><h2>Known lockers</h2>
   <table class="small"><tr><th>Where</th><th>Gives</th><th>Costs</th><th></th></tr>
-  {% for k in known %}<tr><td class="mono"><a href="/systems/{{ k.location.split('-')[0] }}">{{ k.location }}</a></td><td>{{ k.gives }}</td>
+  {% for k in known %}<tr><td class="mono"><a href="/systems/{{ k.location.split('-')[0] }}">{{ k.location }}</a>{% if k.code %}<div class="muted">{{ k.code }}</div>{% endif %}</td><td>{{ k.gives }}</td>
     <td>{{ k.cost }}{% for p in k.progress %}<div class="muted">{{ p.there }} of {{ p.need }} {{ p.type | human }} there{% if p.coming %}, {{ p.coming }} on the way{% endif %}</div>{% endfor %}</td>
     <td>{% if k.ready %}<button class="small" hx-post="/lockers/retrieve_at" hx-vals='{"location": "{{ k.location }}"}' hx-target="next .lk-d"
       hx-confirm="Retrieve from the {{ k.location }} locker? It works once per account, and its price is used up.">Retrieve</button><span class="lk-d"></span>

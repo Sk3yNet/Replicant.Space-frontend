@@ -66,7 +66,7 @@ RULES: list[Rule] = [
     Rule("devices_on_arrival", "Device scan on arrival",
          "When a replicant's vessel arrives in another system, it scans the other devices there at once (GET "
          "/scan/devices; every arrival, since devices come and go). Other players' fixed devices and drones go to the "
-         "System page and the Galaxy map, and any AMI trade controller to the shops list: system scans don't list "
+         "System page and the Galaxy map, any AMI trade controller to the shops list and any equipment locker to the Lockers page: system scans don't list "
          "shops. Read-only. Without it the traffic poll does the same scan, minutes later.", default_on=True),
     Rule("census_on_arrival", "Stellar census on arrival",
          "When a vessel that can run a stellar census (heaven and cargo vessels) arrives in a system that hasn't had one, "
