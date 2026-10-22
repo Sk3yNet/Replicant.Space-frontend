@@ -25,6 +25,7 @@ from typing import Any
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 SLOTS = {"small": 1, "medium": 2, "large": 5}
 OPEN = ("active", "off_target", "")
+CUTOFF_H = 1.0   # evacuate.EVAC_MINUTES: everything but the propulsors leaves an hour before the ETA
 
 
 def star_of(loc: str | None) -> str:
@@ -89,15 +90,25 @@ def open_rocks(objs: dict[str, dict], now: float | None = None) -> dict[str, dic
 
 
 def minable(objs: dict[str, dict], cfg: dict, now: float | None = None) -> dict[str, dict]:
-    """{rock: object} worth sending rigs to: open, a resource above its floor, more than `min_hours` before the ETA."""
+    """{rock: object} worth sending rigs to: open, a resource above its floor, and `min_hours` of mining left before the
+    rigs leave again (an hour before the ETA), not counting the trip (trip_ok checks that with the game's preview)."""
     now = now if now is not None else datetime.now(timezone.utc).timestamp()
     out = {}
     for des, o in open_rocks(objs, now).items():
-        if (hours_left(o, now) or 0) <= float(cfg.get("min_hours") or 1.5):
+        if (hours_left(o, now) or 0) <= CUTOFF_H + float(cfg.get("min_hours") or 1.0):
             continue
         if pick(o, cfg):
             out[des] = o
     return out
+
+
+def trip_ok(o: dict, travel_s: float | None, cfg: dict, now: float | None = None) -> bool:
+    """Owner 2026-10-22: a trip is worth it only if, after the travel time (the game's preview), `min_hours` of mining
+    remain before the one-hour cutoff. No preview: the hours-left filter alone."""
+    if travel_s is None:
+        return True
+    now = now if now is not None else datetime.now(timezone.utc).timestamp()
+    return (hours_left(o, now) or 0) - travel_s / 3600 - CUTOFF_H >= float(cfg.get("min_hours") or 1.0)
 
 
 def can_fly(d: dict) -> bool:

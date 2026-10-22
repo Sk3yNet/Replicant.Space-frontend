@@ -718,6 +718,18 @@ class OpsRules:
                     out.append(f"{what} failed: {err}")
         for x in p["send"]:
             code, rock, res = x["code"], x["rock"], x["resource"]
+            from .hubroute import total_seconds
+            try:   # owner 2026-10-22: the actual travel time counts, not just the hours left
+                secs = total_seconds(await self.api.request("POST", f"/devices/{code}", json_body={
+                    "command": "travel", "destination": rock, "dry_run": True}, background=True))
+            except Exception:  # noqa: BLE001  (no preview: the hours-left filter alone)
+                secs = None
+            if not rm.trip_ok(objs[rock], secs, cfg):
+                note = f"{code} not sent to {rock}: {secs / 3600:.1f} h trip leaves under {cfg.get('min_hours') or 1} h of mining"
+                if self.stage_errors.get(f"rock-trip:{code}:{rock}") != note:
+                    self.stage_errors[f"rock-trip:{code}:{rock}"] = note
+                    await self.log("asteroid_mining", note)
+                continue
             tr = step(f"{code}: travel → {rock}", f"/devices/{code}", {"command": "travel", "destination": rock},
                       wait=["travel.arrived"], critical=True, match={"destination": rock})
             tr["wait_device"] = code

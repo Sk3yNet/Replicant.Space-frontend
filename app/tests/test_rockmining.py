@@ -20,7 +20,7 @@ def rock(**kw):
                                 "resources_remaining_pct": {"carbon": 100, "volatiles": 40, "rares": 0}}], **kw}
 
 
-CFG = {"priority": "rares, volatiles", "keep_pct": 5, "send_idle": True, "min_hours": 2, "scan_rocks": True, "scan_hours": 6}
+CFG = {"priority": "rares, volatiles", "keep_pct": 5, "send_idle": True, "min_hours": 1, "scan_rocks": True, "scan_hours": 6}
 
 
 def test_priority_order_slots_and_only_fracture_devices():
@@ -91,3 +91,8 @@ def test_engine_sends_a_rig_and_the_defense_page_shows_it(client):  # noqa: F811
     assert "Resources left" in page and "RIG1" in page
     panel = client.get("/automations/rules-panel?ids=asteroid_defence,asteroid_mining", headers=H).text
     assert 'name="priority"' in panel and "rares, volatiles" in panel
+
+
+def test_the_trip_time_counts():
+    o = rock(impact_eta=iso(240))   # 4 h: 3 h before the cutoff
+    assert rm.trip_ok(o, 1.5 * 3600, CFG) and not rm.trip_ok(o, 2.5 * 3600, CFG) and rm.trip_ok(o, None, CFG)
