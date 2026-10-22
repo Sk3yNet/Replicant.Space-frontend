@@ -1106,38 +1106,66 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             return None   # a replicant flies with this job: it brings comms along
         return f"{star} is out of comms range now (no relay network or replicant there): not leaving without an escort"
 
+    async def _surge_spots(self, star: str, radii: dict[str, float]) -> tuple[set[str], str]:
+        """A system's surge-capable places (the Oort cloud, the Kuiper belt, the entry point, a planet's L4 / L5) and its
+        entry point."""
+        cat = await self.db.kv_get("stars", {}) or {}
+        entry = next((str(x.get("entry_point") or "").upper() for x in cat.get("stars") or []
+                      if isinstance(x, dict) and x.get("designation") == star), "")
+        mine = [x.upper() for x in radii if star_of(x) == star]
+        planets = [x for x in mine if re.fullmatch(rf"{re.escape(star)}-\d+", x)]
+        return ({x for x in mine if x.endswith(("-OORT", "-KUIPER"))} | ({entry} - {""}) |
+                {f"{p_}-{lp}" for p_ in planets for lp in ("L4", "L5")}), entry   # L4 / L5 too (owner 2026-10-22)
+
     async def _hop_first(self, st: dict, job: dict) -> bool:
-        """The surge hop: inside a system, a surge-capable device standing at a surge-capable place (the Oort cloud, the
-        Kuiper belt, the entry point) hops in seconds to another one, then cruises the rest. A trip whose destination is
-        much nearer another of them than to where the device is gets that hop first, as two steps put in before this one
-        (Delta Force 2026-10-22: 499 AU, 57 min of cruise from ISOLITHOR-1-L4 to a belt next to the Kuiper belt).
-        Returns whether steps were put in."""
+        """Surge hops: a surge-capable device hops in seconds between a system's surge-capable places (_surge_spots),
+        then cruises the rest. Two cases get a leg put in before this trip (two steps: the trip, the wait):
+          • inside a system, from such a place: a hop to the one nearest the destination (Delta Force 2026-10-22: 499 AU,
+            57 min of cruise from ISOLITHOR-1-L4 to a belt next to the Kuiper belt);
+          • from anywhere else (a belt, a body): a short cruise to the nearest such place first, when the game would cruise
+            much further (leaving the system it cruises to the entry point: ISOLITHOR-BELT-1 → ISOBAREA took 3544 s by
+            ISOLITHOR-1-L4, 515 s by ISOLITHOR-KUIPER). This trip is looked at again once there, for a hop.
+        Each needs to save at least 30 AU and a quarter of the cruise. Returns whether steps were put in."""
         from .fleets import _wait_arrive, cruise_au
         body, path = st.get("body") or {}, str(st.get("path") or "")
         if body.get("command") != "travel" or st.get("hopped") or body.get("via") or not path.startswith("/devices/"):
             return False
+        # looked at once, unless a short cruise to a surge spot went first: then once more from there, for a hop only
+        again = bool(st.pop("cruise_leg", None))
         st["hopped"] = True
         code, dest = path.split("/")[2], str(body.get("destination") or "").upper()
         d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
-        here, star = str(d.get("location") or "").upper(), star_of(dest)
-        if "surge" not in (d.get("features") or []) or not here or here == dest or star_of(here) != star:
+        here = str(d.get("location") or "").upper()
+        if "surge" not in (d.get("features") or []) or not here or here == dest:
             return False
-        cat = await self.db.kv_get("stars", {}) or {}
-        entry = next((str(x.get("entry_point") or "").upper() for x in cat.get("stars") or []
-                      if isinstance(x, dict) and x.get("designation") == star), "")
         radii = await self.cruise_radii()
-        mine = [x.upper() for x in radii if star_of(x) == star]
-        planets = [x for x in mine if re.fullmatch(rf"{re.escape(star)}-\d+", x)]
-        spots = {x for x in mine if x.endswith(("-OORT", "-KUIPER"))} | ({entry} - {""}) | \
-            {f"{p_}-{lp}" for p_ in planets for lp in ("L4", "L5")}   # a planet's L4 / L5 too (owner 2026-10-22)
-        if here not in spots and not re.fullmatch(rf"{re.escape(star)}-\d+-L[45]", here):
-            return False
-        now_au = cruise_au(here, dest, radii)
-        hop = min(spots - {here}, key=lambda x: (cruise_au(x, dest, radii), x), default=None)
-        if not hop or now_au - cruise_au(hop, dest, radii) < max(30.0, now_au / 4):
+        hs = star_of(here)
+        spots, entry = await self._surge_spots(hs, radii)
+        at_spot = here in spots or bool(re.fullmatch(rf"{re.escape(hs)}-\d+-L[45]", here))
+        leg, kind, after = None, "", 0.0
+        if at_spot and star_of(dest) == hs:
+            now_au = cruise_au(here, dest, radii)
+            hop = min(spots - {here}, key=lambda x: (cruise_au(x, dest, radii), x), default=None)
+            if hop and now_au - cruise_au(hop, dest, radii) >= max(30.0, now_au / 4):
+                leg, kind, after = hop, "surge hop", cruise_au(hop, dest, radii)
+        elif not at_spot and not again:
+            # where the game would cruise to: the entry point when leaving, else the destination itself (or, inside the
+            # system, whatever spot hops nearest it afterwards)
+            if star_of(dest) != hs:
+                now_au = cruise_au(here, entry, radii) if entry else 0.0
+                tail = 0.0
+            else:
+                now_au = cruise_au(here, dest, radii)
+                tail = min((cruise_au(x, dest, radii) for x in spots), default=now_au)
+            near = min(spots, key=lambda x: (cruise_au(here, x, radii), x), default=None)
+            if near and now_au - (cruise_au(here, near, radii) + tail) >= max(30.0, now_au / 4):
+                leg, kind, after = near, "short cruise to a surge spot", cruise_au(here, near, radii)
+                st.pop("hopped", None)   # once there, this trip may still hop
+                st["cruise_leg"] = True
+        if not leg:
             return False
         i = job["idx"]
-        add = [step(f"{code} → {hop} (surge hop)", path, {"command": "travel", "destination": hop}), _wait_arrive(code, hop)]
+        add = [step(f"{code} → {leg} ({kind})", path, {"command": "travel", "destination": leg}), _wait_arrive(code, leg)]
         add[0]["hop"] = add[0]["hopped"] = True
         add[1]["seq0_from"] = i
         for later in job["steps"][i:]:
@@ -1145,8 +1173,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 later["seq0_from"] += 2
         st["tries"], st["started_at"] = 0, None
         job["steps"][i:i] = add
-        await self.log(job["rule"], f"{job['title']}: surge hop {here} → {hop}, then cruise ≈{cruise_au(hop, dest, radii):.0f} AU "
-                                    f"to {dest} (instead of ≈{now_au:.0f} AU)")
+        await self.log(job["rule"], f"{job['title']}: {kind} {here} → {leg} (≈{after:.0f} AU), then on to {dest} "
+                                    f"(instead of ≈{now_au:.0f} AU of cruise)")
         await self._update(job)
         return True
 

@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.216.1"
+VERSION = "1.216.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.216.2", "2026-10-22", "Surge hops on departures too: a surge-capable device at a belt or a body first cruises to the "
+               "nearest surge spot (Oort, Kuiper, entry point, a planet's L4/L5) when the game would cruise much further — "
+               "leaving a system it cruises to the entry point (ISOLITHOR-BELT-1 → ISOBAREA: 3544 s, by the Kuiper belt "
+               "515 s). Inside a system it then hops on from there."),
     ("1.216.1", "2026-10-22", "A bootstrap takes every device of its own aboard before it leaves for a new home (one set on "
                "its card) or the hub: before, a new home left the drones at the old one, and the hub move checked only the "
                "first device it found. A vessel already at its new home doesn't fly back for strays."),

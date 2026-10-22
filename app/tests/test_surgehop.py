@@ -7,7 +7,7 @@ SCAN = {"planets": [{"designation": "Z-1", "orbital_distance_au": 1.0}, {"design
         "outer_system": {"kuiper": {"designation": "Z-KUIPER", "distance_au": 505}}}
 
 
-def _run(client, at="Z-1-L4", refuse_hop=False):
+def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1"):
     from rsweb import automations as au
     from rsweb.db import now_iso
     e, db = eng(client), client.app.state.db
@@ -25,7 +25,7 @@ def _run(client, at="Z-1-L4", refuse_hop=False):
         return True, {}, None
     e.send = fake_send
     job = client.portal.call(e.create_job, "fleets", "trip", "V1",
-                             [au.step("V1 → Z-BELT-1", "/devices/V1", {"command": "travel", "destination": "Z-BELT-1"})], {}, True)
+                             [au.step(f"V1 → {dest}", "/devices/V1", {"command": "travel", "destination": dest})], {}, True)
     return sent, next(j for j in client.portal.call(e.jobs) if j["id"] == job["id"])
 
 
@@ -45,5 +45,14 @@ def test_a_refused_hop_cruises_as_planned(client):
 def test_hops_from_any_l_point_but_not_from_a_body(client):
     sent, _ = _run(client, at="Z-6-L5")                                                 # ≈100 AU: the Kuiper hop saves 95
     assert sent[0] == {"command": "travel", "destination": "Z-KUIPER"}
-    sent, _ = _run(client, at="Z-6")                                                    # not a surge spot: no hop
-    assert sent == [{"command": "travel", "destination": "Z-BELT-1"}]
+    sent, job = _run(client, at="Z-6")                                                  # a body: to its L-point first
+    assert sent == [{"command": "travel", "destination": "Z-6-L4"}] and "short cruise" in job["steps"][0]["desc"]
+
+
+def test_leaving_from_a_belt_cruises_to_the_nearest_surge_spot_not_the_entry_point(client):
+    # ISOLITHOR 2026-10-22: belt → ISOBAREA took 3544 s by the entry point, 515 s by the Kuiper belt
+    sent, job = _run(client, at="Z-BELT-1", dest="Y-2-L4")
+    assert sent == [{"command": "travel", "destination": "Z-KUIPER"}]
+    assert job["steps"][2]["body"] == {"command": "travel", "destination": "Y-2-L4"}
+    sent, _ = _run(client, at="Z-1-1", dest="Y-2-L4")                                   # next to the entry point: as it is
+    assert sent == [{"command": "travel", "destination": "Y-2-L4"}]
