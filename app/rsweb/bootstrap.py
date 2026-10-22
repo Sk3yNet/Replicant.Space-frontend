@@ -222,6 +222,21 @@ def system_score(star: str, w: dict, origin: str) -> dict:
                           None, star in w["warded"], None)
 
 
+HAZARD_PENALTY, ROCK_PENALTY = 15, 10
+
+
+def risk(star: str, w: dict) -> dict:
+    """Asteroid and hazard risk of a system: {open: an incoming object there now (ruled out), penalty, reasons}. A past
+    asteroid counts against it (designations recur: FALQUORYX-OBJ-2 came twice), as do hazard system tags in its scan —
+    an autofactory can't be stowed to flee an impact."""
+    r = (w.get("rocks") or {}).get(star) or {}
+    tags = [str(t) for t in ((w["scans"].get(star) or {}).get("system_tags") or []) if "hazard" in str(t).lower()]
+    past = min(3, int(r.get("past") or 0))
+    reasons = ([f"{r['open']} incoming object(s) now"] if r.get("open") else []) + \
+        ([f"{r['past']} past asteroid(s)"] if past else []) + ([f"hazardous: {', '.join(tags)}"] if tags else [])
+    return {"open": bool(r.get("open")), "penalty": ROCK_PENALTY * past + (HAZARD_PENALTY if tags else 0), "reasons": reasons}
+
+
 def hub_candidates(f: dict, w: dict) -> list[dict]:
     """Scanned systems within the radius of home ranked as a hub: its own score plus how many good outpost systems it
     has within the radius (and relay reach for the chain)."""
@@ -239,8 +254,11 @@ def hub_candidates(f: dict, w: dict) -> list[dict]:
         good = [y for y, o in scored.items() if y != x and (o.get("score") or 0) >= s["min_score"]
                 and dist(x, y, pos) <= s["radius"]]
         chained = [y for y in good if dist(x, y, pos) <= RELAY_LY]
-        value = sc["score"] + 4 * min(3, len(good)) + 2 * min(3, len(chained))
-        out.append({"star": x, "score": sc["score"], "value": round(value), "reasons": sc["reasons"][:4],
+        rk = risk(x, w)
+        if rk["open"]:
+            continue   # never a hub where a rock is coming
+        value = sc["score"] + 4 * min(3, len(good)) + 2 * min(3, len(chained)) - rk["penalty"]
+        out.append({"star": x, "score": sc["score"], "value": round(value), "reasons": rk["reasons"] + sc["reasons"][:4],
                     "good_near": sorted(good, key=lambda y: dist(x, y, pos))[:6], "in_relay": len(chained),
                     "distance": round(dist(home, x, pos), 1) if dist(home, x, pos) < 1e9 else None})
     return sorted(out, key=lambda c: (-c["value"], c["distance"] or 0, c["star"]))[:6]
@@ -262,10 +280,11 @@ def outpost_candidates(f: dict, w: dict) -> dict:
     rows = []
     for x in pool:
         sc = system_score(x, w, hub)
-        if (sc.get("score") or 0) < s["min_score"] or not best_belt(w["scans"].get(x)):
+        rk = risk(x, w)
+        if (sc.get("score") or 0) - rk["penalty"] < s["min_score"] or rk["open"] or not best_belt(w["scans"].get(x)):
             continue
         reach = min((dist(x, c, pos) for c in links), default=1e9)
-        rows.append({"star": x, "score": sc["score"], "reasons": sc["reasons"][:4], "chain_ly": round(reach, 1),
+        rows.append({"star": x, "score": sc["score"], "reasons": rk["reasons"] + sc["reasons"][:4], "chain_ly": round(reach, 1),
                      "in_chain": reach <= RELAY_LY, "distance": round(dist(hub, x, pos), 1)})
     ok = sorted((r for r in rows if r["in_chain"]), key=lambda r: (-r["score"], r["distance"]))
     if ok:
@@ -407,7 +426,12 @@ def evaluate(f: dict, w: dict) -> dict:
         if factory:
             out["actions"] = [{"kind": "make_hub", "factory": factory["device_code"]}]
             return done(stage, gate="autofactory deployed", next=f"the hub fleet takes over at {hub}", actions=out["actions"])
-        return done(stage, gate=c["gate"], next=c["next"], actions=c["actions"], blocked=c.get("blocked", False))
+        acts = c["actions"]
+        if risk(hub, w)["open"] and any(a["kind"] == "print" and a.get("device_type") == "autofactory" for a in acts):
+            # a rock is coming: no autofactory until it has passed (the drones keep compounding meanwhile)
+            return done(stage, gate="no incoming object at the hub", next=f"autofactory waits: an asteroid is heading for {hub}",
+                        actions=[a for a in acts if a["kind"] != "print"], blocked=True)
+        return done(stage, gate=c["gate"], next=c["next"], actions=acts, blocked=c.get("blocked", False))
     rep = (w.get("reports") or {})
     hub_fleet = (b.get("children") or {}).get("hub")
     if stage == "hub":

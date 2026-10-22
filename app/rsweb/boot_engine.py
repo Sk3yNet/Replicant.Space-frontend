@@ -35,7 +35,12 @@ class BootstrapMixin:
             if f.get("family") and fl.stationed(f):
                 have = Counter(d.get("device_type") for d in fl.members(f, devices))
                 reports[f["id"]] = {"short": sum(max(0, n - have.get(t, 0)) for t, n in fl.station_wants(f).items())}
-        return {"devices": devices,
+        rocks: dict[str, dict[str, int]] = {}   # star -> incoming objects still open there, and past ones (they recur)
+        for des, o in (await self.defence_objects()).items():
+            for st in {star_of(des), star_of(o.get("target") or o.get("impact_target"))} - {""}:
+                r = rocks.setdefault(st, {"open": 0, "past": 0})
+                r["past" if o.get("closed") else "open"] += 1
+        return {"rocks": rocks, "devices": devices,
                 "inventory": {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))},
                 "bps": {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))},
                 "pos": {s.get("designation"): s.get("position") for s in cat.get("stars") or []

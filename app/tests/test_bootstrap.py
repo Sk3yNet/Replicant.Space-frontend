@@ -105,6 +105,18 @@ def test_a_deployed_matrix_boards_the_vessel_first():
     assert ev["actions"] == [{"kind": "travel", "device": "V1", "to": "HOME-BELT-1"}]       # aboard: on to the belt
 
 
+def test_no_hub_where_a_rock_is_coming_and_past_asteroids_or_hazards_count_against_it():
+    scans = {x: scan_for(x, RARES) for x in ("A", "B", "C")}
+    w = world([vessel("HOME-BELT-1")], scans)
+    plain = {c["star"]: c["value"] for c in bt.hub_candidates(fleet(), w)}
+    scans["B"]["system_tags"] = ["hazardous_radiation"]
+    w["rocks"] = {"A": {"open": 1, "past": 0}, "C": {"open": 0, "past": 2}}
+    rows = {c["star"]: c for c in bt.hub_candidates(fleet(), w)}
+    assert "A" not in rows                                                               # a rock is coming: ruled out
+    assert rows["B"]["value"] == plain["B"] - bt.HAZARD_PENALTY and "hazardous: hazardous_radiation" in rows["B"]["reasons"]
+    assert rows["C"]["value"] == plain["C"] - 2 * bt.ROCK_PENALTY and "2 past asteroid(s)" in rows["C"]["reasons"]
+
+
 def test_warded_home_goes_straight_to_survey_then_hub_choice():
     f = fleet()
     devs = [vessel("HOME-BELT-1")] + [drone(f"M{i}", "mining_drone", aboard=True) for i in range(3)]
@@ -132,6 +144,19 @@ def test_move_fetches_drones_then_flies_to_the_hub():
     devs[0] = vessel("A-5-L4")
     ev = bt.evaluate(f, world(devs, scans))
     assert f["boot"]["stage"] == "hub_compound" and ev["actions"][0]["to"] == "A-BELT-1"
+
+
+def test_no_autofactory_print_while_a_rock_heads_for_the_hub():
+    scans = {"A": scan_for("A", STRUCT)}
+    devs = [vessel("A-BELT-1")] + [drone(f"M{i}", "mining_drone", "A-BELT-1", status="mining") for i in range(8)] + \
+        [drone(f"S{i}", "survey_drone", "A-BELT-1", status="searching") for i in range(4)]
+    inv = {"A-BELT-1": dict(BPS["autofactory"]["resources"])}
+    ev = bt.evaluate(fleet("hub_compound", hub="A"), world(devs, scans, inv))
+    assert {"kind": "print", "device_type": "autofactory"} in ev["actions"]
+    w = world(devs, scans, inv)
+    w["rocks"] = {"A": {"open": 1, "past": 0}}
+    ev = bt.evaluate(fleet("hub_compound", hub="A"), w)
+    assert not any(a["kind"] == "print" for a in ev["actions"]) and ev["blocked"] and "asteroid" in ev["next"]
 
 
 def test_hub_autofactory_then_outposts_keep_the_relay_chain():

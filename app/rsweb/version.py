@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.210.2"
+VERSION = "1.211.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.211.0", "2026-10-22", "Bootstrap hub and outpost choices weigh asteroid risk: a system with an incoming object "
+               "now is never offered; each past asteroid there (up to 3) costs 10 points and hazard system tags 15, and the "
+               "reasons say so. The hub's autofactory isn't printed while an object heads for the hub."),
     ("1.210.2", "2026-10-22", "Converting a fleet to a bootstrap from its Save row shows why when it can't (the message "
                "was swallowed), stops a running mission instead of refusing, and finds the heaven vessel when the replicant's "
                "matrix is deployed on its own. A bootstrap first takes a loose matrix of its own aboard, so the vessel never "
