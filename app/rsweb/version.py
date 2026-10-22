@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.205.1"
+VERSION = "1.205.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.205.2", "2026-10-22", "Asteroid mining: a survey drone stays at a rock being mined and scans it every 30 minutes (a "
+               "setting) until the cutoff, instead of a visit every 6 hours."),
     ("1.205.1", "2026-10-22", "Asteroid mining: a rig is sent only when, after the trip (the game's travel preview), an hour of "
                "mining (a setting) is left before the one-hour cutoff."),
     ("1.205.0", "2026-10-22", "Asteroid mining rule (game v3.6.0, off by default, on Map › Defense): fracture rigs mine "

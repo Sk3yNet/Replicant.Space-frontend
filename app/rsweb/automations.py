@@ -198,7 +198,7 @@ RULES: list[Rule] = [
          "rest until it's dust. Idle rigs that can fly go to an asteroid in their system with a free slot. Rocks you "
          "launched (Terraforming) keep some of every resource, so the impact still has its terraform effect. The rigs "
          "are pulled out an hour before the ETA (also when it's diverted or off target), and logistics hauls the "
-         "stockpile out while they work. An idle survey drone in the system scans a rock being mined for exact amounts.",
+         "stockpile out while they work. An idle survey drone in the system stays at a rock being mined and scans it for exact amounts.",
          [Option("priority", "text", "Resource priority", "rares, conductive, volatiles",
                  help="Mined in this order, comma separated (structural, conductive, silicates, carbon, volatiles, rares); "
                       "the ones left out come after, on asteroids that aren't yours"),
@@ -209,9 +209,9 @@ RULES: list[Rule] = [
           Option("send_idle", "bool", "Send idle rigs in the system to an asteroid", True),
           Option("min_hours", "float", "Hours of mining a trip must leave", 1.0,
                  help="After the travel time (the game's travel preview) and before the rigs leave again, an hour before the ETA"),
-          Option("scan_rocks", "bool", "Scan rocks being mined with an idle survey drone", True,
-                 help="A scan gives exact amounts (the location only shows % left); the drone comes back after"),
-          Option("scan_hours", "float", "Scan a rock again after (hours)", 6.0)]),
+          Option("scan_rocks", "bool", "Keep an idle survey drone at rocks being mined", True,
+                 help="A scan gives exact amounts (the location only shows % left); the drone stays until the cutoff"),
+          Option("scan_minutes", "int", "Scan a rock every (minutes)", 30)]),
     Rule("maintenance", "Keep maintenance drones patrolling",
          "A maintenance drone only repairs on the `patrol` directive (it then fixes the most worn device in its system, one "
          "after another). Every N minutes, any maintenance drone sitting in a system without patrol gets it (fleet members "

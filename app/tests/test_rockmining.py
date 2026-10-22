@@ -20,7 +20,7 @@ def rock(**kw):
                                 "resources_remaining_pct": {"carbon": 100, "volatiles": 40, "rares": 0}}], **kw}
 
 
-CFG = {"priority": "rares, volatiles", "keep_pct": 5, "send_idle": True, "min_hours": 1, "scan_rocks": True, "scan_hours": 6}
+CFG = {"priority": "rares, volatiles", "keep_pct": 5, "send_idle": True, "min_hours": 1, "scan_rocks": True, "scan_minutes": 30}
 
 
 def test_priority_order_slots_and_only_fracture_devices():
@@ -56,8 +56,11 @@ def test_scan_with_an_idle_survey_drone_not_one_at_a_belt():
           "features": ["cruise"], "available_commands": ["travel", "scan"]}
     belt = {**sd, "device_code": "SB", "location": "A-BELT-1"}
     p = rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), belt, sd], CFG, set(), {})
-    assert p["scan"] == [{"code": "SD", "rock": "A-OBJ-1", "back": "A-2"}]
-    assert rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), sd], CFG, set(), {}, scanned={"A-OBJ-1": iso(-60)})["scan"] == []
+    assert p["scan"] == [{"code": "SD", "rock": "A-OBJ-1", "here": False}]
+    there = {**sd, "location": "A-OBJ-1"}   # it stays and scans every 30 minutes
+    assert rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), there], CFG, set(), {}, scanned={"A-OBJ-1": iso(-20)})["scan"] == []
+    assert rm.plan({"A-OBJ-1": rock()}, [rig("R1", "A-OBJ-1"), there], CFG, set(), {}, scanned={"A-OBJ-1": iso(-31)})["scan"] \
+        == [{"code": "SD", "rock": "A-OBJ-1", "here": True}]
     assert rm.amounts({"resource_sites": [{"resources": {"carbon": 1200, "volatiles": 300}, "resources_remaining_pct": {"carbon": 50}}]}) \
         == {"carbon": 1200.0, "volatiles": 300.0}
 

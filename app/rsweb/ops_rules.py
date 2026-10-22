@@ -745,11 +745,9 @@ class OpsRules:
             tr["wait_device"] = code
             sc = step(f"{code}: scan {rock}", f"/devices/{code}", {"command": "scan"}, wait=["scan.completed"], timeout=3600)
             sc["wait_device"] = code
-            steps = [tr, sc]
-            if x.get("back"):
-                steps.append(step(f"{code}: back → {x['back']}", f"/devices/{code}", {"command": "travel", "destination": x["back"]}))
+            steps = [sc] if x.get("here") else [tr, sc]
             if await self.create_job("asteroid_mining", f"asteroid mining: {code} scans {rock}", code, steps, {"devices": [code]}):
-                out.append(f"{code} → {rock} to scan it")
+                out.append(f"{code} scans {rock}" if x.get("here") else f"{code} → {rock} to stay and scan it")
         await self.db.kv_set("rock_mining", state)
         await self.db.kv_set("rock_full", full)
         for note in p["notes"]:

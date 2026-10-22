@@ -14,7 +14,7 @@ From the game docs (Asteroid Mining, Asteroids location page):
 
 Each pass (engine stage rock_mining_pass): rigs at a minable rock start mining (or retarget) the top resource left;
 idle rigs that can fly elsewhere in the system go to a rock with a free slot and enough time left; an idle survey drone
-in the system scans a rock being mined once every `scan_hours` and comes back.
+in the system goes to a rock being mined and stays, scanning it every `scan_minutes` until the cutoff.
 """
 from __future__ import annotations
 
@@ -163,18 +163,26 @@ def plan(objs: dict[str, dict], devices: list[dict], cfg: dict, busy: set[str], 
             out["send"].append({"code": code, "rock": to, "resource": pick(rocks[to], cfg)})
     if cfg.get("scan_rocks", True):
         worked = {s["rock"] for s in out["start"] + out["send"]} | {s.get("rock") for s in state.values()} | set(there)
-        hours = float(cfg.get("scan_hours") or 6)
+        every = float(cfg.get("scan_minutes") or 30) * 60
         taken: set[str] = set()
-        for r in sorted(x for x in worked if x in rocks):
-            last = _ts((scanned or {}).get(r))
-            if last and now - last < hours * 3600:
+        idle = lambda d: str(d.get("status") or "").lower().startswith("idle") and free(d)   # noqa: E731
+        surveyors = [d for d in devices if d.get("device_type") == "survey_drone"
+                     and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")]
+        for r in sorted(x for x in worked if x in flying):
+            here = [d for d in surveyors if d.get("location") == r]
+            if here:   # owner 2026-10-22: a drone stays at the rock and scans every scan_minutes (it leaves at the cutoff)
+                last = _ts((scanned or {}).get(r))
+                d = next((d for d in here if idle(d)), None)
+                if d and not (last and now - last < every):
+                    out["scan"].append({"code": d["device_code"], "rock": r, "here": True})
                 continue
-            drone = next((d for d in devices if d.get("device_type") == "survey_drone" and star_of(d.get("location")) == star_of(r)
-                          and str(d.get("status") or "").lower().startswith("idle") and free(d) and can_fly(d)
+            if r not in rocks:
+                continue
+            drone = next((d for d in surveyors if star_of(d.get("location")) == star_of(r) and idle(d) and can_fly(d)
                           and "BELT" not in (d.get("location") or "") and d["device_code"] not in taken), None)
             if drone:   # not one at a belt: an idle one there may be about to search (moving it loses its site)
                 taken.add(drone["device_code"])
-                out["scan"].append({"code": drone["device_code"], "rock": r, "back": drone.get("location")})
+                out["scan"].append({"code": drone["device_code"], "rock": r, "here": False})
     return out
 
 
