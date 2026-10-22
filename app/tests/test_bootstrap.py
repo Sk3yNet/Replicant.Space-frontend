@@ -213,6 +213,15 @@ def _setup(client, stage, devices, **boot):
     return e
 
 
+def test_a_leftover_mission_stops_on_the_next_pass(client):
+    e = _setup(client, "home", [vessel("SOL-BELT-1")])
+    items = client.portal.call(e.fleets)
+    items[0]["mission"] = {"status": "running", "phase": "watch", "targets": ["SOL"]}
+    client.portal.call(e.save_fleets, items)
+    client.portal.call(e.bootstrap_pass)
+    assert "mission" not in client.portal.call(e.fleets)[0]
+
+
 def test_pass_turns_actions_into_one_job(client):
     devs = [vessel("SOL-BELT-1")] + [drone(f"M{i}", "mining_drone", aboard=True) for i in range(3)]
     e = _setup(client, "home", devs)

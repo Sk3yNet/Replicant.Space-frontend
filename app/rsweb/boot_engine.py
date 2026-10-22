@@ -60,6 +60,14 @@ class BootstrapMixin:
         out, changed = [], False
         for f in boots:
             b = f["boot"]
+            m = f.pop("mission", None)
+            if m:   # a bootstrap runs no missions: one left over (an explore fleet's auto scouting) stops here
+                job = await self._get(m["job"]) if m.get("job") else None
+                if job and job["status"] in ("running", "waiting"):
+                    job["status"], job["finished_at"] = "cancelled", now_iso()
+                    await self._update(job)
+                await self.log("fleets", f"{f['name']}: its {m.get('status') or ''} mission stopped — a bootstrap runs no missions")
+                changed = True
             if any(j["status"] in ("running", "waiting") and (j.get("meta") or {}).get("bootstrap") == f["id"] for j in jobs):
                 continue
             before = json.dumps(b, sort_keys=True, default=str)

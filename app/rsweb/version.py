@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.212.0"
+VERSION = "1.212.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.212.1", "2026-10-22", "An explore fleet without a survey controller scans with its own survey drones again: a drone "
+               "with no controller was taken for the (missing) controller's, so the work phase found none and every system "
+               "was marked surveyed without a drone scan (Delta Force). A bootstrap fleet runs no missions: one left over is stopped "
+               "on its next pass, and the mission runner skips bootstraps."),
     ("1.212.0", "2026-10-22", "Galaxy map layers are grouped by how they draw: view, clouds and glows, rings and waves, "
                "lines, icons. Every toggle and its saved setting stay as they were."),
     ("1.211.0", "2026-10-22", "Bootstrap hub and outpost choices weigh asteroid risk: a system with an incoming object "

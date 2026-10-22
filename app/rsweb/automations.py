@@ -4446,6 +4446,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         devices = await self.devices()
         changed = False
         for fleet in items:
+            if fleet.get("role") == "bootstrap":
+                continue   # no missions: bootstrap_pass drives it
             m = fleet.get("mission") or {}
             if m.get("status") == "stalled" and m.get("comms_wait"):
                 # stalled because members were out of comms range (live 2026-10-22: Surveyor 2's heaven vessel left

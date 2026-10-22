@@ -987,8 +987,10 @@ def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None
     r = roster(fleet, devices)
     ms = [d for d in r["members"] if not is_carrier(d)]
     ctrl = next((d for d in ms if kind(d) == "survey_controller"), None)
+    # the controller's own drones are its business; with no controller every drone is the fleet's (an unset controller
+    # code once matched the missing controller's and left none: Delta Force, 2026-10-22)
     drones = [d["device_code"] for d in ms if "survey_drone" in (d.get("device_type") or "")
-              and d.get("controller_device_code") != (ctrl or {}).get("device_code")]
+              and (not ctrl or d.get("controller_device_code") != ctrl["device_code"])]
     if not ctrl:
         # no controller: each drone just scans where it is (the system scan already maps the bodies)
         return [step(f"{c}: scan", f"/devices/{c}", {"command": "scan"}) for c in drones], \
