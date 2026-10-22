@@ -184,8 +184,9 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
 
 <img src="screens/system.jpg" width="320" align="right" alt="System page">
 
-- A top-down map with your devices, stockpiles, sites and salvage. Working drones circle their spot: miners and other
-  workers clockwise; survey drones farther out, counterclockwise, with a light blue scanning beam.
+- A top-down map with your devices, stockpiles, sites and salvage. Working drones circle the site they work (a survey
+  drone's tracking site, a miner's last mining event; else their location): miners and other workers clockwise; survey
+  drones farther out, counterclockwise, with a light blue scanning beam aimed at the site.
 - **Resources** card, per resource: richness, open sites, % left, ≈ units left (learned from what past sites gave),
   salvage, stockpiled.
 - **Belts** card: richness, a viability line, open sites. **Bodies** card: planets, moons, L-points with their salvage

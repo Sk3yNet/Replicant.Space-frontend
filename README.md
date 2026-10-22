@@ -114,8 +114,8 @@ same. Markers sit at a fixed spot around the star, so you learn where to look.
 
 | | Marker | Means |
 |:-:|---|---|
-| <img src="docs/icons/drone-work.svg" width="22"> | green dot circling clockwise | a mining or other working drone at its spot |
-| <img src="docs/icons/drone-survey.svg" width="22"> | light blue dot circling counterclockwise, with a beam | a survey drone scanning |
+| <img src="docs/icons/drone-work.svg" width="22"> | green dot circling clockwise | a mining or other working drone, around the site it mines (else its location) |
+| <img src="docs/icons/drone-survey.svg" width="22"> | light blue dot circling counterclockwise, with a beam | a survey drone tracking a site, beam on the site |
 
 Markers, sparkles and names shrink and fade with distance from the view's center (gone by 30 ly); right-click (on
 touch: long-press) two stars to measure. The icons are drawn by `tools/make_legend_icons.py` from the map's own shapes.

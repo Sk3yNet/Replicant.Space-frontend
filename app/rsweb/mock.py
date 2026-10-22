@@ -258,6 +258,15 @@ def load_demo(world: World, path: str) -> None:
     world.replicants = doc["replicants"]
     world.inventory = {i["location"]: {it["resource_type"]: float(it["quantity"]) for it in i["items"]} for i in doc["inventory"]}
     world.location = next((d["location"] for d in world.devices if d["device_code"] == HOST), None) or world.location
+    # the site each working drone holds (the system map circles it): a tracking survey drone's tracking_site, a
+    # miner's mining.started event (belts list SITE-1 and SITE-2, see the location detail)
+    for i, d in enumerate(world.devices):
+        loc, st = d.get("location") or "", str(d.get("status") or "")
+        if "-BELT-" in loc and st == "tracking":
+            d["tracking_site"] = f"{loc}-SITE-1"
+        elif "-BELT-" in loc and st.startswith("mining"):
+            world.emit("mining.started", d, location=loc, site=f"{loc}-SITE-{1 + i % 2}",
+                       resource_type=(d.get("mining") or {}).get("resource_type"))
 
 
 def demo_others(star: str) -> list[dict]:

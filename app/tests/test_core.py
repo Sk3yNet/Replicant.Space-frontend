@@ -3976,6 +3976,18 @@ def test_working_drones_orbit_their_site(client):
     assert set(o) == {"M1", "M2", "S1"}   # idle drones and non-drones don't orbit
     assert o["M1"]["kind"] == "work" and o["S1"]["kind"] == "survey" and o["S1"]["r"] > o["M1"]["r"] > 10
     assert {o["M1"]["delay"], o["M2"]["delay"]} == {0, -4.5}   # spread evenly around the ring
+    from rsweb.web import build_system_view
+    belt = [{"device_code": "M1", "device_type": "mining_drone", "status": "mining (carbon)", "location": "SOL-BELT-1"},
+            {"device_code": "M2", "device_type": "mining_drone", "status": "mining (carbon)", "location": "SOL-BELT-1"},
+            {"device_code": "S1", "device_type": "survey_drone", "status": "tracking", "location": "SOL-BELT-1",
+             "tracking_site": "SOL-BELT-1-SITE-2"}]
+    scan = {"asteroid_belt": {"belts": [{"designation": "SOL-BELT-1", "inner_radius_au": 2.2, "outer_radius_au": 3.2}]}}
+    places = [{"code": "SOL-BELT-1-SITE-2", "category": "site"}]
+    view = build_system_view("SOL", scan, belt, [], places, drone_sites={"M1": "SOL-BELT-1-SITE-2", "M2": "SOL-BELT-9-SITE-1"})
+    rings = {(g["x"], g["y"]): sorted(o["code"] for o in g["orbits"]) for g in view["orbits"]}
+    site = next(pl for pl in view["places"] if pl["code"] == "SOL-BELT-1-SITE-2")
+    loc = view["markers"][0]
+    assert rings == {(site["x"], site["y"]): ["M1", "S1"], (loc["x"], loc["y"]): ["M2"]}   # M2's site isn't drawn here
     client.portal.call(client.app.state.worker.sync_devices)
     page = client.get("/systems/SOL", headers=H).text
     assert 'orbiter orbit-survey' in page and 'class="scan-beam"' in page

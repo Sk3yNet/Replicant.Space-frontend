@@ -1634,7 +1634,7 @@ def _angle(code: str) -> float:
 def build_system_view(star: str, scan: dict, devices: list[dict], inventory: list[dict],
                       places: list[dict] | None = None, res: dict | None = None,
                       groups: list[dict] | None = None, star_pos: dict[str, dict] | None = None,
-                      others: list[dict] | None = None) -> dict:
+                      others: list[dict] | None = None, drone_sites: dict[str, str] | None = None) -> dict:
     """Lay out a top-down, log-scaled diagram of a star system as SVG primitives."""
     size, c = 760, 380
     planets = scan.get("planets") or []
@@ -1708,8 +1708,7 @@ def build_system_view(star: str, scan: dict, devices: list[dict], inventory: lis
         xy = loc_xy(loc)
         if xy:
             shapes["markers"].append({"loc": loc, "x": xy[0], "y": xy[1], "devices": by_loc.get(loc, []),
-                                      "stock": inv.get(loc, {}), "drones": drone_summary(by_loc.get(loc, [])),
-                                      "orbits": drone_orbits(by_loc.get(loc, []), 5 + min(len(by_loc.get(loc, [])), 12))})
+                                      "stock": inv.get(loc, {}), "drones": drone_summary(by_loc.get(loc, []))})
     # other players' fixed devices (others.py snapshot): hollow coral rings beside ours
     theirs: dict[str, list[dict]] = defaultdict(list)
     for d in others or []:
@@ -1738,6 +1737,23 @@ def build_system_view(star: str, scan: dict, devices: list[dict], inventory: lis
         shapes["places"].append({"code": code, "category": t["category"], "x": xy[0], "y": xy[1], "label": short,
                                  "note": t.get("note") or "", "total": q.get("total"), "amounts": q.get("amounts") or {},
                                  "depleted": q.get("depleted", False)})
+
+    # working drones circle the site they work (a survey drone's tracking_site, a miner's last mining event), else
+    # their location's marker
+    at_site = {pl["code"]: (pl["x"], pl["y"]) for pl in shapes["places"]}
+    at_loc = {m["loc"]: (m["x"], m["y"], 5 + min(len(m["devices"]), 12)) for m in shapes["markers"]}
+    rings: dict[str, dict] = {}
+    for loc, ds in by_loc.items():
+        for d in ds:
+            site = d.get("tracking_site") or (drone_sites or {}).get(d.get("device_code"))
+            if site in at_site and site.startswith(loc + "-"):
+                key, (x, y), r0 = site, at_site[site], 5
+            elif loc in at_loc:
+                key, (x, y, r0) = loc, at_loc[loc]
+            else:
+                continue
+            rings.setdefault(key, {"x": x, "y": y, "r0": r0, "devices": []})["devices"].append(d)
+    shapes["orbits"] = [{**g, "orbits": o} for _, g in sorted(rings.items()) if (o := drone_orbits(g["devices"], g["r0"]))]
 
     # devices in transit: cruising inside the system along their leg, surging in or out at the rim (in the direction
     # of the other star). segs: [x1, y1, x2, y2, t0 ms, t1 ms] — the page moves the arrow along them as time passes.
@@ -1791,7 +1807,23 @@ async def system_view_model(request: Request, star: str, scan: dict, st: dict, s
     from . import others as oth
     snap = oth.normalize(await db.kv_get(oth.KV, {}))["stars"].get(star) or {}
     return build_system_view(star, scan, st["devices"], st["inventory"], sys_t["targets"], res,
-                             transit.trips(st["devices"]), star_pos, others=snap.get("devices"))
+                             transit.trips(st["devices"]), star_pos, others=snap.get("devices"),
+                             drone_sites=await mining_sites(db, star))
+
+
+async def mining_sites(db, star: str) -> dict[str, str]:
+    """{device code: the site its last mining.started / retargeted / relocated event names} in a system."""
+    out: dict[str, str] = {}
+    for r in await db.fetchall("SELECT device_code, event, payload FROM events WHERE event IN ('mining.started', "
+                               "'mining.retargeted', 'mining.relocated') AND (star = ? OR location LIKE ?) ORDER BY seq",
+                               (star, f"{star}-%")):
+        try:
+            p = json.loads(r["payload"] or "{}") or {}
+        except ValueError:
+            continue
+        if site := p.get("new_site") if r["event"] == "mining.relocated" else p.get("site"):
+            out[r["device_code"]] = site
+    return out
 
 
 def devices_in_system(devices: list[dict], star: str) -> dict:
