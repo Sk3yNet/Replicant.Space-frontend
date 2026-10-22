@@ -38,7 +38,7 @@ if (!OPTS.dataUrl) {
 // star markers by kind, each with its own checkbox (opt-mark-<kind>) and its own shape. Scanned and prospected frame
 // the star (a dotted ring, corner brackets); the others are badges at a fixed spot around it, so you learn where to
 // look: replicant above, devices left, hub upper left, a new find below (the right is the name's). dx/dy: the badge's offset on screen, in ly.
-const MARKS = { devices: 0x6cb6ff, scanned: 0x4fd18b, hub: 0xf0b64f, replicant: 0xff5fa2, found: 0xfff27a, prospected: 0x7fe3ff,
+const MARKS = { devices: 0x6cb6ff, scanned: 0x4fd18b, hub: 0xf0b64f, otherhub: 0xff7a6b, replicant: 0xff5fa2, found: 0xfff27a, prospected: 0x7fe3ff,
                 rich: 0xffa726, anomaly: 0xe040fb };
 const BADGE = 0.9, BADGE_AT = 1.7;
 const MARK_SHAPE = {
@@ -47,6 +47,7 @@ const MARK_SHAPE = {
   replicant:  { size: BADGE, dx: 0, dy: BADGE_AT },
   devices:    { size: BADGE, dx: -BADGE_AT, dy: 0 },
   hub:        { size: BADGE, dx: -BADGE_AT * .75, dy: BADGE_AT * .75 },
+  otherhub:   { size: BADGE, dx: -BADGE_AT * .75, dy: BADGE_AT * .75 },   // another player's hub: same spot, their coral
   found:      { size: BADGE, dx: 0, dy: -BADGE_AT },
   rich:       { size: BADGE, dx: -BADGE_AT * .75, dy: -BADGE_AT * .75 },   // the scan's system tags (resource_rich, anomaly)
   anomaly:    { size: BADGE, dx: BADGE_AT * .75, dy: BADGE_AT * .75 },
@@ -187,6 +188,7 @@ const MARK_TEX = {
     }
     g.beginPath(); g.arc(32, 34, 7, 0, Math.PI * 2); g.fill();
   }),
+  get otherhub() { return this.hub; },   // the same node, tinted coral
   found: shapeTex(g => {       // a starburst: something new
     g.beginPath();
     for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8, r = i % 2 ? 12 : 30; g.lineTo(32 + r * Math.cos(a), 32 + r * Math.sin(a)); }
@@ -391,7 +393,8 @@ function build() {
     const marks = [];
     if (s.devices > 0) marks.push("devices");
     if (s.scanned) marks.push("scanned");
-    if (s.has_hub || (s.infra || []).some(t => t.includes("hub"))) marks.push("hub");
+    const myHub = (s.infra || []).some(t => t.includes("hub"));   // a hub of ours; the catalog's has_hub flags anyone's
+    if (myHub) marks.push("hub"); else if (s.has_hub) marks.push("otherhub");
     if (hasRep) marks.push("replicant");
     const fresh = s.prospected && !s.scanned;   // found by our observatories, nothing has scanned it yet
     if (fresh) marks.push("found");
@@ -444,7 +447,7 @@ function build() {
     if (s.devices > 0 || hasRep || s.has_hub || fresh) {
       const d = document.createElement("div");
       d.className = "small"; d.textContent = s.designation;
-      const prio = hasRep ? 0 : s.has_hub || marks.includes("hub") ? 1 : s.devices > 0 ? 2 : 3;   // who keeps a crowded spot
+      const prio = hasRep ? 0 : s.has_hub || myHub ? 1 : s.devices > 0 ? 2 : 3;   // who keeps a crowded spot
       Object.assign(d.style, { position: "absolute", color: hasRep ? "#ff9fc8" : fresh && !s.devices ? "#fff27a" : "#9fb3d1", pointerEvents: "none", fontFamily: "monospace", fontSize: "11px", display: "none" });
       el.appendChild(d); labels.push({ el: d, v, prio });
     }

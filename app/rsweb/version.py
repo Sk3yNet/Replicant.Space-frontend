@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.229.0"
+VERSION = "1.230.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.230.0", "2026-10-22", "Galaxy map: another player's hub (a star the catalog flags has_hub with no hub of yours) "
+     "shows as the hub node in coral instead of your gold, with its own other hubs checkbox under Icons."),
     ("1.229.0", "2026-10-22", "System map: each working drone orbits its site as a small dot, clockwise; survey drones "
      "orbit farther out, counterclockwise, with a light blue scanning beam aimed at the site (the drones toggle hides them)."),
     ("1.228.1", "2026-10-22", "Hub routing reads the hub list and star positions from the shared catalog lookups instead "

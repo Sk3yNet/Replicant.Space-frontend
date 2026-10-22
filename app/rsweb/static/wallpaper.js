@@ -13,7 +13,7 @@ const view = (q.get("view") || "galaxy").toLowerCase();
 const star = (q.get("star") || "").trim().toUpperCase();
 // the Galaxy page's layer checkboxes (Map › Galaxy, grouped as there)
 const LAYERS = ["labels", "mine", "regions", "mark-hazard", "production", "cover", "mark-scanned", "mark-survey", "prospect",
-                "others", "relaynet", "moving", "fleets", "supply", "trail", "mark-devices", "mark-replicant", "mark-hub",
+                "others", "relaynet", "moving", "fleets", "supply", "trail", "mark-devices", "mark-replicant", "mark-hub", "mark-otherhub",
                 "mark-ward", "mark-found", "mark-prospected", "mark-mega", "mark-rich", "mark-anomaly"];
 const shown = q.has("layers") ? new Set(q.get("layers").split(",").map(s => s.trim()).filter(Boolean)) : null;
 const layer = (id, old) => shown ? shown.has(id) : q.get(old ?? id) !== "0";
