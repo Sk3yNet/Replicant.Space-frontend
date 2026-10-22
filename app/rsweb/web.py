@@ -3703,11 +3703,18 @@ async def game_events_ctx(request: Request) -> dict:
         key, label = gev.species_key(q, life)
         q["approval"] = {"key": key, "label": label, "on": key in approvals}
     quiet_rows = sorted(quiet.values(), key=lambda q: (q["approval"]["on"], q["location"]))
+    # your deployed beacons at each civilization's body, and elsewhere in its system (traffic.coverage)
+    from . import traffic as tr
+    beacon = {}
+    for d in tr.beacons(st["devices"]):
+        b = beacon.setdefault(tr.star_of(d["location"]), {"here": {}, "system": []})
+        b["here"].setdefault(d["location"], []).append(d["device_code"])
+        b["system"].append(d["device_code"])
     from . import shop as sh
     return {"open": open_, "closed": closed[:30], "replicants": st["replicants"], "settings": settings, "quiet": quiet_rows,
             "traders": await sh.known_traders(db), "traders_last": await db.kv_get(sh.LAST_KV),
             "listing_wanted": await db.kv_get(sh.LISTING_KV, {}) or {}, "mine": set(st["replicants"]), "trade_side": sh.describe_side,
-            "trade_ok": await db.kv_get("trade_approvals", {}) or {}}
+            "trade_ok": await db.kv_get("trade_approvals", {}) or {}, "beacon": beacon}
 
 
 @router.get("/game-events", response_class=HTMLResponse)
