@@ -201,6 +201,7 @@ def test_bootstrap_fleet_create_decide_and_card(client):
     assert "hub: SOL" in r.text
     f = next(x for x in client.portal.call(e.fleets) if x["role"] == "bootstrap")
     assert f["boot"]["hub"] == "SOL" and f["boot"]["stage"] == "move" and not f["boot"]["decision"]
+    assert f["home"] == f["boot"]["home"] == "SOL"                                         # home moves to the hub
 
 
 def _setup(client, stage, devices, **boot):
@@ -220,6 +221,15 @@ def test_a_leftover_mission_stops_on_the_next_pass(client):
     client.portal.call(e.save_fleets, items)
     client.portal.call(e.bootstrap_pass)
     assert "mission" not in client.portal.call(e.fleets)[0]
+
+
+def test_set_the_home_to_start_from(client):
+    e = _setup(client, "survey", [vessel("SOL-BELT-1")])
+    r = client.post("/fleets/p/bootstrap", data={"action": "settings", "home": "abotein"}, headers=HX)
+    assert r.status_code == 200
+    f = client.portal.call(e.fleets)[0]
+    assert f["home"] == f["boot"]["home"] == "ABOTEIN" and f["boot"]["stage"] == "home"
+    assert 'name="home" value="ABOTEIN"' in client.get("/fleets/details", headers=H).text
 
 
 def test_pass_turns_actions_into_one_job(client):

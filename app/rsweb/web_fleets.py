@@ -327,6 +327,14 @@ async def fleets_bootstrap_control(request: Request, fid: str, user: str = Depen
             b["paused"] = action == "pause"
         elif action == "settings":
             st = b.setdefault("settings", {})
+            home = (form.get("home") or "").strip().upper()
+            if home and home != b.get("home"):
+                if b["stage"] not in ("home", "survey", "hub_choice"):
+                    return HTMLResponse('<div class="result err">The hub is chosen: home moved there already.</div>')
+                # a new place to start (owner 2026-10-22: it stopped in a system with no belt): compound there first
+                b["home"] = f["home"] = home
+                b.update(stage="home", decision=None, candidates=[])
+                await eng.log("fleets", f"{f['name']}: bootstrap home set to {home} by {user}")
             for k in ("radius", "ward_hours", "min_score", "hub_miners"):
                 v = (form.get(k) or "").strip()
                 if v:

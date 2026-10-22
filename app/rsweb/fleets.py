@@ -992,8 +992,19 @@ def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None
     drones = [d["device_code"] for d in ms if "survey_drone" in (d.get("device_type") or "")
               and (not ctrl or d.get("controller_device_code") != ctrl["device_code"])]
     if not ctrl:
-        # no controller: each drone just scans where it is (the system scan already maps the bodies)
-        return [step(f"{c}: scan", f"/devices/{c}", {"command": "scan"}) for c in drones], \
+        # no controller: each drone just scans where it is (the system scan already maps the bodies) — from a body or
+        # belt: at a Lagrange point the game says "Survey scans require orbiting a planet, moon, belt, or object"
+        # (Delta Force, 2026-10-22), so a drone there goes to `spot` first
+        from . import placement as pl
+        by = {d["device_code"]: d for d in ms}
+        go = [c for c in drones if spot and by[c].get("location") != spot
+              and (pl.is_lagrange(by[c].get("location") or "") or not pl.ok("ami_survey_controller", by[c].get("location"), {}))]
+        steps = [step(f"{c} → {spot}", f"/devices/{c}", {"command": "travel", "destination": spot}) for c in go]
+        for i, c in enumerate(go):
+            w = _wait_arrive(c, spot)
+            w["seq0_from"] = i
+            steps.append(w)
+        return steps + [step(f"{c}: scan", f"/devices/{c}", {"command": "scan"}) for c in drones], \
             [] if drones else ["no survey controller or drones in the fleet"]
     code = ctrl["device_code"]
     steps = []

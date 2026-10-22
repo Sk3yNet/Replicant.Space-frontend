@@ -41,6 +41,9 @@
       </table>
       <form class="small" hx-post="/fleets/{{ f.id }}/bootstrap" hx-target="#bt-{{ f.id }}" style="margin-top:8px">
         <input type="hidden" name="action" value="settings">
+        {% if b.stage in ('home', 'survey', 'hub_choice') %}Home <input name="home" value="{{ b.home }}" size="10" list="bt-stars-{{ f.id }}"
+          title="Where it starts compounding (a system with a belt); the vessel goes there. Choosing the hub moves home to it.">
+        <datalist id="bt-stars-{{ f.id }}">{% for st in stars %}<option value="{{ st }}">{% endfor %}</datalist> ·{% endif %}
         Radius <input name="radius" value="{{ s.radius }}" size="4"> ly ·
         ward when it costs under <input name="ward_hours" value="{{ s.ward_hours }}" size="3"> h of output ·
         min score <input name="min_score" value="{{ s.min_score }}" size="3"> ·

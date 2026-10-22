@@ -3189,10 +3189,14 @@ def test_relay_is_activated_only_at_a_lagrange_point():
 def test_explore_fleet_without_a_controller_scans_with_its_drones():
     from rsweb import fleets as fl
     fleet = {"id": "s", "name": "S", "role": "explore", "home": "AAA"}
-    devs = [{"device_code": "SD", "device_type": "survey_drone", "location": "BBB-2-L4", "status": "idle", "tags": ["fleet:s"],
+    devs = [{"device_code": "SD", "device_type": "survey_drone", "location": "BBB-2", "status": "idle", "tags": ["fleet:s"],
              "controller_device_code": None}]
     steps, problems = fl.explore_work_steps(fleet, devs)
     assert [(st["path"], st["body"]) for st in steps] == [("/devices/SD", {"command": "scan"})] and not problems
+    devs[0]["location"] = "BBB-2-L4"                                                     # no survey from a Lagrange point
+    steps, _ = fl.explore_work_steps(fleet, devs, "BBB-BELT-1")
+    sends = [(st["path"], st["body"]) for st in steps if st["method"] != "WAIT"]
+    assert sends == [("/devices/SD", {"command": "travel", "destination": "BBB-BELT-1"}), ("/devices/SD", {"command": "scan"})]
 
 
 def test_explore_fleet_takes_survey_controller_to_the_belt():

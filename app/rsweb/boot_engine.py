@@ -329,7 +329,10 @@ class BootstrapMixin:
             return "nothing waiting for that"
         if kind == "hub":
             b["hub"], b["decision"], b["stage"] = pick, None, "move"
-            msg = f"hub: {pick}"
+            if b.get("home") != pick:   # home moves with it (owner 2026-10-22): the start was only a place to begin
+                b.setdefault("start", b.get("home"))
+                b["home"] = f["home"] = pick
+            msg = f"hub: {pick} — home moves there"
         elif kind in ("outpost", "waypoint"):
             n = len(b.get("outposts") or []) + 1
             if kind == "outpost":

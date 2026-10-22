@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.212.1"
+VERSION = "1.213.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.213.0", "2026-10-22", "A bootstrap's home can be set on its card (until the hub is chosen): it starts over there, "
+               "compounding at that system's belt. Choosing the hub moves the home to it. Explore fleets without a survey "
+               "controller send a drone parked at a Lagrange point to the belt (or a body) before it scans: the game refuses "
+               "a survey from there."),
     ("1.212.1", "2026-10-22", "An explore fleet without a survey controller scans with its own survey drones again: a drone "
                "with no controller was taken for the (missing) controller's, so the work phase found none and every system "
                "was marked surveyed without a drone scan (Delta Force). A bootstrap fleet runs no missions: one left over is stopped "

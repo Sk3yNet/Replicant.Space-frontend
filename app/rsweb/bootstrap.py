@@ -163,7 +163,8 @@ def compound(f: dict, w: dict, star: str, cap: int, autofactory: bool) -> dict:
     scan = w["scans"].get(star)
     belt = best_belt(scan)
     if not belt:
-        return {"actions": [], "gate": f"no asteroid belt known in {star}", "next": "needs a belt to mine", "blocked": True}
+        return {"actions": [], "gate": f"no asteroid belt known in {star}", "blocked": True,
+                "next": "needs a belt to mine" + (" — set another home below" if f["boot"].get("stage") == "home" else "")}
     bloc = belt["designation"]
     if v.get("location") != bloc:
         return {"actions": [{"kind": "travel", "device": v.get("device_code"), "to": bloc}], "gate": "vessel at the belt",

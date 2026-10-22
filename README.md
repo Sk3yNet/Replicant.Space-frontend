@@ -266,7 +266,7 @@ lines or a template).
   salvage rule has one on salvage or resting at a dry belt, the bootstrap leaves it alone. Start one with *New bootstrap*
   (a replicant's vessel and what's aboard), or pick the *bootstrap* role on an existing fleet that has a replicant's vessel
   and Save; *Back to a normal fleet* (with the role you pick) makes it a stationed fleet again, homed where most of its
-  devices are; a running mission stops, and a deployed matrix of its replicant boards the vessel first. The Fleets overview shows a bootstrap's stage. Hub and outpost candidates skip systems with an incoming object, and past asteroids or hazard tags lower their rank; the autofactory waits while a rock heads for the hub. Its devices are never rescued home when out of range (it
+  devices are; a running mission stops, and a deployed matrix of its replicant boards the vessel first. The Fleets overview shows a bootstrap's stage. Set its Home on the card to start somewhere else (a system with a belt); choosing the hub moves the home there. Hub and outpost candidates skip systems with an incoming object, and past asteroids or hazard tags lower their rank; the autofactory waits while a rock heads for the hub. Its devices are never rescued home when out of range (it
   leaves drones mining behind on purpose), and the home kit leaves hold room for what else rides aboard (a matrix, a slingshot). A ward goes up where it costs under 6 hours of the
   system's output, or at once when another player's drones mine there. Everything it prints is tagged `boot:<id>`: the
   loadout pass never lends it others' spares, factories or carriers, nor lends its own.

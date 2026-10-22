@@ -4198,8 +4198,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     drop = fl.deploy_spot(geo) or pl.target("ami_survey_controller", geo)
                     pre = fl.unload_steps(fleet, devices, drop)
                     at = at or drop
-                spot = pl.target("ami_survey_controller", geo) if ctrl and not pl.ok("ami_survey_controller", at, geo) \
-                    else None
+                spot = pl.target("ami_survey_controller", geo) if not ctrl or not pl.ok("ami_survey_controller", at, geo) \
+                    else None   # no controller: where drones off a body or belt go to scan
                 steps, problems = fl.explore_work_steps(fleet, devices, spot, radii, far_au)
                 for st in steps:
                     if isinstance(st.get("seq0_from"), int):
