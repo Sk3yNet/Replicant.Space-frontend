@@ -753,8 +753,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     self.sim_kick()
                 return
             st = job["steps"][job["idx"]]
-            if st["status"] == "waiting":
-                return  # on_event / tick will move it on
+            if st["status"] in ("waiting", "confirm"):
+                return  # on_event / tick will move it on (a held trip: your Confirm)
             if st["status"] in ("done", "skipped"):
                 job["idx"] += 1
                 continue
@@ -775,6 +775,13 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             else:
                 if await self._let_off_riders(st, job):
                     continue   # other fleets' members get off first; this trip goes out after them
+                why = await self._beyond_sector(st, job)
+                if why:   # beyond the sector range: waits for your Confirm (Automations › Jobs)
+                    st["status"], st["hold"], job["status"] = "confirm", why, "waiting"
+                    await self._update(job)
+                    await self.log(job["rule"], f"{job['title']}: {st['desc']} — {why}; waits for your Confirm on the "
+                                                "Automations page", "alert", notify=True)
+                    return
                 far = await self._too_far(st) or await self._dark_destination(st, job)
                 if far:
                     ok, resp, err = False, None, far
@@ -1170,6 +1177,64 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                         f"≈{saved_from:.0f} AU of cruise")
         return via
 
+    async def _beyond_sector(self, st: dict, job: dict) -> str | None:
+        """The sector range (owner 2026-10-22: logistics sent freighter 2D6BFDF1 from SOLARES on a 241 h trip to
+        ISOLITHOR to fetch a stockpile): an automated trip longer than logistics.SECTOR_RANGE_H at the game's surge pace,
+        or of unknown length, isn't sent until you Confirm it. Measured from the catalog, else by the game's preview.
+        Trips you asked for (a forced job, an allow_far step), simulations and previews go as they are."""
+        from . import hubroute
+        from .logistics import SECTOR_RANGE_H, SURGE_S_PER_LY
+        body, path = st.get("body") or {}, str(st.get("path") or "")
+        rep = path.startswith("/replicants/") and path.endswith("/travel")
+        if (not body.get("destination") or not (rep or (body.get("command") == "travel" and path.startswith("/devices/")))
+                or body.get("dry_run") or st.get("allow_far") or st.get("sector_ok") or job.get("forced")
+                or (job.get("meta") or {}).get("sim")):
+            return None
+        if st.get("sector_h") is None:
+            devs = {x.get("device_code"): x for x in await self.devices()}
+            code = path.split("/")[2]
+            if rep:
+                code = ((await self.db.kv_get("replicants", {}) or {}).get(code) or {}).get("hosted_device_code") or ""
+            d = devs.get(code) or {}
+            car = devs.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code") or "") or {}
+            here, there = star_of(d.get("location") or car.get("location")), star_of(str(body["destination"]).upper())
+            pos = await self.star_lookup("pos")
+            hours = None
+            if here and here == there:
+                hours = 0.0
+            elif here in pos and there in pos:
+                pa, pb = pos[here], pos[there]
+                hours = math.dist([float(pa.get(k) or 0) for k in "xyz"], [float(pb.get(k) or 0) for k in "xyz"]) * SURGE_S_PER_LY / 3600
+            elif not rep:   # a star the catalog doesn't place: the game knows how long it takes
+                try:
+                    secs = hubroute.total_seconds(await self.api.request("POST", path, json_body={**body, "dry_run": True},
+                                                                         background=True))
+                    hours = secs / 3600 if secs is not None else None
+                except ApiError:
+                    hours = None
+            st["sector_h"] = round(hours, 1) if hours is not None else -1.0
+        h = st["sector_h"]
+        if 0 <= h <= SECTOR_RANGE_H:
+            return None
+        return (f"about {h:.0f} h of travel, beyond the {SECTOR_RANGE_H:.0f} h sector range" if h >= 0
+                else "a trip of unknown length (beyond the sector range?)")
+
+    async def confirm_trip(self, job_id: str) -> bool:
+        """Your Confirm for a trip held at the sector range: it goes out now."""
+        async with self.lock:
+            job = await self._get(job_id)
+            if not job or job["status"] != "waiting" or job["idx"] >= len(job["steps"]):
+                return False
+            st = job["steps"][job["idx"]]
+            if st.get("status") != "confirm":
+                return False
+            st["sector_ok"], st["status"], job["status"] = True, "pending", "running"
+            st.pop("hold", None)
+            await self._update(job)
+            await self.log(job["rule"], f"{job['title']}: {st['desc']} confirmed beyond the sector range")
+            await self._advance(job_id)
+            return True
+
     async def _too_far(self, st: dict) -> str | None:
         """The one check every automated trip goes through: a drone or AMI controller isn't sent on a long cruise inside
         a system (seen live 2026-10-11: a survey drone at an Oort cloud sent ~320 min to the inner system). Over the
@@ -1428,6 +1493,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 if job["status"] != "waiting":
                     continue
                 st = job["steps"][job["idx"]]
+                if st.get("status") == "confirm":
+                    continue   # beyond the sector range: waits for your Confirm
                 if st.get("status") == "retrying":
                     off = await self._off_course(st, job)
                     if off:   # turned back or went elsewhere: the retried step was meant for the destination
@@ -3880,7 +3947,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         out, listings = await self.listing_requests(reps)
         wanted = None
         p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
-                    busy=busy, contracts=contracts, trades=trades, incoming=incoming,
+                    busy=busy, reach=lg.SECTOR_RANGE_LY, contracts=contracts, trades=trades, incoming=incoming,
                     replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),
                     busy_stars=mission_stars,
                     prefs=await self.db.kv_get(lg.KV_PREFS, {}) or {}, ami=ami, moved=moved,
@@ -3888,7 +3955,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     no_consolidate=no_consolidate, evacuate=evac, listings=listings,
                     repair_threshold=float(((await self.settings())["rules"].get("maintenance") or {}).get("threshold") or 80),
                     repair_to=repair_to)
-        for r in p["requests"]:   # a rescue of more than a day waits for your OK (owner 2026-10-22): one alert each
+        for r in p["requests"]:   # a rescue beyond the sector range waits for your OK (owner 2026-10-22): one alert each
             key = f"rescue-ok:{r['id']}"
             if r.get("confirm") and key not in self.stage_errors:
                 self.stage_errors[key] = "asked"

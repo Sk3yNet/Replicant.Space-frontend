@@ -3457,6 +3457,13 @@ async def automations_cancel(request: Request, job_id: str, user: str = Depends(
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
+@router.post("/automations/jobs/{job_id}/confirm", response_class=HTMLResponse)
+async def automations_confirm(request: Request, job_id: str, user: str = Depends(current_user)):
+    """Send a trip held at the sector range."""
+    await request.app.state.worker.automations.confirm_trip(job_id)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
 @router.post("/automations/survey-now", response_class=HTMLResponse)
 async def automations_survey_now(request: Request, vessel: str = Form(...), user: str = Depends(current_user)):
     """Run the auto-survey rule for a vessel where it is now (as if it had just arrived)."""

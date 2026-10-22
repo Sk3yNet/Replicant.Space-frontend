@@ -241,7 +241,8 @@ lines or a template).
   beacons, wards, hubs, fleets on a mission and devices tagged `at:` the spot where they are — stocked there on purpose — excepted) is brought home — its fleet's home, else the nearest covered home.
   One that can surge is reached by a replicant in its system or anywhere its dark relay network covers, and commanded
   home; one that can't is picked up from its last known location by a carrier with a free seat, a replicant along. A rescue
-  whose trips add up to more than a day (at the game's 50 s/ly) waits for your **Confirm** on the request (so does one to a star whose position isn't known) (one alert; the OK holds two days).
+  whose trips add up to more than the **sector range** (a day at the game's 50 s/ly) waits for your **Confirm** on the request (so does one to a star whose position isn't known) (one alert; the OK holds two days).
+  Logistics carriers only serve stars within the sector range (1728 ly), so a far sector needs a logistics fleet of its own.
   **Repair patrols**: repair devices in a logistics fleet (only those) go where the wear is. A system wants one repair
   device per six devices below the Maintenance rule's worn level, counting any already there or on their way; the systems
   missing the most capacity go first (then the lowest device). A free logistics carrier picks one up from a system that has
@@ -302,7 +303,9 @@ lines or a template).
   run paid in devices gets spare ones delivered and deployed at the shop.
 
 ### Activity and tools
-- **Automations**: every rule, jobs step by step with Cancel, and the log. **Events**: full local history with filters.
+- **Automations**: every rule, jobs step by step with Cancel, and the log. **Sector range**: any automated trip longer
+  than a day at the game's surge pace (or of unknown length: the game's preview measures stars the catalog lacks) isn't
+  sent; its job waits with a **Confirm** button here (one alert). Trips you start yourself go as they are. **Events**: full local history with filters.
   **Messages**: game messages and BobNet channels (each post shows the system its poster is in; *recent* history includes NPCs). **Notifications**: alerts and accomplishments, with toasts and a badge.
 - **Diagnostics**: a live snapshot (read-only GETs plus the app's state) with a mining diagnosis, downloadable as JSON;
   a **Performance** panel (pages slowest on average, the slowest requests with their queries, game API calls, engine

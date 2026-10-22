@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.219.0"
+VERSION = "1.220.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.220.0", "2026-10-22", "Sector range (the rescue range, renamed): every automated trip longer than a day at the "
+               "game's surge pace, or of unknown length, waits for Confirm on the Automations page (one alert). Logistics "
+               "carriers only serve stars within the sector range (1728 ly): a far sector gets its own logistics fleet. "
+               "Cause: freighter 2D6BFDF1 sent from SOLARES on a 241 h trip to fetch the ISOLITHOR stockpile."),
     ("1.219.0", "2026-10-22", "Repair patrols: logistics carriers take the logistics fleets' own repair devices to the "
                "most worn systems that lack one (one per six worn devices, most missing capacity first), drop them at the "
                "worst device and set them to patrol. Trips over a day wait for Confirm, like rescues."),

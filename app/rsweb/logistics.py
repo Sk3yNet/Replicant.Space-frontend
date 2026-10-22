@@ -33,8 +33,9 @@ system; placed relays and beacons, wards, hubs and fleets on a mission excepted 
 else the nearest covered system). One that can surge is reached by a logistics device hosting a replicant, in its own
 system or anywhere its dark relay network covers (nearest first), and commanded home; one that can't is picked up from
 its last known location by a logistics carrier with a free seat, with a replicant alongside unless the carrier hosts one.
-A rescue whose trips add up to more than a day (CONFIRM_RESCUE_H, at the game's surge pace) waits for your Confirm on
-the Logistics page (owner 2026-10-22).
+A rescue whose trips add up to more than the sector range (SECTOR_RANGE_H, a day at the game's surge pace) waits for your
+Confirm on the Logistics page (owner 2026-10-22). Carriers only serve stars within the sector range (SECTOR_RANGE_LY), so a
+sector of its own gets a logistics fleet of its own; a star with no known position is out of range.
 
 Repair patrols (owner 2026-10-22): repair devices of the logistics fleets are taken to the systems with the most wear
 and too few repair devices (one per six worn devices), worst first, by a free logistics carrier (or on their own, if
@@ -61,7 +62,8 @@ from .shapes import as_amounts
 KV_STATE = "logistics_state"        # the last pass: requests, runs, unmet
 KV_PREFS = "logistics_prefs"        # {"bump": {request id: tier}, "skip": [request ids], "confirm": {request id: iso}}
 SURGE_S_PER_LY = 50.0               # the game's surge pace between systems (hubroute: 37.5 into a hub of ours)
-CONFIRM_RESCUE_H = 24.0             # owner 2026-10-22: a rescue with more travel than this waits for your OK
+SECTOR_RANGE_H = 24.0               # the sector range (owner 2026-10-22): an automated trip longer than this waits for your OK
+SECTOR_RANGE_LY = SECTOR_RANGE_H * 3600 / SURGE_S_PER_LY   # 1728 ly: logistics carriers serve only stars this near
 KV_PICKUPS = "logistics_pickups"   # {deal location: {"types": {type: n}, "to": gather star, "at"}} — devices paid out
 KV_MOVES = "logistics_moves"   # {old home star: {"to": new home star, "fleet", "at"}} — a destination fleet's stock follows it
 KV_TRADES = "trade_approvals"  # {"trades": {controller:trade_code: iso}, "done": {key: iso}}
@@ -107,7 +109,7 @@ def _trip_hours(legs: list[tuple[str | None, str | None]], pos: dict[str, Any]) 
 
 
 def _needs_ok(req: dict, hours: float, prefs: dict | None, unmet: list[dict]) -> bool:
-    """A rescue whose trips add up to more than CONFIRM_RESCUE_H waits for your OK on the Logistics page (owner
+    """A rescue whose trips add up to more than SECTOR_RANGE_H waits for your OK on the Logistics page (owner
     2026-10-22: a heaven vessel was sent from SOLARES toward DELTA, the round trip was well over a day)."""
     req["trip_h"] = round(hours, 1) if math.isfinite(hours) else None
     ok = ((prefs or {}).get("confirm") or {}).get(req["id"])
@@ -115,10 +117,10 @@ def _needs_ok(req: dict, hours: float, prefs: dict | None, unmet: list[dict]) ->
         fresh = bool(ok) and (datetime.now(timezone.utc) - datetime.fromisoformat(ok)).total_seconds() < 2 * 86400
     except (TypeError, ValueError):
         fresh = False
-    if hours <= CONFIRM_RESCUE_H or fresh:
+    if hours <= SECTOR_RANGE_H or fresh:
         return False
     req["confirm"] = True
-    long = (f"about {hours:.0f} h of travel (more than {CONFIRM_RESCUE_H:.0f} h)" if math.isfinite(hours)
+    long = (f"about {hours:.0f} h of travel (beyond the {SECTOR_RANGE_H:.0f} h sector range)" if math.isfinite(hours)
             else "a trip of unknown length (a star's position isn't known)")
     unmet.append({"req": req["id"], "why": f"waits for your OK: {long}; Confirm to send it"})
     return True
@@ -474,7 +476,7 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
     those it has already (any owner's, placed there, or on their way: `incoming`) count. Worst first: the most missing
     capacity, then the lowest device. A repair device leaves only a system that has enough without it, and one at work
     (repairing) stays until it's done. One that can surge flies itself; the others ride a free logistics carrier (stowed or
-    attached). Trips over CONFIRM_RESCUE_H wait for your OK, like rescues. All of them are kept out of the idle passes:
+    attached). Trips over SECTOR_RANGE_H wait for your OK, like rescues. All of them are kept out of the idle passes:
     a patrolling repair device stays where it works. Mutates reqs, runs, unmet and used."""
     from . import fleets as fl
     from . import upkeep as up
