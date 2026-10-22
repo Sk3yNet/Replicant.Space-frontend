@@ -343,7 +343,8 @@ the last waypoint (the game requires it), for a `via` you type yourself too.
 planet's L4/L5 hops first to whichever of those is nearest its destination (when that saves at least 30 AU and a quarter
 of the cruise), then cruises the rest. From a belt or a body it first goes to the nearest of those spots when that is much
 shorter than the game's own route (leaving a system, the game cruises to the entry point first). The spots go in the trip's
-`via`, ahead of any hub waypoints; the step reads *(surge hop via …)*. If the game refuses them, the trip takes its own route.
+`via`, ahead of any hub waypoints. Arriving in another system, the trip ends with that system's spot nearest the
+destination (the off-ramp) when the game would arrive much further off; the step reads *(surge hop via …)*. If the game refuses them, the trip takes its own route.
 - Rules run in the app container, so they keep going with the browser closed. Each rule creates **jobs**: ordered game commands,
   some waiting for an event (e.g. `travel.arrived`) before the next. A failing step is logged and skipped; a failing *critical*
   step stops the job with an alert. Jobs are stored in SQLite and survive redeploys.

@@ -788,8 +788,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 else:
                     exit_via = await self._exit_via(st, job)
                     await self._hub_via(st, job)
-                    if exit_via:   # the surge spots come first, then any hub waypoints
-                        st["body"]["via"] = exit_via + [x for x in st["body"].get("via") or [] if x not in exit_via]
+                    if exit_via:   # the surge spots come first, then any hub waypoints, then the off-ramp
+                        ramp = [x for x in exit_via if x == st.get("arrive_via")]
+                        hubs_ = [x for x in st["body"].get("via") or [] if x not in exit_via]
+                        if ramp and hubs_ and hubs_[-1] == star_of(ramp[0]):
+                            hubs_ = hubs_[:-1]   # the off-ramp ends the route in the destination system already
+                        st["body"]["via"] = [x for x in exit_via if x not in ramp] + hubs_ + ramp
                     ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
                     if not ok and exit_via:   # refused: the route without the surge spots
                         await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via)} refused ({err}); "
@@ -1156,10 +1160,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         pos, via, saved_from = here, [], 0.0
         at_spot = here in spots or bool(re.fullmatch(rf"{re.escape(hs)}-\d+-L[45]", here))
         inside = star_of(dest) == hs
-        if not at_spot:
+        if not at_spot and (inside or entry):
             game = gap(here, entry) if not inside else gap(here, dest)
-            if not inside and not entry:
-                return []
             near = min(spots, key=lambda x: (gap(here, x), x), default=None)
             tail = min((gap(x, dest) for x in spots), default=game) if inside else 0.0
             if near and game - (gap(here, near) + tail) >= max(30.0, game / 4):
@@ -1170,6 +1172,19 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             if hop and now_au - gap(hop, dest) >= max(30.0, now_au / 4):
                 via.append(hop)
                 saved_from = saved_from or now_au
+        ds = star_of(dest)
+        if not inside and not re.fullmatch(rf"{re.escape(ds)}-\d+-L[45]", dest):
+            # the off-ramp (owner 2026-10-22: 2D6BFDF1 surged to ISOLITHOR-1-L4, then cruised 499 AU to ISOLITHOR-BELT-1):
+            # the destination system's surge spot nearest the destination, when the game would arrive much further off
+            # (at the entry point; not known: an inner L-point, as seen live)
+            dspots, dentry = await self._surge_spots(ds, radii)
+            if dest not in dspots:
+                game = gap(dentry or f"{ds}-1-L4", dest)
+                ramp = min(dspots, key=lambda x: (gap(x, dest), x), default=None)
+                if ramp and game - gap(ramp, dest) >= max(30.0, game / 4):
+                    via.append(ramp)
+                    st["arrive_via"] = ramp
+                    saved_from += game
         if via:
             st["exit_via"] = via
             st["desc"] += f" (surge hop via {', '.join(via)})"

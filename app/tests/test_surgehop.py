@@ -55,3 +55,11 @@ def test_leaving_from_a_belt_goes_via_the_nearest_surge_spot_not_the_entry_point
     assert sent == [{"command": "travel", "destination": "Y-2-L4", "via": ["Z-KUIPER"]}]
     sent, _ = _run(client, at="Z-1-1", dest="Y-2-L4")                                   # next to the entry point: as it is
     assert sent == [{"command": "travel", "destination": "Y-2-L4"}]
+
+
+def test_arriving_takes_the_off_ramp_nearest_the_destination(client):
+    # 2D6BFDF1 2026-10-22: surged to ISOLITHOR-1-L4, then cruised 499 AU to ISOLITHOR-BELT-1
+    sent, job = _run(client, at="Y-2-L4", dest="Z-BELT-1")
+    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]}]
+    sent, _ = _run(client, at="Y-2-L4", dest="Z-1")                                     # next to the entry point: as it is
+    assert sent == [{"command": "travel", "destination": "Z-1"}]
