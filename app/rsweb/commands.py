@@ -93,7 +93,7 @@ COMMANDS: dict[str, list[Field]] = {
     "replicate": [F("target", "device", required=True, label="empty matrix",
                     filter={"device_type": "empty_replicant_matrix"})],
     "adopt": [F("devices", "devices", required=True, filter={"not_feature": "ami"})],
-    "release": [F("devices", "devices", required=True, filter={"not_feature": "ami"})],
+    "release": [F("devices", "devices", required=True, filter={"controlled_by_self": True})],
     "set_directive": [F("directive", "choice", required=True)],  # AMI page renders the directive's own fields
     "clear_directive": [],
     "launch": [],
@@ -327,6 +327,8 @@ def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
         if flt.get("not_feature") and flt["not_feature"] in feats:
             continue
         if flt.get("attached_to_self") and d.get("attached_to_device_code") != self_code:
+            continue
+        if flt.get("controlled_by_self") and d.get("controller_device_code") != self_code:
             continue
         if flt.get("stowed_in_self") and d.get("stowed_in_device_code") != self_code:
             continue

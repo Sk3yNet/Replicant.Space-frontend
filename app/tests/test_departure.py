@@ -1069,3 +1069,13 @@ def test_a_crew_left_behind_travels_again_instead_of_stalling(client):
     m2 = {"status": "running", "idx": 1, "targets": ["LERNA", "SOL"], "log": [], "retravel": {"1": 2}}
     steps, problems = client.portal.call(e.fleet_phase_steps, client.portal.call(e.fleets)[0], m2, "work", devs)
     assert not steps and m2.get("stall") and "still not in SOL" in problems[0]
+
+
+def test_release_lists_only_controlled_devices():
+    from rsweb import commands as cmdspec
+    devs = [{"device_code": "AMI", "device_type": "ami_controller", "features": ["ami"], "location": "SOL-4-L4"},
+            {"device_code": "M1", "device_type": "mining_drone", "location": "SOL-4-L4", "controller_device_code": "AMI"},
+            {"device_code": "M2", "device_type": "mining_drone", "location": "SOL-4-L4", "controller_device_code": "X"},
+            {"device_code": "M3", "device_type": "mining_drone", "location": "SOL-4-L4"}]
+    f = cmdspec.COMMANDS["release"][0]
+    assert [o["value"] for o in cmdspec.device_options({"devices": devs, "here": "SOL-4-L4"}, f, "AMI")] == ["M1"]

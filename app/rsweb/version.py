@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.221.0"
+VERSION = "1.222.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.222.0", "2026-10-22", "Console: the release command lists only the devices that controller currently controls."),
     ("1.221.0", "2026-10-22", "Surge off-ramp: a trip to another system arrives at that system's surge spot nearest the "
                "destination (Kuiper, Oort, an L-point) when the game would arrive much further off, instead of cruising "
                "the rest (2D6BFDF1 surged to ISOLITHOR-1-L4, then had 499 AU to cruise to ISOLITHOR-BELT-1)."),
