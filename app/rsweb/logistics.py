@@ -44,6 +44,8 @@ system hub of yours), deposits the cargo and lets those devices off.
 """
 from __future__ import annotations
 
+import json
+
 import math
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -1019,6 +1021,34 @@ def ami_steps(run: dict) -> list[dict]:
 def run_devices(run: dict) -> list[str]:
     return [c["code"] for c in run.get("cargos") or []] + [c for c in (run.get("ride"), run.get("escort"), run.get("rescued")) if c] \
         + [x["code"] for x in run.get("dump") or []]
+
+
+def stale_rescues(jobs: list[dict], devices: list[dict]) -> list[tuple[dict, str]]:
+    """Rescue jobs whose device no longer needs them, before any step has commanded it: it's in command range again
+    without the escort beside it (a replicant reached it some other way — DELTA 2026-10-22: a heaven vessel stranded
+    there got a replicant by slingshot and flew on with its fleet while the rescue escort was still on its 800 h trip),
+    or a bootstrap took it over. [(job, why)]"""
+    by = {d.get("device_code"): d for d in devices}
+    out = []
+    for j in jobs:
+        req = str(((j.get("meta") or {}).get("logistics") or {}).get("req") or "")
+        if j.get("status") not in ("running", "waiting") or not req.startswith("rescue:"):
+            continue
+        code = req.split(":", 1)[1]
+        d = by.get(code)
+        if not d:
+            continue
+        sent = j["steps"][:j.get("idx", 0)]
+        if any(code in str(st.get("path") or "") or code in json.dumps(st.get("body") or {}) for st in sent):
+            continue   # under way: the device itself is being moved
+        if any(t.startswith("boot:") for t in d.get("tags") or []):
+            out.append((j, f"{code} belongs to a bootstrap now"))
+            continue
+        esc_path = str((j["steps"][0] if j["steps"] else {}).get("path") or "")
+        esc = by.get(esc_path.split("/")[2]) if esc_path.startswith("/devices/") else None
+        if d.get("in_control_range") is True and star_of((esc or {}).get("location")) != star_of(d.get("location")):
+            out.append((j, f"{code} is in command range again at {d.get('location')}"))
+    return out
 
 
 def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) -> list[dict]:

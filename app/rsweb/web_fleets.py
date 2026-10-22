@@ -233,13 +233,19 @@ async def fleets_bootstrap_new(request: Request, name: str = Form(...), replican
         return HTMLResponse('<div class="result err">That vessel already runs a bootstrap.</div>')
     by = {d.get("device_code"): d for d in st["devices"]}
     v = by.get(vessel) or {}
+    if v and v.get("device_type") != "heaven_vessel":   # its matrix deployed on its own: the heaven vessel beside it
+        hv = next((d for d in st["devices"] if d.get("device_type") == "heaven_vessel" and d.get("location") == v.get("location")
+                   and d.get("replicant_code") == replicant), None)
+        if hv:
+            vessel, v = hv["device_code"], hv
     home = star_of(v.get("location") or r.get("location") or r.get("current_location"))
     fid = fl.fleet_id_for(name, items)
     items.append({"id": fid, "name": name.strip(), "role": "bootstrap", "home": home, "wants": {}, "station": False,
                   "materials": "", "template": None, "boot": bt.new_state(vessel, replicant, home)})
     await eng.save_fleets(items)
     stowed = (await request.app.state.db.kv_get("stowed_map", {}) or {}).get(vessel) or []
-    aboard = sorted(set(stowed) | {d["device_code"] for d in st["devices"] if d.get("stowed_in_device_code") == vessel})
+    aboard = sorted(set(stowed) | {d["device_code"] for d in st["devices"] if d.get("stowed_in_device_code") == vessel}
+                    | ({r["hosted_device_code"]} - {vessel}))   # the replicant's matrix, wherever it is
     steps = [eng._tag_step(c, [bt.family_tag(fid), fl.fleet_tag(fid)]) for c in [vessel] + aboard]
     await eng.create_job("fleets", f"{name}: bootstrap starts in {home}", vessel, steps,
                          {"devices": [vessel] + aboard, "bootstrap": fid}, force=True)
@@ -262,19 +268,28 @@ async def _to_bootstrap(request: Request, eng: Any, items: list[dict], f: dict, 
     bootstrap role in a fleet's Save row does this too."""
     from . import bootstrap as bt
     fid = f["id"]
-    if (f.get("mission") or {}).get("status") in fl.AWAY:
-        return HTMLResponse('<div class="result err">It is on a mission: end it first.</div>')
+    err = {"HX-Retarget": f"#fp-{fid}", "HX-Reswap": "innerHTML"}   # the Save row swaps nothing: show it under it
     st = await load_state(request)
     mine = fl.members(f, st["devices"])
     codes = {d.get("device_code") for d in mine}
     rep = next(((c, r) for c, r in st["replicants"].items() if r.get("hosted_device_code") in codes), None)
-    if not rep:
-        return HTMLResponse('<div class="result err">A bootstrap needs a heaven vessel hosting a replicant among the '
-                            'fleet\'s members — add it under Add / remove devices first.</div>')
+    # the vessel: the replicant's host, or (its matrix deployed on its own) a member heaven vessel, nearest it first
+    host = next((d for d in mine if rep and d.get("device_code") == rep[1]["hosted_device_code"]), {})
+    vessels = sorted((d for d in mine if d.get("device_type") == "heaven_vessel"),
+                     key=lambda d: (d.get("location") != host.get("location"), d.get("device_code")))
+    vessel = host.get("device_code") if host.get("device_type") == "heaven_vessel" else (vessels[0]["device_code"] if vessels else None)
+    if not rep or not vessel:
+        return HTMLResponse('<div class="result err">A bootstrap needs a heaven vessel and a replicant among the '
+                            'fleet\'s members — add them under Add / remove devices first.</div>', headers=err)
     code, r = rep
-    vessel = r["hosted_device_code"]
     if any((x.get("boot") or {}).get("vessel") == vessel for x in items):
-        return HTMLResponse('<div class="result err">That vessel already runs a bootstrap.</div>')
+        return HTMLResponse('<div class="result err">That vessel already runs a bootstrap.</div>', headers=err)
+    m = f.get("mission") or {}
+    if m.get("status") in fl.AWAY:   # stopped where it is: the bootstrap carries on from there
+        job = await eng._get(m["job"]) if m.get("job") else None
+        if job and job["status"] in ("running", "waiting"):
+            job["status"], job["finished_at"] = "cancelled", now_iso()
+            await eng._update(job)
     v = next((d for d in st["devices"] if d.get("device_code") == vessel), {})
     home = star_of(v.get("location") or r.get("location") or r.get("current_location")) or f.get("home")
     f.update({"role": "bootstrap", "home": home, "station": False, "materials": "", "template": None, "wants": {},

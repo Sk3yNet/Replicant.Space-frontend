@@ -302,6 +302,22 @@ def test_a_bootstrap_device_out_of_range_is_not_rescued():
     assert not any(r["id"] == "rescue:MD" for r in p["requests"])                       # left mining there by its bootstrap
 
 
+def test_a_rescue_is_dropped_when_its_device_is_in_range_again_before_it_was_moved():
+    job = {"status": "waiting", "idx": 1, "meta": {"logistics": {"req": "rescue:HV2"}},
+           "steps": [{"desc": "ESC → DELTA", "path": "/devices/ESC", "body": {"command": "travel", "destination": "DELTA"}},
+                     {"desc": "wait for ESC", "path": None, "body": {}},
+                     {"desc": "HV2 → BADU-3-L4 (home)", "path": "/devices/HV2", "body": {"command": "travel"}}]}
+    esc = dev("ESC", "mobile_fleet", None, status="travelling")
+    devs = [esc, dev("HV2", "heaven_vessel", "ZERETHYR-2-L4", in_control_range=True)]
+    assert [w for _, w in lg.stale_rescues([job], devs)] == ["HV2 is in command range again at ZERETHYR-2-L4"]
+    devs[1]["in_control_range"] = False                                                 # still stranded: carry on
+    assert lg.stale_rescues([job], devs) == []
+    devs[1].update(in_control_range=True, tags=["boot:b"])
+    assert lg.stale_rescues([job], devs)[0][1] == "HV2 belongs to a bootstrap now"
+    job["idx"] = 3                                                                       # already flying it home
+    assert lg.stale_rescues([job], devs) == []
+
+
 def test_a_stranded_drone_is_picked_up_by_a_carrier_with_a_replicant_along():
     devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
             dev("PL", "surge_platform", "A-1", **SURGE),

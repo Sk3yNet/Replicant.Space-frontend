@@ -92,6 +92,19 @@ def test_the_home_kit_leaves_room_for_what_else_rides_aboard():
     assert bt.hold_cap(f, world([v] + devs[3:], scans)) == 10
 
 
+def test_a_deployed_matrix_boards_the_vessel_first():
+    scans = {"HOME": scan_for("HOME", STRUCT)}
+    mx = {"device_code": "MX", "device_type": "replicant_matrix", "location": "HOME-2-L4", "status": "idle", "tags": ["fleet:p"]}
+    devs = [vessel("HOME-2-L4"), mx] + [drone(f"M{i}", "mining_drone", "HOME-2-L4") for i in range(3)]
+    ev = bt.evaluate(fleet(), world(devs, scans))
+    assert ev["actions"] == [{"kind": "stow", "device": "MX"}] and ev["gate"] == "replicant aboard"
+    ev = bt.evaluate(fleet(), world([vessel("HOME-BELT-1")] + devs[1:], scans))
+    assert ev["actions"] == [{"kind": "travel", "device": "V1", "to": "HOME-2-L4"}]
+    mx.update(location=None, status="stowed", stowed_in_device_code="V1")
+    ev = bt.evaluate(fleet(), world(devs, scans))
+    assert ev["actions"] == [{"kind": "travel", "device": "V1", "to": "HOME-BELT-1"}]       # aboard: on to the belt
+
+
 def test_warded_home_goes_straight_to_survey_then_hub_choice():
     f = fleet()
     devs = [vessel("HOME-BELT-1")] + [drone(f"M{i}", "mining_drone", aboard=True) for i in range(3)]
@@ -279,19 +292,21 @@ def test_convert_a_fleet_to_a_bootstrap(client):
             d["tags"] = list(d.get("tags") or []) + ["fleet:old"]
     client.portal.call(db.kv_set, "devices", devices)
     client.portal.call(e.save_fleets, [{"id": "old", "name": "Old", "role": "mining", "home": "SOL", "station": True,
-                                        "wants": {"mining_drone": 3}},
+                                        "wants": {"mining_drone": 3}, "mission": {"status": "running", "targets": ["SOL"]}},
                                        {"id": "x", "name": "X", "role": "mining", "home": "ABOTEIN", "materials": "old"}])
     r = client.post("/fleets/old/edit", data={"name": "Old", "role": "bootstrap", "home": "SOL"}, headers=HX)
     assert r.status_code == 200 and "err" not in r.text
     fleets = client.portal.call(e.fleets)
     f = next(x for x in fleets if x["id"] == "old")
     assert f["role"] == "bootstrap" and not f["station"] and f["boot"]["vessel"] == vessel_code and f["boot"]["replicant"] == code
+    assert "mission" not in f                                                            # a running mission stops
     assert next(x for x in fleets if x["id"] == "x")["materials"] == ""
     job = next(j for j in client.portal.call(e.jobs) if "converted to a bootstrap" in j["title"])
     assert all(s["body"]["configuration"]["add_tags"] == ["boot:old"] for s in job["steps"])
     # a fleet without a replicant's vessel can't be converted
     client.portal.call(e.save_fleets, fleets + [{"id": "bare", "name": "Bare", "role": "mining", "home": "SOL"}])
-    assert "heaven vessel hosting a replicant" in client.post("/fleets/bare/to-bootstrap", headers=HX).text
+    r = client.post("/fleets/bare/edit", data={"name": "Bare", "role": "bootstrap", "home": "SOL"}, headers=HX)
+    assert "a heaven vessel and a replicant" in r.text and r.headers.get("HX-Retarget") == "#fp-bare"   # shown, not swallowed
 
 
 def _range_world():

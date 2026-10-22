@@ -3657,6 +3657,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         if not force and last and (_now() - last).total_seconds() < 110:
             return []
         await self.db.kv_set("logistics_last", now_iso())
+        for j, why in lg.stale_rescues(await self.jobs(), await self.devices()):
+            j["status"], j["finished_at"] = "cancelled", now_iso()
+            await self._update(j)
+            await self.log("logistics", f"canceled: {j['title']} — {why}", notify=True)
         items = await self.fleets()
         if not lg.logistics_fleets(items):
             await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": [], "runs": [], "unmet": [], "fleet_devices": [],

@@ -333,6 +333,18 @@ def evaluate(f: dict, w: dict) -> dict:
         return done(b["stage"], gate="vessel in transit", next=f"waiting for {v['device_code']} to arrive")
     here = star_of(v.get("location"))
     stage = b["stage"]
+    # the replicant rides along: a matrix of the bootstrap's left out of the hold (deployed by a mission before a
+    # conversion, DELTA 2026-10-22) boards before anything else, or the vessel would fly off out of command range
+    loose = [d for d in devs if "matrix" in (d.get("device_type") or "") and d["device_code"] != v["device_code"]
+             and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code") and d.get("location")
+             and stage not in ("hub", "outposts", "operate")]
+    if loose:
+        m = loose[0]
+        if m.get("location") != v.get("location"):
+            return done(stage, gate="replicant aboard", next=f"vessel → {m['location']} to take {m['device_code']} aboard",
+                        actions=[{"kind": "travel", "device": v["device_code"], "to": m["location"]}])
+        return done(stage, gate="replicant aboard", next=f"{m['device_code']} boards the vessel",
+                    actions=[{"kind": "stow", "device": m["device_code"]}])
     if stage == "home":
         home = b["home"]
         if home in w["warded"]:
