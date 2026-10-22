@@ -85,6 +85,14 @@ CREATE TABLE IF NOT EXISTS inventory_history (
     PRIMARY KEY (ts, resource)
 );
 
+-- Logistics backlog samples over time (metrics.py, Dashboard › Logistics backlog).
+CREATE TABLE IF NOT EXISTS metric_history (
+    ts TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (ts, metric)
+);
+
 -- Cached system scans / location details.
 CREATE TABLE IF NOT EXISTS systems (
     star TEXT PRIMARY KEY,

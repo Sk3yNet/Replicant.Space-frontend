@@ -213,6 +213,13 @@ svg.system .scan-beam { fill: #8fd8ff; opacity: .35; animation: scan-pulse 1.6s 
 .tf-gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin: 10px 0; }
 .tf-gauge { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
 .tf-value { font-size: 20px; font-variant-numeric: tabular-nums; }
+.bl-chart { margin-bottom: 10px; }
+.bl-svg { width: 100%; height: 70px; display: block; margin: 2px 0; background: var(--panel2); border-radius: 4px; }
+.bl-svg polyline { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.bl-svg .bl-base { stroke: var(--line); vector-effect: non-scaling-stroke; }
+.bl-svg .bl-1 { stroke: var(--accent); } .bl-svg .bl-2 { stroke: var(--warn); }
+.bl-key::before { content: ""; display: inline-block; width: 10px; height: 2px; margin-right: 4px; vertical-align: middle; background: var(--accent); }
+.bl-key.bl-2::before { background: var(--warn); }
 .tf-spark { width: 100%; height: 38px; display: block; margin: 2px 0; }
 .tf-spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .tf-spark circle { fill: var(--accent); }

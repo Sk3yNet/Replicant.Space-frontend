@@ -58,6 +58,9 @@
     <div hx-get="/partials/fleet-summary" hx-trigger="sse:state throttle:5s">{% include "partials/fleet_summary.html" %}</div>
   </div>
 
+  <div class="card" id="backlog" hx-get="/partials/backlog" hx-trigger="load, every 600s" hx-swap="innerHTML">
+    <h2>Logistics backlog</h2><p class="muted small">Loading…</p></div>
+
   <div class="card">
     <h2>Stockpiles</h2>
     {% if not totals %}<p class="muted">No inventory yet.</p>{% endif %}

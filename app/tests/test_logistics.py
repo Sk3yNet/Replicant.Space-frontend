@@ -910,3 +910,29 @@ def test_repair_drones_not_in_the_logistics_fleet_and_far_trips_are_left_alone()
     p = _repair_plan(devs, pos=far)
     assert not any(r["kind"] == "repair" for r in p["runs"])
     assert any(u["req"] == "repair:Z" and "waits for your OK" in u["why"] for u in p["unmet"])
+
+
+def test_backlog_counts_piles_holds_and_devices_waiting():
+    from rsweb import metrics
+    devs = [dev("HL", "transport_hauler", "A-1", cargo={"carbon": 30}),
+            dev("D1", "mining_drone", "B-2", tags=["to:a"]),        # on its way to A: waiting
+            dev("D2", "mining_drone", "A-2", tags=["to:a"]),        # there already
+            dev("D3", "mining_drone", "A-2", tags=["to:home"]),     # to a fleet's id: its home (A), there
+            dev("D4", "mining_drone", "A-2", tags=["at:a-3"])]      # pinned elsewhere in the system: waiting
+    b = metrics.backlog(inventory={"A-1": {"carbon": 300}, "A-2": {"carbon": 20}, "B-2": {"iron": 5.5}}, receiving={"A-1"},
+                        carriers=[devs[0]], devices=devs, strays=[{"code": "S1"}], fleet_homes={"home": "A", "cab": "A"},
+                        requests=[{"id": "rescue:R9", "kind": "rescue", "device": "R9"}, {"id": "x", "skipped": True}],
+                        unmet=[{"req": "x"}])
+    assert b == {"res_away": 25.5, "res_holds": 30, "dev_waiting": 4, "req_open": 1, "req_unmet": 1}
+
+
+def test_logistics_pass_samples_the_backlog_for_the_dashboard(client):  # noqa: F811
+    db, e = client.app.state.db, eng(client)
+    test_logistics_pass_sends_a_job_for_a_waiting_print(client)
+    rows = client.portal.call(db.fetchall, "SELECT metric, value FROM metric_history")
+    assert {r["metric"] for r in rows} == {"res_away", "res_holds", "dev_waiting", "req_open", "req_unmet"}
+    client.portal.call(e.logistics_pass, True)   # within ten minutes: no second sample
+    assert len(client.portal.call(db.fetchall, "SELECT * FROM metric_history")) == 5
+    assert 'hx-get="/partials/backlog"' in open(__import__("pathlib").Path(__file__).parents[1] / "rsweb/templates/dashboard.html").read()
+    page = client.get("/partials/backlog?hours=48", headers=HX).text
+    assert "Resources not in a receiving stockpile" in page and "Devices waiting to be moved" in page and "<polyline" in page

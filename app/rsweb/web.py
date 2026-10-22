@@ -505,6 +505,19 @@ async def p_news(request: Request, refresh: str = "", user: str = Depends(curren
     return partial(request, "partials/news.html", n=await request.app.state.db.kv_get(news.KV, {}) or {})
 
 
+@router.get("/partials/backlog", response_class=HTMLResponse)
+async def p_backlog(request: Request, hours: int = 168, user: str = Depends(current_user)):
+    """Dashboard › Logistics backlog: what's waiting on logistics over time (metrics.py, sampled every 10 minutes)."""
+    from . import metrics
+    hours = hours if hours in (48, 168, 720) else 168
+    s = await metrics.series(request.app.state.db, hours)
+    charts = [("Resources not in a receiving stockpile", {"in other stockpiles": s["res_away"], "in logistics holds": s["res_holds"]}),
+              ("Devices waiting to be moved", {"waiting": s["dev_waiting"]}),
+              ("Logistics requests", {"open": s["req_open"], "unmet": s["req_unmet"]})]
+    return partial(request, "partials/backlog.html", hours=hours,
+                   charts=[(title, metrics.chart(lines, hours)) for title, lines in charts])
+
+
 @router.get("/partials/story", response_class=HTMLResponse)
 async def p_story(request: Request, refresh: str = "", user: str = Depends(current_user)):
     """The season's story (GET /overview, synced with the star catalog every 30 minutes)."""

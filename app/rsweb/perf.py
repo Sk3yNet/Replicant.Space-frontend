@@ -115,7 +115,7 @@ def _table(d: dict) -> list[dict]:
 async def storage(db) -> dict:
     """Rows per table, the database file size, and the largest saved values."""
     tables = {}
-    for t in ("events", "inventory_history", "systems", "actions", "notifications", "timers", "kv"):
+    for t in ("events", "inventory_history", "metric_history", "systems", "actions", "notifications", "timers", "kv"):
         try:
             tables[t] = (await db.fetchone(f"SELECT COUNT(*) AS n FROM {t}"))["n"]
         except Exception:

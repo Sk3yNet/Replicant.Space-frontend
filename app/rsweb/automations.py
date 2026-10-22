@@ -3825,6 +3825,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         devices = await self.devices()
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        inv_raw = {k: dict(v) for k, v in inv.items()}   # before what jobs will pick up is taken out (backlog sample)
         cat = await self.db.kv_get("stars", {}) or {}
         stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
         pos = {k: v.get("position") for k, v in stars.items() if v.get("position")}
@@ -4038,9 +4039,26 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         await self.db.kv_set(lg.KV_PICKUPS, pickups)
         await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": p["requests"], "runs": p["runs"], "unmet": p["unmet"],
                                            "fleet_devices": p["fleet_devices"], "reserve": p["reserve"]})
+        await self.sample_backlog(items, devices, inv_raw, drop_raw, busy, p)
         for line in out:
             await self.log("logistics", line)
         return out
+
+    async def sample_backlog(self, items: list[dict], devices: list[dict], inv: dict, drop: Any, busy: set[str],
+                             p: dict) -> None:
+        """Dashboard › Logistics backlog (metrics.py): one sample every ten minutes, from what the pass has in hand."""
+        from . import logistics as lg, metrics
+        from .fleets import strays
+        try:
+            if not await metrics.due(self.db):
+                return
+            receiving = {drop(f["home"]) for f in items if f.get("home") and (f.get("station") or f.get("materials") == "self")}
+            await metrics.record(self.db, metrics.backlog(
+                inventory=inv, receiving=receiving, carriers=lg.fleet_devices(items, devices), devices=devices,
+                strays=strays(items, devices, busy), fleet_homes={f["id"]: f.get("home") or "" for f in items if f.get("id")},
+                requests=p["requests"], unmet=p["unmet"]))
+        except Exception as e:   # a chart sample never stops logistics
+            log.warning("backlog sample failed: %s", e)
 
     async def contract_supply_pass(self, force: bool = False) -> list[str]:
         """Contracts asking for devices at their location (contractsupply.py): every few minutes, for each contract
