@@ -2448,6 +2448,34 @@ def affordable(cost: Any, items: Any) -> int:
     return min(counts) if counts else 0
 
 
+# Blueprint fields the page shows elsewhere (name, texts, features, cost, carry line); every other field is listed as a spec.
+_BP_SHOWN = {"device_type", "name", "short_description", "description", "features", "directives", "resources",
+             "resources_raw", "print_time", "components", "attach_capacity", "cargo_capacity", "stow_capacity"}
+_BP_SPEC = {"relay_range": ("relay range", " ly", "FTL links to relays within this distance"),
+            "queue_size": ("print queue", " slots", "prints it can hold queued"),
+            "strength": ("strength", "", "diversion or weapon strength"),
+            "current_hubs": ("current hubs", "", "system hubs the account has now")}
+
+
+def blueprint_specs(b: dict) -> list[tuple[str, str, str]]:
+    """The blueprint's other fields as (label, value, tooltip), leaving out zero and empty ones: the known ones first,
+    then any field the game adds later, as it comes."""
+    out = []
+    order = list(_BP_SPEC)
+    for k, v in sorted(b.items(), key=lambda kv: (order.index(kv[0]) if kv[0] in _BP_SPEC else len(order), kv[0])):
+        if k in _BP_SHOWN or k.startswith("_") or v in (None, "", 0, 0.0, False, [], {}):
+            continue
+        label, unit, tip = _BP_SPEC.get(k, (k.replace("_", " "), "", k))
+        if isinstance(v, float) and v.is_integer():
+            v = int(v)
+        if isinstance(v, dict):
+            v = ", ".join(f"{n} {f_human(str(t))}" for t, n in sorted(v.items()))
+        elif isinstance(v, list):
+            v = ", ".join(map(str, v))
+        out.append((label, f"{v}{unit}", tip))
+    return out
+
+
 @router.get("/blueprints", response_class=HTMLResponse)
 async def blueprints(request: Request, q: str = "", feature: str = "", user: str = Depends(current_user)):
     db, worker = request.app.state.db, request.app.state.worker
@@ -2473,6 +2501,7 @@ async def blueprints(request: Request, q: str = "", feature: str = "", user: str
     for b in bps:
         b["_components"] = comp.components(b)
         b["_carry"] = fl.carry_info(b)
+        b["_specs"] = blueprint_specs(b)
         b["_total"] = comp.total_resources(b["device_type"], by_type) if b["_components"] else b["resources"]
         # a print with components is printed with them (components.py): it's affordable when the lot is
         b["_afford"] = {p["code"]: affordable(b["_total"], inv.get(p["location"], {})) for p in prs}

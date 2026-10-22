@@ -8532,3 +8532,10 @@ def test_a_stalled_mission_retries_by_itself_with_backoff(client):
     client.post("/fleets/s3/control", data={"action": "resume"}, headers=HX)
     m = client.portal.call(eng.fleets)[0]["mission"]
     assert m["auto_retry"]["n"] == 0 and m["auto_retry"]["at"]
+
+
+def test_blueprint_specs_show_set_fields_only():
+    from rsweb.web import blueprint_specs
+    specs = blueprint_specs({"device_type": "system_hub", "relay_range": 15.0, "current_hubs": 2, "queue_size": 0,
+                             "strength": 0, "stow_capacity": 1, "components": {}, "new_field": "x"})
+    assert [(l, v) for l, v, _ in specs] == [("relay range", "15 ly"), ("current hubs", "2"), ("new field", "x")]
