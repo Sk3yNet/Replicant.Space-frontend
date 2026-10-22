@@ -23,7 +23,8 @@ from typing import Any
 RELAY_LY = 7.5
 HUB_LY = 15.0
 MAX_BRIDGE = 10
-PALETTE = ["#4fc3f7", "#ffb74d", "#ba68c8", "#81c784", "#f06292", "#fff176", "#4db6ac", "#e57373", "#9575cd", "#a1887f"]
+# one color per network, clear of the map's hazard red, resource orange, anomaly magenta and supply amber
+PALETTE = ["#4fc3f7", "#fff176", "#69f0ae", "#b39ddb", "#d4e157", "#80cbc4", "#e0e0e0", "#90a4ff", "#c5a880", "#a5d6a7"]
 
 
 def star_of(loc: str | None) -> str:

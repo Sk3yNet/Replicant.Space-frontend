@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.216.3"
+VERSION = "1.217.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.217.0", "2026-10-22", "Galaxy map relay networks: each network has its own color (a new palette clear of the "
+               "hazard red, resource orange and anomaly magenta), and a hub's links are a darker shade of it."),
     ("1.216.3", "2026-10-22", "Surge hops go in the trip's own `via` (one travel command, as the game takes it) instead of "
                "separate trips: the nearest surge spot when leaving from a belt or a body, then (inside a system) the spot "
                "nearest the destination, before any hub waypoints. A refused `via` takes the game's own route."),

@@ -512,7 +512,6 @@ function buildFleets() {
 // something is traveling along it, dots flow from source to destination.
 const SUPPLY = { materials: 0xffb74d, trade: 0x6cb6ff };
 const SUPPLY_TEXT = { materials: "#ffd59a", trade: "#a9d3ff" };
-const HUB_LINK = 0xf0b64f;   // a hub's links (relays both linked to one hub: their own link isn't drawn)
 function buildRelayNet() {
   relayGroup.clear();
   const rn = data.relay_net || { links: [], nodes: [], planned: [], suggested: [] };
@@ -530,7 +529,8 @@ function buildRelayNet() {
   // active networks solid, ones without a replicant in reach dashed and dimmer
   for (const l of rn.links) {
     const a = byName[l.a], b = byName[l.b]; if (!a || !b) continue;
-    const c = new THREE.Color(l.hub ? HUB_LINK : l.color);   // a hub's link to a relay: the hub color
+    const c = new THREE.Color(l.color);   // a hub's link to a relay: a darker shade of its network's color
+    if (l.hub) c.multiplyScalar(.6);
     arc(a, b, l.active ? new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: .9 })
                        : new THREE.LineDashedMaterial({ color: c, dashSize: .5, gapSize: .4, transparent: true, opacity: .55 }));
   }
