@@ -1200,10 +1200,12 @@ async def replicant_detail(request: Request, code: str, near_page: int = 1, user
     near_pages = int(near.get("total_pages") or 0) or (near_page + 1 if len(nearby) >= 20 else near_page)
     blueprints = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
     devices = [d for d in st["devices"] if d.get("replicant_code") == code]
-    slingshots = sorted((d for d in st["devices"] if "slingshot" in (d.get("device_type") or "")), key=lambda d: d.get("location") or "")
     by = {d.get("device_code"): d for d in st["devices"]}
     stowed = await request.app.state.db.kv_get("stowed_map", {}) or {}
-    sl_locs = {d.get("location") for d in slingshots if d.get("location")}
+    # a slingshot stowed in a vessel is where its carrier is (same hold as the replicant's matrix counts as together)
+    slingshots = sorted(({**d, "_at": where_is(d, by, stowed)} for d in st["devices"] if "slingshot" in (d.get("device_type") or "")),
+                        key=lambda d: d["_at"] or "")
+    sl_locs = {d["_at"] for d in slingshots if d["_at"]}
     matrices = sorted(({**d, "_at": where_is(d, by, stowed)} for d in st["devices"]
                        if "matrix" in (d.get("device_type") or "") and "container" not in (d.get("device_type") or "")),
                       key=lambda d: (d.get("device_type") != "empty_replicant_matrix", d["_at"] or ""))
@@ -1285,16 +1287,19 @@ async def replicant_slingshot(request: Request, code: str, slingshot: str = Form
     {"target": <slingshot>} sends the replicant's consciousness to that matrix; the slingshot drops to 5 %."""
     slingshot = slingshot.strip().upper()
     st = await load_state(request)
-    sl = next((d for d in st["devices"] if d.get("device_code") == slingshot), {})
+    by = {d.get("device_code"): d for d in st["devices"]}
+    stowed = await request.app.state.db.kv_get("stowed_map", {}) or {}
+    sl = by.get(slingshot) or {}
     rep = st["replicants"].get(code) or {}
     here = rep.get("location") or rep.get("current_location")
+    sl_at = where_is(sl, by, stowed) if sl else None   # stowed: its carrier's location
     path = f"/replicants/{code}/teleport"
 
     def refuse(msg: str) -> HTMLResponse:
         return render_action(request, {"label": f"slingshot {slingshot}", "method": "POST", "path": path, "ok": False,
                                        "status": 400, "error": msg, "response": None})
-    if sl and here and sl.get("location") != here:
-        return refuse(f"{slingshot} is at {sl.get('location') or sl.get('status')}, the replicant is at {here} — "
+    if sl and here and sl_at != here:
+        return refuse(f"{slingshot} is at {sl_at or sl.get('status')}, the replicant is at {here} — "
                       "go to the slingshot first")
     cap = capacity(sl.get("operational_capacity"))   # sometimes a 0–1 fraction
     if cap is not None and cap < SLINGSHOT_MIN_CAPACITY:
@@ -1315,11 +1320,11 @@ async def slingshot_link(request: Request, slingshot: str, matrix: str = Form(..
     by = {d.get("device_code"): d for d in st["devices"]}
     stowed = await request.app.state.db.kv_get("stowed_map", {}) or {}
     sl, mx = by.get(slingshot) or {}, by.get(matrix) or {}
-    if sl and mx and where_is(mx, by, stowed) != sl.get("location"):
+    if sl and mx and where_is(mx, by, stowed) != where_is(sl, by, stowed):
         return render_action(request, {"label": f"link {slingshot} → {matrix}", "method": "PATCH", "path": f"/devices/{slingshot}",
                                        "ok": False, "status": 400, "response": None,
                                        "error": f"{matrix} is at {where_is(mx, by, stowed) or '?'}, {slingshot} at "
-                                                f"{sl.get('location') or '?'} — they must be together to link"})
+                                                f"{where_is(sl, by, stowed) or '?'} — they must be together to link"})
     return await run_action(request, user, "PATCH", f"/devices/{slingshot}", {"configuration": {"linked_device": matrix}},
                             f"link slingshot {slingshot} → {matrix}")
 

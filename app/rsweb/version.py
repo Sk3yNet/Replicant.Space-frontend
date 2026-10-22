@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.208.0"
+VERSION = "1.208.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.208.1", "2026-10-22", "A slingshot stowed in a vessel counts as being where the vessel is: firing it with the "
+               "replicant (or its matrix) in the same hold, and linking it to a matrix in that hold, now work."),
     ("1.208.0", "2026-10-22", "Bill's BobNet move post no longer sends a replicant after him: it stops an ongoing follow, "
                "and following his trail is started by hand on the Trail page only. Get listing on his shop is a "
                "logistics job like any other shop's (after a move, once his shop is seen again)."),
