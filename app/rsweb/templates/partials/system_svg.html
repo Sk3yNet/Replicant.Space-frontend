@@ -24,6 +24,11 @@
       {% for m in view.markers %}
         <g class="marker" hx-get="/locations/{{ m.loc }}" hx-target="#loc-panel">
           <circle cx="{{ m.x }}" cy="{{ m.y }}" r="{{ 5 + [m.devices|length, 12]|min }}" fill="rgba(108,182,255,.25)" stroke="#6cb6ff"><title>{{ m.loc }} · {{ m.devices | length }} device(s){% for k, v in m.stock.items() %} · {{ k }} {{ v }}{% endfor %}</title></circle>
+          {% for o in m.orbits %}
+          <g class="orbiter orbit-{{ o.kind }}" style="transform-origin:{{ '%.1f' % m.x }}px {{ '%.1f' % m.y }}px;animation-duration:{{ o.dur }}s;animation-delay:{{ o.delay }}s">
+            {% if o.kind == 'survey' %}<path class="scan-beam" d="M {{ '%.1f' % (m.x + o.r - 2) }} {{ '%.1f' % (m.y - 1.6) }} L {{ '%.1f' % (m.x + o.r0) }} {{ '%.1f' % (m.y - 4) }} L {{ '%.1f' % (m.x + o.r0) }} {{ '%.1f' % (m.y + 4) }} L {{ '%.1f' % (m.x + o.r - 2) }} {{ '%.1f' % (m.y + 1.6) }} Z"/>{% endif %}
+            <circle cx="{{ '%.1f' % (m.x + o.r) }}" cy="{{ '%.1f' % m.y }}" r="{{ 2.2 if o.kind == 'survey' else 1.8 }}"><title>{{ o.title }}</title></circle>
+          </g>{% endfor %}
           {% if m.devices %}<text x="{{ m.x - 3 }}" y="{{ m.y + 4 }}" style="fill:#fff">{{ m.devices | length }}</text>{% endif %}
           {% for g in m.drones %}{% set bx = m.x + 9 + loop.index0 * 25 %}{% set by = m.y + 9 %}
           <g class="drone drone-{{ g.state }}">

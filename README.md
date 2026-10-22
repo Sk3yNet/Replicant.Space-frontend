@@ -136,7 +136,7 @@ rule with an on/off switch, plus the jobs and the log.
   (Add stays offered until all have one).
 - **Star sizes**: the Galaxy and System maps draw each star by its radius (the scan's `radius_solar`, else the typical
   radius of its spectral class, giants ten times that); the star's details say which.
-- **System page**: a top-down map with your devices, stockpiles, sites and salvage. Three cards: **Resources** (per
+- **System page**: a top-down map with your devices, stockpiles, sites and salvage. Working drones circle their spot (miners and other workers clockwise; survey drones farther out, counterclockwise, with a light blue scanning beam). Three cards: **Resources** (per
   resource: richness, open sites, % left, ≈ units left — learned from what past sites gave — salvage, stockpiled),
   **Belts** (richness, a viability line, open sites) and **Bodies** (planets, moons, L-points with their salvage and stock).
   **Prospects** (Map tab) scores every scanned system out of 100 (each resource's yield, scarce 1 to rich 10, × belt density,

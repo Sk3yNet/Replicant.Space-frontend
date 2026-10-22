@@ -3949,6 +3949,21 @@ def test_drone_indicators_on_the_maps(client):
     assert any(d["kind"] == "mining" and d["n"] >= 1 for d in sol["drones"])
 
 
+def test_working_drones_orbit_their_site(client):
+    from rsweb.web import drone_orbits
+    devs = [{"device_code": "M1", "device_type": "mining_drone", "status": "mining (carbon)"},
+            {"device_code": "M2", "device_type": "mining_drone", "status": "mining (carbon)"},
+            {"device_code": "M3", "device_type": "mining_drone", "status": "idle"},
+            {"device_code": "S1", "device_type": "survey_drone", "status": "tracking"},
+            {"device_code": "AF", "device_type": "autofactory", "status": "printing"}]
+    o = {x["code"]: x for x in drone_orbits(devs, 10)}
+    assert set(o) == {"M1", "M2", "S1"}   # idle drones and non-drones don't orbit
+    assert o["M1"]["kind"] == "work" and o["S1"]["kind"] == "survey" and o["S1"]["r"] > o["M1"]["r"] > 10
+    assert {o["M1"]["delay"], o["M2"]["delay"]} == {0, -4.5}   # spread evenly around the ring
+    client.portal.call(client.app.state.worker.sync_devices)
+    page = client.get("/systems/SOL", headers=H).text
+    assert 'orbiter orbit-survey' in page and 'class="scan-beam"' in page
+
 def test_map_core_loads_your_systems_first(client):
     client.portal.call(client.app.state.worker.sync_devices)
     whole = {s["designation"] for s in client.get("/api/map.json?part=core", headers=H).json()["stars"]}

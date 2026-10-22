@@ -175,7 +175,18 @@ svg.system .drone-working rect { fill: var(--good); }
 svg.system .drone-idle rect { fill: #8a98b3; }
 svg.system .drone-moving rect { fill: var(--move); }
 svg.system .drone-other rect { fill: var(--warn); }
-svg.system.nodrones .drone { display: none; }
+svg.system.nodrones .drone, svg.system.nodrones .orbiter { display: none; }
+/* working drones circle their site: workers clockwise, survey drones farther out counterclockwise with a scan beam */
+svg.system .orbiter { animation: orbit-cw linear infinite; pointer-events: none; }
+svg.system .orbiter circle { pointer-events: auto; stroke: rgba(0,0,0,.4); stroke-width: .5; }
+svg.system .orbit-work circle { fill: var(--good); }
+svg.system .orbit-survey { animation-name: orbit-ccw; }
+svg.system .orbit-survey circle { fill: #8fd8ff; }
+svg.system .scan-beam { fill: #8fd8ff; opacity: .35; animation: scan-pulse 1.6s ease-in-out infinite alternate; }
+@keyframes orbit-cw { to { transform: rotate(360deg); } }
+@keyframes orbit-ccw { to { transform: rotate(-360deg); } }
+@keyframes scan-pulse { from { opacity: .15; } to { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { svg.system .orbiter, svg.system .scan-beam { animation-play-state: paused; } }
 
 /* Blueprints › Can afford at: printers flow into as many columns as the width allows, so the cell stays about as
    tall as the device's description instead of one line per printer */

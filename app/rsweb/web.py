@@ -159,6 +159,26 @@ def drone_summary(devices: list[dict]) -> list[dict]:
     return sorted(out.values(), key=lambda g: order.index(g["kind"]))
 
 
+def drone_orbits(devices: list[dict], r0: float) -> list[dict]:
+    """Working drones at a location as orbiting dots around its marker (radius r0): workers clockwise on an inner
+    ring, survey drones counterclockwise farther out (with a scanning beam). Evenly phased, at most 10 per ring;
+    `delay` is a negative animation delay that sets each dot's starting angle."""
+    rings: dict[bool, list[dict]] = {False: [], True: []}
+    for d in devices:
+        k = next((kind for key, kind, _ in DRONE_KINDS if key == (d.get("device_type") or "")), None)
+        if k and status_class(d.get("status")) == "st-work":
+            rings[k == "survey"].append(d)
+    out = []
+    for survey, ds in rings.items():
+        ds = sorted(ds, key=lambda d: d.get("device_code") or "")[:10]
+        period = 16.0 if survey else 9.0
+        for i, d in enumerate(ds):
+            out.append({"code": d.get("device_code"), "kind": "survey" if survey else "work", "r": r0 + (13 if survey else 5), "r0": r0,
+                        "dur": period, "delay": -round(period * i / len(ds), 2),
+                        "title": f"{(d.get('device_type') or 'drone').replace('_', ' ')} {d.get('device_code')} — {d.get('status')}"})
+    return out
+
+
 def status_class(status: Any) -> str:
     s = str(status or "").lower()
     if s.startswith(("idle", "inactive", "waiting")):
@@ -1660,7 +1680,8 @@ def build_system_view(star: str, scan: dict, devices: list[dict], inventory: lis
         xy = loc_xy(loc)
         if xy:
             shapes["markers"].append({"loc": loc, "x": xy[0], "y": xy[1], "devices": by_loc.get(loc, []),
-                                      "stock": inv.get(loc, {}), "drones": drone_summary(by_loc.get(loc, []))})
+                                      "stock": inv.get(loc, {}), "drones": drone_summary(by_loc.get(loc, [])),
+                                      "orbits": drone_orbits(by_loc.get(loc, []), 5 + min(len(by_loc.get(loc, [])), 12))})
     # other players' fixed devices (others.py snapshot): hollow coral rings beside ours
     theirs: dict[str, list[dict]] = defaultdict(list)
     for d in others or []:
