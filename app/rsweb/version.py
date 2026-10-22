@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.215.0"
+VERSION = "1.216.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.216.0", "2026-10-22", "Desktop wallpaper: every Galaxy page layer can be switched on or off (layers=, grouped as "
+     "on the Galaxy page in the Octos add-on 1.5.0), and follow= keeps the galaxy centered on a replicant as it travels "
+     "(the system view shows the system it's in). The galaxy map data names the device each replicant rides in."),
     ("1.215.0", "2026-10-22", "Logistics batches deals at one location: when several approved trades or contracts wait at "
      "the same place, the stock there pays the first ones and a single delivery brings what all the others lack (as far as "
      "the carriers hold); its replicant then fulfills them all. The others show as delivered together with it."),

@@ -304,7 +304,10 @@ lines or a template).
 - **Desktop wallpaper** (optional): the Galaxy and System maps as a live Windows wallpaper with
   [Octos](https://github.com/underpig1/octos) and [sk3ynet/replicant-space-octos](https://github.com/sk3ynet/replicant-space-octos).
   *Account › Desktop wallpaper* creates a read-only link (`/wallpaper/<id>/#key=…`); options such as `view=galaxy|system|cycle`,
-  `cover=0`, `fleets=0`, `supply=0`, `production=0`, `hud=right|left|off`.
+  `cover=0`, `fleets=0`, `supply=0`, `production=0`, `hud=right|left|off`, `layers=` (the galaxy layers that are on, by
+  the Galaxy page's checkbox ids without `opt-`, e.g. `labels,regions,mark-hub`; every other layer is off) and
+  `follow=<replicant name or code>` (the galaxy stays centered on it, gliding along while it travels; the system view
+  shows the system it's in).
 
 ### How automation works
 

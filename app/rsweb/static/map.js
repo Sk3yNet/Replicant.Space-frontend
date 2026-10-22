@@ -3,10 +3,12 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/OrbitControls.js";
 
 // The Galaxy page, and the desktop wallpaper (window.MAP_OPTS: {dataUrl, headers, labels, rotate, refreshMinutes,
-// focus, cover, moving, fleets, supply, production, onlyMine}); in the wallpaper the page's controls are absent, so every control lookup is optional.
+// focus, cover, moving, fleets, supply, production, onlyMine, layers, follow}); in the wallpaper the page's controls are absent, so every control lookup is optional.
+// layers: {"opt-<id>": true|false}, the wallpaper's own layer settings, standing in for the page's checkboxes.
+// follow: a replicant's code or name; the view's center moves with it, on its star or in transit.
 const OPTS = window.MAP_OPTS || {};
 const $ = id => document.getElementById(id);
-const checked = (id, dflt) => $(id) ? $(id).checked : dflt;
+const checked = (id, dflt) => $(id) ? $(id).checked : OPTS.layers && id in OPTS.layers ? OPTS.layers[id] : dflt;
 // The Galaxy page's options are remembered in this browser (every opt-* checkbox), restored before the first draw.
 const PREFS_KEY = "galaxy-map-options";
 if (!OPTS.dataUrl) {
@@ -313,6 +315,39 @@ let measure = [];
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const pos = s => new THREE.Vector3(s.position?.x || 0, s.position?.y || 0, s.position?.z || 0);
 const byName = {};
+
+// the replicant to follow (OPTS.follow: its code or name), and where it is now: in transit, the ship it rides in
+function followed() {
+  const f = String(OPTS.follow || "").trim().toUpperCase();
+  return f ? data.replicants.find(r => r.code.toUpperCase() === f || (r.name || "").toUpperCase() === f) || null : null;
+}
+function followAt() {
+  const r = followed();
+  if (!r) return null;
+  const x = movers.find(x => (x.m.codes || []).some(c => c === r.code || c === r.host));
+  if (x) return x.v;
+  const s = byName[r.star] || (r.position ? { position: r.position } : null);
+  return s ? pos(s) : null;
+}
+function startStar() {
+  const r = followed(), s = r && byName[r.star];
+  return s || (OPTS.focus && byName[OPTS.focus]) || repStar();
+}
+// Glide the view to the followed replicant once it's a little way off, then stand still again: moving every frame
+// would place every label every frame.
+let chasing = false;
+const chase = new THREE.Vector3();
+function follow() {
+  const v = followAt();
+  if (!v) return;
+  chase.copy(v).sub(controls.target);
+  const d = chase.length();
+  if (!chasing && d < 0.25) return;
+  chasing = d > 0.005;
+  if (chasing) chase.multiplyScalar(0.12);
+  controls.target.add(chase);
+  camera.position.add(chase);
+}
 
 function repStar() {
   const r = data.replicants.find(r => r.code === fromSel?.value) || data.replicants[0];
@@ -983,6 +1018,7 @@ function animate(t = 0) {
   }
   if (!REDUCED_MOTION.matches) flowDash.value = t / 1000 * .8;   // map units a second
   placeMovers(Date.now());
+  if (OPTS.follow) follow();
   placeOthers(Date.now(), showLabels, w, h);
   placeTrail(showLabels, w, h);
   placeProspects(Date.now(), showLabels);
@@ -1050,7 +1086,7 @@ function addRest(r) {
     if ($("star-list")) $("star-list").innerHTML = data.stars.map(s => `<option value="${esc(s.designation)}">`).join("");
     build();
     infoText(data, false);
-    if (!focused) { const s = (OPTS.focus && byName[OPTS.focus]) || repStar(); if (s) { focus(s); focused = true; } }
+    if (!focused) { const s = startStar(); if (s) { focus(s); focused = true; } }
   }
 }
 function load(first) {
@@ -1066,7 +1102,7 @@ function load(first) {
         info.innerHTML = `<p class="muted">Loading the star catalog…</p>`;
       } else {
         infoText(data, true);
-        const s = (OPTS.focus && byName[OPTS.focus]) || repStar(); if (s) { focus(s); focused = true; }
+        const s = startStar(); if (s) { focus(s); focused = true; }
       }
       animate();
     }

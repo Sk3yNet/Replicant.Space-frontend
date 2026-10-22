@@ -3852,6 +3852,17 @@ def test_moving_devices_show_on_both_maps(client):
     assert 'id="opt-moving"' in client.get("/map", headers=H).text
 
 
+def test_map_names_the_device_each_replicant_rides_in(client):
+    # the wallpaper's follow setting tracks a replicant in transit by the ship hosting it
+    world = client.app.state.api.http._transport.app.state.world
+    client.portal.call(client.app.state.worker.sync_devices)
+    rep = client.get("/api/map.json?part=core", headers=H).json()["replicants"][0]["code"]
+    next(d for d in world.devices if d["device_code"] == "11ADA230")["hosting_replicant"] = {"replicant_code": rep}
+    client.portal.call(client.app.state.worker.sync_devices)
+    reps = {r["code"]: r for r in client.get("/api/map.json?part=core", headers=H).json()["replicants"]}
+    assert reps[rep]["host"] == "11ADA230"
+
+
 def test_bobnet_channels_list_and_subscribe(client):
     world = client.app.state.api.http._transport.app.state.world
     client.portal.call(client.app.state.worker.sync_devices)

@@ -1,6 +1,8 @@
 // The desktop wallpaper (Octos add-on): the galaxy map, one system, or a cycle through your systems.
 // Link: /wallpaper/<slug>/?view=galaxy|system|cycle&star=X&labels=1&rotate=0.4&refresh=5&cycle=60
-//        &cover=1&fleets=1&supply=1&production=1&hud=right|left|off#key=rsw_…
+//        &cover=1&fleets=1&supply=1&production=1&hud=right|left|off&layers=labels,regions,…&follow=<replicant>#key=rsw_…
+// layers (add-on 1.5.0): the galaxy layers that are on, by the Galaxy page's checkbox ids without "opt-"; every other
+// layer is off. Without it, the older labels/cover/fleets/supply/production switches apply.
 // The key stays in the #fragment (never sent to the server, so never in access logs) and goes out as a header.
 const base = new URL("..", import.meta.url);            // …/wallpaper/<slug>/
 // the client's version: scripts are loaded with ?v=<version>, so a redeploy is never hidden by a cached copy
@@ -9,14 +11,21 @@ const q = new URLSearchParams(location.search);
 const key = new URLSearchParams(location.hash.slice(1)).get("key") || "";
 const view = (q.get("view") || "galaxy").toLowerCase();
 const star = (q.get("star") || "").trim().toUpperCase();
-const labels = q.get("labels") !== "0";
+// the Galaxy page's layer checkboxes (Map › Galaxy, grouped as there)
+const LAYERS = ["labels", "mine", "regions", "mark-hazard", "production", "cover", "mark-scanned", "mark-survey", "prospect",
+                "others", "relaynet", "moving", "fleets", "supply", "trail", "mark-devices", "mark-replicant", "mark-hub",
+                "mark-ward", "mark-found", "mark-prospected", "mark-mega", "mark-rich", "mark-anomaly"];
+const shown = q.has("layers") ? new Set(q.get("layers").split(",").map(s => s.trim()).filter(Boolean)) : null;
+const layer = (id, old) => shown ? shown.has(id) : q.get(old ?? id) !== "0";
+const follow = (q.get("follow") || "").trim();   // a replicant's code or name: the view stays centered on it
+const labels = layer("labels");
 const rotate = Math.max(0, Math.min(5, parseFloat(q.get("rotate") ?? "0.4") || 0));
 const refreshMin = Math.max(1, parseInt(q.get("refresh") || "5", 10));
 const cycleSec = Math.max(10, parseInt(q.get("cycle") || "60", 10));
-const cover = q.get("cover") !== "0";          // relay/hub range spheres
-const fleets = q.get("fleets") !== "0";        // fleet markers (galaxy) and fleets in the caption (systems)
-const supply = q.get("supply") !== "0";        // supply lines between fleets' systems
-const production = q.get("production") !== "0"; // sparkles: drones mining each resource, per system
+const cover = layer("cover");          // relay/hub range spheres
+const fleets = layer("fleets");        // fleet markers (galaxy) and fleets in the caption (systems)
+const supply = layer("supply");        // supply lines between fleets' systems
+const production = layer("production"); // sparkles: drones mining each resource, per system
 // resource colors: the galaxy's sparkles and the panel's stockpile rows (keep in step with map.js RES_COLOR)
 const RES_CSS = { structural: "#b0bec5", conductive: "#ffa726", silicates: "#e6c88f", carbon: "#a1887f", volatiles: "#4dd0e1",
                   rares: "#e040fb" };
@@ -105,13 +114,27 @@ async function showSystem(code, note = "") {
 async function galaxy() {
   $("map").hidden = false;
   window.MAP_OPTS = { dataUrl: new URL("api/map.json", base).href, headers, labels, rotate, refreshMinutes: refreshMin,
-                      focus: star || null, onError: problem, cover, fleets, supply, production, moving: true };
+                      focus: star || null, onError: problem, cover, fleets, supply, production, moving: true, follow,
+                      layers: shown && Object.fromEntries(LAYERS.map(id => ["opt-" + id, shown.has(id)])) };
   await import(new URL(`static/map.js?v=${encodeURIComponent(version)}`, base).href);
 }
 
+// the followed replicant's system (one-system view), from the galaxy's list of your systems and replicants
+async function followedStar() {
+  const f = follow.toUpperCase();
+  const reps = (await (await get("api/map.json?part=core&scope=mine")).json()).replicants || [];
+  const r = reps.find(r => r.code.toUpperCase() === f || (r.name || "").toUpperCase() === f);
+  return r?.star || "";
+}
+
 async function system() {
-  if (!star) { message("<div>Pick a system for this view (the <b>System</b> setting).</div>"); return; }
-  const go = () => showSystem(star).catch(problem);
+  if (!star && !follow) { message("<div>Pick a system for this view (the <b>System</b> setting).</div>"); return; }
+  const go = async () => {
+    const at = follow ? (await followedStar().catch(() => "")) || star : star;
+    if (!at) { message(`<div>Can't find the replicant <b>${esc(follow)}</b> to follow.</div>`); return; }
+    $("msg").hidden = true;
+    return showSystem(at, follow ? `following ${esc(follow)} · ` : "").catch(problem);
+  };
   await go();
   setInterval(go, refreshMin * 60000);
 }

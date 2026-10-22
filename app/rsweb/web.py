@@ -2327,10 +2327,13 @@ async def map_payload(request: Request, part: str = "all") -> dict:
             rad, measured = star_radius(s, radii.get(d))
             if rad is not None:
                 stars[-1].update({"radius": round(rad, 3), "radius_measured": measured})
+        # the device each replicant rides in (its vessel or carrier), so the map can follow it in transit
+        host = {(d.get("hosting_replicant") or {}).get("replicant_code"): d["device_code"] for d in st["devices"]
+                if isinstance(d.get("hosting_replicant"), dict)}
         out.update({"stars": stars, "generated_at": cat.get("generated_at"), "sources": cat.get("sources"),
                     "catalogue_updated": await db.kv_updated("stars"),
                     "replicants": [{"code": c, "name": r.get("name"), "star": star_of(r.get("location") or r.get("current_location")),
-                                    "position": r.get("position")} for c, r in st["replicants"].items()]})
+                                    "position": r.get("position"), "host": host.get(c)} for c, r in st["replicants"].items()]})
     if part in ("overlay", "all"):
         by_star: dict[str, list[dict]] = defaultdict(list)
         for d in st["devices"]:
