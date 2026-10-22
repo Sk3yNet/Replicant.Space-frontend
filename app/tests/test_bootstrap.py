@@ -117,6 +117,31 @@ def test_no_hub_where_a_rock_is_coming_and_past_asteroids_or_hazards_count_again
     assert rows["C"]["value"] == plain["C"] - 2 * bt.ROCK_PENALTY and "2 past asteroid(s)" in rows["C"]["reasons"]
 
 
+def test_a_new_home_waits_until_every_device_is_aboard():
+    scans = {"HOME": scan_for("HOME", STRUCT)}
+    devs = [vessel("OLD-2-L4"), drone("M1", "mining_drone", "OLD-2-L4"), drone("M2", "mining_drone", "OLD-BELT-1"),
+            drone("S1", "survey_drone", aboard=True)]
+    ev = bt.evaluate(fleet(), world(devs, scans))
+    assert ev["actions"] == [{"kind": "stow", "device": "M1"}] and ev["gate"] == "everyone aboard"
+    devs[1] = drone("M1", "mining_drone", aboard=True)
+    ev = bt.evaluate(fleet(), world(devs, scans))
+    assert ev["actions"] == [{"kind": "travel", "device": "V1", "to": "OLD-BELT-1"}]
+    devs[2] = drone("M2", "mining_drone", aboard=True)
+    ev = bt.evaluate(fleet(), world(devs, scans))
+    assert ev["actions"] == [{"kind": "travel", "device": "V1", "to": "HOME-BELT-1"}]      # all aboard: off to the new home
+    devs[0] = vessel("HOME-2-L4")
+    devs[1] = drone("M1", "mining_drone", "OLD-2-L4")
+    ev = bt.evaluate(fleet(), world(devs, scans))
+    assert ev["actions"] == [{"kind": "travel", "device": "V1", "to": "HOME-BELT-1"}]      # already moved: no trip back
+
+
+def test_the_move_fetches_every_stray_not_just_the_first():
+    scans = {"A": scan_for("A", STRUCT)}
+    devs = [vessel("HOME-BELT-1"), drone("M1", "mining_drone", "A-BELT-1"), drone("M2", "mining_drone", "HOME-BELT-1")]
+    ev = bt.evaluate(fleet("move", hub="A"), world(devs, scans))
+    assert ev["actions"] == [{"kind": "stow", "device": "M2"}]                           # M1 is at the hub already
+
+
 def test_warded_home_goes_straight_to_survey_then_hub_choice():
     f = fleet()
     devs = [vessel("HOME-BELT-1")] + [drone(f"M{i}", "mining_drone", aboard=True) for i in range(3)]

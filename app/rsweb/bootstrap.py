@@ -329,6 +329,33 @@ def costs(w: dict, stock: dict[str, float]) -> list[dict]:
     return rows
 
 
+def strays(v: dict, devs: list[dict], star: str) -> list[dict]:
+    """The bootstrap's devices the vessel must take aboard before it moves the operation to `star`: stowable members
+    outside it, neither aboard nor riding something else (Delta Force 2026-10-22: a new home was set and the vessel
+    left its drones behind at the old one)."""
+    return [d for d in devs if d["device_code"] != v["device_code"] and not d.get("stowed_in_device_code")
+            and not d.get("attached_to_device_code") and star_of(d.get("location")) != star
+            and ("stow" in (d.get("features") or []) or "stow" in (d.get("available_commands") or [])
+                 or d.get("device_type") in ("mining_drone", "survey_drone"))]
+
+
+def fetch(v: dict, devs: list[dict], star: str) -> dict | None:
+    """Actions to fetch the strays (nearest place first: where the vessel is), or None when all are aboard."""
+    left = strays(v, devs, star)
+    if not left:
+        return None
+    moving = [d for d in left if not d.get("location")]
+    placed = sorted((d for d in left if d.get("location")), key=lambda d: (d["location"] != v.get("location"), d["location"]))
+    if not placed:
+        return {"gate": "everyone aboard", "next": f"waiting for {len(moving)} device(s) on their way", "actions": []}
+    at = placed[0]["location"]
+    if v.get("location") != at:
+        return {"gate": "everyone aboard", "next": f"vessel → {at} to fetch {len(left)} device(s) first",
+                "actions": [{"kind": "travel", "device": v["device_code"], "to": at}]}
+    return {"gate": "everyone aboard", "next": f"{len(placed)} device(s) board the vessel before it moves to {star}",
+            "actions": [{"kind": "stow", "device": d["device_code"]} for d in placed if d["location"] == at]}
+
+
 def evaluate(f: dict, w: dict) -> dict:
     """Where the bootstrap is and what it does next — no side effects except the stage moving on when a gate is met
     (the caller saves the fleet). {stage, label, gate, next, actions, decision, costs, chain, blocked}."""
@@ -370,6 +397,9 @@ def evaluate(f: dict, w: dict) -> dict:
         if home in w["warded"]:
             b["stage"] = "survey"
             return evaluate(f, w)
+        g = fetch(v, devs, home) if here != home else None   # a new home: nobody is left behind (before it leaves)
+        if g:
+            return done(stage, **g)
         if home not in w["scans"]:
             return done(stage, gate=f"{home} scanned", next=f"system scan of {home}",
                         actions=[{"kind": "scan", "star": home}] if here == home else [{"kind": "travel", "device": v["device_code"], "to": home}])
@@ -404,14 +434,9 @@ def evaluate(f: dict, w: dict) -> dict:
     hub = b.get("hub")
     if stage == "move":
         drones = [d for d in devs if d["device_code"] != v["device_code"] and d.get("device_type") in ("mining_drone", "survey_drone")]
-        out_there = [d for d in drones if d.get("stowed_in_device_code") != v["device_code"]]
-        if out_there and star_of(out_there[0].get("location")) != hub:
-            at = out_there[0].get("location")
-            if v.get("location") != at:
-                return done(stage, gate="drones aboard", next=f"vessel → {at} to fetch its drones",
-                            actions=[{"kind": "travel", "device": v["device_code"], "to": at}])
-            return done(stage, gate="drones aboard", next=f"{len(out_there)} drone(s) board the vessel",
-                        actions=[{"kind": "stow", "device": d["device_code"]} for d in out_there if d.get("location") == at])
+        g = fetch(v, devs, hub)   # every device outside the hub boards first (the survey left them at home), not only one
+        if g:
+            return done(stage, **g)
         if here != hub:
             return done(stage, gate=f"vessel at {hub}", next=f"vessel → {hub} with {len(drones)} drone(s) aboard",
                         actions=[{"kind": "travel", "device": v["device_code"], "to": hub}])
