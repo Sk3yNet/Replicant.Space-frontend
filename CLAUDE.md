@@ -103,9 +103,9 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   then flies the final leg to the body, live 2026-10-20); the app adds it (`hubroute.waypoints`).
 - Surge hop (game docs, owner 2026-10-22): inside a system a surge-capable device hops in seconds between surge-capable
   places (Oort, Kuiper, the entry point, a planet's L4/L5), then cruises the rest. A plain `travel` from an L-point to a
-  belt cruises all the way (499 AU, 57 min at ISOLITHOR); the job runner puts the hop in first (`_hop_first`).
-  Leaving a system, the game cruises to the entry point before surging; a surge from the Kuiper belt works too
-  (ISOLITHOR-BELT-1 → ISOBAREA: 3544 s by the entry point, 515 s by ISOLITHOR-KUIPER), so the runner cruises there first.
+  belt cruises all the way (499 AU, 57 min at ISOLITHOR). Leaving a system, the game cruises to the entry point before
+  surging. A `via` of such places works (owner's preview: ISOLITHOR-BELT-1 → ISOBAREA-2-L4 `via: ["ISOLITHOR-KUIPER"]`,
+  515 s instead of 3544 s); the job runner adds it to every trip (`_exit_via`).
 - An active propulsor must be deactivated before it can travel (recall after a diversion: deactivate, then travel).
 - Some blueprints need component devices (blueprint `components`, e.g. biosphere cultivator: 2 hydroponic bays, 1 nutrient
   synthesizer, 1 orbital farm). Without them the factory sits `waiting_for_resources` with

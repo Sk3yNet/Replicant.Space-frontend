@@ -775,14 +775,24 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             else:
                 if await self._let_off_riders(st, job):
                     continue   # other fleets' members get off first; this trip goes out after them
-                if await self._hop_first(st, job):
-                    continue   # a surge hop to the Oort / Kuiper / entry point nearest the destination goes first
                 far = await self._too_far(st) or await self._dark_destination(st, job)
                 if far:
                     ok, resp, err = False, None, far
                 else:
+                    exit_via = await self._exit_via(st, job)
                     await self._hub_via(st, job)
+                    if exit_via:   # the surge spots come first, then any hub waypoints
+                        st["body"]["via"] = exit_via + [x for x in st["body"].get("via") or [] if x not in exit_via]
                     ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
+                    if not ok and exit_via:   # refused: the route without the surge spots
+                        await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via)} refused ({err}); "
+                                                    "the game's own route", "warning")
+                        rest = [x for x in st["body"].get("via") or [] if x not in exit_via]
+                        st["body"].pop("via", None)
+                        if rest:
+                            st["body"]["via"] = rest
+                        st["exit_via"] = None
+                        ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
                     if not ok and st.get("hub_via"):   # the waypoint refused: the direct route, as planned
                         await self.log(job["rule"], f"{job['title']}: via {st['hub_via']} refused ({err}); going direct",
                                        "warning")
@@ -907,13 +917,6 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                 s2["seq0_from"] += 1
                         ok, st["note"] = True, f"{err} — loading what is there"
                         st["wait"] = []
-            if not ok and st.get("hop"):
-                # the game refused the surge hop: no wait for it, the planned trip goes as it was
-                ok, st["note"], st["wait"] = True, f"surge hop refused ({err}): cruising instead", []
-                nxt = job["steps"][job["idx"] + 1] if job["idx"] + 1 < len(job["steps"]) else {}
-                if nxt.get("method") == "WAIT" and nxt.get("status") == "pending":
-                    nxt["status"], nxt["note"] = "skipped", "no surge hop"
-                await self.log(job["rule"], f"{job['title']}: {st['note']}", "warning")
             if not ok and "already at destination" in (err or "").lower():
                 ok, st["note"] = True, err  # nothing to do: count it as done and move on
                 st["wait"] = []
@@ -1117,66 +1120,55 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         return ({x for x in mine if x.endswith(("-OORT", "-KUIPER"))} | ({entry} - {""}) |
                 {f"{p_}-{lp}" for p_ in planets for lp in ("L4", "L5")}), entry   # L4 / L5 too (owner 2026-10-22)
 
-    async def _hop_first(self, st: dict, job: dict) -> bool:
-        """Surge hops: a surge-capable device hops in seconds between a system's surge-capable places (_surge_spots),
-        then cruises the rest. Two cases get a leg put in before this trip (two steps: the trip, the wait):
-          • inside a system, from such a place: a hop to the one nearest the destination (Delta Force 2026-10-22: 499 AU,
-            57 min of cruise from ISOLITHOR-1-L4 to a belt next to the Kuiper belt);
-          • from anywhere else (a belt, a body): a short cruise to the nearest such place first, when the game would cruise
-            much further (leaving the system it cruises to the entry point: ISOLITHOR-BELT-1 → ISOBAREA took 3544 s by
-            ISOLITHOR-1-L4, 515 s by ISOLITHOR-KUIPER). This trip is looked at again once there, for a hop.
-        Each needs to save at least 30 AU and a quarter of the cruise. Returns whether steps were put in."""
-        from .fleets import _wait_arrive, cruise_au
+    async def _exit_via(self, st: dict, job: dict) -> list[str]:
+        """Surge hops (owner 2026-10-22): a surge-capable device hops in seconds between a system's surge-capable places
+        (_surge_spots), then cruises the rest, and the game routes through them when they're in the trip's `via`
+        (ISOLITHOR-BELT-1 → ISOBAREA via ISOLITHOR-KUIPER: 515 s, instead of 3544 s by a 499 AU cruise to the entry
+        point). The waypoints this trip gets, once, before it's first sent:
+          • from a belt or a body: the nearest such place, when the game would cruise much further (leaving the system,
+            it cruises to the entry point; inside it, to the destination);
+          • inside the system: then the one nearest the destination (Delta Force: 499 AU, 57 min from ISOLITHOR-1-L4 to
+            a belt next to the Kuiper belt).
+        Each needs to save at least 30 AU and a quarter of the cruise."""
+        from .fleets import cruise_au
         body, path = st.get("body") or {}, str(st.get("path") or "")
-        if body.get("command") != "travel" or st.get("hopped") or body.get("via") or not path.startswith("/devices/"):
-            return False
-        # looked at once, unless a short cruise to a surge spot went first: then once more from there, for a hop only
-        again = bool(st.pop("cruise_leg", None))
-        st["hopped"] = True
+        if (body.get("command") != "travel" or st.get("exit_checked") or body.get("via") or body.get("dry_run")
+                or not path.startswith("/devices/") or (job.get("meta") or {}).get("sim")):
+            return []
+        st["exit_checked"] = True
         code, dest = path.split("/")[2], str(body.get("destination") or "").upper()
         d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
         here = str(d.get("location") or "").upper()
         if "surge" not in (d.get("features") or []) or not here or here == dest:
-            return False
+            return []
         radii = await self.cruise_radii()
         hs = star_of(here)
         spots, entry = await self._surge_spots(hs, radii)
+        def gap(x: str, y: str) -> float:
+            return cruise_au(x, y, radii)
+        pos, via, saved_from = here, [], 0.0
         at_spot = here in spots or bool(re.fullmatch(rf"{re.escape(hs)}-\d+-L[45]", here))
-        leg, kind, after = None, "", 0.0
-        if at_spot and star_of(dest) == hs:
-            now_au = cruise_au(here, dest, radii)
-            hop = min(spots - {here}, key=lambda x: (cruise_au(x, dest, radii), x), default=None)
-            if hop and now_au - cruise_au(hop, dest, radii) >= max(30.0, now_au / 4):
-                leg, kind, after = hop, "surge hop", cruise_au(hop, dest, radii)
-        elif not at_spot and not again:
-            # where the game would cruise to: the entry point when leaving, else the destination itself (or, inside the
-            # system, whatever spot hops nearest it afterwards)
-            if star_of(dest) != hs:
-                now_au = cruise_au(here, entry, radii) if entry else 0.0
-                tail = 0.0
-            else:
-                now_au = cruise_au(here, dest, radii)
-                tail = min((cruise_au(x, dest, radii) for x in spots), default=now_au)
-            near = min(spots, key=lambda x: (cruise_au(here, x, radii), x), default=None)
-            if near and now_au - (cruise_au(here, near, radii) + tail) >= max(30.0, now_au / 4):
-                leg, kind, after = near, "short cruise to a surge spot", cruise_au(here, near, radii)
-                st.pop("hopped", None)   # once there, this trip may still hop
-                st["cruise_leg"] = True
-        if not leg:
-            return False
-        i = job["idx"]
-        add = [step(f"{code} → {leg} ({kind})", path, {"command": "travel", "destination": leg}), _wait_arrive(code, leg)]
-        add[0]["hop"] = add[0]["hopped"] = True
-        add[1]["seq0_from"] = i
-        for later in job["steps"][i:]:
-            if isinstance(later.get("seq0_from"), int) and later["seq0_from"] >= i:
-                later["seq0_from"] += 2
-        st["tries"], st["started_at"] = 0, None
-        job["steps"][i:i] = add
-        await self.log(job["rule"], f"{job['title']}: {kind} {here} → {leg} (≈{after:.0f} AU), then on to {dest} "
-                                    f"(instead of ≈{now_au:.0f} AU of cruise)")
-        await self._update(job)
-        return True
+        inside = star_of(dest) == hs
+        if not at_spot:
+            game = gap(here, entry) if not inside else gap(here, dest)
+            if not inside and not entry:
+                return []
+            near = min(spots, key=lambda x: (gap(here, x), x), default=None)
+            tail = min((gap(x, dest) for x in spots), default=game) if inside else 0.0
+            if near and game - (gap(here, near) + tail) >= max(30.0, game / 4):
+                via, pos, saved_from = [near], near, game
+        if inside and (via or at_spot):
+            now_au = gap(pos, dest)
+            hop = min(spots - {pos}, key=lambda x: (gap(x, dest), x), default=None)
+            if hop and now_au - gap(hop, dest) >= max(30.0, now_au / 4):
+                via.append(hop)
+                saved_from = saved_from or now_au
+        if via:
+            st["exit_via"] = via
+            st["desc"] += f" (surge hop via {', '.join(via)})"
+            await self.log(job["rule"], f"{job['title']}: {code} → {dest} via {', '.join(via)} (surge hop), instead of "
+                                        f"≈{saved_from:.0f} AU of cruise")
+        return via
 
     async def _too_far(self, st: dict) -> str | None:
         """The one check every automated trip goes through: a drone or AMI controller isn't sent on a long cruise inside

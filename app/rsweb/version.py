@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.216.2"
+VERSION = "1.216.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.216.3", "2026-10-22", "Surge hops go in the trip's own `via` (one travel command, as the game takes it) instead of "
+               "separate trips: the nearest surge spot when leaving from a belt or a body, then (inside a system) the spot "
+               "nearest the destination, before any hub waypoints. A refused `via` takes the game's own route."),
     ("1.216.2", "2026-10-22", "Surge hops on departures too: a surge-capable device at a belt or a body first cruises to the "
                "nearest surge spot (Oort, Kuiper, entry point, a planet's L4/L5) when the game would cruise much further — "
                "leaving a system it cruises to the entry point (ISOLITHOR-BELT-1 → ISOBAREA: 3544 s, by the Kuiper belt "

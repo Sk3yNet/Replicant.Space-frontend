@@ -20,7 +20,7 @@ def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1"):
 
     async def fake_send(method, path, body, label):
         sent.append(dict(body or {}))
-        if refuse_hop and body.get("destination") == "Z-KUIPER":
+        if refuse_hop and body.get("via"):
             return False, None, "Invalid destination"
         return True, {}, None
     e.send = fake_send
@@ -29,30 +29,29 @@ def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1"):
     return sent, next(j for j in client.portal.call(e.jobs) if j["id"] == job["id"])
 
 
-def test_a_long_cruise_from_the_entry_point_hops_to_the_kuiper_belt_first(client):
+def test_a_long_cruise_from_the_entry_point_goes_via_the_kuiper_belt(client):
     sent, job = _run(client)
-    assert sent == [{"command": "travel", "destination": "Z-KUIPER"}]                   # the hop, then wait for it
-    assert "surge hop" in job["steps"][0]["desc"] and job["steps"][1]["method"] == "WAIT"
-    assert job["steps"][2]["body"] == {"command": "travel", "destination": "Z-BELT-1"}
+    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]}]
+    assert "surge hop via Z-KUIPER" in job["steps"][0]["desc"] and len(job["steps"]) == 1
 
 
-def test_a_refused_hop_cruises_as_planned(client):
+def test_a_refused_via_takes_the_games_own_route(client):
     sent, job = _run(client, refuse_hop=True)
-    assert sent == [{"command": "travel", "destination": "Z-KUIPER"}, {"command": "travel", "destination": "Z-BELT-1"}]
-    assert job["steps"][1]["status"] == "skipped"
+    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]},
+                    {"command": "travel", "destination": "Z-BELT-1"}]
+    assert job["steps"][0]["status"] != "failed"
 
 
-def test_hops_from_any_l_point_but_not_from_a_body(client):
-    sent, _ = _run(client, at="Z-6-L5")                                                 # ≈100 AU: the Kuiper hop saves 95
-    assert sent[0] == {"command": "travel", "destination": "Z-KUIPER"}
-    sent, job = _run(client, at="Z-6")                                                  # a body: to its L-point first
-    assert sent == [{"command": "travel", "destination": "Z-6-L4"}] and "short cruise" in job["steps"][0]["desc"]
+def test_from_a_body_via_its_l_point_then_the_hop(client):
+    sent, _ = _run(client, at="Z-6-L5")
+    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]}]
+    sent, _ = _run(client, at="Z-6")
+    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-6-L4", "Z-KUIPER"]}]
 
 
-def test_leaving_from_a_belt_cruises_to_the_nearest_surge_spot_not_the_entry_point(client):
-    # ISOLITHOR 2026-10-22: belt → ISOBAREA took 3544 s by the entry point, 515 s by the Kuiper belt
-    sent, job = _run(client, at="Z-BELT-1", dest="Y-2-L4")
-    assert sent == [{"command": "travel", "destination": "Z-KUIPER"}]
-    assert job["steps"][2]["body"] == {"command": "travel", "destination": "Y-2-L4"}
+def test_leaving_from_a_belt_goes_via_the_nearest_surge_spot_not_the_entry_point(client):
+    # ISOLITHOR 2026-10-22: belt → ISOBAREA took 3544 s by the entry point, 515 s via the Kuiper belt
+    sent, _ = _run(client, at="Z-BELT-1", dest="Y-2-L4")
+    assert sent == [{"command": "travel", "destination": "Y-2-L4", "via": ["Z-KUIPER"]}]
     sent, _ = _run(client, at="Z-1-1", dest="Y-2-L4")                                   # next to the entry point: as it is
     assert sent == [{"command": "travel", "destination": "Y-2-L4"}]
