@@ -22,14 +22,17 @@ def test_waypoints_end_at_the_destination_star():
     assert hr.waypoints(["SOL-3"], "SOL-3-1") == ["SOL-3"]
 
 
-def _run(client, refuse_via=False):
+def _run(client, refuse_via=False, foreign_hub=False):
     from rsweb import automations as au
     e = eng(client)
     db = client.app.state.db
-    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": k, "position": v} for k, v in POS.items()]})
-    client.portal.call(db.kv_set, "devices", [{"device_code": "V1", "status": "idle", "location": "A-OORT"},
-                                               {"device_code": "H1", "device_type": "system_hub", "status": "active",
-                                                "location": "HUB-4-L4"}])
+    client.portal.call(db.kv_set, "stars", {"stars": [dict({"designation": k, "position": v},
+                                                           **({"has_hub": True} if foreign_hub and k == "HUB" else {}))
+                                                      for k, v in POS.items()]})
+    devs = [{"device_code": "V1", "status": "idle", "location": "A-OORT"}]
+    if not foreign_hub:
+        devs.append({"device_code": "H1", "device_type": "system_hub", "status": "active", "location": "HUB-4-L4"})
+    client.portal.call(db.kv_set, "devices", devs)
     sent = []
 
     async def fake_request(method, path, json_body=None, background=False):   # the game's preview: 50 s/ly, 25 % into a hub
@@ -59,3 +62,8 @@ def test_a_long_trip_goes_via_our_hub_when_faster(client):
 def test_a_refused_waypoint_falls_back_to_the_direct_route(client):
     sent, job = _run(client, refuse_via=True)
     assert sent[-1] == {"command": "travel", "destination": "B-3-L4"} and job["steps"][0]["status"] != "failed"
+
+
+def test_another_players_hub_counts_too(client):   # the catalog's has_hub, no hub of ours
+    sent, job = _run(client, foreign_hub=True)
+    assert sent == [{"command": "travel", "destination": "B-3-L4", "via": ["HUB", "B"]}]

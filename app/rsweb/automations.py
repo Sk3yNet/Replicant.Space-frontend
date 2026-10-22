@@ -1064,8 +1064,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         return any(x and in_transit(x, by) for x in (d, by.get(target or "")))
 
     async def _hub_via(self, st: dict, job: dict) -> None:
-        """A device's trip to another system goes through a hub of ours when the game's previews say that's enough
-        faster (hubroute.py): sets the step's `via` once, before it's first sent. Previews that fail leave it direct."""
+        """A device's trip to another system goes through a hub (ours or another player's: any star the catalog flags
+        has_hub) when the game's previews say that's enough faster (hubroute.py): sets the step's `via` once, before it's first sent. Previews that fail leave it direct."""
         from . import hubroute
         from . import wardhub as wh
         body = st.get("body") or {}
@@ -1077,11 +1077,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         code, dest = path.split("/")[2], str(body.get("destination") or "")
         devs = await self.devices()
         d = next((x for x in devs if x.get("device_code") == code), None) or {}
-        hubs = {star_of(x.get("location")) for x in devs if wh.is_hub(x) and wh.active(x)}
+        cat = await self.db.kv_get("stars", {}) or {}
+        recs = [x for x in cat.get("stars") or [] if isinstance(x, dict)]
+        # a hub slows every ship arriving in its system, whoever owns it (owner 2026-10-22)
+        hubs = ({star_of(x.get("location")) for x in devs if wh.is_hub(x) and wh.active(x)}
+                | {x["designation"] for x in recs if x.get("has_hub") and x.get("designation")})
         if not d.get("location") or not hubs:
             return
-        cat = await self.db.kv_get("stars", {}) or {}
-        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+        pos = {x.get("designation"): x.get("position") for x in recs}
         cands = hubroute.candidates(star_of(d["location"]), star_of(dest), hubs, pos)
         if not cands:
             return
@@ -1101,7 +1104,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         if best:
             body["via"], st["hub_via"] = hubroute.waypoints([best[0]], dest), best[0]
             st["desc"] += f" (via hub {best[0]})"
-            await self.log(job["rule"], f"{job['title']}: {code} → {dest} via your hub at {best[0]}: "
+            await self.log(job["rule"], f"{job['title']}: {code} → {dest} via the hub at {best[0]}: "
                                         f"{hubroute.hm(best[1])} instead of {hubroute.hm(direct)}")
 
     async def _dark_destination(self, st: dict, job: dict) -> str | None:

@@ -1,11 +1,11 @@
-"""Long trips through a hub of ours. Arriving in a system with our own hub is 25 % faster (live 2026-10-18: 37.5 s/ly
+"""Long trips through a hub. Arriving in a system with a hub is 25 % faster (live 2026-10-18: 37.5 s/ly
 on surges into FALQUORYX and SOLARES, 50 s/ly elsewhere; leaving a hub gains nothing, and the game's routing never
-picks one by itself). So before an automated device trip between systems, the hubs of ours that could shorten it are
+picks one by itself). Any player's hub does it, not just the owner's (owner 2026-10-22), so the hubs are ours plus every
+star the catalog flags has_hub. Before an automated device trip between systems, the hubs that could shorten it are
 tried as a waypoint (`via`): the game previews the direct route and the hub routes (dry_run), and the fastest hub
 route is taken when it saves at least MIN_SAVING_S and MIN_SAVING_PART of the direct time.
 
-Estimates (distance, a leg into a hub at 75 %) only choose which hubs to preview; the game's own times decide.
-Other players' hubs don't count (unconfirmed whether they speed us up)."""
+Estimates (distance, a leg into a hub at 75 %) only choose which hubs to preview; the game's own times decide."""
 from __future__ import annotations
 
 import math
@@ -13,7 +13,7 @@ from typing import Any
 
 from .pathing import xyz
 
-HUB_FACTOR = 0.75        # a leg that ends at a hub of ours
+HUB_FACTOR = 0.75        # a leg that ends at a hub (anyone's)
 MIN_LY = 15.0            # shorter trips can't save MIN_SAVING_S (≈ 50 s/ly)
 MIN_SAVING_S = 600.0     # 10 minutes
 MIN_SAVING_PART = 0.05   # and 5 % of the direct trip

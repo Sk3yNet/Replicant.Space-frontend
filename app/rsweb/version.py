@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.227.0"
+VERSION = "1.228.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.228.0", "2026-10-22", "Hub routing uses every hub, not just yours: any star the catalog flags has_hub is tried as "
+     "a waypoint on long automated trips (a hub speeds up every ship arriving in its system)."),
     ("1.227.0", "2026-10-22", "Blueprints: each device lists every other field the game sends with a value (relay range, "
      "print queue slots, strength, current hubs, and any field added later), zero and empty ones left out; the full "
      "description opens under the short one"),

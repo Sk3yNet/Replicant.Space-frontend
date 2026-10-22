@@ -335,8 +335,9 @@ is still travelling is retried every 5 min (up to 3 h) while it's still heading 
 an arrival somewhere else, or a carrier that turned back stops the job (a fleet mission stalls; *Retry* flies again), so
 nothing is deployed or unloaded anywhere but the destination.
 
-**Via your hubs**: arriving in a system with your own active hub is 25 % faster, and the game never routes through one
-by itself. Before an automated device trip of 15 ly or more to another system, up to two of your hubs that could shorten
+**Via hubs**: arriving in a system with a hub is 25 % faster, whoever owns it, and the game never routes through one
+by itself. Before an automated device trip of 15 ly or more to another system, up to two hubs (yours, or any star the
+catalog flags *hub*) that could shorten
 it are previewed as a waypoint (`via`, dry runs); the fastest is taken when it saves at least 10 min and 5 %. The step
 then reads *(via hub X)* and the log gives both times; if the game refuses the waypoint the trip goes direct. A trip to a body in another system gets that system's star as
 the last waypoint (the game requires it), for a `via` you type yourself too.
