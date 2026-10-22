@@ -130,7 +130,7 @@ rule with an on/off switch, plus the jobs and the log.
 - **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
 - **Systems list**: a *System tags* section at the bottom lists every tag in your cached system scans with the systems carrying it (hazardous ones in red); nearest first, by **distance** from the system picked under *distances from* (the same choices as Mining prospects; default: where most of your devices are); per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &
   relays* ticked) your ward, FTL relay and FTL beacon with *add* (activate an idle one there, else send a spare, else print
-  one in range; a relay is placed at an L4/L5 point) and *remove* (deactivate; it stays deployed) or *cancel* an order.
+  one in range; a relay is placed at an L4/L5 point) and *remove* (deactivate and mark spare) or *cancel* an order.
   ✦ marks a local civilization (green: your beacon is at its body). A beacon requested for such a system goes on to the
   civilization's body, carried by a vessel in the system.
 - **Star sizes**: the Galaxy and System maps draw each star by its radius (the scan's `radius_solar`, else the typical
@@ -143,7 +143,7 @@ rule with an on/off switch, plus the jobs and the log.
   *home*, and ⚑ marks systems where a fleet of yours is homed), with a **Ward** column — ⛨ yours / ⛨ theirs — and *add ward*
   (activates an idle ward of yours there, else sends a spare, else prints one in range on the autofactory with the shortest
   queue, then switches it on once deployed; a queued print gives way to a spare that turns up; 25-ward cap) / *remove*
-  (deactivates yours, it stays deployed, and drops a print not yet started). Surveyed checkboxes per body. *Other players here*: their
+  (deactivates yours, marks it spare, and drops a print not yet started). Surveyed checkboxes per body. *Other players here*: their
   fixed devices (beacons, relays, wards, hubs, factories, observatories, controllers) from the latest scan, also drawn on the
   map; a replicant arriving in a system scans it, or use *Scan for other devices*. Snapshots older than 7 days are dropped.
 - **Traffic**: civilization contact (a beacon must sit at the body of the civilization's event), visitors, each beacon's audit log,

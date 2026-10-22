@@ -296,7 +296,8 @@ class OpsRules:
 
     async def remove_outpost(self, kind: str, star: str, user: str = "") -> str:
         """Remove your ward / relay / beacon from `star`: cancel its order (and a print not started yet) and deactivate
-        yours there (it stays deployed; activate it again any time)."""
+        yours there and mark it spare (owner 2026-10-22), so a later add elsewhere can send it."""
+        from . import loadouts as lo
         from . import ward_orders as wo
         from . import wardhub as wh
         from .automations import step
@@ -320,11 +321,16 @@ class OpsRules:
         here = wo.ward_here(devices, star, dtype)
         if not here or not wh.active(here):
             return f"no active {label} of yours in {star}" + (f" (order canceled{dropped})" if order is not None else "")
-        await self.create_job("wards", f"deactivate {label} {here['device_code']} in {star}", here["device_code"],
-                              [step(f"deactivate {label} {here['device_code']}", f"/devices/{here['device_code']}",
-                                    {"command": "deactivate"})], {"devices": [here["device_code"]]}, force=True)
-        await self.log("wards", f"{star}: {label} {here['device_code']} deactivated" + (f" (by {user})" if user else ""))
-        return f"deactivating {here['device_code']} in {star} (it stays deployed)"
+        code = here["device_code"]
+        tags = here.get("tags") or []
+        rem = [t for t in tags if t.startswith(("home:", "at:", "to:"))]
+        job = await self.create_job("wards", f"deactivate {label} {code} in {star} and mark it spare", code,
+                                    [step(f"deactivate {label} {code}", f"/devices/{code}", {"command": "deactivate"}),
+                                     lo.tag_step(code, [lo.SPARE], rem or None)], {"devices": [code]}, force=True)
+        if job:
+            await self.remember_tags(code, sorted((set(tags) - set(rem)) | {lo.SPARE}))
+        await self.log("wards", f"{star}: {label} {code} deactivated and marked spare" + (f" (by {user})" if user else ""))
+        return f"deactivating {code} in {star} and marking it spare (the loadout pass may send it where one is needed)"
 
     # --- civilization beacons -------------------------------------------------------------------------------------
     async def civ_coverage(self) -> list[dict]:

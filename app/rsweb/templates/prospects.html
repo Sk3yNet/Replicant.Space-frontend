@@ -15,7 +15,7 @@
     <i>home</i>) but is never a mining mission's target. ⚑: a fleet of yours is homed there.
     <b>Ward:</b> ⛨ yours / ⛨ theirs. <i>Add ward</i> activates an idle ward of yours there, else sends a spare one, else prints
     one on the nearest autofactory in the supply range — then switches it on when it's deployed there (the game allows 25).
-    <i>Remove</i> deactivates yours (it stays deployed).</p>
+    <i>Remove</i> deactivates yours and marks it spare.</p>
   <table class="small">
     <tr><th>System</th><th class="num">Score</th><th>Ward</th><th>Richness · proven · staying · access</th><th>Why</th><th class="num">Distance</th></tr>
     {% for r in p.rows %}<tr{% if r.status != 'ok' %} class="muted"{% endif %}>
@@ -27,7 +27,7 @@
         {% elif wd.hub %}<span class="muted" title="your system hub: no ward alongside it">your hub</span>
         {% elif wd.active %}<span class="lv-done" title="{{ wd.mine }}">⛨ yours</span>
           <button class="small ghost" hx-post="/systems/{{ r.star }}/ward" hx-vals='{"action": "remove"}' hx-target="next .wd-out"
-            hx-confirm="Deactivate your ward {{ wd.mine }} in {{ r.star }}? It stays deployed; other players can mine there again.">remove</button>
+            hx-confirm="Deactivate your ward {{ wd.mine }} in {{ r.star }}? It is marked spare; other players can mine there again.">remove</button>
         {% elif wd.order %}<span class="pill small st-move" title="ordered {{ wd.order.at | ago }}">ward on its way ({{ wd.order.how }})</span>
           <button class="small ghost" hx-post="/systems/{{ r.star }}/ward" hx-vals='{"action": "remove"}' hx-target="next .wd-out">cancel</button>
         {% else %}{% if wd.mine %}<span class="muted" title="deployed, not active">{{ wd.mine }} idle</span> {% endif %}

@@ -368,6 +368,9 @@ def test_systems_page_requests_relays_and_beacons_and_lists_fleets(client):
     assert client.portal.call(db.kv_get, "relay_requests")["ABOTEIN"]["device"] == "RL1"
     r = client.post("/systems/SOL/ward", data={"action": "remove", "kind": "beacon"}, headers=HX)
     assert "deactivating BC1 in SOL" in r.text
+    job = next(j for j in client.portal.call(e.jobs) if "BC1 in SOL and mark it spare" in j["title"])
+    assert job["steps"][0]["body"] == {"command": "deactivate"}
+    assert job["steps"][1]["body"]["configuration"]["add_tags"] == ["spare"]
     r = client.post("/systems/ABOTEIN/ward", data={"action": "remove", "kind": "relay"}, headers=HX)
     assert "order canceled" in r.text and "ABOTEIN" not in client.portal.call(db.kv_get, "relay_requests")
 

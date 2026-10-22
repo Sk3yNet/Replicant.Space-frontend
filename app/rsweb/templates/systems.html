@@ -15,7 +15,7 @@
     <label style="text-transform:none" title="Systems lacking your relay, beacon or ward"><input type="checkbox" name="missing" value="1" {{ 'checked' if missing }} onchange="this.form.submit()">
       only systems missing one</label>
     <span class="muted"><i>add</i> activates an idle one of yours there, else sends a spare, else prints one in range;
-      <i>remove</i> deactivates yours (it stays deployed). Wards keep other players from mining there.</span>
+      <i>remove</i> deactivates yours and marks it spare. Wards keep other players from mining there.</span>
   </form>
   <table>
     <tr><th>System</th><th class="num">Devices</th><th title="⌂ homed here · → on a mission here">Fleets</th>
@@ -28,7 +28,7 @@
         {% for d in ds %}<a class="mono" href="/devices/{{ d.device_code }}" title="{{ d.location }} · {{ d.status }}">✓ {{ d.device_code }}</a>{{ ' ' if not loop.last }}{% else %}— none{% endfor %}
         {% set o = p.orders[k] %}<span style="white-space:nowrap">
         {% if p.working[k] %}<button class="small ghost" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "remove", "kind": "{{ k }}"}' hx-target="next .op-out"
-            hx-confirm="Deactivate your {{ outpost_kinds[k] }} in {{ s }}? It stays deployed.">remove</button>
+            hx-confirm="Deactivate your {{ outpost_kinds[k] }} in {{ s }} and mark it spare?">remove</button>
         {% elif o %}<span class="pill small st-move" title="ordered {{ o.at | ago }}">on its way ({{ o.how }})</span>
           <button class="small ghost" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "remove", "kind": "{{ k }}"}' hx-target="next .op-out">cancel</button>
         {% else %}<button class="small" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "add", "kind": "{{ k }}"}' hx-target="next .op-out">add</button>{% endif %}
