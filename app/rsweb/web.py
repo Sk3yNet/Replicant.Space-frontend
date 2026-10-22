@@ -506,16 +506,31 @@ async def p_news(request: Request, refresh: str = "", user: str = Depends(curren
 
 
 @router.get("/partials/backlog", response_class=HTMLResponse)
-async def p_backlog(request: Request, hours: int = 168, user: str = Depends(current_user)):
-    """Dashboard › Logistics backlog: what's waiting on logistics over time (metrics.py, sampled every 10 minutes)."""
+async def p_backlog(request: Request, hours: int = 168, card: str = "backlog", user: str = Depends(current_user)):
+    """Dashboard › Logistics backlog and Trends: what's waiting on logistics, and the account's shape, over time
+    (metrics.py, sampled every 10 minutes)."""
     from . import metrics
     hours = hours if hours in (48, 168, 720) else 168
     s = await metrics.series(request.app.state.db, hours)
-    charts = [("Resources not in a receiving stockpile", {"in other stockpiles": s["res_away"], "in logistics holds": s["res_holds"]}),
-              ("Devices waiting to be moved", {"waiting": s["dev_waiting"]}),
-              ("Logistics requests", {"open": s["req_open"], "unmet": s["req_unmet"]})]
-    return partial(request, "partials/backlog.html", hours=hours,
-                   charts=[(title, metrics.chart(lines, hours)) for title, lines in charts])
+    g = lambda k: s.get(k) or []  # noqa: E731
+    if card == "trends":
+        charts = [("Devices by fleet role", {k[5:]: v for k, v in sorted(s.items()) if k.startswith("role:") and v}),
+                  ("Mining output per hour (estimate)", {k[5:]: v for k, v in sorted(s.items()) if k.startswith("mine:") and v
+                                                         and any(x for _, x in v)}),
+                  ("Systems you can command", {"commandable": g("cmd_systems"), "relay network": g("relay_systems")})]
+        title = "Trends"
+    else:
+        charts = [("Resources not in a receiving stockpile", {"in other stockpiles": g("res_away"), "in logistics holds": g("res_holds")}),
+                  ("Devices waiting to be moved", {"waiting": g("dev_waiting")}),
+                  ("Logistics requests", {"open": g("req_open"), "unmet": g("req_unmet")}),
+                  ("Request age, hours", {"oldest": g("req_age_max_h"), "median": g("req_age_med_h"),
+                                          "lead time (24 h median)": g("lead_med_h")}),
+                  ("Logistics carriers, %", {"busy": g("carriers_busy_pct"), "hold fill on trips": g("hold_fill_pct")}),
+                  ("Missions and orders", {"stalled missions": g("missions_stalled"), "auto-retrying": g("missions_retrying"),
+                                           "orders expired (24 h)": g("expired_24h")})]
+        title = "Logistics backlog"
+    return partial(request, "partials/backlog.html", hours=hours, card=card, title=title,
+                   charts=[(t, metrics.chart(lines, hours)) for t, lines in charts])
 
 
 @router.get("/partials/story", response_class=HTMLResponse)

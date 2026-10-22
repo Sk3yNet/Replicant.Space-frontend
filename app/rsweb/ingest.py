@@ -704,7 +704,16 @@ class Worker:
 
     async def sync_inventory(self) -> None:
         locs = normalize_inventory(await self.api.paged("/inventory", "locations"))
+        before = await self.db.kv_get("inventory", []) or []
         await self.db.kv_set("inventory", locs)
+        try:   # Dashboard › Trends: mining output per hour (metrics.mining_gain)
+            from . import metrics
+            mining = await self.db.kv_derived("devices", "mining_locs", lambda ds: {
+                d.get("location") for d in ds or [] if isinstance(d, dict) and str(d.get("status") or "").startswith("mining")}, set())
+            await metrics.mining_gain(self.db, {i.get("location"): i.get("items") or {} for i in before},
+                                      {i.get("location"): i.get("items") or {} for i in locs}, mining)
+        except Exception as e:   # a chart never stops the inventory sync
+            log.warning("mining gain failed: %s", e)
         totals: dict[str, float] = defaultdict(float)
         for loc in locs:
             for k, v in loc["items"].items():

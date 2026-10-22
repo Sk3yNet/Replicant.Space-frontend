@@ -930,9 +930,30 @@ def test_logistics_pass_samples_the_backlog_for_the_dashboard(client):  # noqa: 
     db, e = client.app.state.db, eng(client)
     test_logistics_pass_sends_a_job_for_a_waiting_print(client)
     rows = client.portal.call(db.fetchall, "SELECT metric, value FROM metric_history")
-    assert {r["metric"] for r in rows} == {"res_away", "res_holds", "dev_waiting", "req_open", "req_unmet"}
+    got = {r["metric"] for r in rows}
+    assert {"res_away", "res_holds", "dev_waiting", "req_open", "req_unmet", "req_age_max_h", "lead_med_h",
+            "carriers_busy_pct", "missions_stalled", "expired_24h", "role:logistics", "cmd_systems", "relay_systems"} <= got
     client.portal.call(e.logistics_pass, True)   # within ten minutes: no second sample
-    assert len(client.portal.call(db.fetchall, "SELECT * FROM metric_history")) == 5
+    assert len(client.portal.call(db.fetchall, "SELECT * FROM metric_history")) == len(rows)
+    assert "Devices by fleet role" in client.get("/partials/backlog?card=trends", headers=HX).text
     assert 'hx-get="/partials/backlog"' in open(__import__("pathlib").Path(__file__).parents[1] / "rsweb/templates/dashboard.html").read()
     page = client.get("/partials/backlog?hours=48", headers=HX).text
     assert "Resources not in a receiving stockpile" in page and "Devices waiting to be moved" in page and "<polyline" in page
+
+
+def test_request_ages_lead_times_carriers_roles_and_mining_gains():
+    from rsweb import metrics
+    t0 = datetime(2026, 10, 22, tzinfo=timezone.utc)
+    st = metrics.track(None, {"a", "b"}, t0)
+    st = metrics.track(st, {"b", "c"}, t0 + timedelta(hours=3))      # a closed after 3 h
+    a = metrics.ages(st, t0 + timedelta(hours=4))
+    assert a == {"req_age_max_h": 4.0, "req_age_med_h": 2.5, "lead_med_h": 3.0}
+    cs = [{"device_code": "X", "cargo_capacity": 100, "cargo": {"carbon": 50}}, {"device_code": "Y", "cargo_capacity": 100}]
+    assert metrics.carrier_use(cs, {"X"}) == {"carriers_busy_pct": 50.0, "hold_fill_pct": 50.0}
+    fleets = [{"id": "cab", "role": "logistics"}, {"id": "home", "role": "mining", "mission": {"status": "stalled",
+                                                                                                "auto_retry": {"at": "x"}}}]
+    devs = [dev("A", "hauler", "A-1"), dev("B", "mining_drone", "A-1", tags=["fleet:home"]), dev("C", "x", "A-1", tags=[])]
+    assert metrics.roles(fleets, devs) == {"role:logistics": 1, "role:mining": 1, "role:none": 1}
+    assert metrics.missions(fleets) == {"missions_stalled": 1, "missions_retrying": 1}
+    g = metrics.pile_gains({"A-1": {"carbon": 10, "rares": 5}}, {"A-1": {"carbon": 25, "rares": 2}, "B-1": {"carbon": 99}}, {"A-1"})
+    assert g == {"carbon": 15}

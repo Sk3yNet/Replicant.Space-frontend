@@ -1,15 +1,16 @@
-<div class="row between"><h2>Logistics backlog</h2>
-  <span class="row small">{% for h, lbl in ((48, '2d'), (168, '7d'), (720, '30d')) %}{% if h == hours %}<b>{{ lbl }}</b>{% else %}<a href="#" hx-get="/partials/backlog?hours={{ h }}" hx-target="#backlog">{{ lbl }}</a>{% endif %}{% endfor %}</span></div>
-{% for title, c in charts %}
+<div class="row between"><h2>{{ title }}</h2>
+  <span class="row small">{% for h, lbl in ((48, '2d'), (168, '7d'), (720, '30d')) %}{% if h == hours %}<b>{{ lbl }}</b>{% else %}<a href="#" hx-get="/partials/backlog?card={{ card }}&hours={{ h }}" hx-target="#{{ card }}">{{ lbl }}</a>{% endif %}{% endfor %}</span></div>
+{% for t, c in charts %}
 <div class="bl-chart">
-  <div class="row between small"><span>{{ title }}</span>
-    <span>{% for name, l in c.lines.items() %}<span class="bl-key bl-{{ loop.index }}">{{ name }}</span> <b class="mono">{{ l.last | num if l.last is not none else '—' }}</b>{% if l.first is not none and l.last is not none and l.last != l.first %} <span class="muted mono" title="change over the period">({{ '+' if l.last > l.first else '' }}{{ (l.last - l.first) | num }})</span>{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</span></div>
-  {% if c.empty %}<p class="muted small">No samples yet: the logistics pass records one every 10 minutes.</p>{% else %}
-  <svg class="bl-svg" viewBox="0 0 {{ c.w }} {{ c.h }}" preserveAspectRatio="none" role="img" aria-label="{{ title }}">
+  <div class="small">{{ t }}</div>
+  <div class="small">{% for name, l in c.lines.items() %}<span class="bl-key bl-{{ loop.index0 % 7 + 1 }}">{{ name }}</span> <b class="mono">{{ l.last | num if l.last is not none else '—' }}</b>{% if l.first is not none and l.last is not none and l.last != l.first %} <span class="muted mono" title="change over the period">({{ '+' if l.last > l.first else '' }}{{ (l.last - l.first) | num }})</span>{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+  {% if c.empty %}<p class="muted small">No samples yet: one is taken every 10 minutes.</p>{% else %}
+  <svg class="bl-svg" viewBox="0 0 {{ c.w }} {{ c.h }}" preserveAspectRatio="none" role="img" aria-label="{{ t }}">
     <line class="bl-base" x1="0" y1="{{ c.h - 1 }}" x2="{{ c.w }}" y2="{{ c.h - 1 }}"/>
-    {% for name, l in c.lines.items() %}{% if l.points %}<polyline class="bl-{{ loop.index }}" points="{{ l.points }}"><title>{{ name }}</title></polyline>{% endif %}{% endfor %}
+    {% for name, l in c.lines.items() %}{% if l.points %}<polyline class="bl-{{ loop.index0 % 7 + 1 }}" points="{{ l.points }}"><title>{{ name }}</title></polyline>{% endif %}{% endfor %}
   </svg>
   <div class="row between muted small"><span>{{ hours // 24 }} days ago</span><span>top {{ c.top | num }}</span><span>now</span></div>{% endif %}
 </div>
 {% endfor %}
-<p class="muted small">Rising lines mean logistics is falling behind. <a href="/fleets/logistics">Fleets › Logistics</a></p>
+{% if card == 'backlog' %}<p class="muted small">Rising lines mean logistics is falling behind. <a href="/fleets/logistics">Fleets › Logistics</a></p>
+{% else %}<p class="muted small">Mining output is what piles where something mines gained between stockpile polls: a delivery there adds to it, a pick-up there hides that poll's gain.</p>{% endif %}

@@ -236,3 +236,15 @@ svg.system .scan-beam { fill: #8fd8ff; opacity: .35; animation: scan-pulse 1.6s 
 .tf-switch input:checked + span::before { transform: translateX(16px); }
 .tf-switch.pending span { opacity: .6; outline: 1px dashed var(--warn); outline-offset: 1px; }
 .tf-set.pending input[type=range] { opacity: .6; outline: 1px dashed var(--warn); outline-offset: 1px; }
+.dash-cards > .card { position: relative; }
+.dash-cards > .card.wide { grid-column: 1 / -1; }
+.card-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 2px; opacity: .35; z-index: 2; }
+.card:hover > .card-tools, .card-tools:focus-within { opacity: 1; }
+.card-tools button { padding: 0 5px; font-size: 12px; line-height: 18px; min-width: 0; }
+.card-tools [data-act="drag"] { cursor: grab; }
+.dash-cards > .card > :not(.card-tools):first-of-type, .dash-cards > .card > .card-tools + * { padding-right: 104px; }
+.dash-cards > .card.folded > :not(.card-tools) ~ :not(.card-tools) { display: none; }
+.dash-cards > .card.folded .card-tools [data-act="fold"] { transform: rotate(-90deg); }
+.dash-cards > .card.folded > :not(.card-tools) { margin-bottom: 0; }
+.dash-cards > .card.dragging { opacity: .5; }
+@media (pointer: coarse) { .card-tools { opacity: .8; } .card-tools [data-act="drag"] { display: none; } }

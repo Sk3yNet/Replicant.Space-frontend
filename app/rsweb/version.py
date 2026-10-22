@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.231.0"
+VERSION = "1.232.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.232.0", "2026-10-22", "Dashboard: cards can be reordered (drag the handle, or the arrows) and folded, remembered per "
+     "browser; Achievements moved to the bottom. Logistics backlog adds request age and lead time, carrier use and hold fill, "
+     "stalled / auto-retrying missions and expired orders; a new Trends card shows devices by fleet role, mining output per "
+     "hour (estimated from pile gains where something mines) and systems you can command / your relay network covers."),
     ("1.231.0", "2026-10-22", "Dashboard: Logistics backlog card, sampled every 10 minutes and kept 30 days (2d / 7d / 30d): "
      "resources not in a receiving stockpile (other piles, logistics holds), devices waiting to be moved (strays, to: / at: "
      "devices not there yet, rescues), and open / unmet logistics requests."),

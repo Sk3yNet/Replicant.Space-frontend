@@ -210,6 +210,8 @@ class OpsRules:
                 if wo.expired(o):
                     orders.pop(star)
                     changed = True
+                    from . import metrics
+                    await metrics.note(self.db, "expired")
                     await self.log("wards", f"{star}: {label} order dropped — none got there in {wo.EXPIRE_DAYS} days",
                                    "alert", notify=True)
                     continue

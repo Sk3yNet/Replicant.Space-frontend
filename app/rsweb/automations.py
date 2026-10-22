@@ -4039,24 +4039,40 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         await self.db.kv_set(lg.KV_PICKUPS, pickups)
         await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": p["requests"], "runs": p["runs"], "unmet": p["unmet"],
                                            "fleet_devices": p["fleet_devices"], "reserve": p["reserve"]})
-        await self.sample_backlog(items, devices, inv_raw, drop_raw, busy, p)
+        await self.sample_backlog(items, devices, inv_raw, drop_raw, busy, p, bps, reps)
         for line in out:
             await self.log("logistics", line)
         return out
 
     async def sample_backlog(self, items: list[dict], devices: list[dict], inv: dict, drop: Any, busy: set[str],
-                             p: dict) -> None:
-        """Dashboard › Logistics backlog (metrics.py): one sample every ten minutes, from what the pass has in hand."""
-        from . import logistics as lg, metrics
+                             p: dict, bps: dict, reps: dict) -> None:
+        """Dashboard › Logistics backlog and Trends (metrics.py): request ages every pass, a sample every ten minutes."""
+        from . import logistics as lg, metrics, relaynet
         from .fleets import strays
         try:
+            now = _now()
+            jobs_req = {str((j.get("meta") or {}).get("logistics", {}).get("req")) for j in await self.jobs()
+                        if j.get("rule") == "logistics" and j.get("status") in ("running", "waiting")
+                        and (j.get("meta") or {}).get("logistics", {}).get("req")}
+            track = metrics.track(await self.db.kv_get(metrics.KV_TRACK, {}),
+                                  {r["id"] for r in p["requests"] if not r.get("skipped")} | jobs_req, now)
+            await self.db.kv_set(metrics.KV_TRACK, track)
             if not await metrics.due(self.db):
                 return
             receiving = {drop(f["home"]) for f in items if f.get("home") and (f.get("station") or f.get("materials") == "self")}
-            await metrics.record(self.db, metrics.backlog(
-                inventory=inv, receiving=receiving, carriers=lg.fleet_devices(items, devices), devices=devices,
-                strays=strays(items, devices, busy), fleet_homes={f["id"]: f.get("home") or "" for f in items if f.get("id")},
-                requests=p["requests"], unmet=p["unmet"]))
+            carriers = lg.fleet_devices(items, devices)
+            pos = await self.star_lookup("pos")
+            cov = relaynet.coverage(relaynet.networks(devices, pos, bps), pos, relaynet.replicant_stars(reps, devices))
+            relay = set().union(*[cov["covered"].get(i, set()) for i in cov["active"]]) if cov["active"] else set()
+            await metrics.record(self.db, {
+                **metrics.backlog(inventory=inv, receiving=receiving, carriers=carriers, devices=devices,
+                                  strays=strays(items, devices, busy),
+                                  fleet_homes={f["id"]: f.get("home") or "" for f in items if f.get("id")},
+                                  requests=p["requests"], unmet=p["unmet"]),
+                **metrics.ages(track, now), **metrics.carrier_use(carriers, busy), **metrics.missions(items),
+                "expired_24h": await metrics.noted(self.db, "expired", now), **metrics.roles(items, devices),
+                **await metrics.mining_rates(self.db, now),
+                "cmd_systems": len(cov["commandable"] - relaynet.dark_stars(devices)), "relay_systems": len(relay)})
         except Exception as e:   # a chart sample never stops logistics
             log.warning("backlog sample failed: %s", e)
 

@@ -109,3 +109,67 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
     if (busy && t && t.id === busy) { e.detail.shouldSwap = false; held = true; }
   });
 })();
+
+// Dashboard cards: reorder (drag the ⠿ handle, or ▲ ▼) and fold (▾); both remembered in this browser.
+(function () {
+  const KO = "dash:order", KC = "dash:folded";
+  const get = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
+  const put = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const cards = box => [...box.children].filter(c => c.dataset && c.dataset.card);
+  const save = box => put(KO, cards(box).map(c => c.dataset.card));
+  function tools(card) {
+    if (card.querySelector(":scope > .card-tools")) return;
+    const t = document.createElement("span");
+    t.className = "card-tools";
+    t.innerHTML = '<button type="button" class="ghost" data-act="drag" title="Drag to move">⠿</button>' +
+      '<button type="button" class="ghost" data-act="up" title="Move up">▲</button>' +
+      '<button type="button" class="ghost" data-act="down" title="Move down">▼</button>' +
+      '<button type="button" class="ghost" data-act="fold" title="Fold / unfold">▾</button>';
+    card.prepend(t);
+  }
+  function init() {
+    const box = document.getElementById("dash-cards");
+    if (!box) return;
+    const order = get(KO, []), folded = get(KC, []);
+    const orig = cards(box), by = Object.fromEntries(orig.map(c => [c.dataset.card, c]));
+    if (order.some(id => by[id])) {
+      order.filter(id => by[id]).forEach(id => box.appendChild(by[id]));
+      orig.forEach((c, i) => {   // a card that's new since the order was saved: after the card it follows in the page
+        if (order.includes(c.dataset.card)) return;
+        const prev = orig.slice(0, i).reverse().find(p => p !== c);
+        box.insertBefore(c, prev ? prev.nextElementSibling : box.firstElementChild);
+      });
+    }
+    cards(box).forEach(c => { tools(c); c.classList.toggle("folded", folded.includes(c.dataset.card)); });
+    box.addEventListener("click", e => {
+      const b = e.target.closest(".card-tools button"); if (!b) return;
+      const c = b.closest(".card"), act = b.dataset.act;
+      if (act === "fold") {
+        c.classList.toggle("folded");
+        put(KC, cards(box).filter(x => x.classList.contains("folded")).map(x => x.dataset.card));
+      } else if (act === "up" && c.previousElementSibling) { box.insertBefore(c, c.previousElementSibling); save(box); }
+      else if (act === "down" && c.nextElementSibling) { box.insertBefore(c.nextElementSibling, c); save(box); }
+    });
+    let dragged = null;
+    box.addEventListener("pointerdown", e => {
+      const b = e.target.closest('.card-tools [data-act="drag"]'); if (b) b.closest(".card").draggable = true;
+    });
+    box.addEventListener("dragstart", e => { dragged = e.target.closest(".card"); dragged && dragged.classList.add("dragging"); });
+    box.addEventListener("dragover", e => {
+      const over = e.target.closest(".card");
+      if (!dragged || !over || over === dragged || over.parentNode !== box) return;
+      e.preventDefault();
+      const r = over.getBoundingClientRect();
+      const after = (e.clientX - r.left) / r.width + (e.clientY - r.top) / r.height > 1;
+      box.insertBefore(dragged, after ? over.nextElementSibling : over);
+    });
+    box.addEventListener("dragend", () => {
+      if (dragged) { dragged.classList.remove("dragging"); dragged.draggable = false; dragged = null; save(box); }
+    });
+    // a card refreshed by htmx loses its tools: put them back
+    document.addEventListener("htmx:afterSwap", e => { const c = e.detail.target; if (c && c.dataset && c.dataset.card) tools(c); });
+    const reset = document.getElementById("dash-reset");
+    if (reset) reset.addEventListener("click", e => { e.preventDefault(); put(KO, []); put(KC, []); location.reload(); });
+  }
+  document.addEventListener("DOMContentLoaded", init);
+})();
