@@ -118,7 +118,9 @@ svg.system .marker:hover circle { stroke: #fff; }
 #map-panel:not([open]) { width: auto; padding: 4px 10px; }
 #map-layers { flex-basis: 100%; }
 #map-layers:not([open]) { flex-basis: auto; }
-#map-layers .layers { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; background: rgba(11,15,23,.8); padding: 6px 8px; border-radius: 6px; }
+#map-layers .layers { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; background: rgba(11,15,23,.8); padding: 6px 8px; border-radius: 6px; }
+#map-layers .layer-group { display: flex; gap: 4px 8px; flex-wrap: wrap; align-items: baseline; }
+#map-layers .layer-head { flex-basis: 100%; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8aa0c0; }
 .map-fold > summary { user-select: none; }
 #map-layers > summary { display: inline-block; background: rgba(11,15,23,.8); padding: 4px 8px; border-radius: 6px; }
 #map-tools { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60%; }

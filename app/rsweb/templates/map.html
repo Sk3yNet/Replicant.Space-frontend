@@ -18,31 +18,40 @@
     <details id="map-layers" class="map-fold">
       <summary>layers</summary>
       <div class="layers">
-      <label><input type="checkbox" id="opt-labels" checked> labels</label>
-      <label><input type="checkbox" id="opt-mine"> only my systems</label>
-      <label title="Each galactic region gets its own background color; the region the view is centered on has none, the others fade in with distance"><input type="checkbox" id="opt-regions" checked> region colors</label>
-      <label><input type="checkbox" id="opt-cover"> relay/hub range</label>
-      <label title="Your relay networks (Map › Relays): one color per network, solid when active (a replicant within reach), dashed when not; white rings: relays on order; red rings: a relay of yours switched off (in a system no network reaches); dashed gray: suggested bridges"><input type="checkbox" id="opt-relaynet"> relay network</label>
-      <label><input type="checkbox" id="opt-moving" checked> in transit</label>
-      <label><input type="checkbox" id="opt-fleets" checked> fleets</label>
-      <label><input type="checkbox" id="opt-supply" checked> supply lines</label>
-      <label><input type="checkbox" id="opt-production" checked> mining</label>
-      <label><input type="checkbox" id="opt-prospect" checked> prospecting</label>
-      <label title="Other players' fixed devices and their arrivals / departures at your beacons; fades with distance from the view's center"><input type="checkbox" id="opt-others" checked> other players</label>
-      <label title="The replicant you follow on Map › Trail"><input type="checkbox" id="opt-trail" checked> trail</label>
-      <span class="small muted">markers:</span>
-      <label title="Systems with your devices (blue square, left of the star)"><input type="checkbox" id="opt-mark-devices" checked> mine</label>
-      <label title="Scanned systems (green dotted ring)"><input type="checkbox" id="opt-mark-scanned" checked> scanned</label>
-      <label title="Systems with a hub (gold three-spoke node, upper left of the star)"><input type="checkbox" id="opt-mark-hub" checked> hubs</label>
-      <label title="Where your replicants are (pink diamond, above the star)"><input type="checkbox" id="opt-mark-replicant" checked> replicants</label>
-      <label title="Stars your observatories found, not scanned yet (yellow starburst, below the star)"><input type="checkbox" id="opt-mark-found" checked> new finds</label>
-      <label title="Stars an observatory prospected from (cyan corner brackets)"><input type="checkbox" id="opt-mark-prospected" checked> prospected from</label>
-      <label title="Systems you ward (a shield in your color; other players' wards are coral)"><input type="checkbox" id="opt-mark-ward" checked> my wards</label>
-      <label title="Megastructures (a violet hexagon below the star): from system scans, your contributions and the MIRFAKA datacenter"><input type="checkbox" id="opt-mark-mega" checked> megastructures</label>
-      <label title="Systems being surveyed: a wave runs out from the star"><input type="checkbox" id="opt-mark-survey" checked> surveying</label>
-      <label title="Systems whose scan tags them resource rich (an orange gem, lower left of the star)"><input type="checkbox" id="opt-mark-rich" checked> resource rich</label>
-      <label title="Systems whose scan tags an anomaly (a magenta spiral, upper right of the star)"><input type="checkbox" id="opt-mark-anomaly" checked> anomalies</label>
-      <label title="Systems whose scan tags them hazardous, or that an incoming object still threatens (Defence): a red haze pulses around the star"><input type="checkbox" id="opt-mark-hazard" checked> hazards</label>
+      <div class="layer-group"><span class="layer-head">View</span>
+        <label><input type="checkbox" id="opt-labels" checked> labels</label>
+        <label><input type="checkbox" id="opt-mine"> only my systems</label>
+      </div>
+      <div class="layer-group"><span class="layer-head">Clouds &amp; glows</span>
+        <label title="Each galactic region gets its own background color; the region the view is centered on has none, the others fade in with distance"><input type="checkbox" id="opt-regions" checked> region colors</label>
+        <label title="Systems whose scan tags them hazardous, or that an incoming object still threatens (Defence): a red haze pulses around the star"><input type="checkbox" id="opt-mark-hazard" checked> hazards</label>
+        <label><input type="checkbox" id="opt-production" checked> mining</label>
+      </div>
+      <div class="layer-group"><span class="layer-head">Rings &amp; waves</span>
+        <label><input type="checkbox" id="opt-cover"> relay/hub range</label>
+        <label title="Scanned systems (green dotted ring)"><input type="checkbox" id="opt-mark-scanned" checked> scanned</label>
+        <label title="Systems being surveyed: a wave runs out from the star"><input type="checkbox" id="opt-mark-survey" checked> surveying</label>
+        <label><input type="checkbox" id="opt-prospect" checked> prospecting</label>
+        <label title="Other players' fixed devices and their arrivals / departures at your beacons; fades with distance from the view's center"><input type="checkbox" id="opt-others" checked> other players</label>
+      </div>
+      <div class="layer-group"><span class="layer-head">Lines</span>
+        <label title="Your relay networks (Map › Relays): one color per network, solid when active (a replicant within reach), dashed when not; white rings: relays on order; red rings: a relay of yours switched off (in a system no network reaches); dashed gray: suggested bridges"><input type="checkbox" id="opt-relaynet"> relay network</label>
+        <label><input type="checkbox" id="opt-moving" checked> in transit</label>
+        <label><input type="checkbox" id="opt-fleets" checked> fleets</label>
+        <label><input type="checkbox" id="opt-supply" checked> supply lines</label>
+        <label title="The replicant you follow on Map › Trail"><input type="checkbox" id="opt-trail" checked> trail</label>
+      </div>
+      <div class="layer-group"><span class="layer-head">Icons</span>
+        <label title="Systems with your devices (blue square, left of the star)"><input type="checkbox" id="opt-mark-devices" checked> mine</label>
+        <label title="Where your replicants are (pink diamond, above the star)"><input type="checkbox" id="opt-mark-replicant" checked> replicants</label>
+        <label title="Systems with a hub (gold three-spoke node, upper left of the star)"><input type="checkbox" id="opt-mark-hub" checked> hubs</label>
+        <label title="Systems you ward (a shield in your color; other players' wards are coral)"><input type="checkbox" id="opt-mark-ward" checked> my wards</label>
+        <label title="Stars your observatories found, not scanned yet (yellow starburst, below the star)"><input type="checkbox" id="opt-mark-found" checked> new finds</label>
+        <label title="Stars an observatory prospected from (cyan corner brackets)"><input type="checkbox" id="opt-mark-prospected" checked> prospected from</label>
+        <label title="Megastructures (a violet hexagon below the star): from system scans, your contributions and the MIRFAKA datacenter"><input type="checkbox" id="opt-mark-mega" checked> megastructures</label>
+        <label title="Systems whose scan tags them resource rich (an orange gem, lower left of the star)"><input type="checkbox" id="opt-mark-rich" checked> resource rich</label>
+        <label title="Systems whose scan tags an anomaly (a magenta spiral, upper right of the star)"><input type="checkbox" id="opt-mark-anomaly" checked> anomalies</label>
+      </div>
       </div>
     </details>
   </div>
