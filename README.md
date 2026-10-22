@@ -132,7 +132,8 @@ rule with an on/off switch, plus the jobs and the log.
   relays* ticked) your ward, FTL relay and FTL beacon with *add* (activate an idle one there, else send a spare, else print
   one in range; a relay is placed at an L4/L5 point) and *remove* (deactivate and mark spare) or *cancel* an order.
   ✦ marks a local civilization (green: your beacon is at its body). A beacon requested for such a system goes on to the
-  civilization's body, carried by a vessel in the system.
+  civilization's body, carried by a vessel in the system; with several civilizations, each body gets its own beacon
+  (Add stays offered until all have one).
 - **Star sizes**: the Galaxy and System maps draw each star by its radius (the scan's `radius_solar`, else the typical
   radius of its spectral class, giants ten times that); the star's details say which.
 - **System page**: a top-down map with your devices, stockpiles, sites and salvage. Three cards: **Resources** (per

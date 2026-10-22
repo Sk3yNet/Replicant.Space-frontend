@@ -1559,6 +1559,7 @@ async def systems(request: Request, origin: str = "", user: str = Depends(curren
         p["civ"] = [{"location": x, "beacon": x in beacon_at} for x in wo.civ_places(cov, s)]   # local civilization bodies
         p["orders"] = {k: orders[k].get(s) for k in wo.KINDS}
         p["working"] = {k: any(wh.active(d) for d in p["outposts"][k]) for k in wo.KINDS}
+        p["civ_gap"] = [c["location"] for c in p["civ"] if not c["beacon"]] if p["civ"] else []
     return await page(request, user, "systems.html", "systems", rows=out_rows, known=known, show_outposts=show or missing,
                       missing=missing, outpost_kinds=outposts.LABELS, origin=origin, origins=origins,
                       system_tags=system_tags)

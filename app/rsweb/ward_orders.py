@@ -88,6 +88,21 @@ def civ_places(rows: list[dict], star: str) -> list[str]:
     return ev + life
 
 
+def civ_missing(devices: list[dict], civ: list[str], dtype: str = "ftl_beacon") -> list[str]:
+    """The civilization bodies (civ_places) without a working one of yours: each civilization needs its own beacon at
+    its body (two in a system get two)."""
+    up = {d.get("location") for d in devices if d.get("device_type") == dtype and wh.active(d)}
+    return [c for c in civ if c not in up]
+
+
+def loose_here(devices: list[dict], star: str, civ: list[str], dtype: str = "ftl_beacon") -> dict | None:
+    """One of yours deployed in `star` but not at a civilization body: the next one to move on to a body still
+    missing one (a beacon already at a body stays there)."""
+    ws = [d for d in devices if d.get("device_type") == dtype and wh.deployed(d) and star_of(d.get("location")) == star
+          and d.get("location") not in civ]
+    return sorted(ws, key=lambda d: (not wh.active(d), d.get("device_code") or ""))[0] if ws else None
+
+
 def load(f: dict) -> int:
     """Prints ahead of a new one on this factory: its queue plus the one printing."""
     return len(f.get("print_queue") or []) + bool(f.get("printing"))

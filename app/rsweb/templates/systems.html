@@ -23,12 +23,14 @@
       <th class="num">Locations with presence</th><th class="num">Stockpiled</th><th class="num">Mineable</th><th class="num">Salvage</th><th>Most available</th><th>Scan cached</th><th class="num" title="from {{ origin }}; nearest first">Distance</th></tr>
     {% for s, p in rows %}
     <tr><td><a href="/systems/{{ s }}">{{ s }}</a>{% for c in p.civ %} <a href="/traffic" class="{{ 'lv-done' if c.beacon else 'lv-alert' }}"
-        title="local civilization at {{ c.location }} · {{ 'your beacon is there' if c.beacon else 'no beacon of yours there yet (a requested beacon goes there)' }}">✦</a>{% endfor %}</td><td class="num">{{ p.devices }}</td><td class="small">{% for n in p.homes %}<span title="home of {{ n }}">⌂ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}{% if p.homes and p.targets %} · {% endif %}{% for n in p.targets %}<span title="{{ n }} is on a mission here">→ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}</td>
+        title="local civilization at {{ c.location }} · {{ 'your beacon is there' if c.beacon else 'no beacon of yours there yet (Add a beacon puts one at each civilization in the system)' }}">✦</a>{% endfor %}</td><td class="num">{{ p.devices }}</td><td class="small">{% for n in p.homes %}<span title="home of {{ n }}">⌂ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}{% if p.homes and p.targets %} · {% endif %}{% for n in p.targets %}<span title="{{ n }} is on a mission here">→ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}</td>
       {% if show_outposts %}{% for k in outpost_kinds %}{% set ds = p.outposts[k] %}<td class="small {{ '' if ds else 'lv-alert' }}">
         {% for d in ds %}<a class="mono" href="/devices/{{ d.device_code }}" title="{{ d.location }} · {{ d.status }}">✓ {{ d.device_code }}</a>{{ ' ' if not loop.last }}{% else %}— none{% endfor %}
         {% set o = p.orders[k] %}<span style="white-space:nowrap">
         {% if p.working[k] %}<button class="small ghost" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "remove", "kind": "{{ k }}"}' hx-target="next .op-out"
             hx-confirm="Deactivate your {{ outpost_kinds[k] }} in {{ s }} and mark it spare?">remove</button>
+          {% if k == 'beacon' and p.civ_gap and not o %}<button class="small" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "add", "kind": "beacon"}' hx-target="next .op-out"
+            title="no beacon of yours yet at {{ p.civ_gap | join(', ') }}: each civilization needs its own">add</button>{% endif %}
         {% elif o %}<span class="pill small st-move" title="ordered {{ o.at | ago }}">on its way ({{ o.how }})</span>
           <button class="small ghost" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "remove", "kind": "{{ k }}"}' hx-target="next .op-out">cancel</button>
         {% else %}<button class="small" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "add", "kind": "{{ k }}"}' hx-target="next .op-out">add</button>{% endif %}

@@ -401,6 +401,39 @@ def test_requested_beacon_goes_to_the_local_civilization(client):
     assert "LOR" not in client.portal.call(db.kv_get, "beacon_requests")
 
 
+def test_requested_beacon_covers_every_civilization_in_the_system(client):
+    """Joe 2026-10-22: two civilizations in one system both get a beacon from one Add."""
+    e = eng(client)
+    db = client.app.state.db
+    devs = [d for d in client.portal.call(db.kv_get, "devices") if d.get("device_type") not in ("ftl_beacon", "autofactory")]
+    at3 = {"device_code": "BC3", "device_type": "ftl_beacon", "location": "LOR-3", "status": "monitoring", "tags": []}
+    loose = {"device_code": "BC7", "device_type": "ftl_beacon", "location": "LOR-1", "status": "monitoring", "tags": [],
+             "available_commands": ["stow", "deploy"]}
+    vessel = {"device_code": "CV7", "device_type": "cargo_vessel", "location": "LOR-1", "status": "idle", "features": ["cruise", "stow"],
+              "stow_capacity": 4, "tags": []}
+
+    async def cov():
+        return [{"location": "LOR-3", "star": "LOR", "open": [{"designation": "E1"}], "completed": [], "life": None},
+                {"location": "LOR-5", "star": "LOR", "open": [], "completed": [{"designation": "E2"}], "life": None}]
+    e.civ_coverage = cov
+    client.portal.call(db.kv_set, "devices", devs + [at3])
+    msg = client.portal.call(e.order_outpost, "beacon", "LOR", "joe")
+    assert "already works" not in msg and "no spare FTL beacon" in msg     # LOR-5 still needs one
+    page = client.get("/systems?outposts=1", headers=H).text
+    row = page[page.index('href="/systems/LOR"'):].split("</tr>")[0]
+    assert "remove</button>" in row and "each civilization needs its own" in row
+    client.portal.call(db.kv_set, "devices", devs + [at3, loose, vessel])
+    msg = client.portal.call(e.order_outpost, "beacon", "LOR", "joe")
+    assert "activating BC7" in msg and "1 of 2 civilizations still need one (LOR-5)" in msg
+    job = next(j for j in client.portal.call(e.jobs) if j["title"].startswith("beacon to the civilization at LOR-5"))
+    assert [s["desc"] for s in job["steps"]][-2:] == ["CV7: travel LOR-1 → LOR-5", "deploy beacon BC7 at LOR-5"]
+    loose.update(location="LOR-5")
+    client.portal.call(db.kv_set, "devices", devs + [at3, loose, vessel])
+    client.portal.call(e.ward_orders_pass)
+    assert "LOR" not in client.portal.call(db.kv_get, "beacon_requests")
+    assert "every civilization in LOR" in client.portal.call(e.order_outpost, "beacon", "LOR", "joe")
+
+
 def test_resumed_recall_does_not_wait_on_a_cleared_survey_controller(client):
     """Seen live 2026-10-11: Surveyors stalled in recall, was resumed, and sat in watch for hours — its controller was
     aboard with the directive cleared, so it never reported no_targets."""

@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.225.0"
+VERSION = "1.226.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.226.0", "2026-10-22", "Systems: Add a beacon covers every local civilization in the system (one beacon at each "
+     "civilization body; the request stays open until all have one, sending a spare or printing the next as needed); "
+     "a system with a beacon at one civilization but not another offers Add again"),
     ("1.225.0", "2026-10-22", "Systems and Prospects: remove now deactivates your ward, relay or beacon and marks it spare, "
                               "so a later add elsewhere can send it."),
     ("1.224.0", "2026-10-22", "Galaxy map: relay networks draw only their links, no ring at each relay system "
