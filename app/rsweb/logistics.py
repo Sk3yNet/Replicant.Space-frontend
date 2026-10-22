@@ -396,7 +396,47 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
             r["tier"] = int(prefs["bump"][r["id"]])
         r["skipped"] = r["id"] in set(prefs.get("skip") or [])
     out.sort(key=lambda r: (r["tier"], not r.get("waiting"), r["id"]))
+    _batch_deals(out, stock, incoming)
     return out, spare, reserve
+
+
+def _batch_deals(out: list[dict], stock: dict, incoming: dict) -> None:
+    """Contracts and trades at the same location share one delivery (owner 2026-10-22): the stock there pays the
+    first ones in priority order; the first one it can't pay (the head) asks for what all the rest still lack, so one
+    trip loads it all (as far as the carriers hold), and its replicant fulfills them all on arrival. The others wait
+    for it (`with`)."""
+    by_loc: dict[str, list[dict]] = defaultdict(list)
+    for r in out:
+        if r["kind"] in ("contract", "trade") and not r["skipped"] and not r.get("devices_short"):
+            by_loc[r["to"]].append(r)
+    for loc, deals in by_loc.items():
+        if len(deals) < 2:
+            continue
+        st, hv = dict(stock.get(loc) or {}), _add(stock.get(loc) or {}, incoming.get(loc) or {})
+        rest = []
+        for r in deals:   # what's there pays these in turn
+            if not rest and not _short(r["price"], st):
+                for x, q in as_amounts(r["price"]).items():
+                    st[x] = st.get(x, 0.0) - q
+                    hv[x] = hv.get(x, 0.0) - q
+            else:
+                rest.append(r)
+        if len(rest) < 2:
+            continue
+        head, others = rest[0], rest[1:]
+        total: dict[str, float] = {}
+        for r in rest:
+            total = _add(total, as_amounts(r["price"]))
+        head["need"], head["on_way"] = _short(total, hv), _short(total, st)
+        head["also"] = [{**_deal(r), "req": r["id"]} for r in others]
+        head["label"] += f" (+{len(others)} more at {loc})"
+        for r in others:
+            head["rewards"] = _add(head.get("rewards") or {}, r.get("rewards") or {})
+            rd = dict(head.get("reward_devices") or {})
+            for t, n in (r.get("reward_devices") or {}).items():
+                rd[t] = rd.get(t, 0) + n
+            head["reward_devices"] = rd
+            r["need"], r["with"] = {}, head["id"]
 
 
 def _free(d: dict) -> bool:
@@ -569,7 +609,10 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             unmet.append({"req": r["id"], "why": "no gather point: give a fleet 'takes materials in' (Fleets) to bring it back"})
             continue
         if not need:
-            if r["kind"] in ("contract", "trade") and r.get("devices_short"):
+            if r.get("with"):   # delivered and fulfilled together with the first deal at its location
+                head = next((h for h in reqs if h["id"] == r["with"]), None)
+                unmet.append({"req": r["id"], "why": f"delivered together with {head['label'] if head else r['with']}"})
+            elif r["kind"] in ("contract", "trade") and r.get("devices_short"):
                 unmet.append({"req": r["id"], "why": f"materials are there; waiting for the devices it asks for at {dest} "
                                                      "(delivered by the contract's device supply)"})
             elif r["kind"] in ("contract", "trade") and {x: q for x, q in (r.get("on_way") or {}).items() if q >= 1}:
@@ -588,7 +631,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                     used.add(esc["device_code"])
                     rep = hosts[esc["device_code"]]
                 runs.append({"req": r["id"], "kind": r["kind"], "cargos": [], "escort": esc and esc["device_code"],
-                             "legs": [], "to": dest, "carry": {}, "fulfil": _deal(r), "replicant": rep,
+                             "legs": [], "to": dest, "carry": {}, "fulfil": _deal(r), "also": r.get("also") or [], "replicant": rep,
                              "back": wait_point(esc, dstar) if esc and dstar not in commandable else None, "label": r["label"]})
             continue
         def can_escort() -> bool:
@@ -744,7 +787,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             runs.append({"req": r["id"], "kind": r["kind"],
                          "cargos": [{k: g[k] for k in ("code", "legs", "carry", "rides", "room")} for g in group],
                          "ride": ride and ride["device_code"], "escort": esc and esc["device_code"], "to": dest,
-                         "carry": taken, "fulfil": _deal(r) if rep else None, "replicant": rep, "back": back, "label": r["label"],
+                         "carry": taken, "fulfil": _deal(r) if rep else None, "also": (r.get("also") or []) if rep else [],
+                         "replicant": rep, "back": back, "label": r["label"],
                          "escort_pickup": any(star_of(x) not in commandable for x in stops[:-1]),
                          "rewards": rewards if home else {}, "home": home,
                          "reward_devices": (r.get("reward_devices") or {}) if rep else {}})
@@ -1147,6 +1191,8 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
                               critical=True))
     if run.get("fulfil"):
         steps.append(fl.fulfil_step(run["fulfil"], run.get("replicant"), template))
+        for dl in run.get("also") or []:   # the other deals at the same location this delivery paid for
+            steps.append(fl.fulfil_step(dl, run.get("replicant"), template))
     if run.get("rewards") and run.get("home") and cargos:
         # load what the deal paid out (each ship up to its hold; not critical: the payout can differ from what was listed)
         left, loaded = dict(run["rewards"]), []
@@ -1196,7 +1242,7 @@ def describe(run: dict) -> str:
     if run.get("escort") and codes:
         s += f", {run['escort']} alongside"
     if run.get("fulfil"):
-        s += ", then fulfills"
+        s += ", then fulfills" + (f" all {len(run['also']) + 1}" if run.get("also") else "")
     if run.get("rewards") and run.get("home"):
         s += f" and brings the payout to {run['home']}"
     return s

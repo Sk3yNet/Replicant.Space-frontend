@@ -3912,11 +3912,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 if run.get("fulfil") and run.get("reward_devices") and run.get("home"):
                     pickups[run["to"]] = {"types": run["reward_devices"], "to": star_of(run["home"]), "at": now_iso()}
                 out.append(lg.describe(run))
-                if run.get("fulfil") and run["kind"] == "trade":   # an approval counts once
-                    key = run["req"].split(":", 1)[1]
-                    ok.setdefault("trades", {}).pop(key, None)
-                    ok.setdefault("done", {})[key] = now_iso()
-                    await self.db.kv_set(lg.KV_TRADES, ok)
+                if run.get("fulfil"):   # an approval counts once (each trade the run fulfills)
+                    keys = [x["req"].split(":", 1)[1] for x in run.get("also") or [] if x["kind"] == "trade"]
+                    if run["kind"] == "trade":
+                        keys.append(run["req"].split(":", 1)[1])
+                    for key in keys:
+                        ok.setdefault("trades", {}).pop(key, None)
+                        ok.setdefault("done", {})[key] = now_iso()
+                    if keys:
+                        await self.db.kv_set(lg.KV_TRADES, ok)
         if wanted is not None:
             from .shop import LISTING_KV
             await self.db.kv_set(LISTING_KV, wanted)

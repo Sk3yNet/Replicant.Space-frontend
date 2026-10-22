@@ -832,3 +832,22 @@ def test_a_rescue_of_more_than_a_day_waits_for_your_ok():
     pos.pop("F")                                                    # DELTA, 2026-10-22: not in the catalog → it asks
     p = go({})
     assert not p["runs"] and next(r for r in p["requests"] if r["id"] == "rescue:P1")["trip_h"] is None
+
+
+def test_trades_at_one_location_share_one_delivery():
+    devs = world([dev("F2", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE)])
+    trades = [{"key": f"SHOP:T{i}", "location": "B-2", "price": {"carbon": 30}, "controller": "SHOP", "trade_code": f"T{i}",
+               "name": f"T{i}"} for i in (1, 2, 3)]
+    p = lg.plan(fleets=FLEETS, devices=devs, bps={}, inventory={"A-1": {"carbon": 500}, "B-2": {"carbon": 35}}, pos=POS,
+                commandable={"A", "B"}, hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=trades,
+                incoming={}, replicants={"R2": {"location": "B-2"}}, drop=lambda s: f"{s}-1")
+    # T1 is paid from the 35 there; T2 asks for what T2 and T3 lack (5 left after T1 + 55), T3 comes with it
+    runs = {r["req"]: r for r in p["runs"]}
+    assert runs["trade:SHOP:T1"]["carry"] == {} and runs["trade:SHOP:T1"]["fulfil"]["trade_code"] == "T1"
+    run = runs["trade:SHOP:T2"]
+    assert run["carry"] == {"carbon": 55} and run["fulfil"]["trade_code"] == "T2"
+    assert [a["trade_code"] for a in run["also"]] == ["T3"] and "trade:SHOP:T3" not in runs
+    assert any(u["req"] == "trade:SHOP:T3" and "together with trade T2" in u["why"] for u in p["unmet"])
+    steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
+    assert [s["path"] for s in steps if s["path"].endswith(("/T2", "/T3"))] == ["/devices/SHOP/trades/T2",
+                                                                                 "/devices/SHOP/trades/T3"]

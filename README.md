@@ -221,7 +221,7 @@ lines or a template).
   materials in) — or, where such a fleet moved away, to its new home (not from a system an AMI ferry already empties;
   a return load that finds less than planned takes what is left); with no gather point, the page says so. A trip planned
   without an escort checks again before it leaves and stays put if its destination has gone out of comms range. Deliveries draw on
-  stockpiles beyond the network too while a replicant is free to go along. Priority: queued prints (waiting ones first), local, long-range, returns; bump or skip a request on the Logistics
+  stockpiles beyond the network too while a replicant is free to go along. Contracts and trades at the same location share one delivery: what's there pays the first ones, one trip brings what all the others lack (as far as the carriers hold) and its replicant fulfills them all. Priority: queued prints (waiting ones first), local, long-range, returns; bump or skip a request on the Logistics
   page. Home systems keep what their own prints need, but hubs share that reserve so each one's print queue is paid for
   about as many hours ahead (print time over its autofactories): the one with the fewest hours gets what its next print
   lacks from the one with the most, while the giver still has at least as many hours left. Inside one system a free AMI transport controller (drones / haulers)

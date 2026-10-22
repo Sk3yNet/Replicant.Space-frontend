@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.214.0"
+VERSION = "1.215.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.215.0", "2026-10-22", "Logistics batches deals at one location: when several approved trades or contracts wait at "
+     "the same place, the stock there pays the first ones and a single delivery brings what all the others lack (as far as "
+     "the carriers hold); its replicant then fulfills them all. The others show as delivered together with it."),
     ("1.214.0", "2026-10-22", "Surge hops: a trip inside a system by a surge-capable device standing at a surge spot (Oort, "
                "Kuiper, entry point, a planet's L4/L5) hops first to the spot nearest the destination when that saves at "
                "least 30 AU (and a quarter of the cruise), then cruises the rest. A refused hop cruises as planned."),
