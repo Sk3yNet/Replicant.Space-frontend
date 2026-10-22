@@ -534,7 +534,6 @@ function buildRelayNet() {
     arc(a, b, l.active ? new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: .9 })
                        : new THREE.LineDashedMaterial({ color: c, dashSize: .5, gapSize: .4, transparent: true, opacity: .55 }));
   }
-  for (const n of rn.nodes) { const s = byName[n.star]; if (s) ring(s, n.color, 2.2, n.active ? 1 : .5); }
   // suggested bridges: dashed gray through the new relay systems; relays on order: white rings
   for (const b of rn.suggested || []) {
     const chain = [b.from, ...b.stars, b.to].map(x => byName[x]);

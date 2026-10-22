@@ -81,7 +81,7 @@ rule with an on/off switch, plus the jobs and the log.
   first, as many orders open as your logistics vessels with a replicant aboard have free hold slots (each as *add* on the
   Systems list; a carrier fills its hold with relays for several systems and drops them nearest first); *chained* (default) only goes to a system within
   7.5 ly of a relay or hub of yours, one on order, or a seed, so the network grows outward in one piece; a system that
-  can't get one is skipped until *Retry skipped*, and five failures in a row pause the rollout. On the galaxy map (*relay network* option, off by default) links are curves, solid for active
+  can't get one is skipped until *Retry skipped*, and five failures in a row pause the rollout. On the galaxy map (*relay network* option, off by default) links are curves (no ring at each relay), solid for active
   networks and dashed for ones without a replicant; relays on order are white rings, suggested bridges dashed gray.
 - **Moving a replicant**: the Replicant page lists empty replicant matrices with *Transfer* (same location, instant) or *Teleport* (another system, over the FTL network), each with a confirmation.
 - **Megastructures**: a megastructure's location page shows its progress and what it still needs, with a Contribute button for your devices there; `/megastructures` has the leaderboard.
