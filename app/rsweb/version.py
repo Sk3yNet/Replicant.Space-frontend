@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.218.0"
+VERSION = "1.219.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.219.0", "2026-10-22", "Repair patrols: logistics carriers take the logistics fleets' own repair devices to the "
+               "most worn systems that lack one (one per six worn devices, most missing capacity first), drop them at the "
+               "worst device and set them to patrol. Trips over a day wait for Confirm, like rescues."),
     ("1.218.0", "2026-10-22", "Stalled fleet missions retry by themselves: the stalled phase runs again after 15 min, then "
                "30 min, 1 h … up to 6 h apart, eight tries in all, before waiting for Retry. A stall at a new spot starts "
                "over; only the first stall at a spot notifies. The fleet card shows the next try; comms-range stalls keep "

@@ -36,6 +36,10 @@ its last known location by a logistics carrier with a free seat, with a replican
 A rescue whose trips add up to more than a day (CONFIRM_RESCUE_H, at the game's surge pace) waits for your Confirm on
 the Logistics page (owner 2026-10-22).
 
+Repair patrols (owner 2026-10-22): repair devices of the logistics fleets are taken to the systems with the most wear
+and too few repair devices (one per six worn devices), worst first, by a free logistics carrier (or on their own, if
+they can surge), and set to patrol there. Like rescues, a trip of more than a day waits for your Confirm.
+
 Devices go the same way: deliveries of devices (loadouts.plan) take logistics-fleet carriers first.
 
 Drop-offs (owner 2026-10-20): an idle logistics carrier inside the network with leftover cargo, or with devices aboard
@@ -63,7 +67,9 @@ KV_MOVES = "logistics_moves"   # {old home star: {"to": new home star, "fleet", 
 KV_TRADES = "trade_approvals"  # {"trades": {controller:trade_code: iso}, "done": {key: iso}}
 ROLE = "logistics"
 MIN_RETURN = 25.0              # a stray pile smaller than this isn't worth a trip
-TIERS = {0: "evacuation", 1: "queued prints", 2: "local delivery", 3: "long-range transfer", 4: "stockpile return", 5: "rescue", 6: "shop listing"}
+TIERS = {0: "evacuation", 1: "queued prints", 2: "local delivery", 3: "long-range transfer", 4: "stockpile return", 5: "rescue",
+         6: "shop listing", 7: "repair patrol"}
+PATROL_LOAD = 6                # worn devices one patrolling repair device looks after (upkeep.report's "covered")
 KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like placed relays and beacons: never "rescued"
 MIN_LOAD = 0.25               # a cross-system print delivery leaves with its hold at least this full (or all that's wanted)
 LONG_HAUL_LY = 15.0            # beyond this a part load waits even when a print is stalled for materials
@@ -455,6 +461,109 @@ def fleet_devices(fleets: list[dict], devices: list[dict]) -> list[dict]:
     return out
 
 
+def repairs(d: dict) -> bool:
+    return "repair" in (d.get("features") or [])
+
+
+def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: set[str], free: dict[str, dict],
+                pool: list[dict], devices: list[dict], pos: dict[str, Any], commandable: set[str], hosts: dict[str, str],
+                reach: float, prefs: dict | None, threshold: float, incoming: dict[str, int],
+                evacuate: dict[str, str]) -> None:
+    """Repair patrols (owner 2026-10-22): the logistics fleets' own repair devices go to the systems with the most wear
+    that lack one and patrol there. A system wants one repair device per PATROL_LOAD worn devices (below `threshold`);
+    those it has already (any owner's, placed there, or on their way: `incoming`) count. Worst first: the most missing
+    capacity, then the lowest device. A repair device leaves only a system that has enough without it, and one at work
+    (repairing) stays until it's done. One that can surge flies itself; the others ride a free logistics carrier (stowed or
+    attached). Trips over CONFIRM_RESCUE_H wait for your OK, like rescues. All of them are kept out of the idle passes:
+    a patrolling repair device stays where it works. Mutates reqs, runs, unmet and used."""
+    from . import fleets as fl
+    from . import upkeep as up
+    from .loadouts import can_surge
+    mine = {c: d for c, d in free.items() if repairs(d) and c not in used}
+    if not any(repairs(d) for d in pool):
+        return
+    report = {r["star"]: r for r in up.report(devices, threshold)}
+    there: dict[str, list[str]] = defaultdict(list)   # placed repair devices per star
+    for d in devices:
+        if repairs(d) and up.placed(d) and d.get("location"):
+            there[star_of(d["location"])].append(d["device_code"])
+
+    def want(star: str) -> int:
+        n = len((report.get(star) or {}).get("damaged") or [])
+        return -(-n // PATROL_LOAD)
+    spare: dict[str, dict] = {}
+    for star, codes in there.items():   # what a system can do without: ours beyond its need, not mid-repair
+        extra = len(codes) - want(star)
+        for c in sorted((c for c in codes if c in mine), key=lambda c: (up.patrolling(mine[c]), c)):
+            if extra <= 0:
+                break
+            if not up.repairing(mine[c]):
+                spare[c] = mine[c]
+                extra -= 1
+    for c, d in mine.items():   # a repair device of ours staying in a system that needs it: patrolling there
+        star = star_of(d.get("location"))
+        if c not in spare and want(star) and not up.patrolling(d) and up.placed(d) and star in commandable \
+                and "set_directive" in (d.get("available_commands") or ["set_directive"]):
+            runs.append({"req": None, "kind": "repair", "cargos": [], "ride": None, "escort": None, "repairer": c,
+                         "mode": "stay", "point": d["location"], "to": d["location"], "carry": {}, "back": None,
+                         "label": f"{c} patrols {star}"})
+    used |= set(mine)
+    danger = {star_of(l) for l in evacuate}
+    needs = []
+    for star, r in report.items():
+        short = want(star) - len(there.get(star) or []) - int(incoming.get(star) or 0)
+        if short > 0 and star in commandable and star not in danger:
+            wear = sum(100 - x["capacity"] for x in r["damaged"])
+            needs.append((star, short, wear, r))
+    needs.sort(key=lambda x: (-x[2], x[3]["min"], x[0]))
+    for star, short, wear, r in needs:
+        rid = f"repair:{star}"
+        worst = r["damaged"][0]
+        req = {"id": rid, "kind": "repair", "to": worst["location"], "need": {}, "tier": 7, "base_tier": 7,
+               "label": f"repair patrol for {star}: {len(r['damaged'])} worn, worst {worst['code']} at {worst['capacity']:g} %"}
+        if rid in ((prefs or {}).get("bump") or {}):
+            req["tier"] = int(prefs["bump"][rid])
+        req["skipped"] = rid in set((prefs or {}).get("skip") or [])
+        reqs.append(req)
+        if req["skipped"]:
+            continue
+        for _ in range(short):
+            best = None   # (ly, repairer, carrier or None, mode)
+            for c, d in spare.items():
+                here = star_of(d.get("location"))
+                if can_surge(d) and here in commandable and _dist(here, star, pos) <= reach:
+                    cand = (_dist(here, star, pos), c, "", "self")
+                    best = min(best or cand, cand)
+                    continue
+                for k, e in free.items():
+                    there_k = star_of(e.get("location"))
+                    if k in used or not can_surge(e) or (here not in commandable and k not in hosts) \
+                            or (there_k not in commandable and k not in hosts) or _dist(there_k, here, pos) > reach:
+                        continue
+                    mode = fl.take_seat(dict(fl.seats(e, devices)), d)
+                    if mode:
+                        cand = (_dist(there_k, here, pos) + _dist(here, star, pos), c, k, mode)
+                        best = min(best or cand, cand)
+            if not best:
+                if not any(u["req"] == rid for u in unmet):
+                    unmet.append({"req": rid, "why": "no spare logistics repair device" if not spare else
+                                  f"no free logistics carrier with a free seat {_within(reach, star)} to bring one"})
+                break
+            _, c, k, mode = best
+            d = spare[c]
+            legs = [(star_of(d.get("location")), star)]
+            if k:
+                legs.insert(0, (star_of(free[k].get("location")), star_of(d.get("location"))))
+            if _needs_ok(req, _trip_hours(legs, pos), prefs, unmet):
+                break
+            spare.pop(c)
+            if k:
+                used.add(k)
+            runs.append({"req": rid, "kind": "repair", "cargos": [], "ride": k or None, "escort": None, "repairer": c, "mode": mode,
+                         "point": worst["location"], "to": worst["location"], "carry": {}, "back": None,
+                         "patrolling": up.patrolling(d), "label": req["label"]})
+
+
 def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inventory: dict[str, dict],
          pos: dict[str, Any], commandable: set[str], hosts: dict[str, str], busy: set[str], reach: float = math.inf,
          contracts: list[dict], trades: list[dict], incoming: dict[str, dict], replicants: dict[str, dict],
@@ -462,10 +571,12 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
          ami: list[dict] | None = None, moved: dict[str, str] | None = None,
          dark_nets: list[set[str]] | None = None, away_fleets: set[str] | frozenset = frozenset(),
          no_consolidate: set[str] | frozenset = frozenset(), evacuate: dict[str, str] | None = None,
-         listings: list[dict] | None = None) -> dict:
+         listings: list[dict] | None = None, repair_threshold: float = 80.0,
+         repair_to: dict[str, int] | None = None) -> dict:
     """What the logistics devices do this pass. `hosts`: device → the replicant it hosts. `drop(star)`: where materials land in a
     system. `listings`: shops whose trades you asked for ({controller, location, label}): a logistics device hosting a
-    replicant goes there, last of all (the engine reads the trades once a replicant is in the system).
+    replicant goes there, last of all (the engine reads the trades once a replicant is in the system). `repair_to`: repair
+    devices already on their way, per star.
     Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices"}."""
     from . import cargo as cg
     from .loadouts import can_surge
@@ -912,6 +1023,10 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         runs.append({"req": rid, "kind": "listing", "cargos": [], "escort": best[1], "point": li["location"],
                      "to": li["location"], "carry": {}, "controller": li["controller"], "label": li["label"]})
 
+    repair_runs(reqs=reqs, runs=runs, unmet=unmet, used=used, free=free, pool=pool, devices=devices, pos=pos,
+                commandable=commandable, hosts=hosts, reach=reach, prefs=prefs, threshold=repair_threshold,
+                incoming=repair_to or {}, evacuate=evacuate or {})
+
     # logistics devices hosting a replicant idle outside the network come back to wait in it (the rest can't be commanded there)
     for c, d in free.items():
         if c in used or star_of(d.get("location")) in commandable or c not in hosts or not can_surge(d):
@@ -1063,7 +1178,7 @@ def ami_steps(run: dict) -> list[dict]:
 
 
 def run_devices(run: dict) -> list[str]:
-    return [c["code"] for c in run.get("cargos") or []] + [c for c in (run.get("ride"), run.get("escort"), run.get("rescued")) if c] \
+    return [c["code"] for c in run.get("cargos") or []] + [c for c in (run.get("ride"), run.get("escort"), run.get("rescued"), run.get("repairer")) if c] \
         + [x["code"] for x in run.get("dump") or []]
 
 
@@ -1138,6 +1253,29 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
     if run.get("kind") == "listing":   # the engine reads the shop's trades once the replicant is in its system
         hop(run["point"], [esc], " (to read the shop's trades)")
         return steps
+    if run.get("kind") == "repair":   # repair_runs: to the worst worn device's spot, then the patrol directive
+        code, point = run["repairer"], run["point"]
+        patrol = step(f"{code}: set_directive patrol", f"/devices/{code}", {"command": "set_directive", "directive": "patrol"})
+        if run["mode"] == "stay":
+            return [patrol]
+        if run.get("patrolling"):   # a patrolling device cruises off to its next job: stop it where it is first
+            steps.append(step(f"{code}: clear_directive (leaves for {star_of(point)})", f"/devices/{code}",
+                              {"command": "clear_directive"}))
+        if run["mode"] == "self":
+            hop(point, [code], " (repair patrol)")
+            return steps + [patrol]
+        ride = run["ride"]
+        hop(at[code], [ride], " (pick up)")
+        steps.append(fl.board_step(ride, code, run["mode"]))
+        hop(point, [ride], " (repair patrol)")
+        if run["mode"] == "attach":
+            steps.append(step(f"{ride}: detach {code}", f"/devices/{ride}", {"command": "detach", "device": code}))
+        else:
+            st = step(f"deploy {code} from {ride}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
+                      timeout=STEP_TIMEOUT)
+            st["wait_device"] = code
+            steps.append(st)
+        return steps + [patrol]
     if run.get("kind") == "rescue":
         code, home, point = run["rescued"], run["to"], run["point"]
         if run["mode"] == "self":   # a replicant where the device can hear it, then the device flies itself home
@@ -1226,6 +1364,11 @@ def describe(run: dict) -> str:
                else f"{run['ride']} picks it up ({run['mode']}) and brings it to {run['to']}"
                + (f", {run['escort']} alongside" if run.get("escort") else ""))
         return f"{run['label']}: {how}"
+    if run.get("kind") == "repair":
+        if run["mode"] == "stay":
+            return run["label"]
+        how = f"{run['repairer']} flies" if run["mode"] == "self" else f"{run['ride']} carries {run['repairer']} ({run['mode']})"
+        return f"{run['label']}: {how} to {run['point']} and patrols there"
     if run.get("kind") == "listing":
         return f"{run['label']}: {run['escort']} → {run['point']}"
     if run.get("kind") == "dump":

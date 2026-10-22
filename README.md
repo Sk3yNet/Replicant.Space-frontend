@@ -242,6 +242,12 @@ lines or a template).
   One that can surge is reached by a replicant in its system or anywhere its dark relay network covers, and commanded
   home; one that can't is picked up from its last known location by a carrier with a free seat, a replicant along. A rescue
   whose trips add up to more than a day (at the game's 50 s/ly) waits for your **Confirm** on the request (so does one to a star whose position isn't known) (one alert; the OK holds two days).
+  **Repair patrols**: repair devices in a logistics fleet (only those) go where the wear is. A system wants one repair
+  device per six devices below the Maintenance rule's worn level, counting any already there or on their way; the systems
+  missing the most capacity go first (then the lowest device). A free logistics carrier picks one up from a system that has
+  enough without it (one mid-repair finishes first), drops it at the worst device and sets it to `patrol`; one that can surge
+  flies itself. Only systems inside the network, never one with an asteroid due; trips over a day wait for **Confirm** like
+  rescues. A logistics repair device in a system that needs it is set to patrol there, and none of them gathers at a hub.
   An idle logistics carrier drops off what isn't its work at the nearest receiving point inside the network (a fleet that
   takes materials in, or one of your system hubs): leftover cargo is deposited, and devices riding it that aren't logistics
   devices, a replicant, a matrix, a matrix container or anything with a matrix inside, or on their way somewhere (`to:` / `at:` tags) are deployed or detached there.

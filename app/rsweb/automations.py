@@ -3872,6 +3872,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                                    f"/devices/{c}", {"command": "release", "devices": [d["device_code"]]})],
                                              {"devices": [d["device_code"], c]}):
                         busy |= {d["device_code"], c}
+        repair_to: dict[str, int] = defaultdict(int)   # repair devices on their way (lg.repair_runs)
+        for j in jobs:
+            t = (j.get("meta") or {}).get("logistics") or {}
+            if j["status"] in ("running", "waiting") and str(t.get("req") or "").startswith("repair:"):
+                repair_to[star_of(t.get("to"))] += 1
         out, listings = await self.listing_requests(reps)
         wanted = None
         p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
@@ -3880,7 +3885,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     busy_stars=mission_stars,
                     prefs=await self.db.kv_get(lg.KV_PREFS, {}) or {}, ami=ami, moved=moved,
                     dark_nets=await self.dark_networks(devices, pos, bps, reps), away_fleets=away_fleets,
-                    no_consolidate=no_consolidate, evacuate=evac, listings=listings)
+                    no_consolidate=no_consolidate, evacuate=evac, listings=listings,
+                    repair_threshold=float(((await self.settings())["rules"].get("maintenance") or {}).get("threshold") or 80),
+                    repair_to=repair_to)
         for r in p["requests"]:   # a rescue of more than a day waits for your OK (owner 2026-10-22): one alert each
             key = f"rescue-ok:{r['id']}"
             if r.get("confirm") and key not in self.stage_errors:

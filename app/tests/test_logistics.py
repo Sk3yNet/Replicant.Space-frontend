@@ -851,3 +851,62 @@ def test_trades_at_one_location_share_one_delivery():
     steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
     assert [s["path"] for s in steps if s["path"].endswith(("/T2", "/T3"))] == ["/devices/SHOP/trades/T2",
                                                                                  "/devices/SHOP/trades/T3"]
+
+
+MAINT = {"features": ["cruise", "repair", "stow", "ami"],
+         "available_commands": ["travel", "stow", "deploy", "set_directive", "clear_directive"]}
+PATROL = {"ami_directive": {"name": "patrol"}}
+
+
+def _repair_plan(devs, busy=frozenset(), repair_to=None, prefs=None, pos=None):
+    return lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=pos or POS, commandable={"A", "B", "Z"},
+                   hosts={"HV": "R1"}, busy=set(busy), reach=100, contracts=[], trades=[], incoming={}, replicants={},
+                   drop=lambda s: f"{s}-1", repair_to=repair_to, prefs=prefs)
+
+
+def test_a_logistics_repair_drone_is_carried_to_the_most_worn_system_and_patrols_there():
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("MD", "maintenance_drone", "A-1", operational_capacity=100, **MAINT, **PATROL),
+            dev("X1", "mining_drone", "B-2", tags=[], operational_capacity=70),     # B: 30 % missing
+            dev("Y1", "mining_drone", "Z-2", tags=[], operational_capacity=50),     # Z: 50 % + 30 %: worst
+            dev("Y2", "mining_drone", "Z-3", tags=[], operational_capacity=70)]
+    p = _repair_plan(devs)
+    run = next(r for r in p["runs"] if r["kind"] == "repair")
+    assert run["req"] == "repair:Z" and run["repairer"] == "MD" and run["ride"] == "HV" and run["mode"] == "stow"
+    assert run["point"] == "Z-2"                                               # the worst device's spot
+    assert any(u["req"] == "repair:B" and "no spare" in u["why"] for u in p["unmet"])
+    assert not any(r["kind"] == "reposition" and r.get("escort") == "MD" for r in p["runs"])
+    steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
+    cmds = [s["body"].get("command", "travel") for s in steps if s["body"]]
+    assert cmds == ["clear_directive", "stow", "travel", "deploy", "set_directive"]
+    assert "MD" in lg.run_devices(run)
+    # one on its way to Z already: B gets it instead
+    p2 = _repair_plan(devs, repair_to={"Z": 1})
+    assert next(r for r in p2["runs"] if r["kind"] == "repair")["req"] == "repair:B"
+
+
+def test_a_repair_drone_stays_where_it_is_needed_and_patrols():
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("MD", "maintenance_drone", "A-1", operational_capacity=100, **MAINT),
+            dev("W1", "mining_drone", "A-2", tags=[], operational_capacity=40),
+            dev("Y1", "mining_drone", "Z-2", tags=[], operational_capacity=50)]
+    p = _repair_plan(devs)
+    runs = [r for r in p["runs"] if r["kind"] == "repair"]
+    assert len(runs) == 1 and runs[0]["mode"] == "stay" and runs[0]["repairer"] == "MD"
+    assert [s["body"]["command"] for s in lg.run_steps(runs[0], {})] == ["set_directive"]
+    # a fleetless drone patrols A: ours may go
+    devs.append(dev("SB", "service_bot", "A-1", tags=[], **MAINT, **PATROL))
+    run = next(r for r in _repair_plan(devs)["runs"] if r["kind"] == "repair")
+    assert run["req"] == "repair:Z" and run["repairer"] == "MD"
+
+
+def test_repair_drones_not_in_the_logistics_fleet_and_far_trips_are_left_alone():
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("SB", "service_bot", "A-1", tags=["fleet:home"], **MAINT),
+            dev("Y1", "mining_drone", "Z-2", tags=[], operational_capacity=50)]
+    assert not any(r["kind"] == "repair" for r in _repair_plan(devs)["runs"])
+    devs[1]["tags"] = ["fleet:cab"]
+    far = {**POS, "Z": {"x": 2000, "y": 0, "z": 0}}                                # about 28 h of surging
+    p = _repair_plan(devs, pos=far)
+    assert not any(r["kind"] == "repair" for r in p["runs"])
+    assert any(u["req"] == "repair:Z" and "waits for your OK" in u["why"] for u in p["unmet"])
