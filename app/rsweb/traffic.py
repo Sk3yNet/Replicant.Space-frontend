@@ -203,13 +203,17 @@ def coverage(events: dict[str, dict], devices: list[dict], systems: dict[str, di
 def redundant_beacons(devices: list[dict], rows: list[dict], busy: set[str] | None = None) -> list[dict]:
     """Beacons a system doesn't need: any beacon logs the whole system's traffic, so once a system has a beacon at a
     civilization's body (an event location or a body with intelligent/spacefaring life), its other beacons are
-    redundant; without one, one beacon is kept and the rest are redundant. Beacons already spare are skipped."""
+    redundant; without one, one beacon is kept and the rest are redundant. Beacons already spare are skipped, and so are
+    beacons with a job of their own (a `to:` / `at:` destination, a fleet or a contract): they aren't spare, and the
+    loadouts pass would take the tag off again (live 2026-10-22: 17 printed beacons tagged to:<civ star> flapped)."""
     busy = busy or set()
     civ_locs = {r["location"] for r in rows if r.get("completed") or r.get("open")
                 or (r.get("life") or {}).get("life_stage") in CIV_STAGES}
     by_star: dict[str, list[dict]] = defaultdict(list)
     for d in beacons(devices):
-        if "spare" not in (d.get("tags") or []) and d.get("device_code") not in busy:
+        tags = d.get("tags") or []
+        if ("spare" not in tags and d.get("device_code") not in busy
+                and not any(t.startswith(("to:", "at:", "fleet:", "contract:")) for t in tags)):
             by_star[star_of(d["location"])].append(d)
     out = []
     for star, bs in sorted(by_star.items()):

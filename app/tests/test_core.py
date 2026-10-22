@@ -6208,7 +6208,8 @@ def test_travel_shows_on_the_map_straight_away(client):
 
 def test_placed_beacons_are_never_spare():
     """Live 2026-10-08: 13 working beacons (dropped by the Surveyors) carried an old spare tag — fair game for
-    shortfalls and the spare depot."""
+    shortfalls and the spare depot. A fleet's placed beacon loses the tag; a fleetless one keeps it (the redundant-beacon
+    pass sets it) but is never moved by the loadouts pass."""
     from rsweb import loadouts as lo
     B = lambda code, loc, tags, status="monitoring", **kw: {"device_code": code, "device_type": "ftl_beacon",  # noqa: E731
                                                            "location": loc, "status": status, "tags": tags,
@@ -6224,7 +6225,8 @@ def test_placed_beacons_are_never_spare():
     stars = {"AAA": {"position": {"x": 0, "y": 0, "z": 0}}, "BBB": {"position": {"x": 1, "y": 0, "z": 0}},
              "ZALDANAL": {"position": {"x": 2, "y": 0, "z": 0}}}
     p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
-    assert "spare" in p["tag_remove"]["FAR"] and "spare" in p["tag_remove"]["HOME"]
+    assert "spare" in p["tag_remove"]["HOME"]
+    assert "FAR" not in p["tag_remove"]       # a fleetless one keeps it (redundant: the civ beacon pass may move it)
     assert "FAR" not in p["moves"] and "HOME" not in p["moves"]          # BBB's shortfall isn't filled from them
     assert "spare" not in p["tag_add"].get("HOME", []) and "spare" not in p["tag_add"].get("ABOARD", [])
     hub = {r["type"]: r for r in _rep(p, "AAA")["rows"]}["ftl_beacon"]

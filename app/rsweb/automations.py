@@ -174,8 +174,9 @@ RULES: list[Rule] = [
          [Option("print_beacons", "bool", "Print a beacon on the system's autofactory when none is free", True,
                  help="60 structural + 20 conductive each"),
           Option("spare_redundant", "bool", "Mark beacons a system doesn't need as spare", True,
-                 help="Once a system has a beacon at a civilization's body, its other beacons (e.g. Kuiper/Oort) are spare; "
-                      "the Loadouts pass gathers spares at the spare depot")]),
+                 help="Once a system has a beacon at a civilization's body, its other beacons (e.g. Kuiper/Oort) are spare "
+                      "(beacons with a destination, fleet or contract never are); "
+                      "a vessel can then take one to a civilization's body, and loose ones are gathered at the spare depot")]),
     Rule("asteroid_defence", "Asteroid defense",
          "Tracks incoming asteroids (from system.object_detected and by reading the object every 15 minutes): hours to "
          "impact, likelihood, required strength and progress, and estimates how many propulsors it takes to divert it in "

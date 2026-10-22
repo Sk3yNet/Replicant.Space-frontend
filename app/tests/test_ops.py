@@ -272,7 +272,11 @@ def test_redundant_beacons():
             {"device_code": "Y1", "device_type": "ftl_beacon", "location": "Y-OORT", "status": "monitoring"},
             {"device_code": "Y2", "device_type": "ftl_beacon", "location": "Y-KUIPER", "status": "monitoring"},
             {"device_code": "Y3", "device_type": "ftl_beacon", "location": "Y-5", "status": "monitoring", "tags": ["spare"]},
-            {"device_code": "Z1", "device_type": "ftl_beacon", "location": "Z-KUIPER", "status": "monitoring"}]
+            {"device_code": "Z1", "device_type": "ftl_beacon", "location": "Z-KUIPER", "status": "monitoring"},
+            # printed for a civilization elsewhere, waiting at the factory's belt: they have a destination, never spare
+            {"device_code": "W1", "device_type": "ftl_beacon", "location": "W-BELT-1", "status": "monitoring", "tags": ["to:v"]},
+            {"device_code": "W2", "device_type": "ftl_beacon", "location": "W-BELT-1", "status": "monitoring", "tags": ["to:u"]},
+            {"device_code": "W3", "device_type": "ftl_beacon", "location": "W-BELT-1", "status": "monitoring", "tags": ["at:w-2"]}]
     red = {r["code"]: r["why"] for r in tr.redundant_beacons(devs, rows)}
     assert set(red) == {"K1", "Y2"}                      # Kuiper beacon next to a civ beacon; Y's second beacon; Z keeps its only one
     assert "civilization" in red["K1"]

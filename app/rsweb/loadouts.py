@@ -406,9 +406,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     tag_add: dict[str, set] = defaultdict(set)
     tag_remove: dict[str, set] = defaultdict(set)
     moves: dict[str, str] = {}        # device -> destination star
-    for d in devices:   # leftover spare tags on placed beacons / relays go (seen live 2026-10-08: 13 working beacons tagged spare)
+    for d in devices:   # leftover spare tags on placed relays go (seen live 2026-10-08: 13 working beacons tagged spare);
+        # a placed fleetless beacon without a destination keeps it: the civ beacon pass tags redundant ones spare so a vessel can
+        # take them to a civilization's body (removing it here made the two passes flap, live 2026-10-22)
         tags = d.get("tags") or []
-        if SPARE in tags and not (ignore & set(tags)) and (placed(d) or assigned(d)):
+        if (SPARE in tags and not (ignore & set(tags))
+                and ((placed(d) and (d.get("device_type") != "ftl_beacon" or fleet_tag_of(d))) or assigned(d))):
             tag_remove[d["device_code"]].add(SPARE)
     # an explore fleet's relay switched on at home (before survey_cargo kept them aboard) stays as the system's relay and
     # leaves the fleet — the first one where no other relay of ours works; the others go with the fleet next mission
