@@ -248,7 +248,8 @@ lines or a template).
   device per six devices below the Maintenance rule's worn level, counting any already there or on their way; the systems
   missing the most capacity go first (then the lowest device). A free logistics carrier picks one up from a system that has
   enough without it (one mid-repair finishes first), drops it at the worst device and sets it to `patrol`; one that can surge
-  flies itself. Only systems inside the network, never one with an asteroid due; trips over a day wait for **Confirm** like
+  flies itself. Only systems the relay network covers or a fleet's home (not one lit only by a passing replicant), never
+  one with an asteroid due; trips over a day wait for **Confirm** like
   rescues. A logistics repair device in a system that needs it is set to patrol there, and none of them gathers at a hub.
   An idle logistics carrier drops off what isn't its work at the nearest receiving point inside the network (a fleet that
   takes materials in, or one of your system hubs): leftover cargo is deposited, and devices riding it that aren't logistics

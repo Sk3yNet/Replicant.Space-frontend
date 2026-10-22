@@ -91,7 +91,9 @@ def drone_steps(code: str, loc: str | None, sal: dict) -> list[dict]:
 # Seen live (2026-10-02): after the belts ran dry the controllers were switched to salvage on bodies; with
 # recall off the drones stayed at the body once the salvage was used up, and the controller's directive then reported
 # `exhausted:[...]:<body>` forever — even after survey drones re-opened sites on the belt. Nothing moved them back.
-FINISHED_STATES = ("exhausted", "done", "complete", "no_targets", "idle:no_sources")
+# "depleted:recalling": the salvage ran out and the controller called its drones back (live 2026-10-22, 84EE1EF1: its 8
+# drones sat recall_waiting at AEMEROTH-5-L4, none mining)
+FINISHED_STATES = ("exhausted", "done", "complete", "no_targets", "idle:no_sources", "depleted")
 
 
 def exhausted_place(state: str | None) -> str | None:
@@ -125,13 +127,19 @@ def open_site_count(detail: dict | None, gone: set[str] | None = None) -> int:
 MOVING = ("travel", "cruis", "surg", "recall")
 
 
+def moving(d: dict) -> bool:
+    """On its way somewhere. A drone `recall_waiting` is standing still, waiting on a recall that may never come."""
+    st = str(d.get("status") or "")
+    return st.startswith(MOVING) and st != "recall_waiting"
+
+
 def parked(c: dict) -> bool:
     """A mining controller that isn't at a belt and isn't salvaging (e.g. left at a Lagrange point after a delivery,
     its directive gated): it should be at its system's belt."""
     dv = c.get("ami_directive") if isinstance(c.get("ami_directive"), dict) else {}
     salvaging = dv.get("name") == "gather_salvage" and not str(dv.get("_eval_state") or "").startswith(FINISHED_STATES)
     return (bool(c.get("location")) and not belt_of(c.get("location")) and not salvaging
-            and not str(c.get("status") or "").startswith(MOVING))
+            and not moving(c))
 
 
 def scattered(c: dict, devices: list[dict], managed: dict[str, str] | None = None) -> list[str]:
@@ -151,7 +159,7 @@ def scattered(c: dict, devices: list[dict], managed: dict[str, str] | None = Non
     if any(str(d.get("status") or "").startswith("mining") for d in kids):
         return []
     return sorted(d["device_code"] for d in kids if d.get("location") and not (d["location"] or "").startswith(belt)
-                  and not str(d.get("status") or "").startswith(MOVING))
+                  and not moving(d))
 
 
 def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str, str], open_sites: dict[str, int],
@@ -199,7 +207,7 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
         if any(str((by.get(k) or {}).get("status") or "").startswith("mining") for k in kids):
             continue  # partly exhausted (some resources) but its drones are mining the rest: leave it alone
         away = sorted(k for k in kids if (by.get(k) or {}).get("location") and by[k]["location"] != belt
-                      and not str(by[k].get("status") or "").startswith(MOVING))
+                      and not moving(by[k]))
         strays = sorted(d["device_code"] for d in devices
                         if d.get("device_code") in (free or set()) and d.get("device_type") == "mining_drone"
                         and (d.get("location") or "").split("-")[0] == star and d["device_code"] not in run_by

@@ -2839,9 +2839,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 await self.log("components", f"{g['factory']} needs {g['short']} {g['type'].replace('_', ' ')}: {note}")
         return out
 
-    async def commandable(self, devices: list[dict], stars: dict | None = None, without: set[str] | None = None) -> set[str]:
+    async def commandable(self, devices: list[dict], stars: dict | None = None, without: set[str] | None = None,
+                          networked: bool = False) -> set[str]:
         """Systems you can give commands in: an active relay network's coverage (relaynet.coverage), or where one of your
-        replicants is (other than the replicants in `without`)."""
+        replicants is (other than the replicants in `without`). `networked`: the network's coverage only, without the
+        systems a replicant covers just by being there (it may leave)."""
         from . import relaynet
         if stars is None:
             pos = await self.star_lookup("pos")   # shared, positions only
@@ -2852,7 +2854,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         from .shapes import normalize_blueprints
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         net = relaynet.networks(devices, pos, bps)
-        cover = relaynet.coverage(net, pos, rstars)["commandable"]
+        cov = relaynet.coverage(net, pos, rstars)
+        cover = set().union(*(cov["covered"][i] for i in cov["active"])) if networked else cov["commandable"]
         return cover - relaynet.dark_stars(devices)
 
     async def evacuation_inputs(self) -> tuple[dict, set[str], dict]:
@@ -3971,7 +3974,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     dark_nets=await self.dark_networks(devices, pos, bps, reps), away_fleets=away_fleets,
                     no_consolidate=no_consolidate, evacuate=evac, listings=listings,
                     repair_threshold=float(((await self.settings())["rules"].get("maintenance") or {}).get("threshold") or 80),
-                    repair_to=repair_to)
+                    repair_to=repair_to,
+                    # repair patrols stay in the network or at a fleet's home (live 2026-10-22: one sent to ERAJAELAE, lit
+                    # only by a survey fleet's replicant, arrived after the fleet left and is stranded out of range)
+                    repair_stars=(await self.commandable(devices, stars, networked=True)) | (homes_now & commandable))
         for r in p["requests"]:   # a rescue beyond the sector range waits for your OK (owner 2026-10-22): one alert each
             key = f"rescue-ok:{r['id']}"
             if r.get("confirm") and key not in self.stage_errors:

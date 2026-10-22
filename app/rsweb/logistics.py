@@ -362,6 +362,9 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
                         "label": f"evacuate the {loc} stockpile to {to} before impact"})
     asked = {r["to"] for r in out} | set(costs) | set(evacuate or {})
     homes = {f.get("home") for f in fleets if f.get("home") and (f.get("station") or f.get("materials") == "self")}
+    # a bootstrap fleet builds from what it mines at its home: its piles stay (live 2026-10-22: Delta Force's ISOLITHOR
+    # stock was sent for, 28 874 ly from SOLARES)
+    building = {f.get("home") for f in fleets if f.get("home") and f.get("role") == "bootstrap"}
     # systems an AMI ferry (Loadouts › materials) already empties: a return trip there finds the pile gone (live
     # 2026-10-20, ALPHARDAN-BELT-1: six freighters arrived after the ferry's hauler)
     ferried = {star_of(d.get("location")) for d in devices if "transport" in (d.get("device_type") or "")
@@ -370,7 +373,7 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
     for loc, items in sorted(stock.items()):
         total = sum(items.values())
         star = star_of(loc)
-        if total < MIN_RETURN or loc in asked or star in busy_stars:
+        if total < MIN_RETURN or loc in asked or star in busy_stars or star in building:
             continue
         if star in homes:   # a home system's piles gather at its drop point (its autofactory, else its biggest pile)
             to = (home_drop or {}).get(star)
@@ -470,12 +473,12 @@ def repairs(d: dict) -> bool:
 def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: set[str], free: dict[str, dict],
                 pool: list[dict], devices: list[dict], pos: dict[str, Any], commandable: set[str], hosts: dict[str, str],
                 reach: float, prefs: dict | None, threshold: float, incoming: dict[str, int],
-                evacuate: dict[str, str]) -> None:
+                evacuate: dict[str, str], targets: set[str] | None = None) -> None:
     """Repair patrols (owner 2026-10-22): the logistics fleets' own repair devices go to the systems with the most wear
     that lack one and patrol there. A system wants one repair device per PATROL_LOAD worn devices (below `threshold`);
     those it has already (any owner's, placed there, or on their way: `incoming`) count. Worst first: the most missing
     capacity, then the lowest device. A repair device leaves only a system that has enough without it, and one at work
-    (repairing) stays until it's done. One that can surge flies itself; the others ride a free logistics carrier (stowed or
+    (repairing) stays until it's done. `targets`: the systems a patrol may be sent to (default: all commandable). One that can surge flies itself; the others ride a free logistics carrier (stowed or
     attached). Trips over SECTOR_RANGE_H wait for your OK, like rescues. All of them are kept out of the idle passes:
     a patrolling repair device stays where it works. Mutates reqs, runs, unmet and used."""
     from . import fleets as fl
@@ -514,7 +517,7 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
     needs = []
     for star, r in report.items():
         short = want(star) - len(there.get(star) or []) - int(incoming.get(star) or 0)
-        if short > 0 and star in commandable and star not in danger:
+        if short > 0 and star in (commandable if targets is None else targets & commandable) and star not in danger:
             wear = sum(100 - x["capacity"] for x in r["damaged"])
             needs.append((star, short, wear, r))
     needs.sort(key=lambda x: (-x[2], x[3]["min"], x[0]))
@@ -574,11 +577,11 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
          dark_nets: list[set[str]] | None = None, away_fleets: set[str] | frozenset = frozenset(),
          no_consolidate: set[str] | frozenset = frozenset(), evacuate: dict[str, str] | None = None,
          listings: list[dict] | None = None, repair_threshold: float = 80.0,
-         repair_to: dict[str, int] | None = None) -> dict:
+         repair_to: dict[str, int] | None = None, repair_stars: set[str] | None = None) -> dict:
     """What the logistics devices do this pass. `hosts`: device → the replicant it hosts. `drop(star)`: where materials land in a
     system. `listings`: shops whose trades you asked for ({controller, location, label}): a logistics device hosting a
     replicant goes there, last of all (the engine reads the trades once a replicant is in the system). `repair_to`: repair
-    devices already on their way, per star.
+    devices already on their way, per star. `repair_stars`: where repair patrols may go (default: commandable).
     Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices"}."""
     from . import cargo as cg
     from .loadouts import can_surge
@@ -1027,7 +1030,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
 
     repair_runs(reqs=reqs, runs=runs, unmet=unmet, used=used, free=free, pool=pool, devices=devices, pos=pos,
                 commandable=commandable, hosts=hosts, reach=reach, prefs=prefs, threshold=repair_threshold,
-                incoming=repair_to or {}, evacuate=evacuate or {})
+                incoming=repair_to or {}, evacuate=evacuate or {}, targets=repair_stars)
 
     # logistics devices hosting a replicant idle outside the network come back to wait in it (the rest can't be commanded there)
     for c, d in free.items():

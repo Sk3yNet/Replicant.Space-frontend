@@ -2427,6 +2427,22 @@ def test_live_back_to_belt_plan():
     assert ith["belt"] == "ITHVALAI-BELT-1" and ith["move_ctrl"] and len(ith["away"]) == 4
 
 
+def test_a_depleted_salvage_brings_recall_waiting_drones_back_to_the_belt():
+    """Live 2026-10-22: 84EE1EF1 at AEMEROTH-BELT-1 on gather_salvage, state 'depleted:recalling', its drones
+    recall_waiting at AEMEROTH-5-L4 and none mining."""
+    from rsweb import salvage as sv
+    c = {"device_code": "C1", "device_type": "ami_mining_controller", "location": "AEMEROTH-BELT-1", "status": "coordinating",
+         "ami_directive": {"name": "gather_salvage", "config": {"location": "KELCERUM-5-13", "recall": True},
+                           "_eval_state": "depleted:recalling"}}
+    kids = [{"device_code": f"D{i}", "device_type": "mining_drone", "location": "AEMEROTH-5-L4", "status": "recall_waiting",
+             "controller_device_code": "C1"} for i in range(2)]
+    plans = sv.back_to_belt_plan([c], [c, *kids], {}, {"AEMEROTH-BELT-1": 1}, {"AEMEROTH": ["AEMEROTH-BELT-1"]}, set())
+    assert len(plans) == 1 and plans[0]["away"] == ["D0", "D1"] and plans[0]["directive"] == "gather_evenly"
+    kids[0]["status"] = "recalling"   # really on its way: left alone
+    assert sv.back_to_belt_plan([c], [c, *kids], {}, {"AEMEROTH-BELT-1": 1}, {"AEMEROTH": ["AEMEROTH-BELT-1"]},
+                                set())[0]["away"] == ["D1"]
+
+
 def test_live_diagnosis_runs_clean():
     from rsweb.snapshot import diagnose
     snap = _live()

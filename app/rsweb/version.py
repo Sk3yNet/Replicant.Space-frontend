@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.232.0"
+VERSION = "1.232.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.232.1", "2026-10-22", "A mining controller whose salvage ran out ('depleted:recalling') goes back to its belt "
+     "with its drones, including drones left recall_waiting (Miner_1 at AEMEROTH sat with 8 idle drones). Repair patrols "
+     "go only to systems the relay network covers or a fleet's home, not ones lit by a passing replicant (one was "
+     "stranded out of range at ERAJAELAE). A bootstrap fleet's home piles are no longer sent for (Delta Force at ISOLITHOR)."),
     ("1.232.0", "2026-10-22", "Dashboard: cards can be reordered (drag the handle, or the arrows) and folded, remembered per "
      "browser; Achievements moved to the bottom. Logistics backlog adds request age and lead time, carrier use and hold fill, "
      "stalled / auto-retrying missions and expired orders; a new Trends card shows devices by fleet role, mining output per "

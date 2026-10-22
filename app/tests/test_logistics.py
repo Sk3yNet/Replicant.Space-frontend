@@ -912,6 +912,29 @@ def test_repair_drones_not_in_the_logistics_fleet_and_far_trips_are_left_alone()
     assert any(u["req"] == "repair:Z" and "waits for your OK" in u["why"] for u in p["unmet"])
 
 
+def test_repair_patrols_go_only_where_a_patrol_may_be_sent():
+    # live 2026-10-22: ERAJAELAE was lit only by a survey fleet's replicant; the patrol arrived after it left
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("MD", "maintenance_drone", "A-1", operational_capacity=100, **MAINT, **PATROL),
+            dev("Y1", "mining_drone", "Z-2", tags=[], operational_capacity=50)]
+    assert any(r["req"] == "repair:Z" for r in _repair_plan(devs)["runs"])
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=POS, commandable={"A", "B", "Z"},
+                hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={},
+                drop=lambda s: f"{s}-1", repair_stars={"A", "B"})
+    assert not any(r["kind"] == "repair" and r["req"] for r in p["runs"])
+    assert not any(r["id"] == "repair:Z" for r in p["requests"])
+
+
+def test_a_bootstrap_fleets_home_piles_stay_put():
+    devs = world()
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    inv = {"B-BELT": {"silicates": 80}}
+    fleets = FLEETS + [{"id": "delta", "name": "Delta", "role": "bootstrap", "home": "B", "station": False}]
+    p = lg.plan(fleets=fleets, devices=devs, bps=BPS, inventory=inv, pos=POS, commandable={"A", "B"}, hosts={},
+                busy=set(), contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    assert not any(r["id"] == "return:B-BELT" for r in p["requests"])
+
+
 def test_backlog_counts_piles_holds_and_devices_waiting():
     from rsweb import metrics
     devs = [dev("HL", "transport_hauler", "A-1", cargo={"carbon": 30}),
