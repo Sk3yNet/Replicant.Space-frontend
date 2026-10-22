@@ -122,16 +122,7 @@ async def lockers_retrieve_at(request: Request, location: str = Form(...), user:
     lk = next((d for d in devs if "locker" in str(d.get("device_type") or "") and d.get("location") == location), None) \
         or next((d for d in devs if "locker" in str(d.get("device_type") or "")), None)
     if not lk:
-        return HTMLResponse(f'<span class="result err">The scan from {html.escape(reps[0])} found no locker. Retrieve '
-                            'by its code instead (the Retrieve box below).</span>')
+        return HTMLResponse(f'<span class="result err">The scan from {html.escape(reps[0])} found no locker. Try a scan and Retrieve '
+                            'from the scan below instead.</span>')
     code = str(lk["device_code"])
-    return await run_action(request, user, "POST", f"/devices/{code}/retrieve", None, f"retrieve from locker {code}")
-
-
-@router.post("/lockers/retrieve", response_class=HTMLResponse)
-async def lockers_retrieve_code(request: Request, code: str = Form(...), user: str = Depends(current_user)):
-    """Retrieve by the locker's device code (docs: POST /devices/{locker_code}/retrieve), when you know it."""
-    code = code.strip().upper()
-    if not code.isalnum():
-        return HTMLResponse('<span class="result err">That is not a device code.</span>')
     return await run_action(request, user, "POST", f"/devices/{code}/retrieve", None, f"retrieve from locker {code}")

@@ -7813,10 +7813,6 @@ def test_lockers_deliver_and_show_on_the_system_page(client):
     r = client.post("/lockers/deliver", data={"location": "TWAFFY-OORT"}, headers=HX).text
     assert "compute core: 1 spare(s) sent" in r, r
     assert "TWAFFY-OORT" in client.get("/systems/TWAFFY", headers=H).text
-    # retrieve straight from the locker's code (docs: POST /devices/{locker_code}/retrieve)
-    r = client.post("/lockers/retrieve", data={"code": " 70c835ac "}, headers=HX).text
-    assert "retrieved" in r and "HV2E8F3A" in r, r
-    assert "not a device code" in client.post("/lockers/retrieve", data={"code": "../x"}, headers=HX).text
     # all 50 on site: the row offers Retrieve, which scans from the replicant there and retrieves (2026-10-22: the row
     # kept offering Deliver, which never retrieves)
     world = client.app.state.api.http._transport.app.state.world

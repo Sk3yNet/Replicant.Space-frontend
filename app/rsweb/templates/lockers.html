@@ -12,12 +12,6 @@
       hx-confirm="Retrieve from the {{ k.location }} locker? It works once per account, and its price is used up.">Retrieve</button><span class="lk-d"></span>
     {% elif k.progress %}<button class="small" hx-post="/lockers/deliver" hx-vals='{"location": "{{ k.location }}"}' hx-target="next .lk-d"
       hx-confirm="Deliver the price for the {{ k.location }} locker? Spares are sent there and the rest printed.">Deliver</button><span class="lk-d"></span>{% endif %}</td></tr>{% endfor %}</table></div>
-<div class="card"><h2>Retrieve</h2>
-  <p class="muted small">Your replicant must be at the locker's location, and its price deployed there. Know the locker's code? Retrieve
-    straight away, or scan for it below.</p>
-  <form hx-post="/lockers/retrieve" hx-target="next .lk-r" hx-confirm="Retrieve from this locker? Each locker works once per account; its price is used up.">
-    <input name="code" class="mono" placeholder="locker code, e.g. 70C835AC" size="22" required> <button class="small">Retrieve</button></form>
-  <div class="lk-r"></div></div>
 <div class="card"><h2>Scan where a replicant is</h2>
   {% for code, name, loc in reps %}<div class="small" style="margin:4px 0"><b>{{ name }}</b> at <span class="mono">{{ loc or '?' }}</span>
     <button class="small ghost" hx-get="/lockers/scan/{{ code }}" hx-target="next .lk-scan">Scan for lockers</button>
