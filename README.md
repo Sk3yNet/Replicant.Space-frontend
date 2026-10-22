@@ -1,8 +1,13 @@
 # Replicant Space web client (self-hosted)
 
-A personal web client for [Replicant Space](https://replicant.space/), the API-first Bobiverse-inspired game.
-It runs as one Portainer stack. You reach it through a Cloudflare Tunnel and sign in with Google through oauth2-proxy.
-The same stack can also host other players, each with their own server and game key: see [Multi-user mode](#multi-user-mode-a-server-for-each-player).
+A personal web client and automation engine for [Replicant Space](https://replicant.space/), the API-first
+Bobiverse-inspired game. It runs as one Portainer stack, reached through a Cloudflare Tunnel with Google sign-in, and
+can host other players too ([multi-user mode](#multi-user-mode-a-server-for-each-player)).
+
+**Contents:** [Screenshots](#screenshots) · [Pages](#pages) · [Map legend](#map-legend) · [Automation](#automation) ·
+[Setup](#setup-about-20-minutes) · [Multi-user mode](#multi-user-mode-a-server-for-each-player) ·
+[Development](#local-development) · [Configuration](#configuration-app) · [Roadmap](#roadmap) ·
+[Full feature guide](docs/FEATURES.md)
 
 ```
 Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─► oauth2-proxy ─► Google sign-in
@@ -10,352 +15,127 @@ Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─�
                                            └─► app  (FastAPI + htmx, SQLite, holds the game token)
 ```
 
-- **No host ports are published.** The tunnel is the only way in, and nginx checks every request (including the live-update stream) with oauth2-proxy.
-- **The game API token stays on the server.** It is an environment variable of the `app` container only and never reaches the browser.
-- **One process talks to the game.** It keeps one connection to the event stream, polls on a schedule, and paces every call under the game's limits (120 reads + 60 actions per minute), keeping some budget in reserve for your clicks.
-- **Full event history.** The game only keeps about the last 10,000 events. The app stores everything it sees in SQLite on a named volume.
+| | |
+|---|---|
+| 🔒 **No host ports** | The tunnel is the only way in; nginx checks every request (the live-update stream too) with oauth2-proxy. |
+| 🔑 **Token stays on the server** | The game API token is an environment variable of the `app` container only and never reaches the browser. |
+| ⏱️ **One process talks to the game** | One event-stream connection, scheduled polls, and every call paced under the game's limits (120 reads + 60 actions a minute), with budget kept for your clicks. |
+| 🗄️ **Full event history** | The game keeps about the last 10,000 events; the app stores everything it sees in SQLite on a named volume. |
 
 ## Screenshots
 
-Every page is in [docs/screens](docs/screens/README.md), taken from the mock game server's demo galaxy (made-up names and codes).
+Every page is in [docs/screens](docs/screens/README.md), taken from the mock game server's demo galaxy (made-up names
+and codes).
 
 | Dashboard | Galaxy map | Device tree |
 |---|---|---|
 | [![Dashboard](docs/screens/dashboard.jpg)](docs/screens/README.md#dashboard) | [![Galaxy map](docs/screens/galaxy-map.jpg)](docs/screens/README.md#galaxy-map) | [![Device tree](docs/screens/tree.jpg)](docs/screens/README.md#tree) |
+| **System** | **Fleets** | **Logistics** |
+| [![System](docs/screens/system.jpg)](docs/screens/README.md#system) | [![Fleets](docs/screens/fleets.jpg)](docs/screens/README.md#fleets) | [![Logistics](docs/screens/logistics.jpg)](docs/screens/README.md#logistics) |
+| **Relays** | **Defense** | **Terraforming** |
+| [![Relays](docs/screens/relays.jpg)](docs/screens/README.md#relays) | [![Defense](docs/screens/defense.jpg)](docs/screens/README.md#defense) | [![Terraforming](docs/screens/terraforming.jpg)](docs/screens/README.md#terraforming) |
 
-## Features
+## Pages
 
-Six tabs, each with sub-tabs; every page keeps its own URL. Account, Diagnostics and Console are in the menu under your name.
-Per-release detail is in the app's version history (Account › Server, or `app/rsweb/version.py`).
+Six tabs, each with sub-tabs; every page keeps its own URL. Account, Diagnostics and Console are in the menu under your
+name. Each rule's settings are on the page it works on, in a collapsed *Rules* panel. Everything below is described in
+full in the **[feature guide](docs/FEATURES.md)**.
 
-| Tab | Pages |
-|---|---|
-| Dashboard | — |
-| Devices | Tree · Device list · AMI · Lost |
-| Map | Galaxy · Stars · Systems · Prospects · Traffic · Trail · Wards & hubs · Defense · Upkeep |
-| Fleets | Fleets · Reset & reform |
-| Economy | Blueprints · Contracts · Reputation · Shop |
-| Activity | Automations · Events · Messages · Notifications |
+| Tab | Page | In short |
+|---|---|---|
+| **Dashboard** | [Dashboard](docs/FEATURES.md#dashboard) | while-you-were-away digest, alerts, season story, logistics backlog, trends, stockpiles; cards drag, fold and remember |
+| **Devices** | [Tree](docs/FEATURES.md#tree) | system → type → device, cargo nested in its carrier |
+| | [Device list](docs/FEATURES.md#device-list-fleet) | filter, then one command or tag change for many devices |
+| | [Device](docs/FEATURES.md#device-page) · [Replicant](docs/FEATURES.md#replicant-page) | every command, print queue, carrier card, permissions; travel, scan, profile, slingshot |
+| | [AMI](docs/FEATURES.md#ami) | controllers, directives, schedules |
+| | [Lost](docs/FEATURES.md#lost) | devices out of sight and devices gone, with the reason |
+| **Map** | [Galaxy](docs/FEATURES.md#galaxy) | live 3D map: markers, fleets, traffic, relay networks ([legend](#map-legend)) |
+| | [Stars](docs/FEATURES.md#stars) · [Systems](docs/FEATURES.md#systems-list) · [System](docs/FEATURES.md#system-page) | nearest unexplored stars; systems by distance with ward / relay / beacon orders; one system's map, resources, belts, bodies |
+| | [Prospects](docs/FEATURES.md#prospects) | every scanned system scored out of 100, wards |
+| | [Relays](docs/FEATURES.md#relays) | live links, networks, bridges, relay rollout |
+| | [Traffic](docs/FEATURES.md#traffic) · [Trail](docs/FEATURES.md#trail) | beacon logs and civilization contact; follow a replicant (Bill) through the beacons |
+| | [Wards & hubs](docs/FEATURES.md#wards--hubs) · [Upkeep](docs/FEATURES.md#upkeep) | ward cap, hub shield and upkeep; wear and maintenance |
+| | [Defense](docs/FEATURES.md#defense) | asteroids: defend, evacuate, mine them with rigs |
+| | [Terraforming](docs/FEATURES.md#terraforming) · [candidates](docs/FEATURES.md#terraforming-candidates) | live console per world, dropping rocks; bodies rated as targets |
+| **Fleets** | [Fleets](docs/FEATURES.md#fleets) · [details](docs/FEATURES.md#pages) | status against loadout, missions, strays, roles, bootstrap |
+| | [Logistics](docs/FEATURES.md#logistics) | deliveries on demand, rescues, repair patrols |
+| | Reset & reform | rebuild messy tags |
+| **Economy** | [Blueprints](docs/FEATURES.md#blueprints) | travel, cargo, costs, production planner, [component prints](docs/FEATURES.md#component-prints) |
+| | [Contracts](docs/FEATURES.md#contracts) · [Reputation](docs/FEATURES.md#reputation) · [Shop](docs/FEATURES.md#shop) | contracts and trades, deliveries, shops and traders |
+| | [Simulations](docs/FEATURES.md#simulations) | scenario runs with build orders, terraforming training |
+| | [Lockers](docs/FEATURES.md#lockers) | equipment lockers: deliver the price, retrieve |
+| **Activity** | [Automations, Events, Messages, Notifications, Leaderboards, Blog](docs/FEATURES.md#activity-and-tools) | rules, jobs and log; history; BobNet; alerts; boards; the game's blog |
+| **Menu** | Account · [Diagnostics · Console](docs/FEATURES.md#activity-and-tools) | server runs, [desktop wallpaper](docs/FEATURES.md#desktop-wallpaper-optional); snapshots and performance; any API call |
 
-**Rule settings live on the page each rule works on**, in a collapsed *Rules* panel at the top. The Automations page lists every
-rule with an on/off switch, plus the jobs and the log.
+## Map legend
 
-### Dashboard and devices
-- **Dashboard**: a *while you were away* digest (a gap of 30 min starts a new visit; `/digest?hours=N` for any window), open
-  alerts, replicants, tutorial progress (the current tutorial's steps and the next step's hint), achievements (earned, with XP and when, and the ones still to earn), game news (the official changelog and blog, read every 6 hours; new versions and posts ring the bell), the season's **Story** (`/overview`, every 30 minutes: season and its likely end, storylines, time-limited events with their location, end date and reward, the stars or datacenters involved, the Ark's stop, opportunities, NPCs), live countdowns, fleet summary, **Logistics backlog** (is logistics keeping up? sampled every 10 minutes by the logistics pass, kept 30 days, 2d / 7d / 30d: resources in stockpiles other than a receiving stockpile, i.e. a stationed or materials-taking fleet home's drop point, and aboard logistics devices; devices waiting to be moved: fleet strays, `to:` / `at:` devices not there yet, rescues; open and unmet logistics requests; request age and lead time; carrier use and hold fill; stalled and auto-retrying missions, expired orders), **Trends** (devices by fleet role, mining output per hour estimated from pile gains where something mines, systems you can command and those your relay network covers), stockpiles with a 48 h trend, live event feed, achievements. Cards can be dragged (⠿) or moved (▲ ▼) and folded (▾); the layout is remembered per browser.
-- **Tree**: system → device type → device, with stowed devices nested in their carrier; each device opens its command panel.
-- **Device list** (`/fleet`): every device, filterable by type, status, system, owning replicant, tag or text. Tick devices (or all listed) to send
-  them one command, or to **add tags** / **remove tags**; the ones that can't take it — command not available, in use by an
-  automation, a deploy/detach while the carrier is between systems — are listed and skipped.
-- **Device page**: what it's doing (its fleet's status for a fleet member, the current task and step for a logistics
-  vessel or any device an automation job is working), live detail, any available command with its fields (destructive ones ask first), tags, history and game log,
-  cancel travel. Autofactories get a **print queue** card (add with an optional *deliver to*, remove, clear, and move a waiting print
-  to the front, up or down: the game can't reorder a queue, so the waiting prints from that place down are taken off and queued
-  again in the new order, tags and destinations kept; the print running now can't be moved); carrier vessels
-  a **carrier** card on every carrier (launch / stow / recall for a hold, detach / attach for attach points; devices too far to cruise over are picked up by the carrier, nearest first); stow, deploy, attach and detach work from either side (the carrier's
-  page lists its hold / attachments, the cargo's page lists carriers here — only the side the device fits); *Decommission at an autofactory* takes a device there so the autofactory learns
-  its blueprint. `enqueue_print` on a replicant's vessel is sent as the replicant's own print (one at a time).
-- **Replicant page**: route preview and travel (with *then, on arrival…* follow-ups), nearest stars, scan, mining, vessel
-  printing, profile editing, FTL slingshot.
-- **AMI**: controllers with their latest digest, a directive picker with targets from the controller's system, adopt / release /
-  launch / withdraw, and **AMI schedules** that re-issue directives to idle controllers.
+Every marker and layer has its own checkbox under *layers* on the Galaxy page; the map's own *legend* panel says the
+same. Markers sit at a fixed spot around the star, so you learn where to look.
 
-- **Lost** (Devices › Lost): devices out of sight — surging, left out of the device list, out of relay range with no replicant
-  in their system, or aboard a carrier that is — with their last known location and where they're heading, until they're seen
-  again (then listed under *Seen again*). Write one off to stop tracking it. *Gone, with the reason* lists devices that
-  left for a known reason (destroyed by an asteroid, lost to a diversion, decommissioned, sent to another replicant, paid
-  in a trade or to a contract, consumed by a print, contributed to a megastructure, held in a trade's escrow).
+**Star markers**
 
-### Maps
-- **Galaxy**: (every layer and each kind of star marker — mine, scanned, my hubs, other players' hubs, replicants, new finds, prospected from, my wards, megastructures (violet hexagon), surveying, resource rich (an orange gem, lower left), anomalies (a magenta spiral, upper right; both from the system scans' tags), hazards (a red haze pulsing around a system its scan tags hazardous, or one an incoming object still threatens, see Defence), region colors (each galactic region tinted its own color; the region at the view's center has none and the others fade in with distance) — has its own checkbox under *layers*, grouped by how it draws: view, clouds and glows, rings and waves, lines, icons; your choices are remembered in this browser; *layers*, *legend* and *info* fold away to leave room for the map, and selecting a star opens *info* again; each marker has its own shape: a pink diamond above the star for a replicant, a blue square to its left for your devices, a gold three-spoke node upper left for your hub (the same node in coral for another player's hub, from the catalog's has_hub), a yellow starburst below for a new find, a green dotted ring when scanned, cyan corner brackets when prospected from; markers, mining sparkles and names shrink and fade with distance from the view's center, gone by 30 ly, and where names crowd, replicants, hubs and your systems keep theirs and the others fade out; a fleet or traffic label that would cover another fades rather than moving) 3D map of the star catalog (plus stars from censuses and your observatories; your systems load first, the
-  rest of the catalog after), live: ships in transit, fleets (their dashed routes run toward the destination, still under reduced motion),
-  supply lines, mining sparkles and **prospecting cones** (each observatory scan: a wave running out to its reach) redraw as events
-  arrive. Relay/hub range, search, distances, route preview; right-click (on touch: long-press) two stars to measure. **Other players** (coral):
-  their fixed devices from the latest device scans (a replicant's vessel scans the devices of each system it arrives in: *Device scan on arrival*, which also adds any trade controller found to the shops list), a shield where someone else's ward or hub is, and an arrow for each arrival or
-  departure your beacons logged in the last hour (with the likely other end of the trip), all fading with distance from the
-  point the view is centered on. The **trail** of the replicant you follow is drawn in gold.
-- **Relays** (Map › Relays): *Live links* asks any relay or hub which neighbors it has really linked with (and flags links expected but missing); your relay networks — working relays (7.5 ly, or the range a relay reports) and active hubs (15 ly, by distance like relays — checked live 2026-10-15; on the galaxy map each network has its own color and a hub's links a darker shade of it, and two relays both linked to the same hub don't show their own link); the range sphere per system is its working relay or hub that reaches furthest (that range only links relays: a relay or hub delivers commands to its own system alone, so a network commands the systems it has nodes in, while a replicant is in one of them); a delivered relay is switched on before its carrier leaves; a relay out of range but on is a network of its own (whether it's on: the last activate/deactivate, relay.activated, or the last time it was seen relaying or inactive), and a switched-off relay gets a red ring unless its system has a working relay or hub
-  (15 ly) that reach each other — each in its own color, **active** when one of your replicants is within reach (only then
-  can what it covers be commanded), with suggested bridges (the fewest new relays, at most 10, joining two networks) and
-  *Add route* to order them. **Relay rollout**: a relay in every system within a radius of seed systems you name, nearest
-  first, as many orders open as your logistics vessels with a replicant aboard have free hold slots (each as *add* on the
-  Systems list; a carrier fills its hold with relays for several systems and drops them nearest first); *chained* (default) only goes to a system within
-  7.5 ly of a relay or hub of yours, one on order, or a seed, so the network grows outward in one piece; a system that
-  can't get one is skipped until *Retry skipped*, and five failures in a row pause the rollout. On the galaxy map (*relay network* option, off by default) links are curves (no ring at each relay), solid for active
-  networks and dashed for ones without a replicant; relays on order are white rings, suggested bridges dashed gray.
-- **Moving a replicant**: the Replicant page lists empty replicant matrices with *Transfer* (same location, instant) or *Teleport* (another system, over the FTL network), each with a confirmation.
-- **Megastructures**: a megastructure's location page shows its progress and what it still needs, with a Contribute button for your devices there; `/megastructures` has the leaderboard.
-- **Lockers** (Economy › Lockers): equipment lockers (NPC devices that hand out a set loadout once per account, e.g. SOL-OORT, TWAFFY-OORT): once its price is all there, a locker's row offers **Retrieve** (it scans from your replicant at the locker and retrieves); or scan where a replicant is and retrieve from the result. **Deliver** sends a locker's price there (spare devices pinned to its location, which drops their spare tag, the rest printed, spread over the autofactories at one stockpile; carriers drop them right at the locker, and fetch any left elsewhere in its system); each system's page lists its lockers. Device scans on arrival record every locker they see (code and location), new ones included, and Retrieve uses that code.
-- **Terraforming console** (Map › Terraforming, and a run's own with `?sim=`): each world is a live console that refreshes
-  itself every 15 s (not while you're using a control in it): a light per world, attribute and device group; a gauge per
-  attribute with its value, change per tick, the target range and a graph of the last hour with the range shaded; a switch
-  per device, a strength slider and direction for those that take one (shown as set), and all on / all off per kind. Every
-  control updates the console at once; a switch or setting shows what you commanded (dashed while pending) until the game
-  reports it, for up to 2 minutes, and a world's controls are sent one after another.
-- **Terraforming training** (a simulation played by hand): its run card links to *Terraforming controls*, the
-  Terraforming page on the run's own world (`/terraforming?sim=<run>`, that run's reports and graphs only; cleared when it ends): the monitor's values against a target species' ranges (GET `/species` `environment`; Humans by default, the choice
-  is remembered)
-  (✓ / ✗) and where each is heading at its current Δ (in range in N ticks, leaves the range, moving away; a tick is
-  30 s), each device's strength / direction and on/off, and *all on* / *all off* per kind of device. The monitor and the regulator share one *Control* card, first; the other
-  kinds keep a fixed order by what they primarily do (temperature, pressure, oxygen, toxicity, hydrosphere, biosphere),
-  and those that bring an out-of-range value back are marked *fixes …*. A card is not redrawn while one of its controls is held, and a commanded switch or setting shows
-  dashed until the game reports it (up to 2 min). Each world says whether it's
-  *all habitable* or which values are out of range, and since when the atmospheric regulator has been regulating (it
-  holds temperature, pressure and hydrosphere still and can be switched off again); switching it on asks first. The engine plays no build order in this scenario.
-- **Simulations** (Economy › Simulations): *Available simulations* lists every replicant interface known (the
-  datacenter's, your own, and any a device scan saw) with the scenarios each one offers (GET `/devices/{code}/simulate`, read
-  every 6 h or with *Scan interfaces now*): objective, time limit, entry cost and details. *Approve* one, like a contract, and
-  its entry cost (a free scenario has none) and a replicant go to that interface. Approving or queuing asks the interface at
-  once whether it still offers the scenario and at what cost (refused otherwise, naming what it offers) and starts preparing
-  right away, not on the next tick. Or queue a run of a scenario at the datacenter's replicant interface
-  The page also lists the interface's **research** topics (each unlocks blueprints, once per account; a replicant must be there), the all-player **leaderboards** (per scenario: top 10), and the game's view of a run in progress.
-  (MIRFAKA-OBJ-1): spare compute cores are pinned there (else printed at an autofactory, logistics bringing the
-  materials, the loadout pass the cores), then a free replicant is sent. When cores, replicant and interface are all
-  there, the bell nags (every 2 h) until you press *Start*. The bootstrap's compounding logic plays the run on the
-  simulation's own devices (no other automation touches them; everything from the virtual galaxy, the VIRT… systems, is kept apart: its devices, stockpiles, stars, surveys and events never reach your real numbers, map or alerts, and the page shows them in a Virtual galaxy card), recording when each build-order step was reached. When
-  it ends, everything from inside it (devices, events, scans, jobs) is purged; the report stays (score, resources
-  mined, devices printed, the step times), and the next run follows the build order you choose: a Build orders card holds named orders, one step per line
-  (`scan system`, `deploy all`, `mine: structural 4, conductive 2, carbon 1, silicates 1` (a number weights a resource;
-  saving refuses an order whose print needs a resource no earlier step mines), `print 2 mining_drone`, `wait: 500 structural`,
-  `mine until objective`, `survey` (survey drones at the belt search it), `controller: gather_evenly` (a mining controller at
-  the belt adopts the drones there, takes the directive and is launched, so they keep mining after the vessel leaves), `next system`
-  (the vessel flies to the nearest unvisited system with whatever it printed aboard), `each system:` and `repeat` (loop back
-  to it; a system with no belt is skipped)); every system mined counts toward a yield quota. The built-in *Mining Rush: spread
-  out* order uses them. The run card crosses steps off as they're done and the timeline records when.
-  Runs in the game lists every run the game has going: End early on any of yours, and devices / galaxy links that open the
-  normal Devices page and Galaxy map on that run's own data (`?sim=<run>`: its devices, stock and the virtual stars
-  around its replicant, read live through it and cached for a minute). A run's clock runs faster than real time, so when one of its
-  jobs finishes the next step starts at once rather than on the next engine tick. On a run's galaxy map the star markers
-  shrink to fit its tighter star spacing.
-- **Stars**: unexplored stars nearest a system, with ETA and route; stellar census per vessel.
-- **Systems list**: a *System tags* section at the bottom lists every tag in your cached system scans with the systems carrying it (hazardous ones in red); nearest first, by **distance** from the system picked under *distances from* (the same choices as Mining prospects; default: where most of your devices are); per system, the **Fleets** homed there (⌂) or on a mission there (→), and (with *Wards, beacons &
-  relays* ticked) your ward, FTL relay and FTL beacon with *add* (activate an idle one there, else send a spare, else print
-  one in range; a relay is placed at an L4/L5 point) and *remove* (deactivate and mark spare) or *cancel* an order.
-  ✦ marks a local civilization (green: your beacon is at its body). A beacon requested for such a system goes on to the
-  civilization's body, carried by a vessel in the system; with several civilizations, each body gets its own beacon
-  (Add stays offered until all have one).
-- **Star sizes**: the Galaxy and System maps draw each star by its radius (the scan's `radius_solar`, else the typical
-  radius of its spectral class, giants ten times that); the star's details say which.
-- **System page**: a top-down map with your devices, stockpiles, sites and salvage. Working drones circle their spot (miners and other workers clockwise; survey drones farther out, counterclockwise, with a light blue scanning beam). Three cards: **Resources** (per
-  resource: richness, open sites, % left, ≈ units left — learned from what past sites gave — salvage, stockpiled),
-  **Belts** (richness, a viability line, open sites) and **Bodies** (planets, moons, L-points with their salvage and stock).
-  **Prospects** (Map tab) scores every scanned system out of 100 (each resource's yield, scarce 1 to rich 10, × belt density,
-  weighted by rarity: rares 3, volatiles 2.5 … structural 1; a stationed fleet's home is scored for review only, marked
-  *home*, and ⚑ marks systems where a fleet of yours is homed), with a **Ward** column — ⛨ yours / ⛨ theirs — and *add ward*
-  (activates an idle ward of yours there, else sends a spare, else prints one in range on the autofactory with the shortest
-  queue, then switches it on once deployed; a queued print gives way to a spare that turns up; 25-ward cap) / *remove*
-  (deactivates yours, marks it spare, and drops a print not yet started). Surveyed checkboxes per body. *Other players here*: their
-  fixed devices (beacons, relays, wards, hubs, factories, observatories, controllers) from the latest scan, also drawn on the
-  map; a replicant arriving in a system scans it, or use *Scan for other devices*. Snapshots older than 7 days are dropped.
-- **Traffic**: civilization contact (a beacon must sit at the body of the civilization's event), visitors, each beacon's audit log,
-  redundant beacons. How often beacons are read (default 10 minutes).
-- **Trail**: follow a replicant through the audit logs of public FTL beacons; candidate systems with travel time and a travel
-  button; *follow to the end* keeps going until the target stops moving (for Bill, until it finds his AMI trade controller). *Reset trail* clears the beacons and logs when the
-  target relocates. Bill (A8F48B26) always passes through SOL: with nothing to follow, or a cold trail, the follow picks
-  him up there, and *restart from SOL* clears the trail and starts over. Leaving his shop he can't be followed (he resets to SOL), so a departure
-  from his shop's system sends the follow to SOL. His BobNet posts about moving ("NOSOXA is in the rear-view mirror")
-  clear the beacon logs, restart the follow at SOL and close his shop until it's seen again.
-- **Wards & hubs**: your wards (against the 25 cap), hub shield and upkeep with warnings, `evicted_miners` log. Other players'
-  warded systems are left alone by every mining rule and mission.
-- **Terraforming** (Map › Terraforming): each world with a terraform monitor: its latest `terraform.status` (attributes, change per tick, projections +6/+12/+24, what drives them, warnings, anomalies), coupling rules active or close, bio seeder preconditions; your terraforming devices with strength (0–1), direction (reversible ones) and on/off. **Dropping rocks**: detect Kuiper objects, launch one with a vector charge at a planet or moon, set propulsor / trajectory deflector directions; rocks you launch are left alone by asteroid defense.
-- **Terraforming candidates** (Map › Terraforming candidates): surveyed planets and moons rated as terraforming targets for a species you pick, quickest first. For each: the gap per attribute and the time to close it with n devices of each kind (stacking 1 + ln n, side effects left out; bio seeders start once their preconditions hold), the devices it takes, the distance to your nearest autofactory and whether you can command there (both filters). Gravity outside the range, gas giants and intelligent natives are listed apart. *Read surveyed bodies* fetches their details (`GET /locations/<body>`), 25 a click, again after a week.
-- **Defense**: incoming asteroids with a propulsor estimate and **Defend now**. **Evacuation** (game v3.5.0: what's left at an
-  asteroid is destroyed on impact or lost on diversion): within the hour before impact, or at the game's
-  `system.impact_warning`, your devices there leave for the system's entry point (propulsors still pushing stay until 30
-  minutes out, and are recalled as soon as the asteroid is diverted enough: impact likelihood at or below the Asteroid defense rule's setting, default 1 %, as it never reaches 0; an asteroid with propulsors on it is read every 5 minutes, also a setting; one that can't fly boards a carrier there), their `at:` pin to the asteroid is dropped, and a stockpile there
-  is logistics' top priority. Nothing more is sent or printed for an asteroid due within the hour. An event is over once its impact time passes: it's no longer read, alerted or evacuated, and moves to the Concluded list; the card title shows the warning's destination. Game v3.6.0: an asteroid the game reports `off_target` (it will miss) counts as diverted and is evacuated at once, since it's flung out of the system at the ETA; the card lists the resources left on the rock (mining rigs only). The System page shows an asteroid only while it's open; past ones are listed under Concluded on the Defense page. Propulsors still pushing leave 45 minutes before the impact (the rule's *leave* setting, at least 30). An asteroid whose designation a former rock used is tracked anew: the old rock's impact event doesn't close it. Once an asteroid is diverted enough or off target, only the propulsors leave early; everything else (mining rigs) stays until the hour before the ETA. **Asteroid mining** (rule, off by default, on the Defense page): devices with the `fracture` feature (mining rigs) at an asteroid mine one resource at a time, in the order of the rule's priority list (the first is the most likely to be finished, as yields taper), then the rest until it's dust; idle rigs that can fly go to an asteroid in their system with a free slot (small 1, medium 2, large 5, shared with other players) when, after the trip (the game's travel preview), at least an hour of mining is left before the one-hour cutoff (a setting). Rocks you launched only give up the resources chosen for them and keep 5 % of each, so the impact still has its terraform effect. While rigs work, the rock's stockpile is a top-priority logistics pickup. An idle survey drone in the system (else the one whose belt search started last, never one tracking a site) goes to a rock being mined and stays, scanning it every 30 minutes (a setting) for exact amounts until the cutoff; the card shows the scan and your rigs. An asteroid is named by its location designation (STAR-OBJ-n): the game's impact warning names none and comes from where your devices are, so it's filed under the asteroid tracked in that system (else the system's scan names it at the next read), and the warned place is evacuated too. **Upkeep**: wear per system and maintenance
-  coverage.
+| | Marker | Means |
+|:-:|---|---|
+| <img src="docs/icons/devices.svg" width="22"> | blue square, left | systems with your devices |
+| <img src="docs/icons/replicant.svg" width="22"> | pink diamond, above | one of your replicants is there |
+| <img src="docs/icons/hub.svg" width="22"> | gold node, upper left | your hub |
+| <img src="docs/icons/other-hub.svg" width="22"> | coral node, upper left | another player's hub (arriving there is 25 % faster) |
+| <img src="docs/icons/ward.svg" width="22"> | blue shield | your ward |
+| <img src="docs/icons/other-ward.svg" width="22"> | coral shield | another player's ward or hub |
+| <img src="docs/icons/scanned.svg" width="22"> | green dotted ring | scanned |
+| <img src="docs/icons/found.svg" width="22"> | yellow starburst, below | found by your observatories, not scanned yet |
+| <img src="docs/icons/prospected.svg" width="22"> | cyan corner brackets | an observatory prospected from here (once per star) |
+| <img src="docs/icons/megastructure.svg" width="22"> | violet hexagon, below | megastructure |
+| <img src="docs/icons/rich.svg" width="22"> | orange gem, lower left | the scan tags it resource rich |
+| <img src="docs/icons/anomaly.svg" width="22"> | magenta spiral, upper right | the scan tags an anomaly |
+| <img src="docs/icons/hazard.svg" width="22"> | pulsing red haze | the scan tags it hazardous, or an incoming object threatens it |
+| <img src="docs/icons/surveying.svg" width="22"> | green wave | being surveyed |
+| <img src="docs/icons/mining.svg" width="22"> | sparkles | drones mining now, by resource: structural (gray), conductive (orange), silicates (sand), carbon (brown), volatiles (cyan), rares (magenta) |
+| <img src="docs/icons/cover.svg" width="22"> | range sphere | relay / hub range |
+| <img src="docs/icons/region.svg" width="22"> | background tint | one color per galactic region; the region at the view's center has none, the others fade in with distance |
 
-### Fleets
-A fleet is a named group of devices tagged `fleet:<id>`, with a role (mining / explore / logistics), a home and a loadout (its own
-lines or a template).
-- **Fleets** (the landing page) shows each fleet's status against its loadout, loaded just after the page, and the templates
-  and loadout settings. **Fleet details** has the slower parts: each fleet's card (members, loadout, missions), what the next
-  loadout pass would do, the tags & controllers check, and what's spare or on the way. Both pages keep the loadout plan,
-  prospects and destination lists for an hour (the engine still plans for itself every pass); any fleet or loadout edit
-  and the **Recompute** button refresh them.
-- **Stationed** fleets are kept at their loadout in their home system by the **loadout pass**: extras become `spare`, spares
-  are sent where they're short (within the supply range, default 100 ly), what's still missing is printed and carried there
-  (large devices are compacted first). Placed beacons and relays are never made spare or moved. A borrowed carrier only comes
-  from within the supply range of the pick-up (the trip itself can be any length, e.g. a new home across the gap); a fleet's
-  own carriers go anywhere. Deliveries use logistics-fleet carriers (or spare carriers in no fleet); any other fleet's
-  carrier only picks up its own fleet's members and is never borrowed. Spares are only gathered to a depot within range. **Supplied from** (Overview): a hub whose
-  autofactories print the fleet's shortfalls and whose carriers bring them, at any distance — e.g. a Sol-sector fleet
-  supplied from a home-sector printing hub.
-- **Nothing leaves short:** a fleet only sets off with its whole loadout in its home system (aboard, there, or arriving).
-  A launch with gaps is refused (tick *Launch anyway* to send it short); a mission whose devices didn't all make it waits
-  at gather, refilling from spares, until complete or *Launch anyway*; auto-scout and auto-deals wait. A **new home** doesn't wait for the loadout: the loadout pass fills the fleet there.
-  Surge-capable members don't hold a move up unless the fleet needs them as carriers: each flies straight
-  to the new home from wherever it is, once it has finished its current task. A new home outside an active relay network stays
-  *pending* (unless a replicant rides with the fleet) until a relay there joins one: nothing could be commanded there on arrival.
-  Once it moves, a **mining fleet** has no assembly stage: its own carriers and the logistics fleets' each load as many
-  members as they hold and leave as they fill. A **survey fleet** first collects every member it has (from other systems too),
-  then moves together in one relocation mission when its carriers seat everyone.
-- **Missions** run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*,
-  *Stop*, *End mission & board* and *Recall*. A stalled mission retries the stalled phase by itself after 15 min, doubling
-  the wait each time up to 6 h, eight tries in all (then it waits for *Retry*; one stalled out of comms range resumes once
-  back in range instead). Only the first stall at a spot notifies. Mining works the richest belt (or salvage); explore surveys each target (it no
-  longer leaves relays or beacons: ask for those on the Systems list; an already-surveyed target is skipped, and the
-  crew stays aboard at home). Trade fleets are retired: the logistics service does their work, and each one becomes a logistics
-  fleet (same members and loadout) once its last run ends. A recall withdraws a launched AMI controller (its
-  drones come back) before it boards. No automation sends a drone or AMI controller on an in-system cruise longer than the
-  max cruise (Fleets › settings); a manual Travel that long asks first (surge-capable devices excepted). A survey
-  member that far from its work spot rides the fleet's carrier there, and survey crews are never dropped at the Kuiper
-  belt or Oort cloud (with the system still unknown they stay aboard until the work phase). Every
-  automated trip logs its expected arrival; a step refused while something is still on its way waits for that ETA.
-- **Path forward** (stationed mining fleets): a heading; when the home runs dry the fleet picks the best system ahead and moves. Only
-  systems it can command count (an active relay network there, or a replicant): no automatic assignment goes outside the
-  network. Salvage counts like a belt when ranking systems (5,000 salvage ranks like a middling belt), so a salvage-only system can be next.
-- **Observatories** prospect wherever they're deployed — the heading (else outward from Sol), then 13 other directions — and
-  compact when every direction is used up or the fleet is leaving.
-- **Auto-scout** (explore fleets): surveys the nearest unsurveyed systems within 100 ly of home, ring by ring (only inside relay
-  coverage without a replicant aboard); sets out at 85 % capacity, comes home for repairs at 50 % and deploys its worn members so they can be repaired. Any mining or survey fleet does the same: a member at or below 50 % while it works sends it home
-  (it recalls, returns and unloads as usual), and back home members below 85 % are deployed from their vessel to be repaired.
-- **Prospector** fleets (role *prospector*: a galactic observatory and a carrier with an attach point): a tour of the
-  stars within 30 ly of the fleet's home. Each star is prospected from once (the game allows one prospect per star),
-  aimed at the emptiest hemisphere; then the observatory compacts and the carrier takes it to the next star — the
-  emptiest neighborhood not prospected from yet, nearer first, commandable, and not another prospector's. A tour that
-  hasn't moved on or prospected for 12 hours, or has no star left in range, raises a warning in the bell.
-- **Logistics** fleets (Fleets › Logistics): no missions; their devices deliver materials and devices on demand. Idle logistics devices inside the relay network gather at the nearest printing hub (a fleet that takes materials in): they fly there, or a free logistics carrier tows them; a stationed logistics fleet stays at its own home. A print delivery to another system leaves with its hold at least a quarter full (or carrying all that's wanted); a smaller load waits for more to be spared, also when a print is stalled if the trip is longer than 15 ly. The page's **In transit** card lists every hold with materials in it (what, where, heading for, which run), with totals; the dashboard's stockpiles show "+ N in transit".
-  Requests: queued prints (their cost minus what's stocked), contracts you approved or whose civilization you pre-approved
-  (Contracts), trades you approved (Shop: *approve*, used once; plain shop listings are never fulfilled), a home system's
-  piles consolidated at its drop point (its autofactory, else its biggest pile; systems the Consolidate rule covers with an
-  AMI transport controller are left to it), and stray stockpiles brought back to a gather point (a fleet that takes
-  materials in) — or, where such a fleet moved away, to its new home (not from a system an AMI ferry already empties;
-  a return load that finds less than planned takes what is left); with no gather point, the page says so. A trip planned
-  without an escort checks again before it leaves and stays put if its destination has gone out of comms range. Deliveries draw on
-  stockpiles beyond the network too while a replicant is free to go along. Contracts and trades at the same location share one delivery: what's there pays the first ones, one trip brings what all the others lack (as far as the carriers hold) and its replicant fulfills them all. Priority: queued prints (waiting ones first), local, long-range, returns; bump or skip a request on the Logistics
-  page. Home systems keep what their own prints need, but hubs share that reserve so each one's print queue is paid for
-  about as many hours ahead (print time over its autofactories): the one with the fewest hours gets what its next print
-  lacks from the one with the most, while the giver still has at least as many hours left. Inside one system a free AMI transport controller (drones / haulers)
-  gets the delivery as a `delivery` directive; logistics covers what it can't. Logistics reaches every logistics device however far (the supply range doesn't
-  limit it), so one logistics fleet serves everywhere. Ships are picked nearest first (by relay hop), then the
-  smallest that takes the rest in one go (else the biggest), and as many as the load needs go at once, as one convoy:
-  freighters and cargo vessels fly themselves (a freighter is too large to attach); haulers and drones stay in their
-  system unless they ride (attached) on a free logistics carrier (plate, platform, carrier, fleet carrier). A ship still
-  holding what's needed (say, from a trip that failed) is used first, and delivers without picking up again. Outside an
-  active relay network one device hosting a replicant goes with the whole convoy — a carrier with a replicant's matrix
-  aboard (a fleet carrier holding a matrix container) counts — or nothing goes; when a delivery completes a contract or
-  trade, that replicant fulfills it, and the convoy loads the payout there and brings it to the nearest gather point
-  (devices paid out are sent there as deliveries). Afterwards everyone waits inside the network. Device deliveries (and fleet moves done
-  piecemeal) take logistics carriers first. **Rescues** (last priority): a device out of command range (placed relays and
-  beacons, wards, hubs, fleets on a mission and devices tagged `at:` the spot where they are — stocked there on purpose — excepted) is brought home — its fleet's home, else the nearest covered home.
-  One that can surge is reached by a replicant in its system or anywhere its dark relay network covers, and commanded
-  home; one that can't is picked up from its last known location by a carrier with a free seat, a replicant along. A rescue
-  whose trips add up to more than the **sector range** (a day at the game's 50 s/ly) waits for your **Confirm** on the request (so does one to a star whose position isn't known) (one alert; the OK holds two days).
-  Logistics carriers only serve stars within the sector range (1728 ly), so a far sector needs a logistics fleet of its own.
-  **Repair patrols**: repair devices in a logistics fleet (only those) go where the wear is. A system wants one repair
-  device per six devices below the Maintenance rule's worn level, counting any already there or on their way; the systems
-  missing the most capacity go first (then the lowest device). A free logistics carrier picks one up from a system that has
-  enough without it (one mid-repair finishes first), drops it at the worst device and sets it to `patrol`; one that can surge
-  flies itself. Only systems the relay network covers or a fleet's home (not one lit only by a passing replicant), never
-  one with an asteroid due; trips over a day wait for **Confirm** like
-  rescues. A logistics repair device in a system that needs it is set to patrol there, and none of them gathers at a hub.
-  An idle logistics carrier drops off what isn't its work at the nearest receiving point inside the network (a fleet that
-  takes materials in, or one of your system hubs): leftover cargo is deposited, and devices riding it that aren't logistics
-  devices, a replicant, a matrix, a matrix container or anything with a matrix inside, or on their way somewhere (`to:` / `at:` tags) are deployed or detached there.
-  Members of another fleet aboard are never dropped there: the carrier takes them to their fleet's home (one home per
-  trip, the nearest) and lets them off.
-  Before any carrier leaves on a trip, members of another fleet riding it that the trip would take away from their fleet
-  (not going to their fleet's home, not named in the job, not the job's or the carrier's fleet, not a replicant or a
-  matrix) are let off where it is first; the loadout pass then brings them home.
-  Strays (Fleets page): every tick the app lists members of stationed fleets that aren't in their home system (spares,
-  placed relays and beacons, replicants and matrices left out), with where they are and why. One riding another fleet's
-  idle carrier is let off there so the loadout pass can bring it home (logistics carriers bring them home themselves);
-  one away an hour with nothing bringing it is reported once. A fleet's move to a new home stays open until every
-  member is there: reported when complete, and once if members are still missing after two hours.
-  Every vessel in a logistics fleet is available to automation, replicant vessels included (moves of stationed mining
-  fleets, deliveries, beacons; while an approved shop trade waits, device runs leave those with a replicant free for it); another fleet's replicant vessel is only used as the escort a trip beyond the network needs.
-- **Bootstrap** fleets: from a bare heaven vessel (three mining drones and a replicant aboard) to an autofactory hub with three
-  mining outposts. Home: the drones mine the best belt, the vessel mines onboard what they get little of (usually rares and
-  volatiles), and the replicant prints survey drones and miners until the hold-sized kit is built (a home another player has
-  warded, like Sol, is skipped). Then a survey of every system within the radius (10 ly), **your OK on the hub**, the move
-  there, compounding to an autofactory printed on site, and the hub as a stationed fleet that takes materials in. Outposts
-  (**your OK on each**) must keep the relay chain (each within 7.5 ly of the hub or an outpost; else a relay waypoint, also
-  your OK), and send their materials to the hub by cargo freighter. The hub and every outpost get an AMI mining controller
-  (`maintain_ratios`: the mix the bootstrap's missing devices cost) and an AMI survey controller (`belt_search`); while the
-  salvage rule has one on salvage or resting at a dry belt, the bootstrap leaves it alone. Start one with *New bootstrap*
-  (a replicant's vessel and what's aboard), or pick the *bootstrap* role on an existing fleet that has a replicant's vessel
-  and Save; *Back to a normal fleet* (with the role you pick) makes it a stationed fleet again, homed where most of its
-  devices are; a running mission stops, and a deployed matrix of its replicant boards the vessel first. The Fleets overview shows a bootstrap's stage. Set its Home on the card to start somewhere else (a system with a belt); choosing the hub moves the home there. Hub and outpost candidates skip systems with an incoming object, and past asteroids or hazard tags lower their rank; the autofactory waits while a rock heads for the hub. Its devices are never rescued home when out of range (it
-  leaves drones mining behind on purpose), and the home kit leaves hold room for what else rides aboard (a matrix, a slingshot). A ward goes up where it costs under 6 hours of the
-  system's output, or at once when another player's drones mine there. Everything it prints is tagged `boot:<id>`: the
-  loadout pass never lends it others' spares, factories or carriers, nor lends its own.
-- Also: owner hand-over (`change_owner`), materials (*send to* / *takes materials in*), *fill from spares*, carrying budget,
-  *Reset & reform* for messy tags. Hand tags: `to:<system>` sends a device there (its carrier is found for it),
-  `at:<location>` pins it to a spot; `to:<location>` (e.g. `to:sol-3`) is rewritten as `to:sol` + `at:sol-3`.
+**Lines and movement**
 
-### Economy
-- **Component prints**: some blueprints use up component devices (e.g. a biosphere cultivator: 2 hydroponic bays, a nutrient synthesizer, an orbital farm), deployed at the factory. Every print the app queues (manual ones included) first counts the components already at the factory (deployed there or queued there, less what earlier prints in its queue use up), then pins spare ones from elsewhere to the factory, and only puts the rest ahead of it on the same factory (one the game won't print, a locked blueprint, is logged and the item queued anyway), with the item's tags (its location pins swapped for the factory's). A factory already waiting for components gets spares pinned to it, or the rest printed at another autofactory (every 5 minutes).
-- **Blueprints**: how each device travels between systems (flies itself, stowed, attached, or compacted then attached) and what it carries (hold and attach slots, cargo), every other field the game sends that has a value (relay range, print queue slots, strength, current hubs, and any new one), the full description, costs (component devices included, with an all-in material total) and print times, what each printer can afford, a production planner that queues prints (spread over
-  several autofactories) and can mine or deliver the shortfall.
-- **Contracts**: in-game events with criteria (any one option completes it), rewards and progress; a beacon mark per civilization (yours at its body, only in its system, or none); *send replicant*, *deliver
-  materials*, *fulfill*. **Deliver devices** sends spare devices to a contract's location; printing what no spare covers waits
-  for **Authorize printing**. **Restart prints** forgets prints no autofactory still holds (dropped from a queue, a factory
-  gone) and prints what's short again.
-- **Reputation**: account and per-replicant reputation, known species. **Shop** (and a Trades section on **Contracts**): your trade controllers, trades, other traders —
-  every replicant's trader directory plus every shop a system scan lists, the newest sighting of each winning (shops can
-  move). A shop stays listed until you remove it (*Remove*, once you checked it's gone): scans
-  can miss shops, and a failed trade only stalls the run. An owner's BobNet post that the shop "is open for shoppers"
-  (with "Find me in the Oort") moves it to the poster's system and spot, or lists it until its controller is seen.
-  *Refresh traders* says how many replicants it asked and how many traders the game listed: the game's directory has
-  the shops in each replicant's own system, and others only where the owner has an FTL relay and you have one there.
-  *Get listing* reads a shop's trades (the game shows them only to a replicant in the shop's system): at once if one
-  of yours is there, else logistics brings one at the lowest priority (tier 6); Bill's too (once his shop is seen again after a move); his trail is followed only when you start it on the Trail page. Bill is the exception: his BobNet post that he moved closes his shop until it's seen again. A trade
-  run paid in devices gets spare ones delivered and deployed at the shop.
+| | Layer | Means |
+|:-:|---|---|
+| <img src="docs/icons/fleet.svg" width="22"> | teal dashes | a fleet's route (dashes run toward its target) |
+| <img src="docs/icons/transit.svg" width="22"> | violet arrow | a ship in transit (points where it's going) |
+| <img src="docs/icons/supply.svg" width="22"> | amber / blue arc | supply line: materials / trade |
+| <img src="docs/icons/prospecting.svg" width="22"> | cyan cone | an observatory prospecting (a wave running out to its reach) |
+| <img src="docs/icons/relay-network.svg" width="22"> | colored curves | a relay network, one color each, active (a replicant within reach); a hub's links in a darker shade |
+| <img src="docs/icons/relay-inactive.svg" width="22"> | dashed curves | a relay network without a replicant |
+| <img src="docs/icons/relay-order.svg" width="22"> | white ring | a relay on order |
+| <img src="docs/icons/relay-off.svg" width="22"> | red ring | a relay of yours switched off, in a system no network reaches |
+| <img src="docs/icons/relay-bridge.svg" width="22"> | dashed gray | a suggested bridge between networks |
+| <img src="docs/icons/other-players.svg" width="22"> | coral ring and arrow | other players' fixed devices; arrivals and departures at your beacons in the last hour |
+| <img src="docs/icons/trail.svg" width="22"> | gold line | the trail of the replicant you follow |
 
-### Activity and tools
-- **Automations**: every rule, jobs step by step with Cancel, and the log. **Sector range**: any automated trip longer
-  than a day at the game's surge pace (or of unknown length: the game's preview measures stars the catalog lacks) isn't
-  sent; its job waits with a **Confirm** button here (one alert). Trips you start yourself go as they are. **Events**: full local history with filters.
-  **Messages**: game messages and BobNet channels (each post shows the system its poster is in; *recent* history includes NPCs). **Notifications**: alerts and accomplishments, with toasts and a badge.
-- **Diagnostics**: a live snapshot (read-only GETs plus the app's state) with a mining diagnosis, downloadable as JSON;
-  a **Performance** panel (pages slowest on average, the slowest requests with their queries, game API calls, engine
-  lock waits and saved values decoded; engine stage timings and lock holds; table sizes and the largest saved values,
-  also in the snapshot). Every page answer carries a Server-Timing header, and requests over 1 s are logged;
-  feedback to the game's developers. **Console**: call any API endpoint through the server-side client; presets for every player endpoint of the live API (including equipment-locker retrieve), grouped and each with a one-line description, with fill-in blanks (replicant, device, location … with suggestions) that build the path and body, which stay editable before sending.
-- **Desktop wallpaper** (optional): the Galaxy and System maps as a live Windows wallpaper with
-  [Octos](https://github.com/underpig1/octos) and [sk3ynet/replicant-space-octos](https://github.com/sk3ynet/replicant-space-octos).
-  *Account › Desktop wallpaper* creates a read-only link (`/wallpaper/<id>/#key=…`); options such as `view=galaxy|system|cycle`,
-  `cover=0`, `fleets=0`, `supply=0`, `production=0`, `hud=right|left|off`, `layers=` (the galaxy layers that are on, by
-  the Galaxy page's checkbox ids without `opt-`, e.g. `labels,regions,mark-hub`; every other layer is off) and
-  `follow=<replicant name or code>` (the galaxy stays centered on it, gliding along while it travels; the system view
-  shows the system it's in).
+**System map**
 
-### How automation works
+| | Marker | Means |
+|:-:|---|---|
+| <img src="docs/icons/drone-work.svg" width="22"> | green dot circling clockwise | a mining or other working drone at its spot |
+| <img src="docs/icons/drone-survey.svg" width="22"> | light blue dot circling counterclockwise, with a beam | a survey drone scanning |
 
-**Season changes**: a season ends in a time skip (devices may move, events end, AMI directives pause). When `/overview`
-reports a new season number, automations pause: no engine passes, no new automated jobs, and running jobs wait (ones you
-start yourself still run). A banner says so; only **Resume automations** lifts it. **Pause for the season change**
-(Dashboard › Story) does the same by hand. Every 6 hours a copy of device places and states, fleets, loadouts, ward /
-relay / beacon orders, contract deliveries, replicant places and star positions is kept; it's frozen while paused.
+Markers, sparkles and names shrink and fade with distance from the view's center (gone by 30 ly); right-click (on
+touch: long-press) two stars to measure. The icons are drawn by `tools/make_legend_icons.py` from the map's own shapes.
 
-**Long trips** (e.g. ~500 ly from the home sector to the Sol zone): a wait for an arrival lasts until the game's own ETA
-(+30 min) and is extended while the device is still moving (up to 48 h); a command the game refuses because something
-is still travelling is retried every 5 min (up to 3 h) while it's still heading where the job sent it. A canceled trip,
-an arrival somewhere else, or a carrier that turned back stops the job (a fleet mission stalls; *Retry* flies again), so
-nothing is deployed or unloaded anywhere but the destination.
+## Automation
 
-**Via hubs**: arriving in a system with a hub is 25 % faster, whoever owns it, and the game never routes through one
-by itself. Before an automated device trip of 15 ly or more to another system, up to two hubs (yours, or any star the
-catalog flags *hub*) that could shorten
-it are previewed as a waypoint (`via`, dry runs); the fastest is taken when it saves at least 10 min and 5 %. The step
-then reads *(via hub X)* and the log gives both times; if the game refuses the waypoint the trip goes direct. A trip to a body in another system gets that system's star as
-the last waypoint (the game requires it), for a `via` you type yourself too.
-**Surge hops**: inside a system, a surge-capable device standing at the Oort cloud, the Kuiper belt, the entry point or a
-planet's L4/L5 hops first to whichever of those is nearest its destination (when that saves at least 30 AU and a quarter
-of the cruise), then cruises the rest. From a belt or a body it first goes to the nearest of those spots when that is much
-shorter than the game's own route (leaving a system, the game cruises to the entry point first). The spots go in the trip's
-`via`, ahead of any hub waypoints. Arriving in another system, the trip ends with that system's spot nearest the
-destination (the off-ramp) when the game would arrive much further off; the step reads *(surge hop via …)*. If the game refuses them, the trip takes its own route.
-- Rules run in the app container, so they keep going with the browser closed. Each rule creates **jobs**: ordered game commands,
-  some waiting for an event (e.g. `travel.arrived`) before the next. A failing step is logged and skipped; a failing *critical*
-  step stops the job with an alert. Jobs are stored in SQLite and survive redeploys.
-- All commands share the rate limiter (background budget) and appear in the Account audit log as user `automation`.
-- **Dry run** makes rules log what they would do without sending anything. Watch-and-alert rules start on; every other rule
-  starts off.
-- **Engine watchdog**: if the engine lock is held for more than 10 minutes, the log and Diagnostics say **automations stalled**.
-- Events that arrive more than 30 min late (a replay after downtime) go into the history only; they trigger no rules.
+Rules run in the app container, so they keep going with the browser closed. The details are in
+[How automation works](docs/FEATURES.md#how-automation-works).
+
+- **Jobs**: each rule creates ordered game commands, some waiting for an event (e.g. `travel.arrived`). Jobs live in
+  SQLite and survive redeploys; a failing *critical* step stops the job with an alert.
+- **Safe defaults**: watch-and-alert rules start on, every other rule starts off. *Dry run* logs what rules would do.
+  All commands share the rate limiter and show in the audit log as user `automation`.
+- **Fleets** keep their loadouts, run missions, follow a path forward and bootstrap new hubs
+  ([Fleets](docs/FEATURES.md#fleets)); **logistics** delivers materials and devices on demand
+  ([Logistics](docs/FEATURES.md#logistics)).
+- **Travel** waits on the game's ETA, routes via hubs and surge hops when that's faster, and asks for **Confirm** on
+  trips over a day ([Sector range](docs/FEATURES.md#activity-and-tools)).
+- **Season changes** pause every automation until you resume; the engine watchdog flags a stalled engine, and late
+  replayed events trigger nothing.
 
 ## Setup (about 20 minutes)
 
@@ -484,13 +264,17 @@ Each game account can be connected only once per host. Two servers on one key wo
 
 ## Versions and server runs
 
-The app version (`rsweb/version.py`: `VERSION` plus a `CHANGES` list) is shown in the header. A short **code fingerprint**, a hash of the app's code, is shown with it, so a code change is visible even if the version wasn't bumped. You can set `APP_BUILD` (e.g. a git commit) in the stack to show that too.
-
-Every start adds a run record and writes **server started** lines to the automation log. Those lines give the version, the run id and the previous run, and whether that run stopped cleanly or not. A run with no clean stop was killed, crashed or hard-redeployed, and the log shows when it was last seen; a heartbeat updates that time every minute. After an upgrade, the log also lists what changed since the previous version.
-
-Every log entry and job carries the version and run that wrote it. The Automations page greys out and tags anything from an **earlier run**, an **older version**, or from before versioning (**unversioned**). The Account page has a **Server** card with the last 20 runs and the version history. Diagnostics snapshots include the same history, and tag their alerts and failed jobs the same way.
-
-When releasing, bump `VERSION` and add a `CHANGES` line.
+- **Version** (`rsweb/version.py`: `VERSION` plus a `CHANGES` list) is shown in the header, with a short **code
+  fingerprint** (a hash of the app's code), so a code change is visible even if the version wasn't bumped. Set
+  `APP_BUILD` (e.g. a git commit) in the stack to show that too.
+- **Server started** lines: every start adds a run record and logs the version, the run id and the previous run, and
+  whether that run stopped cleanly. A run with no clean stop was killed, crashed or hard-redeployed; the log shows when
+  it was last seen (a heartbeat updates that every minute). After an upgrade, the log also lists what changed.
+- **Tagged history**: every log entry and job carries the version and run that wrote it. The Automations page greys out
+  and tags anything from an **earlier run**, an **older version**, or from before versioning (**unversioned**).
+- The Account page's **Server** card has the last 20 runs and the version history; Diagnostics snapshots include the
+  same history, and tag their alerts and failed jobs the same way.
+- When releasing, bump `VERSION` and add a `CHANGES` line.
 
 ## Local development
 
@@ -543,6 +327,9 @@ docker-compose.yml         the Portainer stack (multi-user: one server per Googl
 docker-compose.single.yml  the original single-user stack
 nginx/                     nginx image with the auth_request config (default.conf; multi.conf for multi-user mode)
 tools/replay_snapshot.py   run one automation tick against a Diagnostics snapshot
+tools/screenshots.py       retake docs/screens; make_demo_galaxy.py builds the mock's demo galaxy
+tools/make_legend_icons.py draw docs/icons (the README's map legend) from the map's marker shapes
+docs/FEATURES.md           every page and automation in detail; docs/screens has a screenshot of each page
 tools/fetch_docs.py        save the game's docs pages and changelog as text (to check the app against them)
 API_REFERENCE.md           API notes compiled from the official docs
 app/rsweb/
@@ -575,7 +362,7 @@ What's still open, from comparing the app with the game's API reference and docs
 1. **Fleet controller** (once unlocked, see below): one travel command per fleet.
 2. **GUPPI theming**: an optional theme for the web client in the style of GUPPI (the Bobiverse replicant's interface).
 
-### Fleet controller — how the app would use it
+<details><summary><b>Fleet controller: how the app would use it</b></summary>
 
 What the game says: the fleet controller is an NPC reward near SOL-3, "in exchange for helping them out with a little project". It adopts **surge-capable** devices only: surge plates and platforms, carriers, mobile fleets, cargo freighters and vessels. One `travel` to the controller is relayed to every adopted device, and each device plans its own route. It cascades: a controller can adopt other fleet controllers. No co-location is needed as long as every device is reachable through the FTL relay network.
 
@@ -593,29 +380,11 @@ How it fits the app:
 
    A Diagnostics snapshot after unlocking would settle these.
 
+</details>
+
 ## Caveats
 
 The API reference was compiled from the public docs and checked against the live API and the OpenAPI spec. Messages and achievements are confirmed live; reputation and some device detail fields are still unconfirmed. The UI copes with missing or unknown fields and shows raw JSON where it can't lay a response out. If something looks off, check the response in the **Console** and adjust the matching template.
 
-### From the OpenAPI spec (1.117.0)
-
-- **Leaderboards** (Activity › Leaderboards): every board the game keeps (XP, fleet, trades, distance, reputation,
-  colonies …), top 10 each, your replicants in bold.
-- **Blog** (Activity › Blog): read and search the game's blog, write a post as one of your replicants, edit or delete
-  your own.
-- Dashboard: the game API's health (API, database, Redis), checked every 5 minutes.
-- System pages: the location events you've discovered there, the game's own stockpile figures, and the stars nearby
-  (new ones join the map, like a census).
-- Replicant pages: the game's event log for that replicant (filter by event type).
-- Device pages: permissions (other accounts allowed to use the device), with grant and revoke.
-- **Keep in stock** (each loadout: a *Stock* column beside *Want* in a fleet's loadout editor, and a second box (+) per
-  type in the Templates grid, which the template's fleets follow): that many more of a type are kept as spares at the
-  fleet's home, beyond its loadout. Spares in that system (and stock prints under way) count; what's missing is printed
-  one at a time on an autofactory there that has nothing printing or queued, tagged `spare` and `stock`, so any fleet or
-  ward / relay order can take it (wards are only printed, never activated); once taken for a fleet or a system it loses
-  both tags. Stock prints are low priority: logistics
-  supplies them last, and a waiting stock print is moved behind any other print.
-- **Materials** (Fleets overview): a fleet is *receiving* (takes materials in) or *supplying the nearest receiver*: its
-  materials go to the receiving fleet nearest its home (recomputed whenever fleets change), and a mission that ferries
-  while mining delivers to the receiver nearest the belt it mines. A fleet set earlier to send to one named fleet keeps it.
-
+Features added from the OpenAPI spec (1.117.0: leaderboards, blog, API health, permissions, keep in stock …) are described
+with their pages in the [feature guide](docs/FEATURES.md).

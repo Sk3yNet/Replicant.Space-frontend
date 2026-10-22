@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.232.2"
+VERSION = "1.232.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.232.3", "2026-10-22", "README restructured for skimming: a map legend with icons drawn from the map's own "
+     "markers (docs/icons, tools/make_legend_icons.py), a pages table and a screenshot grid; the full detail moved to "
+     "docs/FEATURES.md in sections, tables and short bullets."),
     ("1.232.2", "2026-10-22", "Dashboard: long replicant names and locations on the Replicants card are cut short with an "
      "ellipsis (hover for the full text) instead of spilling out of the card."),
     ("1.232.1", "2026-10-22", "A mining controller whose salvage ran out ('depleted:recalling') goes back to its belt "
