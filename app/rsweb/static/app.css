@@ -237,6 +237,9 @@ svg.system .scan-beam { fill: #8fd8ff; opacity: .35; animation: scan-pulse 1.6s 
 .tf-switch.pending span { opacity: .6; outline: 1px dashed var(--warn); outline-offset: 1px; }
 .tf-set.pending input[type=range] { opacity: .6; outline: 1px dashed var(--warn); outline-offset: 1px; }
 .dash-cards > .card { position: relative; }
+.rep-table { table-layout: fixed; width: 100%; }
+.rep-table th:nth-child(1) { width: 34%; } .rep-table th:nth-child(2) { width: 26%; } .rep-table th:nth-child(3) { width: 18%; }
+.rep-table td.clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-cards > .card.wide { grid-column: 1 / -1; }
 .card-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 2px; opacity: .35; z-index: 2; }
 .card:hover > .card-tools, .card-tools:focus-within { opacity: 1; }

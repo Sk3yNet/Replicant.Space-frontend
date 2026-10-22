@@ -22,12 +22,12 @@
   <div class="card" data-card="replicants">
     <h2>Replicants</h2>
     {% if not replicants %}<p class="muted">Waiting for the first account sync…</p>{% endif %}
-    <table>
+    <table class="rep-table">
       <tr><th>Name</th><th>Location</th><th>Status</th><th class="num">Devices</th><th class="num">XP</th></tr>
       {% for code, r in replicants.items() %}
       <tr>
-        <td><a href="/replicants/{{ code }}">{{ r.name or code }}</a> <span class="muted mono small">{{ code }}</span></td>
-        <td>{% set loc = r.location or r.current_location %}<a href="/systems/{{ loc | star_of }}">{{ loc }}</a></td>
+        <td class="clip" title="{{ r.name or code }} ({{ code }})"><a href="/replicants/{{ code }}">{{ r.name or code }}</a> <span class="muted mono small">{{ code }}</span></td>
+        <td class="clip">{% set loc = r.location or r.current_location %}<a href="/systems/{{ loc | star_of }}" title="{{ loc }}">{{ loc }}</a></td>
         <td><span class="pill {{ r.status | status_class }}">{{ r.status or '—' }}</span></td>
         <td class="num">{{ r.device_count or '' }}</td>
         <td class="num">{{ r.experience_points | num if r.experience_points is not none else '' }}</td>
