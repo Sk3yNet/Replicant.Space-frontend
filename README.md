@@ -297,7 +297,7 @@ lines or a template).
   a **Performance** panel (pages slowest on average, the slowest requests with their queries, game API calls, engine
   lock waits and saved values decoded; engine stage timings and lock holds; table sizes and the largest saved values,
   also in the snapshot). Every page answer carries a Server-Timing header, and requests over 1 s are logged;
-  feedback to the game's developers. **Console**: call any API endpoint through the server-side client; presets for every documented query (including equipment-locker retrieve), grouped and each with a one-line description, with fill-in blanks (replicant, device, location … with suggestions) that build the path and body, which stay editable before sending.
+  feedback to the game's developers. **Console**: call any API endpoint through the server-side client; presets for every player endpoint of the live API (including equipment-locker retrieve), grouped and each with a one-line description, with fill-in blanks (replicant, device, location … with suggestions) that build the path and body, which stay editable before sending.
 - **Desktop wallpaper** (optional): the Galaxy and System maps as a live Windows wallpaper with
   [Octos](https://github.com/underpig1/octos) and [sk3ynet/replicant-space-octos](https://github.com/sk3ynet/replicant-space-octos).
   *Account › Desktop wallpaper* creates a read-only link (`/wallpaper/<id>/#key=…`); options such as `view=galaxy|system|cycle`,
