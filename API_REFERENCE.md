@@ -738,7 +738,8 @@ Query `cursor` (int), `limit` (20), `latest`, `event_type`, `device_type`, `devi
 | device | `device.changed_owner` | `from_replicant`, `to_replicant`, `direction` |
 | device | `device.compacted` | — |
 | device | `device.compacting` | `completes_at` |
-| device | `device.decommissioned` | `resources_recovered`, `blueprint_discovered` |
+| device | `device.decommissioned` | `resources_recovered` (`blueprint_discovered` removed in v3.6.1: see `blueprint.unlocked`) |
+| blueprint | `blueprint.unlocked` | the blueprint (`device_type`, `resources`, `components`, `print_time` …) and `source`: `xp`, `achievement` or `decommission` (v3.6.1) |
 | device | `device.deployed` | `deployed_from_device_code` |
 | device | `device.detached` | `target_code`, `target_type` |
 | device | `device.unfurled` | — |
@@ -1074,3 +1075,13 @@ one new endpoint, nothing removed, no existing endpoint changed. `openapi.json` 
     `{messages: [{id, title, body, category, subcategory, message_type, is_read, created_at}], next_cursor,
     unread_message_count}`; achievement unlocks are message_type achievement, salvage finds discovery / salvage.
     The app keeps accepting message_id / read too.
+
+## v3.6.1 (2026-10-23), reviewed 2026-10-23
+The live spec is unchanged against the 2026-10-20 copy (only `MessageSettingsSchema.subscribed` reordered again).
+- `device.decommissioned` no longer carries `blueprint_discovered`; every unlock is its own `blueprint.unlocked` with a
+  `source` (`xp`, `achievement`, `decommission`). Decommissioning a device made from components unlocks the components'
+  blueprints too, one `blueprint.unlocked` each. The app keeps the source (kv `blueprint_sources`) and names it in the
+  "New blueprint unlocked" notification and the Events feed (1.237.0).
+- Replicants control the devices they are attached to while in flight: a matrix container attached to a surge-capable
+  device is the cheapest interstellar replicant travel (the app counts such a platform as a replicant vessel since 1.236.0).
+- The vector charge blueprint costs half what it did (the app reads costs from `/blueprints`).

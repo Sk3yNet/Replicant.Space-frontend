@@ -8724,3 +8724,20 @@ def test_a_surge_plate_attaches_a_beacon_it_flies_to():
     assert dl and dl[0]["devices"] == ["BAAA"] and dl[0]["mode"] == "attach", (p["deliveries"], p["unmet"])
     descs = [s["desc"] for s in lo.delivery_steps(dl[0], {d["device_code"]: d for d in devices}, stars, False)]
     assert "SP: attach BAAA" in descs and not any(d.startswith("stow BAAA") for d in descs)
+
+
+def test_blueprint_unlocked_source_v361(client):
+    from rsweb import mock as mockmod
+    from rsweb.notify import describe
+    ev = {"event": "blueprint.unlocked", "payload": {"device_type": "hydroponic_bay", "source": "decommission"}}
+    assert describe(ev) == "Blueprint unlocked: hydroponic bay (by decommissioning)"
+    w = client.app.state.worker
+    client.portal.call(w.sync_blueprints)   # a first sync takes everything as known
+    client.portal.call(w.db.kv_set, "blueprint_sources", {"hydroponic_bay": "decommission"})
+    extra = {"device_type": "hydroponic_bay", "short_description": "Bay", "print_time": 60, "resources": {"carbon": 5}}
+    mockmod.BLUEPRINTS.append(extra)
+    try:
+        assert client.portal.call(w.sync_blueprints) == ["hydroponic_bay"]
+    finally:
+        mockmod.BLUEPRINTS.remove(extra)
+    assert "New blueprint unlocked: hydroponic bay (by decommissioning)" in client.get("/notifications", headers=H).text

@@ -67,7 +67,7 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   (3BF0ED09 on 2026-10-13, codes may change); a racing vessel and an FTL relay travel with it (all at ALGENIBUS-OORT then).
 - Devices travel stowed (in a hold), attached (towed: the same thing), or compacted and then attached. Cargo freighters
   can't be: "Cannot attach a large device" (live 2026-10-12), so they fly themselves. Stowable devices attach too (a mobile fleet
-  attached an FTL relay, live 2026-10-20); the carrier sends `attach`, the cargo's own commands don't list it. Among replicant vessels only the cargo vessel can attach devices; the others fly alongside. A typical
+  attached an FTL relay, live 2026-10-20); since v3.6.1 a replicant commands the device it is attached to in flight (matrix container on a surge platform: the cheapest replicant travel); the carrier sends `attach`, the cargo's own commands don't list it. Among replicant vessels only the cargo vessel can attach devices; the others fly alongside. A typical
   fleet carrier holds a matrix container with the replicant's matrix inside, so the carrier brings that replicant along.
 - Contracts are approved one by one, or pre-approved for a whole civilization. Shop listings are never fulfilled unless
   you approve that one trade.
@@ -111,7 +111,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   synthesizer, 1 orbital farm). Without them the factory sits `waiting_for_resources` with
   `waiting_for.components: {type: {have, need}}` (live 2026-10-18, 9E13498F at SOLARES-BELT-1).
   A climate processor needs a terraform monitor. A locked blueprint ("Blueprint not yet unlocked") is unlocked by
-  decommissioning a device of that type (the terraform monitor, 2026-10-19).
+  decommissioning a device of that type (the terraform monitor, 2026-10-19); since v3.6.1 decommissioning a device made from
+  components also unlocks every component blueprint (`blueprint.unlocked`, `source: decommission`).
 - v3.6.0 (2026-10-21): asteroids (STAR-OBJ-n) are resource sites, mined only by `fracture` devices (mining rigs) with
   `start_mining`; slots small 1 / medium 2 / large 5, shared by all players. The location lists `resource_sites` with
   `resources_remaining_pct`; a survey drone's scan there gives exact amounts. A mined-out rock has no terraform effect.

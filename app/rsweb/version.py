@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.236.0"
+VERSION = "1.237.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.237.0", "2026-10-23", "Game v3.6.1. A new blueprint's notification says how it was unlocked (experience, achievement or decommissioning), and the Events feed lists blueprint.unlocked. Decommissioning a device made from components now unlocks the components' blueprints too: the device page and the components warning say so. API reference and game notes updated (the spec itself is unchanged)."),
     ("1.236.0", "2026-10-23", "Cargo rides where the attach points are. Each device type knows its hold and attach points, and a matrix container's one slot is its cradle (never cargo): cargo handed to it goes on the surge platform it is attached to, which flies. Surge plates, platforms and mobile fleets now carry beacons too (the carrier flies to the beacon, attaches it, detaches it at the drop). A platform with a populated matrix container attached counts as a replicant vessel everywhere in deliveries."),
     ("1.235.0", "2026-10-23", "Ordered beacons ride a carrier's multi-drop run with relays, so one vessel with a hold drops several (17 waited for a carrier each). Moving a beacon to a civilization's body no longer picks a vessel whose hold is full or that is itself towed (matrix container 10D7491E failed No storage space every 90 s), and a failed try waits 30 min. The idle-miner restart treats No <resource> remaining at any active site quietly and mines another resource of the belt for 3 h."),
     ("1.234.0", "2026-10-23", "Beacon and relay deliveries move again. A beacon comes out of the printer already monitoring, so the loadout pass took an ordered beacon (tagged to another system) for a placed one and never sent a carrier: 22 sat at the SOLARES and FALQUORYX belts. Relays go first: the logistics pass now leaves the nearest free logistics vessel hosting a replicant to the loadout pass where relays or beacons wait for an escort beyond the network (Logistics page: Kept free to escort)."),

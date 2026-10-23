@@ -25,7 +25,7 @@ DONE_EVENTS = {
     "event.completed", "trade.completed", "prospect.completed", "teleport.completed",
     "story.awakened", "megastructure.contributed", "relay.activated", "hub.activated",
     "diversion.diverted", "system.object_diverted", "system.object_off_target", "salvage.discovered", "event.discovered", "triangulation.complete",
-    "simulation.completed", "device.decommissioned", "ward.activated",
+    "simulation.completed", "device.decommissioned", "ward.activated", "blueprint.unlocked",
 }
 # Done-events that also raise a notification (the rest just go in the digest/feed).
 NOTIFY_DONE = {
@@ -138,6 +138,9 @@ def describe(ev: dict) -> str:
             return f"New replicant awakened: {p.get('new_replicant_name')}"
         case "device.decommissioned":
             return f"{who} decommissioned, recovered {_res(p.get('resources_recovered'))}"
+        case "blueprint.unlocked":   # v3.6.1: source is xp, achievement or decommission
+            src = {"xp": "experience", "decommission": "decommissioning"}.get(p.get("source"), p.get("source"))
+            return f"Blueprint unlocked: {str(p.get('device_type') or '?').replace('_', ' ')}" + (f" (by {src})" if src else "")
         case "salvage.discovered":
             return f"Salvage found: {p.get('name') or p.get('designation')} at {p.get('location', loc)}"
         case "event.discovered":

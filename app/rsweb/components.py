@@ -92,9 +92,12 @@ async def before_print(api: Any, db: Any, path: str, body: Any, depth: int = 0) 
             # live 2026-10-19: climate processors need a terraform monitor, whose blueprint isn't unlocked ("Blueprint
             # not yet unlocked: terraform_monitor") — that refusal aborted the item's own print. The item is queued
             # anyway: the factory waits for the component, which can come from a spare or another source
+            # since v3.6.1 decommissioning a device made from components unlocks the components' blueprints too
+            hint = (f" (decommissioning a {str(body.get('device_type')).replace('_', ' ')} or a {t.replace('_', ' ')} "
+                    "unlocks it)") if "not yet unlocked" in str(getattr(e, "message", e)).lower() else ""
             await _note(db, f"{m.group(1)}: couldn't queue {left} {t.replace('_', ' ')} for "
                             f"{str(body.get('device_type')).replace('_', ' ')} ({getattr(e, 'message', e)}); "
-                            f"the {str(body.get('device_type')).replace('_', ' ')} waits for it")
+                            f"the {str(body.get('device_type')).replace('_', ' ')} waits for it" + hint)
 
 
 async def _note(db: Any, text: str) -> None:

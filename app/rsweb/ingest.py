@@ -338,6 +338,12 @@ class Worker:
         if ev["event"] in notify.DONE_EVENTS or ev["event"].startswith(("device.", "travel.", "mining.")):
             self.hub.publish("state", ev["event"])
         if may_unlock_blueprint(ev):
+            bp = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
+            if ev["event"] == "blueprint.unlocked" and bp.get("device_type"):
+                # v3.6.1: how it was unlocked (xp, achievement, decommission), for the announcement
+                src = await self.db.kv_get("blueprint_sources", {}) or {}
+                src[bp["device_type"]] = bp.get("source")
+                await self.db.kv_set("blueprint_sources", dict(list(src.items())[-200:]))
             self.request_blueprint_refresh()
         try:
             await self.automations.on_event(ev, late=late)
@@ -383,9 +389,11 @@ class Worker:
         added = [b["device_type"] for b in new_bps if b["device_type"] not in before]
         if added:
             unlocks = await self.db.kv_get("blueprint_unlocks", []) or []
+            srcs = await self.db.kv_get("blueprint_sources", {}) or {}
             for t in added:
-                unlocks.append({"device_type": t, "at": now_iso()})
-                title = f"New blueprint unlocked: {t.replace('_', ' ')}"
+                unlocks.append({"device_type": t, "at": now_iso(), "source": srcs.get(t)})
+                how = {"xp": "experience", "decommission": "decommissioning"}.get(srcs.get(t), srcs.get(t))
+                title = f"New blueprint unlocked: {t.replace('_', ' ')}" + (f" (by {how})" if how else "")
                 cur = await self.db.execute(
                     "INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
                     (None, "done", title, None, f"/blueprints?q={t}", now_iso()))
