@@ -37,7 +37,7 @@ DEFAULT_SETTINGS = {"print_missing": True, "need_stock": True, "carriers_return"
                     "every_minutes": 15,
                     "gather_spares": True, "spare_depot": "",   # "" = automatic (see spare_depot())
                     "max_cruise_au": 30,
-                    "max_supply_ly": 100}   # prints and spares only from within this many ly of the fleet (0 = any)   # a device further than this from its carrier (in-system) is fetched, not flown over
+                    "max_supply_ly": 1728.0}   # prints and spares only from within this many ly of the fleet (0 = any)   # a device further than this from its carrier (in-system) is fetched, not flown over
 
 
 def spare_depot(cfg: dict, devices: list[dict]) -> str | None:
@@ -167,6 +167,10 @@ def normalize(cfg: Any) -> dict:
         if s.get("max_supply_ly") == 15:
             s["max_supply_ly"] = DEFAULT_SETTINGS["max_supply_ly"]
         s["supply_range_v2"] = True
+    if not s.get("supply_range_v3"):   # 1.240.0: the default went from 100 ly to the sector range (logistics.SECTOR_RANGE_LY)
+        if s.get("max_supply_ly") == 100:
+            s["max_supply_ly"] = DEFAULT_SETTINGS["max_supply_ly"]
+        s["supply_range_v3"] = True
     cfg["settings"] = s
     cfg["phases"] = sorted(cfg["phases"], key=lambda p: (p.get("order", 0), p.get("name", "")))
     return cfg

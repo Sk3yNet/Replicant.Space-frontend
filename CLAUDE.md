@@ -60,7 +60,7 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   commandable only with a relay or hub of a network that has a replicant in one of its systems, or with a replicant in it.
   The game allows 25 wards per account, and wards and hubs don't share a system.
 - The home sector (FALQUORYX, OTHILETH …) is about 500 ly from the Sol zone (SOLARES, FRANZAN …). A surge across that
-  gap takes hours, and borrowed carriers must not fly it empty (loadout supply range: 100 ly).
+  gap takes hours, and the loadout supply range is the sector range (1728 ly) since 1.240.0; idle logistics carriers spread over the hubs (`balance.py`).
 - Trades and contracts paid in devices need them deployed at the exact location, with a replicant there. Bill
   (A8F48B26) runs The Skunkworks shop; it moves, probably about daily (NOSOXA-OORT on 2026-10-11), his route always
   passes through SOL (leaving his shop he can't be followed: he resets to SOL), and he announces moves on BobNet #general ("NOSOXA is in the rear-view mirror"). His shop is his AMI trade controller

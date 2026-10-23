@@ -333,7 +333,7 @@ bootstrap), a home and a loadout (its own lines or a template).
 
 ### Stationed fleets and the loadout pass
 - The **loadout pass** keeps a stationed fleet at its loadout in its home system: extras become `spare`, spares are sent
-  where they're short (within the supply range, default 100 ly), and what's still missing is printed and carried there
+  where they're short (within the supply range, default 1728 ly: the sector range), and what's still missing is printed and carried there
   (large devices are compacted first).
 - Placed beacons and relays are never made spare or moved.
 - **Carriers**: a borrowed carrier only comes from within the supply range of the pick-up (the trip itself can be any
@@ -477,6 +477,12 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
 - Idle logistics devices inside the relay network gather at the nearest printing hub (a fleet that takes materials in):
   they fly there, or a free logistics carrier tows them. A stationed logistics fleet stays at its own home.
 - Afterwards everyone waits inside the network.
+- **Carriers per hub** (one logistics fleet for every hub): carriers still take any job, nearest first, and stay where it
+  ended. Each hub within the sector range of the logistics fleet's home gets a share of every carrier class (big attach
+  carriers, replicant vessels, surge plates, cargo vessels, cargo freighters), weighted by what needed a carrier near it
+  over the last 3 days (logistics requests, loadout pick-ups), at least one each. A carrier idle for 30 minutes at a hub
+  over its share flies to the hub furthest under it, one per class per pass. A carrier on a job counts where the job
+  takes it. The Logistics page shows have / share per hub.
 - The page's **In transit** card lists every hold with materials in it (what, where, heading for, which run), with
   totals.
 

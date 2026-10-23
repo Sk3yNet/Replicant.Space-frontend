@@ -58,7 +58,7 @@ full in the **[feature guide](docs/FEATURES.md)**.
 | | [Defense](docs/FEATURES.md#defense) | asteroids: defend, evacuate, mine them with rigs |
 | | [Terraforming](docs/FEATURES.md#terraforming) · [candidates](docs/FEATURES.md#terraforming-candidates) | live console per world, dropping rocks; bodies rated as targets |
 | **Fleets** | [Fleets](docs/FEATURES.md#fleets) · [details](docs/FEATURES.md#pages) | status against loadout, missions, strays, roles, bootstrap |
-| | [Logistics](docs/FEATURES.md#logistics) | deliveries on demand by task category, rescues, repair patrols |
+| | [Logistics](docs/FEATURES.md#logistics) | deliveries on demand by task category, carriers spread over the hubs, rescues, repair patrols |
 | | Reset & reform | rebuild messy tags |
 | **Economy** | [Blueprints](docs/FEATURES.md#blueprints) | travel, cargo, costs, production planner, [component prints](docs/FEATURES.md#component-prints) |
 | | [Contracts](docs/FEATURES.md#contracts) · [Reputation](docs/FEATURES.md#reputation) · [Shop](docs/FEATURES.md#shop) | contracts and trades, deliveries, shops and traders |

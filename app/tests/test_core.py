@@ -6003,9 +6003,11 @@ def test_supply_range_keeps_prints_and_spares_near_the_fleet():
     near = run("NEAR", 20)
     assert near["prints"] and near["prints"][0]["factory"] == "AF1"
     assert run("SOL", 0)["prints"]                                     # 0 = any distance, as before
-    assert lo.normalize({})["settings"]["max_supply_ly"] == 100           # the default
-    assert lo.normalize({"settings": {"max_supply_ly": 15}})["settings"]["max_supply_ly"] == 100   # old default, saved
-    kept = lo.normalize({"settings": {"max_supply_ly": 15, "supply_range_v2": True}})["settings"]["max_supply_ly"]
+    from rsweb.logistics import SECTOR_RANGE_LY
+    assert lo.normalize({})["settings"]["max_supply_ly"] == SECTOR_RANGE_LY   # the default: the sector range
+    assert lo.normalize({"settings": {"max_supply_ly": 15}})["settings"]["max_supply_ly"] == SECTOR_RANGE_LY   # old defaults
+    assert lo.normalize({"settings": {"max_supply_ly": 100, "supply_range_v2": True}})["settings"]["max_supply_ly"] == SECTOR_RANGE_LY
+    kept = lo.normalize({"settings": {"max_supply_ly": 15, "supply_range_v2": True, "supply_range_v3": True}})["settings"]["max_supply_ly"]
     assert kept == 15                                                  # chosen after the change: kept
 
 

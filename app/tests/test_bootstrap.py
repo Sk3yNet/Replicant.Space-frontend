@@ -397,7 +397,7 @@ def test_borrowed_carriers_stay_within_range_own_ones_may_cross():
     devices = [dev("M1", "mining_drone", "BBB-BELT-1", tags=["fleet:aaa"]),
                dev("CAR", "surge_carrier", "FAR-OORT", features=["surge", "cruise"], cmds=["travel", "deploy"], attach_capacity=9)]
     cfg = {"fleets": [{"id": "aaa", "name": "A", "role": "mining", "home": "AAA", "station": True, "wants": {"mining_drone": 1}}],
-           "settings": {"max_supply_ly": 100}}
+           "settings": {"max_supply_ly": 100, "supply_range_v3": True}}
     p = lo.plan(cfg, devices, bps, {}, stars, {}, set(), [], {})
     assert not p["deliveries"] and any("within 100 ly" in u["why"] for u in p["unmet"])   # 500 ly away, borrowed: no
     devices[1]["tags"] = ["fleet:aaa"]                                                  # the fleet's own: may come
@@ -412,7 +412,7 @@ def test_supplied_from_prints_at_any_distance():
     af = dev("AF", "autofactory", "FAR-3-L4", features=["print"], cmds=["enqueue_print"], tags=["fleet:hub"])
     cfg = {"fleets": [{"id": "hub", "name": "Hub", "role": "mining", "home": "FAR", "station": True, "wants": {"autofactory": 1}},
                       {"id": "bb", "name": "B", "role": "mining", "home": "BBB", "station": True, "wants": {"ami_mining_controller": 1}}],
-           "settings": {"max_supply_ly": 100, "print_missing": True, "need_stock": False}}
+           "settings": {"max_supply_ly": 100, "supply_range_v3": True, "print_missing": True, "need_stock": False}}
     inv = {"FAR-3-L4": {"structural": 1000.0}}
     p = lo.plan(cfg, [af], bps, inv, stars, {}, set(), [], {})
     assert not any(pr.get("fleet") == "bb" for pr in p["prints"])                      # 500 ly: out of range

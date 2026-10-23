@@ -40,6 +40,12 @@
       <td>{{ t.location or '—' }}{% if not t.covered %} <span class="lv-alert small">outside the network</span>{% endif %}</td>
       <td>{{ 'free' if t.free else (t.status or 'busy') }}</td><td>{{ categories.get(t.lane, '—') if t.lane else '—' }}</td></tr>{% endfor %}</table>{% endif %}
 </div>
+{% if hub_balance.classes %}<div class="card"><h2>Carriers per hub</h2>
+  <p class="muted small">Carriers take any job, nearest first. Each hub has a share of every carrier class, weighted by its requests over the last 3 days, at least one each; a carrier idle 30 min at a hub over its share flies to one under it. A carrier on a job counts where the job takes it.</p>
+  <table class="small"><tr><th>Class</th>{% for h in hub_balance.hubs %}<th>{{ h }} <span class="muted">(demand {{ hub_balance.weights.get(h, 0) | int }})</span></th>{% endfor %}</tr>
+  {% for c, e in hub_balance.classes.items() %}<tr><td>{{ carrier_classes.get(c, c) }}</td>{% for h in hub_balance.hubs %}
+    <td>{{ e.counts.get(h, 0) }} / {{ e.targets.get(h, 0) }}</td>{% endfor %}</tr>{% endfor %}</table>
+  <p class="muted small">have / share</p></div>{% endif %}
 {% if st.escorts %}<div class="card"><h2>Kept free to escort relays and beacons</h2>
   <p class="muted small">Relays go first: these vessels host a replicant and wait for the loadout pass to take relays or beacons beyond the network.</p>
   <table class="small">{% for c, s in st.escorts.items() %}<tr><td><a href="/devices/{{ c }}">{{ c }}</a></td><td>from {{ s }}</td></tr>{% endfor %}</table></div>{% endif %}

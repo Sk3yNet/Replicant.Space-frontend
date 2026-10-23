@@ -3134,6 +3134,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                                   gathering=set(p.get("gathering") or []), assign=p.get("assign"),
                                                   radii=radii, max_cruise_au=far_au),
                 {"devices": dl["devices"], "star": dl["to"]}, force=manual))
+        if p["deliveries"]:   # a carrier was wanted at the pick-up: the hubs' weights (balance.py)
+            await self.note_demand({f"lo:{dl['carrier']}:{dl['from']}:{now_iso()}": dl["from"] for dl in p["deliveries"]})
         ferries = await self.db.kv_get("loadout_ferries", {}) or {}
         for r in p.get("routes") or []:
             job = await self.create_job("loadouts", f"loadouts: ferry {r['source']} → {r['dest']}"
@@ -4089,8 +4091,49 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                            "fleet_devices": p["fleet_devices"], "reserve": p["reserve"], "escorts": escorts,
                                            "lanes": p["lanes"]})
         await self.sample_backlog(items, devices, inv_raw, drop_raw, busy, p, bps, reps)
+        await self.note_demand({f"req:{r['id']}": r.get("to") for r in p["requests"] if not r.get("skipped")})
+        out += await self.balance_pass(items, devices, hosts, pos, commandable, stars, inv_raw, set(escorts))
         for line in out:
             await self.log("logistics", line)
+        return out
+
+    async def note_demand(self, wants: dict[str, str | None]) -> None:
+        """What needed a carrier where ({key: location}), first seen, kept balance.DEMAND_DAYS: the hubs' weights."""
+        from . import balance as bal
+        dem = await self.db.kv_get(bal.KV_DEMAND, {}) or {}
+        now = _now()
+        dem = {k: e for k, e in dem.items() if (now - (_ts(e.get("at")) or now)).total_seconds() < bal.DEMAND_DAYS * 86400}
+        for k, loc in wants.items():
+            if loc and k not in dem:
+                dem[k] = {"star": star_of(loc), "at": now_iso()}
+        await self.db.kv_set(bal.KV_DEMAND, dem)
+
+    async def balance_pass(self, items: list[dict], devices: list[dict], hosts: dict, pos: dict, commandable: set[str],
+                           stars: dict, inv: dict, keep: set[str]) -> list[str]:
+        """Idle logistics carriers spread over the hubs by demand (balance.py, owner 2026-10-23)."""
+        from . import balance as bal
+        from . import loadouts as lo
+        from . import logistics as lg
+        jobs = await self.jobs()
+        busy = self.busy_devices(jobs)
+        idle = {c: (_ts(t) or _now()).timestamp() for c, t in (await self.db.kv_get(bal.KV_IDLE, {}) or {}).items()}
+        p = bal.plan(items, devices, jobs, hosts, busy, pos, commandable, lg.SECTOR_RANGE_LY,
+                     await self.db.kv_get(bal.KV_DEMAND, {}) or {}, idle, _now().timestamp(), keep)
+        await self.db.kv_set(bal.KV_IDLE, {c: datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="seconds")
+                                           for c, t in idle.items()})
+        await self.db.kv_set("hub_balance", {"at": now_iso(), **{k: p[k] for k in ("hubs", "weights", "classes")}})
+        out = []
+        for m in p["moves"]:
+            code, rep = m["code"], m.get("replicant")
+            dest = lo.drop_point(m["to"], devices, inv, stars)
+            st = step(f"{code} → {dest} ({bal.CLASSES[m['cls']]}: {m['from']} has more than its share, {m['to']} fewer)",
+                      f"/replicants/{rep}/travel" if rep else f"/devices/{code}",
+                      {"destination": dest} if rep else {"command": "travel", "destination": dest},
+                      wait=["travel.arrived"], match={"destination": m["to"]}, critical=True)
+            st["wait_device"] = code
+            if await self.create_job("logistics", f"logistics: {code} rebalances {m['from']} → {m['to']}", code, [st],
+                                     {"devices": [code], "star": m["to"]}):
+                out.append(f"{code} rebalances {m['from']} → {m['to']}")
         return out
 
     async def sample_backlog(self, items: list[dict], devices: list[dict], inv: dict, drop: Any, busy: set[str],
