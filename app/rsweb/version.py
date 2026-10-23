@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.233.3"
+VERSION = "1.233.4"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.233.4", "2026-10-23", "Bootstrap hub and outpost kits include a maintenance drone (tagged to the bootstrap, printed by the hub's autofactory)."),
     ("1.233.3", "2026-10-23", "A bootstrap fleet's home receives materials: stray stockpiles return to it when it's the nearest receiver, supplying fleets and delivered salvage can pick it, and the Logistics backlog counts stock there as received."),
     ("1.233.2", "2026-10-22", "The Prospects page scores stay put again (no stock weighting; it's where wards are chosen); "
      "only a mining fleet picking its next home weighs what waiting prints lack. Drones lean that way too: a gather_evenly "

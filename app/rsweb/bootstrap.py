@@ -14,7 +14,7 @@ Stages (each waits on a gate; ★ = stops for your OK on the Fleets page):
   hub_compound  compound again, then the vessel prints the autofactory there (it can't be stowed or carried by a
                 heaven vessel, so it's built where it stays); the hub becomes a stationed fleet that takes materials in.
   hub           the hub's own autofactory builds it up (relay, ward when worth it, transport controller, haulers, more
-                drones, a surge carrier for kits) — the loadout pass, restricted to this bootstrap's devices.
+                drones, a surge carrier for kits, a maintenance drone) — the loadout pass, restricted to this bootstrap's devices.
   outposts ★    three mining outposts within the radius of the hub that keep the relay chain (each within a relay's
                 7.5 ly of the hub or an outpost); each a stationed fleet sending its materials to the hub by freighter.
   operate       handed over to the usual automation. A system another player wards: ★ move to the next best.
@@ -39,11 +39,11 @@ DEFAULTS = {"radius": 10.0, "ward_hours": 6.0, "hold": 10, "hub_miners": 8, "sur
             "min_score": 35, "outposts": 3}
 COST_TYPES = ["survey_drone", "mining_drone", "ftl_relay", "system_ward", "autofactory", "ami_mining_controller",
               "ami_survey_controller", "ami_transport_controller",
-              "transport_hauler", "cargo_freighter", "surge_carrier"]
+              "transport_hauler", "cargo_freighter", "surge_carrier", "maintenance_drone"]
 OUTPOST_KIT = {"mining_drone": 4, "survey_drone": 2, "ami_mining_controller": 1, "ami_survey_controller": 1, "ftl_relay": 1,
-               "ami_transport_controller": 1, "cargo_freighter": 1}
+               "ami_transport_controller": 1, "cargo_freighter": 1, "maintenance_drone": 1}
 HUB_KIT = {"ami_mining_controller": 1, "ami_survey_controller": 1, "ftl_relay": 1, "ami_transport_controller": 1,
-           "transport_hauler": 2, "surge_carrier": 1}
+           "transport_hauler": 2, "surge_carrier": 1, "maintenance_drone": 1}
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 
 

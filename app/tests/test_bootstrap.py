@@ -314,6 +314,7 @@ def test_loadouts_keep_a_bootstrap_self_reliant():
 
 def test_controllers_in_the_kits_and_their_directives(client):
     assert bt.HUB_KIT["ami_mining_controller"] == 1 and bt.OUTPOST_KIT["ami_survey_controller"] == 1
+    assert bt.HUB_KIT["maintenance_drone"] == 1 and bt.OUTPOST_KIT["maintenance_drone"] == 1
     r = bt.ratios({"autofactory": 1}, BPS)
     assert abs(sum(r.values()) - 1) < 0.02 and r["structural"] > r["rares"] > 0
     devs = [vessel("SOL-BELT-1"),
