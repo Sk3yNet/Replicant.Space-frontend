@@ -236,10 +236,14 @@ def assigned(d: dict) -> bool:
 
 def placed(d: dict) -> bool:
     """A beacon or relay deployed and working at a location (monitoring / relaying): it stays where it is — never
-    spare, never sent to fill a shortfall or gathered at the depot. Stowed ones (a survey crew's next drops) count as usual."""
+    spare, never sent to fill a shortfall or gathered at the depot. Stowed ones (a survey crew's next drops) count as usual.
+    One tagged `to:` another system isn't placed: it's waiting for its carrier (live 2026-10-23: beacons come out of the
+    printer monitoring, and 22 ordered ones sat at the SOLARES and FALQUORYX belts for two days, unseen by the planner)."""
+    here = to_tag(star_of(d.get("location")))[3:]
     return ((d.get("device_type") or "") in PLACED_TYPES and bool(d.get("location"))
             and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
-            and str(d.get("status") or "").startswith(("monitoring", "relaying")))
+            and str(d.get("status") or "").startswith(("monitoring", "relaying"))
+            and not any(t.startswith("to:") and t[3:] != here for t in d.get("tags") or []))
 
 
 def relaying_stars(devices: list[dict], exclude: set[str] | frozenset = frozenset()) -> set[str]:
@@ -1044,7 +1048,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     options, fetched_from = remote[:1], remote[0].get("location")
             if not options and outside:
                 unmet.append({"star": dest, "type": ", ".join(sorted({by_code[c].get('device_type') for c in codes})),
-                              "n": len(codes), "why": f"{dest} is outside an active relay network: it needs a vessel hosting "
+                              "n": len(codes), "escort_from": here,
+                              "why": f"{dest} is outside an active relay network: it needs a vessel hosting "
                                                       f"a replicant to carry it there (none free in {here} or within "
                                                       f"{reach:g} ly) — nothing goes unaccompanied"})
                 break
@@ -1488,6 +1493,19 @@ def arrived_steps(code: str, d: dict, stowed_in: dict, join: str | None = None) 
     if relay_ready_at(d, spot):
         steps.append(activate_step(code))
     return steps
+
+
+ESCORTED_TYPES = ("ftl_relay", "ftl_beacon")
+
+
+def escort_wanted(p: dict) -> dict[str, int]:
+    """Systems where relays or beacons wait for a vessel hosting a replicant to take them beyond the network: {star: how
+    many}. The logistics pass keeps one such vessel free near each (it runs first and took them all, live 2026-10-23)."""
+    out: dict[str, int] = {}
+    for u in p.get("unmet") or []:
+        if u.get("escort_from") and any(t.strip() in ESCORTED_TYPES for t in str(u.get("type") or "").split(",")):
+            out[u["escort_from"]] = out.get(u["escort_from"], 0) + int(u.get("n") or 1)
+    return out
 
 
 def relay_ready_at(d: dict, loc: str | None) -> bool:

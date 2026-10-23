@@ -500,6 +500,8 @@ Bump or skip a request on the Logistics page.
 - Every vessel in a logistics fleet is available to automation, replicant vessels included (moves of stationed mining
   fleets, deliveries, beacons). While an approved shop trade waits, device runs leave those with a replicant free for
   it. Another fleet's replicant vessel is only used as the escort a trip beyond the network needs.
+- Relays go first: where relays or beacons wait for an escort beyond the network, the nearest free logistics vessel
+  hosting a replicant (within the supply range) is left to the loadout pass (Logistics page: *Kept free to escort*).
 
 ### Beyond the network
 - Deliveries draw on stockpiles beyond the network too while a replicant is free to go along.

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.233.6"
+VERSION = "1.234.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.234.0", "2026-10-23", "Beacon and relay deliveries move again. A beacon comes out of the printer already monitoring, so the loadout pass took an ordered beacon (tagged to another system) for a placed one and never sent a carrier: 22 sat at the SOLARES and FALQUORYX belts. Relays go first: the logistics pass now leaves the nearest free logistics vessel hosting a replicant to the loadout pass where relays or beacons wait for an escort beyond the network (Logistics page: Kept free to escort)."),
     ("1.233.6", "2026-10-23", "A mining step the game refuses with \"No <resource> remaining at any active site\" is skipped quietly and no longer stops the job with an alert; a bootstrap fleet leaves that resource alone at the belt for 3 h and mines something else (its status says which resources no open site has)."),
     ("1.233.5", "2026-10-23", "Reverted 1.233.3: a bootstrap fleet's home receives materials only when the fleet is set to receiving on the Fleets overview."),
     ("1.233.4", "2026-10-23", "Bootstrap hub and outpost kits include a maintenance drone (tagged to the bootstrap, printed by the hub's autofactory)."),

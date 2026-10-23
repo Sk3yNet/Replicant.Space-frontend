@@ -1155,6 +1155,27 @@ def _deal(r: dict) -> dict | None:
     return None
 
 
+def keep_escorts(wanted: dict[str, int], fleets: list[dict], devices: list[dict], hosts: dict[str, str], busy: set[str],
+                 bps: dict[str, dict], pos: dict[str, Any], reach: float) -> dict[str, str]:
+    """Relays go first (owner 2026-10-19): for each system where relays or beacons wait for an escort beyond the network
+    (loadouts.escort_wanted), the nearest free logistics vessel hosting a replicant within the loadouts' supply range
+    stays out of this pass, so the loadout pass can take it. {device: star}."""
+    from . import loadouts as lo
+    from .fleets import members
+    pool = [d for f in logistics_fleets(fleets) for d in members(f, devices)
+            if d["device_code"] in hosts and d["device_code"] not in busy and lo.can_surge(d) and lo._carrier_cap(d, bps) > 0
+            and d.get("location") and not d.get("controller_device_code")
+            and not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed"))]
+    kept: dict[str, str] = {}
+    for star in sorted(wanted, key=lambda s: (-wanted[s], s)):
+        near = [(lo._dist(lo.star_of(d.get("location")), star, pos), d["device_code"]) for d in pool
+                if d["device_code"] not in kept]
+        near = [x for x in near if x[0] <= (reach or 0)]
+        if near:
+            kept[min(near)[1]] = star
+    return kept
+
+
 def riding_hosts(devices: list[dict], hosts: dict[str, str]) -> dict[str, str]:
     """Replicant hosts plus the carriers they ride in: a fleet carrier with a matrix container aboard, itself holding the
     replicant's matrix, brings that replicant wherever it flies (each level up the attach / stow chain counts)."""

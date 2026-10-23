@@ -37,6 +37,9 @@
       <td>{{ t.location or '—' }}{% if not t.covered %} <span class="lv-alert small">outside the network</span>{% endif %}</td>
       <td>{{ 'free' if t.free else (t.status or 'busy') }}</td></tr>{% endfor %}</table>{% endif %}
 </div>
+{% if st.escorts %}<div class="card"><h2>Kept free to escort relays and beacons</h2>
+  <p class="muted small">Relays go first: these vessels host a replicant and wait for the loadout pass to take relays or beacons beyond the network.</p>
+  <table class="small">{% for c, s in st.escorts.items() %}<tr><td><a href="/devices/{{ c }}">{{ c }}</a></td><td>from {{ s }}</td></tr>{% endfor %}</table></div>{% endif %}
 {% if st.reserve %}<div class="card"><h2>Kept for home prints</h2>
   <table class="small">{% for s, r in st.reserve.items() %}<tr><td>{{ s }}</td><td>{% for k, q in r.items() %}{{ q | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}</td></tr>{% endfor %}</table></div>{% endif %}
 <div class="card" id="in-transit"><h2>In transit <span class="muted small">materials in holds right now{% if transit.totals %} ·

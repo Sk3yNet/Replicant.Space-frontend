@@ -3155,7 +3155,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                                       {"devices": [code]}, force=manual))
         started += await self._arrival_followups(cfg, p, manual, lines)
         await self.db.kv_set("loadouts_last", {"at": now_iso(), "lines": lines, "jobs": started,
-                                               "dry_run": (await self.settings())["dry_run"] and not manual})
+                                               "dry_run": (await self.settings())["dry_run"] and not manual,
+                                               "escort_wanted": lo.escort_wanted(p)})
         return lines
 
     async def _arrival_followups(self, cfg: dict, p: dict, manual: bool, lines: list[str]) -> int:
@@ -3994,6 +3995,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             if j["status"] in ("running", "waiting") and str(t.get("req") or "").startswith("repair:"):
                 repair_to[star_of(t.get("to"))] += 1
         out, listings = await self.listing_requests(reps)
+        # relays go first: a vessel hosting a replicant near relays or beacons waiting for an escort is left to the loadouts
+        ll = await self.db.kv_get("loadouts_last", {}) or {}
+        escorts = {}
+        if ll.get("escort_wanted") and _ts(ll.get("at")) and (_now() - _ts(ll["at"])).total_seconds() < 3600:
+            escorts = lg.keep_escorts(ll["escort_wanted"], items, devices, hosts, busy, bps, pos, await self.supply_reach())
+            busy |= set(escorts)
         wanted = None
         p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
                     busy=busy, reach=lg.SECTOR_RANGE_LY, contracts=contracts, trades=trades, incoming=incoming,
@@ -4073,7 +4080,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         await self.db.kv_set("logistics_ami", sent)
         await self.db.kv_set(lg.KV_PICKUPS, pickups)
         await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": p["requests"], "runs": p["runs"], "unmet": p["unmet"],
-                                           "fleet_devices": p["fleet_devices"], "reserve": p["reserve"]})
+                                           "fleet_devices": p["fleet_devices"], "reserve": p["reserve"], "escorts": escorts})
         await self.sample_backlog(items, devices, inv_raw, drop_raw, busy, p, bps, reps)
         for line in out:
             await self.log("logistics", line)

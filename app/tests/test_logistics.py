@@ -980,3 +980,39 @@ def test_request_ages_lead_times_carriers_roles_and_mining_gains():
     assert metrics.missions(fleets) == {"missions_stalled": 1, "missions_retrying": 1}
     g = metrics.pile_gains({"A-1": {"carbon": 10, "rares": 5}}, {"A-1": {"carbon": 25, "rares": 2}, "B-1": {"carbon": 99}}, {"A-1"})
     assert g == {"carbon": 15}
+
+
+def test_printed_beacon_bound_elsewhere_is_delivered():
+    # beacons come out of the printer monitoring (live 2026-10-23): one tagged to:<another system> still gets a carrier
+    from rsweb import loadouts as lo
+    stars = {"DEP": {"position": {"x": 0, "y": 0, "z": 0}}, "OTH": {"position": {"x": 1, "y": 0, "z": 0}}}
+    devices = [
+        {"device_code": "CV1", "device_type": "cargo_vessel", "location": "DEP-BELT-1", "status": "idle", "stow_capacity": 50,
+         "features": ["surge", "cruise", "attach"], "available_commands": ["travel"]},
+        {"device_code": "BK1", "device_type": "ftl_beacon", "location": "DEP-BELT-1", "status": "monitoring", "tags": ["to:oth"],
+         "features": ["stow", "audit", "comms"], "available_commands": ["deactivate", "deploy", "stow", "decommission"]},
+        {"device_code": "BK2", "device_type": "ftl_beacon", "location": "DEP-3", "status": "monitoring", "tags": ["to:dep"],
+         "features": ["stow", "audit", "comms"], "available_commands": ["deactivate", "deploy", "stow", "decommission"]},
+    ]
+    assert not lo.placed(devices[1]) and lo.placed(devices[2])
+    p = lo.plan({"phases": [], "systems": {}, "roles": {}}, devices, [], {}, stars, {}, set(), [], {})
+    assert [(d["carrier"], d["devices"], d["to"]) for d in p["deliveries"]] == [("CV1", ["BK1"], "OTH")]
+
+
+def test_logistics_keeps_an_escort_for_waiting_relays():
+    from rsweb import loadouts as lo
+    from rsweb import logistics as lg
+    p = {"unmet": [{"star": "FAR", "type": "ftl_relay", "n": 3, "escort_from": "SOL", "why": "…"},
+                   {"star": "FAR", "type": "mining_drone", "n": 1, "escort_from": "SOL", "why": "…"},
+                   {"star": "X", "type": "ftl_relay", "n": 1, "why": "waiting for a surge-capable carrier"}]}
+    assert lo.escort_wanted(p) == {"SOL": 3}
+    pos = {"SOL": {"x": 0, "y": 0, "z": 0}, "NEAR": {"x": 5, "y": 0, "z": 0}, "FARAWAY": {"x": 500, "y": 0, "z": 0}}
+    hv = lambda c, loc, **k: {"device_code": c, "device_type": "heaven_vessel", "location": loc, "status": "idle",  # noqa: E731
+                             "stow_capacity": 10, "features": ["surge", "stow"], "available_commands": ["travel"],
+                             "tags": ["fleet:log"], **k}
+    devices = [hv("H1", "NEAR-3-L4"), hv("H2", "FARAWAY-1-L4"), hv("H3", "SOL-4-L4", status="travelling"),
+               {**hv("C1", "SOL-4-L4"), "device_type": "cargo_freighter"}]   # no replicant aboard: no escort
+    fleets = [{"id": "log", "role": "logistics", "name": "Logistics"}]
+    hosts = {"H1": "R1", "H2": "R2", "H3": "R3"}
+    assert lg.keep_escorts({"SOL": 3}, fleets, devices, hosts, set(), {}, pos, 100) == {"H1": "SOL"}
+    assert lg.keep_escorts({"SOL": 3}, fleets, devices, hosts, {"H1"}, {}, pos, 100) == {}   # H2 is beyond the supply range
