@@ -229,6 +229,17 @@ def redundant_beacons(devices: list[dict], rows: list[dict], busy: set[str] | No
     return out
 
 
+def pinned_for(devices: list[dict], locs: list[str] | set[str]) -> dict | None:
+    """A beacon pinned (`at:`) to one of `locs` that isn't there yet: a carrier of the loadout pass brings it."""
+    from .loadouts import pinned_at
+    return next((d for d in beacons_all(devices) if pinned_at(d) in locs and d.get("location") != pinned_at(d)), None)
+
+
+def beacons_all(devices: list[dict]) -> list[dict]:
+    """Every beacon of yours, deployed or aboard a carrier."""
+    return [d for d in devices if "beacon" in (d.get("device_type") or "")]
+
+
 def is_vessel(d: dict) -> bool:
     """Can carry a beacon around a system: cruises and has a hold or attach points (fleets.cargo_carrier says where)."""
     from . import fleets as fl
@@ -347,7 +358,7 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
         held = [v for v in devices if is_vessel(v) and star_of(v.get("location")) == star and ride_for(v, devices, loose[0])
                 and (use_replicant_vessel or v.get("device_code") not in riders or v.get("device_code") in logistics)]
         b = loose[0]
-        return {"kind": "wait", "beacon": b["device_code"],
+        return {"kind": "wait", "beacon": b["device_code"], "beacon_at": b["location"], "vessels": [v["device_code"] for v in held],
                 "text": f"beacon {b['device_code']} at {b['location']} can be moved there — "
                         + (f"waiting for a vessel ({', '.join(v['device_code'] for v in held)} busy)" if held else
                            f"needs a vessel with a hold in {star} to carry it")}

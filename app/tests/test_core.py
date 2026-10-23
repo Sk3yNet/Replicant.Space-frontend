@@ -3033,6 +3033,23 @@ def test_a_grounded_pinned_device_is_carried_to_its_spot():
     assert {"command": "travel", "destination": "TWAFFY-11-L4"} not in bodies2
 
 
+def test_a_working_beacon_pinned_to_a_civ_body_is_carried_there():
+    """Live 2026-10-23: beacons left at relays' L4 points in a dozen civilization systems with no vessel there; the civ
+    beacon pass pins them (`at:<body>`) and a carrier from elsewhere picks one up and drops it at the body."""
+    from rsweb import loadouts as lo
+    b = {"device_code": "B1", "device_type": "ftl_beacon", "location": "KAM-5-L4", "status": "monitoring",
+         "features": ["stow", "audit"], "available_commands": ["deploy", "stow"], "tags": ["at:kam-3"]}
+    cv = {"device_code": "CV1", "device_type": "cargo_vessel", "location": "KAM-OORT", "status": "idle",
+          "features": ["surge", "transport"], "available_commands": ["travel", "stow"], "stow_capacity": 9, "tags": []}
+    assert not lo.placed(b) and lo.placed({**b, "location": "KAM-3"}) and lo.placed({**b, "tags": []})
+    stars = {"KAM": {"entry_point": "KAM-5-L4"}}
+    p = lo.plan({"phases": [], "systems": {}}, [b, cv], [], {}, stars, {}, set(), [], {})
+    dl = p["deliveries"]
+    assert len(dl) == 1 and dl[0]["devices"] == ["B1"], dl
+    bodies = [s["body"] for s in lo.delivery_steps(dl[0], p["by_code"], stars, False)]
+    assert {"command": "travel", "destination": "KAM-3"} in bodies and {"command": "deploy"} in bodies
+
+
 def test_new_print_bound_elsewhere_is_dispatched_at_once(client):
     eng = client.app.state.worker.automations
     db = client.app.state.db

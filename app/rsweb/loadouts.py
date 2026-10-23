@@ -242,9 +242,12 @@ def placed(d: dict) -> bool:
     """A beacon or relay deployed and working at a location (monitoring / relaying): it stays where it is — never
     spare, never sent to fill a shortfall or gathered at the depot. Stowed ones (a survey crew's next drops) count as usual.
     One tagged `to:` another system isn't placed: it's waiting for its carrier (live 2026-10-23: beacons come out of the
-    printer monitoring, and 22 ordered ones sat at the SOLARES and FALQUORYX belts for two days, unseen by the planner)."""
+    printer monitoring, and 22 ordered ones sat at the SOLARES and FALQUORYX belts for two days, unseen by the planner).
+    Nor is one pinned (`at:`) somewhere else: a carrier takes it there (a beacon left at a relay's L4 point is pinned to
+    the civilization's body by the civ beacon pass)."""
     here = to_tag(star_of(d.get("location")))[3:]
-    return ((d.get("device_type") or "") in PLACED_TYPES and bool(d.get("location"))
+    pin = pinned_at(d)
+    return ((d.get("device_type") or "") in PLACED_TYPES and bool(d.get("location")) and pin in (None, d.get("location"))
             and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
             and str(d.get("status") or "").startswith(("monitoring", "relaying"))
             and not any(t.startswith("to:") and t[3:] != here for t in d.get("tags") or []))
@@ -968,7 +971,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if (pin and here and star_of(pin) == here and d.get("location") != pin and not can_travel(d)
                 and code not in busy and code not in moves and code not in arrived and not bound_for(d, known_stars, fleet_homes)
                 and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code") and not d.get("location_stale")
-                and str(d.get("status") or "").startswith(("idle", "inactive"))):
+                and str(d.get("status") or "").startswith(("idle", "inactive", "monitoring"))):   # (a beacon at work)
             batches[(here, here, d.get("replicant_code"))].append(code)
 
     carriers = [d for d in devices if d["device_code"] not in busy and can_surge(d) and _carrier_cap(d, bps) > 0

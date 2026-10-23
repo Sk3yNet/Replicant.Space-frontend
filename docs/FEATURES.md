@@ -178,8 +178,9 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
   - *remove*: deactivate it and tag it spare (drops its `home:` / `at:` / `to:` tags);
   - *cancel* an order.
 - ✦ marks a local civilization (green: your beacon is at its body). A beacon requested for such a system goes on to the
-  civilization's body, carried by a vessel in the system; with several civilizations, each body gets its own beacon
-  (*add* stays offered until all have one).
+  civilization's body, pinned there (`at:`) so its carrier drops it at the body; a beacon already elsewhere in the
+  system is carried there by a vessel in the system, or, with none there, pinned so the loadout pass sends a carrier.
+  With several civilizations, each body gets its own beacon (*add* stays offered until all have one).
 - **System tags** (at the bottom): every tag in your cached system scans with the systems carrying it (hazardous ones in
   red).
 

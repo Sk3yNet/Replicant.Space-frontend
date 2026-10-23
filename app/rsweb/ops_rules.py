@@ -97,7 +97,7 @@ class OpsRules:
             order.update(how="print", factory=fab["device_code"])
             msg = f"a {label} for {star} is already in the print queue of {fab['device_code']} (the loadout pass then carries it)"
         else:
-            how, msg = await self._outpost_source(kind, star, devices, busy, orders)
+            how, msg = await self._outpost_source(kind, star, devices, busy, orders, at=missing[0] if civ else None)
             if not how:
                 return msg
             order.update(how)
@@ -112,8 +112,10 @@ class OpsRules:
         return msg
 
     async def _outpost_source(self, kind: str, star: str, devices: list[dict], busy: set[str],
-                              orders: dict) -> tuple[dict | None, str]:
+                              orders: dict, at: str | None = None) -> tuple[dict | None, str]:
         """Get a ward / relay / beacon on its way to `star`: send a spare, else print one on the nearest autofactory.
+        `at`: the exact spot (a civilization's body for a beacon), pinned so the carrier drops it right there and not
+        at the relay's drop point, where no vessel is left to move it on.
         Returns the order fields (how, device / factory) and a line, or (None, why not)."""
         from . import loadouts as lo
         from . import ward_orders as wo
@@ -123,7 +125,8 @@ class OpsRules:
         if spare:
             rem = [t for t in spare.get("tags") or [] if t in (lo.SPARE, lo.STOCK) or t.startswith(("home:", "at:"))]
             await self.create_job("wards", f"{label} {spare['device_code']} → {star}", spare["device_code"],
-                                  [lo.tag_step(spare["device_code"], [lo.to_tag(star)], rem or None)],
+                                  [lo.tag_step(spare["device_code"], [lo.to_tag(star)] + ([lo.at_tag(at)] if at else []),
+                                               rem or None)],
                                   {"devices": [spare["device_code"]]}, force=True)
             busy.add(spare["device_code"])
             return ({"how": "send", "device": spare["device_code"]},
@@ -139,13 +142,15 @@ class OpsRules:
         await self.create_job("wards", f"print a {label} on {f['device_code']} for {star}", f["device_code"],
                               lo.print_steps({"factory": f["device_code"], "factory_star": star_of_(f.get("location")),
                                               "device_type": dtype, "n": 1, "star": star,
-                                              "tags": [lo.to_tag(star)]}), {"devices": []}, force=True)
+                                              "tags": [lo.to_tag(star)] + ([lo.at_tag(at)] if at else [])}),
+                              {"devices": []}, force=True)
         return ({"how": "print", "factory": f["device_code"]},
                 f"printing a {label} on {f['device_code']} for {star} (the loadout pass then carries it there)")
 
     async def ward_orders_pass(self) -> list[str]:
         """Ward / relay / beacon orders: one of yours deployed and idle in the ordered system is switched on (a ward
         within the cap and never beside a hub of yours; a relay only at an L4/L5 point — placement takes it there)."""
+        from . import traffic as tr
         from . import ward_orders as wo
         from . import wardhub as wh
         from .automations import step
@@ -189,11 +194,12 @@ class OpsRules:
                             out.append(f"{star}: {msg}")
                         continue
                     if (not here and len(missing) < len(civ) and o.get("device") not in busy
+                            and not tr.pinned_for(devices, missing)
                             and not wo.bound_to(devices, star, dtype) and not wo.printing_for(devices, star, dtype)
                             and not any(j.get("meta", {}).get("beacon_loc") in civ for j in await self.jobs()
                                         if j["status"] in ("running", "waiting"))):
                         # one body has its beacon, the next needs another: send a spare or print one
-                        how, msg = await self._outpost_source(kind, star, devices, busy, orders)
+                        how, msg = await self._outpost_source(kind, star, devices, busy, orders, at=missing[0])
                         if how:
                             o.update(how, at=now_iso())
                             o.pop("factory" if how["how"] == "send" else "device", None)
@@ -302,6 +308,7 @@ class OpsRules:
         to the first civilization body in `civ` and deploys it (traffic.placement: deploy / carry / fetch); beacons at
         `keep` (every civilization body) stay. Never prints another."""
         from . import traffic as tr
+        from .loadouts import pinned_at as pin_at
         jobs = await self.jobs()
         if any(j.get("meta", {}).get("beacon_loc") in civ for j in jobs if j["status"] in ("running", "waiting")):
             return None
@@ -309,12 +316,16 @@ class OpsRules:
         fails = [j for j in jobs if j["rule"] == "wards" and j["status"] == "failed"
                  and j.get("meta", {}).get("beacon_loc") == civ[0] and _ts(j.get("created_at"))
                  and (_now() - _ts(j["created_at"])).total_seconds() < 1800]
+        if (pin := tr.pinned_for(devices, civ)):
+            return f"beacon {pin['device_code']} is pinned to {pin_at(pin)}: a carrier of the loadout pass brings it"
         if fails:
             err = next((x.get("error") for x in max(fails, key=lambda j: j["created_at"])["steps"] if x.get("status") == "failed"), None)
             return f"beacon to the civilization at {civ[0]}: last try failed ({err or 'see Jobs'}), retrying in 30 min"
         p = tr.placement(civ[0], devices, await self.db.kv_get("replicants", {}) or {},
                          await self.db.kv_get("stowed_map", {}) or {}, busy, use_replicant_vessel=True,
                          keep=set(keep or civ))
+        if p["kind"] == "wait" and not p.get("vessels"):
+            return await self._pin_beacon(p, civ[0], devices, busy, "wards")
         if p["kind"] not in ("deploy", "carry", "fetch"):
             return f"beacon there, waiting to move it to the civilization at {civ[0]}: {p['text']}"
         devs = [x for x in (p.get("vessel"), p.get("beacon")) if x]
@@ -324,6 +335,25 @@ class OpsRules:
         if job:
             busy.update(devs)
         return f"moving a beacon to the civilization at {civ[0]}: {p['text']}"
+
+    async def _pin_beacon(self, p: dict, loc: str, devices: list[dict], busy: set[str], rule: str,
+                          manual: bool = False) -> str:
+        """A beacon elsewhere in the system can go to the civilization's body at `loc`, but no vessel is in the system
+        (live 2026-10-23: beacons dropped at relays' L4 points in a dozen civilization systems, the carrier long gone):
+        pin it there (`at:`) so the loadout pass sends a carrier that picks it up and drops it at the body."""
+        from . import loadouts as lo
+        code = p["beacon"]
+        d = next((x for x in devices if x.get("device_code") == code), {})
+        if lo.pinned_at(d) == loc:
+            return f"beacon {code} at {p.get('beacon_at')} is pinned to {loc}: the loadout pass sends a carrier for it"
+        rem = [t for t in d.get("tags") or [] if t in (lo.SPARE, "civ") or t.startswith(("home:", "at:"))]
+        job = await self.create_job(rule, f"pin beacon {code} to {loc} (no vessel in the system to move it)", code,
+                                    [lo.tag_step(code, [lo.at_tag(loc)], rem or None)], {"devices": [code]}, force=manual)
+        if job:
+            busy.add(code)
+            await self.remember_tags(code, sorted((set(d.get("tags") or []) - set(rem)) | {lo.at_tag(loc)}))
+        return (f"no vessel in the system: beacon {code} at {p.get('beacon_at')} pinned to {loc}, the loadout pass "
+                "sends a carrier for it" + ("" if job else " (dry run)"))
 
     async def _ward_print_to_spare(self, star: str, o: dict, devices: list[dict], busy: set[str],
                                    kind: str = "ward") -> str | None:
@@ -438,11 +468,18 @@ class OpsRules:
             if loc in pending or loc in wanted:
                 lines.append(f"{loc}: a beacon is already on its way")
                 continue
+            if (pin := tr.pinned_for(devices, {loc})):
+                lines.append(f"{loc}: beacon {pin['device_code']} ({pin.get('location')}) is pinned there, "
+                             "a carrier of the loadout pass brings it")
+                continue
             p = tr.placement(loc, devices, reps, stowed, busy, use_replicant_vessel=manual, logistics=logistics,
                              keep=keep, bps=bps, vessel_print=manual)
             if p["kind"] == "factory" and loc in orders:
                 lines.append(f"{loc}: a beacon is being printed for it — a vessel picks it up once it's out"
                              + ("" if p.get("has_vessel") else f" (needs a vessel with a hold in {row['star']})"))
+                continue
+            if p["kind"] == "wait" and not p.get("vessels"):
+                lines.append(f"{loc}: " + await self._pin_beacon(p, loc, devices, busy, "civ_beacons", manual))
                 continue
             if p["kind"] in ("none", "wait") or (p["kind"] == "factory" and not (manual or cfg.get("print_beacons", True))):
                 lines.append(f"{loc}: {p['text']}")

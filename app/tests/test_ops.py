@@ -328,6 +328,28 @@ def test_redundant_beacon_marked_spare_via_traffic_page(client):
     assert "spare" in next(d for d in world(client).devices if d["device_code"] == "BCN00003")["tags"]
 
 
+def test_civ_beacon_pass_pins_a_system_beacon_when_no_vessel_is_there(client):
+    """Live 2026-10-23: Contracts showed civilizations "in system": their beacons sat at the relay's L4 point and no
+    vessel was left in the system, so the pass only said "needs a vessel". Now it pins the beacon to the body."""
+    e = eng(client)
+    s = client.portal.call(e.settings)
+    s["rules"]["civ_beacons"]["enabled"] = True
+    client.portal.call(e.save_settings, s)
+    add(client, device_code="NB000002", device_type="ftl_beacon", location="SOL-4-L4", status="monitoring",
+        features=["stow", "audit"], available_commands=["stow", "deploy"])
+    w = client.app.state.worker
+    client.portal.call(w.handle_event, {"id": "d2", "event": "event.discovered", "created_at": iso(datetime.now(timezone.utc)),
+                                        "payload": {"designation": "EV-8", "location": "SOL-4", "title": "Contact", "tier": 1}})
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "civ_beacons")
+    assert job["steps"][0]["body"] == {"configuration": {"add_tags": ["at:sol-4"]}}, job["steps"]
+    devs = client.portal.call(e.devices)
+    b = next(d for d in devs if d["device_code"] == "NB000002")
+    assert "at:sol-4" in b["tags"]
+    # the next pass leaves it to the loadout pass: no second beacon printed
+    lines = client.portal.call(e.civ_beacon_pass, "SOL-4")
+    assert "pinned there" in lines[0], lines
+
+
 def test_existing_system_beacon_is_moved_to_the_civ_body_before_printing_one():
     cv = {"device_code": "CV", "device_type": "cargo_vessel", "location": "X-BELT-1", "status": "idle", "features": ["cruise"],
           "stow_capacity": 50, "available_commands": ["travel"]}
