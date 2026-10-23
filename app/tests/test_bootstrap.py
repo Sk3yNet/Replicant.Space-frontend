@@ -432,3 +432,29 @@ def test_back_to_a_normal_fleet(client):
     assert f["wants"] == {"mining_drone": 2, "survey_drone": 1}
     job = next(j for j in client.portal.call(e.jobs) if "back to a normal fleet" in j["title"])
     assert all(s["body"]["configuration"] == {"add_tags": ["fleet:p"], "remove_tags": ["boot:p"]} for s in job["steps"])
+
+
+def test_a_resource_no_open_site_has_is_left_alone_for_a_while():
+    from datetime import datetime, timedelta, timezone
+    scans = {"HOME": scan_for("HOME", STRUCT)}
+    devs = [vessel("HOME-BELT-1")] + [drone(f"M{i}", "mining_drone", "HOME-BELT-1") for i in range(2)]
+    recent = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    f = fleet(no_site={"HOME-BELT-1": {"conductive": recent}})
+    ev = bt.evaluate(f, world(devs, scans))
+    picks = {a["resource"] for a in ev["actions"] if a["kind"] == "start_mining"}
+    assert picks and "conductive" not in picks and "no open site has conductive" in ev["next"]
+    assert ev["next"].startswith("mining for a survey drone")
+    old = (datetime.now(timezone.utc) - timedelta(hours=bt.NO_SITE_HOURS + 1)).isoformat()
+    assert bt.no_site({"no_site": {"HOME-BELT-1": {"conductive": old}}}, "HOME-BELT-1") == set()
+    # every resource refused: the drones wait for the survey drones
+    assert bt.mine_choice(STRUCT["asteroid_belt"]["belts"][0], {"conductive": 5}, set(bt.RESOURCES)) is None
+
+
+def test_the_pass_learns_refused_resources_from_its_jobs():
+    from rsweb.boot_engine import BootstrapMixin
+    f = fleet()
+    jobs = [{"meta": {"bootstrap": "p"}, "finished_at": bt.datetime.now(bt.timezone.utc).isoformat(), "steps": [
+        {"path": "/devices/M0", "body": {"command": "start_mining", "resource_type": "conductive"}, "status": "skipped",
+         "error": "No conductive remaining at any active site"}]}]
+    BootstrapMixin._boot_no_site(f, jobs, [drone("M0", "mining_drone", "HOME-BELT-1")])
+    assert bt.no_site(f["boot"], "HOME-BELT-1") == {"conductive"}

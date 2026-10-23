@@ -242,6 +242,9 @@ NO_ETA_EXTRA_S = 3600        # still moving and no ETA known: this much longer, 
 BUSY_RE = re.compile(r"while (the )?(replicant|device|carrier|vessel)? ?is (still )?(travel|cruis|surg|in motion)|"
                      r"already in motion|is (currently )?(travel|surg|cruis)|"
                      r"not in a star system|in transit", re.I)   # mid-trip between systems (seen live 2026-10-11, Surveyor 3's gather)
+# "No conductive remaining at any active site" (live 2026-10-23, Delta Force): the belt's open sites lack that resource.
+# Nothing to fix by hand: the step is skipped quietly and doesn't count toward stopping the job.
+NO_SITE_RE = re.compile(r"\bno \w+ remaining at any active site", re.I)
 BUSY_RETRY_S, BUSY_TRIES = 300, 36   # retry such a refusal every 5 min, for up to 3 h
 SHORT_TIMEOUT = 120          # waiting for deploy/stow confirmation
 MAX_LOG = 300
@@ -1000,9 +1003,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     await self.log(job["rule"], f"stopped: {job['title']} — {st['desc']} failed: {err}{ownership_hint(err)}", "alert", notify=True)
                     return
                 st["status"] = "skipped"
-                await self.log(job["rule"], f"{job['title']}: skipped '{st['desc']}' ({err}){ownership_hint(err)}", "alert")
+                quiet = bool(NO_SITE_RE.search(err or ""))
+                await self.log(job["rule"], f"{job['title']}: skipped '{st['desc']}' ({err}){ownership_hint(err)}",
+                               "info" if quiet else "alert")
                 job["idx"] += 1
-                done_steps = [x for x in job["steps"][:job["idx"]] if x["method"] != "WAIT"]
+                done_steps = [x for x in job["steps"][:job["idx"]] if x["method"] != "WAIT"
+                              and not NO_SITE_RE.search(str(x.get("error") or ""))]
                 last3, last6 = done_steps[-3:], done_steps[-6:]
                 if ((len(last3) == 3 and all(x["status"] == "skipped" and x.get("error") == err for x in last3))
                         or (len(last6) == 6 and all(x["status"] == "skipped" for x in last6))):

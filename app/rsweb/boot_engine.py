@@ -71,6 +71,7 @@ class BootstrapMixin:
             if any(j["status"] in ("running", "waiting") and (j.get("meta") or {}).get("bootstrap") == f["id"] for j in jobs):
                 continue
             before = json.dumps(b, sort_keys=True, default=str)
+            self._boot_no_site(f, jobs, devices)
             await self._boot_adopt_prints(f, devices)
             ev = bt.evaluate(f, w)
             b["status"] = {k: ev.get(k) for k in ("stage", "label", "gate", "next", "blocked")}
@@ -207,6 +208,32 @@ class BootstrapMixin:
                               [self._tag_step(d["device_code"], [bt.family_tag(f["id"])])],
                               {"devices": [d["device_code"]], "bootstrap": f["id"]})
         b.pop("printing", None)
+
+    @staticmethod
+    def _boot_no_site(f: dict, jobs: list[dict], devices: list[dict]) -> None:
+        """Learn from this bootstrap's skipped mining steps which resources the belt's open sites lack, so the next pass
+        mines something else instead of asking again (bootstrap.no_site)."""
+        from .automations import NO_SITE_RE
+        b = f["boot"]
+        loc = {d.get("device_code"): d.get("location") for d in devices}
+        ns = b.setdefault("no_site", {})
+        for j in jobs:
+            if (j.get("meta") or {}).get("bootstrap") != f["id"]:
+                continue
+            for st in j.get("steps") or []:
+                body = st.get("body") or {}
+                if body.get("command") != "start_mining" or not NO_SITE_RE.search(str(st.get("error") or "")):
+                    continue
+                belt = loc.get(str(st.get("path") or "").rsplit("/", 1)[-1])
+                at = j.get("finished_at") or j.get("created_at") or now_iso()
+                if belt and body.get("resource_type") and at > (ns.get(belt) or {}).get(body["resource_type"], ""):
+                    ns.setdefault(belt, {})[body["resource_type"]] = at
+        for belt in list(ns):   # forget what's long past
+            ns[belt] = {r: at for r, at in ns[belt].items() if r in bt.no_site(b, belt)}
+            if not ns[belt]:
+                del ns[belt]
+        if not ns:
+            b.pop("no_site", None)
 
     @staticmethod
     def _tag_step(code: str, add: list[str], remove: list[str] | None = None) -> dict:

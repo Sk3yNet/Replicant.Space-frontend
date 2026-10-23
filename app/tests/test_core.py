@@ -8616,3 +8616,21 @@ def test_blueprint_specs_show_set_fields_only():
     specs = blueprint_specs({"device_type": "system_hub", "relay_range": 15.0, "current_hubs": 2, "queue_size": 0,
                              "strength": 0, "stow_capacity": 1, "components": {}, "new_field": "x"})
     assert [(l, v) for l, v, _ in specs] == [("relay range", "15 ly"), ("current hubs", "2"), ("new field", "x")]
+
+
+def test_nothing_to_mine_at_open_sites_is_skipped_quietly(client):
+    eng = client.app.state.worker.automations
+    from rsweb.automations import step
+
+    async def refuse(method, path, body=None, *a, **k):
+        if (body or {}).get("command") == "start_mining":
+            return False, None, f"No {body['resource_type']} remaining at any active site"
+        return True, {}, None
+    eng.send = refuse
+    steps = [step(f"M{i}: mine conductive", f"/devices/M{i}", {"command": "start_mining", "resource_type": "conductive"})
+             for i in range(4)] + [step("R1: mine rares onboard", "/replicants/R1/mine", {"resource_type": "rares"})]
+    job = client.portal.call(eng.create_job, "fleets", "Delta Force: mining", None, steps, {}, True)
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
+    assert job["status"] == "done" and job["steps"][-1]["status"] == "done"
+    log = client.portal.call(eng.db.kv_get, "automation_log", [])
+    assert not any("stopped:" in e["text"] for e in log) and all(e["level"] == "info" for e in log if "skipped" in e["text"])

@@ -26,6 +26,7 @@ vessel carries devices, not materials.
 from __future__ import annotations
 
 import math
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .prospects import RARITY, YIELD, score as prospect_score
@@ -108,16 +109,37 @@ def best_belt(scan: dict | None) -> dict | None:
     return best
 
 
-def mine_choice(belt: dict | None, need: dict[str, float]) -> str:
+def mine_choice(belt: dict | None, need: dict[str, float], skip: set[str] | frozenset = frozenset()) -> str | None:
     """What a drone mines: the resource the next print is shortest of, weighted by how much this belt yields of it;
-    nothing short → the belt's best by yield × rarity."""
+    nothing short → the belt's best by yield × rarity. `skip`: resources the belt's open sites lack right now (the game
+    refused them); None when that leaves nothing."""
     levels = (belt or {}).get("resources") or {}
-    y = {r: YIELD.get(levels.get(r), 0) for r in RARITY}
+    y = {r: YIELD.get(levels.get(r), 0) for r in RARITY if r not in skip}
+    need = {r: q for r, q in (need or {}).items() if r not in skip}
     if need:
         pick = max(need, key=lambda r: (need[r] * max(1, y.get(r, 0)), r))
         if y.get(pick, 0):
             return pick
-    return max(y, key=lambda r: (y[r] * RARITY[r], r)) if any(y.values()) else "structural"
+    if any(y.values()):
+        return max(y, key=lambda r: (y[r] * RARITY[r], r))
+    return None if "structural" in skip else "structural"
+
+
+NO_SITE_HOURS = 3   # a resource the game said no open site has is left alone that long (survey drones open new sites)
+
+
+def no_site(b: dict, belt: str, now: datetime | None = None) -> set[str]:
+    """Resources the game refused at this belt within NO_SITE_HOURS ("No conductive remaining at any active site")."""
+    now = now or datetime.now(timezone.utc)
+    out = set()
+    for r, at in ((b.get("no_site") or {}).get(belt) or {}).items():
+        try:
+            t = datetime.fromisoformat(str(at).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if now - (t if t.tzinfo else t.replace(tzinfo=timezone.utc)) < timedelta(hours=NO_SITE_HOURS):
+            out.add(r)
+    return out
 
 
 def vessel_choice(short: dict[str, float], cost: dict[str, float], belt: dict | None) -> str | None:
@@ -182,10 +204,13 @@ def compound(f: dict, w: dict, star: str, cap: int, autofactory: bool) -> dict:
     for d in aboard:
         if d.get("device_type") in ("mining_drone", "survey_drone", "autofactory"):
             acts.append({"kind": "deploy", "device": d["device_code"]})
+    skip = no_site(b, bloc)
     for d in deployed:
         st = str(d.get("status") or "")
         if d.get("device_type") == "mining_drone" and st.startswith("idle"):
-            acts.append({"kind": "start_mining", "device": d["device_code"], "resource": mine_choice(belt, need)})
+            res = mine_choice(belt, need, skip)
+            if res:   # nothing minable at the open sites: it waits for the survey drones
+                acts.append({"kind": "start_mining", "device": d["device_code"], "resource": res})
         elif d.get("device_type") == "survey_drone" and st.startswith("idle"):
             acts.append({"kind": "search", "device": d["device_code"]})
     gate = (f"{len(miners)} mining + {len(surveys)} survey drones of {cap}"
@@ -204,7 +229,9 @@ def compound(f: dict, w: dict, star: str, cap: int, autofactory: bool) -> dict:
         acts.append({"kind": "vessel_mine", "resource": pick})
     left = ", ".join(f"{int(math.ceil(q))} {r}" for r, q in sorted(need.items(), key=lambda x: -x[1]))
     return {"actions": acts, "gate": gate, "stock": stock,
-            "next": f"mining for a {target.replace('_', ' ')} — short {left}" + (f" (vessel mines {pick})" if pick else "")}
+            "next": f"mining for {'an' if target[0] in 'aeiou' else 'a'} {target.replace('_', ' ')} — short {left}"
+                    + (f" (vessel mines {pick})" if pick else "")
+                    + (f" · no open site has {', '.join(sorted(skip))}" if skip else "")}
 
 
 def survey_queue(f: dict, w: dict) -> list[str]:
