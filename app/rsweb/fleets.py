@@ -48,6 +48,9 @@ PHASES = {
 ATTACH_TYPES = ("surge_plate", "surge_platform", "surge_carrier", "mobile_fleet")
 CAPACITY = {"surge_plate": 1, "surge_platform": 4, "surge_carrier": 9, "mobile_fleet": 36, "cargo_vessel": 3}
 HOLD = {"cargo_vessel": 50, "heaven_vessel": 10, "racing_vessel": 5}   # stow capacity (devices in the hold)
+# device types whose stow_capacity is a cradle (a replicant's matrix only, never cargo): cargo handed to one rides on
+# whatever it is attached to (owner 2026-10-23: matrix container 10D7491E on surge platform D947853D)
+CRADLE_TYPES = ("matrix_container",)
 
 
 def star_of(loc: str | None) -> str:
@@ -126,6 +129,8 @@ def capacity(d: dict) -> int:
 
 def hold(d: dict) -> int:
     """Hold slots (devices stowed inside: cargo vessel 50, heaven vessel 10, racing vessel 5)."""
+    if (d.get("device_type") or "") in CRADLE_TYPES:
+        return 0
     return _int(d.get("stow_capacity")) or HOLD.get(d.get("device_type") or "", 0)
 
 
@@ -185,6 +190,36 @@ def seats(c: dict, devices: list[dict] | None = None) -> dict:
         inside = max(inside, sum(1 for d in devices if d.get("stowed_in_device_code") == c.get("device_code")))
         outside = max(outside, sum(1 for d in devices if d.get("attached_to_device_code") == c.get("device_code")))
     return {"hold": max(0, hold(c) - inside), "attach": max(0, capacity(c) - outside)}
+
+
+def tug(d: dict, devices: list[dict]) -> dict:
+    """The device that actually flies when `d` moves: `d` itself, or what it is attached to / stowed in, up the chain."""
+    by = {x.get("device_code"): x for x in devices}
+    seen = {d.get("device_code")}
+    while True:
+        up = d.get("attached_to_device_code") or d.get("stowed_in_device_code")
+        if not up or up in seen or up not in by:
+            return d
+        seen.add(up)
+        d = by[up]
+
+
+def cargo_carrier(d: dict, devices: list[dict], stowable_: bool = True) -> dict | None:
+    """Where cargo handed to `d` really rides: its own free hold slots (when the cargo stows), else its own free attach
+    points, else, for a device riding on another (a matrix container whose only slot is its cradle, attached to a surge
+    platform), that one's, up the chain. {"carrier": device that takes the cargo, "mode": "stow" | "attach", "free": n,
+    "flies": device that travels (tug)} or None when nothing in the chain has room."""
+    by = {x.get("device_code"): x for x in devices}
+    c, seen = d, set()
+    while c and c.get("device_code") not in seen:
+        seen.add(c.get("device_code"))
+        free = seats(c, devices)
+        if stowable_ and free["hold"] > 0:
+            return {"carrier": c, "mode": "stow", "free": free["hold"], "flies": tug(c, devices)}
+        if free["attach"] > 0:
+            return {"carrier": c, "mode": "attach", "free": free["attach"], "flies": tug(c, devices)}
+        c = by.get(c.get("attached_to_device_code") or c.get("stowed_in_device_code"))
+    return None
 
 
 def take_seat(free: dict, d: dict) -> str | None:

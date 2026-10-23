@@ -153,7 +153,9 @@ of the catalog after). What each marker and line means is in the [map legend](..
 - **Relay rollout**: a relay in every system within a radius of seed systems you name, nearest first.
   - As many orders open as your logistics vessels with a replicant aboard have free hold slots (each as *add* on the
     Systems list); a carrier fills its hold with relays (and ordered beacons) for several systems and drops them
-    nearest first.
+    nearest first. Beacons also ride surge plates, platforms and mobile fleets (attached, detached at the drop); a
+    matrix container's slot is its cradle, so cargo for it rides on the platform it hangs on, and that platform counts
+    as a replicant vessel.
   - *Chained* (default) only goes to a system within 7.5 ly of a relay or hub of yours, one on order, or a seed, so the
     network grows outward in one piece.
   - A system that can't get one is skipped until *Retry skipped*; five failures in a row pause the rollout.

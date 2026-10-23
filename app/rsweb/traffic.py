@@ -230,19 +230,19 @@ def redundant_beacons(devices: list[dict], rows: list[dict], busy: set[str] | No
 
 
 def is_vessel(d: dict) -> bool:
-    """Can carry a beacon around a system: cruises and has a hold."""
+    """Can carry a beacon around a system: cruises and has a hold or attach points (fleets.cargo_carrier says where)."""
+    from . import fleets as fl
     t = d.get("device_type") or ""
-    return "cruise" in (d.get("features") or []) and ("vessel" in t or bool(d.get("stow_capacity")))
+    return "cruise" in (d.get("features") or []) and ("vessel" in t or bool(d.get("stow_capacity")) or fl.capacity(d) > 0)
 
 
-def has_room(d: dict) -> bool:
-    """Can pick up a beacon: a free slot in its hold (unknown counts as free) and not itself towed or stowed. Live
-    2026-10-23: matrix container 10D7491E (1 slot, its replicant's matrix in it, attached to a surge platform) was
-    picked every pass and the stow failed with "No storage space"."""
-    cap, used = d.get("stow_capacity"), d.get("stow_used")
-    if cap is not None and used is not None and int(used) >= int(cap):
-        return False
-    return not d.get("attached_to_device_code") and not d.get("stowed_in_device_code")
+def ride_for(v: dict, devices: list[dict], beacon: dict | None = None) -> dict | None:
+    """Where a beacon handed to `v` rides (fleets.cargo_carrier): its hold, its attach points, or those of what it is
+    attached to (live 2026-10-23: matrix container 10D7491E, its only slot the cradle with Sk3y-17's matrix, rides on
+    surge platform D947853D — every stow failed "No storage space" until the platform's attach points were used)."""
+    from . import fleets as fl
+    stowable = "stow" in ((beacon or {}).get("available_commands") or ["stow"])
+    return fl.cargo_carrier(v, devices, stowable)
 
 
 def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[str, list[str]],
@@ -264,9 +264,13 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
     busy, keep, logistics = busy or set(), keep or set(), logistics or set()
     by = {d.get("device_code"): d for d in devices}
     holds: dict[str, list[str]] = defaultdict(list)
+    attached: set[str] = set()
     for d in devices:
         if d.get("stowed_in_device_code"):
             holds[d["stowed_in_device_code"]].append(d["device_code"])
+        elif d.get("attached_to_device_code"):   # towed on a carrier's attach points: dropped with a detach
+            holds[d["attached_to_device_code"]].append(d["device_code"])
+            attached.add(d["device_code"])
     for carrier, kids in (stowed_map or {}).items():
         for k in kids:
             if k not in holds[carrier]:
@@ -281,6 +285,8 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
         h = r.get("hosted_device_code")
         if h:
             hosts[h] = (code, r)
+    from .logistics import riding_hosts
+    riders = riding_hosts(devices, {h: rep for h, (rep, _) in hosts.items()})   # + what tows or holds a replicant's host
     star = star_of(loc)
     rep_here = None
     for host, (rep, r) in hosts.items():
@@ -293,40 +299,53 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
                         "text": f"deploy beacon {b} from {r.get('name') or rep}'s vessel {host} (already at {loc})"}
     if not vessel_print:
         rep_here = None
-    vessels = [v for v in sorted(devices, key=lambda d: (d.get("device_code") in hosts, d.get("device_code") or ""))
-               if is_vessel(v) and star_of(v.get("location")) == star and v.get("device_code") not in busy
-               and not str(v.get("status") or "").startswith(("stowed", "travel", "cruis", "surg"))
-               and (use_replicant_vessel or v.get("device_code") not in hosts or v.get("device_code") in logistics)]
+    def free_to_fly(v: dict) -> bool:
+        code = v.get("device_code")
+        return (star_of(v.get("location")) == star and code not in busy
+                and not str(v.get("status") or "").startswith(("stowed", "travel", "cruis", "surg"))
+                and (use_replicant_vessel or code not in riders or code in logistics))
+    vessels = [v for v in sorted(devices, key=lambda d: (d.get("device_code") in riders, d.get("device_code") or ""))
+               if is_vessel(v) and free_to_fly(v) and not v.get("attached_to_device_code") and not v.get("stowed_in_device_code")]
 
     def moves(code: str) -> str:
-        rep = hosts.get(code)
-        return f" (moves your replicant {rep[1].get('name') or rep[0]})" if rep else ""
+        rep = riders.get(code)
+        return f" (moves your replicant {((replicants or {}).get(rep) or {}).get('name') or rep})" if rep else ""
     for v in vessels:
         b = beacon_in(v["device_code"])
         if b:
             code = v["device_code"]
             return {"kind": "carry", "beacon": b, "vessel": code, "from": v.get("location"),
-                    "replicant": hosts[code][0] if code in hosts else None,
+                    "mode": "attach" if b in attached else "stow", "replicant": riders.get(code),
                     "text": f"fly {v.get('device_type', 'vessel').replace('_', ' ')} {code} {v.get('location')} → {loc} "
-                            f"and deploy beacon {b}" + moves(code)}
+                            f"and {'detach' if b in attached else 'deploy'} beacon {b}" + moves(code)}
     # any beacon of yours in this system that isn't at a civilization's body can be moved there — it logs the whole
     # system's traffic wherever it sits, so nothing is lost. Spare / civ-tagged ones first, then e.g. the Kuiper beacon.
     loose = sorted((d for d in devices if "beacon" in (d.get("device_type") or "") and star_of(d.get("location")) == star
                     and deployed(d) and d.get("device_code") not in busy and d.get("location") not in keep
                     and d.get("location") != loc and "stow" in (d.get("available_commands") or ["stow"])),
                    key=lambda d: (not ({"civ", "spare"} & set(d.get("tags") or [])), d.get("device_code") or ""))
-    roomy = [v for v in vessels if has_room(v)]
-    if loose and roomy:
-        b, v = loose[0], roomy[0]
-        code = v["device_code"]
+    rides, seen = [], set()
+    for v in sorted(devices, key=lambda d: (d.get("device_code") in riders, d.get("device_code") or "")):
+        if not loose or not is_vessel(v) or star_of(v.get("location")) != star or v.get("device_code") in busy:
+            continue
+        r = ride_for(v, devices, loose[0])
+        if r and r["carrier"]["device_code"] not in seen and free_to_fly(r["flies"]) and r["carrier"]["device_code"] not in busy:
+            seen.add(r["carrier"]["device_code"])
+            rides.append(r)
+    rides.sort(key=lambda r: (r["flies"].get("device_code") in riders, r["mode"] != "stow", r["flies"].get("device_code") or ""))
+    if loose and rides:
+        b, r = loose[0], rides[0]
+        v, code, carrier = r["flies"], r["flies"]["device_code"], r["carrier"]["device_code"]
+        on = f" on {carrier}'s attach points" if r["mode"] == "attach" else (f" in {carrier}'s hold" if carrier != code else "")
         return {"kind": "fetch", "beacon": b["device_code"], "beacon_at": b["location"], "vessel": code, "from": v.get("location"),
-                "replicant": hosts[code][0] if code in hosts else None, "moves_existing": True,
+                "carrier": carrier, "mode": r["mode"], "replicant": riders.get(code), "moves_existing": True,
                 "text": f"{v.get('device_type', 'vessel').replace('_', ' ')} {code} picks up beacon {b['device_code']} at "
-                        f"{b['location']}, flies it to {loc} and deploys it" + moves(code)}
+                        f"{b['location']}{on}, flies it to {loc} and "
+                        + ("detaches it" if r["mode"] == "attach" else "deploys it") + moves(code)}
     if loose and not rep_here:
         # there's a beacon to move but no free vessel with a hold right now: wait rather than print another
-        held = [v for v in devices if is_vessel(v) and has_room(v) and star_of(v.get("location")) == star
-                and (use_replicant_vessel or v.get("device_code") not in hosts or v.get("device_code") in logistics)]
+        held = [v for v in devices if is_vessel(v) and star_of(v.get("location")) == star and ride_for(v, devices, loose[0])
+                and (use_replicant_vessel or v.get("device_code") not in riders or v.get("device_code") in logistics)]
         b = loose[0]
         return {"kind": "wait", "beacon": b["device_code"],
                 "text": f"beacon {b['device_code']} at {b['location']} can be moved there — "
@@ -362,6 +381,9 @@ def placement_steps(p: dict, loc: str) -> list[dict]:
         return st
 
     def deploy(b: str) -> dict:
+        if p.get("mode") == "attach":   # towed: the carrier lets it go (deploy on an attached device does nothing)
+            c = p.get("carrier") or p["vessel"]
+            return step(f"{c}: detach beacon {b} at {loc}", f"/devices/{c}", {"command": "detach", "device": b}, critical=True)
         return step(f"deploy beacon {b} at {loc}", f"/devices/{b}", {"command": "deploy"}, critical=True)
     if p["kind"] == "deploy":
         return [deploy(p["beacon"])]
@@ -372,9 +394,8 @@ def placement_steps(p: dict, loc: str) -> list[dict]:
         return [travel(p["vessel"], p["from"], loc), deploy(p["beacon"])]
     if p["kind"] == "fetch":
         steps = [] if p["from"] == p["beacon_at"] else [travel(p["vessel"], p["from"], p["beacon_at"])]
-        st = step(f"stow beacon {p['beacon']} into {p['vessel']}", f"/devices/{p['beacon']}",
-                  {"command": "stow", "target": p["vessel"]}, wait=["device.stowed"], timeout=120, critical=True)
-        st["wait_device"] = p["beacon"]
+        from .fleets import board_step
+        st = board_step(p.get("carrier") or p["vessel"], p["beacon"], p.get("mode") or "stow")
         tag = step(f"{p['beacon']}: drop the civ/spare tag", f"/devices/{p['beacon']}",
                    {"configuration": {"remove_tags": ["civ", "spare"]}}, method="PATCH")
         return steps + [st, tag, travel(p["vessel"], p["beacon_at"], loc), deploy(p["beacon"])]

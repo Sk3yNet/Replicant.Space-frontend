@@ -8668,10 +8668,22 @@ def test_beacon_fetch_skips_a_carrier_with_a_full_hold():
              "tags": ["spare"], "available_commands": ["stow", "deploy"]}]
     p = tr.placement("AAA-3", devs, {}, {}, use_replicant_vessel=True)
     assert p["kind"] not in ("fetch", "carry")
+    # owner 2026-10-23: the container rides on surge platform SP; the beacon goes on the platform's attach points
+    devs.append({"device_code": "SP", "device_type": "surge_platform", "location": "AAA-6-L4", "status": "idle",
+                 "features": ["surge", "cruise", "attach"], "attached_devices": [{"device_code": "MC"}], "attach_used": 1})
+    devs[0]["hosting_replicant"] = {"replicant_code": "REP"}
+    reps = {"REP": {"name": "Sk3y_17", "hosted_device_code": "MC"}}
+    p = tr.placement("AAA-3", devs, reps, {}, use_replicant_vessel=True)
+    assert p["kind"] == "fetch" and p["vessel"] == "SP" and p["carrier"] == "SP" and p["mode"] == "attach"
+    assert "Sk3y_17" in p["text"]   # the platform with a populated container counts as a replicant aboard
+    steps = tr.placement_steps(p, "AAA-3")
+    assert steps[0]["path"] == "/devices/SP" and steps[0]["body"] == {"command": "attach", "device": "B1"}
+    assert steps[-1]["body"] == {"command": "detach", "device": "B1"}
+    assert tr.placement("AAA-3", devs, reps, {}, use_replicant_vessel=False)["kind"] not in ("fetch", "carry")
     devs.append({"device_code": "HV", "device_type": "heaven_vessel", "location": "AAA-1", "status": "idle",
                  "features": ["cruise", "surge"], "stow_capacity": 10, "stow_used": 2})
-    p = tr.placement("AAA-3", devs, {}, {}, use_replicant_vessel=True)
-    assert p["kind"] == "fetch" and p["vessel"] == "HV"
+    p = tr.placement("AAA-3", devs, reps, {}, use_replicant_vessel=True)
+    assert p["kind"] == "fetch" and p["vessel"] == "HV" and p["mode"] == "stow"   # no replicant moved: first
 
 
 def test_a_hold_carrier_takes_beacons_for_several_systems_on_one_run():
@@ -8692,3 +8704,23 @@ def test_a_hold_carrier_takes_beacons_for_several_systems_on_one_run():
     p = lo.plan(cfg, devices, [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"HUB", "AAA", "BBB", "CCC"})
     dl = [d for d in p["deliveries"] if d["carrier"] == "HV"]
     assert len(dl) == 1 and sorted(dl[0]["devices"]) == ["BAAA", "BBBB", "RCCC"], (p["deliveries"], p["unmet"])
+
+
+def test_a_surge_plate_attaches_a_beacon_it_flies_to():
+    """Owner 2026-10-23: platforms and plates take cargo on their attach points, beacons included."""
+    from rsweb import loadouts as lo
+    def dev(code, t, loc, **kw):
+        return {"device_code": code, "device_type": t, "location": loc, "status": kw.pop("status", "idle"),
+                "operational_capacity": 100.0, "features": kw.pop("features", ["stow", "comms"]),
+                "available_commands": kw.pop("available_commands", ["stow", "deploy"]), **kw}
+    devices = [dev("BAAA", "ftl_beacon", "HUB-BELT-1", status="monitoring", tags=["to:aaa"]),
+               dev("SP", "surge_plate", "HUB-BELT-1", features=["surge", "cruise", "attach"],
+                   available_commands=["travel", "attach", "detach"], tags=["fleet:logistics"])]
+    stars = {s: {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in (("HUB", 0), ("AAA", 5))}
+    cfg = {"phases": [], "systems": {}, "fleets": [{"id": "logistics", "name": "Logistics", "role": "logistics",
+                                                    "home": "HUB", "wants": {}}]}
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {}, commandable={"HUB", "AAA"})
+    dl = [d for d in p["deliveries"] if d["carrier"] == "SP"]
+    assert dl and dl[0]["devices"] == ["BAAA"] and dl[0]["mode"] == "attach", (p["deliveries"], p["unmet"])
+    descs = [s["desc"] for s in lo.delivery_steps(dl[0], {d["device_code"]: d for d in devices}, stars, False)]
+    assert "SP: attach BAAA" in descs and not any(d.startswith("stow BAAA") for d in descs)

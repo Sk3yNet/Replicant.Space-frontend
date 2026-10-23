@@ -285,6 +285,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     mining drones (they'd sit idle) until sites open."""
     open_sites = open_sites or {}
     protect = protect or set()   # devices that must stay where they are (e.g. the beacon at a civilization's body)
+    # a carrier towing or holding a replicant's host (a surge platform with a populated matrix container attached)
+    # counts as a replicant vessel everywhere below (owner 2026-10-23); `hosted` keeps the direct hosts for travel
+    from .logistics import riding_hosts
+    hosted, replicant_hosts = replicant_hosts, riding_hosts(devices, replicant_hosts)
     cfg = normalize(cfg)
     s = cfg["settings"]
     ignore = set(cfg["ignore_tags"])
@@ -972,8 +976,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     carriers = [c for c in carriers if c["device_code"] not in moving and not bound_for(c, known_stars, fleet_homes)]
     used: set[str] = set()
     deliveries = []
-    from .logistics import riding_hosts
-    escorts = riding_hosts(devices, replicant_hosts)   # a carrier with a replicant's matrix aboard brings that replicant
+    escorts = replicant_hosts   # a carrier with a replicant's matrix aboard brings that replicant
     def same_owner(c: dict, owner: str | None) -> bool:
         """A carrier can only take on devices of its own replicant (seen live 2026-10-06: 'Target device belongs to a
         different account'). Since 1.26.0 the job hands each device to the carrier's owner as it boards
@@ -992,13 +995,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 carrying[stowed_in[x]].add(x)
 
     def fits(c: dict, codes_: list[str]) -> bool:
-        """It can take them all: ones already aboard it count as taken; the rest must stow (or it attaches), and a device
-        that can't fly needs a hold."""
+        """It can take them all: ones already aboard it count as taken; the rest must stow (or it attaches). A device that
+        can't fly rides on attach points too when it could stow (a beacon: the carrier flies to it and attaches it,
+        owner 2026-10-23); one that neither flies nor stows can't board."""
         rest = [x for x in codes_ if stowed_in.get(x) != c["device_code"]]
         attach_ = carry_mode(c, bps) == "attach"
         stow_ok = all("stow" in (by_code[x].get("available_commands") or ["stow"]) for x in rest)
-        grounded_ = any(not can_travel(by_code[x]) for x in rest)
-        return (stow_ok or attach_) and not (grounded_ and attach_)
+        return stow_ok or (attach_ and all(can_travel(by_code[x]) for x in rest))
 
     def may_carry(c: dict, codes_: list[str]) -> bool:
         """Deliveries are the logistics fleets' work (and a spare carrier's, in no fleet); another fleet's carrier only
@@ -1078,7 +1081,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             taken.update(load)
             used.add(c["device_code"])
             dl = {"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
-                  "devices": load, "replicant": replicant_hosts.get(c["device_code"]), "mode": carry_mode(c, bps)}
+                  "devices": load, "replicant": hosted.get(c["device_code"]), "mode": carry_mode(c, bps)}
             if not dl["replicant"] and escorts.get(c["device_code"]):
                 dl["riding_replicant"] = escorts[c["device_code"]]   # its matrix rides aboard: the carrier flies itself
             if (by_tag.get(fleet_tag_of(c) or "") or {}).get("home") == dest:
@@ -1203,6 +1206,9 @@ def carry_mode(d: dict, bps: dict) -> str:
 
 
 def _carrier_cap(d: dict, bps: dict) -> float:
+    from .fleets import CRADLE_TYPES
+    if (d.get("device_type") or "") in CRADLE_TYPES:
+        return 0   # its one slot is the replicant's cradle: cargo rides on what it is attached to (fleets.cargo_carrier)
     for src in (d, bps.get(d.get("device_type")) or {}):
         for key in ("stow_capacity", "attach_capacity"):
             try:
@@ -1419,7 +1425,7 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         steps.append(move(loc, "pick up " + ", ".join(codes), loc))
         cur = loc
         for code in codes:
-            steps.append(fl.board_step(carrier, code, "stow" if code in grounded or not attach else "attach"))
+            steps.append(fl.board_step(carrier, code, "attach" if attach else "stow"))
     def drop_steps(codes_: list[str], stop: str) -> list[dict]:
         out = []
         for code in codes_:
