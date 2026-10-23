@@ -1824,6 +1824,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         busy = self.busy_devices(await self.jobs())
         prev = await self.db.kv_get("fleet_strays", {}) or {}
         cur = fl.strays(items, devices, busy)
+        # the loadout pass plans to send these home and waits for a carrier: not "nothing is bringing it home"
+        lines = (await self.db.kv_get("loadouts_last", {}) or {}).get("lines") or []
+        queued = {ln.split(" ", 1)[0] for ln in lines if "is away from its fleet's home" in ln}
+        for s in cur:
+            s["queued"] = s["code"] in queued
         now = _now()
         logistics = {fl.fleet_tag(f["id"])[6:] for f in items if f.get("role") == "logistics"}
         commandable = await self.commandable(devices)

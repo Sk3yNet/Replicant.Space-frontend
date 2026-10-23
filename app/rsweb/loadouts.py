@@ -1088,6 +1088,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 dl["stay"] = True   # the carrier's own fleet lives there: it stays home instead of flying back
             elif fleet_tag_of(c) in logistics_tags and commandable is not None and dest in commandable:
                 dl["stay"] = True   # a logistics device waits for its next call where it is, inside the relay network
+            elif codes and not fleet_tag_of(c) and commandable is not None and dest in commandable:
+                # a borrowed fleetless carrier with more of the batch still waiting stays at the drop, a short hop from the
+                # pick-up, instead of flying home and back each time (live 2026-10-23: three one-seat surge plates moved
+                # Miner 5 SADICHBIA → BADU one drone per trip, 2 min to deliver and 20 min to fly in from home and back)
+                dl["stay"] = True
             own_home = (by_tag.get(fleet_tag_of(c) or "") or {}).get("home")
             if not dl.get("stay") and own_home and own_home != star_of(fetched_from or c.get("location")):
                 # its fleet has moved since (seen live 2026-10-18: Miner 0.5's cargo vessel, borrowed at its old home,

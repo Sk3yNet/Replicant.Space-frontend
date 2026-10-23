@@ -385,6 +385,37 @@ def test_carrier_flies_in_from_another_system_to_move_devices():
     assert any("flies in from FAL" in x for x in lo.describe(p))
 
 
+def test_borrowed_plate_waits_at_the_drop_while_more_of_the_batch_waits():
+    """Live 2026-10-23: one-seat plates moved Miner 5 one drone per trip and flew home between trips."""
+    from rsweb import loadouts as lo
+    stars = {"AEM": {"position": {"x": 0, "y": 0, "z": 0}, "entry_point": "AEM-5-L4"},
+             "LOR": {"position": {"x": 2, "y": 0, "z": 0}}, "FAL": {"position": {"x": 1, "y": 0, "z": 0}}}
+    drone = {"device_type": "mining_drone", "location": "AEM-BELT-1", "status": "idle", "tags": ["spare"],
+             "features": ["cruise", "mine", "stow"], "available_commands": ["travel", "stow"]}
+    devices = [{**drone, "device_code": "MD1"}, {**drone, "device_code": "MD2"},
+               {"device_code": "PL1", "device_type": "surge_plate", "location": "FAL-1-L4", "status": "idle", "tags": ["taxi"],
+                "attach_capacity": 1, "features": ["surge", "cruise", "attach"], "available_commands": ["attach", "detach", "travel"]}]
+    cfg = {"phases": [{"id": "u", "name": "Unassigned", "wants": {"mining_drone": 0}},
+                      {"id": "m", "name": "Mining", "wants": {"mining_drone": 2}}],
+           "systems": {"AEM": "u", "LOR": "m"}, "roles": {}}
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {}, commandable={"AEM", "LOR", "FAL"})
+    dl = next(d for d in p["deliveries"] if d["carrier"] == "PL1")
+    assert len(dl["devices"]) == 1 and dl["stay"]
+    steps = lo.delivery_steps(dl, p["by_code"], stars, True, p["managed"])
+    moves = [s["body"]["destination"] for s in steps if s["path"] == "/devices/PL1" and (s["body"] or {}).get("command") == "travel"]
+    assert moves == ["AEM-5-L4", "AEM-BELT-1", "LOR"]       # no trip home: the other drone still waits
+    # the last one: home it goes
+    p = lo.plan(cfg, devices[1:], [], {}, stars, {}, set(), [], {}, commandable={"AEM", "LOR", "FAL"})
+    assert not next(d for d in p["deliveries"] if d["carrier"] == "PL1").get("stay")
+
+
+def test_stray_reason_says_when_the_loadout_pass_waits_for_a_carrier():
+    from rsweb import fleets as fl
+    s = {"riding": None, "moving": False, "busy": False}
+    assert fl.stray_reason(s) == "nothing is bringing it home"
+    assert fl.stray_reason({**s, "queued": True}) == "waiting for a free carrier to bring it home"
+
+
 def test_mock_demo_galaxy(monkeypatch):
     """RS_MOCK_DEMO=1 serves the bundled demo galaxy: its stars, devices and replicants, with trips moved to now."""
     from rsweb import mock as m

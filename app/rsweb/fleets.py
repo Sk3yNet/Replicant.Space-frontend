@@ -1874,6 +1874,8 @@ def stray_reason(s: dict) -> str:
         return "on its way"
     if s["busy"]:
         return "in a job"
+    if s.get("queued"):
+        return "waiting for a free carrier to bring it home"
     return "nothing is bringing it home"
 
 
