@@ -2438,7 +2438,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             f["home"], f["pending_home"] = old, new   # it stays; pending_home_pass moves it once it can be commanded there
             return f"{new} is pending: {dark}"
         f.pop("pending_home", None)
-        if old and new and old != new and f.get("materials") == "self":
+        if old and new and old != new and fl.takes_in(f):
             # a destination fleet (takes materials in): what's stockpiled at its old home follows it (logistics.py); any
             # other fleet's old piles are just stray ones, returned to the nearest gather point
             from .logistics import KV_MOVES
@@ -4077,7 +4077,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                              p: dict, bps: dict, reps: dict) -> None:
         """Dashboard › Logistics backlog and Trends (metrics.py): request ages every pass, a sample every ten minutes."""
         from . import logistics as lg, metrics, relaynet
-        from .fleets import strays
+        from .fleets import strays, takes_in
         try:
             now = _now()
             jobs_req = {str((j.get("meta") or {}).get("logistics", {}).get("req")) for j in await self.jobs()
@@ -4088,7 +4088,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             await self.db.kv_set(metrics.KV_TRACK, track)
             if not await metrics.due(self.db):
                 return
-            receiving = {drop(f["home"]) for f in items if f.get("home") and (f.get("station") or f.get("materials") == "self")}
+            receiving = {drop(f["home"]) for f in items if f.get("home") and (f.get("station") or takes_in(f))}
             carriers = lg.fleet_devices(items, devices)
             pos = await self.star_lookup("pos")
             cov = relaynet.coverage(relaynet.networks(devices, pos, bps), pos, relaynet.replicant_stars(reps, devices))

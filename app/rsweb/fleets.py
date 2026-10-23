@@ -1314,9 +1314,15 @@ def resolve_supply(fleets: list[dict], pos: dict[str, dict]) -> None:
         f["supply_to"] = best["id"] if best else None
 
 
+def takes_in(f: dict) -> bool:
+    """A fleet whose home receives materials: `materials: self`, or a bootstrap (owner 2026-10-23: it builds from what
+    reaches its home)."""
+    return bool(f.get("home")) and (f.get("materials") == "self" or f.get("role") == "bootstrap")
+
+
 def destinations(fleets: list[dict]) -> list[dict]:
-    """Fleets that take materials in (`materials: self`)."""
-    return [f for f in fleets if f.get("materials") == "self" and f.get("home")]
+    """Fleets that take materials in (takes_in)."""
+    return [f for f in fleets if takes_in(f)]
 
 
 def _slug(text: str, taken: set[str]) -> str:

@@ -48,7 +48,7 @@ def spare_depot(cfg: dict, devices: list[dict]) -> str | None:
         return str(s["spare_depot"]).upper()
     fac_stars = Counter(star_of(d.get("location")) for d in devices if is_factory(d) and d.get("location")
                         and not any(str(t).startswith("fleet:") for t in d.get("tags") or []))
-    dests = sorted({f["home"] for f in fl.destinations(cfg.get("fleets") or [])})
+    dests = sorted({f["home"] for f in cfg.get("fleets") or [] if f.get("materials") == "self" and f.get("home")})   # never a bootstrap's
     for st in dests:
         if fac_stars.get(st):
             return st

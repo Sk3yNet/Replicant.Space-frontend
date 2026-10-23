@@ -935,6 +935,19 @@ def test_a_bootstrap_fleets_home_piles_stay_put():
     assert not any(r["id"] == "return:B-BELT" for r in p["requests"])
 
 
+def test_a_bootstrap_fleets_home_receives_materials():
+    from rsweb import fleets as fl
+    devs = world()
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    boot = {"id": "delta", "name": "Delta", "role": "bootstrap", "home": "B", "station": False}
+    p = lg.plan(fleets=FLEETS + [boot], devices=devs, bps=BPS, inventory={"Z-BELT": {"silicates": 80}}, pos=POS,
+                commandable={"A", "B", "Z"}, hosts={}, busy=set(), contracts=[], trades=[], incoming={}, replicants={},
+                drop=lambda s: f"{s}-1")
+    r = next(r for r in p["requests"] if r["id"] == "return:Z-BELT")
+    assert r["to"] == "B-1"                                       # the bootstrap's home is nearer than A
+    assert fl.nearest_drop_star(FLEETS + [boot], "Z", "A", lambda a, b: abs(POS[a]["x"] - POS[b]["x"])) == "B"
+
+
 def test_backlog_counts_piles_holds_and_devices_waiting():
     from rsweb import metrics
     devs = [dev("HL", "transport_hauler", "A-1", cargo={"carbon": 30}),

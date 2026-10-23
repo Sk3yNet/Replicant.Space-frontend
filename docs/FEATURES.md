@@ -346,7 +346,7 @@ bootstrap), a home and a loadout (its own lines or a template).
   - Any fleet or ward / relay order can take it (wards are only printed, never activated); once taken for a fleet or a
     system it loses both tags.
   - Stock prints are low priority: logistics supplies them last, and a waiting stock print is moved behind any other.
-- **Materials** (Fleets overview): a fleet is *receiving* (takes materials in) or *supplying the nearest receiver*: its
+- **Materials** (Fleets overview): a fleet is *receiving* (takes materials in; a bootstrap fleet's home always is) or *supplying the nearest receiver*: its
   materials go to the receiving fleet nearest its home (recomputed whenever fleets change). A mission that ferries while
   mining delivers to the receiver nearest the belt it mines. A fleet set earlier to send to one named fleet keeps it.
 - Also: owner hand-over (`change_owner`), *send to* / *takes materials in*, *fill from spares*, carrying budget.

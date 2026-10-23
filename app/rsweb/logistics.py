@@ -361,7 +361,8 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
                         "need": {r: q for r, q in items.items() if q >= 1},
                         "label": f"evacuate the {loc} stockpile to {to} before impact"})
     asked = {r["to"] for r in out} | set(costs) | set(evacuate or {})
-    homes = {f.get("home") for f in fleets if f.get("home") and (f.get("station") or f.get("materials") == "self")}
+    from .fleets import takes_in
+    homes = {f.get("home") for f in fleets if f.get("home") and (f.get("station") or takes_in(f))}
     # a bootstrap fleet builds from what it mines at its home: its piles stay (live 2026-10-22: Delta Force's ISOLITHOR
     # stock was sent for, 28 874 ly from SOLARES)
     building = {f.get("home") for f in fleets if f.get("home") and f.get("role") == "bootstrap"}
@@ -585,13 +586,14 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices"}."""
     from . import cargo as cg
     from .loadouts import can_surge
-    gather = {f["home"]: drop(f["home"]) for f in fleets or [] if f.get("materials") == "self" and f.get("home")}
+    from .fleets import takes_in
+    gather = {f["home"]: drop(f["home"]) for f in fleets or [] if takes_in(f)}   # a bootstrap's home too
     reqs, spare, reserve = requests(devices=devices, bps=bps, inventory=inventory, pos=pos, contracts=contracts,
                                     trades=trades, incoming=incoming, fleets=fleets, gather=gather,
                                     busy_stars=set(busy_stars), prefs=prefs,
                                     moved={o: (n, drop(n)) for o, n in (moved or {}).items()},
                                     home_drop={f["home"]: drop(f["home"]) for f in fleets or [] if f.get("home")
-                                               and (f.get("station") or f.get("materials") == "self") and f["home"] in commandable},
+                                               and (f.get("station") or takes_in(f)) and f["home"] in commandable},
                                     no_consolidate=set(no_consolidate), evacuate=evacuate)
     hosts = riding_hosts(devices, hosts)   # a carrier with a replicant's matrix aboard escorts like its host
     # the vessel the replicant's matrix is in travels as the replicant; a carrier towing that vessel flies by its own travel
