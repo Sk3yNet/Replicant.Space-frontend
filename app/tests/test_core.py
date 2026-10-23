@@ -8741,3 +8741,53 @@ def test_blueprint_unlocked_source_v361(client):
     finally:
         mockmod.BLUEPRINTS.remove(extra)
     assert "New blueprint unlocked: hydroponic bay (by decommissioning)" in client.get("/notifications", headers=H).text
+
+
+def test_restart_idle_miners_mines_what_open_sites_hold_for_the_local_factory(client):
+    """Live 2026-10-23 ISOLITHOR-BELT-1: the drones were sent for conductive (short somewhere) while the five open sites
+    held carbon, silicates and volatiles and the autofactory there waited for rares and silicates."""
+    from unittest import mock
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+    client.post("/automations/rules/restart_idle_miners", data={"enabled": "on", "resource": "same", "cooldown_minutes": "10"}, headers=HX)
+    devs = [{"device_code": "MD1", "device_type": "mining_drone", "status": "idle", "location": "ISO-BELT-1",
+             "available_commands": ["start_mining"]},
+            {"device_code": "AF1", "device_type": "autofactory", "status": "waiting_for_resources", "location": "ISO-BELT-1",
+             "waiting_for": {"rares": {"have": 0, "need": 20}, "silicates": {"have": 27, "need": 40}}}]
+    client.portal.call(db.kv_set, "loc:ISO-BELT-1", {"resource_sites": [
+        {"designation": "ISO-BELT-1-SITE-4", "resources_remaining_pct": {"carbon": 100, "conductive": 0, "rares": 0}},
+        {"designation": "ISO-BELT-1-SITE-6", "resources_remaining_pct": {"carbon": 100, "silicates": 100}}]})
+    sent = []
+
+    async def send(method, path, body, why=""):
+        sent.append((path, body))
+        return True, {}, None
+
+    async def needs(devices):
+        return {"conductive": 500.0}
+
+    async def devices(*a, **k):
+        return devs
+    with mock.patch.object(eng, "send", send), mock.patch.object(eng, "print_needs", needs), \
+            mock.patch.object(eng, "devices", devices):
+        client.portal.call(eng.rule_restart_idle_miners)
+    assert sent == [("/devices/MD1", {"command": "start_mining", "resource_type": "silicates"})]
+
+
+def test_idle_survey_drones_search_a_belt_under_the_site_cap(client):
+    """2026-10-23: idle survey drones at ISOLITHOR-BELT-1, whose open sites lacked what the factory waited for; the belt
+    wasn't worked out, so nothing sent them searching."""
+    eng = _enable(client, "reopen_sites")
+    db = client.app.state.db
+    devs = [{"device_code": f"S{i}", "device_type": "survey_drone", "status": "idle", "location": "ISO-BELT-1"} for i in range(3)]
+    devs.append({"device_code": "S9", "device_type": "survey_drone", "status": "tracking", "location": "ISO-BELT-1"})
+    sites = [{"designation": f"ISO-BELT-1-SITE-{i}", "resources_remaining_pct": {"carbon": 100}} for i in range(3)]
+    client.portal.call(db.kv_set, "loc:ISO-BELT-1", {"resource_sites": sites})
+    client.portal.call(db.kv_set, "belt_reads", {"ISO-BELT-1": "2099-01-01T00:00:00+00:00"})
+
+    async def devices(*a, **k):
+        return devs
+    eng.devices = devices
+    done = client.portal.call(eng.rule_reopen_sites)
+    assert done == ["S0 → search ISO-BELT-1", "S1 → search ISO-BELT-1"]   # 3 open of 5
+    assert client.portal.call(eng.rule_reopen_sites) == []   # running jobs / cooldown

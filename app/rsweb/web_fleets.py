@@ -335,7 +335,7 @@ async def fleets_bootstrap_control(request: Request, fid: str, user: str = Depen
                 b["home"] = f["home"] = home
                 b.update(stage="home", decision=None, candidates=[])
                 await eng.log("fleets", f"{f['name']}: bootstrap home set to {home} by {user}")
-            for k in ("radius", "ward_hours", "min_score", "hub_miners"):
+            for k in ("radius", "ward_hours", "min_score", "hub_miners", "supply_miners"):
                 v = (form.get(k) or "").strip()
                 if v:
                     try:

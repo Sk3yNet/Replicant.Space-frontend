@@ -40,7 +40,14 @@ class BootstrapMixin:
             for st in {star_of(des), star_of(o.get("target") or o.get("impact_target"))} - {""}:
                 r = rocks.setdefault(st, {"open": 0, "past": 0})
                 r["past" if o.get("closed") else "open"] += 1
-        return {"rocks": rocks, "devices": devices,
+        from .salvage import site_resources
+        open_res = {}   # belt -> what its open sites hold (None: can't tell), for the belts bootstrap devices work
+        reads = await self.db.kv_get("belt_reads", {}) or {}
+        for belt in {d.get("location") for d in devices if "-BELT-" in (d.get("location") or "")
+                     and any(t.startswith("boot:") for t in d.get("tags") or [])}:
+            open_res[belt] = site_resources(await self.db.kv_get(f"loc:{belt}", None),
+                                            await self.depleted_since(belt, reads.get(belt)))
+        return {"rocks": rocks, "devices": devices, "open_res": open_res,
                 "inventory": {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))},
                 "bps": {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))},
                 "pos": {s.get("designation"): s.get("position") for s in cat.get("stars") or []
@@ -80,6 +87,7 @@ class BootstrapMixin:
                 line = await self._boot_act(f, ev, fleets, devices)
                 if line:
                     out.append(line)
+            await self._boot_haul(f, w, jobs)
             await self._boot_wards(f, fleets, devices, w)
             await self._boot_controllers(f, fleets, devices, w)
             if json.dumps(b, sort_keys=True, default=str) != before:
@@ -91,6 +99,32 @@ class BootstrapMixin:
         if changed:
             await self.save_fleets(fleets)
         return out
+
+    async def _boot_haul(self, f: dict, w: dict, jobs: list[dict]) -> None:
+        """A supply run from the dry hub's supply system (bootstrap.haul_plan), as its own job beside the bootstrap's."""
+        from . import fleets as fl
+        from .automations import step
+        if any(j["status"] in ("running", "waiting") and (j.get("meta") or {}).get("bootstrap_haul") == f["id"] for j in jobs):
+            return
+        h = bt.haul_plan(f, w)
+        if not h:
+            return
+        p, c = h["plate"], h["hauler"]
+        what = ", ".join(f"{q} {r}" for r, q in h["take"].items())
+        steps = [step(f"{p}: detach {c} (to load)", f"/devices/{p}", {"command": "detach", "device": c}),
+                 step(f"{c}: load {what} at {h['from']}", f"/devices/{c}", {"command": "collect_resources", "resources": h["take"]},
+                      critical=True),
+                 fl.board_step(p, c, "attach"),
+                 step(f"{p} → {h['to']} with {what}", f"/devices/{p}", {"command": "travel", "destination": h["to"]}, critical=True),
+                 fl._wait_arrive(p, h["to"]),
+                 step(f"{p}: detach {c} (to unload)", f"/devices/{p}", {"command": "detach", "device": c}),
+                 step(f"{c}: deposit at {h['to']}", f"/devices/{c}", {"command": "deposit_resources"}, critical=True),
+                 fl.board_step(p, c, "attach"),
+                 step(f"{p} → {h['from']} (back to the supply)", f"/devices/{p}", {"command": "travel", "destination": h["from"]}),
+                 fl._wait_arrive(p, h["from"])]
+        await self.create_job("fleets", f"{f['name']}: supply run {what} → {h['to']}", p, steps,
+                              {"devices": [p, c], "bootstrap_haul": f["id"]})
+        self._boot_log(f["boot"], f"supply run: {what} {h['from']} → {h['to']}")
 
     async def _boot_wards(self, f: dict, fleets: list[dict], devices: list[dict], w: dict) -> None:
         """Each of the bootstrap's systems gets a ward when it's worth it: the ward costs less than `ward_hours` of what
@@ -291,6 +325,16 @@ class BootstrapMixin:
                 steps.append(step(a.get("label") or f"{a['device']}: {a['body'].get('command')}", f"/devices/{a['device']}",
                                   a["body"], critical=True))
                 touched.append(a["device"])
+            elif k == "attach":   # cargo onto a carrier (the hauler onto the surge plate)
+                steps.append(fl.board_step(a["carrier"], a["device"], "attach"))
+                touched += [a["carrier"], a["device"]]
+            elif k == "tag":   # a printed kit piece joins its fleet, which now wants it (so the loadout pass keeps it)
+                steps.append(self._tag_step(a["device"], a["add"]))
+                touched.append(a["device"])
+                g = next((x for x in fleets if fl.fleet_tag(x.get("id") or "") in a["add"]), None)
+                if g is not None and a.get("type"):
+                    have = sum(1 for d in fl.members(g, devices) if d.get("device_type") == a["type"])
+                    g.setdefault("wants", {})[a["type"]] = max(int((g.get("wants") or {}).get(a["type"]) or 0), have + 1)
             elif k == "search":
                 steps.append(step(f"{a['device']}: search the belt", f"/devices/{a['device']}", {"command": "search"}))
                 touched.append(a["device"])
@@ -377,6 +421,34 @@ class BootstrapMixin:
                 b.setdefault("waypoints", []).append(pick)
                 msg = f"relay waypoint: {pick}"
             b["decision"] = None
+        elif kind == "supply":
+            hid = (b.get("children") or {}).get("hub")
+            hubf = next((x for x in fleets if x.get("id") == hid), None)
+            if not hubf:
+                return "the hub fleet is gone"
+            devices = await self.devices()
+            sid = fl.fleet_id_for(f"{f['name']} supply", fleets)
+            pool = fl.members(hubf, devices)
+            n = max(1, int(bt.settings(b)["supply_miners"]))
+            # the hub's idle drones go first (they have nothing to mine there)
+            choose = lambda t, k: sorted((d for d in pool if d.get("device_type") == t and not d.get("stowed_in_device_code")),
+                                       key=lambda d: (not str(d.get("status") or "").startswith("idle"), d["device_code"]))[:k]
+            # survey drones go along to open the sites (owner 2026-10-23), as many per miner as the hub has
+            moved = choose("mining_drone", n) + choose("survey_drone", max(1, math.ceil(n * bt.settings(b)["survey_per_miner"])))
+            wants = dict(Counter(d["device_type"] for d in moved))
+            fleets.append({"id": sid, "name": f"{f['name']} · Supply {pick}", "role": "mining",
+                           "home": pick, "wants": wants, "station": True, "materials": hid, "template": None,
+                           "family": fid, "parent": fid})
+            for t, k in wants.items():
+                hubf.setdefault("wants", {})[t] = max(0, int((hubf.get("wants") or {}).get(t) or 0) - k)
+            b["supply"] = {"star": pick, "fleet": sid, "for": list(dec.get("for") or [])}
+            b["decision"] = None
+            b.pop("dry", None)
+            if moved:
+                await self.create_job("fleets", f"{f['name']}: {len(moved)} drone(s) move to the {pick} supply", None,
+                                      [self._tag_step(d["device_code"], [fl.fleet_tag(sid)], [fl.fleet_tag(hid)]) for d in moved],
+                                      {"devices": [d["device_code"] for d in moved], "bootstrap": fid})
+            msg = f"supply system: {pick} for {', '.join(b['supply']['for'])} ({len(moved)} drones move there)"
         elif kind == "replace":
             lost = dec.get("for")
             o = next((x for x in b.get("outposts") or [] if x["star"] == lost), None)

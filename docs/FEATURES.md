@@ -210,7 +210,8 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
   rarity (rares 3, volatiles 2.5 … structural 1). These scores don't change with your stock. When a mining fleet picks
   its next home, a resource that waiting prints lack weighs up to 4× more (a low or falling stockpile counts too).
   Bootstraps score at full potential, unweighted. AMI mining schedules set to *gather evenly* run *maintain ratios*
-  leaning toward what waiting prints lack (when the belt has it), and *Restart idle miners* picks that resource.
+  leaning toward what waiting prints lack (when the belt has it), and *Restart idle miners* picks that resource, first
+  what the factories the drone feeds wait for, and only among what the belt's open sites still hold.
 - A stationed fleet's home is scored for review only, marked *home*; ⚑ marks systems where a fleet of yours is homed.
 - **Ward** column, ⛨ yours / ⛨ theirs:
   - *add ward*: activates an idle ward of yours there, else sends a spare, else prints one in range on the autofactory
@@ -426,6 +427,12 @@ From a bare heaven vessel (three mining drones and a replicant aboard) to an aut
 4. **Outposts** (**your OK on each**) must keep the relay chain (each within 7.5 ly of the hub or an outpost; else a
    relay waypoint, also your OK), and send their materials to the hub by cargo freighter.
 
+- **A dry hub**: when the hub's autofactory waits 3 hours for a resource no open site at the hub belt holds (and the belt
+  yields it low or worse), the card offers a **supply system** within 7.5 ly whose belt has it (your OK). Part of the
+  hub's miners (*supply miners*, default 4) and survey drones (one per two miners) move there. The vessel prints a relay
+  for each system, a surge plate and a transport hauler at the hub, ferries the drones and the relay over, and goes home
+  once both relays are on. The hauler rides the plate and brings what the hub waits for whenever the supply belt has all
+  of it it can give, or a full hold.
 - The hub and every outpost get an AMI mining controller (`maintain_ratios`: the mix the bootstrap's missing devices
   cost) and an AMI survey controller (`belt_search`). While the salvage rule has one on salvage or resting at a dry belt,
   the bootstrap leaves it alone.

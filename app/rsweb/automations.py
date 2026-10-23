@@ -5087,6 +5087,32 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                                           sites.drone_steps(d, belt), {"belt": belt})
                     done.append(f"{d['device_code']} → search {belt}")
             state[belt] = now.isoformat(timespec="seconds")
+        # idle survey drones at a belt with fewer open sites than the game allows search there too: the belt isn't
+        # worked out, but its sites may lack what's needed (ISOLITHOR-BELT-1 2026-10-23: no conductive or rares at any)
+        idle_at: dict[str, list[dict]] = defaultdict(list)
+        for d in devices:
+            if ("survey_drone" in (d.get("device_type") or "") and "BELT" in (d.get("location") or "")
+                    and str(d.get("status") or "").startswith("idle") and d["device_code"] not in busy
+                    and d["device_code"] not in managed and d.get("in_control_range") is not False):
+                idle_at[d["location"]].append(d)
+        theirs = await self.warded(devices) if idle_at else set()
+        for belt, idle in sorted(idle_at.items()):
+            key = f"cap:{belt}"
+            last = _ts(state.get(key))
+            if last and now - last < cooldown or star_of(belt) in theirs:
+                continue
+            if any(j["rule"] == "reopen_sites" and j.get("meta", {}).get("belt") == belt
+                   and (j["status"] in ("running", "waiting") or (_ts(j.get("finished_at")) or now) > now - sites.FULL_WAIT
+                        and any("Maximum active sites" in str(st.get("error") or "") for st in j.get("steps") or []))
+                   for j in jobs):
+                continue
+            searching = sum(1 for d in devices if d.get("location") == belt and str(d.get("status") or "").startswith("searching"))
+            room = sites.MAX_SITES - await self.open_sites_now(belt) - searching
+            for d in idle[:max(0, room)]:
+                await self.create_job("reopen_sites", f"{d['device_code']}: search {belt} (fewer than {sites.MAX_SITES} open sites)",
+                                      d["device_code"], sites.drone_steps(d, belt), {"belt": belt})
+                done.append(f"{d['device_code']} → search {belt}")
+            state[key] = now.isoformat(timespec="seconds")
         await self.db.kv_set("reopen_state", state)
         return done
 
@@ -5466,6 +5492,19 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         await self.db.kv_set("salvage_state", state)
         return back_done + done
 
+    @staticmethod
+    def _fed_stars(d: dict, fleets: list[dict]) -> set[str]:
+        """The systems a drone's mining feeds: its own, and the home of the fleet its fleet sends materials to."""
+        from . import fleets as fl
+        out = {star_of(d.get("location"))}
+        tags = set(d.get("tags") or [])
+        for f in fleets:
+            if fl.fleet_tag(f["id"]) in tags:
+                to = fl.materials_target(f, fleets)
+                if to and to.get("home"):
+                    out.add(to["home"])
+        return out
+
     async def rule_restart_idle_miners(self) -> None:
         cfg = await self.rule_cfg("restart_idle_miners")
         if not cfg:
@@ -5486,8 +5525,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             for star in {star_of(d.get("location")) for d in devices if d.get("device_type") == "mining_drone"}:
                 dry_belts |= worked_out(await system_resources(self.db, star))
         warded = await self.warded(devices)
-        from .bootstrap import no_site
+        from .bootstrap import no_site, waiting_short
+        from .salvage import site_resources
         nosite = await self.db.kv_get("miner_no_site", {}) or {}   # {belt: {resource: at}}, like bootstrap.no_site
+        reads = await self.db.kv_get("belt_reads", {}) or {}
+        site_res: dict[str, set[str] | None] = {}
+        fleets = await self.fleets()
         for d in devices:
             code = d.get("device_code")
             if _reserved(d):
@@ -5512,24 +5555,34 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 attempts[code] = now.isoformat(timespec="seconds")
                 continue
             resource = cfg.get("resource") or "same"
+            belt = belt_of(d.get("location")) or d.get("location")
+            skip = no_site({"no_site": nosite}, belt, now)
+            if belt not in site_res:   # what the open sites hold (our last read, less sites mined out since)
+                site_res[belt] = site_resources(await self.db.kv_get(f"loc:{belt}", None),
+                                                await self.depleted_since(belt, reads.get(belt)))
+            have = site_res[belt]
             if resource == "same":
                 row = await self.db.fetchone(
                     "SELECT payload FROM events WHERE device_code=? AND event IN ('mining.started','mining.stopped','mining.retargeted') "
                     "ORDER BY seq DESC LIMIT 1", (code,))
                 pl = json.loads(row["payload"]) if row else {}
                 resource = pl.get("resource_type") or pl.get("new_resource") or "structural"
-                # what waiting prints lack, if its belt has it (owner 2026-10-22)
+                # what waiting prints lack, if its belt has it (owner 2026-10-22) — first what the factories this belt
+                # feeds wait for (its own system's, or the system its fleet sends materials to), else any waiting print
                 srow = await self.db.fetchone("SELECT data FROM systems WHERE star=?", (star_of(d.get("location")),))
                 offered = pr_.belt_resources(json.loads(srow["data"] or "{}") if srow else {}, belt_of(d.get("location")))
-                short = {r: q for r, q in (await self.print_needs(devices)).items() if q > 0 and r in offered}
+                offered = {r for r in (offered if have is None else have) if r not in skip}
+                local = waiting_short(devices, self._fed_stars(d, fleets))
+                short = {r: q for r, q in local.items() if r in offered} or \
+                    {r: q for r, q in (await self.print_needs(devices)).items() if q > 0 and r in offered}
                 if short:
                     resource = max(short, key=lambda r: (short[r], r == resource, r))
-            belt = belt_of(d.get("location")) or d.get("location")
-            skip = no_site({"no_site": nosite}, belt, now)
-            if resource in skip:
-                # the game said no open site has it lately: mine something else the belt has, or wait
+            if resource in skip or (have is not None and resource not in have):
+                # no open site has it (the game said so lately, or our read of the sites): mine something else the
+                # open sites have, or wait for the survey drones
                 srow = await self.db.fetchone("SELECT data FROM systems WHERE star=?", (star_of(d.get("location")),))
-                left = sorted(r for r in pr_.belt_resources(json.loads(srow["data"] or "{}") if srow else {}, belt)
+                left = sorted(r for r in (have if have is not None else
+                                          pr_.belt_resources(json.loads(srow["data"] or "{}") if srow else {}, belt))
                               if r not in skip)
                 if not left:
                     continue

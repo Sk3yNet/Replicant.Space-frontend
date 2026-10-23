@@ -458,3 +458,106 @@ def test_the_pass_learns_refused_resources_from_its_jobs():
          "error": "No conductive remaining at any active site"}]}]
     BootstrapMixin._boot_no_site(f, jobs, [drone("M0", "mining_drone", "HOME-BELT-1")])
     assert bt.no_site(f["boot"], "HOME-BELT-1") == {"conductive"}
+
+
+def test_a_dry_hub_gets_a_supply_system_with_relays_plate_and_hauler():
+    """Owner 2026-10-23: ISOLITHOR's autofactory waited for rares no open site there had; part of the miners move to a
+    belt in another system, with a relay in each system and a transport hauler riding a surge plate to bring it back."""
+    from datetime import datetime, timedelta, timezone
+    bps = {**BPS, "ftl_relay": {"resources": {"structural": 50, "conductive": 20}},
+           "surge_plate": {"resources": {"structural": 80}}, "transport_hauler": {"resources": {"structural": 60}, "cargo_capacity": 50}}
+    scans = {"A": scan_for("A", STRUCT), "B": scan_for("B", RARES), "D": scan_for("D", RARES)}
+    long_ago = (datetime.now(timezone.utc) - timedelta(hours=4)).isoformat(timespec="seconds")
+    f = fleet("hub", hub="A", children={"hub": "h"}, dry={"rares": long_ago})
+
+    def tagged(code, t, loc, tag="fleet:h", **kw):
+        d = drone(code, t, loc, **kw)
+        d["tags"].append(tag)
+        return d
+    af = tagged("AF", "autofactory", "A-BELT-1", status="waiting_for_resources")
+    af["waiting_for"] = {"rares": {"have": 0, "need": 20}, "silicates": {"have": 27, "need": 40}}
+    miners = [tagged(f"M{i}", "mining_drone", "A-BELT-1") for i in range(3)]
+    devs = [vessel("A-BELT-1"), af] + miners
+
+    def w(devs, stock=None):
+        x = world(devs, scans, {"A-BELT-1": stock or {"structural": 500, "conductive": 100}})
+        x["bps"], x["open_res"] = bps, {"A-BELT-1": {"structural", "carbon", "silicates"}}
+        return x
+    ev = bt.evaluate(f, w(devs))
+    assert ev["decision"]["kind"] == "supply" and [o["star"] for o in ev["decision"]["options"]] == ["B"]   # D: 9 ly
+    # picked (bootstrap_decide): two miners moved to the supply fleet "s"
+    f["boot"].update(decision=None, supply={"star": "B", "fleet": "s", "for": ["rares"]})
+    for m in miners[:2]:
+        m["tags"] = ["boot:p", "fleet:s"]
+    ev = bt.evaluate(f, w(devs))
+    assert ev["actions"] == [{"kind": "print", "device_type": "ftl_relay"}]   # the hub's relay first
+    relay_h = drone("RH", "ftl_relay", aboard=True)
+    ev = bt.evaluate(f, w(devs + [relay_h]))
+    assert ev["actions"] == [{"kind": "tag", "device": "RH", "add": ["fleet:h"], "type": "ftl_relay"}]
+    relay_h["tags"].append("fleet:h")
+    ev = bt.evaluate(f, w(devs + [relay_h]))
+    assert ev["actions"] == [{"kind": "print", "device_type": "ftl_relay"}]   # then the supply's
+    ev = bt.evaluate(f, w(devs + [relay_h], {"structural": 10}))
+    assert ev["actions"] == [] and "short" in ev["next"] and not ev["blocked"]
+    relay_s = tagged("RS", "ftl_relay", None, "fleet:s", aboard=True)
+    plate = tagged("SP", "surge_plate", "A-BELT-1", "fleet:s")
+    hauler = tagged("TH", "transport_hauler", "A-BELT-1", "fleet:s")
+    kit = [relay_h, relay_s, plate, hauler]
+    ev = bt.evaluate(f, w(devs + kit))
+    assert ev["actions"] == [{"kind": "deploy", "device": "RH"}]
+    relay_h.update(stowed_in_device_code=None, location="A-1-L4", status="relaying")
+    ev = bt.evaluate(f, w(devs + kit))
+    assert ev["actions"] == [{"kind": "attach", "carrier": "SP", "device": "TH"}]
+    hauler["attached_to_device_code"] = "SP"
+    ev = bt.evaluate(f, w(devs + kit))
+    assert ev["actions"] == [{"kind": "stow", "device": "M0"}, {"kind": "stow", "device": "M1"}]
+    for m in miners[:2]:
+        m.update(stowed_in_device_code="V1", location=None, status="stowed")
+    ev = bt.evaluate(f, w(devs + kit))
+    assert ev["actions"] == [{"kind": "travel", "device": "V1", "to": "B-BELT-1"}]
+    devs[0]["location"] = "B-BELT-1"
+    ev = bt.evaluate(f, w(devs + kit))
+    assert {a["device"] for a in ev["actions"]} == {"M0", "M1", "RS"} and {a["kind"] for a in ev["actions"]} == {"deploy"}
+    for m in miners[:2] + [relay_s]:
+        m.update(stowed_in_device_code=None, location="B-BELT-1", status="idle")
+    ev = bt.evaluate(f, w(devs + kit))
+    assert ev["actions"] == [{"kind": "travel", "device": "SP", "to": "B-BELT-1"}]
+    plate["location"] = "B-BELT-1"
+    ev = bt.evaluate(f, w(devs + kit))
+    assert ev["actions"] == [] and "relays" in ev["next"]
+    relay_s.update(location="B-1-L4", status="relaying")
+    ev = bt.evaluate(f, w(devs + kit))
+    assert ev["actions"] == [{"kind": "travel", "device": "V1", "to": "A-BELT-1"}]
+    # supply runs: once the supply belt has all the hub waits for that it can give (rares, not silicates: low there)
+    x = w(devs + kit)
+    x["inventory"]["B-BELT-1"] = {"rares": 12}
+    x["open_res"]["B-BELT-1"] = {"rares", "structural"}
+    assert bt.haul_plan(f, x) is None
+    x["inventory"]["B-BELT-1"] = {"rares": 30}
+    assert bt.haul_plan(f, x) == {"plate": "SP", "hauler": "TH", "from": "B-BELT-1", "to": "A-BELT-1", "take": {"rares": 20}}
+
+
+def test_choosing_a_supply_system_moves_idle_hub_drones(client):
+    eng = client.app.state.worker.automations
+    devs = [vessel("A-BELT-1")] + [dict(drone(f"M{i}", "mining_drone", "A-BELT-1", status="idle" if i < 2 else "mining"),
+                                        tags=["boot:p", "fleet:h"]) for i in range(5)] + \
+        [dict(drone(f"S{i}", "survey_drone", "A-BELT-1", status="tracking"), tags=["boot:p", "fleet:h"]) for i in (1, 2, 3)]
+    f = fleet("hub", hub="A", children={"hub": "h"}, decision={"kind": "supply", "for": ["rares"], "options": [{"star": "B"}]})
+    f["boot"]["settings"]["supply_miners"] = 3   # and ceil(3 × 0.5) = 2 survey drones
+    hubf = {"id": "h", "name": "Pioneer · Hub", "role": "mining", "home": "A", "station": True, "materials": "self",
+            "wants": {"mining_drone": 8, "survey_drone": 4}, "family": "p"}
+    client.portal.call(eng.save_fleets, [f, hubf])
+
+    async def devices(*a, **k):
+        return devs
+    eng.devices = devices
+    msg = client.portal.call(eng.bootstrap_decide, "p", "B", "supply")
+    assert "B" in msg
+    items = client.portal.call(eng.fleets)
+    sup = next(x for x in items if x.get("parent") == "p" and x["home"] == "B")
+    assert sup["materials"] == "h" and sup["wants"] == {"mining_drone": 3, "survey_drone": 2}
+    assert next(x for x in items if x["id"] == "h")["wants"] == {"mining_drone": 5, "survey_drone": 2}
+    b = next(x for x in items if x["id"] == "p")["boot"]
+    assert b["supply"]["star"] == "B" and b["decision"] is None
+    job = [j for j in client.portal.call(eng.jobs) if "supply" in j["title"]][0]
+    assert sorted(job["meta"]["devices"]) == ["M0", "M1", "M2", "S1", "S2"]   # the idle ones first

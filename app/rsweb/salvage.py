@@ -124,6 +124,25 @@ def open_site_count(detail: dict | None, gone: set[str] | None = None) -> int:
     return n
 
 
+def site_resources(detail: dict | None, gone: set[str] | None = None) -> set[str] | None:
+    """What a belt's open sites still hold (resources_remaining_pct above 0), less `gone` sites; None when we can't
+    tell (no detail, or a site without percentages). ISOLITHOR-BELT-1 2026-10-23: five open sites of carbon, silicates
+    and volatiles, while the drones were sent for conductive, which none had."""
+    if detail is None:
+        return None
+    out: set[str] = set()
+    for s in detail.get("resource_sites") or []:
+        if not isinstance(s, dict):
+            return None
+        if s.get("site_type") == "salvage" or "-SAL-" in str(s.get("designation") or "") or (gone and s.get("designation") in gone):
+            continue
+        pct = s.get("resources_remaining_pct")
+        if not isinstance(pct, dict):
+            return None
+        out |= {r for r, v in pct.items() if (v or 0) > 0}
+    return out
+
+
 MOVING = ("travel", "cruis", "surg", "recall")
 
 

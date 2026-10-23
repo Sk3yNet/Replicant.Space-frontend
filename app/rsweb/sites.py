@@ -21,6 +21,7 @@ WORKING = ("tracking", "searching")
 # A search refused with "Maximum active sites (5) reached at this belt" (live 2026-10-19 at ALPHARDAN-BELT-1, whose
 # detail listed no sites: searches under way count toward the cap): no new search there for this long.
 FULL_WAIT = timedelta(minutes=90)
+MAX_SITES = 5   # the game's most active sites per belt ("Maximum active sites (5) reached at this belt")
 
 
 def star_of(loc: str | None) -> str:

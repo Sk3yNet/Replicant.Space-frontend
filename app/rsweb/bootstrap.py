@@ -15,6 +15,11 @@ Stages (each waits on a gate; ★ = stops for your OK on the Fleets page):
                 heaven vessel, so it's built where it stays); the hub becomes a stationed fleet that takes materials in.
   hub           the hub's own autofactory builds it up (relay, ward when worth it, transport controller, haulers, more
                 drones, a surge carrier for kits, a maintenance drone) — the loadout pass, restricted to this bootstrap's devices.
+                A dry hub belt (the autofactory waits for a resource no open site there holds, and the belt yields
+                it low or less, for 3 h): ★ a supply system within a relay's reach whose belt has it. The vessel
+                prints a relay for each system, a surge plate and a transport hauler, ferries part of the miners (and
+                a survey drone) there; the hauler rides the plate and brings what the hub waits for (supply_step,
+                haul_plan).
   outposts ★    three mining outposts within the radius of the hub that keep the relay chain (each within a relay's
                 7.5 ly of the hub or an outpost); each a stationed fleet sending its materials to the hub by freighter.
   operate       handed over to the usual automation. A system another player wards: ★ move to the next best.
@@ -37,7 +42,7 @@ LABEL = {"home": "Home: compounding", "survey": "Survey trip", "hub_choice": "Ch
          "operate": "Operating"}
 RELAY_LY = 7.5
 DEFAULTS = {"radius": 10.0, "ward_hours": 6.0, "hold": 10, "hub_miners": 8, "survey_per_miner": 0.5, "survey_max": 12,
-            "min_score": 35, "outposts": 3}
+            "min_score": 35, "outposts": 3, "supply_miners": 4}
 COST_TYPES = ["survey_drone", "mining_drone", "ftl_relay", "system_ward", "autofactory", "ami_mining_controller",
               "ami_survey_controller", "ami_transport_controller",
               "transport_hauler", "cargo_freighter", "surge_carrier", "maintenance_drone"]
@@ -46,6 +51,9 @@ OUTPOST_KIT = {"mining_drone": 4, "survey_drone": 2, "ami_mining_controller": 1,
 HUB_KIT = {"ami_mining_controller": 1, "ami_survey_controller": 1, "ftl_relay": 1, "ami_transport_controller": 1,
            "transport_hauler": 2, "surge_carrier": 1, "maintenance_drone": 1}
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
+SUPPLY_KIT = ["ftl_relay", "surge_plate", "transport_hauler"]   # a dry hub's supply system (owner 2026-10-23), in print order
+DRY_HOURS = 3.0   # how long the hub belt must lack a resource its factory waits for before a supply system is proposed
+DRY_YIELD = YIELD["low"]   # a hub belt yielding a resource this well or worse doesn't count on new sites bringing it
 
 
 def star_of(loc: str | None) -> str:
@@ -205,6 +213,9 @@ def compound(f: dict, w: dict, star: str, cap: int, autofactory: bool) -> dict:
         if d.get("device_type") in ("mining_drone", "survey_drone", "autofactory"):
             acts.append({"kind": "deploy", "device": d["device_code"]})
     skip = no_site(b, bloc)
+    have = (w.get("open_res") or {}).get(bloc)
+    if have is not None:   # what no open site holds is no use asking for (ISOLITHOR-BELT-1 2026-10-23)
+        skip = skip | {r for r in RESOURCES if r not in have}
     for d in deployed:
         st = str(d.get("status") or "")
         if d.get("device_type") == "mining_drone" and st.startswith("idle"):
@@ -294,7 +305,218 @@ def hub_candidates(f: dict, w: dict) -> list[dict]:
 
 def chain(f: dict) -> list[str]:
     b = f["boot"]
-    return [x for x in [b.get("hub")] + [o["star"] for o in b.get("outposts") or []] + list(b.get("waypoints") or []) if x]
+    return [x for x in [b.get("hub")] + [o["star"] for o in b.get("outposts") or []] + list(b.get("waypoints") or [])
+            + [(b.get("supply") or {}).get("star")] if x]
+
+
+def waiting_short(devices: list[dict], stars: set[str]) -> dict[str, float]:
+    """What the factories in `stars` wait for right now ({res: need − have} from their `waiting_for`)."""
+    out: dict[str, float] = {}
+    for d in devices:
+        if star_of(d.get("location")) not in stars or not isinstance(d.get("waiting_for"), dict):
+            continue
+        for r, v in d["waiting_for"].items():
+            if isinstance(v, dict) and r != "components":
+                gap = float(v.get("need") or 0) - float(v.get("have") or 0)
+                if gap > 0:
+                    out[r] = out.get(r, 0.0) + gap
+    return out
+
+
+def dry_needs(f: dict, w: dict) -> dict[str, float]:
+    """What the hub's factories wait for that no open site at the hub belt holds and the belt yields poorly (ISOLITHOR
+    2026-10-23: the autofactory waited for 20 rares; rares scarce, at none of the five open sites)."""
+    hub = f["boot"].get("hub")
+    belt = best_belt(w["scans"].get(hub)) if hub else None
+    have = (w.get("open_res") or {}).get((belt or {}).get("designation"))
+    if not belt or have is None:
+        return {}
+    levels = belt.get("resources") or {}
+    return {r: q for r, q in waiting_short(w["devices"], {hub}).items()
+            if r not in have and YIELD.get(levels.get(r), 0) <= DRY_YIELD}
+
+
+def dry_for(b: dict, dry: dict[str, float], now: datetime | None = None) -> list[str]:
+    """Keep when each resource went dry (b["dry"]); those dry for DRY_HOURS."""
+    now = now or datetime.now(timezone.utc)
+    seen = {r: at for r, at in (b.get("dry") or {}).items() if r in dry}
+    for r in dry:
+        seen.setdefault(r, now.isoformat(timespec="seconds"))
+    if seen:
+        b["dry"] = seen
+    else:
+        b.pop("dry", None)
+    return sorted(r for r, at in seen.items() if now - datetime.fromisoformat(at) >= timedelta(hours=DRY_HOURS))
+
+
+def supply_candidates(f: dict, w: dict, need: list[str]) -> list[dict]:
+    """Scanned systems within a relay's reach of the hub whose best belt yields what the hub lacks (better than low)."""
+    b = f["boot"]
+    hub, pos = b["hub"], w["pos"]
+    taken = set(chain(f)) | set(w.get("homes", set()))
+    rows = []
+    for x in w["scans"]:
+        if x not in pos or x in taken or x in w["warded"] or dist(hub, x, pos) > RELAY_LY or risk(x, w)["open"]:
+            continue
+        belt = best_belt(w["scans"].get(x))
+        lv = (belt or {}).get("resources") or {}
+        good = [r for r in need if YIELD.get(lv.get(r), 0) > DRY_YIELD]
+        if not good:
+            continue
+        rows.append({"star": x, "score": round(sum(YIELD[lv[r]] * RARITY.get(r, 1.0) for r in good), 1),
+                     "reasons": [f"{r} {lv.get(r) or 'none'}" for r in need], "distance": round(dist(hub, x, pos), 1)})
+    return sorted(rows, key=lambda r: (-r["score"], r["distance"], r["star"]))[:5]
+
+
+def _stowable(d: dict) -> bool:
+    return "stow" in (d.get("features") or []) or "stow" in (d.get("available_commands") or []) \
+        or d.get("device_type") in ("mining_drone", "survey_drone", "ftl_relay")
+
+
+def supply_step(f: dict, w: dict) -> dict | None:
+    """The dry hub's supply system: propose one (★), then print its kit on the vessel at the hub, deploy the hub's
+    relay, put the hauler on the plate, ferry the kit and the miners picked for it, and bring the vessel home once both
+    relays are on. None: nothing to do (the hub carries on as usual); {"note"}: only something to say."""
+    b = f["boot"]
+    sp = b.get("supply")
+    hub = b.get("hub")
+    if not sp:
+        dry = dry_for(b, dry_needs(f, w))
+        if not dry or b.get("decision"):
+            return None
+        opts = supply_candidates(f, w, dry)
+        if not opts:
+            return {"note": f"{hub}'s belt lacks {', '.join(dry)} and no scanned system within {RELAY_LY:g} ly has it"}
+        b["decision"] = {"kind": "supply", "for": dry, "options": opts}
+        return {"gate": "waiting for your OK", "next": f"{hub}'s belt lacks {', '.join(dry)}: pick a supply system below",
+                "actions": [], "decision": b["decision"]}
+    devs = members(f, w["devices"])
+    v = next((d for d in devs if d["device_code"] == b.get("vessel")), None) or {}
+    sstar, stag = sp["star"], f"fleet:{sp['fleet']}"
+    htag = f"fleet:{(b.get('children') or {}).get('hub') or ''}"
+    hub_belt = (best_belt(w["scans"].get(hub)) or {}).get("designation")
+    sbelt = (best_belt(w["scans"].get(sstar)) or {}).get("designation")
+    if not hub_belt or not sbelt:
+        return {"note": f"no belt known in {hub if not hub_belt else sstar}"}
+    mine = [d for d in devs if stag in (d.get("tags") or [])]
+    hub_relays = [d for d in devs if htag in (d.get("tags") or []) and d.get("device_type") == "ftl_relay"]
+    gate = f"supply {sstar} for {', '.join(sp.get('for') or [])}"
+    loose = [d for d in devs if d.get("device_type") in SUPPLY_KIT and d["device_code"] != v.get("device_code")
+             and not any(t.startswith("fleet:") for t in d.get("tags") or [])]
+    if loose:   # a kit piece the vessel printed: the hub's relay first, the rest the supply system's
+        d = loose[0]
+        to = htag if d["device_type"] == "ftl_relay" and not hub_relays else stag
+        return {"gate": gate, "next": f"{d['device_code']} ({d['device_type'].replace('_', ' ')}) joins "
+                                      + ("the hub" if to == htag else f"the {sstar} supply"),
+                "actions": [{"kind": "tag", "device": d["device_code"], "add": [to], "type": d["device_type"]}]}
+    have = {t: sum(1 for d in mine if d.get("device_type") == t) for t in SUPPLY_KIT}
+    lack = (["ftl_relay"] if not hub_relays else []) + [t for t in SUPPLY_KIT if not have[t]]
+    vst = str(v.get("status") or "")
+    if lack:
+        t = lack[0]
+        if v.get("location") != hub_belt:
+            return {"gate": gate, "next": f"vessel → {hub_belt} to print the supply kit",
+                    "actions": [{"kind": "travel", "device": v.get("device_code"), "to": hub_belt}]}
+        if vst.startswith("printing"):
+            return {"gate": gate, "next": f"the vessel prints the supply kit ({len(lack)} to go)", "actions": []}
+        cost = cost_of(t, w["bps"])
+        if not cost:
+            return {"gate": gate, "next": f"no blueprint known for {t.replace('_', ' ')}", "actions": [], "blocked": True}
+        short = short_of(cost, amounts(w["inventory"].get(hub_belt)))
+        if short:
+            dry = sorted(r for r in short if r in (sp.get("for") or []))
+            left = ", ".join(f"{int(math.ceil(q))} {r}" for r, q in sorted(short.items(), key=lambda x: -x[1]))
+            return {"gate": gate, "actions": [], "blocked": bool(dry),
+                    "next": f"{t.replace('_', ' ')} for the supply kit: short {left}"
+                            + (f" — the hub belt can't give {', '.join(dry)}" if dry else "")}
+        acts = [{"kind": "vessel_stop_mining"}] if vst.startswith("mining") else []
+        return {"gate": gate, "next": f"print {t.replace('_', ' ')} on the vessel (supply kit)",
+                "actions": acts + [{"kind": "print", "device_type": t}]}
+    for r in hub_relays:   # the loadout pass takes a deployed relay to L4/L5 and switches it on
+        if r.get("stowed_in_device_code") == v.get("device_code"):
+            if star_of(v.get("location")) != hub:
+                return {"gate": gate, "next": f"vessel → {hub_belt} to drop the hub's relay",
+                        "actions": [{"kind": "travel", "device": v["device_code"], "to": hub_belt}]}
+            return {"gate": gate, "next": f"deploy the hub's relay {r['device_code']}",
+                    "actions": [{"kind": "deploy", "device": r["device_code"]}]}
+    plate = next((d for d in mine if d.get("device_type") == "surge_plate"), None)
+    hauler = next((d for d in mine if d.get("device_type") == "transport_hauler"), None)
+    if plate and plate.get("stowed_in_device_code"):
+        return {"gate": gate, "next": f"deploy the surge plate {plate['device_code']}",
+                "actions": [{"kind": "deploy", "device": plate["device_code"]}]}
+    if plate and hauler and hauler.get("attached_to_device_code") != plate["device_code"]:
+        if in_transit(plate) or in_transit(hauler):
+            return {"gate": gate, "next": "waiting for the plate and hauler to meet", "actions": []}
+        if plate.get("location") != hauler.get("location"):
+            return {"gate": gate, "next": f"surge plate → {hauler.get('location')} to take the hauler",
+                    "actions": [{"kind": "travel", "device": plate["device_code"], "to": hauler.get("location")}]}
+        return {"gate": gate, "next": f"the hauler {hauler['device_code']} rides the plate {plate['device_code']}",
+                "actions": [{"kind": "attach", "carrier": plate["device_code"], "device": hauler["device_code"]}]}
+    ride = {x["device_code"] for x in (plate, hauler) if x}
+    aboard = [d for d in mine if d.get("stowed_in_device_code") == v.get("device_code")]
+    outside = [d for d in mine if d["device_code"] not in ride and not d.get("stowed_in_device_code")
+               and not d.get("attached_to_device_code") and d.get("location") and star_of(d["location"]) != sstar
+               and _stowable(d) and not in_transit(d)]
+    if outside:
+        at = sorted(outside, key=lambda d: (d["location"] != v.get("location"), d["location"]))[0]["location"]
+        if v.get("location") != at:
+            return {"gate": gate, "next": f"vessel → {at} to take {len(outside)} device(s) to {sstar}",
+                    "actions": [{"kind": "travel", "device": v.get("device_code"), "to": at}]}
+        return {"gate": gate, "next": f"{len(outside)} device(s) board the vessel for {sstar}",
+                "actions": [{"kind": "stow", "device": d["device_code"]} for d in outside if d["location"] == at]}
+    if aboard:
+        if v.get("location") != sbelt:
+            return {"gate": gate, "next": f"vessel → {sbelt} with {len(aboard)} device(s) for the supply",
+                    "actions": [{"kind": "travel", "device": v.get("device_code"), "to": sbelt}]}
+        return {"gate": gate, "next": f"{len(aboard)} device(s) come off the vessel at {sbelt}",
+                "actions": [{"kind": "deploy", "device": d["device_code"]} for d in aboard]}
+    if plate and not in_transit(plate) and star_of(plate.get("location")) != sstar:
+        return {"gate": gate, "next": f"surge plate {plate['device_code']} → {sbelt} with the hauler",
+                "actions": [{"kind": "travel", "device": plate["device_code"], "to": sbelt}]}
+    if star_of(v.get("location")) == sstar:   # home once both relays are on (the network then reaches the supply)
+        on = [d for d in mine + hub_relays if d.get("device_type") == "ftl_relay" and str(d.get("status") or "").startswith("relaying")]
+        if len(on) < 2:
+            return {"gate": gate, "next": "waiting for both relays to switch on before the vessel goes home", "actions": []}
+        return {"gate": gate, "next": f"vessel → {hub_belt}: {sstar} is in the relay network",
+                "actions": [{"kind": "travel", "device": v["device_code"], "to": hub_belt}]}
+    return {"note": f"{sstar} supplies {', '.join(sp.get('for') or [])}"}
+
+
+def haul_plan(f: dict, w: dict) -> dict | None:
+    """One supply run: the hauler loads at the supply belt what the hub's factories wait for and the plate flies it to
+    them, once that covers all of it the supply belt can give, or fills the hold. None: nothing worth a trip yet."""
+    b = f["boot"]
+    sp, hub = b.get("supply"), b.get("hub")
+    if not sp or not hub:
+        return None
+    stag = f"fleet:{sp['fleet']}"
+    mine = [d for d in members(f, w["devices"]) if stag in (d.get("tags") or [])]
+    plate = next((d for d in mine if d.get("device_type") == "surge_plate"), None)
+    hauler = next((d for d in mine if d.get("device_type") == "transport_hauler"), None)
+    sbelt = (best_belt(w["scans"].get(sp["star"])) or {}).get("designation")
+    if not plate or not hauler or not sbelt or plate.get("location") != sbelt or in_transit(plate) \
+            or hauler.get("attached_to_device_code") != plate["device_code"] or not str(plate.get("status") or "").startswith("idle"):
+        return None
+    factory = next((d for d in w["devices"] if star_of(d.get("location")) == hub and isinstance(d.get("waiting_for"), dict)), None)
+    want = waiting_short(w["devices"], {hub})
+    if not factory or not want:
+        return None
+    offered = (w.get("open_res") or {}).get(sbelt)
+    if offered is None:
+        offered = {r for r, lv in ((best_belt(w["scans"].get(sp["star"])) or {}).get("resources") or {}).items() if YIELD.get(lv)}
+    want = {r: q for r, q in want.items() if r in offered}
+    stock = amounts(w["inventory"].get(sbelt))
+    room = float(hauler.get("cargo_capacity") or (w["bps"].get("transport_hauler") or {}).get("cargo_capacity") or 100)
+    take: dict[str, int] = {}
+    for r, q in sorted(want.items(), key=lambda x: -x[1]):
+        n = math.floor(min(q, stock.get(r, 0.0), room - sum(take.values())))
+        if n >= 1:
+            take[r] = n
+    full = sum(take.values()) >= room - 1
+    if not take or not (full or all(take.get(r, 0) >= math.ceil(q) for r, q in want.items())):
+        return None
+    return {"plate": plate["device_code"], "hauler": hauler["device_code"], "from": sbelt, "to": factory["location"],
+            "take": take}
 
 
 def outpost_candidates(f: dict, w: dict) -> dict:
@@ -489,11 +711,17 @@ def evaluate(f: dict, w: dict) -> dict:
     hub_fleet = (b.get("children") or {}).get("hub")
     if stage == "hub":
         r = rep.get(hub_fleet) or {}
+        sp = supply_step(f, w) if hub_fleet else None
+        if sp and "note" not in sp:
+            if sp.get("decision"):
+                out["decision"] = sp.pop("decision")
+            return done(stage, **sp)
         if hub_fleet and r and not r.get("short"):
             b["stage"] = "outposts"
             return evaluate(f, w)
         return done(stage, gate="hub at its loadout", next=(f"hub short {r.get('short')} device(s): its autofactory prints them"
-                                                            if r else "the loadout pass builds the hub up"))
+                                                            if r else "the loadout pass builds the hub up")
+                    + (f" · {sp['note']}" if sp else ""))
     if stage == "outposts":
         if len(b.get("outposts") or []) >= s["outposts"]:
             b["stage"] = "operate"

@@ -13,7 +13,7 @@
       {% if b.status and b.status.at %}<div class="muted small">last pass {{ b.status.at | ago }}</div>{% endif %}
       {% set dec = b.decision or v.decision %}
       {% if dec %}<div class="card" style="margin-top:8px">
-        <h3 style="margin-top:0">{{ {'hub': 'Choose the hub', 'outpost': 'Next outpost', 'waypoint': 'Relay waypoint (keeps the chain)', 'replace': 'Replace ' ~ (dec.for or '') ~ ' (warded by another player)'}.get(dec.kind, dec.kind) }}</h3>
+        <h3 style="margin-top:0">{{ {'hub': 'Choose the hub', 'outpost': 'Next outpost', 'waypoint': 'Relay waypoint (keeps the chain)', 'replace': 'Replace ' ~ (dec.for or '') ~ ' (warded by another player)', 'supply': 'Supply system (the hub belt lacks ' ~ ((dec.for or []) | join(', ') if dec.kind == 'supply' else '') ~ ')'}.get(dec.kind, dec.kind) }}</h3>
         <table class="small"><tr><th>System</th><th class="num">Score</th><th class="num">ly</th><th>Why</th><th></th></tr>
           {% for o in dec.options %}<tr><td><a href="/systems/{{ o.star }}">{{ o.star }}</a></td>
             <td class="num">{{ o.value if o.value is defined else o.score }}{% if o.value is defined %} <span class="muted">({{ o.score }})</span>{% endif %}</td>
@@ -47,7 +47,8 @@
         Radius <input name="radius" value="{{ s.radius }}" size="4"> ly ·
         ward when it costs under <input name="ward_hours" value="{{ s.ward_hours }}" size="3"> h of output ·
         min score <input name="min_score" value="{{ s.min_score }}" size="3"> ·
-        hub miners <input name="hub_miners" value="{{ s.hub_miners }}" size="3">
+        hub miners <input name="hub_miners" value="{{ s.hub_miners }}" size="3"> ·
+        supply miners <input name="supply_miners" value="{{ s.supply_miners }}" size="3" title="How many of the hub's miners move to a supply system when the hub belt runs dry of what its factory waits for">
         <button class="small ghost">Save</button></form>
       <div class="row" style="margin-top:8px">
         <button class="small" hx-post="/fleets/{{ f.id }}/bootstrap" hx-vals='{"action": "run"}' hx-target="#bt-{{ f.id }}">Run a pass now</button>
@@ -61,7 +62,7 @@
           hx-confirm="End this bootstrap? Its hub and outposts stay as normal stationed fleets (still using only their own devices).">End bootstrap</button>
       </div>
       <p class="muted small">It only uses the vessel, what was aboard and what it prints (tagged <code>boot:{{ f.id }}</code>). It stops for your OK on the
-        hub, each outpost, relay waypoints and replacing a system another player wards. Materials move only on transport devices
+        hub, each outpost, relay waypoints, a supply system when the hub belt runs dry, and replacing a system another player wards. Materials move only on transport devices
         (haulers in a system, cargo freighters between systems): the vessel carries devices, not materials.</p>
     </div>
   </div>
