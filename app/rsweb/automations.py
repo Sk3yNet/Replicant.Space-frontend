@@ -4013,7 +4013,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     repair_to=repair_to,
                     # repair patrols stay in the network or at a fleet's home (live 2026-10-22: one sent to ERAJAELAE, lit
                     # only by a survey fleet's replicant, arrived after the fleet left and is stranded out of range)
-                    repair_stars=(await self.commandable(devices, stars, networked=True)) | (homes_now & commandable))
+                    repair_stars=(await self.commandable(devices, stars, networked=True)) | (homes_now & commandable),
+                    lanes=(await self.db.kv_get(lg.KV_STATE, {}) or {}).get("lanes"))
         for r in p["requests"]:   # a rescue beyond the sector range waits for your OK (owner 2026-10-22): one alert each
             key = f"rescue-ok:{r['id']}"
             if r.get("confirm") and key not in self.stage_errors:
@@ -4080,7 +4081,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         await self.db.kv_set("logistics_ami", sent)
         await self.db.kv_set(lg.KV_PICKUPS, pickups)
         await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": p["requests"], "runs": p["runs"], "unmet": p["unmet"],
-                                           "fleet_devices": p["fleet_devices"], "reserve": p["reserve"], "escorts": escorts})
+                                           "fleet_devices": p["fleet_devices"], "reserve": p["reserve"], "escorts": escorts,
+                                           "lanes": p["lanes"]})
         await self.sample_backlog(items, devices, inv_raw, drop_raw, busy, p, bps, reps)
         for line in out:
             await self.log("logistics", line)

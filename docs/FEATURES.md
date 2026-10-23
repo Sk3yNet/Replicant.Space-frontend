@@ -459,6 +459,13 @@ From a bare heaven vessel (three mining drones and a replicant aboard) to an aut
 
 Logistics fleets (Fleets › Logistics) have no missions: their devices deliver materials and devices on demand.
 
+### Task categories
+- Each request has a category: queued prints, trades & contracts, rescues, shop listings, repair patrols, stockpile
+  returns. Every free carrier is given one category that has work and keeps it until that category runs dry, so a small
+  category isn't starved by a big one (a category with work and no carrier takes one from the biggest).
+- Evacuations (priority 0) go first with every carrier. Carriers left over after each category's turn help any
+  category; stockpile returns (reallocations) only get leftovers, last. The Devices card shows each carrier's category.
+
 ### Where they wait
 - Idle logistics devices inside the relay network gather at the nearest printing hub (a fleet that takes materials in):
   they fly there, or a free logistics carrier tows them. A stationed logistics fleet stays at its own home.

@@ -6,6 +6,9 @@
   demand: what queued prints need, contracts you approved or whose civilization you pre-approved (Contracts page), and
   trades you approved (Shop page; once each — plain shop listings are never fulfilled). Priority: queued prints (waiting ones first), local deliveries,
   long-range transfers, stray stockpiles back to a gather point, then rescues of devices out of command range, then repair patrols (the logistics fleets’ repair devices to the most worn systems). Home systems keep what their own prints need.
+  Each request has a task category (prints, trades &amp; contracts, rescues, shop listings, repair patrols): every free carrier is given one
+  category that has work and keeps it until that category runs dry, so small categories aren’t starved by big ones. Evacuations go first with
+  every carrier; carriers left over then help any category, stockpile returns last.
   Outside an active relay network a logistics device hosting a replicant flies alongside, or nothing goes; afterwards the logistics devices wait
   inside the network. Devices go the same way: deliveries take logistics carriers first.</p>
 <div class="card">
@@ -15,7 +18,7 @@
   {% if st.requests %}
   <table class="small"><tr><th>Priority</th><th>Request</th><th>To</th><th>Still needed</th><th>Status</th><th></th></tr>
     {% for r in st.requests %}<tr{% if r.skipped %} class="muted"{% endif %}>
-      <td>{{ r.tier }} · {{ tiers[r.tier] }}{% if r.tier != r.base_tier %} <span class="pill small">bumped</span>{% endif %}{% if r.waiting %} <span class="lv-alert">waiting</span>{% endif %}</td>
+      <td>{{ r.tier }} · {{ tiers[r.tier] }}{% if r.tier != r.base_tier %} <span class="pill small">bumped</span>{% endif %}{% if r.waiting %} <span class="lv-alert">waiting</span>{% endif %}{% if r.category %}<br><span class="muted">{{ categories.get(r.category, r.category) }}</span>{% endif %}</td>
       <td>{{ r.label }}</td><td>{{ r.to }}</td>
       <td>{% for k, q in r.need.items() %}{{ q | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% else %}<span class="muted">stocked</span>{% endfor %}</td>
       <td>{% if r.skipped %}skipped{% elif on_way.get(r.id) %}<span class="lv-done">on its way</span> <span class="muted">{{ on_way[r.id].title }}</span>{% elif why.get(r.id) %}<span class="lv-alert">{{ why[r.id] }}</span>{% elif r.need %}queued{% else %}—{% endif %}</td>
@@ -31,11 +34,11 @@
   {% if not fleets %}<p class="muted">No logistics fleet yet: on the Fleets page create one with role <i>logistics</i> and give it a loadout
     (cargo freighters, a cargo vessel or heaven vessel hosting a replicant for trips beyond the relay network, plates or
     carriers for devices).</p>{% endif %}
-  {% if st.fleet_devices %}<table class="small"><tr><th>Device</th><th>Type</th><th>Fleet</th><th>Where</th><th>Status</th></tr>
+  {% if st.fleet_devices %}<table class="small"><tr><th>Device</th><th>Type</th><th>Fleet</th><th>Where</th><th>Status</th><th>Task category</th></tr>
     {% for t in st.fleet_devices %}<tr><td><a href="/devices/{{ t.code }}">{{ t.code }}</a>{% if t.replicant %} <span class="pill small">replicant</span>{% endif %}</td>
       <td>{{ (t.type or '') | replace('_', ' ') }}</td><td>{{ t.fleet }}</td>
       <td>{{ t.location or '—' }}{% if not t.covered %} <span class="lv-alert small">outside the network</span>{% endif %}</td>
-      <td>{{ 'free' if t.free else (t.status or 'busy') }}</td></tr>{% endfor %}</table>{% endif %}
+      <td>{{ 'free' if t.free else (t.status or 'busy') }}</td><td>{{ categories.get(t.lane, '—') if t.lane else '—' }}</td></tr>{% endfor %}</table>{% endif %}
 </div>
 {% if st.escorts %}<div class="card"><h2>Kept free to escort relays and beacons</h2>
   <p class="muted small">Relays go first: these vessels host a replicant and wait for the loadout pass to take relays or beacons beyond the network.</p>

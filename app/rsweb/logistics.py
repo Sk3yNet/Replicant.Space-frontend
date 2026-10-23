@@ -15,6 +15,12 @@ Priority (owner's order, 2026-10-12): 1 queued prints (the ones waiting for reso
 stock is in the same system), 3 long-range transfers, 4 stockpile returns. A request can be bumped or skipped on the
 Logistics page. Each home system keeps what its own prints need (a reserve): only the surplus is taken.
 
+Task categories (owner 2026-10-23): each request falls in one category (CATEGORIES: prints, trades & contracts, rescues,
+shop listings, repair patrols, stockpile returns). Every free logistics carrier is given one category that has work and
+keeps it, pass after pass, until that category runs dry; a category with work and no carrier takes one from the
+biggest. Priority orders the requests within a category. Evacuations (priority 0) go first with every carrier; after
+each category has worked with its own carriers, the ones left over help any category, stockpile returns last.
+
 The logistics devices: every member of a logistics fleet. Materials ride in cargo devices: freighters and cargo vessels fly anywhere;
 transport drones and haulers work inside their system, or are towed (attached) to another by a logistics carrier (plate,
 platform, carrier, cargo vessel). Anywhere outside an active relay network (relaynet.coverage)
@@ -71,6 +77,11 @@ ROLE = "logistics"
 MIN_RETURN = 25.0              # a stray pile smaller than this isn't worth a trip
 TIERS = {0: "evacuation", 1: "queued prints", 2: "local delivery", 3: "long-range transfer", 4: "stockpile return", 5: "rescue",
          6: "shop listing", 7: "repair patrol"}
+# task categories (owner 2026-10-23): each free logistics carrier works one category until it runs dry, so a small
+# category isn't starved by a big one; stockpile returns (reallocations) get no carrier of their own and come last
+CATEGORIES = {"prints": "queued prints", "deals": "trades & contracts", "rescues": "rescues", "shop": "shop listings",
+              "repairs": "repair patrols", "returns": "stockpile returns", "urgent": "evacuations & priority 0"}
+LANES = ("prints", "deals", "rescues", "shop", "repairs")
 PATROL_LOAD = 6                # worn devices one patrolling repair device looks after (upkeep.report's "covered")
 KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like placed relays and beacons: never "rescued"
 MIN_LOAD = 0.25               # a cross-system print delivery leaves with its hold at least this full (or all that's wanted)
@@ -450,6 +461,14 @@ def _batch_deals(out: list[dict], stock: dict, incoming: dict) -> None:
             r["need"], r["with"] = {}, head["id"]
 
 
+def category(r: dict) -> str:
+    """A request's task category (CATEGORIES). Priority 0 (evacuations, or bumped there) goes before every category."""
+    if r.get("tier") == 0:
+        return "urgent"
+    return {"print": "prints", "contract": "deals", "trade": "deals", "rescue": "rescues", "listing": "shop",
+            "repair": "repairs"}.get(r["kind"], "returns")
+
+
 def _free(d: dict) -> bool:
     st = str(d.get("status") or "").lower()
     return (bool(d.get("location")) and not d.get("location_stale") and not d.get("stowed_in_device_code")
@@ -473,20 +492,21 @@ def repairs(d: dict) -> bool:
 def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: set[str], free: dict[str, dict],
                 pool: list[dict], devices: list[dict], pos: dict[str, Any], commandable: set[str], hosts: dict[str, str],
                 reach: float, prefs: dict | None, threshold: float, incoming: dict[str, int],
-                evacuate: dict[str, str], targets: set[str] | None = None) -> None:
+                evacuate: dict[str, str], targets: set[str] | None = None) -> list[tuple[dict, Any]]:
     """Repair patrols (owner 2026-10-22): the logistics fleets' own repair devices go to the systems with the most wear
     that lack one and patrol there. A system wants one repair device per PATROL_LOAD worn devices (below `threshold`);
     those it has already (any owner's, placed there, or on their way: `incoming`) count. Worst first: the most missing
     capacity, then the lowest device. A repair device leaves only a system that has enough without it, and one at work
     (repairing) stays until it's done. `targets`: the systems a patrol may be sent to (default: all commandable). One that can surge flies itself; the others ride a free logistics carrier (stowed or
     attached). Trips over SECTOR_RANGE_H wait for your OK, like rescues. All of them are kept out of the idle passes:
-    a patrolling repair device stays where it works. Mutates reqs, runs, unmet and used."""
+    a patrolling repair device stays where it works. Mutates reqs, runs, unmet and used; returns (request, work) pairs:
+    work() sends what it can for that request with the carriers in `free` at the time of the call."""
     from . import fleets as fl
     from . import upkeep as up
     from .loadouts import can_surge
     mine = {c: d for c, d in free.items() if repairs(d) and c not in used}
     if not any(repairs(d) for d in pool):
-        return
+        return []
     report = {r["star"]: r for r in up.report(devices, threshold)}
     there: dict[str, list[str]] = defaultdict(list)   # placed repair devices per star
     for d in devices:
@@ -521,18 +541,11 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
             wear = sum(100 - x["capacity"] for x in r["damaged"])
             needs.append((star, short, wear, r))
     needs.sort(key=lambda x: (-x[2], x[3]["min"], x[0]))
-    for star, short, wear, r in needs:
-        rid = f"repair:{star}"
-        worst = r["damaged"][0]
-        req = {"id": rid, "kind": "repair", "to": worst["location"], "need": {}, "tier": 7, "base_tier": 7,
-               "label": f"repair patrol for {star}: {len(r['damaged'])} worn, worst {worst['code']} at {worst['capacity']:g} %"}
-        if rid in ((prefs or {}).get("bump") or {}):
-            req["tier"] = int(prefs["bump"][rid])
-        req["skipped"] = rid in set((prefs or {}).get("skip") or [])
-        reqs.append(req)
-        if req["skipped"]:
-            continue
-        for _ in range(short):
+    tasks = []
+
+    def work(req: dict, star: str, worst: dict, left: list[int]) -> None:
+        rid = req["id"]
+        while left[0] > 0:
             best = None   # (ly, repairer, carrier or None, mode)
             for c, d in spare.items():
                 here = star_of(d.get("location"))
@@ -553,20 +566,33 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
                 if not any(u["req"] == rid for u in unmet):
                     unmet.append({"req": rid, "why": "no spare logistics repair device" if not spare else
                                   f"no free logistics carrier with a free seat {_within(reach, star)} to bring one"})
-                break
+                return
             _, c, k, mode = best
             d = spare[c]
             legs = [(star_of(d.get("location")), star)]
             if k:
                 legs.insert(0, (star_of(free[k].get("location")), star_of(d.get("location"))))
             if _needs_ok(req, _trip_hours(legs, pos), prefs, unmet):
-                break
+                return
             spare.pop(c)
+            left[0] -= 1
             if k:
                 used.add(k)
             runs.append({"req": rid, "kind": "repair", "cargos": [], "ride": k or None, "escort": None, "repairer": c, "mode": mode,
                          "point": worst["location"], "to": worst["location"], "carry": {}, "back": None,
                          "patrolling": up.patrolling(d), "label": req["label"]})
+    for star, short, wear, r in needs:
+        rid = f"repair:{star}"
+        worst = r["damaged"][0]
+        req = {"id": rid, "kind": "repair", "to": worst["location"], "need": {}, "tier": 7, "base_tier": 7,
+               "label": f"repair patrol for {star}: {len(r['damaged'])} worn, worst {worst['code']} at {worst['capacity']:g} %"}
+        if rid in ((prefs or {}).get("bump") or {}):
+            req["tier"] = int(prefs["bump"][rid])
+        req["skipped"] = rid in set((prefs or {}).get("skip") or [])
+        reqs.append(req)
+        if not req["skipped"]:
+            tasks.append((req, lambda req=req, star=star, worst=worst, left=[short]: work(req, star, worst, left)))
+    return tasks
 
 
 def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inventory: dict[str, dict],
@@ -577,12 +603,14 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
          dark_nets: list[set[str]] | None = None, away_fleets: set[str] | frozenset = frozenset(),
          no_consolidate: set[str] | frozenset = frozenset(), evacuate: dict[str, str] | None = None,
          listings: list[dict] | None = None, repair_threshold: float = 80.0,
-         repair_to: dict[str, int] | None = None, repair_stars: set[str] | None = None) -> dict:
+         repair_to: dict[str, int] | None = None, repair_stars: set[str] | None = None,
+         lanes: dict[str, str] | None = None) -> dict:
     """What the logistics devices do this pass. `hosts`: device → the replicant it hosts. `drop(star)`: where materials land in a
     system. `listings`: shops whose trades you asked for ({controller, location, label}): a logistics device hosting a
     replicant goes there, last of all (the engine reads the trades once a replicant is in the system). `repair_to`: repair
-    devices already on their way, per star. `repair_stars`: where repair patrols may go (default: commandable).
-    Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices"}."""
+    devices already on their way, per star. `repair_stars`: where repair patrols may go (default: commandable). `lanes`:
+    the task category each carrier worked last pass (device → CATEGORIES key).
+    Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices", "lanes"}."""
     from . import cargo as cg
     from .loadouts import can_surge
     gather = {f["home"]: drop(f["home"]) for f in fleets or [] if f.get("materials") == "self" and f.get("home")}
@@ -702,11 +730,13 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 spare[l][x] -= back
                 kept.setdefault(l, {})[x] = kept.get(l, {}).get(x, 0.0) + back
         released.clear()
-    for r in reqs:
-        give_back()
+    def deliver(r: dict) -> None:
         if r["skipped"]:
-            continue
-        need = {x: q for x, q in r["need"].items() if q >= 1}
+            return
+        left = r.get("_left")   # a second try (with every free carrier) takes on what the first left
+        need = {x: q for x, q in (r["need"] if left is None else left).items() if q >= 1}
+        if left is not None and not need:
+            return
         dest, dstar = r["to"], star_of(r["to"])
         if r["kind"] == "print" and dest:
             for l, h in kept.items():
@@ -723,7 +753,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                     released[(l, x)] = released.get((l, x), 0.0) + q
         if not dest:
             unmet.append({"req": r["id"], "why": "no gather point: give a fleet 'takes materials in' (Fleets) to bring it back"})
-            continue
+            return
         if not need:
             if r.get("with"):   # delivered and fulfilled together with the first deal at its location
                 head = next((h for h in reqs if h["id"] == r["with"]), None)
@@ -743,13 +773,13 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                     esc = escort_for([dest], set())
                     if not esc:
                         unmet.append({"req": r["id"], "why": f"{dest} holds the price; waiting for a free logistics device hosting a replicant to fulfill it"})
-                        continue
+                        return
                     used.add(esc["device_code"])
                     rep = hosts[esc["device_code"]]
                 runs.append({"req": r["id"], "kind": r["kind"], "cargos": [], "escort": esc and esc["device_code"],
                              "legs": [], "to": dest, "carry": {}, "fulfil": _deal(r), "also": r.get("also") or [], "replicant": rep,
                              "back": wait_point(esc, dstar) if esc and dstar not in commandable else None, "label": r["label"]})
-            continue
+            return
         def can_escort() -> bool:
             return any(c not in used and c in hosts and can_surge(d) for c, d in free.items())
 
@@ -758,7 +788,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 return l == r.get("from")
             # piles beyond the network count while a replicant is free to go along
             return l != dest and (star_of(l) in commandable or can_escort())
-        assigned = False
+        assigned = bool(r.get("_assigned"))
         while need:
             piles = sorted((l for l, s in spare.items() if sources_ok(l) and any(s.get(x, 0) >= 1 for x in need)),
                            key=lambda l: (_dist(star_of(l), dstar, pos), -sum(spare[l].get(x, 0) for x in need), l))
@@ -867,6 +897,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                     for g2 in g["legs"]:
                         for x, q in g2["take"].items():
                             spare[g2["pile"]][x] += q
+                for x, q in taken.items():
+                    need[x] = need.get(x, 0.0) + q
                 unmet.append({"req": r["id"], "why": f"waiting for a fuller load: {sum(taken.values()):g} of {hold:g} units can be "
                                                      f"spared from {fstar} now (a trip leaves once it's {MIN_LOAD:.0%} full)"})
                 break
@@ -883,6 +915,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                         for g2 in g["legs"]:
                             for x, q in g2["take"].items():
                                 spare[g2["pile"]][x] += q
+                    for x, q in taken.items():
+                        need[x] = need.get(x, 0.0) + q
                     unmet.append({"req": r["id"], "why": f"{', '.join(sorted({star_of(x) for x in outside}))} is outside an active "
                                                          "relay network: it needs a logistics device hosting a replicant alongside (none free)"})
                     break
@@ -908,7 +942,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                          "escort_pickup": any(star_of(x) not in commandable for x in stops[:-1]),
                          "rewards": rewards if home else {}, "home": home,
                          "reward_devices": (r.get("reward_devices") or {}) if rep else {}})
-    give_back()
+        r["_left"], r["_assigned"] = need, assigned
     # rescues: your devices out of command range (beyond an active relay network, no replicant with them), last tier.
     # A device that can surge home is reached by a replicant (in its system, or anywhere its own dark relay network
     # covers, nearest first) and commanded home; one that can't is picked up by a carrier, with a replicant along.
@@ -936,17 +970,19 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         req["skipped"] = rid in set((prefs or {}).get("skip") or [])
         rescue_reqs.append((req, d, fleet_home.get(tag)))
     reqs.extend(r for r, _, _ in rescue_reqs)
-    for r, d, home in sorted(rescue_reqs, key=lambda x: (x[0]["tier"], x[0]["id"])):
+    def rescue(r: dict, d: dict, home: str | None) -> None:
         if r["skipped"]:
-            continue
+            return
         code, loc, star = d["device_code"], d["location"], star_of(d["location"])
+        if code in used:   # taken as a carrier this pass
+            return
         if not (home and home in commandable):   # fleetless (or its home is dark): the nearest covered home system
             homes = [f["home"] for f in fleets or [] if f.get("home") in commandable and (f.get("station") or f.get("materials") == "self")]
             home = min(homes, key=lambda h: (_dist(star, h, pos), h), default=None)
         home_loc = drop(home) if home else wait_point({"_fleet": {}}, star)
         if not home_loc:
             unmet.append({"req": r["id"], "why": "no system inside an active relay network to bring it to"})
-            continue
+            return
         if can_surge(d) and "travel" in (d.get("available_commands") or ["travel"]):
             # a replicant where it can command it: its own system, or any system its dark network covers
             spots = sorted({star} | next((n for n in dark_nets or [] if star in n), set()))
@@ -961,18 +997,18 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                         best = (dd, e, sp)
             if not best:
                 unmet.append({"req": r["id"], "why": no_escort_why(star)})
-                continue
+                return
             _, esc, sp = best
             point = loc if sp == star else drop(sp)
             back = wait_point(esc, sp) if star_of(point) not in commandable else None
             hours = _trip_hours([(star_of(esc.get("location")), sp), (sp, star_of(home_loc)), (sp, star_of(back) if back else sp)], pos)
             if _needs_ok(r, hours, prefs, unmet):
-                continue
+                return
             used.add(esc["device_code"])
             runs.append({"req": r["id"], "kind": "rescue", "cargos": [], "ride": None, "escort": esc["device_code"],
                          "rescued": code, "mode": "self", "point": point, "to": home_loc, "carry": {},
                          "back": back, "label": r["label"]})
-            continue
+            return
         # it can't fly home: a carrier picks it up (stowed or attached; large devices are compacted first)
         cands = []
         for c, e in free.items():
@@ -985,24 +1021,25 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 cands.append((c in hosts, _dist(star_of(e.get("location")), star, pos), c, e, mode))
         if not cands:
             unmet.append({"req": r["id"], "why": f"no free logistics carrier with a free seat {_within(reach, star)}"})
-            continue
+            return
         cands.sort(key=lambda x: (not x[0], x[1], x[2]))   # one hosting a replicant needs no escort
         _, _, c, carrier, mode = cands[0]
         if _needs_ok(r, _trip_hours([(star_of(carrier.get("location")), star), (star, star_of(home_loc))], pos), prefs, unmet):
-            continue
+            return
         esc = None
         if c not in hosts:
             esc = escort_for([loc, home_loc], {c})
             if not esc:
                 unmet.append({"req": r["id"], "why": f"{star} is outside an active relay network: the pick-up needs a logistics "
                                                      "device hosting a replicant alongside (none free)"})
-                continue
+                return
             used.add(esc["device_code"])
         used.add(c)
         runs.append({"req": r["id"], "kind": "rescue", "cargos": [], "ride": c, "escort": esc and esc["device_code"],
                      "rescued": code, "mode": mode, "point": loc, "to": home_loc, "carry": {}, "back": None, "label": r["label"]})
 
     # shop listings you asked for: a replicant to the shop's system, lowest priority (owner, 2026-10-20)
+    listing_tasks = []
     for li in listings or []:
         rid = f"listing:{li['controller']}"
         req = {"id": rid, "kind": "listing", "to": li["location"], "need": {}, "tier": 6, "base_tier": 6,
@@ -1011,8 +1048,10 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             req["tier"] = int(prefs["bump"][rid])
         req["skipped"] = rid in set((prefs or {}).get("skip") or [])
         reqs.append(req)
-        if req["skipped"]:
-            continue
+        listing_tasks.append((req, li))
+
+    def shop(req: dict, li: dict) -> None:
+        rid = req["id"]
         star = star_of(li["location"])
         best = None
         for c, e in free.items():
@@ -1023,14 +1062,100 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 best = (dd, c, e)
         if not best:
             unmet.append({"req": rid, "why": f"no free logistics device hosting a replicant {_within(reach, star)}"})
-            continue
+            return
         used.add(best[1])
         runs.append({"req": rid, "kind": "listing", "cargos": [], "escort": best[1], "point": li["location"],
                      "to": li["location"], "carry": {}, "controller": li["controller"], "label": li["label"]})
 
-    repair_runs(reqs=reqs, runs=runs, unmet=unmet, used=used, free=free, pool=pool, devices=devices, pos=pos,
-                commandable=commandable, hosts=hosts, reach=reach, prefs=prefs, threshold=repair_threshold,
-                incoming=repair_to or {}, evacuate=evacuate or {}, targets=repair_stars)
+    repair_tasks = repair_runs(reqs=reqs, runs=runs, unmet=unmet, used=used, free=free, pool=pool, devices=devices, pos=pos,
+                               commandable=commandable, hosts=hosts, reach=reach, prefs=prefs, threshold=repair_threshold,
+                               incoming=repair_to or {}, evacuate=evacuate or {}, targets=repair_stars)
+
+    # Task categories (owner 2026-10-23): every free carrier is given one category (LANES) that has work, and keeps it
+    # pass after pass until that category runs dry; a category with work and no carrier takes one from the biggest.
+    # First evacuations (priority 0) with every free carrier, then each category with its own carriers, then whatever
+    # is left over with every carrier still free (categories in turn, stockpile returns last).
+    tasks = [(r, lambda r=r: deliver(r)) for r in reqs if r["kind"] in ("print", "contract", "trade", "return")]
+    tasks += [(r, lambda r=r, d=d, h=h: rescue(r, d, h)) for r, d, h in sorted(rescue_reqs, key=lambda x: (x[0]["tier"], x[0]["id"]))]
+    tasks += [(r, lambda r=r, li=li: shop(r, li)) for r, li in listing_tasks]
+    tasks += repair_tasks
+    for r in reqs:
+        r["category"] = category(r)
+    tasks = sorted(((r, fn) for r, fn in tasks if not r["skipped"]), key=lambda t: t[0]["tier"])
+    every = dict(free)
+    prev = lanes or {}
+    pending = {r["category"] for r, _ in tasks} & set(LANES)
+
+    def fits(d: dict, cat: str) -> bool:
+        c, s = d["device_code"], fl.seats(d, devices)
+        if cat in ("prints", "deals"):   # cargo, a ride for haulers, or an escort
+            return room(d) >= 1 or bool(held(d)) or c in hosts or (can_surge(d) and s["attach"] > 0)
+        if cat == "shop":
+            return can_surge(d) and c in hosts
+        return can_surge(d) and (s["hold"] + s["attach"] > 0 or (cat == "rescues" and c in hosts))
+    count: dict[str, int] = defaultdict(int)
+    for d in pool:   # carriers on a job still belong to their category
+        if d["device_code"] not in every and prev.get(d["device_code"]) in pending:
+            count[prev[d["device_code"]]] += 1
+    lane: dict[str, str] = {}
+    open_ = sorted(c for c in every if c not in used)
+    for c in open_:
+        if prev.get(c) in pending and fits(every[c], prev[c]):
+            lane[c] = prev[c]
+            count[lane[c]] += 1
+    for c in open_:
+        opts = [k for k in LANES if k in pending and fits(every[c], k)]
+        if c not in lane and opts:
+            lane[c] = min(opts, key=lambda k: (count[k], LANES.index(k)))
+            count[lane[c]] += 1
+    for k in LANES:   # a category with work and no carrier at all takes one from the biggest
+        donors = [c for c in lane if k in pending and not count[k] and count[lane[c]] > 1 and fits(every[c], k)]
+        if donors:
+            c = min(donors, key=lambda c: (-count[lane[c]], c))
+            count[lane[c]] -= 1
+            lane[c] = k
+            count[k] += 1
+
+    def view(cat: str | None) -> None:   # the carriers a category may take: `free` is what every helper looks at
+        free.clear()
+        free.update({c: d for c, d in every.items() if cat is None or lane.get(c) == cat})
+    tried: set[str] = set()
+
+    def attempt(r: dict, fn: Any) -> None:
+        unmet[:] = [u for u in unmet if u["req"] != r["id"]]   # a second try replaces the first one's reasons
+        tried.add(r["id"])
+        fn()
+        give_back()
+    view(None)
+    for r, fn in tasks:
+        if r["category"] == "urgent":
+            attempt(r, fn)
+    cats = sorted({r["category"] for r, _ in tasks} - {"urgent"},
+                  key=lambda k: (k == "returns", min(r["tier"] for r, _ in tasks if r["category"] == k),
+                                 (LANES + ("returns",)).index(k)))
+    for k in cats:
+        if k in LANES:
+            view(k)
+            for r, fn in tasks:
+                if r["category"] == k:
+                    attempt(r, fn)
+    view(None)
+    for k in cats:
+        for r, fn in tasks:
+            if r["category"] == k and (r["id"] not in tried or any(u["req"] == r["id"] for u in unmet)):
+                attempt(r, fn)
+    by_id = {r["id"]: r for r in reqs}
+    worked = {c: prev[c] for c in prev if c in {d["device_code"] for d in pool} and c not in every}   # still on a job
+    worked.update(lane)
+    for run in runs:   # a carrier that took another category's request in the leftover round works that one now
+        k = (by_id.get(run.get("req")) or {}).get("category")
+        if k in LANES:
+            for c in run_devices(run):
+                if c in every and c not in (run.get("rescued"), run.get("repairer")):
+                    worked[c] = k
+    for r in reqs:
+        r.pop("_left", None)
+        r.pop("_assigned", None)
 
     # logistics devices hosting a replicant idle outside the network come back to wait in it (the rest can't be commanded there)
     for c, d in free.items():
@@ -1114,8 +1239,9 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     return {"requests": reqs, "runs": runs, "unmet": unmet, "reserve": reserve,
             "fleet_devices": [{"code": d["device_code"], "type": d.get("device_type"), "fleet": d["_fleet"].get("name"),
                        "location": d.get("location"), "status": d.get("status"), "free": d["device_code"] in free,
-                       "replicant": hosts.get(d["device_code"]), "covered": star_of(d.get("location")) in commandable}
-                      for d in pool]}
+                       "replicant": hosts.get(d["device_code"]), "covered": star_of(d.get("location")) in commandable,
+                       "lane": worked.get(d["device_code"])}
+                      for d in pool], "lanes": worked}
 
 
 def holds_replicant(d: dict, devices: list[dict]) -> bool:

@@ -31,7 +31,7 @@ async def logistics_page(request: Request, user: str = Depends(current_user)):
     fleets = lg.logistics_fleets(await eng.fleets())
     transit = await cargo.in_transit(db, (await load_state(request))["devices"], await eng.jobs())
     return await page(request, user, "logistics.html", "logistics", st=st, jobs=list(reversed(jobs)), on_way=on_way, why=why,
-                      tiers=lg.TIERS, fleets=fleets, approvals=ok, transit=transit)
+                      tiers=lg.TIERS, categories=lg.CATEGORIES, fleets=fleets, approvals=ok, transit=transit)
 
 
 @router.post("/fleets/logistics/prefs", response_class=HTMLResponse)

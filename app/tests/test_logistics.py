@@ -117,7 +117,8 @@ def test_logistics_pass_sends_a_job_for_a_waiting_print(client):  # noqa: F811
     cat["stars"] += [{"designation": d, "position": p} for d, p in POS.items()]
     client.portal.call(db.kv_set, "stars", cat)
     client.portal.call(db.kv_set, "blueprints", list(BPS.values()))
-    client.portal.call(db.kv_set, "devices", world() + [dev("RL", "ftl_relay", "A-4-L4", tags=[], status="relaying")])
+    client.portal.call(db.kv_set, "devices", world() + [dev("RL", "ftl_relay", "A-4-L4", tags=[], status="relaying"),
+                                                     dev("RL2", "ftl_relay", "B-4-L4", tags=[], status="relaying")])
     client.portal.call(db.kv_set, "inventory", [{"location": "A-1", "items": {"carbon": 300}}])
     client.portal.call(db.kv_set, "replicants", {"R1": {"location": "A-1", "hosted_device_code": "HV"}})
     items = client.portal.call(e.fleets)
@@ -1016,3 +1017,35 @@ def test_logistics_keeps_an_escort_for_waiting_relays():
     hosts = {"H1": "R1", "H2": "R2", "H3": "R3"}
     assert lg.keep_escorts({"SOL": 3}, fleets, devices, hosts, set(), {}, pos, 100) == {"H1": "SOL"}
     assert lg.keep_escorts({"SOL": 3}, fleets, devices, hosts, {"H1"}, {}, pos, 100) == {}   # H2 is beyond the supply range
+
+
+def _category_plan(lanes=None):
+    pos = {**POS, "Y": {"x": 40, "y": 0, "z": 0}}
+    devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE),
+            dev("F2", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE),
+            dev("HV", "heaven_vessel", "A-1", **SURGE), dev("HV2", "heaven_vessel", "A-1", **SURGE),
+            dev("SV", "survey_drone", "Z-5", tags=[], **SURGE)]
+    deals = [{"designation": "E1", "location": "Z-2", "title": "One", "price": {"carbon": 50}},
+             {"designation": "E2", "location": "Y-2", "title": "Two", "price": {"carbon": 50}}]
+    return lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 500}}, pos=pos, commandable={"A", "B"},
+                   hosts={"HV": "R1", "HV2": "R2"}, busy=set(), reach=100, contracts=deals, trades=[], incoming={},
+                   replicants={"R1": {"location": "A-1"}, "R2": {"location": "A-1"}}, drop=lambda s: f"{s}-1", lanes=lanes)
+
+
+def test_each_task_category_gets_carriers_so_a_rescue_is_not_starved_by_deals():
+    p = _category_plan()
+    reqs = {r["id"]: r for r in p["requests"]}
+    assert reqs["rescue:SV"]["category"] == "rescues" and reqs["contract:E1"]["category"] == "deals"
+    done = {r["req"] for r in p["runs"]}
+    assert "rescue:SV" in done                                    # before: both escorts went to the two contracts
+    assert done & {"contract:E1", "contract:E2"}                  # the leftover round lends deals the other escort
+    assert p["lanes"]["F1"] == p["lanes"]["F2"] == "deals" and "rescues" in p["lanes"].values()
+    assert all(not k.startswith("_") for r in p["requests"] for k in r)
+
+
+def test_a_carrier_keeps_its_category_while_it_has_work():
+    p = _category_plan(lanes={"HV2": "rescues", "HV": "deals"})
+    assert p["lanes"]["HV2"] == "rescues" and p["lanes"]["HV"] == "deals"
+    assert next(r for r in p["runs"] if r["req"] == "rescue:SV")["escort"] == "HV2"
+    p = _category_plan(lanes={"HV2": "repairs"})                  # no repair work: it's given a category that has some
+    assert p["lanes"]["HV2"] in ("deals", "rescues")

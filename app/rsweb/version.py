@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.237.0"
+VERSION = "1.238.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.238.0", "2026-10-23", "Logistics task categories. Each request belongs to a category (queued prints, trades & contracts, rescues, shop listings, repair patrols, stockpile returns) and every free logistics carrier is given one category with work, which it keeps until that category runs dry, so rescues, shop visits and repair patrols are no longer starved by a long list of deliveries. Evacuations still go first with every carrier; leftover carriers then help any category, stockpile returns last. The Logistics page shows each request's category and each carrier's. The logistics fleets' repair devices are kept for repair patrols."),
     ("1.237.0", "2026-10-23", "Game v3.6.1. A new blueprint's notification says how it was unlocked (experience, achievement or decommissioning), and the Events feed lists blueprint.unlocked. Decommissioning a device made from components now unlocks the components' blueprints too: the device page and the components warning say so. API reference and game notes updated (the spec itself is unchanged)."),
     ("1.236.0", "2026-10-23", "Cargo rides where the attach points are. Each device type knows its hold and attach points, and a matrix container's one slot is its cradle (never cargo): cargo handed to it goes on the surge platform it is attached to, which flies. Surge plates, platforms and mobile fleets now carry beacons too (the carrier flies to the beacon, attaches it, detaches it at the drop). A platform with a populated matrix container attached counts as a replicant vessel everywhere in deliveries."),
     ("1.235.0", "2026-10-23", "Ordered beacons ride a carrier's multi-drop run with relays, so one vessel with a hold drops several (17 waited for a carrier each). Moving a beacon to a civilization's body no longer picks a vessel whose hold is full or that is itself towed (matrix container 10D7491E failed No storage space every 90 s), and a failed try waits 30 min. The idle-miner restart treats No <resource> remaining at any active site quietly and mines another resource of the belt for 3 h."),
