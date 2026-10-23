@@ -1013,8 +1013,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         """A carrier with passengers bound somewhere only takes on a batch that includes them."""
         mine = carrying.get(c["device_code"])
         return not mine or bool(mine & set(codes_))
-    relay_only = lambda xs: bool(xs) and all((by_code.get(x) or {}).get("device_type") == "ftl_relay" for x in xs)  # noqa: E731
-    taken: set[str] = set()   # relays already given to a carrier's multi-drop run
+    # relays and beacons go on multi-drop runs (beacons since 1.235.0: 17 ordered ones waited for a carrier each, live
+    # 2026-10-23, while the hold-carriers' relay runs left seats empty)
+    relay_only = lambda xs: bool(xs) and all((by_code.get(x) or {}).get("device_type") in ESCORTED_TYPES for x in xs)  # noqa: E731
+    taken: set[str] = set()   # relays and beacons already given to a carrier's multi-drop run
     for (here, dest, owner), codes in sorted(batches.items(), key=lambda kv: (-len(kv[1]), kv[0][0], kv[0][1], kv[0][2] or "")):
         codes = sorted(x for x in codes if x not in taken)
         # beyond an active relay network, at either end (live 2026-10-20: a surge platform with no replicant flew into
@@ -1090,7 +1092,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 dl["back_to"] = own_home
             left = room - len(load)
             if left > 0 and not codes and relay_only(load):
-                # relays: the carrier fills its hold with more relays waiting at the same pick-up point and drops them
+                # relays (and beacons): the carrier fills its hold with more waiting at the same pick-up point and drops them
                 # system by system, nearest first (owner 2026-10-20: as many as its free stowage holds)
                 dest_of, cur, stops = {}, dest, []
                 more = {k: [x for x in v if x not in taken and x not in load] for k, v in batches.items()

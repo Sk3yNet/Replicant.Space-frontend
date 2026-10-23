@@ -5484,6 +5484,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             for star in {star_of(d.get("location")) for d in devices if d.get("device_type") == "mining_drone"}:
                 dry_belts |= worked_out(await system_resources(self.db, star))
         warded = await self.warded(devices)
+        from .bootstrap import no_site
+        nosite = await self.db.kv_get("miner_no_site", {}) or {}   # {belt: {resource: at}}, like bootstrap.no_site
         for d in devices:
             code = d.get("device_code")
             if _reserved(d):
@@ -5520,6 +5522,16 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 short = {r: q for r, q in (await self.print_needs(devices)).items() if q > 0 and r in offered}
                 if short:
                     resource = max(short, key=lambda r: (short[r], r == resource, r))
+            belt = belt_of(d.get("location")) or d.get("location")
+            skip = no_site({"no_site": nosite}, belt, now)
+            if resource in skip:
+                # the game said no open site has it lately: mine something else the belt has, or wait
+                srow = await self.db.fetchone("SELECT data FROM systems WHERE star=?", (star_of(d.get("location")),))
+                left = sorted(r for r in pr_.belt_resources(json.loads(srow["data"] or "{}") if srow else {}, belt)
+                              if r not in skip)
+                if not left:
+                    continue
+                resource = left[0]
             attempts[code] = now.isoformat(timespec="seconds")
             if dry:
                 await self.log("restart_idle_miners", f"[dry run] would restart {code} on {resource}")
@@ -5531,8 +5543,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 ex = await self.db.kv_get("exhausted_places", {}) or {}
                 ex[belt_of(d.get("location")) or d.get("location")] = now_iso()
                 await self.db.kv_set("exhausted_places", ex)
+            quiet = not ok and bool(NO_SITE_RE.search(err or ""))
+            if quiet:   # skipped 3 h at this belt (live 2026-10-23: 3 alerts at ISOLITHOR-BELT-1 for conductive)
+                nosite.setdefault(belt, {})[resource] = now.isoformat(timespec="seconds")
+                await self.db.kv_set("miner_no_site", nosite)
             await self.log("restart_idle_miners", f"restarted {code} on {resource}" if ok else f"could not restart {code}: {err}",
-                           "info" if ok else "alert")
+                           "info" if ok or quiet else "alert")
         for ccode, drones in handed.items():
             ctrl = next(c for c in devices if c.get("device_code") == ccode)
             idle, _ = await controller_idle(self.db, ctrl)

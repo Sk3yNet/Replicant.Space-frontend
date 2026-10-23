@@ -301,8 +301,16 @@ class OpsRules:
         to the first civilization body in `civ` and deploys it (traffic.placement: deploy / carry / fetch); beacons at
         `keep` (every civilization body) stay. Never prints another."""
         from . import traffic as tr
-        if any(j.get("meta", {}).get("beacon_loc") in civ for j in await self.jobs() if j["status"] in ("running", "waiting")):
+        jobs = await self.jobs()
+        if any(j.get("meta", {}).get("beacon_loc") in civ for j in jobs if j["status"] in ("running", "waiting")):
             return None
+        # a failed try waits 30 min before the next one (live 2026-10-23: the same failing stow every 90 s)
+        fails = [j for j in jobs if j["rule"] == "wards" and j["status"] == "failed"
+                 and j.get("meta", {}).get("beacon_loc") == civ[0] and _ts(j.get("created_at"))
+                 and (_now() - _ts(j["created_at"])).total_seconds() < 1800]
+        if fails:
+            err = next((x.get("error") for x in max(fails, key=lambda j: j["created_at"])["steps"] if x.get("status") == "failed"), None)
+            return f"beacon to the civilization at {civ[0]}: last try failed ({err or 'see Jobs'}), retrying in 30 min"
         p = tr.placement(civ[0], devices, await self.db.kv_get("replicants", {}) or {},
                          await self.db.kv_get("stowed_map", {}) or {}, busy, use_replicant_vessel=True,
                          keep=set(keep or civ))

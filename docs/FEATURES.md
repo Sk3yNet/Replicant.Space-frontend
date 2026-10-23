@@ -152,7 +152,8 @@ of the catalog after). What each marker and line means is in the [map legend](..
 - **Suggested bridges**: the fewest new relays (at most 10) joining two networks, with *Add route* to order them.
 - **Relay rollout**: a relay in every system within a radius of seed systems you name, nearest first.
   - As many orders open as your logistics vessels with a replicant aboard have free hold slots (each as *add* on the
-    Systems list); a carrier fills its hold with relays for several systems and drops them nearest first.
+    Systems list); a carrier fills its hold with relays (and ordered beacons) for several systems and drops them
+    nearest first.
   - *Chained* (default) only goes to a system within 7.5 ly of a relay or hub of yours, one on order, or a seed, so the
     network grows outward in one piece.
   - A system that can't get one is skipped until *Retry skipped*; five failures in a row pause the rollout.

@@ -8634,3 +8634,61 @@ def test_nothing_to_mine_at_open_sites_is_skipped_quietly(client):
     assert job["status"] == "done" and job["steps"][-1]["status"] == "done"
     log = client.portal.call(eng.db.kv_get, "automation_log", [])
     assert not any("stopped:" in e["text"] for e in log) and all(e["level"] == "info" for e in log if "skipped" in e["text"])
+
+
+def test_restart_idle_miners_skips_a_resource_with_no_open_site(client):
+    from unittest import mock
+    """Live 2026-10-23: three alerts at ISOLITHOR-BELT-1 for 'No conductive remaining at any active site'."""
+    eng = client.app.state.worker.automations
+    client.post("/automations/rules/restart_idle_miners", data={"enabled": "on", "resource": "carbon", "cooldown_minutes": "10"}, headers=HX)
+    sent = []
+
+    async def send(method, path, body, why=""):
+        sent.append((path, body))
+        return False, None, "No carbon remaining at any active site"
+    db = client.app.state.db
+    with mock.patch.object(eng, "send", send):
+        client.portal.call(eng.rule_restart_idle_miners)
+        assert any(b.get("resource_type") == "carbon" for _, b in sent)
+        log = client.portal.call(db.kv_get, "automation_log", [])
+        assert not any(e["level"] == "alert" and "could not restart" in e["text"] for e in log)
+        assert "carbon" in next(iter(client.portal.call(db.kv_get, "miner_no_site", {}).values()))
+        n = len(sent)
+        client.portal.call(db.kv_set, "miner_restarts", {})   # past the cooldown: carbon is still skipped
+        client.portal.call(eng.rule_restart_idle_miners)
+        assert not any(b.get("resource_type") == "carbon" for _, b in sent[n:])
+
+
+def test_beacon_fetch_skips_a_carrier_with_a_full_hold():
+    """Live 2026-10-23: matrix container 10D7491E (1 slot, holding its replicant's matrix, towed) was picked every pass."""
+    from rsweb import traffic as tr
+    devs = [{"device_code": "MC", "device_type": "matrix_container", "location": "AAA-6-L4", "status": "idle",
+             "features": ["cruise", "cradle"], "stow_capacity": 1, "stow_used": 1, "attached_to_device_code": "SP"},
+            {"device_code": "B1", "device_type": "ftl_beacon", "location": "AAA-6-L4", "status": "monitoring",
+             "tags": ["spare"], "available_commands": ["stow", "deploy"]}]
+    p = tr.placement("AAA-3", devs, {}, {}, use_replicant_vessel=True)
+    assert p["kind"] not in ("fetch", "carry")
+    devs.append({"device_code": "HV", "device_type": "heaven_vessel", "location": "AAA-1", "status": "idle",
+                 "features": ["cruise", "surge"], "stow_capacity": 10, "stow_used": 2})
+    p = tr.placement("AAA-3", devs, {}, {}, use_replicant_vessel=True)
+    assert p["kind"] == "fetch" and p["vessel"] == "HV"
+
+
+def test_a_hold_carrier_takes_beacons_for_several_systems_on_one_run():
+    """Live 2026-10-23: 17 ordered beacons waited for a carrier each; they ride multi-drop runs like relays."""
+    from rsweb import loadouts as lo
+    def dev(code, t, loc, **kw):
+        return {"device_code": code, "device_type": t, "location": loc, "status": "monitoring", "operational_capacity": 100.0,
+                "features": kw.pop("features", ["stow", "comms"]), "available_commands": ["travel", "stow", "deploy"], **kw}
+    devices = [dev(f"B{t}", "ftl_beacon", "HUB-BELT-1", tags=[f"to:{t.lower()}"]) for t in ("AAA", "BBB")]
+    devices.append(dev("RCCC", "ftl_relay", "HUB-BELT-1", status="inactive", features=["cruise", "relay", "stow"],
+                       tags=["to:ccc"]))
+    devices.append(dev("HV", "heaven_vessel", "HUB-1", status="idle", features=["surge", "cruise"], stow_capacity=3,
+                       hosting_replicant={"replicant_code": "R1"}, tags=["fleet:logistics"]))
+    stars = {s: {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in
+             (("HUB", 0), ("AAA", 5), ("BBB", 9), ("CCC", 2))}
+    cfg = {"phases": [], "systems": {}, "fleets": [{"id": "logistics", "name": "Logistics", "role": "logistics",
+                                                    "home": "HUB", "wants": {}}]}
+    p = lo.plan(cfg, devices, [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"HUB", "AAA", "BBB", "CCC"})
+    dl = [d for d in p["deliveries"] if d["carrier"] == "HV"]
+    assert len(dl) == 1 and sorted(dl[0]["devices"]) == ["BAAA", "BBBB", "RCCC"], (p["deliveries"], p["unmet"])

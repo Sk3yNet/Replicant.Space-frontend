@@ -235,6 +235,16 @@ def is_vessel(d: dict) -> bool:
     return "cruise" in (d.get("features") or []) and ("vessel" in t or bool(d.get("stow_capacity")))
 
 
+def has_room(d: dict) -> bool:
+    """Can pick up a beacon: a free slot in its hold (unknown counts as free) and not itself towed or stowed. Live
+    2026-10-23: matrix container 10D7491E (1 slot, its replicant's matrix in it, attached to a surge platform) was
+    picked every pass and the stow failed with "No storage space"."""
+    cap, used = d.get("stow_capacity"), d.get("stow_used")
+    if cap is not None and used is not None and int(used) >= int(cap):
+        return False
+    return not d.get("attached_to_device_code") and not d.get("stowed_in_device_code")
+
+
 def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[str, list[str]],
               busy: set[str] | None = None, use_replicant_vessel: bool = True, keep: set[str] | None = None,
               bps: dict[str, dict] | None = None, vessel_print: bool = True, logistics: set[str] | None = None) -> dict:
@@ -305,8 +315,9 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
                     and deployed(d) and d.get("device_code") not in busy and d.get("location") not in keep
                     and d.get("location") != loc and "stow" in (d.get("available_commands") or ["stow"])),
                    key=lambda d: (not ({"civ", "spare"} & set(d.get("tags") or [])), d.get("device_code") or ""))
-    if loose and vessels:
-        b, v = loose[0], vessels[0]
+    roomy = [v for v in vessels if has_room(v)]
+    if loose and roomy:
+        b, v = loose[0], roomy[0]
         code = v["device_code"]
         return {"kind": "fetch", "beacon": b["device_code"], "beacon_at": b["location"], "vessel": code, "from": v.get("location"),
                 "replicant": hosts[code][0] if code in hosts else None, "moves_existing": True,
@@ -314,7 +325,7 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
                         f"{b['location']}, flies it to {loc} and deploys it" + moves(code)}
     if loose and not rep_here:
         # there's a beacon to move but no free vessel with a hold right now: wait rather than print another
-        held = [v for v in devices if is_vessel(v) and star_of(v.get("location")) == star
+        held = [v for v in devices if is_vessel(v) and has_room(v) and star_of(v.get("location")) == star
                 and (use_replicant_vessel or v.get("device_code") not in hosts or v.get("device_code") in logistics)]
         b = loose[0]
         return {"kind": "wait", "beacon": b["device_code"],
