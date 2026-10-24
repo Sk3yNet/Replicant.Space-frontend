@@ -794,7 +794,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     if not ok and exit_via:   # refused: the route without the surge spots
                         await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via)} refused ({err}); "
                                                     "the game's own route", "warning")
-                        rest = [x for x in st["body"].get("via") or [] if x not in exit_via]
+                        from .hubroute import waypoints
+                        rest = waypoints([st["hub_via"]], str(st["body"].get("destination") or "")) if st.get("hub_via") else []
                         st["body"].pop("via", None)
                         if rest:
                             st["body"]["via"] = rest
@@ -1064,15 +1065,18 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
 
     async def plan_via(self, st: dict, job: dict) -> list[str]:
         """A device trip's waypoints, set once in the step's body `via`: the surge spots (_exit_via) first, then any hub
-        waypoint (_hub_via), then the off-ramp. Returns the surge spots."""
+        waypoint (_hub_via), then the off-ramp. A spot in another system than the stop before it gets
+        its star first (live 2026-10-24: "Cannot travel directly from CAELZAROR to ISOLITHOR-KUIPER (different systems)").
+        Returns the surge spots."""
+        from . import hubroute
         exit_via = await self._exit_via(st, job)
         await self._hub_via(st, job)
         if exit_via:
             ramp = [x for x in exit_via if x == st.get("arrive_via")]
             hubs_ = [x for x in st["body"].get("via") or [] if x not in exit_via]
-            if ramp and hubs_ and hubs_[-1] == star_of(ramp[0]):
-                hubs_ = hubs_[:-1]   # the off-ramp ends the route in the destination system already
-            st["body"]["via"] = [x for x in exit_via if x not in ramp] + hubs_ + ramp
+            d = next((x for x in await self.devices() if x.get("device_code") == str(st.get("path")).split("/")[2]), None) or {}
+            st["body"]["via"] = hubroute.stars_between(d.get("location") or "",
+                                                       [x for x in exit_via if x not in ramp] + hubs_ + ramp)
         return exit_via
 
     async def trip_via(self, device: str, dest: str) -> list[str]:

@@ -50,6 +50,21 @@ def waypoints(via: list[str], dest: str) -> list[str]:
     return via
 
 
+def stars_between(origin: str, via: list[str]) -> list[str]:
+    """`via` with a system's star before each place in it that's reached from another system (live 2026-10-24:
+    "Cannot travel directly from CAELZAROR to ISOLITHOR-KUIPER (different systems). Add a star designation as an
+    intermediate waypoint")."""
+    out: list[str] = []
+    prev = (origin or "").split("-")[0]
+    for v in via:
+        star = v.split("-")[0]
+        if "-" in v and prev and star != prev:
+            out.append(star)
+        out.append(v)
+        prev = star
+    return out
+
+
 def total_seconds(resp: Any) -> float | None:
     """A travel preview's total time: total_time_seconds, else its legs summed."""
     if not isinstance(resp, dict):

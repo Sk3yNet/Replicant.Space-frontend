@@ -60,7 +60,7 @@ def test_leaving_from_a_belt_goes_via_the_nearest_surge_spot_not_the_entry_point
 def test_arriving_takes_the_off_ramp_nearest_the_destination(client):
     # 2D6BFDF1 2026-10-22: surged to ISOLITHOR-1-L4, then cruised 499 AU to ISOLITHOR-BELT-1
     sent, job = _run(client, at="Y-2-L4", dest="Z-BELT-1")
-    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]}]
+    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z", "Z-KUIPER"]}]   # the star first (live)
     sent, _ = _run(client, at="Y-2-L4", dest="Z-1")                                     # next to the entry point: as it is
     assert sent == [{"command": "travel", "destination": "Z-1"}]
 
@@ -69,7 +69,7 @@ def test_trip_via_plans_a_hand_sent_trip_quietly(client):
     _run(client, at="Y-2-L4")   # sets up system Z and V1
     e = eng(client)
     log0 = len(client.portal.call(client.app.state.db.kv_get, "automation_log", []) or [])
-    assert client.portal.call(e.trip_via, "V1", "Z-BELT-1") == ["Z-KUIPER"]
+    assert client.portal.call(e.trip_via, "V1", "Z-BELT-1") == ["Z", "Z-KUIPER"]
     assert len(client.portal.call(client.app.state.db.kv_get, "automation_log", []) or []) == log0
 
 
@@ -96,3 +96,12 @@ def test_replicant_route_preview_takes_the_planned_waypoints_and_shows_the_savin
     assert sent[-1] == ("/replicants/77F75255/travel", {"destination": "Z-BELT-1", "via": ["Z-KUIPER"]})
     client.post("/replicants/77F75255/travel", data={"destination": "Z-BELT-1", "via": ""}, headers=HX)
     assert sent[-1] == ("/replicants/77F75255/travel", {"destination": "Z-BELT-1"})
+
+
+def test_a_spot_in_another_system_gets_its_star_first():
+    # Joe 2026-10-24: "Cannot travel directly from CAELZAROR to ISOLITHOR-KUIPER (different systems)"
+    from rsweb.hubroute import stars_between
+    assert stars_between("FALQUORYX-1-L4", ["CAELZAROR", "ISOLITHOR-KUIPER"]) == ["CAELZAROR", "ISOLITHOR", "ISOLITHOR-KUIPER"]
+    assert stars_between("FALQUORYX-1-L4", ["CAELZAROR", "ISOLITHOR", "ISOLITHOR-KUIPER"]) == ["CAELZAROR", "ISOLITHOR",
+                                                                                               "ISOLITHOR-KUIPER"]
+    assert stars_between("Z-BELT-1", ["Z-KUIPER"]) == ["Z-KUIPER"]
