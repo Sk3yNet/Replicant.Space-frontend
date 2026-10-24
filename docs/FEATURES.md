@@ -279,8 +279,8 @@ Incoming asteroids with a propulsor estimate and **Defend now**.
 - Rocks you launched only give up the resources chosen for them and keep 5 % of each, so the impact still has its
   terraform effect.
 - While rigs work, the rock's stockpile is a top-priority logistics pickup.
-- An idle survey drone in the system (else the one whose belt search started last, never one tracking a site) goes to a
-  rock being mined and stays, scanning it every 30 minutes (a setting) for exact amounts until the cutoff. The card
+- An idle belt surveyor or survey drone in the system (belt surveyors first; else the one whose belt search started
+  last, never one tracking a site) goes to a rock being mined and stays, scanning it every 30 minutes (a setting) for exact amounts until the cutoff. The card
   shows the scan and your rigs.
 
 <br clear="right">
@@ -341,6 +341,8 @@ bootstrap), a home and a loadout (its own lines or a template).
   where they're short (within the supply range, default 1728 ly: the sector range), and what's still missing is printed and carried there
   (large devices are compacted first).
 - Placed beacons and relays are never made spare or moved.
+- **Belt surveyors** (said to search belts about 4x faster) search on their own, ahead of survey drones, wherever belts
+  get searched or rocks scanned. A fleet's belt surveyors at home fill its survey drone loadout one for one.
 - **Carriers**: a borrowed carrier only comes from within the supply range of the pick-up (the trip itself can be any
   length, e.g. a new home across the gap); a fleet's own carriers go anywhere. Deliveries use logistics-fleet carriers
   (or spare carriers in no fleet); any other fleet's carrier only picks up its own fleet's members and is never
@@ -677,7 +679,7 @@ yield quota. The built-in *Mining Rush: spread out* order uses them.
 | `print 2 mining_drone` | print devices |
 | `wait: 500 structural` | wait for a stock level |
 | `mine until objective` | mine until the scenario's objective is met |
-| `survey` | survey drones at the belt search it |
+| `survey` | belt surveyors and survey drones at the belt search it |
 | `controller: gather_evenly` | a mining controller at the belt adopts the drones there, takes the directive and is launched, so they keep mining after the vessel leaves |
 | `next system` | the vessel flies to the nearest unvisited system with whatever it printed aboard |
 | `each system:` … `repeat` | loop back to it; a system with no belt is skipped |

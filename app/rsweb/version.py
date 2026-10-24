@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.246.0"
+VERSION = "1.247.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.247.0", "2026-10-24", "Belt surveyors (said to search belts about 4x faster than survey drones) are used wherever belts get searched, and go first: re-opening sites at a worked-out belt and filling a belt's free site slots, a mining fleet starting work at its belt, and the asteroid scans. They search on their own (no AMI controller takes them). They count as survey drones on the belt viability card and the drone tally, in a bootstrap home's survey-per-miner ratio and its hub loadout, and a stationed fleet's belt surveyors at home fill its survey drone loadout (extra survey drones go spare)."),
     ("1.246.0", "2026-10-24", "Relay rollout: each seed system has its own radius (Map › Relays, one box per seed, or STAR:ly in the seeds list), so SOLARES can stay close while FALQUORYX reaches far. Seeds you don't set use the default radius. A system counts for the nearest seed whose radius it lies in."),
     ("1.244.0", "2026-10-24", "Mining fleets may work a hub home: a stationed fleet's home blocks mining missions (target list, Launch check, Prospects scoring) only when that fleet has miners in its loadout or among its members. Explore missions still keep out of every stationed home."),
     ("1.243.0", "2026-10-24", "A replicant's travel preview and Go plan the route like automated trips: surge hops to a Kuiper or Oort point, a hub on the way when the game's previews say it's faster, and the off-ramp nearest the destination. Before, the form sent only the destination and the game's own route takes none of them (FALQUORYX to ISOLITHOR-BELT-1 surged to ISOLITHOR-1-L4, then cruised 499 AU). The preview names the waypoints and the time saved against the game's direct route; a refused waypoint falls back to the game's route."),

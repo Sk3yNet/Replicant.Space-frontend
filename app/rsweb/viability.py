@@ -122,7 +122,7 @@ def observe(state: dict, devices: list[dict], details: dict[str, dict], now: str
         here = [d for d in devices if belt_of(d.get("location")) == b and d.get("device_type") == "mining_drone"]
         rec["miners"] = len(here)
         rec["mining"] = sum(1 for d in here if str(d.get("status") or "").startswith("mining"))
-        rec["survey"] = sum(1 for d in devices if belt_of(d.get("location")) == b and d.get("device_type") == "survey_drone")
+        rec["survey"] = sum(1 for d in devices if belt_of(d.get("location")) == b and d.get("device_type") in ("survey_drone", "belt_surveyor"))
         rec["seen_at"] = now
     return state, notes
 

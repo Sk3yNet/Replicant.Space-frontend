@@ -136,7 +136,8 @@ def f_num(v: Any) -> str:
     return f"{int(n):,}" if n == int(n) else f"{n:,.2f}"
 
 
-DRONE_KINDS = (("mining_drone", "mining", "M"), ("survey_drone", "survey", "S"), ("transport_drone", "transport", "T"),
+DRONE_KINDS = (("mining_drone", "mining", "M"), ("survey_drone", "survey", "S"), ("belt_surveyor", "survey", "S"),
+               ("transport_drone", "transport", "T"),
                ("transport_hauler", "transport", "T"), ("maintenance_drone", "maintenance", "R"))
 
 

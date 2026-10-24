@@ -522,6 +522,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             want = int(wants.get(t) or 0)
             ride = min(want, riders[tag][t])   # the replicants' vessels in the fleet fill part of the loadout
             want -= ride
+            if t == "survey_drone":   # the fleet's belt surveyors at home stand in for survey drones (owner 2026-10-24)
+                want -= min(want, sum(1 for d in mine if d.get("device_type") == "belt_surveyor"
+                                      and star_of(d.get("location")) == star))
             have = [d for d in mine if (d.get("device_type") or "device") == t] + \
                    [d for d in free if (d.get("device_type") or "device") == t]
             ward_hold = star in warded and t in wards.MINING_TYPES and want > len(have)

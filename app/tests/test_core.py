@@ -1545,6 +1545,38 @@ def test_reopen_sites_with_drones_only_and_tracking_drones_stay(client):
     assert "spare" in p["tag_add"].get("SD1", []) and "spare" not in p["tag_add"].get("SD2", [])
 
 
+def test_reopen_sites_prefers_belt_surveyors(client):
+    eng = _enable(client, "reopen_sites")
+    devices = [
+        {"device_code": "72779B6A", "device_type": "ami_survey_controller", "location": "FAL-BELT-1", "status": "idle"},
+        {"device_code": "SD1", "device_type": "survey_drone", "location": "FAL-1", "status": "idle"},
+        {"device_code": "BS1", "device_type": "belt_surveyor", "location": "FAL-2", "status": "idle", "features": ["cruise", "survey"]},
+    ]
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(client.app.state.db.kv_set, "exhausted_places", {"FAL-BELT-1": __import__("rsweb.db", fromlist=["x"]).now_iso()})
+    done = client.portal.call(eng.rule_reopen_sites)
+    # the belt surveyor searches on its own first; the controller adopts only the survey drone
+    assert done[0] == "BS1 → search FAL-BELT-1" and done[1] == "72779B6A → belt_search FAL-BELT-1"
+    adopt = [s["body"] for j in client.portal.call(eng.jobs) if j["rule"] == "reopen_sites" for s in j["steps"]
+             if (s.get("body") or {}).get("command") == "adopt"]
+    assert adopt == [{"command": "adopt", "devices": ["SD1"]}]
+    from rsweb import sites
+    assert [d["device_code"] for d in sites.surveyors_first(devices[1:])] == ["BS1", "SD1"]
+    devices[2].update(location="FAL-BELT-1", status="tracking")
+    assert [d["device_code"] for d in sites.survey_at(devices, "FAL-BELT-1")] == ["BS1"]
+
+
+def test_belt_surveyors_fill_survey_drone_wants():
+    from rsweb import loadouts as lo
+    devices = [{"device_code": "BS1", "device_type": "belt_surveyor", "location": "FAL-BELT-1", "status": "tracking",
+                "tags": ["fleet:m"]},
+               {"device_code": "SD1", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["fleet:m"]},
+               {"device_code": "SD2", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "idle", "tags": ["fleet:m"]}]
+    cfg = {"fleets": [{"id": "m", "name": "M", "role": "mining", "home": "FAL", "station": True, "wants": {"survey_drone": 2}}]}
+    p = lo.plan(cfg, devices, [], {}, {}, {}, set(), [], {})
+    assert sum("spare" in p["tag_add"].get(c, []) for c in ("SD1", "SD2")) == 1 and "spare" not in p["tag_add"].get("BS1", [])
+
+
 def test_log_fixes_ferry_sticky_and_moving_carrier():
     from rsweb import loadouts as lo
     stars = {"AEM": {"position": {"x": 0, "y": 0, "z": 0}}, "FAL": {"position": {"x": 1, "y": 0, "z": 0}}}

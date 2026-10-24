@@ -203,7 +203,7 @@ def compound(f: dict, w: dict, star: str, cap: int, autofactory: bool) -> dict:
     aboard = [d for d in here if d.get("stowed_in_device_code") == b["vessel"]]
     deployed = [d for d in here if d.get("location") == bloc and not d.get("stowed_in_device_code")]
     miners = [d for d in here if d.get("device_type") == "mining_drone"]
-    surveys = [d for d in here if d.get("device_type") == "survey_drone"]
+    surveys = [d for d in here if d.get("device_type") in ("survey_drone", "belt_surveyor")]   # belt surveyors count too
     factory = next((d for d in here if d.get("device_type") == "autofactory"), None)
     stock = amounts(w["inventory"].get(bloc))
     target = compound_target(len(miners), len(surveys), cap, s["survey_per_miner"], autofactory, bool(factory))
@@ -222,7 +222,7 @@ def compound(f: dict, w: dict, star: str, cap: int, autofactory: bool) -> dict:
             res = mine_choice(belt, need, skip)
             if res:   # nothing minable at the open sites: it waits for the survey drones
                 acts.append({"kind": "start_mining", "device": d["device_code"], "resource": res})
-        elif d.get("device_type") == "survey_drone" and st.startswith("idle"):
+        elif d.get("device_type") in ("survey_drone", "belt_surveyor") and st.startswith("idle"):
             acts.append({"kind": "search", "device": d["device_code"]})
     gate = (f"{len(miners)} mining + {len(surveys)} survey drones of {cap}"
             + ("" if not autofactory else " · autofactory " + ("✓" if factory else "to print")))

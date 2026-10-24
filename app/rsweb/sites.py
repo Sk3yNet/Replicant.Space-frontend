@@ -22,6 +22,22 @@ WORKING = ("tracking", "searching")
 # detail listed no sites: searches under way count toward the cap): no new search there for this long.
 FULL_WAIT = timedelta(minutes=90)
 MAX_SITES = 5   # the game's most active sites per belt ("Maximum active sites (5) reached at this belt")
+# Belt surveyors search belts about four times faster than survey drones (owner 2026-10-24), so they get the belt's
+# search slots first. Live 2026-10-23: features cruise + survey only (no stow, no deploy, no surge), commands
+# scan/search/travel, never under an AMI controller: they search on their own.
+BELT_SURVEYOR = "belt_surveyor"
+SURVEYORS = (BELT_SURVEYOR, "survey_drone")
+
+
+def is_surveyor(d: dict) -> bool:
+    """A device that searches belts and scans: a belt surveyor or a survey drone."""
+    t = d.get("device_type") or ""
+    return t == BELT_SURVEYOR or "survey_drone" in t
+
+
+def surveyors_first(ds: list[dict]) -> list[dict]:
+    """Belt surveyors ahead of survey drones (stable otherwise)."""
+    return sorted(ds, key=lambda d: d.get("device_type") != BELT_SURVEYOR)
 
 
 def star_of(loc: str | None) -> str:
@@ -46,8 +62,8 @@ def exhausted_belts(devices: list[dict], learned: list[str]) -> dict[str, str]:
 
 
 def survey_at(devices: list[dict], belt: str) -> list[dict]:
-    """Survey drones already opening/holding a site at this belt."""
-    return [d for d in devices if "survey_drone" in (d.get("device_type") or "") and d.get("location") == belt
+    """Survey drones and belt surveyors already opening/holding a site at this belt."""
+    return [d for d in devices if is_surveyor(d) and d.get("location") == belt
             and str(d.get("status") or "").startswith(WORKING)]
 
 

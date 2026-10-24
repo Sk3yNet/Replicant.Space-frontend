@@ -997,6 +997,11 @@ def mining_work_steps(fleet: dict, devices: list[dict], belt: str | None, delive
         put_to_work(ctrl["mining_controller"], free("mining_drone", ctrl["mining_controller"]), "gather_salvage",
                     {"location": place, "recall": False})
     else:
+        # belt surveyors search on their own (no controller takes them) and go first: about 4x faster (owner 2026-10-24)
+        from .sites import BELT_SURVEYOR, WORKING
+        for d in ms:
+            if d.get("device_type") == BELT_SURVEYOR and not str(d.get("status") or "").startswith(WORKING):
+                steps.append(step(f"{d['device_code']}: search {place}", f"/devices/{d['device_code']}", {"command": "search"}))
         put_to_work(ctrl["survey_controller"], free("survey_drone", ctrl["survey_controller"]), "belt_search", {})
         put_to_work(ctrl["mining_controller"], free("mining_drone", ctrl["mining_controller"]), "gather_evenly", {})
     if deliver_to and ctrl["transport_controller"]:

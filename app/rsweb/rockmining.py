@@ -166,8 +166,10 @@ def plan(objs: dict[str, dict], devices: list[dict], cfg: dict, busy: set[str], 
         every = float(cfg.get("scan_minutes") or 30) * 60
         taken: set[str] = set()
         idle = lambda d: str(d.get("status") or "").lower().startswith("idle") and free(d)   # noqa: E731
-        surveyors = [d for d in devices if d.get("device_type") == "survey_drone"
-                     and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")]
+        from .sites import BELT_SURVEYOR, is_surveyor, surveyors_first
+        # belt surveyors first: about 4x faster than survey drones (owner 2026-10-24)
+        surveyors = surveyors_first([d for d in devices if is_surveyor(d)
+                                     and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")])
         for r in sorted(x for x in worked if x in flying):
             here = [d for d in surveyors if d.get("location") == r]
             if here:   # owner 2026-10-22: a drone stays at the rock and scans every scan_minutes (it leaves at the cutoff)
@@ -184,7 +186,8 @@ def plan(objs: dict[str, dict], devices: list[dict], cfg: dict, busy: set[str], 
                      and (idle(d) or str(d.get("status") or "").lower().startswith("searching"))]
             # owner 2026-10-22: of the searching ones, the search that started last (it has the least to lose)
             started = lambda d: -(_ts(((d.get("scan") or {}).get("started_at"))) or 0)   # noqa: E731
-            drone = min(spare, key=lambda d: (not idle(d), started(d), d["device_code"]), default=None)
+            drone = min(spare, key=lambda d: (not idle(d), d.get("device_type") != BELT_SURVEYOR, started(d), d["device_code"]),
+                        default=None)
             if drone:
                 taken.add(drone["device_code"])
                 out["scan"].append({"code": drone["device_code"], "rock": r, "here": False, "stop": not idle(drone)})

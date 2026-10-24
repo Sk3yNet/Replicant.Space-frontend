@@ -373,7 +373,9 @@ class BootstrapMixin:
         s = bt.settings(b)
         wants = {**dict(have), **bt.HUB_KIT}
         wants["mining_drone"] = max(wants.get("mining_drone", 0), int(s["hub_miners"]))
-        wants["survey_drone"] = max(wants.get("survey_drone", 0), math.ceil(wants["mining_drone"] * s["survey_per_miner"]))
+        # belt surveyors there stand in for survey drones (about 4x faster, owner 2026-10-24)
+        wants["survey_drone"] = max(wants.get("survey_drone", 0),
+                                    math.ceil(wants["mining_drone"] * s["survey_per_miner"]) - have.get("belt_surveyor", 0))
         fleets.append({"id": hid, "name": f"{f['name']} · Hub", "role": "mining", "home": hub, "wants": wants,
                        "station": True, "materials": "self", "template": None, "family": f["id"], "parent": f["id"]})
         b.setdefault("children", {})["hub"] = hid
