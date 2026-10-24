@@ -3717,8 +3717,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             st["wait_device"] = dcode
             steps.append(st)
         here = ctrl.get("location") if not carried_ctrl else vessel_loc
-        if cfg.get("use_idle", True):
-            drones += [d["device_code"] for d in devices if "survey_drone" in (d.get("device_type") or "")
+        if cfg.get("use_idle", True):   # idle belt surveyors here too: a survey controller adopts them (live 2026-10-24)
+            drones += [d["device_code"] for d in devices if ("survey_drone" in (d.get("device_type") or "")
+                                                            or d.get("device_type") == "belt_surveyor")
                        and d.get("location") == here
                        and str(d.get("status", "")).startswith("idle") and d["device_code"] not in busy | set(drones)]
         # a survey controller works from the belt (or the inner system when there's none): take it and its drones there
@@ -5125,20 +5126,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 continue  # enough drones already opening/holding sites there
             ctrls = [d for d in devices if "survey" in (d.get("device_type") or "") and "controller" in (d.get("device_type") or "")
                      and star_of(d.get("location")) == star and d["device_code"] not in busy and d.get("in_control_range") is not False]
-            idle = [d for d in devices if sites.is_surveyor(d) and star_of(d.get("location")) == star
-                    and str(d.get("status") or "").startswith("idle") and d["device_code"] not in busy
-                    and d.get("in_control_range") is not False]
-            # belt surveyors first (about 4x faster, owner 2026-10-24): they search on their own, never under a controller
-            quick = [d for d in idle if d.get("device_type") == sites.BELT_SURVEYOR and d["device_code"] not in managed][:per - have]
-            for d in quick:
-                await self.create_job("reopen_sites", f"{d['device_code']}: search {belt} ({why})", d["device_code"],
-                                      sites.drone_steps(d, belt), {"belt": belt})
-                done.append(f"{d['device_code']} → search {belt}")
-            have += len(quick)
-            idle = [d for d in idle if d.get("device_type") != sites.BELT_SURVEYOR]
-            if have >= per:
-                state[belt] = now.isoformat(timespec="seconds")
-                continue
+            # belt surveyors first (about 4x faster, owner 2026-10-24); a survey controller adopts them too
+            idle = sites.surveyors_first([d for d in devices if sites.is_surveyor(d) and star_of(d.get("location")) == star
+                                          and str(d.get("status") or "").startswith("idle") and d["device_code"] not in busy
+                                          and d.get("in_control_range") is not False])
             ctrl = None
             if cfg.get("use_ami", True) and ctrls:
                 def on_belt_search(c: dict) -> bool:
@@ -5156,7 +5147,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 done.append(f"{ctrl['device_code']} → belt_search {belt}")
             else:
                 free = [d for d in idle if d["device_code"] not in managed][:per - have]
-                if not free and not quick:
+                if not free:
                     await self.log("reopen_sites", f"{belt} is worked out but there's no idle survey drone in {star} to search it", "alert")
                     state[belt] = now.isoformat(timespec="seconds")
                     continue

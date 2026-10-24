@@ -1555,11 +1555,15 @@ def test_reopen_sites_prefers_belt_surveyors(client):
     client.portal.call(client.app.state.db.kv_set, "devices", devices)
     client.portal.call(client.app.state.db.kv_set, "exhausted_places", {"FAL-BELT-1": __import__("rsweb.db", fromlist=["x"]).now_iso()})
     done = client.portal.call(eng.rule_reopen_sites)
-    # the belt surveyor searches on its own first; the controller adopts only the survey drone
-    assert done[0] == "BS1 → search FAL-BELT-1" and done[1] == "72779B6A → belt_search FAL-BELT-1"
+    # the controller adopts the belt surveyor first, then the survey drone
+    assert done == ["72779B6A → belt_search FAL-BELT-1"]
     adopt = [s["body"] for j in client.portal.call(eng.jobs) if j["rule"] == "reopen_sites" for s in j["steps"]
              if (s.get("body") or {}).get("command") == "adopt"]
-    assert adopt == [{"command": "adopt", "devices": ["SD1"]}]
+    assert adopt == [{"command": "adopt", "devices": ["BS1", "SD1"]}]
+    from rsweb import ami_schedule as am
+    here = [{"device_code": "SD0", "device_type": "survey_drone", "location": "FAL-BELT-1", "status": "idle"},
+            {"device_code": "BS9", "device_type": "belt_surveyor", "location": "FAL-BELT-1", "status": "idle"}]
+    assert am.adoptable(here, devices[0], {}) == ["BS9", "SD0"] and am.drone_kind(here[1]) == "survey"
     from rsweb import sites
     assert [d["device_code"] for d in sites.surveyors_first(devices[1:])] == ["BS1", "SD1"]
     devices[2].update(location="FAL-BELT-1", status="tracking")

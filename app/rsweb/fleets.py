@@ -997,12 +997,16 @@ def mining_work_steps(fleet: dict, devices: list[dict], belt: str | None, delive
         put_to_work(ctrl["mining_controller"], free("mining_drone", ctrl["mining_controller"]), "gather_salvage",
                     {"location": place, "recall": False})
     else:
-        # belt surveyors search on their own (no controller takes them) and go first: about 4x faster (owner 2026-10-24)
+        # belt surveyors go first (about 4x faster, owner 2026-10-24): the survey controller adopts them with its
+        # drones (live 2026-10-24); with no controller they search on their own
         from .sites import BELT_SURVEYOR, WORKING
-        for d in ms:
-            if d.get("device_type") == BELT_SURVEYOR and not str(d.get("status") or "").startswith(WORKING):
-                steps.append(step(f"{d['device_code']}: search {place}", f"/devices/{d['device_code']}", {"command": "search"}))
-        put_to_work(ctrl["survey_controller"], free("survey_drone", ctrl["survey_controller"]), "belt_search", {})
+        sc = ctrl["survey_controller"]
+        if sc:
+            put_to_work(sc, free(BELT_SURVEYOR, sc) + free("survey_drone", sc), "belt_search", {})
+        else:
+            for d in ms:
+                if d.get("device_type") == BELT_SURVEYOR and not str(d.get("status") or "").startswith(WORKING):
+                    steps.append(step(f"{d['device_code']}: search {place}", f"/devices/{d['device_code']}", {"command": "search"}))
         put_to_work(ctrl["mining_controller"], free("mining_drone", ctrl["mining_controller"]), "gather_evenly", {})
     if deliver_to and ctrl["transport_controller"]:
         haulers = [d["device_code"] for d in ms if d.get("device_type") in ("cargo_freighter", "transport_drone", "transport_hauler")
@@ -1062,12 +1066,12 @@ def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None
     ctrl = next((d for d in ms if kind(d) == "survey_controller"), None)
     # the controller's own drones are its business; with no controller every drone is the fleet's (an unset controller
     # code once matched the missing controller's and left none: Delta Force, 2026-10-22)
-    drones = [d["device_code"] for d in ms if "survey_drone" in (d.get("device_type") or "")
+    # belt surveyors first; a survey controller adopts them too (live 2026-10-24)
+    drones = [d["device_code"] for d in ms if d.get("device_type") == "belt_surveyor"
+              and (not ctrl or d.get("controller_device_code") != ctrl["device_code"])] + \
+             [d["device_code"] for d in ms if "survey_drone" in (d.get("device_type") or "")
               and (not ctrl or d.get("controller_device_code") != ctrl["device_code"])]
-    # belt surveyors scan on their own (no controller takes them)
-    own = [d["device_code"] for d in ms if d.get("device_type") == "belt_surveyor"]
     if not ctrl:
-        drones = own + drones
         # no controller: each drone just scans where it is (the system scan already maps the bodies) — from a body or
         # belt: at a Lagrange point the game says "Survey scans require orbiting a planet, moon, belt, or object"
         # (Delta Force, 2026-10-22), so a drone there goes to `spot` first
@@ -1105,7 +1109,6 @@ def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None
             steps.append(w)
     if drones:
         steps.append(step(f"{code}: adopt {len(drones)}", f"/devices/{code}", {"command": "adopt", "devices": drones}))
-    steps += [step(f"{c}: scan", f"/devices/{c}", {"command": "scan"}) for c in own]
     steps.append(step(f"{code}: survey_system", f"/devices/{code}",
                       {"command": "set_directive", "directive": "survey_system",
                        "configuration": {"planets": "all", "moons": "all", "recall": True}}, critical=True))

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.249.0"
+VERSION = "1.250.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.250.0", "2026-10-24", "Survey controllers adopt belt surveyors (confirmed live), belt surveyors first: when re-opening sites, in a mining fleet's belt_search, in a survey fleet's survey_system, in AMI surveys on arrival, and in the AMI schedules' and hand-off's adoption of idle drones. Without a controller belt surveyors still search or scan on their own."),
     ("1.249.0", "2026-10-24", "Belt surveyors are their own loadout item again (owner): 1.248.0's stand-in for survey drones is undone, so loadouts, the Fleets roster, prints and a bootstrap hub's wants count belt surveyors and survey drones separately. Everywhere the app works with survey drones it still takes belt surveyors too, belt surveyors first: belt searches, site re-opening, a mining fleet's work, asteroid scans, a bootstrap home's ratio and searches, a supply system's surveyors (belt surveyors picked first), a survey fleet's scans, and the counts."),
     ("1.248.1", "2026-10-24", "Planned routes name a system's star before a surge spot reached from another system, as the game requires. A hub plus the off-ramp (via CAELZAROR, ISOLITHOR-KUIPER) was refused (\"Cannot travel directly from CAELZAROR to ISOLITHOR-KUIPER (different systems)\") and the trip fell back to the game's route; now it goes via CAELZAROR, ISOLITHOR, ISOLITHOR-KUIPER. Applies to the replicant travel form and automated trips; a refused surge hop on an automated trip keeps only its hub waypoint."),
     ("1.248.0", "2026-10-24", "Belt surveyors are printed and shipped in place of survey drones. A fleet loadout's survey drones are filled by belt surveyors first (members, spares, then prints of belt surveyors once their blueprint is known); a loadout that names belt surveyors itself counts them on their own. The Fleets roster counts them in the survey drone row. Carriers attach them, since they can't stow. A bootstrap hub folds its belt surveyors into its survey drone count, and a supply system wants its full share of surveyors even when the vessel can only take survey drones: the loadout pass sends or prints the rest."),

@@ -341,7 +341,7 @@ bootstrap), a home and a loadout (its own lines or a template).
   where they're short (within the supply range, default 1728 ly: the sector range), and what's still missing is printed and carried there
   (large devices are compacted first).
 - Placed beacons and relays are never made spare or moved.
-- **Belt surveyors** (said to search belts about 4x faster) search on their own, ahead of survey drones, wherever belts
+- **Belt surveyors** (said to search belts about 4x faster) are adopted by survey controllers (or search on their own without one), ahead of survey drones, wherever belts
   get searched or rocks scanned. In loadouts they are their own item, counted apart from survey drones.
 - **Carriers**: a borrowed carrier only comes from within the supply range of the pick-up (the trip itself can be any
   length, e.g. a new home across the gap); a fleet's own carriers go anywhere. Deliveries use logistics-fleet carriers

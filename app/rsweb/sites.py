@@ -24,7 +24,7 @@ FULL_WAIT = timedelta(minutes=90)
 MAX_SITES = 5   # the game's most active sites per belt ("Maximum active sites (5) reached at this belt")
 # Belt surveyors search belts about four times faster than survey drones (owner 2026-10-24), so they get the belt's
 # search slots first. Live 2026-10-23: features cruise + survey only (no stow, no deploy, no surge), commands
-# scan/search/travel, never under an AMI controller: they search on their own.
+# scan/search/travel. A survey controller adopts them (live 2026-10-24); without one they search on their own.
 BELT_SURVEYOR = "belt_surveyor"
 SURVEYORS = (BELT_SURVEYOR, "survey_drone")
 

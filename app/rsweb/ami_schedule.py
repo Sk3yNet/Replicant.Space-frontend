@@ -15,6 +15,14 @@ from .automations import step
 
 # which drones each kind of controller looks after
 DRONE_FOR_KIND = {"mining": "mining_drone", "survey": "survey_drone", "transport": "transport"}
+# other device types a controller of that kind adopts (live 2026-10-24: a survey controller adopted a belt surveyor)
+ALSO_ADOPTS = {"survey": ("belt_surveyor",)}
+
+
+def runs(kind: str | None, device_type: str | None) -> bool:
+    """A controller of this kind runs devices of this type."""
+    t = device_type or ""
+    return bool(kind) and kind in DRONE_FOR_KIND and (DRONE_FOR_KIND[kind] in t or t in ALSO_ADOPTS.get(kind, ()))
 FINISHED = ("directive.completed", "directive.cleared", "directive.paused")
 
 
@@ -136,15 +144,16 @@ def reserved(d: dict) -> bool:
 def adoptable(devices: list[dict], ctrl: dict, managed: dict[str, str]) -> list[str]:
     """Idle drones of the right kind at the controller's location that no controller manages
     (and that belong to the same fleet as the controller, or to none)."""
-    want = DRONE_FOR_KIND.get(kind_of(ctrl.get("device_type")))
-    if not want or "ferry" in (ctrl.get("tags") or []):
+    kind = kind_of(ctrl.get("device_type"))
+    if kind not in DRONE_FOR_KIND or "ferry" in (ctrl.get("tags") or []):
         return []  # the ferry controller takes freighters (loadouts handles that), not in-system drones
-    return sorted(d["device_code"] for d in devices
-                  if want in (d.get("device_type") or "") and d.get("location") == ctrl.get("location")
-                  and str(d.get("status", "")).startswith("idle") and d.get("device_code") not in managed
-                  and d.get("device_code") != ctrl.get("device_code") and not is_controller(d)
-                  and same_side(d, ctrl) and not in_transit(d) and "spare" not in (d.get("tags") or [])
-                  and not d.get("attached_to_device_code") and not d.get("stowed_in_device_code"))
+    # belt surveyors first (about 4x faster at belt searches, owner 2026-10-24)
+    return [d["device_code"] for d in sorted(devices, key=lambda d: (d.get("device_type") != "belt_surveyor", d["device_code"]))
+            if runs(kind, d.get("device_type")) and d.get("location") == ctrl.get("location")
+            and str(d.get("status", "")).startswith("idle") and d.get("device_code") not in managed
+            and d.get("device_code") != ctrl.get("device_code") and not is_controller(d)
+            and same_side(d, ctrl) and not in_transit(d) and "spare" not in (d.get("tags") or [])
+            and not d.get("attached_to_device_code") and not d.get("stowed_in_device_code")]
 
 
 def schedule_steps(ctrl: dict, sched: dict, adopt: list[str]) -> list[dict]:
@@ -192,8 +201,8 @@ def drone_kind(d: dict) -> str | None:
     t = d.get("device_type") or ""
     if is_controller(d):
         return None
-    for kind, want in DRONE_FOR_KIND.items():
-        if want in t:
+    for kind in DRONE_FOR_KIND:
+        if runs(kind, t):
             return kind
     return None
 
