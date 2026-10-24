@@ -373,9 +373,9 @@ class BootstrapMixin:
         s = bt.settings(b)
         wants = {**dict(have), **bt.HUB_KIT}
         wants["mining_drone"] = max(wants.get("mining_drone", 0), int(s["hub_miners"]))
-        # belt surveyors there stand in for survey drones (about 4x faster, owner 2026-10-24)
-        wants["survey_drone"] = max(wants.get("survey_drone", 0),
-                                    math.ceil(wants["mining_drone"] * s["survey_per_miner"]) - have.get("belt_surveyor", 0))
+        # belt surveyors there fill the survey drone count (loadouts.STAND_INS: printed instead when their blueprint is known)
+        wants["survey_drone"] = max(wants.get("survey_drone", 0) + wants.pop("belt_surveyor", 0),
+                                    math.ceil(wants["mining_drone"] * s["survey_per_miner"]))
         fleets.append({"id": hid, "name": f"{f['name']} · Hub", "role": "mining", "home": hub, "wants": wants,
                        "station": True, "materials": "self", "template": None, "family": f["id"], "parent": f["id"]})
         b.setdefault("children", {})["hub"] = hid
@@ -436,12 +436,15 @@ class BootstrapMixin:
             choose = lambda t, k: sorted((d for d in pool if d.get("device_type") == t and not d.get("stowed_in_device_code")),
                                        key=lambda d: (not str(d.get("status") or "").startswith("idle"), d["device_code"]))[:k]
             # survey drones go along to open the sites (owner 2026-10-23), as many per miner as the hub has
-            moved = choose("mining_drone", n) + choose("survey_drone", max(1, math.ceil(n * bt.settings(b)["survey_per_miner"])))
-            wants = dict(Counter(d["device_type"] for d in moved))
+            surveyors = max(1, math.ceil(n * bt.settings(b)["survey_per_miner"]))
+            moved = choose("mining_drone", n) + choose("survey_drone", surveyors)
+            took = dict(Counter(d["device_type"] for d in moved))
+            # what the vessel can't take (belt surveyors don't stow) the loadout pass sends or prints for it
+            wants = {**took, "survey_drone": max(took.get("survey_drone", 0), surveyors)}
             fleets.append({"id": sid, "name": f"{f['name']} · Supply {pick}", "role": "mining",
                            "home": pick, "wants": wants, "station": True, "materials": hid, "template": None,
                            "family": fid, "parent": fid})
-            for t, k in wants.items():
+            for t, k in took.items():
                 hubf.setdefault("wants", {})[t] = max(0, int((hubf.get("wants") or {}).get(t) or 0) - k)
             b["supply"] = {"star": pick, "fleet": sid, "for": list(dec.get("for") or [])}
             b["decision"] = None

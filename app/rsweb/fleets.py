@@ -389,9 +389,13 @@ def roster(fleet: dict, devices: list[dict]) -> dict:
     for d in ms:
         by_type.setdefault(d.get("device_type") or "device", []).append(d)
     rows = []
-    for t in sorted(set(by_type) | set(fleet.get("wants") or {})):
-        want = int((fleet.get("wants") or {}).get(t) or 0)
-        have = by_type.get(t, [])
+    wants = fleet.get("wants") or {}
+    # belt surveyors fill a loadout's survey drones unless it names them itself (loadouts.STAND_INS)
+    from .loadouts import STAND_INS
+    folded = {STAND_INS[t]: t for t in wants if t in STAND_INS and STAND_INS[t] not in wants}
+    for t in sorted((set(by_type) | set(wants)) - set(folded)):
+        want = int(wants.get(t) or 0)
+        have = by_type.get(t, []) + [d for k, into in folded.items() if into == t for d in by_type.get(k, [])]
         rows.append({"type": t, "want": want, "have": len(have), "short": max(0, want - len(have)),
                      "codes": [d["device_code"] for d in have]})
     carriers = [d for d in ms if is_carrier(d)]

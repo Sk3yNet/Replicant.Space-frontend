@@ -1577,6 +1577,24 @@ def test_belt_surveyors_fill_survey_drone_wants():
     assert sum("spare" in p["tag_add"].get(c, []) for c in ("SD1", "SD2")) == 1 and "spare" not in p["tag_add"].get("BS1", [])
 
 
+def test_belt_surveyors_printed_for_survey_drone_wants():
+    from rsweb import loadouts as lo
+    cfg, devices, bps, inv, stars = _lo_world()
+    sd = next(b for b in bps if b["device_type"] == "survey_drone")
+    bps = bps + [{**sd, "device_type": "belt_surveyor", "features": ["cruise", "survey"]}]
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    assert p["prints"] and all(pr["device_type"] == "belt_surveyor" for pr in p["prints"] if pr["fleet"])
+    # an ordered belt surveyor counts as incoming survey drone: not printed again
+    orders = [{"device_type": "belt_surveyor", "star": pr["star"], "fleet": pr["fleet"]} for pr in p["prints"] for _ in range(pr["n"])]
+    p2 = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), orders, {})
+    inc = {(fid, r["type"]): r["incoming"] for fid, rep in p2["report"].items() for r in rep["rows"]}
+    assert all(inc[(o["fleet"], "survey_drone")] >= 1 for o in orders)
+    from rsweb import fleets as fl
+    r = fl.roster({"id": "m", "wants": {"survey_drone": 2}},
+                  [{"device_code": "BS1", "device_type": "belt_surveyor", "tags": ["fleet:m"]}])
+    assert [(x["type"], x["have"], x["short"]) for x in r["rows"]] == [("survey_drone", 1, 1)]
+
+
 def test_log_fixes_ferry_sticky_and_moving_carrier():
     from rsweb import loadouts as lo
     stars = {"AEM": {"position": {"x": 0, "y": 0, "z": 0}}, "FAL": {"position": {"x": 1, "y": 0, "z": 0}}}
