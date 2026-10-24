@@ -131,20 +131,20 @@ class OpsRules:
             busy.add(spare["device_code"])
             return ({"how": "send", "device": spare["device_code"]},
                     f"sending spare {label} {spare['device_code']} to {star} (the loadout pass carries it)")
-        ordered: dict[str, int] = {}
+        ordered: dict[str, int] = {}   # prints ordered so lately their factory's queue may not list them yet
         for k in wo.KINDS:
             for o in ((await self.db.kv_get(wo.kv_key(k), {}) or {}) if k != kind else orders).values():
-                if o.get("how") == "print" and o.get("factory"):
+                if wo.pending_print(o):
                     ordered[o["factory"]] = ordered.get(o["factory"], 0) + 1
         f = wo.factory_near(devices, star, busy, pos, reach, ordered)
         if not f:
-            return None, f"no spare {label} and no autofactory within {reach:g} ly of {star}"
+            return None, f"no spare {label} and no autofactory with a free print slot within {reach:g} ly of {star}"
         await self.create_job("wards", f"print a {label} on {f['device_code']} for {star}", f["device_code"],
                               lo.print_steps({"factory": f["device_code"], "factory_star": star_of_(f.get("location")),
                                               "device_type": dtype, "n": 1, "star": star,
                                               "tags": [lo.to_tag(star)] + ([lo.at_tag(at)] if at else [])}),
-                              {"devices": []}, force=True)
-        return ({"how": "print", "factory": f["device_code"]},
+                              {"devices": [], "outpost": star}, force=True)
+        return ({"how": "print", "factory": f["device_code"], "sourced": now_iso()},
                 f"printing a {label} on {f['device_code']} for {star} (the loadout pass then carries it there)")
 
     async def ward_orders_pass(self) -> list[str]:
@@ -166,6 +166,7 @@ class OpsRules:
                 devices = await self.devices()
                 busy = self.busy_devices(await self.jobs())
             changed = False
+            jobs = await self.jobs()
             cov = await self.civ_coverage() if kind == "beacon" else []
             for star, o in list(orders.items()):
                 here = wo.ward_here(devices, star, dtype)
@@ -214,7 +215,23 @@ class OpsRules:
                     out.append(f"{star}: {label} {here['device_code']} is up")
                     await self.log("wards", f"{star}: {label} {here['device_code']} is up", notify=True)
                     continue
-                if wo.expired(o):
+                if not here and wo.lost_print(devices, star, o, jobs, dtype):
+                    # the print never got into a queue (a full one, or it failed): send a spare or print it again
+                    o.pop("factory", None)
+                    how, msg = await self._outpost_source(kind, star, devices, busy, orders,
+                                                          at=(o.get("civ") or [None])[0] if civ else None)
+                    if how:
+                        o.update(how, at=now_iso())   # its 3 days start now: nothing was ever on its way
+                        o.pop("factory" if how["how"] == "send" else "device", None)
+                        await self.log("wards", f"{star}: the {label} print never showed up — {msg}")
+                    else:
+                        msg = f"waiting for a free print slot ({msg})"
+                    if msg != o.get("note"):
+                        o["note"] = msg
+                        out.append(f"{star}: {msg}")
+                    changed = True
+                    continue
+                if wo.expired(o) and (o.get("how") != "print" or o.get("factory")):
                     orders.pop(star)
                     changed = True
                     from . import metrics

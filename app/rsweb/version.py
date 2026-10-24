@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.241.0"
+VERSION = "1.241.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.241.1", "2026-10-24", "Relay orders whose print never happened are retried. Relay (and ward, beacon) orders went to the two SOLARES autofactories, whose print queues hold only 10, so most prints never got queued; the order still said printing and sat until it expired after 3 days (73 relay orders on 2026-10-23). Now a print order with nothing in a queue, nothing tagged for it and no job on it after 20 min sends a spare (16 stock relays sat at the belts meanwhile) or prints again on a factory with a free slot, and its 3 days start over; with every queue full it waits for a slot and doesn't expire."),
     ("1.241.0", "2026-10-23", "Beacons reach the civilization's body. A beacon in a civilization's system but not at its body (most were left at the relay's L4 point by a relay run, with no vessel left in the system to move it) is now pinned to the body, and the loadout pass sends a carrier that picks it up and drops it there; until then no second beacon is printed. Beacons ordered for a system with a civilization are pinned to its body from the start, so the run drops them right there. Contracts then shows the beacon instead of in system."),
     ("1.240.0", "2026-10-23", "Logistics carriers spread over the hubs. One logistics fleet still works anywhere, nearest carrier first, but each hub (FALQUORYX, SOLARES; ISOLITHOR once it is within the sector range) now has a share of every carrier class, weighted by its demand over the last 3 days, at least one each, and a carrier idle 30 min at a hub over its share flies to a hub under it. The Logistics page shows a Carriers per hub card. The loadout supply range now defaults to the sector range (1728 ly) instead of 100 ly, so fleet moves and spares may borrow carriers from the other hub (a saved 100 becomes 1728; set it lower on Fleets settings to limit it again)."),
     ("1.239.1", "2026-10-23", "Fleet moves with one-seat carriers. A borrowed carrier in no fleet (a spare or taxi surge plate) that brings a moving fleet home one device at a time now waits at the drop while more of the batch waits, instead of flying home and back between trips (Miner 5 SADICHBIA to BADU: about 4 min a trip instead of 20). The strays list and the move alert say a member is waiting for a free carrier when the loadout pass has it queued, instead of nothing is bringing it home."),

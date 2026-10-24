@@ -8,7 +8,10 @@ L4/L5 point). A beacon for a system with a local civilization goes on to that bo
 with intelligent / spacefaring life: civilizations only send requests to a beacon AT their planet or moon); the order is
 done once one of yours works there. kv "ward_orders" / "relay_requests" / "beacon_requests" ("beacon_orders" is the civilization
 beacons' own): {star: {how: activate|send|print, device, factory,
-at, note}}; an order not done in 3 days is dropped.
+at, sourced, note}}; an order not done in 3 days is dropped. A print order whose print never showed up (no print
+queued or printing for it, nothing tagged for it, no job on it: live 2026-10-21/22, 73 relay orders on two autofactories
+with 10-slot queues, nothing ever printed and every one expired) is sourced again: a spare, else a factory with a free
+queue slot, else it waits for one (and doesn't expire while it waits).
 """
 from __future__ import annotations
 
@@ -19,6 +22,8 @@ from . import wardhub as wh
 
 KV = "ward_orders"
 EXPIRE_DAYS = 3
+QUEUE_CAP = 10       # print queue slots when the device row doesn't say (autofactory queue_size)
+LOST_MINUTES = 20    # a print not in its factory's queue this long after it was ordered never got there
 KINDS = {"ward": "system_ward", "relay": "ftl_relay", "beacon": "ftl_beacon"}
 LABELS = {"ward": "ward", "relay": "FTL relay", "beacon": "FTL beacon"}
 
@@ -108,11 +113,16 @@ def load(f: dict) -> int:
     return len(f.get("print_queue") or []) + bool(f.get("printing"))
 
 
+def room(f: dict, pending: int = 0) -> int:
+    """Free print queue slots on a factory, less `pending` prints ordered on it that it doesn't list yet."""
+    return int(f.get("queue_size") or QUEUE_CAP) - len(f.get("print_queue") or []) - pending
+
+
 def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reach: float,
                  ordered: dict[str, int] | None = None) -> dict | None:
     """The autofactory to print a ward on, within reach of `star`: the shortest queue (counting wards already ordered
-    on it, `ordered`), then the nearest. Compacted or carried ones can't print (seen live 2026-10-11: four orders went to
-    1131B50B while 3E95BD59, idle beside it, lost every tie on its code)."""
+    on it, `ordered`), then the nearest; one with a full queue is skipped. Compacted or carried ones can't print (seen
+    live 2026-10-11: four orders went to 1131B50B while 3E95BD59, idle beside it, lost every tie on its code)."""
     out = []
     for f in devices:
         st = str(f.get("status") or "")
@@ -122,7 +132,7 @@ def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reac
                 or f.get("attached_to_device_code"):
             continue
         dist = lo._dist(star_of(f["location"]), star, pos)
-        if reach and reach < dist < 1e9:
+        if (reach and reach < dist < 1e9) or room(f, (ordered or {}).get(f["device_code"], 0)) <= 0:
             continue
         out.append((load(f) + (ordered or {}).get(f["device_code"], 0), dist, f["device_code"], f))
     return min(out, key=lambda x: x[:3])[3] if out else None
@@ -135,6 +145,34 @@ def queued_at(factory: dict, star: str, dtype: str = "system_ward") -> int | Non
         if q.get("device_type") == dtype and tag in (q.get("tags") or []):
             return i
     return None
+
+
+def _age_min(order: dict, now: datetime) -> float:
+    try:
+        return (now - datetime.fromisoformat(str(order.get("sourced") or order.get("at")))).total_seconds() / 60
+    except ValueError:
+        return 1e9
+
+
+def pending_print(order: dict, now: datetime | None = None) -> bool:
+    """A print ordered on a factory so lately that its queue may not show it yet."""
+    return (order.get("how") == "print" and bool(order.get("factory"))
+            and _age_min(order, now or datetime.now(timezone.utc)) < LOST_MINUTES)
+
+
+def lost_print(devices: list[dict], star: str, order: dict, jobs: list[dict], dtype: str = "system_ward",
+               now: datetime | None = None) -> bool:
+    """A print order with nothing to show for it: no print queued or printing for `star`, none of yours tagged for it,
+    no job still on it, and past LOST_MINUTES (or waiting for a free slot, with no factory)."""
+    if order.get("how") != "print":
+        return False
+    if order.get("factory") and _age_min(order, now or datetime.now(timezone.utc)) < LOST_MINUTES:
+        return False
+    if printing_for(devices, star, dtype) or bound_to(devices, star, dtype):
+        return False
+    return not any(j["status"] in ("running", "waiting") and ((j.get("meta") or {}).get("outpost") == star
+                                                              or str(j.get("title") or "").endswith(f" for {star}"))
+                   for j in jobs)
 
 
 def expired(order: dict, now: datetime | None = None) -> bool:

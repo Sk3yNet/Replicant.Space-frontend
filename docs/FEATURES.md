@@ -159,6 +159,9 @@ of the catalog after). What each marker and line means is in the [map legend](..
   - *Chained* (default) only goes to a system within 7.5 ly of a relay or hub of yours, one on order, or a seed, so the
     network grows outward in one piece.
   - A system that can't get one is skipped until *Retry skipped*; five failures in a row pause the rollout.
+  - Prints only go to an autofactory with a free queue slot. A print order that never shows up in a queue (20 min)
+    sends a spare instead or prints again, and its 3 days start over; with every queue full it waits (and doesn't
+    expire) for a free slot.
 - **On the galaxy map** (*relay network* layer, off by default): links are curves with no ring at each relay, solid for
   active networks and dashed for ones without a replicant; a hub's links are a darker shade of the network's color, and
   two relays both linked to the same hub don't show their own link. Relays on order are white rings, suggested bridges

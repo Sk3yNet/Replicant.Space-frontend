@@ -1115,3 +1115,33 @@ def test_release_lists_only_controlled_devices():
             {"device_code": "M3", "device_type": "mining_drone", "location": "SOL-4-L4"}]
     f = cmdspec.COMMANDS["release"][0]
     assert [o["value"] for o in cmdspec.device_options({"devices": devs, "here": "SOL-4-L4"}, f, "AMI")] == ["M1"]
+
+
+def test_lost_relay_print_is_sourced_again(client):
+    """Live 2026-10-21/22: relay orders on two autofactories with 10-slot queues never got printed and all expired."""
+    e = eng(client)
+    db = client.app.state.db
+    devs = [d for d in client.portal.call(db.kv_get, "devices") if d.get("device_type") not in ("ftl_relay", "autofactory")]
+    full = {"device_code": "FX3", "device_type": "autofactory", "location": "SOL-1", "queue_size": 2,
+            "print_queue": [{"device_type": "mining_drone"}, {"device_type": "mining_drone"}]}
+    open_f = {"device_code": "FX4", "device_type": "autofactory", "location": "SOL-2", "queue_size": 2, "print_queue": []}
+    spare = {"device_code": "RL9", "device_type": "ftl_relay", "location": "SOL-BELT-1", "status": "inactive",
+             "tags": ["spare", "stock"]}
+    old = "2026-10-21T02:57:13+00:00"
+    orders = {s: {"at": old, "how": "print", "factory": "FX3"} for s in ("ABOTEIN", "LERNA", "OXETH", "NENQ")}
+    client.portal.call(db.kv_set, "devices", devs + [full, open_f, spare])
+    client.portal.call(db.kv_set, "relay_requests", orders)
+    client.portal.call(e.ward_orders_pass)
+    orders = client.portal.call(db.kv_get, "relay_requests")
+    assert len(orders) == 4                                   # none dropped, though older than 3 days
+    assert sum(o["how"] == "send" for o in orders.values()) == 1   # the spare goes first
+    printed = [o for o in orders.values() if o.get("factory")]
+    assert len(printed) == 2 and {o["factory"] for o in printed} == {"FX4"}   # only the free slots, never the full queue
+    waiting = [o for o in orders.values() if o["how"] == "print" and not o.get("factory")]
+    assert len(waiting) == 1 and "free print slot" in waiting[0]["note"]
+    assert all(o["at"] > old for o in orders.values() if o["how"] == "send" or o.get("factory"))
+    # a fresh print isn't sourced twice while its queue catches up
+    client.portal.call(e.ward_orders_pass)
+    again = client.portal.call(db.kv_get, "relay_requests")
+    assert [o.get("factory") for o in again.values()] == [o.get("factory") for o in orders.values()]
+    assert sum("print a FTL relay on FX4" in j["title"] for j in client.portal.call(e.jobs)) == 2
