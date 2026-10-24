@@ -389,13 +389,9 @@ def roster(fleet: dict, devices: list[dict]) -> dict:
     for d in ms:
         by_type.setdefault(d.get("device_type") or "device", []).append(d)
     rows = []
-    wants = fleet.get("wants") or {}
-    # belt surveyors fill a loadout's survey drones unless it names them itself (loadouts.STAND_INS)
-    from .loadouts import STAND_INS
-    folded = {STAND_INS[t]: t for t in wants if t in STAND_INS and STAND_INS[t] not in wants}
-    for t in sorted((set(by_type) | set(wants)) - set(folded)):
-        want = int(wants.get(t) or 0)
-        have = by_type.get(t, []) + [d for k, into in folded.items() if into == t for d in by_type.get(k, [])]
+    for t in sorted(set(by_type) | set(fleet.get("wants") or {})):
+        want = int((fleet.get("wants") or {}).get(t) or 0)
+        have = by_type.get(t, [])
         rows.append({"type": t, "want": want, "have": len(have), "short": max(0, want - len(have)),
                      "codes": [d["device_code"] for d in have]})
     carriers = [d for d in ms if is_carrier(d)]
@@ -1068,7 +1064,10 @@ def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None
     # code once matched the missing controller's and left none: Delta Force, 2026-10-22)
     drones = [d["device_code"] for d in ms if "survey_drone" in (d.get("device_type") or "")
               and (not ctrl or d.get("controller_device_code") != ctrl["device_code"])]
+    # belt surveyors scan on their own (no controller takes them)
+    own = [d["device_code"] for d in ms if d.get("device_type") == "belt_surveyor"]
     if not ctrl:
+        drones = own + drones
         # no controller: each drone just scans where it is (the system scan already maps the bodies) — from a body or
         # belt: at a Lagrange point the game says "Survey scans require orbiting a planet, moon, belt, or object"
         # (Delta Force, 2026-10-22), so a drone there goes to `spot` first
@@ -1106,6 +1105,7 @@ def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None
             steps.append(w)
     if drones:
         steps.append(step(f"{code}: adopt {len(drones)}", f"/devices/{code}", {"command": "adopt", "devices": drones}))
+    steps += [step(f"{c}: scan", f"/devices/{c}", {"command": "scan"}) for c in own]
     steps.append(step(f"{code}: survey_system", f"/devices/{code}",
                       {"command": "set_directive", "directive": "survey_system",
                        "configuration": {"planets": "all", "moons": "all", "recall": True}}, critical=True))

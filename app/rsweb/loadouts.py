@@ -217,9 +217,6 @@ def can_surge(d: dict) -> bool:
 
 
 FILL_ORDER = ("controller", "survey_drone", "mining_drone")
-# A loadout's survey drones may be belt surveyors instead: about 4x faster at belt searches (owner 2026-10-24), and
-# printed in their place when their blueprint is known. Ones the loadout names itself are counted on their own.
-STAND_INS = {"survey_drone": "belt_surveyor"}
 
 
 def fill_rank(device_type: str | None) -> int:
@@ -525,19 +522,17 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             want = int(wants.get(t) or 0)
             ride = min(want, riders[tag][t])   # the replicants' vessels in the fleet fill part of the loadout
             want -= ride
-            kinds = [STAND_INS[t], t] if t in STAND_INS and STAND_INS[t] not in wants else [t]   # preferred first
-            have = [d for d in mine if (d.get("device_type") or "device") in kinds] + \
-                   [d for d in free if (d.get("device_type") or "device") in kinds]
+            have = [d for d in mine if (d.get("device_type") or "device") == t] + \
+                   [d for d in free if (d.get("device_type") or "device") == t]
             ward_hold = star in warded and t in wards.MINING_TYPES and want > len(have)
             if ward_hold:   # home warded by another player: send no more miners (the ones there stay)
                 want = len(have)
-            inc = sum(incoming[fid][k] for k in kinds)
+            inc = incoming[fid][t]
             surplus = max(0, len(have) - want)
             # who stays: members first, then non-spare, controller-run, already tagged home here (from before stationed
             # fleets), at home, busy ones (can't be moved anyway), then idle-less-healthy last
             # (seen live: FALQUORYX's home-tagged autofactory was about to be made spare in favor of a fresh untagged one)
-            ranked = sorted(have, key=lambda d: (fleet_tag_of(d) != tag, (d.get("device_type") or "device") != kinds[0],
-                                                 SPARE in (d.get("tags") or []),
+            ranked = sorted(have, key=lambda d: (fleet_tag_of(d) != tag, SPARE in (d.get("tags") or []),
                                                  not d.get("controller_device_code"),
                                                  home_tag(star) not in (d.get("tags") or []),
                                                  star_of(d.get("location")) != star,
@@ -566,7 +561,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             away = [d["device_code"] for d in keep if star_of(d.get("location")) != star]
             spares_here = [d["device_code"] for d in pool if d.get("device_type") == t and star_of(d.get("location")) == star
                            and SPARE in (d.get("tags") or []) and not fleet_tag_of(d) and not home_of(d, known_stars)]
-            rows.append({"type": t, "kinds": kinds, "print_type": kinds[0] if kinds[0] in bps else t, "want": want + ride, "have": len(have) + ride, "riders": ride, "incoming": inc, "away": away, "spares_here": spares_here,
+            rows.append({"type": t, "want": want + ride, "have": len(have) + ride, "riders": ride, "incoming": inc, "away": away, "spares_here": spares_here,
                          "warded": ward_hold,
                          "short": max(0, want - len(have) - inc), "surplus": surplus,
                          "spare": [d["device_code"] for d in extra if fleet_tag_of(d) == tag]})
@@ -580,7 +575,6 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     # fleetless devices at a stationed fleet's home that no fleet there took: spare, if a fleet there counts their type
     for star, ds in unassigned.items():
         counted = {t for f in homes_of[star] for t in fl.station_wants(f)}
-        counted |= {STAND_INS[t] for t in counted if t in STAND_INS}
         for d in ds:
             code, tags = d["device_code"], set(d.get("tags") or [])
             if code in taken or (d.get("device_type") or "device") not in counted or pinned(d):
@@ -691,8 +685,6 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                   key=lambda kr: (fill_rank(kr[1]["type"]), order.index(kr[0])))
     for fid, row in work:
         star, tag = report[fid]["star"], fl.fleet_tag(fid)
-        ptype = row.get("print_type") or row["type"]   # what gets printed for it (a belt surveyor for survey drones)
-        kinds = row.get("kinds") or [row["type"]]
         if True:
             need = row["short"]
             if need <= 0:
@@ -702,14 +694,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 unmet.append({"star": star, "type": row["type"], "n": need,
                               "why": "waiting — no open mining sites in its belts right now (survey drones must open some first)"})
                 continue
-            offered = [d for k in kinds for d in donors.get(k, [])]
-            cands = sorted((d for d in offered if (star_of(d.get("location")) == star or not working(d))
+            cands = sorted((d for d in donors.get(row["type"], []) if (star_of(d.get("location")) == star or not working(d))
                             and near(d, star) and fam(d) == fleet_fam(tag)),
-                           key=lambda d: (_dist(star_of(d.get("location")), star, pos), d.get("device_type") != kinds[0],
-                                          not _idle(d), -_cap(d), d["device_code"]))
-            held = [d for d in offered if d not in cands and near(d, star) and fam(d) == fleet_fam(tag)]
+                           key=lambda d: (_dist(star_of(d.get("location")), star, pos), not _idle(d), -_cap(d), d["device_code"]))
+            held = [d for d in donors.get(row["type"], []) if d not in cands and near(d, star) and fam(d) == fleet_fam(tag)]
             for d in cands[:need]:
-                donors[d.get("device_type") or "device"].remove(d)
+                donors[row["type"]].remove(d)
                 code = d["device_code"]
                 tag_remove[code].add(SPARE)
                 tag_add[code].discard(SPARE)
@@ -721,17 +711,17 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 # spares that are still working (mining, tracking …): they'll be sent once idle — don't print instead
                 wait = held[:need]
                 for d in wait:
-                    donors[d.get("device_type") or "device"].remove(d)
+                    donors[row["type"]].remove(d)
                 row["held_spares"] = [d["device_code"] for d in wait]
                 unmet.append({"star": star, "type": row["type"], "n": len(wait),
                               "why": f"spare(s) {', '.join(d['device_code'] for d in wait)} still working — sent once idle"})
                 need -= len(wait)
             own = [g for g in factories if fleet_tag_of(g) == tag and queue_free.get(g["device_code"], 1) > 0 and near(g, star)]
-            if need > 0 and s["print_missing"] and own and ptype in bps:
+            if need > 0 and s["print_missing"] and own and row["type"] in bps:
                 # Seen live (2026-10-06): three fleets each with an autofactory, all three prints on one of them. A fleet
                 # with its own autofactory prints there; short of stock, the print waits for materials in its queue.
-                cost = as_amounts((bps.get(ptype) or {}).get("resources"))
-                parts = pq.split(own, ptype, need, bps, load, queue_free)
+                cost = as_amounts((bps.get(row["type"]) or {}).get("resources"))
+                parts = pq.split(own, row["type"], need, bps, load, queue_free)
                 n = sum(k for _, k in parts)
                 for g, k in parts:
                     stock = as_amounts(inventory.get(g.get("location")) or {})
@@ -739,7 +729,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     for r, v in cost.items():
                         reserved[g["location"]][r] += v * k
                     prints.append({"factory": g["device_code"], "factory_star": star_of(g.get("location")),
-                                   "device_type": ptype, "n": k, "star": star, "fleet": fid,
+                                   "device_type": row["type"], "n": k, "star": star, "fleet": fid,
                                    "note": "the fleet's own autofactory; waits for materials" if short else ""})
                 row["printing"] = n
                 need -= n
@@ -747,9 +737,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     unmet.append({"star": star, "type": row["type"], "n": need,
                                   "why": f"the fleet's autofactory queue is full ({', '.join(g['device_code'] for g in own)})"})
             elif need > 0 and s["print_missing"]:
-                f, why = factory_for(ptype, star, tag)
+                f, why = factory_for(row["type"], star, tag)
                 if f:
-                    cost = as_amounts((bps.get(ptype) or {}).get("resources"))
+                    cost = as_amounts((bps.get(row["type"]) or {}).get("resources"))
                     n = need
                     if s["need_stock"]:  # only as many as the stock covers
                         stock = as_amounts(inventory.get(f.get("location")) or {})
@@ -762,13 +752,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                              and g in usable(tag)]
                     # Seen live (2026-10-07): Miner 1 and Miner 2 have no autofactory, all three are Printing Hub 1's; both
                     # their prints went on one of them while another sat idle — the split only had the first one to use.
-                    parts = pq.split(peers, ptype, n, bps, load, queue_free)
+                    parts = pq.split(peers, row["type"], n, bps, load, queue_free)
                     n = sum(k for _, k in parts)
                     for g, k in parts:
                         for r, v in cost.items():
                             reserved[g["location"]][r] += v * k
                         prints.append({"factory": g["device_code"], "factory_star": star_of(g.get("location")),
-                                       "device_type": ptype, "n": k, "star": star, "fleet": fid, "note": why})
+                                       "device_type": row["type"], "n": k, "star": star, "fleet": fid, "note": why})
                     row["printing"] = n
                     need -= n
                     if need > 0:
