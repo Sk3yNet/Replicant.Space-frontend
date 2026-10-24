@@ -53,6 +53,7 @@ async def fleets_ctx(request: Request) -> dict:
     profiles = {t: fl.type_profile(t, bp_by, st["devices"]) for t in types}
     lctx = await loadout_ctx(request)
     homes = sorted(fl.worked_systems(items))
+    mine_homes = fl.worked_systems(items, st["devices"])   # a hub home without miners is open to mining missions
     from .census import destination_systems
     cat = await request.app.state.db.kv_get("stars", {}) or {}
     scanned = {r["star"] for r in await request.app.state.db.fetchall("SELECT star FROM systems")}
@@ -64,8 +65,9 @@ async def fleets_ctx(request: Request) -> dict:
         if f.get("home") not in dests:
             async def dl(h=f.get("home")) -> list[dict]:
                 return destination_systems(cat, scanned | yours, yours, h, limit=300)
-            dests[f.get("home")] = [o for o in await pagecache.get(request, f"dests:{f.get('home')}", dl) if o["value"] not in homes]
-        f["target_options"] = [dict(o) for o in dests[f.get("home")]]
+            dests[f.get("home")] = await pagecache.get(request, f"dests:{f.get('home')}", dl)
+        f["blocked_homes"] = sorted(mine_homes) if f.get("role") == "mining" else homes
+        f["target_options"] = [dict(o) for o in dests[f.get("home")] if o["value"] not in f["blocked_homes"]]
         if f.get("role") == "mining":   # mining targets: best prospects first, with their score and why
             o_star = f.get("home") or ""
             if o_star not in ranks:
@@ -677,12 +679,13 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         return HTMLResponse(f'<div class="result err">Unknown system: {html.escape(", ".join(hints))}. Pick one from the list — '
                             'stars beyond the catalog need a census first (Map › Stars).</div>')
     if f["role"] in ("mining", "explore"):
-        homes = fl.worked_systems(items)
+        homes = fl.worked_systems(items, st_r["devices"] if f["role"] == "mining" else None)
         taken = [t for t in m["targets"] if star_of(t) in homes]
         if taken:
             return HTMLResponse(f'<div class="result err">{html.escape(", ".join(taken))}: '
                                 f'{"has" if len(taken) == 1 else "have"} a stationed fleet, and only the stationed fleet works '
-                                'its home system. Pick a system no fleet is stationed in.</div>')
+                                'its home system'
+                                f'{" (its loadout has miners)" if f["role"] == "mining" else ""}. Pick another system.</div>')
     # another player's system ward: no mission there (a trade only visits the deal's site, so it may go)
     from . import wards
     st0 = await load_state(request)

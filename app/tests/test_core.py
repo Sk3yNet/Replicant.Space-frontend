@@ -5192,7 +5192,7 @@ def test_systems_page_sorts_by_distance_from_origin(client):
 def test_prospects_page_scores_stationed_homes_for_review(client):
     eng = client.app.state.worker.automations
     client.portal.call(eng.save_fleets, [{"id": "h", "name": "Homers", "role": "mining", "home": "SOL", "station": True,
-                                          "wants": {}}])
+                                          "wants": {"mining_drone": 3}}])
     client.portal.call(client.app.state.worker.sync_devices)
     client.get("/systems/SOL", headers=H)
     page = client.get("/systems/prospects", headers=H).text
@@ -8826,3 +8826,24 @@ def test_asteroid_impacts_are_warnings_and_unread_messages_stand_out(client):
     page = client.get("/messages", headers=H).text
     assert "1 unread" in page and 'id="msg-unread"' in page
     assert page.index("Fresh news") < page.index(">Read<") < page.index("Salvage discovered: old")
+
+
+def test_mining_fleets_may_work_a_hub_home_without_miners(client):
+    from rsweb import fleets as fl
+    hub = {"id": "h", "name": "Hub", "role": "mining", "home": "HUB", "station": True, "wants": {"autofactory": 1}}
+    mine = {"id": "k", "name": "Kel", "role": "mining", "home": "KEL", "station": True, "wants": {"mining_drone": 6}}
+    devs = [{"device_code": "D1", "device_type": "mining_drone", "location": "HUB-BELT-1", "tags": ["fleet:h"]}]
+    assert fl.worked_systems([hub, mine]) == {"HUB", "KEL"}          # explore missions: every stationed home
+    assert fl.worked_systems([hub, mine], []) == {"KEL"}             # mining: a hub without miners is open
+    assert fl.worked_systems([hub, mine], devs) == {"HUB", "KEL"}    # a miner among its members claims it again
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [{"designation": "SOL"}, {"designation": "HUB"},
+                                                                        {"designation": "KEL"}]})
+    client.portal.call(eng.save_fleets, [hub, mine, {"id": "m", "name": "M", "role": "mining", "home": "FAL", "wants": {}},
+                                         {"id": "e", "name": "E", "role": "explore", "home": "FAL", "wants": {}}])
+    r = client.post("/fleets/m/mission", data={"targets": "KEL"}, headers=HX)
+    assert "only the stationed fleet works" in r.text
+    r = client.post("/fleets/m/mission", data={"targets": "HUB"}, headers=HX)
+    assert "only the stationed fleet works" not in r.text
+    r = client.post("/fleets/e/mission", data={"targets": "HUB"}, headers=HX)
+    assert "only the stationed fleet works" in r.text

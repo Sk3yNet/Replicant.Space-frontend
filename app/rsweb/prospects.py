@@ -9,7 +9,7 @@ score (0–100) = richness (≤40)  the best belt's mining rate: each resource's
               + access (≤20)    distance from where the fleet starts; −5 without a relay of yours there (a replicant
                                  has to ride with the fleet)
 Not scored (with a reason instead): another player's ward or hub there (nothing of ours can mine it), a stationed fleet's home
-(only that fleet works it; its score goes in review_score for the Prospects page), and systems with no scan yet ("survey first").
+with miners (only that fleet works it; its score goes in review_score for the Prospects page), and systems with no scan yet ("survey first").
 """
 from __future__ import annotations
 
@@ -188,7 +188,9 @@ async def rank_inputs(db, eng, devices: list[dict]) -> dict:
     cat = await db.kv_get("stars", {}) or {}
     pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict)}
     warded = wards.foreign(cat, devices)
-    homes = {f["home"]: f.get("name") or f["id"] for f in await eng.fleets() if f.get("station") and f.get("home")}
+    from . import fleets as fl
+    homes = {f["home"]: f.get("name") or f["id"] for f in await eng.fleets()   # a hub without miners can be mined
+             if f.get("home") in fl.worked_systems([f], devices)}
     viability = await eng.viability_report()
     # what you want: waiting prints' costs, falling / low stockpiles
     bps = {b["device_type"]: b for b in normalize_blueprints(await db.kv_get("blueprints", []))}

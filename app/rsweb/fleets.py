@@ -1313,10 +1313,21 @@ def station_wants(fleet: dict) -> dict[str, int]:
     return out
 
 
-def worked_systems(fleets: list[dict]) -> set[str]:
+def worked_systems(fleets: list[dict], devices: list[dict] | None = None) -> set[str]:
     """Systems that are home to a stationed fleet: only that fleet works them, so mining and explore missions
-    can't target them (fleets may still pass through or wait there)."""
-    return {f["home"] for f in fleets if f.get("station") and f.get("home")}
+    can't target them (fleets may still pass through or wait there). With `devices` (mining missions): only homes
+    where a stationed fleet has miners, in its loadout or among its members, so a hub without miners of its own
+    can be mined by a mining fleet (owner 2026-10-24)."""
+    homes = [f for f in fleets if f.get("station") and f.get("home")]
+    if devices is None:
+        return {f["home"] for f in homes}
+    return {f["home"] for f in homes if has_miners(f, devices)}
+
+
+def has_miners(fleet: dict, devices: list[dict]) -> bool:
+    """Mining drones in the fleet's loadout or among its members."""
+    return station_wants(fleet).get("mining_drone", 0) > 0 \
+        or any(d.get("device_type") == "mining_drone" for d in members(fleet, devices))
 
 
 def materials_target(fleet: dict, fleets: list[dict]) -> dict | None:

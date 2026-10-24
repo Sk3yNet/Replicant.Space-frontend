@@ -216,7 +216,7 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
   Bootstraps score at full potential, unweighted. AMI mining schedules set to *gather evenly* run *maintain ratios*
   leaning toward what waiting prints lack (when the belt has it), and *Restart idle miners* picks that resource, first
   what the factories the drone feeds wait for, and only among what the belt's open sites still hold.
-- A stationed fleet's home is scored for review only, marked *home*; ⚑ marks systems where a fleet of yours is homed.
+- A stationed fleet's home is scored for review only, marked *home*, when that fleet has miners (loadout or members); a hub home without miners is scored and open to mining missions; ⚑ marks systems where a fleet of yours is homed.
 - **Ward** column, ⛨ yours / ⛨ theirs:
   - *add ward*: activates an idle ward of yours there, else sends a spare, else prints one in range on the autofactory
     with the shortest queue, then switches it on once deployed. A queued print gives way to a spare that turns up.
