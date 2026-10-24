@@ -105,3 +105,22 @@ def test_a_spot_in_another_system_gets_its_star_first():
     assert stars_between("FALQUORYX-1-L4", ["CAELZAROR", "ISOLITHOR", "ISOLITHOR-KUIPER"]) == ["CAELZAROR", "ISOLITHOR",
                                                                                                "ISOLITHOR-KUIPER"]
     assert stars_between("Z-BELT-1", ["Z-KUIPER"]) == ["Z-KUIPER"]
+
+
+def test_device_travel_form_takes_the_planned_route_and_shows_the_saving(client):
+    e, api = eng(client), client.app.state.api
+    sent = []
+
+    async def fake_via(device, dest):
+        return ["Z", "Z-KUIPER"]
+
+    async def fake_request(method, path, json_body=None, **kw):
+        sent.append(dict(json_body or {}))
+        secs = 700.0 if (json_body or {}).get("via") else 1000.0
+        return {"status": "preview", "total_time_seconds": secs}
+    e.trip_via, api.request = fake_via, fake_request
+    HX = {"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}
+    r = client.post("/devices/2AC61212/command", data={"command": "travel", "f.destination": "Z-BELT-1", "f.dry_run": "on"},
+                    headers=HX)
+    assert "Re-routed via Z, Z-KUIPER: saves 5 min (30 %)" in r.text, r.text[:2000]
+    assert sent[0]["via"] == ["Z", "Z-KUIPER"] and "via" not in sent[1]

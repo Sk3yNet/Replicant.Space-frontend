@@ -1220,7 +1220,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
     async def _beyond_sector(self, st: dict, job: dict) -> str | None:
         """The sector range (owner 2026-10-22: logistics sent freighter 2D6BFDF1 from SOLARES on a 241 h trip to
         ISOLITHOR to fetch a stockpile): an automated trip longer than logistics.SECTOR_RANGE_H at the game's surge pace,
-        or of unknown length, isn't sent until you Confirm it. Measured from the catalog, else by the game's preview.
+        or of unknown length, isn't sent until you Confirm it. Measured from the catalog; a trip over the range or off
+        the catalog by the game's preview of its planned route (a hub can bring it under).
         Trips you asked for (a forced job, an allow_far step), simulations and previews go as they are."""
         from . import hubroute
         from .logistics import SECTOR_RANGE_H, SURGE_S_PER_LY
@@ -1245,13 +1246,20 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             elif here in pos and there in pos:
                 pa, pb = pos[here], pos[there]
                 hours = math.dist([float(pa.get(k) or 0) for k in "xyz"], [float(pb.get(k) or 0) for k in "xyz"]) * SURGE_S_PER_LY / 3600
-            elif not rep:   # a star the catalog doesn't place: the game knows how long it takes
-                try:
-                    secs = hubroute.total_seconds(await self.api.request("POST", path, json_body={**body, "dry_run": True},
-                                                                         background=True))
-                    hours = secs / 3600 if secs is not None else None
-                except ApiError:
-                    hours = None
+            if code and (hours is None or hours > SECTOR_RANGE_H):
+                # over the range by the catalog, or not in it: the game's time for the route the trip will take
+                # (surge hops, a hub, the off-ramp), else its own route
+                via = body.get("via") or await self.trip_via(code, str(body["destination"]).upper())
+                for v in ([via] if via else []) + [None]:
+                    try:
+                        secs = hubroute.total_seconds(await self.api.request(
+                            "POST", path, json_body={**{k: x for k, x in body.items() if k != "via"},
+                                                     **({"via": v} if v else {}), "dry_run": True}, background=True))
+                    except ApiError:
+                        continue
+                    if secs is not None:
+                        hours = secs / 3600
+                        break
             st["sector_h"] = round(hours, 1) if hours is not None else -1.0
         h = st["sector_h"]
         if 0 <= h <= SECTOR_RANGE_H:

@@ -58,3 +58,29 @@ def test_a_star_the_catalog_lacks_is_measured_by_the_preview(client):
 
 def test_sector_range_in_light_years():
     assert lg.SECTOR_RANGE_LY == 1728.0
+
+
+def test_a_planned_route_under_the_range_goes_out(client):
+    # Joe 2026-10-24: every travel estimate uses the planned route (surge hops, a hub, the off-ramp)
+    from rsweb import automations as au
+    e = eng(client)
+    _run(client, "NEAR-BELT-1")
+    seen = []
+
+    async def fake_via(device, dest):
+        return ["HUB", "FAR", "FAR-KUIPER"]
+
+    async def fake_request(method, path, json_body=None, background=False):
+        seen.append(dict(json_body or {}))
+        return {"status": "preview", "total_time_seconds": (20 if (json_body or {}).get("via") else 30) * 3600}
+    sent = []
+
+    async def fake_send(method, path, body, label):
+        sent.append(dict(body or {}))
+        return True, {}, None
+    e.trip_via, e.api.request, e.send = fake_via, fake_request, fake_send
+    job = client.portal.call(e.create_job, "logistics", "trip", "F1",
+                             [au.step("F1 → there", "/devices/F1", {"command": "travel", "destination": "FAR-BELT-1"},
+                                      wait=["travel.arrived"])], {}, False)
+    assert seen[0]["via"] == ["HUB", "FAR", "FAR-KUIPER"] and _job(client, e, job["id"])["steps"][0]["sector_h"] == 20.0
+    assert sent and sent[0]["destination"] == "FAR-BELT-1"

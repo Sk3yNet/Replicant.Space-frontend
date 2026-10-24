@@ -1123,8 +1123,40 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
                               wait=["travel.arrived"], match={"destination": dest} if dest else None, critical=True)
             first["wait_device"] = code
             return await start_chain(request, user, f"{code} → {dest}, then {len(followups)} step(s)", first, followups, code)
+    if command == "travel" and body.get("destination") and not body.get("via") and not extra.get("via"):
+        return await planned_device_trip(request, user, code, {"command": command, **body, **extra})
     return await run_action(request, user, "POST", f"/devices/{code}", {"command": command, **body, **extra},
                             f"{command} on {code}")
+
+
+def saving_note(via: list[str], direct: Any, planned: Any) -> str:
+    """The planned waypoints and the time they save on the game's own route (two travel previews)."""
+    d_s, v_s = hubroute.total_seconds(direct), hubroute.total_seconds(planned)
+    note = f"Re-routed via {', '.join(via)}"
+    if d_s and v_s:
+        note += (f": saves {hubroute.hm(d_s - v_s)} ({round(100 * (d_s - v_s) / d_s)} %) on the game's direct route of "
+                 f"{hubroute.hm(d_s)}" if d_s > v_s else f": no faster than the game's direct route ({hubroute.hm(d_s)})")
+    return note + "."
+
+
+async def planned_device_trip(request: Request, user: str, code: str, body: dict) -> HTMLResponse:
+    """A device's trip from its command form, planned like automated trips (surge hops, a hub, the off-ramp: the game's
+    own route takes none of them). A preview says what the plan saves; a refused plan goes the game's way."""
+    path, label = f"/devices/{code}", f"travel on {code}"
+    via = await request.app.state.worker.automations.trip_via(code, str(body["destination"]).upper())
+    if not via:
+        return await run_action(request, user, "POST", path, body, label)
+    out = await call_action(request, user, "POST", path, {**body, "via": via}, f"{label} via {', '.join(via)}")
+    if not out["ok"]:
+        return render_action(request, await call_action(request, user, "POST", path, body, label),
+                             note=f"The planned waypoints ({', '.join(via)}) were refused ({out['error']}): the game's own route.")
+    note = f"Planned route via {', '.join(via)}."
+    if body.get("dry_run"):
+        try:
+            note = saving_note(via, await request.app.state.api.request("POST", path, json_body=body), out["response"])
+        except ApiError:
+            pass
+    return render_action(request, out, note=note)
 
 
 async def long_cruise_warning(request: Request, code: str, dest: str) -> str | None:
