@@ -351,6 +351,16 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     async def research_do(code: str, topic: str):
         return ok({"topic": topic, "achievement": f"{topic}_discovered", "unlocked_blueprints": ["sensor_array"]})
 
+    @app.post("/v1/devices/{code}/upload")
+    async def upload_do(code: str, request: Request):
+        want = (await request.json()).get("device_code")
+        d = next((x for x in world.devices if x.get("device_code") == want), None)
+        if not d:
+            return ok({"error": "Device not found"}, 404)
+        world.devices.remove(d)
+        return ok({"uploaded": True, "device_type": d.get("device_type"),
+                   "message": f"{str(d.get('device_type')).replace('_', ' ').capitalize()} deposited into the analysis chute."})
+
     @app.get("/v1/leaderboards/simulations")
     async def sim_boards():
         return ok({"scenarios": [{"scenario_code": "mining_rush", "scenario_name": "Mining Rush", "completions": 87,

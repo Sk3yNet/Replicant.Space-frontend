@@ -1076,6 +1076,16 @@ one new endpoint, nothing removed, no existing endpoint changed. `openapi.json` 
     unread_message_count}`; achievement unlocks are message_type achievement, salvage finds discovery / salvage.
     The app keeps accepting message_id / read too.
 
+## v3.6.2 (2026-10-24), reviewed 2026-10-24
+The live spec adds one endpoint (the repo `openapi.json` is now this copy):
+- `POST /devices/{interface}/upload` `{"device_code": "…"}` → `{uploaded, device_type, message}`. Uploads a device with
+  the `data` feature (e.g. `guidance_chip`) through a replicant interface: the replicant and the device must both be at
+  the interface's location, the device deployed. The device is consumed. The app offers it on Simulations › Data uploads,
+  by hand only (1.251.0).
+- New event `device.discovered` `{device_type, device_code}`: a scan in some story activities finds a device. It raises
+  a notification (1.251.0).
+- System hubs give the arrival speed-up and cost upkeep only while active.
+
 ## v3.6.1 (2026-10-23), reviewed 2026-10-23
 The live spec is unchanged against the 2026-10-20 copy (only `MessageSettingsSchema.subscribed` reordered again).
 - `device.decommissioned` no longer carries `blueprint_discovered`; every unlock is its own `blueprint.unlocked` with a

@@ -233,10 +233,10 @@
             "items": {
               "type": "string",
               "enum": [
+                "alert",
                 "simulation",
                 "progression",
-                "social",
-                "alert"
+                "social"
               ]
             },
             "nullable": true
@@ -3125,6 +3125,33 @@
             "items": {
               "type": "string"
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_upload_UploadRequestSchema": {
+        "type": "object",
+        "properties": {
+          "device_code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_code"
+        ],
+        "additionalProperties": false
+      },
+      "app_schemas_upload_UploadResponseSchema": {
+        "type": "object",
+        "properties": {
+          "uploaded": {
+            "type": "boolean"
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -8488,6 +8515,83 @@
         {
           "in": "path",
           "name": "topic",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ]
+    },
+    "/v1/devices/{device_code}/upload": {
+      "post": {
+        "responses": {
+          "422": {
+            "$ref": "#/components/responses/UNPROCESSABLE_ENTITY"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_common_ErrorSchema"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_common_ErrorSchema"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_common_ErrorSchema"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_upload_UploadResponseSchema"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app_schemas_upload_UploadRequestSchema"
+              }
+            }
+          }
+        },
+        "summary": "Upload a data component to a research interface for analysis.",
+        "tags": [
+          "devices"
+        ]
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "device_code",
           "required": true,
           "schema": {
             "type": "string",

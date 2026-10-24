@@ -82,6 +82,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   or off. A hub links to relays only within the relay's own 7.5 ly (live list from the SOLARES hub, 2026-10-15).
 - Simulations run at the datacenter (MIRFAKA-OBJ-1) through its replicant interface, a device owned by Bill (F4791EDF on
   2026-10-15): scan for devices from a replicant there and use that code in `/v1/devices/:interface_code/simulate`.
+  The interface also offers research and (v3.6.2) data uploads: `POST .../upload {"device_code"}` consumes a deployed
+  data-feature device (guidance chip) at its location; story scans may discover such devices (`device.discovered`).
   The replicant entering a run becomes the interface to a virtual galaxy: every simulated system is named VIRT… (region
   virt6), and its devices (ordinary hex codes) show in the account's `/devices`. The app keeps all of it apart
   (`sim:devices`, `sim:inventory`, `sim:stars`, `sim:systems`, events with category `simulation`).
@@ -97,7 +99,7 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   `environment` (temperature, pressure, oxygen, toxicity, hydrosphere, biosphere, tectonic, gravity); the training is for
   Humans (270–300 K, 0.8–1.2 atm, O2 18–25, toxicity 0–5, hydrosphere 40–70, biosphere 30–70, tectonic 5–30). The
   docs' 200–350 K etc. are only the bio seeder preconditions. Ideas not built yet go in TODO.md.
-- Arriving in a system with a hub is 25 % faster, anyone's hub (owner 2026-10-22; 37.5 s/ly instead of 50 on surges, live 2026-10-18); leaving one
+- Arriving in a system with an active hub is 25 % faster (v3.6.2: hubs help and cost upkeep only while active), anyone's hub (owner 2026-10-22; 37.5 s/ly instead of 50 on surges, live 2026-10-18); leaving one
   gains nothing, and the game's routing never picks a hub: `travel` with `via: ["HUB_STAR"]` does (`hubroute.py`). A `via` ending in
   another system than a body destination needs that system's star last (`via: ["SOLARES", "SOL"]` to SOL-3-1; the game
   then flies the final leg to the body, live 2026-10-20); the app adds it (`hubroute.waypoints`).

@@ -3296,6 +3296,7 @@ CONSOLE_PRESETS = [
     ("Devices", "DELETE", "/devices/{controller}/trades/{trade}", "", "Delete your trade and get the escrow back"),
     ("Devices", "GET", "/devices/{interface}/research", "", "Research offered at a replicant interface"),
     ("Devices", "POST", "/devices/{interface}/research/{topic}", "", "Do one research topic (grants its achievement, unlocks blueprints)"),
+    ("Devices", "POST", "/devices/{interface}/upload", '{"device_code": ""}', "Upload a data-feature device deployed at the interface for analysis (consumes it)"),
     ("Lockers", "GET", "/replicants/{replicant}/scan/devices?device_type=equipment_locker", "", "Find equipment lockers at the replicant's location"),
     ("Lockers", "POST", "/devices/{locker}/retrieve", "", "Open an equipment locker and take its contents (its price must be on site)"),
     ("Places", "GET", "/locations", "", "Locations where you have devices"),

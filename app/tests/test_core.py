@@ -8901,3 +8901,28 @@ def test_mining_fleets_may_work_a_hub_home_without_miners(client):
     assert "only the stationed fleet works" not in r.text
     r = client.post("/fleets/e/mission", data={"targets": "HUB"}, headers=HX)
     assert "only the stationed fleet works" in r.text
+
+
+def test_data_upload_at_interface(client):
+    """v3.6.2: a data-feature device deployed at the interface, with a replicant there, can be uploaded (consumed);
+    elsewhere or stowed it only says why not. device.discovered raises a notification."""
+    from rsweb import notify, sim
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    devs = client.portal.call(db.kv_get, "devices")
+    reps = client.portal.call(db.kv_get, "replicants") or {}
+    rep_loc = next(r.get("location") for r in (reps.values() if isinstance(reps, dict) else reps) if r.get("location"))
+    client.portal.call(eng.sim_save, {"interface": {"code": "IF000001", "location": rep_loc}})
+    chip = {"device_code": "GC000001", "device_type": "guidance_chip", "location": rep_loc, "status": "idle", "features": ["data"]}
+    far = {"device_code": "GC000002", "device_type": "guidance_chip", "location": "NOWHERE-1", "status": "idle", "features": ["data"]}
+    client.portal.call(db.kv_set, "devices", devs + [chip, far])
+    client.app.state.api.http._transport.app.state.world.devices.append(dict(chip))
+    assert "Data uploads" in client.get("/simulations", headers=H).text
+    frag = client.get("/simulations/uploads", headers=HX).text
+    assert "/simulations/upload/GC000001" in frag and "/simulations/upload/GC000002" not in frag and "not at the interface" in frag
+    r = client.post("/simulations/upload/GC000001", headers=HX).text
+    assert "analysis chute" in r or "upload" in r.lower()
+    world = client.app.state.api.http._transport.app.state.world
+    assert not any(d.get("device_code") == "GC000001" for d in world.devices)
+    msg = notify.describe({"event": "device.discovered", "location": "MIRFAKA-OBJ-1",
+                          "payload": {"device_type": "guidance_chip", "device_code": "A1B2C3D4"}})
+    assert msg == "Scan discovered a guidance chip A1B2C3D4 at MIRFAKA-OBJ-1"

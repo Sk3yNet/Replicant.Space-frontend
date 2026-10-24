@@ -653,7 +653,8 @@ objective, time limit, entry cost and details.
   printed at an autofactory, logistics bringing the materials, the loadout pass the cores), then a free replicant is
   sent. When cores, replicant and interface are all there, the bell nags (every 2 h) until you press *Start*.
 - Also on the page: the interface's **research** topics (each unlocks blueprints, once per account; a replicant must be
-  there), the all-player **leaderboards** (per scenario: top 10), and the game's view of a run in progress.
+  there), **data uploads** (a device with the data feature, such as a guidance chip, deployed at the interface is
+  broken down for analysis; it consumes the device, so only by hand), the all-player **leaderboards** (per scenario: top 10), and the game's view of a run in progress.
 
 **Playing a run**
 - The bootstrap's compounding logic plays the run on the simulation's own devices (no other automation touches them),

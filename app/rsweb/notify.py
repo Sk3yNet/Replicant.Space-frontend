@@ -27,13 +27,14 @@ DONE_EVENTS = {
     "event.completed", "trade.completed", "prospect.completed", "teleport.completed",
     "story.awakened", "megastructure.contributed", "relay.activated", "hub.activated",
     "diversion.diverted", "system.object_diverted", "system.object_off_target", "salvage.discovered", "event.discovered", "triangulation.complete",
-    "simulation.completed", "device.decommissioned", "ward.activated", "blueprint.unlocked",
+    "simulation.completed", "device.decommissioned", "ward.activated", "blueprint.unlocked", "device.discovered",
 }
 # Done-events that also raise a notification (the rest just go in the digest/feed).
 NOTIFY_DONE = {
     "print.completed", "directive.completed", "event.completed", "trade.completed", "prospect.completed",
     "teleport.completed", "story.awakened", "salvage.discovered", "event.discovered",
     "triangulation.complete", "simulation.completed", "hub.activated", "relay.activated", "system.object_off_target",
+    "device.discovered",
 }
 # Info-level events that still raise a notification.
 NOTIFY_INFO = {"multiplayer.replicant_entered", "hub.maintained", "trade.created", "trade.deleted"}
@@ -143,6 +144,9 @@ def describe(ev: dict) -> str:
         case "blueprint.unlocked":   # v3.6.1: source is xp, achievement or decommission
             src = {"xp": "experience", "decommission": "decommissioning"}.get(p.get("source"), p.get("source"))
             return f"Blueprint unlocked: {str(p.get('device_type') or '?').replace('_', ' ')}" + (f" (by {src})" if src else "")
+        case "device.discovered":   # v3.6.2: a scan in some story activities finds a device (e.g. a guidance chip)
+            t = str(p.get("device_type") or "device").replace("_", " ")
+            return f"Scan discovered a {t} {p.get('device_code') or ''}".rstrip() + (f" at {loc}" if loc else "")
         case "salvage.discovered":
             return f"Salvage found: {p.get('name') or p.get('designation')} at {p.get('location', loc)}"
         case "event.discovered":

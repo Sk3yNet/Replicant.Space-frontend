@@ -202,6 +202,49 @@ async def simulations_research_do(request: Request, topic: str, user: str = Depe
     return await run_action(request, user, "POST", f"/devices/{iface}/research/{topic}", None, f"research {topic}")
 
 
+def _is_data(d: dict) -> bool:
+    """A device the interface can upload (v3.6.2: the data feature, e.g. a guidance chip)."""
+    return "data" in (d.get("features") or []) or d.get("device_type") == "guidance_chip"
+
+
+@router.get("/simulations/uploads", response_class=HTMLResponse)
+async def simulations_uploads(request: Request, user: str = Depends(current_user)):
+    """Data uploads at the interface (v3.6.2, POST /devices/{interface}/upload): a data-feature device deployed at the
+    interface's location, with a replicant there, is broken down for analysis. It consumes the device, so only by hand."""
+    eng = request.app.state.worker.automations
+    s = await eng.sim_state()
+    iface = _iface(s)
+    loc = (s.get("interface") or {}).get("location") or sim.DATACENTER
+    devs = [d for d in await eng.devices() if _is_data(d)]
+    if not devs:
+        return HTMLResponse('<p class="muted small">No devices with the data feature (a scan may discover one).</p>')
+    st = await load_state(request)
+    rep_here = any((r.get("location") or r.get("current_location")) == loc for r in st["replicants"].values())
+    out = ['<table class="small">']
+    for d in sorted(devs, key=lambda x: (x.get("location") != loc, x.get("location") or "", x.get("device_code") or "")):
+        code = html.escape(str(d.get("device_code") or ""))
+        typ = html.escape(str(d.get("device_type") or "").replace("_", " "))
+        held = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
+        why = ("the interface is not known yet" if not iface else "not at the interface" if d.get("location") != loc
+               else f"in {held}: deploy it first" if held else "no replicant here" if not rep_here else "")
+        btn = (f'<span class="muted">{html.escape(why)}</span>' if why else
+               f'<button class="small" hx-post="/simulations/upload/{code}" hx-target="next .rs-out" '
+               f'hx-confirm="Upload {typ} {code}? The interface breaks it down: the device is gone for good.">Upload</button>'
+               f'<span class="rs-out"></span>')
+        out.append(f'<tr><td><b>{typ}</b> <a class="mono" href="/devices/{code}">{code}</a>'
+                   f'<div class="muted">{html.escape(str(d.get("location") or "?"))}</div></td><td>{btn}</td></tr>')
+    return HTMLResponse("".join(out) + "</table>")
+
+
+@router.post("/simulations/upload/{code}", response_class=HTMLResponse)
+async def simulations_upload_do(request: Request, code: str, user: str = Depends(current_user)):
+    s = await request.app.state.worker.automations.sim_state()
+    iface = _iface(s)
+    if not iface:
+        return _msg("The interface is not known yet.", ok=False)
+    return await run_action(request, user, "POST", f"/devices/{iface}/upload", {"device_code": code}, f"upload {code}")
+
+
 @router.get("/simulations/leaderboard", response_class=HTMLResponse)
 async def simulations_leaderboard(request: Request, scenario: str = "", user: str = Depends(current_user)):
     """GET /leaderboards/simulations (each scenario's completions and best time), or one scenario's top 10."""
