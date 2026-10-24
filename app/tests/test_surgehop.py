@@ -63,3 +63,36 @@ def test_arriving_takes_the_off_ramp_nearest_the_destination(client):
     assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]}]
     sent, _ = _run(client, at="Y-2-L4", dest="Z-1")                                     # next to the entry point: as it is
     assert sent == [{"command": "travel", "destination": "Z-1"}]
+
+
+def test_trip_via_plans_a_hand_sent_trip_quietly(client):
+    _run(client, at="Y-2-L4")   # sets up system Z and V1
+    e = eng(client)
+    log0 = len(client.portal.call(client.app.state.db.kv_get, "automation_log", []) or [])
+    assert client.portal.call(e.trip_via, "V1", "Z-BELT-1") == ["Z-KUIPER"]
+    assert len(client.portal.call(client.app.state.db.kv_get, "automation_log", []) or []) == log0
+
+
+def test_replicant_route_preview_takes_the_planned_waypoints_and_shows_the_saving(client):
+    # Joe 2026-10-24: FALQUORYX → ISOLITHOR-BELT-1 previewed as the game's own route (no hub, no Kuiper hop)
+    e, api = eng(client), client.app.state.api
+    sent = []
+
+    async def fake_via(device, dest):
+        return ["Z-KUIPER"]
+
+    async def fake_request(method, path, json_body=None, **kw):
+        sent.append((path, dict(json_body or {})))
+        secs = 700.0 if (json_body or {}).get("via") else 1000.0
+        return {"status": "preview" if (json_body or {}).get("dry_run") else "travelling", "total_time_seconds": secs,
+                "route": [{"leg": 1, "from": "Y-2-L4", "to": "Z-BELT-1", "type": "surge", "time_seconds": secs}]}
+    e.trip_via, api.request = fake_via, fake_request
+    HX = {"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}
+    r = client.post("/replicants/77F75255/travel", data={"destination": "Z-BELT-1", "dry_run": "1"}, headers=HX)
+    assert "Re-routed via Z-KUIPER" in r.text and "saves <strong>5 min</strong> (30 %)" in r.text
+    assert 'name="via" value="Z-KUIPER"' in r.text
+    assert sent[-1][1] == {"destination": "Z-BELT-1", "via": ["Z-KUIPER"], "dry_run": True}
+    client.post("/replicants/77F75255/travel", data={"destination": "Z-BELT-1", "via": "Z-KUIPER"}, headers=HX)
+    assert sent[-1] == ("/replicants/77F75255/travel", {"destination": "Z-BELT-1", "via": ["Z-KUIPER"]})
+    client.post("/replicants/77F75255/travel", data={"destination": "Z-BELT-1", "via": ""}, headers=HX)
+    assert sent[-1] == ("/replicants/77F75255/travel", {"destination": "Z-BELT-1"})

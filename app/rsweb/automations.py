@@ -789,14 +789,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 if far:
                     ok, resp, err = False, None, far
                 else:
-                    exit_via = await self._exit_via(st, job)
-                    await self._hub_via(st, job)
-                    if exit_via:   # the surge spots come first, then any hub waypoints, then the off-ramp
-                        ramp = [x for x in exit_via if x == st.get("arrive_via")]
-                        hubs_ = [x for x in st["body"].get("via") or [] if x not in exit_via]
-                        if ramp and hubs_ and hubs_[-1] == star_of(ramp[0]):
-                            hubs_ = hubs_[:-1]   # the off-ramp ends the route in the destination system already
-                        st["body"]["via"] = [x for x in exit_via if x not in ramp] + hubs_ + ramp
+                    exit_via = await self.plan_via(st, job)
                     ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
                     if not ok and exit_via:   # refused: the route without the surge spots
                         await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via)} refused ({err}); "
@@ -1069,6 +1062,26 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         target = (st.get("body") or {}).get("device")   # detach / attach name the carried device
         return any(x and in_transit(x, by) for x in (d, by.get(target or "")))
 
+    async def plan_via(self, st: dict, job: dict) -> list[str]:
+        """A device trip's waypoints, set once in the step's body `via`: the surge spots (_exit_via) first, then any hub
+        waypoint (_hub_via), then the off-ramp. Returns the surge spots."""
+        exit_via = await self._exit_via(st, job)
+        await self._hub_via(st, job)
+        if exit_via:
+            ramp = [x for x in exit_via if x == st.get("arrive_via")]
+            hubs_ = [x for x in st["body"].get("via") or [] if x not in exit_via]
+            if ramp and hubs_ and hubs_[-1] == star_of(ramp[0]):
+                hubs_ = hubs_[:-1]   # the off-ramp ends the route in the destination system already
+            st["body"]["via"] = [x for x in exit_via if x not in ramp] + hubs_ + ramp
+        return exit_via
+
+    async def trip_via(self, device: str, dest: str) -> list[str]:
+        """The waypoints the job runner would give `device`'s trip to `dest` (surge hops, a hub, the off-ramp), for a
+        trip sent by hand (a replicant's travel form). Nothing is logged."""
+        st = {"path": f"/devices/{device}", "body": {"command": "travel", "destination": dest}, "desc": ""}
+        await self.plan_via(st, {"rule": None, "title": ""})
+        return list(st["body"].get("via") or [])
+
     async def _hub_via(self, st: dict, job: dict) -> None:
         """A device's trip to another system goes through a hub (ours or another player's: any star the catalog flags
         has_hub) when the game's previews say that's enough faster (hubroute.py): sets the step's `via` once, before it's first sent. Previews that fail leave it direct."""
@@ -1107,8 +1120,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         if best:
             body["via"], st["hub_via"] = hubroute.waypoints([best[0]], dest), best[0]
             st["desc"] += f" (via hub {best[0]})"
-            await self.log(job["rule"], f"{job['title']}: {code} → {dest} via the hub at {best[0]}: "
-                                        f"{hubroute.hm(best[1])} instead of {hubroute.hm(direct)}")
+            if job.get("rule"):
+                await self.log(job["rule"], f"{job['title']}: {code} → {dest} via the hub at {best[0]}: "
+                                            f"{hubroute.hm(best[1])} instead of {hubroute.hm(direct)}")
 
     async def _dark_destination(self, st: dict, job: dict) -> str | None:
         """A trip planned unescorted into comms coverage that has since gone dark: don't leave (live 2026-10-20: two
@@ -1194,8 +1208,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         if via:
             st["exit_via"] = via
             st["desc"] += f" (surge hop via {', '.join(via)})"
-            await self.log(job["rule"], f"{job['title']}: {code} → {dest} via {', '.join(via)} (surge hop), instead of "
-                                        f"≈{saved_from:.0f} AU of cruise")
+            if job.get("rule"):
+                await self.log(job["rule"], f"{job['title']}: {code} → {dest} via {', '.join(via)} (surge hop), instead of "
+                                            f"≈{saved_from:.0f} AU of cruise")
         return via
 
     async def _beyond_sector(self, st: dict, job: dict) -> str | None:

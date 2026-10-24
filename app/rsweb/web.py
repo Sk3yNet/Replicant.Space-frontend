@@ -26,6 +26,7 @@ from . import notify
 from .shapes import as_amounts, normalize_blueprints, normalize_inventory
 from . import commands as cmdspec
 from . import automations as auto
+from . import hubroute
 from .cargo import cargo_context
 from .targets import CATEGORY_LABEL, options_for, system_resources, system_targets
 from . import carrier as carrier_mod
@@ -1281,30 +1282,47 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
     destination = (form0.get("destination__custom") or destination or form0.get("destination__star") or "").strip().upper()
     if not destination:
         return HTMLResponse('<div class="result err">Pick a system (and a spot in it), or type a destination.</div>')
+    host = ((await load_state(request))["replicants"].get(code) or {}).get("hosted_device_code")
+    # the job runner's route planning (surge hops, a hub, the off-ramp): the game's own route takes none of them
+    if "via" in form0:
+        via = [x for x in str(form0.get("via") or "").upper().split(",") if x.strip()]
+    else:
+        via = await request.app.state.worker.automations.trip_via(host, destination) if host else []
     if dry_run:
+        api, path = request.app.state.api, f"/replicants/{code}/travel"
         try:
-            resp = await request.app.state.api.post(f"/replicants/{code}/travel", {"destination": destination, "dry_run": True})
+            direct = await api.post(path, {"destination": destination, "dry_run": True})
         except ApiError as e:
             return partial(request, "partials/action_result.html", ok=False, status=e.status, error=e.message,
-                           label="route preview", method="POST", path=f"/replicants/{code}/travel", response=e.body)
-        host = ((await load_state(request))["replicants"].get(code) or {}).get("hosted_device_code")
-        return partial(request, "partials/route_preview.html", code=code, destination=destination, r=resp,
+                           label="route preview", method="POST", path=path, response=e.body)
+        resp, saved, refused = direct, None, None
+        if via:
+            try:
+                resp = await api.post(path, {"destination": destination, "via": via, "dry_run": True})
+                d_s, v_s = hubroute.total_seconds(direct), hubroute.total_seconds(resp)
+                saved = (d_s - v_s, d_s) if d_s and v_s else None
+                if saved and saved[0] <= 0:   # no faster than the game's own route: go direct
+                    resp, via, saved = direct, [], None
+            except ApiError as e:
+                resp, refused, via = direct, e.message, []
+        return partial(request, "partials/route_preview.html", code=code, destination=destination, r=resp, via=via,
+                       saved=saved, refused=refused, hm=hubroute.hm,
                        legs=resp.get("route") if isinstance(resp.get("route"), list) else [resp.get("route")] if resp.get("route") else [],
                        sugg=await suggestions(request, destination), uid=f"r-{code}", **await chain_context(request, host, code))
     form = await request.form()
-    host = ((await load_state(request))["replicants"].get(code) or {}).get("hosted_device_code")
+    body = {"destination": destination, **({"via": via} if via else {})}
     try:
         followups = parse_chain(form, host, code)
     except ValueError as e:
         return partial(request, "partials/action_result.html", ok=False, status=400, error=str(e),
                        label="travel", method="POST", path=f"/replicants/{code}/travel", response=None)
     if followups:
-        first = auto.step(f"{code} → {destination}", f"/replicants/{code}/travel", {"destination": destination},
+        first = auto.step(f"{code} → {destination}", f"/replicants/{code}/travel", body,
                           wait=["travel.arrived"], match={"destination": destination}, critical=True)
         first["wait_device"] = host  # the arrival event is reported for the host vessel
         return await start_chain(request, user, f"{code} → {destination}, then {len(followups)} step(s)", first, followups, host)
-    return await run_action(request, user, "POST", f"/replicants/{code}/travel", {"destination": destination},
-                            f"{code} → {destination}")
+    return await run_action(request, user, "POST", f"/replicants/{code}/travel", body,
+                            f"{code} → {destination}" + (f" via {', '.join(via)}" if via else ""))
 
 
 SLINGSHOT_MIN_CAPACITY = 80.0   # docs: a slingshot needs ≥80 % capacity and drops to 5 % per use

@@ -80,7 +80,7 @@ System → device type → device, with stowed devices nested in their carrier; 
 - `enqueue_print` on a replicant's vessel is sent as the replicant's own print (one at a time).
 
 ### Replicant page
-- Route preview and travel (with *then, on arrival…* follow-ups), nearest stars, scan, mining, vessel printing, profile
+- Route preview and travel (planned like automated trips: surge hops, a hub on the way, the off-ramp; the preview shows the time saved) (with *then, on arrival…* follow-ups), nearest stars, scan, mining, vessel printing, profile
   editing, FTL slingshot, and the game's event log for that replicant (filter by event type).
 - **Moving a replicant**: empty replicant matrices are listed with *Transfer* (same location, instant) or *Teleport*
   (another system, over the FTL network), each with a confirmation.

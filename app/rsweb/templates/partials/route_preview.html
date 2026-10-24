@@ -2,6 +2,8 @@
   <strong>Route to {{ r.final_destination or destination }}</strong>
   {% if r.final_destination_name %}<span class="muted">({{ r.final_destination_name }})</span>{% endif %}
   <div class="muted small">{% if r.total_distance_ly %}{{ r.total_distance_ly }} ly · {% endif %}{% if r.total_time_seconds is defined and r.total_time_seconds is not none %}{{ (r.total_time_seconds or 0) | round(1) }} s total{% endif %}</div>
+  {% if via %}<div class="small">Re-routed via {{ via | join(', ') }}{% if saved %}: saves <strong>{{ hm(saved[0]) }}</strong> ({{ (100 * saved[0] / saved[1]) | round | int }} %) on the game's direct route of {{ hm(saved[1]) }}{% endif %}.</div>
+  {% elif refused %}<div class="small muted">The planned waypoints were refused ({{ refused }}): the game's own route.</div>{% endif %}
   <table class="small">
     <tr><th>#</th><th>From</th><th>To</th><th>Type</th><th class="num">Distance</th><th class="num">Time</th></tr>
     {% for l in legs if l %}<tr><td>{{ l.leg or loop.index }}</td><td>{{ l.from_name or l.from }}</td><td>{{ l.to_name or l.to }}</td><td>{{ l.type }}</td>
@@ -9,6 +11,7 @@
   </table>
   <form class="inline" hx-post="/replicants/{{ code }}/travel" hx-target="closest .result" hx-swap="outerHTML" style="margin-top:8px">
     <input type="hidden" name="destination" value="{{ destination }}">
+    <input type="hidden" name="via" value="{{ (via or []) | join(',') }}">
     {% if chain_groups is defined %}<div style="flex-basis:100%">{% include "partials/chain_builder.html" %}</div>{% endif %}
     <button>Go — travel to {{ destination }}</button>
   </form>
