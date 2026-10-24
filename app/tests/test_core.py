@@ -8122,6 +8122,23 @@ def test_relay_rollout_queue_goes_outward_and_chains():
     assert rr.queue(["NOWHERE"], pos, set(), set(), set(), 50, True) == []
 
 
+def test_relay_rollout_radius_per_seed(client):
+    """Owner 2026-10-24: SOLARES needs a much smaller rollout radius than FALQUORYX; unset seeds use the default."""
+    from rsweb import relayroll as rr
+    pos = {s: {"x": x, "y": 0, "z": 0} for s, x in
+           {"SOL": 0, "N1": 3, "N2": 12, "FAL": 100, "F1": 104, "F2": 140}.items()}
+    q = rr.queue(["SOL", "FAL"], pos, {"SOL", "FAL"}, set(), set(), 50, False, radii={"SOL": 5})
+    assert [x["star"] for x in q] == ["N1", "F1", "F2"]   # N2 is past SOL's 5 ly, F2 within FAL's default 50
+    assert q[-1]["seed"] == "FAL"
+    r = client.post("/map/relays/rollout", headers=HX, data={"action": "save", "seeds": "sol fal f1:20", "radius": "50",
+                                                            "r_SOL": "5", "r_FAL": "50", "chained": "1"})
+    assert r.status_code == 200
+    roll = rr.state(client.portal.call(client.app.state.db.kv_get, rr.KV, {}))
+    assert roll["seeds"] == ["SOL", "FAL", "F1"] and roll["radii"] == {"SOL": 5.0, "F1": 20.0}
+    page = client.get("/map/relays", headers=HX).text
+    assert 'name="r_SOL"' in page and 'name="r_FAL"' in page
+
+
 def test_relay_rollout_pass_keeps_orders_open_and_skips_failures(client, monkeypatch):
     from rsweb import relayroll as rr
     monkeypatch.setattr(rr, "capacity", lambda *a: 2)   # two free hold slots on logistics vessels with a replicant

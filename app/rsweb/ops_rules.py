@@ -292,7 +292,7 @@ class OpsRules:
         st["capacity"] = cap
         while st["on"] and len(st["ordered"]) < max(1, cap):
             nxt = rr.queue(st["seeds"], pos, have, set(orders) | set(st["ordered"]), set(st["skipped"]),
-                           float(st["radius"]), bool(st["chained"]), limit=1)
+                           float(st["radius"]), bool(st["chained"]), limit=1, radii=st["radii"])
             if not nxt:
                 if not st["ordered"]:
                     st["on"] = False

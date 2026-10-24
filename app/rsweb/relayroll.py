@@ -9,7 +9,10 @@ is next in line, so the network grows outward in one piece. A system whose order
 range, or nothing got there before the order expired) is skipped until you retry it; after MAX_STREAK failures in a row the rollout pauses (nothing can get a relay
 anywhere).
 
-State in kv "relay_rollout": {on, seeds: [star], radius, chained, capacity (last seen), ordered: {star: at}, skipped: {star: why},
+Each seed has its own radius (radii: {seed: ly}, owner 2026-10-24: SOLARES needs far less than FALQUORYX); a seed without
+one uses radius, the default. A system is in line when it lies within some seed's radius, and counts for the nearest such seed.
+
+State in kv "relay_rollout": {on, seeds: [star], radius, radii, chained, capacity (last seen), ordered: {star: at}, skipped: {star: why},
 done: int, streak: failures in a row, by}.
 """
 from __future__ import annotations
@@ -21,7 +24,7 @@ from .relaynet import RELAY_LY, _grid, _near
 
 KV = "relay_rollout"
 MAX_STREAK = 5
-DEFAULTS = {"on": False, "seeds": [], "radius": 50.0, "chained": True, "capacity": 0, "ordered": {}, "skipped": {},
+DEFAULTS = {"on": False, "seeds": [], "radius": 50.0, "radii": {}, "chained": True, "capacity": 0, "ordered": {}, "skipped": {},
             "done": 0, "streak": 0, "by": ""}
 
 
@@ -29,12 +32,14 @@ def state(raw: dict | None) -> dict:
     out = {**DEFAULTS, **(raw or {})}
     out["ordered"] = dict(out.get("ordered") or {})
     out["skipped"] = dict(out.get("skipped") or {})
+    out["radii"] = {k: float(v) for k, v in (out.get("radii") or {}).items() if k in out["seeds"]}
     return out
 
 
 def queue(seeds: list[str], pos: dict[str, Any], have: set[str], ordered: set[str], skipped: set[str],
-          radius: float, chained: bool, limit: int | None = None) -> list[dict]:
+          radius: float, chained: bool, limit: int | None = None, radii: dict[str, float] | None = None) -> list[dict]:
     """Systems still without a relay, in rollout order: [{star, ly (to the nearest seed), seed}], nearest first.
+    A seed's reach is radii[seed], else radius; a system counts for the nearest seed whose reach it lies in.
     Chained: only those within a relay's hop of a system that has one, has one on order, or is a seed, growing outward
     as each is reached (the order the rollout would go in if every order succeeded)."""
     xyz_all, cells = _grid(pos)
@@ -42,16 +47,18 @@ def queue(seeds: list[str], pos: dict[str, Any], have: set[str], ordered: set[st
     if not seed_xyz:
         return []
 
-    def nearest_seed(x: tuple) -> tuple[str, float]:
-        return min(((s, math.dist(x, y)) for s, y in seed_xyz), key=lambda t: t[1])
+    reach = {s: float((radii or {}).get(s, radius)) for s, _ in seed_xyz}
+
+    def nearest_seed(x: tuple) -> tuple[str, float] | None:
+        inside = [(s, d) for s, y in seed_xyz if (d := math.dist(x, y)) <= reach[s] + 1e-9]
+        return min(inside, key=lambda t: t[1]) if inside else None
 
     todo: dict[str, tuple[str, float]] = {}
     for s, x in xyz_all.items():
         if s in have or s in ordered or s in skipped:
             continue
-        seed, d = nearest_seed(x)
-        if d <= radius + 1e-9:
-            todo[s] = (seed, d)
+        if (hit := nearest_seed(x)):
+            todo[s] = hit
     rank = lambda s: (todo[s][1], s)  # noqa: E731
     if not chained:
         out = sorted(todo, key=rank)

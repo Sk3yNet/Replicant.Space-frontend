@@ -2200,7 +2200,7 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
         b["ordered"] = [s for s in b["stars"] if s in orders]
     roll = rr.state(await request.app.state.db.kv_get(rr.KV, {}))
     up_next = rr.queue(roll["seeds"], pos, set(rn["nodes"]), set(orders) | set(roll["ordered"]), set(roll["skipped"]),
-                       float(roll["radius"]), bool(roll["chained"])) if roll["seeds"] else []
+                       float(roll["radius"]), bool(roll["chained"]), radii=roll["radii"]) if roll["seeds"] else []
     return await page(request, user, "relays.html", "relays", nets=rn["networks"], nodes=rn["nodes"], bridges=br,
                       orders=orders, max_new=relaynet.MAX_BRIDGE, roll=roll, up_next=up_next[:15], n_next=len(up_next),
                       known=set(pos))
@@ -2209,15 +2209,30 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
 @router.post("/map/relays/rollout", response_class=HTMLResponse)
 async def map_relays_rollout(request: Request, action: str = Form(...), seeds: str = Form(""), radius: float = Form(50),
                              chained: str = Form(""), user: str = Depends(current_user)):
-    """Relay rollout (relayroll.py): save its settings and start, pause, or retry the skipped systems."""
+    """Relay rollout (relayroll.py): save its settings and start, pause, or retry the skipped systems. Each seed's radius
+    comes from its r_<SEED> field or a SEED:ly entry in the seeds list; one equal to the default isn't kept."""
     from . import relayroll as rr
     db = request.app.state.db
     eng = request.app.state.worker.automations
+    form = await request.form()
     async with eng.lock:
         roll = rr.state(await db.kv_get(rr.KV, {}))
         if action in ("start", "save"):
-            roll.update(seeds=list(dict.fromkeys(x.strip().upper() for x in seeds.replace(",", " ").split() if x.strip())),
-                        radius=max(1.0, min(1000.0, radius)), chained=bool(chained))
+            clamp = lambda v: max(1.0, min(1000.0, float(v)))  # noqa: E731
+            radius = clamp(radius)
+            names, radii = [], {}
+            for x in seeds.replace(",", " ").split():
+                star, _, ly = x.strip().upper().partition(":")
+                if not star:
+                    continue
+                names.append(star)
+                raw = ly or str(form.get(f"r_{star}") or "").strip()
+                try:
+                    if raw and clamp(raw) != radius:
+                        radii[star] = clamp(raw)
+                except ValueError:
+                    pass
+            roll.update(seeds=list(dict.fromkeys(names)), radius=radius, radii=radii, chained=bool(chained))
         if action == "start":
             if not roll["seeds"]:
                 return HTMLResponse('<span class="lv-alert small">Name at least one seed system.</span>')

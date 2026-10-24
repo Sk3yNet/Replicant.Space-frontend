@@ -50,10 +50,14 @@
     switched on, else a spare is sent, else one is printed in range), and each one that's up or dropped makes room for the
     next. A carrier takes as many relays as its hold has room for and drops them system by system, nearest first. <i>Chained</i>: only a system within 7.5 ly of a working
     relay or hub of yours, one on order, or a seed comes next, so the network grows outward in one piece. A system that
-    can't get one is skipped until you retry; after five in a row the rollout pauses.</p>
+    can't get one is skipped until you retry; after five in a row the rollout pauses. Each seed reaches as far as its own
+    radius (the default until you change it; a new seed can be typed as <code>STAR:ly</code>), and a system counts for the
+    nearest seed whose radius it lies in.</p>
   <form class="row small" hx-post="/map/relays/rollout" hx-target="next .rr-out">
     <label>Seeds <input name="seeds" size="30" value="{{ roll.seeds | join(' ') }}" placeholder="e.g. SOL FALQUORYX"></label>
-    <label>within <input name="radius" type="number" min="1" max="1000" step="1" value="{{ roll.radius | int }}" style="width:5em"> ly</label>
+    <label>default radius <input name="radius" type="number" min="1" max="1000" step="1" value="{{ roll.radius | int }}" style="width:5em"> ly</label>
+    {% for s in roll.seeds %}<label>{{ s }} <input name="r_{{ s }}" type="number" min="1" max="1000" step="1"
+      value="{{ (roll.radii[s] if s in roll.radii else roll.radius) | int }}" style="width:5em"> ly</label>{% endfor %}
     <label><input type="checkbox" name="chained" value="1" {{ 'checked' if roll.chained }}> chained</label>
     {% if roll.on %}<button name="action" value="save">Save</button><button class="ghost" name="action" value="stop">Pause</button>
     {% else %}<button name="action" value="start">Start</button><button class="ghost" name="action" value="save">Save</button>{% endif %}
