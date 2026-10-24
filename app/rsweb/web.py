@@ -21,6 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from .api import ApiError
 from .db import now_iso, row_event
+from .ingest import message_unread
 from . import notify
 from .shapes import as_amounts, normalize_blueprints, normalize_inventory
 from . import commands as cmdspec
@@ -2955,7 +2956,9 @@ async def messages(request: Request, user: str = Depends(current_user)):
         e["mention"] = bool(my) and not notify.is_mine(e, my, codes) and notify.mentions((e.get("payload") or {}).get("message"), my)
     for m in msgs:
         m["mention"] = bool(my) and notify.mentions(" ".join(str(m.get(k) or "") for k in ("title", "body", "text", "message")), my)
-    msgs = sorted(msgs, key=lambda m: not m["mention"])   # stable: newest-first order kept within each group
+        m["unread"] = message_unread(m)
+    # mentions first, then unread ones; stable: newest-first order kept within each group
+    msgs = sorted(msgs, key=lambda m: (not m["mention"], not m["unread"]))
     mentioned = [e for e in bobnet if e["mention"]]
     db = request.app.state.db
     subscribed = list(((await db.kv_get("account", {})) or {}).get("bobnet_channels") or [])
@@ -2965,6 +2968,7 @@ async def messages(request: Request, user: str = Depends(current_user)):
                         "listed": n in names} for n in set(names) | set(subscribed)),
                       key=lambda c: (not c["subscribed"], -(_ts_num(c["last_active"])), c["name"]))
     return await page(request, user, "messages.html", "messages", msgs=msgs, err=err, bobnet=bobnet[:80], mentioned=mentioned,
+                      unread=sum(1 for m in msgs if m["unread"]),
                       my_names=my,
                       replicants=st["replicants"], channels=channels, subscribed=subscribed, channel_cache=cache,
                       relay=bobnet_relay(st["devices"]))

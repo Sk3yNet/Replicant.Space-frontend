@@ -8810,3 +8810,19 @@ def test_idle_survey_drones_search_a_belt_under_the_site_cap(client):
     done = client.portal.call(eng.rule_reopen_sites)
     assert done == ["S0 → search ISO-BELT-1", "S1 → search ISO-BELT-1"]   # 3 open of 5
     assert client.portal.call(eng.rule_reopen_sites) == []   # running jobs / cooldown
+
+
+def test_asteroid_impacts_are_warnings_and_unread_messages_stand_out(client):
+    from rsweb import notify
+    for e in ("system.object_impacted", "diversion.impacted"):
+        assert notify.notification_for({"event": e, "payload": {}})["level"] == "warning"
+    assert notify.notification_for({"event": "system.impact_warning", "payload": {}})["level"] == "error"
+    db = client.app.state.db
+    client.portal.call(client.app.state.worker.sync_messages)
+    client.portal.call(db.kv_set, "messages", [
+        {"id": 1, "title": "Salvage discovered: old", "body": "a", "read": True},
+        {"id": 2, "title": "Fresh news", "body": "b", "read": False}])
+    client.app.state.worker.sync_messages = lambda: asyncio.sleep(0)
+    page = client.get("/messages", headers=H).text
+    assert "1 unread" in page and 'id="msg-unread"' in page
+    assert page.index("Fresh news") < page.index(">Read<") < page.index("Salvage discovered: old")

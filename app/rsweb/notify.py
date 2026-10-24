@@ -16,8 +16,10 @@ ALERT_EVENTS = {
     "terraform.device_deactivated", "terraform.deactivated",   # v3.2.0: capacity under 20 % switches them off
 }
 # Notification level: error (needs you — the only kind the bell's badge counts), warning, info (incl. accomplishments).
-ERROR_EVENTS = ALERT_EVENTS - {"hub.warning"}
-WARNING_EVENTS = {"hub.warning"}
+# An asteroid that has hit is past acting on (owner 2026-10-24): a warning, not an error. The impact warning stays an error.
+IMPACTED_EVENTS = {"diversion.impacted", "system.object_impacted"}
+WARNING_EVENTS = {"hub.warning"} | IMPACTED_EVENTS
+ERROR_EVENTS = ALERT_EVENTS - WARNING_EVENTS
 # Expected and frequent (a belt's sites close, salvage runs out): the feed and the digest have them, no notification.
 QUIET = {"site.depleted", "salvage.depleted"}
 DONE_EVENTS = {
