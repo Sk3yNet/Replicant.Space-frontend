@@ -388,7 +388,7 @@ def test_systems_page_requests_relays_and_beacons_and_lists_fleets(client):
     page = client.get("/systems?outposts=1", headers=H).text
     row = page[page.index('href="/systems/SOL"'):].split("</tr>")[0]
     assert "⌂ Homers" in row and "→ Scouts" in row
-    assert '"kind": "relay"' in row and '"kind": "beacon"' in row
+    assert 'data-kind="relay"' in row and 'data-kind="beacon"' in row and 'class="op-chk"' in row
     r = client.post("/systems/ABOTEIN/ward", data={"action": "add", "kind": "relay"}, headers=HX)
     assert "sending spare FTL relay RL1 to ABOTEIN" in r.text
     assert client.portal.call(db.kv_get, "relay_requests")["ABOTEIN"]["device"] == "RL1"
@@ -447,7 +447,7 @@ def test_requested_beacon_covers_every_civilization_in_the_system(client):
     assert "already works" not in msg and "no spare FTL beacon" in msg     # LOR-5 still needs one
     page = client.get("/systems?outposts=1", headers=H).text
     row = page[page.index('href="/systems/LOR"'):].split("</tr>")[0]
-    assert "remove</button>" in row and "each civilization needs its own" in row
+    assert 'data-kind="beacon" data-label="FTL beacon" data-working="1" checked' in row and "each civilization needs its own" in row
     client.portal.call(db.kv_set, "devices", devs + [at3, loose, vessel])
     msg = client.portal.call(e.order_outpost, "beacon", "LOR", "joe")
     assert "activating BC7" in msg and "1 of 2 civilizations still need one (LOR-5)" in msg
@@ -1184,3 +1184,17 @@ def test_fleet_details_index_and_cards_load_on_their_own(client):
     one = client.get("/fleets/details?fleet=f", headers=H).text  # one fleet alone, the other not even as a placeholder
     assert "M1" in one and 'id="fleet-g"' not in one and 'href="/fleets/details?fleet=g"' in one
     assert "no fleet" in client.get("/fleets/details/card/zz", headers=H).text.lower()
+
+
+def test_systems_checkboxes_save_in_background(client):
+    db = client.app.state.db
+    devs = [d for d in client.portal.call(db.kv_get, "devices") if d.get("device_type") != "ftl_relay"]
+    client.portal.call(db.kv_set, "devices", devs + [
+        {"device_code": "RL1", "device_type": "ftl_relay", "location": "SOL-BELT-1", "status": "stowed", "tags": ["spare"]}])
+    page = client.get("/systems?outposts=1", headers=H).text
+    assert 'id="op-filters"' in page and 'data-relay="0"' in page
+    assert 'data-civ="' in page
+    r = client.post("/systems/ABOTEIN/ward", data={"action": "add", "kind": "relay", "bg": "1"}, headers=HX)
+    assert "HX-Refresh" not in r.headers and r.json()["on"] is True and "RL1" in r.json()["msg"]
+    r = client.post("/systems/ABOTEIN/ward", data={"action": "remove", "kind": "relay", "bg": "1"}, headers=HX)
+    assert r.json() == {"msg": r.json()["msg"], "on": False} and "order canceled" in r.json()["msg"]

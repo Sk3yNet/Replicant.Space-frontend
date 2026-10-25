@@ -50,7 +50,7 @@ full in the **[feature guide](docs/FEATURES.md)**.
 | | [AMI](docs/FEATURES.md#ami) | controllers, directives, schedules |
 | | [Lost](docs/FEATURES.md#lost) | devices out of sight and devices gone, with the reason |
 | **Map** | [Galaxy](docs/FEATURES.md#galaxy) | live 3D map: markers, fleets, traffic, relay networks ([legend](#map-legend)) |
-| | [Stars](docs/FEATURES.md#stars) · [Systems](docs/FEATURES.md#systems-list) · [System](docs/FEATURES.md#system-page) | nearest unexplored stars; systems by distance with ward / relay / beacon orders; one system's map, resources, belts, bodies |
+| | [Stars](docs/FEATURES.md#stars) · [Systems](docs/FEATURES.md#systems-list) · [System](docs/FEATURES.md#system-page) | nearest unexplored stars; systems by distance with ward / relay / beacon checkboxes and filters; one system's map, resources, belts, bodies |
 | | [Prospects](docs/FEATURES.md#prospects) | every scanned system scored out of 100, wards |
 | | [Relays](docs/FEATURES.md#relays) | live links, networks, bridges, relay rollout |
 | | [Traffic](docs/FEATURES.md#traffic) · [Trail](docs/FEATURES.md#trail) | beacon logs and civilization contact; follow a replicant (Bill) through the beacons |

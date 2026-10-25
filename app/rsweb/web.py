@@ -1589,12 +1589,22 @@ async def systems_prospects(request: Request, origin: str = "", user: str = Depe
 
 @router.post("/systems/{star}/ward", response_class=HTMLResponse)
 async def systems_ward(request: Request, star: str, action: str = Form(...), kind: str = Form("ward"),
-                       user: str = Depends(current_user)):
+                       bg: str = Form(""), user: str = Depends(current_user)):
     """Prospects / Systems: add a ward, relay or beacon in a system (activate / send a spare / print one) or remove
-    yours (deactivate)."""
+    yours (deactivate). `bg`: the Systems page checkboxes, answered with JSON {msg, on} (on: the box stays ticked,
+    an order or a working one) and no page refresh."""
     eng = request.app.state.worker.automations
     async with eng.lock:
         msg = await (eng.order_outpost(kind, star, user) if action == "add" else eng.remove_outpost(kind, star, user))
+    if bg:
+        from . import outposts
+        from . import ward_orders as wo
+        from . import wardhub as wh
+        star = star.upper()
+        ordered = kind in wo.KINDS and star in (await request.app.state.db.kv_get(wo.kv_key(kind), {}) or {})
+        working = action == "add" and any(wh.active(d) for d in
+                                          (outposts.presence(await eng.devices()).get(star) or {}).get(kind) or [])
+        return JSONResponse({"msg": msg, "on": ordered or working})
     return HTMLResponse(f'<div class="result small">{html.escape(msg)}</div>', headers={"HX-Refresh": "true"})
 
 

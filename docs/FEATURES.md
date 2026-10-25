@@ -180,10 +180,12 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
 - Nearest first, by **distance** from the system picked under *distances from* (the same choices as Mining prospects;
   default: where most of your devices are).
 - Per system, the **Fleets** homed there (⌂) or on a mission there (→).
-- With *Wards, beacons & relays* ticked: your ward, FTL relay and FTL beacon, with
-  - *add*: activate an idle one there, else send a spare, else print one in range (a relay is placed at an L4/L5 point);
-  - *remove*: deactivate it and tag it spare (drops its `home:` / `at:` / `to:` tags);
-  - *cancel* an order.
+- With *Wards, beacons & relays* ticked: your ward, FTL relay and FTL beacon, each with a checkbox (ticked: one works
+  there or is on order) that saves at once without reloading the page, so several can be ticked in a row:
+  - ticking: activate an idle one there, else send a spare, else print one in range (a relay is placed at an L4/L5 point);
+  - unticking: deactivate it and tag it spare (drops its `home:` / `at:` / `to:` tags; asks first), or cancel its order.
+- Filters (remembered in the browser): relay / beacon / ward checked or unchecked, and civilization (has one, missing
+  a beacon, all have beacons, none).
 - ✦ marks a local civilization (green: your beacon is at its body). A beacon requested for such a system goes on to the
   civilization's body, pinned there (`at:`) so its carrier drops it at the body; a beacon already elsewhere in the
   system is carried there by a vessel in the system, or, with none there, pinned so the loadout pass sends a carrier.

@@ -14,26 +14,29 @@
       Wards, beacons &amp; relays</label>
     <label style="text-transform:none" title="Systems lacking your relay, beacon or ward"><input type="checkbox" name="missing" value="1" {{ 'checked' if missing }} onchange="this.form.submit()">
       only systems missing one</label>
-    <span class="muted"><i>add</i> activates an idle one of yours there, else sends a spare, else prints one in range;
-      <i>remove</i> deactivates yours and marks it spare. Wards keep other players from mining there.</span>
+    <span class="row" style="gap:8px" id="op-filters">{% if show_outposts %}{% for k, label in outpost_kinds.items() %}
+      <label style="text-transform:none">{{ {'relay': 'Relay', 'beacon': 'Beacon', 'ward': 'Ward'}[k] }}
+        <select data-kind="{{ k }}" onchange="opFilter()"><option value="">any</option><option value="1">checked</option><option value="0">unchecked</option></select></label>{% endfor %}{% endif %}
+      <label style="text-transform:none" title="local civilizations (✦) in the system">Civilization
+        <select data-kind="civ" onchange="opFilter()"><option value="">any</option><option value="yes">has one</option><option value="gap">missing a beacon</option><option value="ok">all have beacons</option><option value="none">none</option></select></label>
+      <span class="muted" id="op-shown"></span></span>
+    <span class="muted">Ticking a box activates an idle one of yours there, else sends a spare, else prints one in range;
+      unticking deactivates yours and marks it spare (or cancels its order). Saved at once, no reload. Wards keep other players from mining there.</span>
   </form>
   <table>
     <tr><th>System</th><th class="num">Devices</th><th title="⌂ homed here · → on a mission here">Fleets</th>
       {% if show_outposts %}{% for k, label in outpost_kinds.items() %}<th title="your {{ label }}s in the system">{{ {'relay': 'Relay', 'beacon': 'Beacon', 'ward': 'Ward'}[k] }}</th>{% endfor %}{% endif %}
       <th class="num">Locations with presence</th><th class="num">Stockpiled</th><th class="num">Mineable</th><th class="num">Salvage</th><th>Most available</th><th>Scan cached</th><th class="num" title="from {{ origin }}; nearest first">Distance</th></tr>
     {% for s, p in rows %}
-    <tr><td><a href="/systems/{{ s }}">{{ s }}</a>{% for c in p.civ %} <a href="/traffic" class="{{ 'lv-done' if c.beacon else 'lv-alert' }}"
+    <tr class="sys-row" data-civ="{{ ('gap' if p.civ_gap else 'ok') if p.civ else 'none' }}"{% if show_outposts %}{% for k in outpost_kinds %} data-{{ k }}="{{ 1 if p.working[k] or p.orders[k] else 0 }}"{% endfor %}{% endif %}><td><a href="/systems/{{ s }}">{{ s }}</a>{% for c in p.civ %} <a href="/traffic" class="{{ 'lv-done' if c.beacon else 'lv-alert' }}"
         title="local civilization at {{ c.location }} · {{ 'your beacon is there' if c.beacon else 'no beacon of yours there yet (Add a beacon puts one at each civilization in the system)' }}">✦</a>{% endfor %}</td><td class="num">{{ p.devices }}</td><td class="small">{% for n in p.homes %}<span title="home of {{ n }}">⌂ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}{% if p.homes and p.targets %} · {% endif %}{% for n in p.targets %}<span title="{{ n }} is on a mission here">→ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}</td>
-      {% if show_outposts %}{% for k in outpost_kinds %}{% set ds = p.outposts[k] %}<td class="small {{ '' if ds else 'lv-alert' }}">
+      {% if show_outposts %}{% for k in outpost_kinds %}{% set ds = p.outposts[k] %}{% set o = p.orders[k] %}<td class="small {{ '' if ds else 'lv-alert' }}">
         {% for d in ds %}<a class="mono" href="/devices/{{ d.device_code }}" title="{{ d.location }} · {{ d.status }}">✓ {{ d.device_code }}</a>{{ ' ' if not loop.last }}{% else %}— none{% endfor %}
-        {% set o = p.orders[k] %}<span style="white-space:nowrap">
-        {% if p.working[k] %}<button class="small ghost" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "remove", "kind": "{{ k }}"}' hx-target="next .op-out"
-            hx-confirm="Deactivate your {{ outpost_kinds[k] }} in {{ s }} and mark it spare?">remove</button>
-          {% if k == 'beacon' and p.civ_gap and not o %}<button class="small" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "add", "kind": "beacon"}' hx-target="next .op-out"
+        <span style="white-space:nowrap"><label style="text-transform:none" title="{{ 'your ' ~ outpost_kinds[k] ~ ' works here: untick to deactivate it and mark it spare' if p.working[k] else ('on order: untick to cancel' if o else 'tick to add one') }}"><input type="checkbox" class="op-chk"
+            data-star="{{ s }}" data-kind="{{ k }}" data-label="{{ outpost_kinds[k] }}" data-working="{{ 1 if p.working[k] else '' }}" {{ 'checked' if p.working[k] or o }} onchange="opToggle(this)">
+          {% if o and not p.working[k] %}<span class="pill small st-move" title="ordered {{ o.at | ago }}">on its way ({{ o.how }})</span>{% endif %}</label>
+          {% if k == 'beacon' and p.working[k] and p.civ_gap and not o %}<button type="button" class="small" onclick="opAdd(this, '{{ s }}')"
             title="no beacon of yours yet at {{ p.civ_gap | join(', ') }}: each civilization needs its own">add</button>{% endif %}
-        {% elif o %}<span class="pill small st-move" title="ordered {{ o.at | ago }}">on its way ({{ o.how }})</span>
-          <button class="small ghost" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "remove", "kind": "{{ k }}"}' hx-target="next .op-out">cancel</button>
-        {% else %}<button class="small" hx-post="/systems/{{ s }}/ward" hx-vals='{"action": "add", "kind": "{{ k }}"}' hx-target="next .op-out">add</button>{% endif %}
         <span class="op-out"></span></span></td>{% endfor %}{% endif %}
       <td class="num">{{ p.locations or '' }}</td><td class="num">{{ p.resources | num if p.resources else '' }}</td>
       <td class="num">{{ p.mineable | num if p.mineable else ('?' if p.unknown_sites else '') }}</td>
@@ -44,6 +47,43 @@
     {% else %}<tr><td colspan="13" class="muted">{{ 'Every system has all three.' if missing else 'No presence yet — waiting for sync.' }}</td></tr>{% endfor %}
   </table>
 </div>
+<script>
+function opPost(star, kind, action) {
+  const body = new URLSearchParams({action: action, kind: kind, bg: "1"});
+  return fetch("/systems/" + encodeURIComponent(star) + "/ward", {method: "POST", body: body, credentials: "same-origin", headers: {"HX-Request": "true"}})
+    .then(r => r.ok ? r.json() : r.text().then(t => ({msg: "error " + r.status + (t ? ": " + t.slice(0, 120) : ""), on: null})))
+    .catch(e => ({msg: "request failed: " + e, on: null}));
+}
+function opShow(el, msg) { const out = el.closest("td").querySelector(".op-out"); if (out) { out.className = "op-out result small"; out.textContent = msg; } }
+function opToggle(box) {
+  const add = box.checked, star = box.dataset.star, kind = box.dataset.kind;
+  if (!add && box.dataset.working && !confirm("Deactivate your " + box.dataset.label + " in " + star + " and mark it spare?")) { box.checked = true; return; }
+  box.disabled = true;
+  opPost(star, kind, add ? "add" : "remove").then(res => {
+    box.disabled = false;
+    if (res.on !== null) { box.checked = res.on; box.closest("tr").dataset[kind] = res.on ? "1" : "0"; if (!res.on) box.dataset.working = ""; }
+    else box.checked = !add;
+    opShow(box, res.msg);
+  });
+}
+function opAdd(btn, star) { btn.disabled = true; opPost(star, "beacon", "add").then(res => { btn.disabled = false; opShow(btn, res.msg); }); }
+function opFilter(save) {
+  const want = {}; let n = 0, all = 0;
+  document.querySelectorAll("#op-filters select").forEach(s => { if (s.value) want[s.dataset.kind] = s.value; });
+  document.querySelectorAll("tr.sys-row").forEach(tr => {
+    const ok = Object.entries(want).every(([k, v]) => k === "civ" && v === "yes" ? tr.dataset.civ !== "none" : tr.dataset[k] === v);
+    tr.style.display = ok ? "" : "none"; all++; if (ok) n++;
+  });
+  document.getElementById("op-shown").textContent = Object.keys(want).length ? n + " of " + all + " shown" : "";
+  if (save !== false) try { localStorage.setItem("sys-op-filter", JSON.stringify(want)); } catch (e) {}
+}
+(function () {
+  let want = {};
+  try { want = JSON.parse(localStorage.getItem("sys-op-filter") || "{}") || {}; } catch (e) {}
+  document.querySelectorAll("#op-filters select").forEach(s => { if (want[s.dataset.kind]) s.value = want[s.dataset.kind]; });
+  opFilter(false);
+})();
+</script>
 <details class="card" id="system-tags" style="margin-top:14px"><summary><b>System tags</b> <span class="muted small">from {{ known | length }} cached scans · {{ system_tags | length }} tags</span></summary>
   {% for t, stars in system_tags %}<div class="small" style="margin:4px 0"><span class="pill {{ 'lv-alert' if 'hazard' in t | lower }}">{{ t | human }}</span>
     <span class="muted">{{ stars | length }}</span> {% for s in stars %}<a href="/systems/{{ s }}">{{ s }}</a>{{ ', ' if not loop.last }}{% endfor %}</div>
