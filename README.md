@@ -55,7 +55,7 @@ full in the **[feature guide](docs/FEATURES.md)**.
 | | [Relays](docs/FEATURES.md#relays) | live links, networks, bridges, relay rollout |
 | | [Traffic](docs/FEATURES.md#traffic) · [Trail](docs/FEATURES.md#trail) | beacon logs and civilization contact; follow a replicant (Bill) through the beacons |
 | | [Wards & hubs](docs/FEATURES.md#wards--hubs) · [Upkeep](docs/FEATURES.md#upkeep) | ward cap, hub shield and upkeep; wear and maintenance |
-| | [Defense](docs/FEATURES.md#defense) | asteroids: defend, evacuate, mine them with rigs |
+| | [Defense](docs/FEATURES.md#defense) | asteroids: defend, evacuate, mine them with rigs or a rock chaser fleet |
 | | [Terraforming](docs/FEATURES.md#terraforming) · [candidates](docs/FEATURES.md#terraforming-candidates) | live console per world, dropping rocks; bodies rated as targets |
 | **Fleets** | [Fleets](docs/FEATURES.md#fleets) · [details](docs/FEATURES.md#pages) | status against loadout, missions, strays, roles, bootstrap |
 | | [Logistics](docs/FEATURES.md#logistics) | deliveries on demand by task category, carriers spread over the hubs, rescues, repair patrols |
@@ -129,7 +129,7 @@ Rules run in the app container, so they keep going with the browser closed. The 
   SQLite and survive redeploys; a failing *critical* step stops the job with an alert.
 - **Safe defaults**: watch-and-alert rules start on, every other rule starts off. *Dry run* logs what rules would do.
   All commands share the rate limiter and show in the audit log as user `automation`.
-- **Fleets** keep their loadouts, run missions, follow a path forward and bootstrap new hubs
+- **Fleets** keep their loadouts, run missions, follow a path forward, chase asteroids and bootstrap new hubs
   ([Fleets](docs/FEATURES.md#fleets)); **logistics** delivers materials and devices on demand
   ([Logistics](docs/FEATURES.md#logistics)).
 - **Travel** waits on the game's ETA, routes via hubs and surge hops when that's faster, and asks for **Confirm** on

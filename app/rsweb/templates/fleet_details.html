@@ -15,6 +15,7 @@
     {% if f.pending_home %}<div class="small lv-alert">Moving to {{ f.pending_home }} once it can be commanded there — {{ f.path_note or '' }}</div>{% endif %}
     <span>{% if m.status %}<span class="pill {{ {'running': 'st-work', 'done': 'lv-done', 'stalled': 'lv-alert', 'ended': 'lv-done'}.get(m.status, '') }}">{{ m.status }}{% if m.status == 'running' %}: {{ m.phase }}{% endif %}</span>{% endif %}</span>
   </div>
+  {% if f.role == 'rock_chaser' %}{% include "partials/chase_card.html" %}{% endif %}
   <div class="grid g2">
     <div>
       <h3>Loadout <span class="muted small">in {{ r.stars | join(', ') or '—' }}</span></h3>

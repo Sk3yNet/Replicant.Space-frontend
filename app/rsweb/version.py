@@ -16,11 +16,19 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.257.0"
+VERSION = "1.258.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.258.0", "2026-10-25", "New fleet role: rock chaser, for asteroid mining inside relay coverage, in its home system "
+               "(hub) or roaming to covered systems within a radius. Fleet details has its target criteria (size, resource "
+               "priority, hours of mining after the trip, when to leave, ship-at amount, drop). It picks and tracks a target, "
+               "carries its rigs there and mines it; a fleet hauler ships the pile out as soon as it reaches the ship-at "
+               "amount; 80 minutes before the ETA (or once the rock is mined down) everything boards at once and flies to the "
+               "next target. A sensor array searches the Kuiper belt and marks objects for launch, launched with a fleet "
+               "vector charge from the card or automatically. Unverified live: rig commands, the slots-full error text, "
+               "where detect_object must run."),
     ("1.257.0", "2026-10-25", "A bootstrap hub's kit has a surge plate instead of a surge carrier, and the heaven vessel does the mass transport: from the outposts stage on the loadout pass lends the bootstrap's own vessel (hold 10) to its fleets, so it ferries the outposts' kits the hub's autofactory prints, though it hosts the replicant. A bootstrap's devices now always ride apart from other fleets' in a delivery batch."),
     ("1.256.0", "2026-10-25", "Restart idle miners has a Mine one site at a time option (off by default) for drones without an AMI controller: each restarted drone goes to the open site with the least of its resource left (start_mining with a target), so the sites run out one after another and each freed survey drone searches again while the other sites keep the drones busy, instead of every site running out within minutes and the belt going dry for an hour. A refused target falls back to any site. Controllers pick their own sites, so their drones are left alone."),
     ("1.255.0", "2026-10-25", "Diagnostics: checkboxes choose what a snapshot includes (stockpiles, controllers, belts, events, idle drones, raw device pages, fleets, logistics, relays, asteroids, last commands, performance, version history), kept for the next one. The sections that make requests share the 60-request budget, so leaving one out lets the others read more controllers, belts or idle drones; the rest only cost file size."),

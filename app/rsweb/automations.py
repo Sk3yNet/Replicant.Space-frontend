@@ -28,6 +28,7 @@ from .ops_rules import OpsRules
 from .boot_engine import BootstrapMixin
 from .sim_engine import SimMixin
 from .stock import StockMixin
+from .chase_engine import ChaseMixin
 
 log = logging.getLogger("rsweb.auto")
 
@@ -486,7 +487,7 @@ def survey_targets(scan: dict, surveyed: dict, include_moons: bool, include_belt
     return out[:max(0, max_targets)]
 
 
-class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
+class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixin):
     def __init__(self, db, api, hub, worker):
         self.db, self.api, self.hub, self.worker = db, api, hub, worker
         self.lock = EngineLock()
@@ -1589,7 +1590,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 self.stage = None
                 await self.note_tick()
                 return
-            for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass"):

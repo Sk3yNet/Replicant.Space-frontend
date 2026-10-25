@@ -39,6 +39,11 @@ async def fleets_ctx(request: Request) -> dict:
         f["points"] = fl.attach_points(f, st["devices"], bp_by, f["roster"]["rows"])
         m = f.get("mission") or {}
         f["job"] = jobs.get(m.get("job"))
+        if f.get("role") == "rock_chaser":   # rockchase.py: every setting resolved, and the run with all its keys
+            from . import rockchase as rc
+            f["chase_cfg"] = rc.settings(f)
+            f["chase_view"] = {"phase": "idle", "target": None, "resource": None, "note": None, "ship_note": None,
+                               "marked": {}, "launch": None, **(f.get("chase_run") or {})}
     # vessels hosting a replicant can join too (a replicant riding with the fleet keeps it commandable where no relay
     # reaches); they're marked so it's clear the replicant goes wherever the fleet goes
     hosted = {r.get("hosted_device_code"): (r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")}
@@ -995,3 +1000,56 @@ async def fleets_print(request: Request, fid: str, user: str = Depends(current_u
                                    {"command": "enqueue_print", "device_type": t, "quantity": k, "tags": [fl.fleet_tag(fid)]}))
     return await start_chain(request, user, f"fleet {f['name']}: print {fl.summarize(short)}", steps[0], steps[1:],
                              facs[0]["device_code"])
+
+
+# --- rock chaser fleets (rockchase.py) ----------------------------------------------------------------------------
+@router.post("/fleets/{fid}/chase", response_class=HTMLResponse)
+@_fleet_locked
+async def fleets_chase(request: Request, fid: str, user: str = Depends(current_user)):
+    """A rock chaser's settings (action=settings), a launch of a marked Kuiper object (action=launch, rock, at), calling a
+    launch off (action=unlaunch) or dropping the current target (action=drop: the fleet picks again)."""
+    from . import rockchase as rc
+    form = await request.form()
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid and x.get("role") == rc.ROLE), None)
+    if not f:
+        return HTMLResponse('<div class="result err">No such rock chaser fleet.</div>', status_code=404)
+    run = f.setdefault("chase_run", {})
+    action = form.get("action") or "settings"
+    if action == "settings":
+        c = f.setdefault("chase", {})
+        for k, v in rc.DEFAULTS.items():
+            if isinstance(v, bool):
+                c[k] = form.get(k) == "on"
+            elif k in form:
+                raw = str(form.get(k) or "").strip()
+                if isinstance(v, float):
+                    try:
+                        c[k] = max(0.0, float(raw)) if raw else v
+                    except ValueError:
+                        return HTMLResponse(f'<div class="result err">{html.escape(k)} must be a number</div>')
+                else:
+                    c[k] = raw.upper() if k in ("drop", "launch_at") else raw
+        c["leave_minutes"] = max(60.0, c.get("leave_minutes") or 0)   # never later than the defense evacuation's hour
+        f["chase"] = rc.settings(f)
+        msg = "Saved."
+    elif action == "launch":
+        rock, at = str(form.get("rock") or "").strip().upper(), str(form.get("at") or "").strip().upper()
+        if not rock or not at:
+            return HTMLResponse('<div class="result err">Pick the object and the planet or moon to launch it at.</div>')
+        run["launch"] = {"rock": rock, "at": at, "by": user}
+        msg = f"{rock} will be launched at {at} once a fleet vector charge is there."
+    elif action == "unlaunch":
+        run.pop("launch", None)
+        msg = "Launch called off."
+    elif action == "drop":
+        if run.get("target"):
+            run.setdefault("skip", {})[run["target"]] = now_iso()
+        run.pop("target", None)
+        run["phase"] = "idle"
+        msg = "Target dropped: the fleet picks another one on the next pass."
+    else:
+        return HTMLResponse('<div class="result err">Unknown action.</div>')
+    await eng.save_fleets(items)
+    await eng.log("rock_chaser", f"{f['name']}: {action} by {user}")
+    return HTMLResponse(f'<div class="result ok">{html.escape(msg)}</div>')

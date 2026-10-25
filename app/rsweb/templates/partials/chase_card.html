@@ -1,0 +1,39 @@
+{# Rock chaser fleet (rockchase.py): status, criteria, marked Kuiper objects #}
+{% set run = f.chase_view %}{% set c = f.chase_cfg %}
+<div class="small" style="margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
+  <div><b>Rock chaser</b> · {{ 'home system only' if c.mode == 'hub' else 'roams within ' ~ (c.radius | int) ~ ' ly of ' ~ f.home ~ ' (relay coverage)' }}
+    · {{ run.phase }}{% if run.target %}: <a href="/defence"><b>{{ run.target }}</b></a>{% if run.resource %} ({{ run.resource }}){% endif %}{% endif %}
+    {% if run.note %}<span class="muted"> · {{ run.note }}</span>{% endif %}
+    {% if run.ship_note %}<span class="muted"> · {{ run.ship_note }}</span>{% endif %}
+    {% if run.target %}<form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out" hx-confirm="Drop {{ run.target }}? The fleet picks another rock (it skips this one for 6 h).">
+      <input type="hidden" name="action" value="drop"><button class="small">Drop target</button></form>{% endif %}<span class="chase-out"></span></div>
+  <details style="margin-top:4px"><summary>Target criteria</summary>
+    <form hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out" class="row small" style="flex-wrap:wrap;gap:8px;margin-top:4px">
+      <input type="hidden" name="action" value="settings">
+      <label title="hub: the home system only; roam: any system the relay network covers within the radius">mode
+        <select name="mode">{% for m in ['roam', 'hub'] %}<option {{ 'selected' if c.mode == m }}>{{ m }}</option>{% endfor %}</select></label>
+      <label>radius <input name="radius" type="number" min="0" step="1" value="{{ c.radius | int }}" style="width:5em"> ly</label>
+      <label title="smallest mass class worth chasing">min size <select name="min_size">{% for s in ['small', 'medium', 'large'] %}<option {{ 'selected' if c.min_size == s }}>{{ s }}</option>{% endfor %}</select></label>
+      <label title="resources in the order to mine them; the rest follow">priority <input name="priority" value="{{ c.priority }}" placeholder="rares, conductive" size="18"></label>
+      <label title="hours of mining that must be left after the trip, before the fleet leaves">min hours <input name="min_hours" type="number" min="0" step="0.5" value="{{ c.min_hours }}" style="width:4em"></label>
+      <label title="the fleet boards and leaves this long before the ETA (at least 60)">leave <input name="leave_minutes" type="number" min="60" step="5" value="{{ c.leave_minutes | int }}" style="width:4em"> min before</label>
+      <label title="a hauler takes the pile out once it holds this much">ship at <input name="ship_min" type="number" min="0" step="10" value="{{ c.ship_min | int }}" style="width:5em"></label>
+      <label title="where shipped materials go (same system); empty: the system's safe spot (entry point)">drop <input name="drop" value="{{ c.drop }}" size="14"></label>
+      <label title="on rocks you launched, leave this much of each resource for the terraform effect">keep <input name="keep_pct" type="number" min="0" max="100" step="1" value="{{ c.keep_pct }}" style="width:4em"> %</label>
+      <label title="mine only these on rocks you launched (empty: the priority list)">on launched rocks <input name="launched_resources" value="{{ c.launched_resources }}" size="12"></label>
+      <label title="the fleet's sensor array sweeps the Kuiper belt this often">search every <input name="search_hours" type="number" min="1" step="1" value="{{ c.search_hours | int }}" style="width:4em"> h</label>
+      <label title="Kuiper objects at least this big are marked for launch">mark from <select name="launch_size">{% for s in ['small', 'medium', 'large'] %}<option {{ 'selected' if c.launch_size == s }}>{{ s }}</option>{% endfor %}</select></label>
+      <label title="planet or moon marked objects are launched at">launch at <input name="launch_at" value="{{ c.launch_at }}" size="12"></label>
+      <label title="launch marked objects at the launch-at body without asking (uses up a vector charge each)"><input type="checkbox" name="auto_launch" {{ 'checked' if c.auto_launch }}> auto launch</label>
+      <button class="small">Save</button>
+    </form></details>
+  {% set marks = run.marked or {} %}
+  {% if marks or run.launch %}<div style="margin-top:4px"><b>Marked for launch</b>
+    {% if run.launch %}<div>Launching <b>{{ run.launch.rock }}</b> at {{ run.launch.at }}{% if run.launch.get('note') %} <span class="muted">· {{ run.launch.note }}</span>{% endif %}
+      <form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out"><input type="hidden" name="action" value="unlaunch"><button class="small">Call off</button></form></div>{% endif %}
+    {% for des, m in marks | dictsort %}<div>• <span class="mono">{{ des }}</span> {{ m.get('mass_class') or '' }} {{ m.get('composition') or '' }} <span class="muted">found {{ m.get('found_at') | ago }}</span>
+      <form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out" hx-confirm="Launch {{ des }}? A fleet vector charge is used up and the rock will strike the body you pick.">
+        <input type="hidden" name="action" value="launch"><input type="hidden" name="rock" value="{{ des }}">
+        <input name="at" value="{{ c.launch_at }}" placeholder="planet or moon" size="12" required> <button class="small">Launch</button></form></div>{% endfor %}
+  </div>{% endif %}
+</div>

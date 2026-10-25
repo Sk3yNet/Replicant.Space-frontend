@@ -860,6 +860,64 @@ class OpsRules:
                 out[rock] = {"at": r["created_at"], "amounts": rm.amounts(p.get("report") or p)}
         return out
 
+    async def trip_seconds(self, code: str, dest: str) -> float | None:
+        """The game's preview of `code`'s trip to `dest` along the route the job runner will take (surge hops, a hub, the
+        off-ramp), else its own route; None when neither previews (owner 2026-10-22: the actual travel time counts)."""
+        from .hubroute import total_seconds
+        via = await self.trip_via(code, dest)
+        for v in ([via] if via else []) + [None]:
+            try:
+                return total_seconds(await self.api.request("POST", f"/devices/{code}", json_body={
+                    "command": "travel", "destination": dest, **({"via": v} if v else {}), "dry_run": True},
+                    background=True))
+            except Exception:  # noqa: BLE001
+                continue
+        return None
+
+    async def rock_commands(self, p: dict, state: dict, full: dict, rule: str = "asteroid_mining") -> list[str]:
+        """Send rockmining.plan's start / retarget / stop orders; `state` and `full` are updated in place."""
+        dry = (await self.settings())["dry_run"]
+        out: list[str] = []
+        for kind, body in (("start", "start_mining"), ("retarget", "retarget"), ("stop", "deactivate")):
+            for x in p[kind]:
+                code, rock, res = x["code"], x["rock"], x["resource"]
+                what = f"{code} at {rock}: " + (f"{kind} {res}" if res else "stop (mined down to what is kept)")
+                if dry:
+                    out.append("[dry run] " + what)
+                    continue
+                cmd = {"command": body, **({"resource_type": res} if res else {})}
+                ok, _, err = await self.send("POST", f"/devices/{code}", cmd, f"auto: {rule.replace('_', ' ')} {code}")
+                if ok:
+                    if res:
+                        state[code] = {"rock": rock, "resource": res, "at": now_iso()}
+                    else:
+                        state.pop(code, None)
+                    out.append(what)
+                else:
+                    # unverified live: the words the game uses when a rock's slots are taken
+                    if any(w in (err or "").lower() for w in ("slot", "full", "no room", "capacity")):
+                        full[rock] = now_iso()
+                    out.append(f"{what} failed: {err}")
+        return out
+
+    async def rock_scan_jobs(self, scans: list[dict], rule: str = "asteroid_mining") -> list[str]:
+        """Jobs for rockmining.plan's scans: a survey drone flies to the rock (unless it is there) and scans it."""
+        from .automations import step
+        out: list[str] = []
+        for x in scans:
+            code, rock = x["code"], x["rock"]
+            tr = step(f"{code}: travel → {rock}", f"/devices/{code}", {"command": "travel", "destination": rock},
+                      wait=["travel.arrived"], critical=True, match={"destination": rock})
+            tr["wait_device"] = code
+            sc = step(f"{code}: scan {rock}", f"/devices/{code}", {"command": "scan"}, wait=["scan.completed"], timeout=3600)
+            sc["wait_device"] = code
+            steps = [sc] if x.get("here") else [tr, sc]
+            if x.get("stop"):   # searching a belt for a new site: called off first
+                steps.insert(0, step(f"{code}: stop searching", f"/devices/{code}", {"command": "deactivate"}))
+            if await self.create_job(rule, f"{rule.replace('_', ' ')}: {code} scans {rock}", code, steps, {"devices": [code]}):
+                out.append(f"{code} scans {rock}" if x.get("here") else f"{code} → {rock} to stay and scan it")
+        return out
+
     async def rock_mining_pass(self) -> list[str]:
         """See rockmining.py. Returns what it did."""
         from . import rockmining as rm
@@ -880,42 +938,16 @@ class OpsRules:
         busy = self.busy_devices(await self.jobs())
         where = {d["device_code"]: d.get("location") for d in devices}
         state = {c: s for c, s in state.items() if where.get(c) == s.get("rock") or c in busy}   # evacuated, or the trip failed
+        from . import fleets as fl
+        from .rockchase import ROLE
+        busy = busy | {d["device_code"] for f in await self.fleets() if f.get("role") == ROLE
+                       for d in fl.members(f, devices)}   # rock chasers work their own rigs and drones (rock_chase_pass)
         scans = await self.rock_scans()
         p = rm.plan(objs, devices, cfg, busy, state, hosts, set(full), {r: s["at"] for r, s in scans.items()})
-        dry = (await self.settings())["dry_run"]
-        out: list[str] = []
-        for kind, body in (("start", "start_mining"), ("retarget", "retarget"), ("stop", "deactivate")):
-            for x in p[kind]:
-                code, rock, res = x["code"], x["rock"], x["resource"]
-                what = f"{code} at {rock}: " + (f"{kind} {res}" if res else "stop (mined down to what is kept)")
-                if dry:
-                    out.append("[dry run] " + what)
-                    continue
-                cmd = {"command": body, **({"resource_type": res} if res else {})}
-                ok, _, err = await self.send("POST", f"/devices/{code}", cmd, f"auto: asteroid mining {code}")
-                if ok:
-                    if res:
-                        state[code] = {"rock": rock, "resource": res, "at": now_iso()}
-                    else:
-                        state.pop(code, None)
-                    out.append(what)
-                else:
-                    if any(w in (err or "").lower() for w in ("slot", "full", "no room", "capacity")):
-                        full[rock] = now_iso()
-                    out.append(f"{what} failed: {err}")
+        out = await self.rock_commands(p, state, full)
         for x in p["send"]:
             code, rock, res = x["code"], x["rock"], x["resource"]
-            from .hubroute import total_seconds
-            secs = None
-            via = await self.trip_via(code, rock)   # the route the job runner will take (surge hops, a hub, the off-ramp)
-            for v in ([via] if via else []) + [None]:
-                try:   # owner 2026-10-22: the actual travel time counts, not just the hours left
-                    secs = total_seconds(await self.api.request("POST", f"/devices/{code}", json_body={
-                        "command": "travel", "destination": rock, **({"via": v} if v else {}), "dry_run": True},
-                        background=True))
-                    break
-                except Exception:  # noqa: BLE001  (no preview: the game's own route, else the hours-left filter alone)
-                    secs = None
+            secs = await self.trip_seconds(code, rock)
             if not rm.trip_ok(objs[rock], secs, cfg):
                 note = f"{code} not sent to {rock}: {secs / 3600:.1f} h trip leaves under {cfg.get('min_hours') or 1} h of mining"
                 if self.stage_errors.get(f"rock-trip:{code}:{rock}") != note:
@@ -930,18 +962,7 @@ class OpsRules:
             if await self.create_job("asteroid_mining", f"asteroid mining: {code} → {rock} ({res})", code, steps, {"devices": [code]}):
                 state[code] = {"rock": rock, "resource": res, "at": now_iso(), "sent": True}
                 out.append(f"{code} → {rock} to mine {res}")
-        for x in p["scan"]:
-            code, rock = x["code"], x["rock"]
-            tr = step(f"{code}: travel → {rock}", f"/devices/{code}", {"command": "travel", "destination": rock},
-                      wait=["travel.arrived"], critical=True, match={"destination": rock})
-            tr["wait_device"] = code
-            sc = step(f"{code}: scan {rock}", f"/devices/{code}", {"command": "scan"}, wait=["scan.completed"], timeout=3600)
-            sc["wait_device"] = code
-            steps = [sc] if x.get("here") else [tr, sc]
-            if x.get("stop"):   # searching a belt for a new site: called off first
-                steps.insert(0, step(f"{code}: stop searching", f"/devices/{code}", {"command": "deactivate"}))
-            if await self.create_job("asteroid_mining", f"asteroid mining: {code} scans {rock}", code, steps, {"devices": [code]}):
-                out.append(f"{code} scans {rock}" if x.get("here") else f"{code} → {rock} to stay and scan it")
+        out += await self.rock_scan_jobs(p["scan"])
         await self.db.kv_set("rock_mining", state)
         await self.db.kv_set("rock_full", full)
         for note in p["notes"]:
