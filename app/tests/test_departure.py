@@ -78,7 +78,7 @@ def test_mission_waits_at_the_gate_until_complete_or_sent_anyway(client):
     client.portal.call(e.run_fleets)
     m = client.portal.call(e.fleets)[0]["mission"]
     assert m["phase"] == "gather" and m["watch_note"].startswith("waiting to leave") and not m.get("departed")
-    assert "Launch anyway" in client.get("/fleets/details", headers=H).text
+    assert "Launch anyway" in client.get("/fleets/details?all=1", headers=H).text
     client.post("/fleets/f/control", data={"action": "partial"}, headers=HX)
     client.portal.call(e.run_fleets)
     m = client.portal.call(e.fleets)[0]["mission"]
@@ -116,7 +116,7 @@ def test_mission_with_no_room_aboard_stalls_and_names_the_extra_cargo(client):
     assert m["status"] == "stalled" and not m.get("departed") and m["auto_retry"]["at"]
     assert "M2 (mining_drone)" in m["watch_note"] and "S ftl_slingshot, not in the fleet" in m["watch_note"]
     assert "X replicant_matrix" not in m["watch_note"]
-    assert "Launch anyway" in client.get("/fleets/details", headers=H).text
+    assert "Launch anyway" in client.get("/fleets/details?all=1", headers=H).text
     client.post("/fleets/f/control", data={"action": "partial"}, headers=HX)
     client.portal.call(e.run_fleets)
     m = client.portal.call(e.fleets)[0]["mission"]
@@ -130,7 +130,7 @@ def test_add_devices_lists_other_fleets_members_grouped(client):
     client.portal.call(client.app.state.db.kv_set, "devices", devs)
     client.portal.call(e.save_fleets, [{"id": "f", "name": "F", "role": "mining", "home": "SOL", "wants": {}},
                                        {"id": "other", "name": "Other", "role": "mining", "home": "SOL", "wants": {}}])
-    page = client.get("/fleets/details", headers=H).text
+    page = client.get("/fleets/details?all=1", headers=H).text
     assert 'name="add"' not in page                                    # the list loads when the box opens
     card = client.get("/fleets/f/picker", headers=H).text
     assert "in no fleet" in card and "in Other" in card
@@ -560,7 +560,7 @@ def test_shops_from_a_system_scan_are_offered_as_trades(client):
                        ("NOSOXA", json.dumps(scan), now_iso()))
     e = eng(client)
     client.portal.call(e.save_fleets, [{"id": "t", "name": "T", "role": "trade", "home": "SOL", "wants": {}}])
-    page = client.get("/fleets/details", headers=H).text
+    page = client.get("/fleets/details?all=1", headers=H).text
     assert "The Skunkworks @ NOSOXA-OORT — Service Bot Upgrade: pay 1× maintenance_drone" in page
 
 
@@ -1171,3 +1171,16 @@ def test_lost_relay_print_is_sourced_again(client):
     again = client.portal.call(db.kv_get, "relay_requests")
     assert [o.get("factory") for o in again.values()] == [o.get("factory") for o in orders.values()]
     assert sum("print a FTL relay on FX4" in j["title"] for j in client.portal.call(e.jobs)) == 2
+
+
+def test_fleet_details_index_and_cards_load_on_their_own(client):
+    e = eng(client)
+    client.portal.call(client.app.state.db.kv_set, "devices", [dev("M1", "mining_drone", "SOL-BELT-1", tags=["fleet:f"])])
+    client.portal.call(e.save_fleets, [{"id": "f", "name": "Alpha", "role": "mining", "home": "SOL", "wants": {}},
+                                       {"id": "g", "name": "Beta", "role": "mining", "home": "SOL", "wants": {}}])
+    page = client.get("/fleets/details", headers=H).text          # index, and each card loads as it scrolls in
+    assert 'href="/fleets/details?fleet=g"' in page and 'hx-get="/fleets/details/card/f"' in page and "M1" not in page
+    assert "M1" in client.get("/fleets/details/card/f", headers=H).text
+    one = client.get("/fleets/details?fleet=f", headers=H).text  # one fleet alone, the other not even as a placeholder
+    assert "M1" in one and 'id="fleet-g"' not in one and 'href="/fleets/details?fleet=g"' in one
+    assert "no fleet" in client.get("/fleets/details/card/zz", headers=H).text.lower()

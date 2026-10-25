@@ -545,11 +545,13 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
     # --- lifecycle ------------------------------------------------------------------------
     def start(self) -> None:
         self.task = asyncio.create_task(self._tick_loop(), name="automations")
+        self.lag_task = asyncio.create_task(perf.watch_loop(lambda: self.stage), name="loop-lag")
 
     async def stop(self) -> None:
-        if self.task:
-            self.task.cancel()
-            await asyncio.gather(self.task, return_exceptions=True)
+        for t in (self.task, getattr(self, "lag_task", None)):
+            if t:
+                t.cancel()
+                await asyncio.gather(t, return_exceptions=True)
 
     async def _tick_loop(self) -> None:
         await asyncio.sleep(15)
@@ -559,11 +561,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 if self.lock.locked() and self.lock.held_for() > LOCK_ALERT_SECONDS:
                     await asyncio.sleep(60)   # still stuck: don't queue up another tick behind it
                     continue
-                t_tick = time.perf_counter()
+                t_tick, c_tick = time.perf_counter(), time.thread_time()
                 try:
                     await self.tick()
                 finally:
-                    perf.note_stage("(whole tick)", (time.perf_counter() - t_tick) * 1000)
+                    perf.note_stage("(whole tick)", (time.perf_counter() - t_tick) * 1000, (time.thread_time() - c_tick) * 1000)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -1598,7 +1600,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass"):
                 self.stage = stage
                 await asyncio.sleep(0)   # let waiting page requests run between stages
-                t_stage = time.perf_counter()
+                t_stage, c_stage = time.perf_counter(), time.thread_time()
                 try:   # one stage failing on odd data mustn't stop every stage after it, every tick
                     out = await getattr(self, stage)()
                 except asyncio.CancelledError:
@@ -1611,7 +1613,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         await self.log("engine", f"stage {stage} failed: {type(e).__name__}: {e}", "alert", notify=True)
                     continue
                 finally:
-                    perf.note_stage(stage, (time.perf_counter() - t_stage) * 1000)
+                    perf.note_stage(stage, (time.perf_counter() - t_stage) * 1000, (time.thread_time() - c_stage) * 1000)
                 self.stage_errors.pop(stage, None)
                 if stage == "civ_beacon_pass":
                     for line in out or []:

@@ -3732,16 +3732,20 @@ async def loadout_ctx(request: Request) -> dict:
                 tagged[t].append(d)
     rule = (await eng.settings())["rules"].get("loadouts", {})
     from .ami_schedule import handoffs, managed_by
-    cat = await db.kv_get("stars", {}) or {}
-    star_cat = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
-    hosts = {r.get("hosted_device_code"): code for code, r in st["replicants"].items() if r.get("hosted_device_code")}
-    pending_handoffs = {h["drone"] for h in handoffs(st["devices"], await managed_by(db), eng.busy_devices(await eng.jobs()),
-                                                      set(p.get("moves") or {}), set(cfg.get("ignore_tags") or []), limit=200)}
-    audit = lo.audit(cfg, st["devices"], star_cat, p, pending_handoffs, hosts)
+
+    async def tags_check() -> list[dict]:   # kept an hour like the plan (Refresh on the page recomputes it)
+        cat = await db.kv_get("stars", {}) or {}
+        star_cat = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
+        hosts = {r.get("hosted_device_code"): code for code, r in st["replicants"].items() if r.get("hosted_device_code")}
+        pending_handoffs = {h["drone"] for h in handoffs(st["devices"], await managed_by(db), eng.busy_devices(await eng.jobs()),
+                                                          set(p.get("moves") or {}), set(cfg.get("ignore_tags") or []), limit=200)}
+        return lo.audit(cfg, st["devices"], star_cat, p, pending_handoffs, hosts)
+    audit = await pagecache.get(request, "audit", tags_check)
     from . import consolidate as co
     consolidation = [co.describe(x) for x in await pagecache.get(request, "consolidate_plan", eng.consolidate_plan)]
     consolidate_on = bool(((await eng.settings())["rules"].get("consolidate") or {}).get("enabled"))
     return {"cfg": cfg, "types": types, "plan": p, "lines": lo.describe(p), "present": present, "audit": audit,
+            "audit_age": pagecache.age_minutes(request, "audit"),
             "depot": lo.spare_depot(cfg, st["devices"]),
             "consolidation": consolidation, "consolidate_on": consolidate_on,
             "active_jobs": [j for j in jobs if j["status"] in ("running", "waiting")],

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.262.0"
+VERSION = "1.263.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.263.0", "2026-10-25", "Fleet details starts with an index of the fleets: a name opens that fleet alone, without loading the rest, and otherwise each card loads as it scrolls into view (the page is about 56 KB instead of 5 MB). The Tags & controllers check is kept an hour like the plans, with a Refresh button. Pages now read the database through their own connection, so they no longer queue behind the engine's queries. Diagnostics › Performance shows each engine stage's CPU time and a new Server stalls table (times the server could not answer for over a second, by the stage running then) to show which passes to move off the server next."),
     ("1.262.0", "2026-10-25", "Blueprints › Can afford at has a hide vessels checkbox that leaves replicant vessels out of the column (remembered in the browser)."),
     ("1.260.1", "2026-10-25", "Fleet details loads faster: each fleet's Add / remove devices list of devices to add loads when you open the box (it was every device once per fleet, over half of a 5 MB page; now about 0.9 MB), the loadout plan matches to: tags to stars without a pass over the whole star catalog (also speeds up the engine's loadout pass), and the star catalog is read only when a destination list is remade."),
     ("1.260.0", "2026-10-25", "Carrier balancing has a leeway (Fleets › Logistics › Carriers per hub, default 25 % of a hub's share, at least one carrier): a carrier only moves from a hub more than the leeway over its share to one more than the leeway under it, or to a hub with none, so small imbalances even out by themselves instead of sending plates across the 500 ly between the hubs. A stocked contract that a logistics job is already on its way to fulfill gets no second replicant: three replicant carriers had left for Geothermal Surplus at ELUSORYR-3, two after it was done."),

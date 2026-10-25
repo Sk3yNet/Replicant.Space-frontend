@@ -12,9 +12,14 @@
     <td class="num">{{ r.db_n }} · {{ r.db_ms }} ms</td><td class="num">{{ r.api_n }} · {{ r.api_ms }} ms</td><td class="num">{{ r.lock_ms }}</td>
     <td class="small">{% for k in r.kv[:5] %}{{ k.key }} ({{ k.kb }}, {{ k.ms }}){{ ', ' if not loop.last }}{% endfor %}</td></tr>{% endfor %}</table>
 <h3>Engine stages</h3>
-<table class="small"><tr><th>Stage</th><th class="num">Runs</th><th class="num">Avg ms</th><th class="num">Last ms</th><th class="num">Max ms</th></tr>
+<table class="small"><tr><th>Stage</th><th class="num">Runs</th><th class="num">Avg ms</th><th class="num" title="of the average, the time the stage kept the server busy (pages wait); the rest is waiting on the database or the game">Avg CPU ms</th><th class="num">Last ms</th><th class="num">Max ms</th></tr>
   {% for s in perf.stages %}<tr><td class="mono">{{ s.name }}</td><td class="num">{{ s.n }}</td><td class="num">{{ s.avg_ms }}</td>
-    <td class="num">{{ s.last_ms }}</td><td class="num">{{ s.max_ms }}</td></tr>{% endfor %}</table>
+    <td class="num">{{ s.avg_cpu_ms if s.avg_cpu_ms is defined else '—' }}</td><td class="num">{{ s.last_ms }}</td><td class="num">{{ s.max_ms }}</td></tr>{% endfor %}</table>
+{% set lg = perf.loop_lag or {} %}
+<h3>Server stalls</h3>
+<p class="small muted">Times the server could not answer for over a second (longest {{ lg.max_ms or 0 }} ms; {{ lg.stalls_over_1s or 0 }} stalls, {{ lg.stalled_s or 0 }} s in all), by the engine stage running then.</p>
+{% if lg.by_stage %}<table class="small"><tr><th>Stage</th><th class="num">Stalls</th><th class="num">Total ms</th><th class="num">Max ms</th></tr>
+  {% for b in lg.by_stage %}<tr><td class="mono">{{ b.stage }}</td><td class="num">{{ b.n }}</td><td class="num">{{ b.total_ms }}</td><td class="num">{{ b.max_ms }}</td></tr>{% endfor %}</table>{% endif %}
 <h3>Engine lock holds</h3>
 <table class="small"><tr><th>Holder</th><th class="num">Times</th><th class="num">Avg ms</th><th class="num">Max ms</th></tr>
   {% for s in perf.lock_holds %}<tr><td class="mono">{{ s.name }}</td><td class="num">{{ s.n }}</td><td class="num">{{ s.avg_ms }}</td>

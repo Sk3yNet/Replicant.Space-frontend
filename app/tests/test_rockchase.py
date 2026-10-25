@@ -85,7 +85,7 @@ def test_engine_chases_a_rock_and_the_mining_rule_leaves_its_rigs_alone(client):
     assert client.portal.call(e.evacuation_targets, [], {}).get("SOL-OBJ-1")   # logistics hauls its pile out
     f = client.portal.call(e.fleets)[0]
     assert f["chase_run"]["target"] == "SOL-OBJ-1" and f["station"] is False
-    page = client.get("/fleets/details", headers=H).text
+    page = client.get("/fleets/details?all=1", headers=H).text
     assert "Rock chaser" in page and "SOL-OBJ-1" in page and 'name="leave_minutes"' in page
     r = client.post("/fleets/rc/chase", data={"action": "settings", "mode": "roam", "leave_minutes": "30", "min_size": "large"},
                     headers={**H, "HX-Request": "true"})

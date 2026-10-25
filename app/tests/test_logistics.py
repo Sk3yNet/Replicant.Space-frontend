@@ -140,7 +140,7 @@ def test_logistics_pass_sends_a_job_for_a_waiting_print(client):  # noqa: F811
     assert job["meta"]["logistics"]["to"] == "B-2" and job["meta"]["logistics"]["carry"] == {"carbon": 80}
     page = client.get("/fleets/logistics", headers=H).text
     assert "prints at B-2" in page and "F1" in page
-    fpage = client.get("/fleets/details", headers=H)
+    fpage = client.get("/fleets/details?all=1", headers=H)
     assert fpage.status_code == 200 and "Cab" in fpage.text
     r = client.post("/fleets/cab/mission", data={"targets": "B"}, headers=HX)
     assert "takes no missions" in r.text or r.status_code in (404, 405)

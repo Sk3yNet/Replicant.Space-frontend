@@ -39,15 +39,18 @@ def join_choices(items: list[dict], st: dict) -> list[dict]:
                                        d.get("device_type") or "", d.get("device_code") or ""))
 
 
-async def fleets_ctx(request: Request) -> dict:
+async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
+    """Everything Fleet details shows. The per-fleet work (roster, targets, ownership, plan report) is done only for the
+    fleets in `only` (all when None): the page loads each card on its own (fleet_card)."""
     eng = request.app.state.worker.automations
     st = await load_state(request)
     items = sorted(await eng.fleets(), key=fleet_order)
+    shown = [f for f in items if only is None or f["id"] in only]
     bps = normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))
     types = sorted({b["device_type"] for b in bps} | {d.get("device_type") for d in st["devices"] if d.get("device_type")})
     jobs = {j["id"]: j for j in await eng.jobs()}
     bp_by = {b["device_type"]: b for b in bps}
-    for f in items:
+    for f in shown:
         f["roster"] = fl.roster(f, st["devices"])
         f["points"] = fl.attach_points(f, st["devices"], bp_by, f["roster"]["rows"])
         m = f.get("mission") or {}
@@ -70,7 +73,7 @@ async def fleets_ctx(request: Request) -> dict:
     from . import prospects as _pr
     ranks: dict[str, dict] = {}   # origin -> {star: prospect}
     dests: dict[str, list[dict]] = {}   # home -> destination list (fleets sharing a home share it)
-    for f in items:
+    for f in shown:
         if f.get("home") not in dests:
             async def dl(h=f.get("home")) -> list[dict]:   # the catalog (~14 MB) is read only when the list is made
                 cat = await request.app.state.db.kv_get("stars", {}) or {}
@@ -97,11 +100,11 @@ async def fleets_ctx(request: Request) -> dict:
             f["target_options"].sort(key=by_prospect)
     stars_all = sorted(set(stars_seen) | {f["home"] for f in items if f.get("home")})
     reps = {c: (r.get("name") or c) for c, r in st["replicants"].items()}
-    for f in items:
+    for f in shown:
         own = fl.ownership(f, st["devices"])
         f["owner_move"], f["owner_hosts"] = own["move"], own["hosts"]
         f["owners"] = Counter(reps.get(d.get("replicant_code"), d.get("replicant_code") or "?") for d in fl.members(f, st["devices"]))
-    boots = [f for f in items if f.get("role") == "bootstrap" and f.get("boot")]
+    boots = [f for f in shown if f.get("role") == "bootstrap" and f.get("boot")]
     if boots:
         import copy
         from . import bootstrap as bt
@@ -110,7 +113,7 @@ async def fleets_ctx(request: Request) -> dict:
             f["bview"] = bt.evaluate(copy.deepcopy(f), w)
             f["bsettings"] = bt.settings(f["boot"])
             f["bkids"] = [g for g in items if g.get("parent") == f["id"]]
-    for f in items:
+    for f in shown:
         f["report"] = lctx["plan"]["report"].get(f["id"])
         f["orders"] = [o for o in lctx.get("orders") or [] if o.get("fleet") == f["id"] and not o.get("device_code")]
         f["route"] = next((r for r in lctx["plan"].get("routes") or [] if r.get("fleet_id") == f["id"]), None)
@@ -140,7 +143,7 @@ async def fleets_ctx(request: Request) -> dict:
     obs_fleets = {fl.fleet_of(d) for d in st["devices"] if d.get("device_type") == "galactic_observatory" and fl.fleet_of(d)}
     obs_fleets |= {f["id"] for f in items if (fl.station_wants(f) or {}).get("galactic_observatory")}   # or its loadout wants one
     from . import bootstrap as _bt
-    return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
+    return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items, "shown_fleets": shown,
             "types": types,
             "stars": stars_all, "roles": fl.ROLE_CHOICES, "phases": fl.PHASES, "traders": traders,
             "boot_reps": [(c, r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")],
@@ -188,14 +191,31 @@ async def fleets_overview(request: Request, user: str = Depends(current_user)):
 
 @router.post("/fleets/recompute", response_class=HTMLResponse)
 async def fleets_recompute(request: Request, user: str = Depends(current_user)):
-    """Recompute the kept plans (pagecache): the POST itself clears them (main.py); the page reloads to show fresh ones."""
+    """Recompute the kept plans (pagecache): the POST itself clears them (main.py); the page reloads to show fresh ones.
+    The Tags & controllers check's Refresh posts here too."""
     pagecache.clear(request.app)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @router.get("/fleets/details", response_class=HTMLResponse)
-async def fleets_details(request: Request, user: str = Depends(current_user)):
-    return await page(request, user, "fleet_details.html", "fleet_details", **await fleets_ctx(request))
+async def fleets_details(request: Request, fleet: str = "", all: str = "", user: str = Depends(current_user)):
+    """An index of the fleets, then their cards: ?fleet=<id> shows that one alone, ?all=1 every card at once, and by
+    default each card loads as it scrolls into view (/fleets/details/card/<id>), so a long list shows at once."""
+    ctx = await fleets_ctx(request, None if all else ({fleet} if fleet else set()))
+    shown, index = ctx["shown_fleets"], ctx["fleets"]
+    if fleet and shown:   # an unknown id shows the whole (lazy) list
+        ctx["fleets"] = shown
+    return await page(request, user, "fleet_details.html", "fleet_details", **ctx, index=index,
+                      shown={f["id"] for f in shown}, focus=bool(fleet and shown))
+
+
+@router.get("/fleets/details/card/{fid}", response_class=HTMLResponse)
+async def fleets_details_card(request: Request, fid: str, user: str = Depends(current_user)):
+    """One fleet's card for Fleet details, loaded when it scrolls into view."""
+    ctx = await fleets_ctx(request, {fid})
+    if not ctx["shown_fleets"]:
+        return HTMLResponse(f'<div class="card muted" id="fleet-{html.escape(fid)}">No fleet {html.escape(fid)} (deleted?)</div>')
+    return partial(request, "partials/fleet_card.html", **ctx, f=ctx["shown_fleets"][0])
 
 
 @router.get("/fleets/{fid}/picker", response_class=HTMLResponse)

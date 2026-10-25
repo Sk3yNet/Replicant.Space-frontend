@@ -136,6 +136,7 @@ class DB:
     def __init__(self, path: str):
         self.path = path
         self.conn: aiosqlite.Connection | None = None
+        self.rconn: aiosqlite.Connection | None = None
         self._cache: dict[str, Any] = {}
         self._derived: dict[tuple[str, str], Any] = {}
         self._sim_split: set[str] = set()
@@ -146,6 +147,11 @@ class DB:
         await self.conn.executescript(SCHEMA)
         await self.conn.commit()
         await self.separate_simulated()
+        # page requests read through their own connection (WAL lets it read while the engine writes), so a page's
+        # reads don't queue behind the engine's on the one connection's worker thread; every write stays on conn
+        self.rconn = await aiosqlite.connect(self.path)
+        self.rconn.row_factory = aiosqlite.Row
+        await self.rconn.execute("PRAGMA query_only=1")
 
     async def separate_simulated(self) -> None:
         """Move what a simulation left among the real data (before 1.109.0) to its own place: VIRT… systems, stockpile
@@ -161,8 +167,14 @@ class DB:
                 await self.kv_set(key, cur)
 
     async def close(self) -> None:
+        if self.rconn:
+            await self.rconn.close()
         if self.conn:
             await self.conn.close()
+
+    def _reader(self) -> aiosqlite.Connection:
+        """The connection for a read: the read-only one inside a page request (perf has a request open), else conn."""
+        return self.rconn if self.rconn is not None and perf.in_request() else self.conn
 
     # --- generic helpers -------------------------------------------------
     async def execute(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Cursor:
@@ -185,14 +197,14 @@ class DB:
 
     async def fetchall(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
         t0 = time.perf_counter()
-        async with self.conn.execute(sql, tuple(params)) as cur:
+        async with self._reader().execute(sql, tuple(params)) as cur:
             rows = [dict(r) for r in await cur.fetchall()]
         perf.note_query((time.perf_counter() - t0) * 1000)
         return rows
 
     async def fetchone(self, sql: str, params: Iterable[Any] = ()) -> dict | None:
         t0 = time.perf_counter()
-        async with self.conn.execute(sql, tuple(params)) as cur:
+        async with self._reader().execute(sql, tuple(params)) as cur:
             row = await cur.fetchone()
         perf.note_query((time.perf_counter() - t0) * 1000)
         return dict(row) if row else None

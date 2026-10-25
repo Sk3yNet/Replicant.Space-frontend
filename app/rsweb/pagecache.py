@@ -32,8 +32,11 @@ def age_minutes(request, prefix: str = "") -> int | None:
     return int((time.time() - min(ts)) // 60) if ts else None
 
 
-def clear(app) -> None:
-    _store(app).clear()
+def clear(app, prefix: str = "") -> None:
+    """Forget every kept entry, or only those under a key prefix."""
+    store = _store(app)
+    for k in [k for k in store if k.startswith(prefix)]:
+        del store[k]
 
 
 class ClearOnEdit:

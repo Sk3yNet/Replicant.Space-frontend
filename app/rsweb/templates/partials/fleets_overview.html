@@ -4,7 +4,7 @@
       <th title="Send this fleet's home stockpile to another fleet's home, or take materials in">Materials</th><th>Status</th><th></th></tr>
     {% for f in fleets %}{% set rep = f.report %}{% set m = f.mission or {} %}
     <tr>
-      <td><a href="/fleets/details#fleet-{{ f.id }}"><b>{{ f.name }}</b></a> <span class="muted">{{ f.role }}</span></td>
+      <td><a href="/fleets/details?fleet={{ f.id }}"><b>{{ f.name }}</b></a> <span class="muted">{{ f.role }}</span></td>
       <td><a href="/systems/{{ f.home }}">{{ f.home or '—' }}</a> <span class="muted">{{ present.get(f.home, 0) }} devices there</span></td>
       <td>{{ (templates | selectattr('id', 'equalto', f.template) | map(attribute='name') | first) if f.template else 'custom' }}</td>
       <td colspan="2"><form hx-post="/fleets/{{ f.id }}/station" hx-trigger="change" class="row" style="gap:6px;flex-wrap:nowrap">

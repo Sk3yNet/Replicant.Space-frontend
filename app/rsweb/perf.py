@@ -30,6 +30,10 @@ def start() -> dict:
     return m
 
 
+def in_request() -> bool:
+    return _cur.get() is not None
+
+
 def note_query(ms: float) -> None:
     m = _cur.get()
     if m is not None:
@@ -62,16 +66,43 @@ def note_lock_wait(ms: float) -> None:
         waits["max_ms"] = max(waits["max_ms"], ms)
 
 
-def _acc(d: dict, name: str, ms: float) -> None:
-    s = d.setdefault(name, {"n": 0, "last_ms": 0.0, "max_ms": 0.0, "total_ms": 0.0})
+def _acc(d: dict, name: str, ms: float, cpu_ms: float | None = None) -> None:
+    s = d.setdefault(name, {"n": 0, "last_ms": 0.0, "max_ms": 0.0, "total_ms": 0.0, "cpu_ms": 0.0})
     s["n"] += 1
     s["last_ms"] = round(ms, 1)
     s["max_ms"] = round(max(s["max_ms"], ms), 1)
     s["total_ms"] += ms
+    if cpu_ms is not None:
+        s["cpu_ms"] += cpu_ms
 
 
-def note_stage(name: str, ms: float) -> None:
-    _acc(stages, name, ms)
+def note_stage(name: str, ms: float, cpu_ms: float | None = None) -> None:
+    """cpu_ms: the event loop thread's own CPU time in the stage (time.thread_time), i.e. how long it kept pages
+    waiting; the rest of ms was spent awaiting the database or the game."""
+    _acc(stages, name, ms, cpu_ms)
+
+
+# event loop lag: a ticker that should wake every LAG_STEP s; how late it wakes is how long pages were held up
+LAG_STEP = 0.25
+lag: dict = {"max_ms": 0.0, "stalls": 0, "stalled_ms": 0.0, "by_stage": {}}   # stalls: wakes over 1 s late
+
+
+async def watch_loop(stage_of) -> None:
+    """Measure event loop stalls, credited to the engine stage running then (stage_of() → name or None)."""
+    import asyncio
+    while True:
+        t = time.perf_counter()
+        await asyncio.sleep(LAG_STEP)
+        late = (time.perf_counter() - t - LAG_STEP) * 1000
+        lag["max_ms"] = round(max(lag["max_ms"], late), 1)
+        if late >= 1000:
+            lag["stalls"] += 1
+            lag["stalled_ms"] += late
+            st = stage_of() or "(no engine stage)"
+            b = lag["by_stage"].setdefault(st, {"n": 0, "max_ms": 0.0, "total_ms": 0.0})
+            b["n"] += 1
+            b["max_ms"] = round(max(b["max_ms"], late), 1)
+            b["total_ms"] = round(b["total_ms"] + late, 1)
 
 
 def note_hold(holder: str, ms: float) -> None:
@@ -109,7 +140,9 @@ def by_path() -> list[dict]:
 
 def _table(d: dict) -> list[dict]:
     return sorted(({"name": k, "n": v["n"], "last_ms": v["last_ms"], "max_ms": v["max_ms"],
-                    "avg_ms": round(v["total_ms"] / max(v["n"], 1), 1)} for k, v in d.items()), key=lambda x: -x["avg_ms"])
+                    "avg_ms": round(v["total_ms"] / max(v["n"], 1), 1),
+                    **({"avg_cpu_ms": round(v["cpu_ms"] / max(v["n"], 1), 1)} if v.get("cpu_ms") else {})}
+                   for k, v in d.items()), key=lambda x: -x["avg_ms"])
 
 
 async def storage(db) -> dict:
@@ -137,6 +170,8 @@ async def report(db) -> dict:
     return {"slow_requests": slow, "by_path": by_path()[:25], "stages": _table(stages), "lock_holds": _table(holds),
             "lock_waits": {"n": waits["n"], "max_ms": round(waits["max_ms"], 1),
                            "avg_ms": round(waits["total_ms"] / max(waits["n"], 1), 1)},
+            "loop_lag": {"max_ms": lag["max_ms"], "stalls_over_1s": lag["stalls"], "stalled_s": round(lag["stalled_ms"] / 1000, 1),
+                         "by_stage": sorted(({"stage": k, **v} for k, v in lag["by_stage"].items()), key=lambda x: -x["total_ms"])[:15]},
             "requests_seen": len(requests), "storage": await storage(db)}
 
 

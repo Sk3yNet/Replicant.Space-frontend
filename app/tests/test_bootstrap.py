@@ -210,12 +210,12 @@ def test_bootstrap_fleet_create_decide_and_card(client):
     e = eng(client)
     f = next(x for x in client.portal.call(e.fleets) if x["role"] == "bootstrap")
     assert f["boot"]["vessel"] and f["boot"]["stage"] == "home"
-    page = client.get("/fleets/details", headers=H).text
+    page = client.get("/fleets/details?all=1", headers=H).text
     assert "Pioneer" in page and "Costs" in page and "Gate:" in page
     client.portal.call(e.bootstrap_pass)
     f = next(x for x in client.portal.call(e.fleets) if x["role"] == "bootstrap")
     assert f["boot"].get("status", {}).get("stage")
-    assert "Back to a normal fleet" in client.get("/fleets/details", headers=H).text
+    assert "Back to a normal fleet" in client.get("/fleets/details?all=1", headers=H).text
     assert "bootstrap: Home: compounding" in client.get("/fleets/overview", headers=HX).text   # its stage in the overview
     # a decision
     items = client.portal.call(e.fleets)
@@ -254,7 +254,7 @@ def test_set_the_home_to_start_from(client):
     assert r.status_code == 200
     f = client.portal.call(e.fleets)[0]
     assert f["home"] == f["boot"]["home"] == "ABOTEIN" and f["boot"]["stage"] == "home"
-    assert 'name="home" value="ABOTEIN"' in client.get("/fleets/details", headers=H).text
+    assert 'name="home" value="ABOTEIN"' in client.get("/fleets/details?all=1", headers=H).text
 
 
 def test_pass_turns_actions_into_one_job(client):

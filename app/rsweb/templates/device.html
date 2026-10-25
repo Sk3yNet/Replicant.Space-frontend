@@ -5,7 +5,7 @@
   <span class="pill {{ dev.status | status_class }}">{{ dev.status }}</span>
   {% if dev.tracking_site %}<span class="small muted">holding site <a href="/locations/{{ dev.tracking_site }}">{{ dev.tracking_site }}</a></span>{% endif %}</h1>
 {% if doing %}<div class="card small" id="doing">
-  {% if doing.fleet %}<div><b>Fleet <a href="/fleets/details#fleet-{{ doing.fleet.id }}">{{ doing.fleet.name }}</a></b>
+  {% if doing.fleet %}<div><b>Fleet <a href="/fleets/details?fleet={{ doing.fleet.id }}">{{ doing.fleet.name }}</a></b>
     <span class="muted">{{ doing.fleet.role }}</span>: {{ doing.fleet.status }}{% if doing.fleet.last %} <span class="muted">· {{ doing.fleet.last }}</span>{% endif %}</div>{% endif %}
   {% if doing.task %}<div><b>{{ 'Current task' if doing.task.rule == 'logistics' else 'Working on' }}:</b> {{ doing.task.title }}
     {% if doing.task.step %}<span class="muted">· step {{ doing.task.n }}/{{ doing.task.of }}: {{ doing.task.step }}{% if doing.task.status == 'waiting' %} (waiting){% endif %}</span>{% endif %}

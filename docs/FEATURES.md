@@ -338,8 +338,10 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
 ### Pages
 - **Fleets** (the landing page): each fleet's status against its loadout (loaded just after the page), the templates and
   loadout settings, and the **Strays** card.
-- **Fleet details** (the slower parts): each fleet's card (members, loadout, missions), what the next loadout pass would
-  do, the tags & controllers check, and what's spare or on the way.
+- **Fleet details** (the slower parts): an index of the fleets, each fleet's card (members, loadout, missions), what the
+  next loadout pass would do, the tags & controllers check (kept an hour, Refresh rechecks), and what's spare or on the
+  way. Each card loads as it scrolls into view; a name in the index (`?fleet=<id>`) opens that fleet alone, `?all=1`
+  every card at once. A card's Add / remove devices list loads when opened.
 - Both keep the loadout plan, prospects and destination lists for an hour (the engine still plans for itself every
   pass); any fleet or loadout edit and the **Recompute** button refresh them.
 - **Reset & reform** for messy tags.
