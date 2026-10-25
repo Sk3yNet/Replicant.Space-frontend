@@ -1655,12 +1655,10 @@ async def systems(request: Request, origin: str = "", user: str = Depends(curren
             p["top"] = sorted(((k, t["sites"] + t["salvage"]) for k, t in r["totals"].items() if t["sites"] + t["salvage"]),
                               key=lambda kv: -kv[1])[:3]
     from . import outposts
-    show = request.query_params.get("outposts") == "1"
-    missing = request.query_params.get("missing") == "1"
     pres = outposts.presence(st["devices"])
     for s, p in rows:
         p["outposts"] = pres.get(s) or {k: [] for k in outposts.KINDS}
-    out_rows = [(s, p) for s, p in rows if s and not (missing and all(p["outposts"][k] for k in outposts.KINDS))]
+    out_rows = [(s, p) for s, p in rows if s]
     from . import ward_orders as wo
     from . import wardhub as wh
     orders = {k: await db.kv_get(wo.kv_key(k), {}) or {} for k in wo.KINDS}
@@ -1671,8 +1669,7 @@ async def systems(request: Request, origin: str = "", user: str = Depends(curren
         p["orders"] = {k: orders[k].get(s) for k in wo.KINDS}
         p["working"] = {k: any(wh.active(d) for d in p["outposts"][k]) for k in wo.KINDS}
         p["civ_gap"] = [c["location"] for c in p["civ"] if not c["beacon"]] if p["civ"] else []
-    return await page(request, user, "systems.html", "systems", rows=out_rows, known=known, show_outposts=show or missing,
-                      missing=missing, outpost_kinds=outposts.LABELS, origin=origin, origins=origins,
+    return await page(request, user, "systems.html", "systems", rows=out_rows, known=known, outpost_kinds=outposts.LABELS, origin=origin, origins=origins,
                       system_tags=system_tags)
 
 

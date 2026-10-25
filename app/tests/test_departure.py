@@ -385,7 +385,7 @@ def test_systems_page_requests_relays_and_beacons_and_lists_fleets(client):
     client.portal.call(e.save_fleets, [{"id": "h", "name": "Homers", "role": "mining", "home": "SOL", "station": True, "wants": {}},
                                        {"id": "x", "name": "Scouts", "role": "explore", "home": "LERNA", "wants": {},
                                         "mission": {"status": "running", "targets": ["SOL-3"]}}])
-    page = client.get("/systems?outposts=1", headers=H).text
+    page = client.get("/systems", headers=H).text
     row = page[page.index('href="/systems/SOL"'):].split("</tr>")[0]
     assert "⌂ Homers" in row and "→ Scouts" in row
     assert 'data-kind="relay"' in row and 'data-kind="beacon"' in row and 'class="op-chk"' in row
@@ -445,7 +445,7 @@ def test_requested_beacon_covers_every_civilization_in_the_system(client):
     client.portal.call(db.kv_set, "devices", devs + [at3])
     msg = client.portal.call(e.order_outpost, "beacon", "LOR", "joe")
     assert "already works" not in msg and "no spare FTL beacon" in msg     # LOR-5 still needs one
-    page = client.get("/systems?outposts=1", headers=H).text
+    page = client.get("/systems", headers=H).text
     row = page[page.index('href="/systems/LOR"'):].split("</tr>")[0]
     assert 'data-kind="beacon" data-label="FTL beacon" data-working="1" checked' in row and "each civilization needs its own" in row
     client.portal.call(db.kv_set, "devices", devs + [at3, loose, vessel])
@@ -1191,7 +1191,7 @@ def test_systems_checkboxes_save_in_background(client):
     devs = [d for d in client.portal.call(db.kv_get, "devices") if d.get("device_type") != "ftl_relay"]
     client.portal.call(db.kv_set, "devices", devs + [
         {"device_code": "RL1", "device_type": "ftl_relay", "location": "SOL-BELT-1", "status": "stowed", "tags": ["spare"]}])
-    page = client.get("/systems?outposts=1", headers=H).text
+    page = client.get("/systems", headers=H).text
     assert 'id="op-filters"' in page and 'data-relay="0"' in page
     assert 'data-civ="' in page
     r = client.post("/systems/ABOTEIN/ward", data={"action": "add", "kind": "relay", "bg": "1"}, headers=HX)

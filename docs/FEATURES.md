@@ -180,7 +180,7 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
 - Nearest first, by **distance** from the system picked under *distances from* (the same choices as Mining prospects;
   default: where most of your devices are).
 - Per system, the **Fleets** homed there (⌂) or on a mission there (→).
-- With *Wards, beacons & relays* ticked: your ward, FTL relay and FTL beacon, each with a checkbox (ticked: one works
+- Your ward, FTL relay and FTL beacon, each with a checkbox (ticked: one works
   there or is on order) that saves at once without reloading the page, so several can be ticked in a row:
   - ticking: activate an idle one there, else send a spare, else print one in range (a relay is placed at an L4/L5 point);
   - unticking: deactivate it and tag it spare (drops its `home:` / `at:` / `to:` tags; asks first), or cancel its order.

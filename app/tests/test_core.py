@@ -4694,14 +4694,11 @@ def test_a_fleets_ward_goes_with_it_and_systems_list_shows_wards(client):
     assert out.index("W1: stop warding (deactivate) to move") + 1 == out.index("W1 → LOR-1-L4 (board)")
     pres = op.presence(devices)
     assert [d["device_code"] for d in pres["FAL"]["relay"]] == ["R0"] and pres["FAL"]["ward"] == []
-    # the Systems list: columns on request, and a filter for systems missing one
+    # the Systems list: the outpost columns always show
     client.portal.call(client.app.state.worker.sync_devices)
     page = client.get("/systems", headers=H).text
-    assert "Wards, beacons &amp; relays" in page and ">Ward</th>" not in page
-    page = client.get("/systems?outposts=1", headers=H).text
     assert ">Relay</th>" in page and ">Beacon</th>" in page and ">Ward</th>" in page and "✓ BCN00001" in page
-    page = client.get("/systems?missing=1", headers=H).text
-    assert "— none" in page and "SOL" in page
+    assert "— none" in page and "only systems missing one" not in page and 'name="outposts"' not in page
 
 
 def test_vessels_hosting_a_replicant_can_join_a_fleet(client):
