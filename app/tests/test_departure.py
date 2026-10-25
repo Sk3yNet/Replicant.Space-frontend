@@ -98,6 +98,31 @@ def test_mission_boards_everyone_before_it_leaves(client):
     assert any(j["title"] == "F: board before leaving" for j in client.portal.call(e.jobs))
 
 
+def test_mission_with_no_room_aboard_stalls_and_names_the_extra_cargo(client):
+    """Live 2026-10-23..25: Surveyor 2's vessel at FALQUORYX held a fleetless FTL slingshot, its 8th survey drone never
+    fit and the mission re-logged the same problem for 41 h. Now it stalls (alert, auto retry); Launch anyway leaves."""
+    e = eng(client)
+    hold = [{"device_code": "M1", "device_type": "mining_drone"}, {"device_code": "X", "device_type": "replicant_matrix"},
+            {"device_code": "S", "device_type": "ftl_slingshot"}]
+    devs = [dev("C", "heaven_vessel", "SOL-OORT", features=["surge"], stow_capacity=3, stow_used=3, stowed_devices=hold),
+            dev("M1", "mining_drone", None, stowed_in_device_code="C", status="stowed", features=["stow"]),
+            dev("M2", "mining_drone", "SOL-OORT", features=["stow"]),
+            dev("X", "replicant_matrix", None, stowed_in_device_code="C", status="stowed", tags=[]),
+            dev("S", "ftl_slingshot", None, stowed_in_device_code="C", status="stowed", tags=[])]
+    m = {"status": "running", "phase": "gather", "idx": 0, "targets": ["ABOTEIN"], "log": [], "opts": {}}
+    _fleet(e, client, devs, mission=m, wants={"mining_drone": 2, "heaven_vessel": 1})
+    client.portal.call(e.run_fleets)
+    m = client.portal.call(e.fleets)[0]["mission"]
+    assert m["status"] == "stalled" and not m.get("departed") and m["auto_retry"]["at"]
+    assert "M2 (mining_drone)" in m["watch_note"] and "S ftl_slingshot, not in the fleet" in m["watch_note"]
+    assert "X replicant_matrix" not in m["watch_note"]
+    assert "Launch anyway" in client.get("/fleets/details", headers=H).text
+    client.post("/fleets/f/control", data={"action": "partial"}, headers=HX)
+    client.portal.call(e.run_fleets)
+    m = client.portal.call(e.fleets)[0]["mission"]
+    assert m["status"] == "running" and m.get("departed")
+
+
 def test_add_devices_lists_other_fleets_members_grouped(client):
     e = eng(client)
     devs = [dev("M1", "mining_drone", "SOL-BELT-1", tags=["fleet:other"]), dev("M2", "mining_drone", "SOL-BELT-1", tags=[]),

@@ -137,7 +137,7 @@
         <div class="small">{% set ph = phases[f.role] %}{% for p in ph %}<span class="pill small {{ 'st-work' if p == m.phase else ('lv-done' if m.phase in ph and loop.index0 < ph.index(m.phase) else '') }}">{{ p }}</span> {% endfor %}
           {% if f.role == 'explore' %}<span class="muted">· target {{ (m.idx or 0) + 1 }}/{{ (m.targets or []) | length }}</span>{% endif %}</div>
         {% if m.watch_note and m.phase in ('watch', 'wait') %}<div class="small">watching: {{ m.watch_note }}</div>{% endif %}
-        {% if m.status == 'running' and not m.departed and m.watch_note and m.watch_note.startswith('waiting to leave') %}<div class="small lv-alert">{{ m.watch_note }}
+        {% if m.status in ('running', 'stalled') and not m.departed and m.watch_note and m.watch_note.startswith('waiting to leave') %}<div class="small lv-alert">{{ m.watch_note }}
           <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "partial"}' hx-confirm="Send {{ f.name }} with a partial loadout?">Launch anyway</button></div>{% endif %}
         {% if f.job %}<div class="small muted">job: {{ f.job.title }} · step {{ f.job.idx + 1 }}/{{ f.job.steps | length }}{% if f.job.steps[f.job.idx] is defined %} — {{ f.job.steps[f.job.idx].desc }}{% endif %}</div>{% endif %}
         <div class="row" style="margin-top:6px">

@@ -634,8 +634,15 @@ def assemble_steps(fleet: dict, devices: list[dict], radii: dict[str, float] | N
         if not c:
             if here and not any(star_of(loc[x]) == here for x in loc):
                 continue  # in a system with no fleet carrier: the gather phase picks it up
+            # name what fills the holds besides the fleet (live 2026-10-25: Surveyor 2's vessel at FALQUORYX held a
+            # fleetless FTL slingshot, so its 8th survey drone never fit and the fleet waited 41 h)
+            mine = {x["device_code"] for x in r["members"]}
+            extra = [f"{s.get('device_code')} {s.get('device_type')}" for cand in carriers
+                     if star_of(loc[cand["device_code"]]) == here for s in cand.get("stowed_devices") or []
+                     if s.get("device_code") not in mine and s.get("device_type") not in ("replicant_matrix", *CRADLE_TYPES)]
             problems.append(f"{code} ({d.get('device_type')}) is in {here or 'transit'} with no "
-                            + ("hold or attach" if stowable(d) else "attach") + " room on a fleet carrier there")
+                            + ("hold or attach" if stowable(d) else "attach") + " room on a fleet carrier there"
+                            + (f" (the hold also carries {', '.join(extra)}, not in the fleet: unload it)" if extra else ""))
             continue
         spot = (trip or {}).get("destination") or d.get("location")
         if trip and trip["destination"] == loc[c["device_code"]]:

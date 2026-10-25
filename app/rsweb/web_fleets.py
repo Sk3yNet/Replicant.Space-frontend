@@ -739,8 +739,11 @@ async def fleets_control(request: Request, fid: str, action: str = Form(...), us
     f = next((x for x in items if x["id"] == fid), None)
     if f and action == "partial":   # Launch anyway: a mission waiting to leave goes short; a pending move goes now
         m = f.get("mission") or {}
-        if m.get("status") == "running" and not m.get("departed"):
+        if m.get("status") in ("running", "stalled") and not m.get("departed"):
             m.setdefault("opts", {})["partial"] = True
+            if m["status"] == "stalled":   # stalled before leaving (nobody could board): leave without them now
+                fl.rewind(f, m)
+                m.pop("auto_retry", None)
             eng._mlog(m, f"sent short on purpose by {user}")
         if f.get("pending_home"):
             f["move_partial"] = True

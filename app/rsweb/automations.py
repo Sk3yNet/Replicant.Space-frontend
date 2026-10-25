@@ -4959,10 +4959,21 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                 if nxt == "travel" or (nxt == "return" and m.get("departed")):
                     # every leg, not only the first (live 2026-10-21: a survey fleet left AINELRAMU for PHEVENIA while
                     # its recall withdrew survey controller 769B37CC, which had not boarded yet: it stayed behind)
-                    loose = [d["device_code"] for d in fl.roster(fleet, devices)["loose"]]
+                    ros = fl.roster(fleet, devices)
+                    loose = [d["device_code"] for d in ros["loose"]]
                     partial = (m.get("opts") or {}).get("partial")
                     board_steps, board_problems = (await self.fleet_phase_steps(fleet, m, "assemble", devices)
                                                    if loose else ([], []))
+                    if loose and not board_steps and board_problems and ros["carriers"] and not partial:
+                        # nobody can board (live 2026-10-23..25: Surveyor 2 waited 41 h at FALQUORYX with its vessel's
+                        # hold full, logging the same problem every pass): stall, so it's heard about and retried
+                        note = f"waiting to leave: {'; '.join(board_problems)} — Launch anyway sends it short"
+                        m["status"], m["job"], m["watch_note"] = "stalled", None, note
+                        again, quiet = self._plan_retry(m)
+                        self._mlog(m, note + again)
+                        await self.log("fleets", f"{fleet['name']}: stalled before leaving: {'; '.join(board_problems)}"
+                                       + again, "alert", notify=not quiet)
+                        break
                     if loose and (board_steps or not partial):
                         # Launch anyway sends it short, but still takes along members standing right there
                         # together in one system isn't aboard (seen live 2026-10-11: Surveyor 3's gather failed while its

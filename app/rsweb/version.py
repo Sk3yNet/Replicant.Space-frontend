@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.253.0"
+VERSION = "1.253.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.253.1", "2026-10-25", "A fleet mission whose members cannot all board (the carriers here are full) now stalls with an alert and retries by itself, instead of waiting silently: Surveyor 2 sat 41 h at FALQUORYX because its heaven vessel also held an FTL slingshot that is not in the fleet, so its eighth survey drone never fit. The note names such extra cargo, and Launch anyway also works on a mission stalled before leaving."),
     ("1.253.0", "2026-10-25", "Pausing the relay rollout (Map › Relays) now stops relay printing: relay print jobs still on their way are canceled, relay prints waiting in an autofactory queue for a system are dequeued, and relay orders waiting on a print are dropped (the rollout orders those systems again on Resume, without skipping them). While paused no relay order prints one, the Systems list and lost-print re-sourcing included; spares are still sent and idle relays switched on. A Pause prints button does the same while the rollout is not running."),
     ("1.252.0", "2026-10-25", "Surge spots follow the game docs: only the Oort cloud, the Kuiper belt and the entry point (a planet's L4/L5 is no longer counted: live dry runs cruised there). The system page lists its surge spots under Bodies."),
     ("1.251.2", "2026-10-25", "Bootstrap drones mine whatever the open sites hold, even a resource the belt's catalog does not list (mining drones mine volatiles too): at ISOLITHOR-BELT-1 six drones sat idle beside five sites of volatiles only."),

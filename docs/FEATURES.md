@@ -369,6 +369,8 @@ bootstrap), a home and a loadout (its own lines or a template).
 - A fleet only sets off with its whole loadout in its home system (aboard, there, or arriving).
 - A launch with gaps is refused (tick *Launch anyway* to send it short). A mission whose devices didn't all make it
   waits at gather, refilling from spares, until complete or *Launch anyway*. Auto-scout and auto-deals wait.
+  A member with no room on the fleet's carriers stalls the mission (alert, auto retry); the note names any
+  non-fleet cargo filling the hold, and *Launch anyway* leaves without that member.
 
 ### Moving to a new home
 - A new home doesn't wait for the loadout: the loadout pass fills the fleet there.
