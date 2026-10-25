@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.251.1"
+VERSION = "1.251.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.251.2", "2026-10-25", "Bootstrap drones mine whatever the open sites hold, even a resource the belt's catalog does not list (mining drones mine volatiles too): at ISOLITHOR-BELT-1 six drones sat idle beside five sites of volatiles only."),
     ("1.251.1", "2026-10-24", "Every travel estimate uses the planned route (surge hops, a hub on the way, the off-ramp, the star before a spot in another system), not the game's own: a device's travel command (its preview names the waypoints and the time saved, a refused plan goes the game's way), the sector range check on automated trips (a trip over 24 h by the catalog is previewed by its planned route, so a hub can bring it under), and the asteroid mining trip time. The replicant travel form, Stars and Map previews had it since 1.243.0; fleet moves, missions and logistics go through the job runner, which plans every trip."),
     ("1.251.0", "2026-10-24", "Game v3.6.2. Simulations has a Data uploads card: devices with the data feature (such as a guidance chip) deployed at the replicant interface, with a replicant there, can be uploaded for analysis, by hand only since the upload consumes the device; devices elsewhere or stowed say why they cannot go yet. A scan that discovers a device (device.discovered) raises a notification. Console preset and API reference for the upload endpoint; the repo spec copy is refreshed. Hubs now help arrivals and cost upkeep only while active: the route planner already counted only our active hubs."),
     ("1.250.0", "2026-10-24", "Survey controllers adopt belt surveyors (confirmed live), belt surveyors first: when re-opening sites, in a mining fleet's belt_search, in a survey fleet's survey_system, in AMI surveys on arrival, and in the AMI schedules' and hand-off's adoption of idle drones. Without a controller belt surveyors still search or scan on their own."),

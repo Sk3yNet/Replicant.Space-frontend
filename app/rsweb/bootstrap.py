@@ -117,12 +117,14 @@ def best_belt(scan: dict | None) -> dict | None:
     return best
 
 
-def mine_choice(belt: dict | None, need: dict[str, float], skip: set[str] | frozenset = frozenset()) -> str | None:
+def mine_choice(belt: dict | None, need: dict[str, float], skip: set[str] | frozenset = frozenset(),
+                present: set[str] | None = None) -> str | None:
     """What a drone mines: the resource the next print is shortest of, weighted by how much this belt yields of it;
     nothing short → the belt's best by yield × rarity. `skip`: resources the belt's open sites lack right now (the game
-    refused them); None when that leaves nothing."""
+    refused them); None when that leaves nothing. `present`: what the open sites hold, minable even when the belt's
+    catalog doesn't list it (ISOLITHOR-BELT-1 2026-10-23: five sites of volatiles only, none in the catalog, 6 miners idle)."""
     levels = (belt or {}).get("resources") or {}
-    y = {r: YIELD.get(levels.get(r), 0) for r in RARITY if r not in skip}
+    y = {r: max(YIELD.get(levels.get(r), 0), YIELD["scarce"] if r in (present or ()) else 0) for r in RARITY if r not in skip}
     need = {r: q for r, q in (need or {}).items() if r not in skip}
     if need:
         pick = max(need, key=lambda r: (need[r] * max(1, y.get(r, 0)), r))
@@ -219,7 +221,7 @@ def compound(f: dict, w: dict, star: str, cap: int, autofactory: bool) -> dict:
     for d in deployed:
         st = str(d.get("status") or "")
         if d.get("device_type") == "mining_drone" and st.startswith("idle"):
-            res = mine_choice(belt, need, skip)
+            res = mine_choice(belt, need, skip, have)
             if res:   # nothing minable at the open sites: it waits for the survey drones
                 acts.append({"kind": "start_mining", "device": d["device_code"], "resource": res})
         elif d.get("device_type") in ("survey_drone", "belt_surveyor") and st.startswith("idle"):

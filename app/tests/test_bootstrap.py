@@ -561,3 +561,12 @@ def test_choosing_a_supply_system_moves_idle_hub_drones(client):
     assert b["supply"]["star"] == "B" and b["decision"] is None
     job = [j for j in client.portal.call(eng.jobs) if "supply" in j["title"]][0]
     assert sorted(job["meta"]["devices"]) == ["M0", "M1", "M2", "S1", "S2"]   # the idle ones first
+
+
+def test_mine_choice_takes_what_open_sites_hold_beyond_the_catalog():
+    # ISOLITHOR-BELT-1 2026-10-23: open sites held only volatiles, which the belt's catalog doesn't list
+    belt = {"designation": "X-BELT-1", "resources": {"structural": "low", "carbon": "low"}}
+    skip = set(bt.RESOURCES) - {"volatiles"}
+    assert bt.mine_choice(belt, {}, skip) is None
+    assert bt.mine_choice(belt, {}, skip, {"volatiles"}) == "volatiles"
+    assert bt.mine_choice(belt, {"volatiles": 10}, set(), {"volatiles", "carbon"}) == "volatiles"
