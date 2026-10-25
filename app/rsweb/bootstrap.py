@@ -14,7 +14,7 @@ Stages (each waits on a gate; ★ = stops for your OK on the Fleets page):
   hub_compound  compound again, then the vessel prints the autofactory there (it can't be stowed or carried by a
                 heaven vessel, so it's built where it stays); the hub becomes a stationed fleet that takes materials in.
   hub           the hub's own autofactory builds it up (relay, ward when worth it, transport controller, haulers, more
-                drones, a surge carrier for kits, a maintenance drone) — the loadout pass, restricted to this bootstrap's devices.
+                drones, a surge plate, a maintenance drone) — the loadout pass, restricted to this bootstrap's devices.
                 A dry hub belt (the autofactory waits for a resource no open site there holds, and the belt yields
                 it low or less, for 3 h): ★ a supply system within a relay's reach whose belt has it. The vessel
                 prints a relay for each system, a surge plate and a transport hauler, ferries part of the miners (and
@@ -22,6 +22,8 @@ Stages (each waits on a gate; ★ = stops for your OK on the Fleets page):
                 haul_plan).
   outposts ★    three mining outposts within the radius of the hub that keep the relay chain (each within a relay's
                 7.5 ly of the hub or an outpost); each a stationed fleet sending its materials to the hub by freighter.
+                The hub's autofactory prints their kits and the heaven vessel ferries them (the loadout pass lends it to
+                its own bootstrap's fleets from this stage on: the hold takes 10, a surge plate only 1).
   operate       handed over to the usual automation. A system another player wards: ★ move to the next best.
 
 Self-reliant: everything it prints is tagged `boot:<id>`; the loadout pass never lends it others' spares, factories or
@@ -45,11 +47,11 @@ DEFAULTS = {"radius": 10.0, "ward_hours": 6.0, "hold": 10, "hub_miners": 8, "sur
             "min_score": 35, "outposts": 3, "supply_miners": 4}
 COST_TYPES = ["survey_drone", "mining_drone", "ftl_relay", "system_ward", "autofactory", "ami_mining_controller",
               "ami_survey_controller", "ami_transport_controller",
-              "transport_hauler", "cargo_freighter", "surge_carrier", "maintenance_drone"]
+              "transport_hauler", "cargo_freighter", "surge_plate", "maintenance_drone"]
 OUTPOST_KIT = {"mining_drone": 4, "survey_drone": 2, "ami_mining_controller": 1, "ami_survey_controller": 1, "ftl_relay": 1,
                "ami_transport_controller": 1, "cargo_freighter": 1, "maintenance_drone": 1}
 HUB_KIT = {"ami_mining_controller": 1, "ami_survey_controller": 1, "ftl_relay": 1, "ami_transport_controller": 1,
-           "transport_hauler": 2, "surge_carrier": 1, "maintenance_drone": 1}
+           "transport_hauler": 2, "surge_plate": 1, "maintenance_drone": 1}
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 SUPPLY_KIT = ["ftl_relay", "surge_plate", "transport_hauler"]   # a dry hub's supply system (owner 2026-10-23), in print order
 DRY_HOURS = 3.0   # how long the hub belt must lack a resource its factory waits for before a supply system is proposed

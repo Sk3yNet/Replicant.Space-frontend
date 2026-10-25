@@ -313,10 +313,16 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     # logistics fleets (logistics.py) carry everyone's devices: their carriers join the delivery pool, and are picked first
     logistics_tags = {fl.fleet_tag(f["id"]) for f in cfg["fleets"] if f.get("role") == "logistics" and f.get("id")}
 
+    # a bootstrap's heaven vessel does its mass transport (owner 2026-10-25): once the hub stands it carries the
+    # outposts' kits, though it hosts the replicant and its bootstrap fleet isn't stationed
+    boot_vessels = {f["boot"]["vessel"]: f"boot:{f['id']}" for f in cfg.get("fleets") or []
+                    if f.get("role") == "bootstrap" and (f.get("boot") or {}).get("vessel")
+                    and f["boot"].get("stage") in ("outposts", "operate") and not f["boot"].get("paused")}
+
     def fam(d: dict | None) -> str | None:
         """A bootstrap's devices carry boot:<id> (bootstrap.py): they're only ever used by that bootstrap's fleets, and
         its fleets use nothing else — no spares, factories or carriers lent either way."""
-        return next((t for t in (d or {}).get("tags") or [] if t.startswith("boot:")), None)
+        return boot_vessels.get((d or {}).get("device_code")) or next((t for t in (d or {}).get("tags") or [] if t.startswith("boot:")), None)
 
     def fleet_fam(tag: str | None) -> str | None:
         f = by_tag.get(tag or "")
@@ -978,7 +984,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 and not (ignore & set(d.get("tags") or []))
                 and not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed"))
                 and not d.get("controller_device_code")    # run by a controller (e.g. a ferry's taxi plates) = busy
-                and (not fleet_tag_of(d) or fleet_tag_of(d) in by_tag or fleet_tag_of(d) in logistics_tags)]   # a fleet on a mission keeps its carriers
+                and (not fleet_tag_of(d) or fleet_tag_of(d) in by_tag or fleet_tag_of(d) in logistics_tags
+                     or d["device_code"] in boot_vessels)]   # a fleet on a mission keeps its carriers
     moving = set(moves) | {c for c, _ in self_moves}
     carriers = [c for c in carriers if c["device_code"] not in moving and not bound_for(c, known_stars, fleet_homes)]
     used: set[str] = set()
@@ -1014,8 +1021,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         """Deliveries are the logistics fleets' work (and a spare carrier's, in no fleet); another fleet's carrier only
         picks up its own fleet's members (live 2026-10-18: Miner 0.5's cargo vessel was borrowed to carry compute cores
         and its fleet's move stalled)."""
+        if any(fam(by_code.get(x)) != fam(c) for x in codes_):
+            return False   # a bootstrap's carriers (its vessel too) carry only its own devices, and its devices only ride them
         ct = fleet_tag_of(c)
-        if not ct or ct in logistics_tags:
+        if not ct or ct in logistics_tags or c["device_code"] in boot_vessels:
             return True
         return all((fleet_tag_of(by_code.get(x) or {}) or assign.get(x)) == ct for x in codes_)
 
@@ -1027,7 +1036,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     # 2026-10-23, while the hold-carriers' relay runs left seats empty)
     relay_only = lambda xs: bool(xs) and all((by_code.get(x) or {}).get("device_type") in ESCORTED_TYPES for x in xs)  # noqa: E731
     taken: set[str] = set()   # relays and beacons already given to a carrier's multi-drop run
-    for (here, dest, owner), codes in sorted(batches.items(), key=lambda kv: (-len(kv[1]), kv[0][0], kv[0][1], kv[0][2] or "")):
+    split: dict[tuple, list[str]] = defaultdict(list)   # a bootstrap's devices ride apart from everyone else's (fam)
+    for k, codes_ in batches.items():
+        for x in codes_:
+            split[(*k, fam(by_code.get(x)) or "")].append(x)
+    batches = split
+    for (here, dest, owner, _fam), codes in sorted(batches.items(), key=lambda kv: (-len(kv[1]), kv[0][0], kv[0][1], kv[0][2] or "", kv[0][3])):
         codes = sorted(x for x in codes if x not in taken)
         # beyond an active relay network, at either end (live 2026-10-20: a surge platform with no replicant flew into
         # SOL to pick up a gas separator and was stranded there itself)
@@ -1037,9 +1051,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             # logistics vessel is there for automation; another fleet's replicant vessel stays with its fleet), or as
             # the escort a trip beyond the network needs
             cpool = [c for c in carriers if (c["device_code"] in escorts if outside else
-                                             (c["device_code"] not in replicant_hosts or fleet_tag_of(c) in logistics_tags))] \
+                                             (c["device_code"] not in replicant_hosts or fleet_tag_of(c) in logistics_tags
+                                              or c["device_code"] in boot_vessels))] \
                 if commandable is not None else [c for c in carriers if c["device_code"] not in replicant_hosts
-                                                 or fleet_tag_of(c) in logistics_tags]
+                                                 or fleet_tag_of(c) in logistics_tags or c["device_code"] in boot_vessels]
             options = [c for c in cpool if star_of(c.get("location")) == here and c["device_code"] not in used and keeps(c, codes)
                        and same_owner(c, owner) and c["device_code"] not in codes and fits(c, codes) and may_carry(c, codes)
                        ]

@@ -440,7 +440,9 @@ From a bare heaven vessel (three mining drones and a replicant aboard) to an aut
 3. **The move** there, compounding to an autofactory printed on site, and the hub becomes a stationed fleet that takes
    materials in.
 4. **Outposts** (**your OK on each**) must keep the relay chain (each within 7.5 ly of the hub or an outpost; else a
-   relay waypoint, also your OK), and send their materials to the hub by cargo freighter.
+   relay waypoint, also your OK), and send their materials to the hub by cargo freighter. The hub's autofactory prints
+   their kits and the heaven vessel ferries them in its hold (10 seats); the hub keeps only a surge plate (1 seat) for
+   short single trips, no surge carrier.
 
 - **A dry hub**: when the hub's autofactory waits 3 hours for a resource no open site at the hub belt holds (and the belt
   yields it low or worse), the card offers a **supply system** within 7.5 ly whose belt has it (your OK). Part of the

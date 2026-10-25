@@ -570,3 +570,27 @@ def test_mine_choice_takes_what_open_sites_hold_beyond_the_catalog():
     assert bt.mine_choice(belt, {}, skip) is None
     assert bt.mine_choice(belt, {}, skip, {"volatiles"}) == "volatiles"
     assert bt.mine_choice(belt, {"volatiles": 10}, set(), {"volatiles", "carbon"}) == "volatiles"
+
+
+def test_vessel_ferries_outpost_kits():
+    """From the outposts stage on, the bootstrap's heaven vessel (hosting its replicant) carries its fleets' kits."""
+    from rsweb import loadouts as lo
+    dev, stars, bps = _range_world()
+    devices = [dev("M1", "mining_drone", "AAA-BELT-1", tags=["boot:p", "fleet:o1"]),
+               dev("M2", "mining_drone", "AAA-BELT-1", tags=["boot:p", "fleet:o1"]),
+               dev("V", "heaven_vessel", "AAA-BELT-1", features=["surge", "cruise", "print"], cmds=["travel"],
+                   stow_capacity=10, tags=["fleet:p"]),
+               dev("OTH", "mining_drone", "AAA-BELT-1", tags=["fleet:x"])]
+    boot = {"vessel": "V", "replicant": "R", "stage": "hub"}
+    cfg = {"fleets": [{"id": "p", "name": "P", "role": "bootstrap", "home": "AAA", "boot": boot},
+                      {"id": "o1", "name": "P · Outpost 1", "role": "mining", "home": "BBB", "station": True,
+                       "wants": {"mining_drone": 2}, "family": "p", "parent": "p"},
+                      {"id": "x", "name": "X", "role": "mining", "home": "BBB", "station": True, "wants": {"mining_drone": 2}}],
+           "settings": {}}
+    p = lo.plan(cfg, devices, bps, {}, stars, {"V": "R"}, set(), [], {})
+    assert not any(d["carrier"] == "V" for d in p["deliveries"])          # still building the hub: the vessel is its own
+    boot["stage"] = "outposts"
+    p = lo.plan(cfg, devices, bps, {}, stars, {"V": "R"}, set(), [], {})
+    dl = [d for d in p["deliveries"] if d["carrier"] == "V"]
+    assert dl and {"M1", "M2"} <= set(dl[0]["devices"]) and not any("OTH" in d["devices"] for d in dl)
+    assert bt.HUB_KIT.get("surge_plate") == 1 and "surge_carrier" not in bt.HUB_KIT
