@@ -227,6 +227,10 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
             continue  # partly exhausted (some resources) but its drones are mining the rest: leave it alone
         away = sorted(k for k in kids if (by.get(k) or {}).get("location") and by[k]["location"] != belt
                       and not moving(by[k]))
+        # a drone can't surge: one in another system is only let go, for a controller there to adopt (live
+        # 2026-10-25: 9EE3E14D at FALQUORYX held 3 drones at SOLARES-BELT-1, "Device does not have surge capability")
+        gone = [k for k in away if by[k]["location"].split("-")[0] != star]
+        away = [k for k in away if k not in gone]
         strays = sorted(d["device_code"] for d in devices
                         if d.get("device_code") in (free or set()) and d.get("device_type") == "mining_drone"
                         and (d.get("location") or "").split("-")[0] == star and d["device_code"] not in run_by
@@ -241,7 +245,8 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
         d = (directive_for or {}).get(code) or (name if name and name != "gather_salvage" else "gather_evenly")
         if free is not None:
             free -= set(strays)   # each stray goes with one controller
-        out.append({"ctrl": code, "belt": belt, "move_ctrl": c.get("location") != belt, "away": away, "strays": strays,
+        out.append({"ctrl": code, "belt": belt, "move_ctrl": c.get("location") != belt, "away": away, "gone": gone,
+                    "strays": strays,
                     "directive": d, "config": (dv.get("config") or {}) if d == name else {}, "why": why,
                     "open_sites": open_sites.get(belt, 0)})
     return out
@@ -254,6 +259,9 @@ def back_to_belt_steps(p: dict) -> list[dict]:
     if mine:  # free them so they can be flown back, then adopt them again at the belt
         steps.append(step(f"{code}: release {len(mine)} drone(s) to bring them back", f"/devices/{code}",
                           {"command": "release", "devices": mine}))
+    if p.get("gone"):
+        steps.append(step(f"{code}: release {len(p['gone'])} drone(s) in other systems", f"/devices/{code}",
+                          {"command": "release", "devices": p["gone"]}))
     if p["move_ctrl"]:
         st = step(f"{code} → {belt}", f"/devices/{code}", {"command": "travel", "destination": belt},
                   wait=["travel.arrived"], match={"destination": belt}, critical=True)

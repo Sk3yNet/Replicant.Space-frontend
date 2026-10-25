@@ -215,7 +215,8 @@ class BootstrapMixin:
                 stale = not last.get("at") or last["at"] < _hours_ago(6)
                 if name != "maintain_ratios" or (drift > 0.1 and stale):
                     steps.append(step(f"{code}: maintain_ratios {want}", f"/devices/{code}",
-                                      {"command": "set_directive", "directive": "maintain_ratios", "configuration": want}))
+                                      {"command": "set_directive", "directive": "maintain_ratios",
+                                       "configuration": {"ratios": want}}))
                     sent[code] = {"ratios": want, "at": now_iso()}
                     codes.append(code)
         if steps:

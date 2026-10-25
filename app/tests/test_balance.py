@@ -65,3 +65,15 @@ def test_logistics_pass_rebalances_and_the_page_shows_the_shares(client):  # noq
     assert any(j["title"] == "logistics: M1 rebalances FAL → SOL" for j in client.portal.call(e.jobs))
     r = client.get("/fleets/logistics", headers=H)
     assert r.status_code == 200 and "Carriers per hub" in r.text and "1 / 1" in r.text
+
+
+def test_no_rebalance_back_while_one_is_on_its_way():
+    """Live 2026-10-25: surge plates rebalanced SOLARES to FALQUORYX and FALQUORYX to SOLARES two minutes apart."""
+    devices = [mf("M1", "FAL-BELT-1"), mf("M2", "FAL-BELT-1"), mf("M3", "FAL-BELT-1"), mf("M4", None, "travelling")]
+    idle = {"M1": 0.0, "M2": 0.0, "M3": 0.0}
+    p = bal.plan(FLEETS, devices, [], {}, set(), POS, CMD, 1728, {}, idle, 3600.0)
+    assert [(m["from"], m["to"]) for m in p["moves"]] == [("FAL", "SOL")]
+    jobs = [{"status": "waiting", "rule": "logistics", "device": "M4", "title": "logistics: M4 rebalances SOL → FAL",
+             "meta": {"devices": ["M4"], "star": "FAL"}}]
+    p = bal.plan(FLEETS, devices, jobs, {}, {"M4"}, POS, CMD, 1728, {}, idle, 3600.0)
+    assert not p["moves"]

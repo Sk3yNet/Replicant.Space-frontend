@@ -167,7 +167,7 @@ DIRECTIVES: dict[str, dict[str, list[Field]]] = {
     "mining": {
         "gather_resources": [F("", "resources", label="target amounts", help="Stop when these amounts are gathered")],
         "gather_evenly": [],
-        "maintain_ratios": [F("", "resources", label="ratios", help="Decimals, e.g. structural 0.5, conductive 0.3",
+        "maintain_ratios": [F("ratios", "resources", label="ratios", help="Decimals, e.g. structural 0.5, conductive 0.3",
                               options=["float"])],
         "deplete_smallest": [],
         "gather_salvage": [F("location", "location", required=True, label="body with salvage",

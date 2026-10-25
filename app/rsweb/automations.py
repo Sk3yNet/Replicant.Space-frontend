@@ -3418,7 +3418,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         ratios = pr.print_ratios(offered, await self.print_needs(devices))
         if not ratios:
             return sched
-        return {**sched, "directive": "maintain_ratios", "configuration": ratios,
+        # the game wants them under "ratios", not flat as its docs show (live 2026-10-25)
+        return {**sched, "directive": "maintain_ratios", "configuration": {"ratios": ratios},
                 "name": f"{sched.get('name') or 'gather_evenly'}, leaning to what prints wait on"}
 
     # --- helpers for rules ------------------------------------------------------------------------
@@ -5412,7 +5413,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             job = await self.create_job("salvage_when_depleted",
                                         f"{p['ctrl']}: back to {p['belt']} ({p['why']})"
                                         + (f", bringing {n} drone(s)" if n else ""),
-                                        p["ctrl"], sv.back_to_belt_steps(p), {"devices": p["away"] + p["strays"], "belt": p["belt"]})
+                                        p["ctrl"], sv.back_to_belt_steps(p), {"devices": p["away"] + p["strays"] + p.get("gone", []), "belt": p["belt"]})
             back[p["ctrl"]] = now.isoformat(timespec="seconds")
             if job and rested.pop(p["ctrl"], None):
                 await self.db.kv_set("rested", rested)

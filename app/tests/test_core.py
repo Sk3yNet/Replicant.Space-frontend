@@ -252,8 +252,8 @@ def test_parse_fields_builds_nested_bodies():
     body = c.parse_fields(c.DIRECTIVES["transport"]["delivery"], _Form({
         "f.route.collect": "SOL-BELT-1", "f.route.deliver": "SOL-3-L4", "f.requirement.carbon": "50"}))
     assert body == {"route": {"collect": "SOL-BELT-1", "deliver": "SOL-3-L4"}, "requirement": {"carbon": 50}}
-    body = c.parse_fields(c.DIRECTIVES["mining"]["maintain_ratios"], _Form({"f..structural": "0.5", "f..rares": "0.1"}))
-    assert body == {"structural": 0.5, "rares": 0.1}
+    body = c.parse_fields(c.DIRECTIVES["mining"]["maintain_ratios"], _Form({"f.ratios.structural": "0.5", "f.ratios.rares": "0.1"}))
+    assert body == {"ratios": {"structural": 0.5, "rares": 0.1}}
     with pytest.raises(c.FormError):
         c.parse_fields(c.COMMANDS["travel"], _Form({}))
     assert c.parse_fields(c.COMMANDS["adopt"], _Form({"f.devices": ["A", "B"]})) == {"devices": ["A", "B"]}
@@ -871,7 +871,7 @@ def test_a_gather_evenly_schedule_leans_toward_print_needs(client):
     eng.print_needs = needs
     ctrl = {"device_code": "MC91FF22", "device_type": "ami_mining_controller", "location": "SOL-BELT-1"}
     use = client.portal.call(eng.print_tilt, {"directive": "gather_evenly"}, ctrl, [])
-    assert use["directive"] == "maintain_ratios" and use["configuration"]["silicates"] > use["configuration"]["carbon"]
+    assert use["directive"] == "maintain_ratios" and use["configuration"]["ratios"]["silicates"] > use["configuration"]["ratios"]["carbon"]
     assert client.portal.call(eng.print_tilt, {"directive": "gather_evenly"}, {**ctrl, "tags": ["boot:x"]}, [])["directive"] \
         == "gather_evenly"
 
@@ -5011,6 +5011,14 @@ def test_parked_mining_controller_goes_to_the_belt_with_its_drones():
     assert steps[-1] == ("/devices/C1", {"command": "launch"})
     # no belt in the system: nothing to plan here (salvage takes over)
     assert sv.back_to_belt_plan([ctrl], devices, {}, {}, {"LOR": []}, set(), None, set()) == []
+    # live 2026-10-25: drones it holds in another system can't surge back — let go, never flown
+    far = {"device_code": "M9", "device_type": "mining_drone", "location": "SOL-BELT-1", "status": "idle",
+           "controller_device_code": "C1"}
+    p = sv.back_to_belt_plan([ctrl], devices + [far], {}, {}, {"LOR": ["LOR-BELT-1"]}, set(), None, set())[0]
+    assert p["away"] == ["M0", "M1"] and p["gone"] == ["M9"]
+    steps = [(s["path"], s["body"]) for s in sv.back_to_belt_steps(p)]
+    assert ("/devices/C1", {"command": "release", "devices": ["M9"]}) in steps
+    assert not any(path == "/devices/M9" for path, _ in steps)
 
 
 def test_miners_in_a_system_without_a_belt_go_to_salvage(client):

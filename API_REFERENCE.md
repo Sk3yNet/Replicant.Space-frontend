@@ -650,7 +650,7 @@ Devices with the `ami` feature. Commands on `POST /v1/devices/{controller_code}`
 ```
 Directives:
 - **Survey** — `survey_system` `{"planets": "all", "moons": "all"|"none", "recall": true}`; `belt_search` (no config).
-- **Mining** (`ami_mining_controller`) — `gather_resources` `{carbon, conductive, rares, silicates, structural: <int>}`; `gather_evenly`; `maintain_ratios` `{structural, conductive, silicates, rares: <decimal>}`; `deplete_smallest`; `gather_salvage` `{"location": "...", "recall": bool}`.
+- **Mining** (`ami_mining_controller`) — `gather_resources` `{carbon, conductive, rares, silicates, structural: <int>}`; `gather_evenly`; `maintain_ratios` `{"ratios": {structural, conductive, silicates, rares: <decimal>}}` (the game docs show them flat, but the game refuses that since 2026-10-25: "configuration.ratios: Missing data for required field"); `deplete_smallest`; `gather_salvage` `{"location": "...", "recall": bool}`.
 - **Transport** — `delivery` `{"route": {"collect": "SOL-BELT-1", "deliver": "SOL-3-L4"}, "requirement": {"carbon": 50, "silicates": 100}}`; `shuttle` `{"collect", "deliver", "priority": ["carbon","rares"]}`; `ferry` (interstellar, same fields); `consolidate` `{"deliver", "priority": []}`.
 - **Maintenance drone** — `patrol`.
 - **Trade** (`ami_trade_controller`) — `trade` `{"name", "description", "announcement"}`.

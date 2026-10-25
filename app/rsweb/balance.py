@@ -6,12 +6,14 @@ A carrier idle for IDLE_MINUTES at a hub over its share flies to the hub furthes
 from __future__ import annotations
 
 import math
+import re
 from collections import Counter, defaultdict
 from typing import Any
 
 KV_DEMAND = "hub_demand"     # {key: {"star", "at"}}: what logistics and loadouts needed carriers for, kept DEMAND_DAYS
 KV_IDLE = "hub_balance_idle"  # {code: since}: when each logistics carrier was first seen idle
 DEMAND_DAYS = 3
+REBALANCE_RE = re.compile(r"(\w+) rebalances (\S+) → (\S+)")   # a balance_pass job's title
 IDLE_MINUTES = 30
 ATTACH = ("mobile_fleet", "surge_platform", "surge_carrier")
 CLASSES = {"attach": "big attach carriers", "vessel": "replicant vessels", "plate": "surge plates",
@@ -102,9 +104,14 @@ def plan(fleets: list[dict], devices: list[dict], jobs: list[dict], hosts: dict,
     out: dict = {"hubs": hub_list, "weights": {}, "classes": {}, "moves": []}
     tags = {fleet_tag(f["id"]) for f in logistics_fleets(fleets) if f.get("id")}
     going: dict[str, str] = {}
+    by_code = {d.get("device_code"): d for d in devices}
+    flying: set[tuple[str, str, str | None]] = set()   # (from, to, class) of rebalance trips underway
     for j in jobs:
         if j.get("status") in ("running", "waiting"):
             m = j.get("meta") or {}
+            r = REBALANCE_RE.search(j.get("title") or "")
+            if r and j.get("rule") == "logistics":
+                flying.add((r.group(2), r.group(3), klass(by_code.get(r.group(1)) or {}, hosts)))
             to = star_of((m.get("logistics") or {}).get("to") or m.get("star"))
             for c in [j.get("device")] + list(m.get("devices") or []):
                 if c and to:
@@ -144,7 +151,10 @@ def plan(fleets: list[dict], devices: list[dict], jobs: list[dict], hosts: dict,
         if not short:
             continue
         to = short[0]
+        # never back the other way while a carrier of the class is still on its way here: across the 500 ly between the
+        # home sector and Sol each trip takes hours (2026-10-25: plates flew SOLARES to FALQUORYX and back 2 min apart)
         free = [(d, h) for d, h in items if cnt.get(h, 0) > t[h] and d["device_code"] in seen
+                and (to, h, cls) not in flying
                 and now - idle_since.get(d["device_code"], now) >= IDLE_MINUTES * 60
                 and _dist(star_of(d.get("location")), to, pos) <= reach]
         if not free:

@@ -331,7 +331,7 @@ def test_controllers_in_the_kits_and_their_directives(client):
     job = next(j for j in client.portal.call(e.jobs) if j["title"].endswith("controller directives"))
     bodies = {s["path"]: s["body"] for s in job["steps"]}
     assert bodies["/devices/SC"]["directive"] == "belt_search"
-    assert bodies["/devices/MC"]["directive"] == "maintain_ratios" and set(bodies["/devices/MC"]["configuration"]) <= set(bt.RESOURCES)
+    assert bodies["/devices/MC"]["directive"] == "maintain_ratios" and set(bodies["/devices/MC"]["configuration"]["ratios"]) <= set(bt.RESOURCES)
 
 
 def test_controllers_on_salvage_or_resting_are_left_to_the_salvage_rule(client):
