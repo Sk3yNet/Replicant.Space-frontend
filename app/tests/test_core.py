@@ -8212,6 +8212,49 @@ def test_relay_rollout_pass_keeps_orders_open_and_skips_failures(client, monkeyp
     assert "Relay rollout" in page and "Retry skipped (2)" in page
 
 
+def test_relay_rollout_pause_cancels_relay_prints_and_prints_no_more(client, monkeypatch):
+    """Owner 2026-10-25: pausing the relay rollout cancels every relay print not started yet and keeps new ones (the
+    1.241.1 lost-print re-source included) from being created until it starts again."""
+    from rsweb import relayroll as rr
+    from rsweb import ward_orders as wo
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    fab = {"device_code": "F1", "device_type": "autofactory", "location": "S-BELT-1", "status": "printing (ftl_relay)",
+           "available_commands": ["enqueue_print", "dequeue_print"], "queue_size": 10,
+           "print_queue": [{"device_type": "ftl_relay", "tags": ["to:A"]}, {"device_type": "mining_drone", "tags": []},
+                           {"device_type": "ftl_relay", "tags": ["to:B"]}, {"device_type": "ftl_relay", "tags": ["stock"]}]}
+    devs = [fab]
+
+    async def devices():
+        return devs
+    eng.devices = devices
+    client.portal.call(db.kv_set, wo.kv_key("relay"), {
+        "A": {"at": "2026-10-25T00:00:00+00:00", "how": "print", "factory": "F1"},
+        "B": {"at": "2026-10-25T00:00:00+00:00", "how": "print", "factory": "F1"},
+        "C": {"at": "2026-10-25T00:00:00+00:00", "how": "print"},                  # lost, waiting for a slot
+        "D": {"at": "2026-10-25T00:00:00+00:00", "how": "send", "device": "R9"}})
+    job = "wards-print-E"
+    client.portal.call(eng.save_jobs, [{"id": job, "rule": "wards", "title": "print a FTL relay on F1 for E", "device": "F1",
+                                        "steps": [], "idx": 0, "status": "running", "meta": {"outpost": "E"}}])
+    client.portal.call(db.kv_set, rr.KV, {"on": True, "seeds": ["S"], "ordered": {s: "x" for s in "ABCD"}})
+    r = client.post("/map/relays/rollout", headers=HX, data={"action": "stop", "seeds": "S", "radius": "50", "chained": "1"})
+    assert r.status_code == 200
+    st = rr.state(client.portal.call(db.kv_get, rr.KV, {}))
+    assert st["paused"] and not st["on"] and list(st["ordered"]) == ["D"] and not st["skipped"]
+    assert list(client.portal.call(db.kv_get, wo.kv_key("relay"), {})) == ["D"]
+    jobs = client.portal.call(eng.jobs)
+    assert next(j for j in jobs if j["id"] == job)["status"] == "cancelled"
+    drop = next(j for j in jobs if j["title"].startswith("F1: drop 2 queued"))
+    assert [s["body"]["index"] for s in drop["steps"]] == [2, 0]   # highest first, so the indices hold
+    # paused: an order (by hand, or a lost print sourced again) finds no spare and prints nothing
+    how, msg = client.portal.call(eng._outpost_source, "relay", "E", devs, set(), {})
+    assert how is None and "relay prints are paused" in msg
+    page = client.get("/map/relays", headers=H).text
+    assert "relay prints paused" in page and ">Resume<" in page
+    client.post("/map/relays/rollout", headers=HX, data={"action": "start", "seeds": "S", "radius": "50", "chained": "1"})
+    assert not rr.state(client.portal.call(db.kv_get, rr.KV, {}))["paused"]
+
+
 def test_relocation_waits_for_command_reach_at_the_new_home(client):
     """Live 2026-10-19: Miner_4 relocated to OXETH (no relay, no replicant aboard) and everything aboard went
     out_of_range before it could be unloaded."""

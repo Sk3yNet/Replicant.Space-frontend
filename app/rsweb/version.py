@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.252.0"
+VERSION = "1.253.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.253.0", "2026-10-25", "Pausing the relay rollout (Map › Relays) now stops relay printing: relay print jobs still on their way are canceled, relay prints waiting in an autofactory queue for a system are dequeued, and relay orders waiting on a print are dropped (the rollout orders those systems again on Resume, without skipping them). While paused no relay order prints one, the Systems list and lost-print re-sourcing included; spares are still sent and idle relays switched on. A Pause prints button does the same while the rollout is not running."),
     ("1.252.0", "2026-10-25", "Surge spots follow the game docs: only the Oort cloud, the Kuiper belt and the entry point (a planet's L4/L5 is no longer counted: live dry runs cruised there). The system page lists its surge spots under Bodies."),
     ("1.251.2", "2026-10-25", "Bootstrap drones mine whatever the open sites hold, even a resource the belt's catalog does not list (mining drones mine volatiles too): at ISOLITHOR-BELT-1 six drones sat idle beside five sites of volatiles only."),
     ("1.251.1", "2026-10-24", "Every travel estimate uses the planned route (surge hops, a hub on the way, the off-ramp, the star before a spot in another system), not the game's own: a device's travel command (its preview names the waypoints and the time saved, a refused plan goes the game's way), the sector range check on automated trips (a trip over 24 h by the catalog is previewed by its planned route, so a hub can bring it under), and the asteroid mining trip time. The replicant travel form, Stars and Map previews had it since 1.243.0; fleet moves, missions and logistics go through the job runner, which plans every trip."),

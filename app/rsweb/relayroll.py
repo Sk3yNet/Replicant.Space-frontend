@@ -13,7 +13,8 @@ Each seed has its own radius (radii: {seed: ly}, owner 2026-10-24: SOLARES needs
 one uses radius, the default. A system is in line when it lies within some seed's radius, and counts for the nearest such seed.
 
 State in kv "relay_rollout": {on, seeds: [star], radius, radii, chained, capacity (last seen), ordered: {star: at}, skipped: {star: why},
-done: int, streak: failures in a row, by}.
+done: int, streak: failures in a row, by, paused: relay prints stopped (owner 2026-10-25: Pause cancels every relay print not
+started yet and no ward order prints a relay until Start)}.
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ from .relaynet import RELAY_LY, _grid, _near
 KV = "relay_rollout"
 MAX_STREAK = 5
 DEFAULTS = {"on": False, "seeds": [], "radius": 50.0, "radii": {}, "chained": True, "capacity": 0, "ordered": {}, "skipped": {},
-            "done": 0, "streak": 0, "by": ""}
+            "done": 0, "streak": 0, "by": "", "paused": False}
 
 
 def state(raw: dict | None) -> dict:

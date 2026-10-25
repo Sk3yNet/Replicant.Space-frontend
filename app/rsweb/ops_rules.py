@@ -136,6 +136,8 @@ class OpsRules:
             for o in ((await self.db.kv_get(wo.kv_key(k), {}) or {}) if k != kind else orders).values():
                 if wo.pending_print(o):
                     ordered[o["factory"]] = ordered.get(o["factory"], 0) + 1
+        if kind == "relay" and await self.relay_prints_paused():
+            return None, f"no spare {label} within {reach:g} ly of {star}, and relay prints are paused (Map › Relays)"
         f = wo.factory_near(devices, star, busy, pos, reach, ordered)
         if not f:
             return None, f"no spare {label} and no autofactory with a free print slot within {reach:g} ly of {star}"
@@ -224,7 +226,7 @@ class OpsRules:
                         o.update(how, at=now_iso())   # its 3 days start now: nothing was ever on its way
                         o.pop("factory" if how["how"] == "send" else "device", None)
                         await self.log("wards", f"{star}: the {label} print never showed up — {msg}")
-                    else:
+                    elif "prints are paused" not in msg:
                         msg = f"waiting for a free print slot ({msg})"
                     if msg != o.get("note"):
                         o["note"] = msg
@@ -256,6 +258,54 @@ class OpsRules:
                     out.append(f"{star}: activating {here['device_code']}")
             if changed:
                 await self.db.kv_set(wo.kv_key(kind), orders)
+        return out
+
+    async def relay_prints_paused(self) -> bool:
+        from . import relayroll as rr
+        return bool(rr.state(await self.db.kv_get(rr.KV, {}))["paused"])
+
+    async def pause_relay_prints(self, user: str = "") -> list[str]:
+        """Relay rollout paused (owner 2026-10-25): every relay print not started yet goes. Print jobs still on their way
+        are canceled, relay prints waiting in an autofactory's queue for a system (to: tag) are dequeued, and relay
+        orders waiting on a print are dropped (the rollout lets go of them without skipping, so a resume orders them
+        again). Orders sending a spare or switching one on stay. While paused, _outpost_source prints no relay.
+        The caller holds self.lock."""
+        from . import relayroll as rr
+        from . import ward_orders as wo
+        from .automations import step
+        dtype, label = wo.KINDS["relay"], wo.LABELS["relay"]
+        out: list[str] = []
+        for j in await self.jobs():
+            if (j["status"] in ("running", "waiting") and (j.get("meta") or {}).get("outpost")
+                    and str(j.get("title") or "").startswith(f"print a {label} ")):
+                j["status"], j["finished_at"] = "cancelled", now_iso()
+                await self._update(j)
+                out.append(f"canceled: {j['title']}")
+        for f in await self.devices():
+            idx = [i for i, q in enumerate(f.get("print_queue") or []) if isinstance(q, dict)
+                   and q.get("device_type") == dtype and any(str(t).startswith("to:") for t in q.get("tags") or [])]
+            if not idx:
+                continue
+            code = f["device_code"]
+            await self.create_job("wards", f"{code}: drop {len(idx)} queued {label} print(s) (relay rollout paused)", code,
+                                  [step(f"{code}: drop queued {label} #{i + 1}", f"/devices/{code}",
+                                        {"command": "dequeue_print", "index": i}) for i in sorted(idx, reverse=True)],
+                                  {"devices": [code]}, force=True)
+            out.append(f"{code}: dropping {len(idx)} queued {label} print(s)")
+        orders = await self.db.kv_get(wo.kv_key("relay"), {}) or {}
+        gone = [s for s, o in orders.items() if o.get("how") == "print"]
+        for s in gone:
+            orders.pop(s)
+        if gone:
+            await self.db.kv_set(wo.kv_key("relay"), orders)
+            out.append(f"{len(gone)} relay order(s) waiting on a print dropped")
+        st = rr.state(await self.db.kv_get(rr.KV, {}))
+        for s in gone:
+            st["ordered"].pop(s, None)
+        st.update(on=False, paused=True)
+        await self.db.kv_set(rr.KV, st)
+        await self.log("wards", "relay rollout paused, relay prints stopped" + (f" (by {user})" if user else "")
+                       + (": " + "; ".join(out) if out else ": nothing was printing"), notify=True)
         return out
 
     async def relay_rollout_pass(self) -> list[str]:

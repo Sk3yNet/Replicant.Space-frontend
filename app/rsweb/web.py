@@ -2269,12 +2269,14 @@ async def map_relays_rollout(request: Request, action: str = Form(...), seeds: s
         if action == "start":
             if not roll["seeds"]:
                 return HTMLResponse('<span class="lv-alert small">Name at least one seed system.</span>')
-            roll.update(on=True, streak=0, by=user)
+            roll.update(on=True, streak=0, by=user, paused=False)
         elif action == "stop":
-            roll["on"] = False   # open orders stay; cancel them on the Systems list if you like
+            roll["on"] = False   # orders sending or switching on a relay stay; pause_relay_prints drops the prints
         elif action == "retry":
             roll.update(skipped={}, streak=0)
         await db.kv_set(rr.KV, roll)
+        if action == "stop":
+            await eng.pause_relay_prints(user)
         if roll["on"]:
             await eng.relay_rollout_pass()
     return HTMLResponse("", headers={"HX-Refresh": "true"})

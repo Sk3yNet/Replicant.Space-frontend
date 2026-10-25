@@ -160,6 +160,9 @@ of the catalog after). What each marker and line means is in the [map legend](..
   - *Chained* (default) only goes to a system within 7.5 ly of a relay or hub of yours, one on order, or a seed, so the
     network grows outward in one piece.
   - A system that can't get one is skipped until *Retry skipped*; five failures in a row pause the rollout.
+  - *Pause* cancels every relay print not started yet (print jobs, queued prints for a system, orders waiting on a
+    print) and no order prints a relay until *Resume*; spares are still sent. *Pause prints* does the same while the
+    rollout is stopped.
   - Prints only go to an autofactory with a free queue slot. A print order that never shows up in a queue (20 min)
     sends a spare instead or prints again, and its 3 days start over; with every queue full it waits (and doesn't
     expire) for a free slot.
