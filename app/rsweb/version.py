@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.259.0"
+VERSION = "1.260.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.260.0", "2026-10-25", "Carrier balancing has a leeway (Fleets › Logistics › Carriers per hub, default 25 % of a hub's share, at least one carrier): a carrier only moves from a hub more than the leeway over its share to one more than the leeway under it, or to a hub with none, so small imbalances even out by themselves instead of sending plates across the 500 ly between the hubs. A stocked contract that a logistics job is already on its way to fulfill gets no second replicant: three replicant carriers had left for Geothermal Surplus at ELUSORYR-3, two after it was done."),
     ("1.259.0", "2026-10-25", "Hub upkeep: the game draws a hub's upkeep from the stockpile at the hub's own location. The Upkeep "
                "page has a Hub upkeep card per active hub: its price per 20 % (upkeep_requirements), the target on site (back "
                "to 100 % plus one step), what is there now, whether a maintenance drone patrols its system, and the delivery. "

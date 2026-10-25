@@ -1,6 +1,6 @@
 """Logistics carriers spread over the hubs (balance.py, owner 2026-10-23)."""
 from rsweb import balance as bal
-from test_ops import H, client, eng  # noqa: F401  (fixture)
+from test_ops import H, HX, client, eng  # noqa: F401  (fixture)
 
 POS = {"FAL": {"x": 0, "y": 0, "z": 0}, "AEM": {"x": 5, "y": 0, "z": 0}, "SOL": {"x": 500, "y": 0, "z": 0},
        "BAD": {"x": 505, "y": 0, "z": 0}, "DEL": {"x": 29000, "y": 0, "z": 0}}
@@ -65,6 +65,10 @@ def test_logistics_pass_rebalances_and_the_page_shows_the_shares(client):  # noq
     assert any(j["title"] == "logistics: M1 rebalances FAL → SOL" for j in client.portal.call(e.jobs))
     r = client.get("/fleets/logistics", headers=H)
     assert r.status_code == 200 and "Carriers per hub" in r.text and "1 / 1" in r.text
+    assert 'name="pct"' in r.text and 'value="25"' in r.text
+    assert "saved" in client.post("/fleets/logistics/leeway", data={"pct": "40"}, headers=HX).text
+    assert client.portal.call(db.kv_get, bal.KV_LEEWAY, None) == 40
+    assert "0 to 100" in client.post("/fleets/logistics/leeway", data={"pct": "140"}, headers=HX).text
 
 
 def test_no_rebalance_back_while_one_is_on_its_way():
@@ -77,3 +81,16 @@ def test_no_rebalance_back_while_one_is_on_its_way():
              "meta": {"devices": ["M4"], "star": "FAL"}}]
     p = bal.plan(FLEETS, devices, jobs, {}, {"M4"}, POS, CMD, 1728, {}, idle, 3600.0)
     assert not p["moves"]
+
+
+def test_a_leeway_leaves_small_imbalances_alone():
+    """Owner 2026-10-25: a percent leeway lets temporary imbalances even out by themselves."""
+    def go(at_fal, leeway):
+        devices = [mf(f"M{i}", "FAL-BELT-1" if i < at_fal else "SOL-BELT-1") for i in range(8)]
+        idle = {f"M{i}": 0.0 for i in range(8)}
+        return bal.plan(FLEETS, devices, [], {}, set(), POS, CMD, 1728, {}, idle, 3600.0, leeway=leeway)["moves"]
+    assert bal.slack(4, 25) == 1 and bal.slack(4, 0) == 0 and bal.slack(1, 10) == 1
+    assert not go(5, 25)                                         # 5 / 3 against 4 / 4: within the leeway
+    assert [(m["from"], m["to"]) for m in go(6, 25)] == [("FAL", "SOL")]   # 6 / 2: beyond it
+    assert go(5, 0)                                              # 0 %: the strict balance
+    assert [(m["from"], m["to"]) for m in go(8, 50)] == [("FAL", "SOL")]   # a hub with none always gets one

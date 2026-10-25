@@ -33,7 +33,21 @@ async def logistics_page(request: Request, user: str = Depends(current_user)):
     transit = await cargo.in_transit(db, (await load_state(request))["devices"], await eng.jobs())
     return await page(request, user, "logistics.html", "logistics", st=st, jobs=list(reversed(jobs)), on_way=on_way, why=why,
                       tiers=lg.TIERS, categories=lg.CATEGORIES, fleets=fleets, approvals=ok, transit=transit,
-                      hub_balance=await db.kv_get("hub_balance", {}) or {}, carrier_classes=bal.CLASSES)
+                      hub_balance=await db.kv_get("hub_balance", {}) or {}, carrier_classes=bal.CLASSES,
+                      hub_leeway=await db.kv_get(bal.KV_LEEWAY, bal.LEEWAY_PCT), slack=bal.slack)
+
+
+@router.post("/fleets/logistics/leeway", response_class=HTMLResponse)
+async def logistics_leeway(request: Request, pct: str = Form(...), user: str = Depends(current_user)):
+    """How far a hub may be over or under its carrier share before balancing moves one (balance.py)."""
+    try:
+        v = float(pct)
+    except ValueError:
+        return _msg(f"not a number: {pct}", ok=False)
+    if not 0 <= v <= 100:
+        return _msg("the leeway is 0 to 100 %", ok=False)
+    await request.app.state.db.kv_set(bal.KV_LEEWAY, v)
+    return _msg(f"leeway {v:g} % saved")
 
 
 @router.post("/fleets/logistics/prefs", response_class=HTMLResponse)

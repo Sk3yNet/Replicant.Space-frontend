@@ -2,7 +2,11 @@
 and its carriers stay where their last job ended, so they drift to wherever the work was. Each hub (a stationed fleet
 that takes materials in, within the sector range of the logistics fleet's home) gets a share of every carrier class,
 weighted by the hub's demand over the last 3 days (logistics requests and loadout pick-ups near it), at least one each.
-A carrier idle for IDLE_MINUTES at a hub over its share flies to the hub furthest under its share, one per class per pass."""
+A carrier idle for IDLE_MINUTES at a hub over its share flies to the hub furthest under its share, one per class per pass.
+A leeway (KV_LEEWAY, percent of the share, at least one carrier) lets imbalances even out by themselves: a carrier only
+moves from a hub more than the leeway over its share to one more than the leeway under it (or from any hub over its
+share to one with none)
+(owner 2026-10-25: plates flew SOLARES to FALQUORYX and back within minutes)."""
 from __future__ import annotations
 
 import math
@@ -11,6 +15,8 @@ from collections import Counter, defaultdict
 from typing import Any
 
 KV_DEMAND = "hub_demand"     # {key: {"star", "at"}}: what logistics and loadouts needed carriers for, kept DEMAND_DAYS
+KV_LEEWAY = "hub_balance_leeway"   # percent of a hub's share it may be over or under before a carrier moves
+LEEWAY_PCT = 25
 KV_IDLE = "hub_balance_idle"  # {code: since}: when each logistics carrier was first seen idle
 DEMAND_DAYS = 3
 REBALANCE_RE = re.compile(r"(\w+) rebalances (\S+) → (\S+)")   # a balance_pass job's title
@@ -93,9 +99,15 @@ def targets(n: int, w: dict[str, float]) -> dict[str, int]:
     return out
 
 
+def slack(share: int, pct: float) -> int:
+    """How many carriers a hub may be over or under its share and still be left alone: pct of it, at least one
+    (none at 0 %: the strict balance before 1.260.0)."""
+    return max(1, round(share * pct / 100)) if pct > 0 else 0
+
+
 def plan(fleets: list[dict], devices: list[dict], jobs: list[dict], hosts: dict, busy: set[str], pos: dict,
          commandable: set[str], reach: float, demand: dict, idle_since: dict[str, float], now: float,
-         keep: set[str] = frozenset()) -> dict:
+         keep: set[str] = frozenset(), leeway: float = LEEWAY_PCT) -> dict:
     """{"hubs", "weights", "classes": {cls: {"targets", "counts"}}, "moves": [{code, cls, from, to}]}. A carrier on a job
     counts at the hub nearest where the job takes it; `idle_since` (epoch seconds) is updated in place."""
     from .fleets import fleet_tag
@@ -147,13 +159,17 @@ def plan(fleets: list[dict], devices: list[dict], jobs: list[dict], hosts: dict,
         t = targets(len(items), w)
         cnt = Counter(h for _, h in items)
         out["classes"][cls] = {"targets": t, "counts": {h: cnt.get(h, 0) for h in hub_list}}
-        short = sorted((h for h in hub_list if cnt.get(h, 0) < t[h]), key=lambda h: (cnt.get(h, 0) - t[h], -w[h], h))
+        # short: more than the leeway under its share, or none at all
+        short = sorted((h for h in hub_list if cnt.get(h, 0) < t[h]
+                        and (not cnt.get(h, 0) or cnt.get(h, 0) < t[h] - slack(t[h], leeway))), key=lambda h: (cnt.get(h, 0) - t[h], -w[h], h))
         if not short:
             continue
         to = short[0]
         # never back the other way while a carrier of the class is still on its way here: across the 500 ly between the
         # home sector and Sol each trip takes hours (2026-10-25: plates flew SOLARES to FALQUORYX and back 2 min apart)
-        free = [(d, h) for d, h in items if cnt.get(h, 0) > t[h] and d["device_code"] in seen
+        need_empty = not cnt.get(to, 0)   # a hub with none gets one from any hub over its share
+        free = [(d, h) for d, h in items if cnt.get(h, 0) > t[h] + (0 if need_empty else slack(t[h], leeway))
+                and d["device_code"] in seen
                 and (to, h, cls) not in flying
                 and now - idle_since.get(d["device_code"], now) >= IDLE_MINUTES * 60
                 and _dist(star_of(d.get("location")), to, pos) <= reach]

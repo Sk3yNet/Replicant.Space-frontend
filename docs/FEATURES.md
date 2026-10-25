@@ -501,8 +501,10 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
   ended. Each hub within the sector range of the logistics fleet's home gets a share of every carrier class (big attach
   carriers, replicant vessels, surge plates, cargo vessels, cargo freighters), weighted by what needed a carrier near it
   over the last 3 days (logistics requests, loadout pick-ups), at least one each. A carrier idle for 30 minutes at a hub
-  over its share flies to the hub furthest under it, one per class per pass. A carrier on a job counts where the job
-  takes it. The Logistics page shows have / share per hub.
+  more than the leeway over its share flies to the hub furthest under it (more than the leeway under, or with none), one
+  per class per pass, and never back the way another of its class is still flying. The leeway (default 25 % of the share,
+  at least one carrier; 0 = strict) is set on the card. A carrier on a job counts where the job takes it. The Logistics
+  page shows have / share per hub.
 - The page's **In transit** card lists every hold with materials in it (what, where, heading for, which run), with
   totals.
 

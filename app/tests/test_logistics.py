@@ -45,6 +45,17 @@ def test_a_contract_covered_only_by_deliveries_on_their_way_is_not_fulfilled_yet
     assert any(u["req"] == "contract:EV2" and "331 carbon on its way" in u["why"] for u in p["unmet"])
 
 
+def test_a_stocked_contract_already_being_fulfilled_gets_no_second_replicant():
+    """Live 2026-10-25: three replicant carriers left for Geothermal Surplus at ELUSORYR-3 within two hours."""
+    devs = world()
+    c = {"designation": "EV3", "location": "B-2", "title": "Geo", "price": {"carbon": 50}}
+    assert any(r["req"] == "contract:EV3" and r["fulfil"] for r in run_plan(devs, {"B-2": {"carbon": 50}}, [c])["runs"])
+    p = run_plan(devs, {"B-2": {"carbon": 50}}, [{**c, "fulfilling": True}])
+    assert not [r for r in p["runs"] if r["req"] == "contract:EV3"]
+    assert any(u["req"] == "contract:EV3" and "on its way to fulfill" in u["why"] for u in p["unmet"])
+    assert not any(r["id"] == "return:B-2" for r in p["requests"])   # its price stays put
+
+
 def test_prints_come_first_and_home_prints_keep_their_reserve():
     devs = world([dev("AH", "autofactory", "A-1", tags=[], status="idle",
                       print_queue=[{"device_type": "mining_drone", "quantity": 5}])])

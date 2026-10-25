@@ -3914,10 +3914,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         incoming: dict[str, dict] = {}
         inv_at = _ts(await self.db.kv_updated("inventory"))
         leaving: set[str] = set()   # replicants a job is about to move: the system they're in now isn't covered for long
+        fulfilling: set[str] = set()   # deals a logistics job is on its way to fulfill: one replicant each
         for j in jobs:
             if j["status"] not in ("running", "waiting"):
                 continue
             t = (j.get("meta") or {}).get("logistics")
+            if t and any(str(st.get("desc") or "").startswith(("fulfill ", "execute ")) for st in j["steps"][j.get("idx", 0):]):
+                # live 2026-10-25: three replicant carriers left for Geothermal Surplus at ELUSORYR-3 within two hours
+                fulfilling |= {str(x).split(":", 1)[1] for x in (t.get("fulfils") or [t.get("req")]) if x and ":" in str(x)}
             if t and t.get("to"):
                 incoming[t["to"]] = {r: incoming.get(t["to"], {}).get(r, 0) + q for r, q in (t.get("carry") or {}).items()}
             # what any job (logistics run, fleet mission, relocation) is still going to pick up is spoken for, and so is
@@ -3969,7 +3973,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             if price or best.get("devices"):
                 rw = e.get("rewards") if isinstance(e.get("rewards"), dict) else {}
                 contracts.append({"designation": des, "location": e["location"], "title": e.get("title"), "price": price,
-                                  "devices_short": dshort, "rewards": rw.get("resources") or {},
+                                  "devices_short": dshort, "fulfilling": des in fulfilling, "rewards": rw.get("resources") or {},
                                   "reward_devices": fl_counts(rw.get("devices"))})
         from collections import Counter
         from .fleets import device_counts as fl_counts
@@ -4099,7 +4103,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             legs = [g for c in run.get("cargos") or [] for g in c.get("legs") or []] + (run.get("legs") or [])
             job = await self.create_job("logistics", f"logistics: {lg.describe(run)}", codes[0] if codes else run.get("ami"), steps,
                                         {"devices": codes, "logistics": {"req": run.get("req"), "to": run["to"], "carry": run["carry"],
-                                                                         "legs": legs}})
+                                                                         "legs": legs, **({"fulfils": [run.get("req")] + [
+                                                                             x["req"] for x in run.get("also") or []]}
+                                                                             if run.get("fulfil") else {})}})
             if job:
                 run["job"] = job["id"]
                 if run["kind"] == "listing":
@@ -4158,7 +4164,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         busy = self.busy_devices(jobs)
         idle = {c: (_ts(t) or _now()).timestamp() for c, t in (await self.db.kv_get(bal.KV_IDLE, {}) or {}).items()}
         p = bal.plan(items, devices, jobs, hosts, busy, pos, commandable, lg.SECTOR_RANGE_LY,
-                     await self.db.kv_get(bal.KV_DEMAND, {}) or {}, idle, _now().timestamp(), keep)
+                     await self.db.kv_get(bal.KV_DEMAND, {}) or {}, idle, _now().timestamp(), keep,
+                     leeway=await self.db.kv_get(bal.KV_LEEWAY, bal.LEEWAY_PCT))
         await self.db.kv_set(bal.KV_IDLE, {c: datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="seconds")
                                            for c, t in idle.items()})
         await self.db.kv_set("hub_balance", {"at": now_iso(), **{k: p[k] for k in ("hubs", "weights", "classes")}})

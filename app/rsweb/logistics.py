@@ -361,6 +361,7 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
                     "need": _short(c["price"], have(c["location"])), "label": f"contract {c.get('title') or c['designation']}",
                     "on_way": _short(c["price"], stock.get(c["location"]) or {}),
                     "designation": c["designation"], "devices_short": c.get("devices_short", False),
+                    "fulfilling": c.get("fulfilling", False),
                     "rewards": as_amounts(c.get("rewards") or {}), "reward_devices": c.get("reward_devices") or {}})
     for t in trades:
         out.append({"id": f"trade:{t['key']}", "kind": "trade", "to": t["location"], "price": t["price"],
@@ -781,6 +782,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 # (live 2026-10-20, Construction Boom at PERHALIEL-4 retried every pass with 0 of 400 there)
                 way = ", ".join(f"{q:g} {x}" for x, q in sorted(r["on_way"].items()) if q >= 1)
                 unmet.append({"req": r["id"], "why": f"waiting for {way} on its way to {dest}"})
+            elif r.get("fulfilling"):   # a replicant is already on its way to fulfill it
+                unmet.append({"req": r["id"], "why": "a logistics job is on its way to fulfill it"})
             elif r["kind"] in ("contract", "trade"):   # stocked: a replicant fulfills it
                 rep = ready_replicant(r, None, None)
                 esc = None

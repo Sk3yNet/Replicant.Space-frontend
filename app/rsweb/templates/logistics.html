@@ -41,10 +41,11 @@
       <td>{{ 'free' if t.free else (t.status or 'busy') }}</td><td>{{ categories.get(t.lane, '—') if t.lane else '—' }}</td></tr>{% endfor %}</table>{% endif %}
 </div>
 {% if hub_balance.classes %}<div class="card"><h2>Carriers per hub</h2>
-  <p class="muted small">Carriers take any job, nearest first. Each hub has a share of every carrier class, weighted by its requests over the last 3 days, at least one each; a carrier idle 30 min at a hub over its share flies to one under it. A carrier on a job counts where the job takes it.</p>
+  <p class="muted small">Carriers take any job, nearest first. Each hub has a share of every carrier class, weighted by its requests over the last 3 days, at least one each; a carrier idle 30 min at a hub more than the leeway over its share flies to one more than the leeway under it (a hub with none always gets one). A carrier on a job counts where the job takes it.</p>
+  <form hx-post="/fleets/logistics/leeway" hx-target="#tx-leeway" class="small">Leeway <input type="number" name="pct" min="0" max="100" step="5" value="{{ hub_leeway }}" style="width:4.5em"> % of a share (at least one carrier; 0 = strict) <button class="small">Save</button><span id="tx-leeway"></span></form>
   <table class="small"><tr><th>Class</th>{% for h in hub_balance.hubs %}<th>{{ h }} <span class="muted">(demand {{ hub_balance.weights.get(h, 0) | int }})</span></th>{% endfor %}</tr>
   {% for c, e in hub_balance.classes.items() %}<tr><td>{{ carrier_classes.get(c, c) }}</td>{% for h in hub_balance.hubs %}
-    <td>{{ e.counts.get(h, 0) }} / {{ e.targets.get(h, 0) }}</td>{% endfor %}</tr>{% endfor %}</table>
+    <td>{{ e.counts.get(h, 0) }} / {{ e.targets.get(h, 0) }}{% if (e.counts.get(h, 0) - e.targets.get(h, 0)) | abs > slack(e.targets.get(h, 0), hub_leeway) %} <span class="lv-warning small">beyond the leeway</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}</table>
   <p class="muted small">have / share</p></div>{% endif %}
 {% if st.escorts %}<div class="card"><h2>Kept free to escort relays and beacons</h2>
   <p class="muted small">Relays go first: these vessels host a replicant and wait for the loadout pass to take relays or beacons beyond the network.</p>
