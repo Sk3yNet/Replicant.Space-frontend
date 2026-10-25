@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.253.2"
+VERSION = "1.255.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.255.0", "2026-10-25", "Diagnostics: checkboxes choose what a snapshot includes (stockpiles, controllers, belts, events, idle drones, raw device pages, fleets, logistics, relays, asteroids, last commands, performance, version history), kept for the next one. The sections that make requests share the 60-request budget, so leaving one out lets the others read more controllers, belts or idle drones; the rest only cost file size."),
     ("1.253.2", "2026-10-25", "Mining controllers get maintain_ratios again: the game now wants the ratios under configuration.ratios (it refused the flat form every pass for the Delta Force hub and the print-tilted schedules). Back to the belt no longer tries to fly drones a controller holds in another system (they cannot surge): they are released for a controller there, so Miner_7's 9EE3E14D no longer stops on three drones at SOLARES. Logistics balancing never sends a carrier back the way another of its class is still flying (plates went SOLARES to FALQUORYX and back two minutes apart)."),
     ("1.253.1", "2026-10-25", "A fleet mission whose members cannot all board (the carriers here are full) now stalls with an alert and retries by itself, instead of waiting silently: Surveyor 2 sat 41 h at FALQUORYX because its heaven vessel also held an FTL slingshot that is not in the fleet, so its eighth survey drone never fit. The note names such extra cargo, and Launch anyway also works on a mission stalled before leaving."),
     ("1.253.0", "2026-10-25", "Pausing the relay rollout (Map › Relays) now stops relay printing: relay print jobs still on their way are canceled, relay prints waiting in an autofactory queue for a system are dequeued, and relay orders waiting on a print are dropped (the rollout orders those systems again on Resume, without skipping them). While paused no relay order prints one, the Systems list and lost-print re-sourcing included; spares are still sent and idle relays switched on. A Pause prints button does the same while the rollout is not running."),

@@ -3,7 +3,7 @@
 {% block content %}
 <div class="row between">
   <h1>Diagnostics</h1>
-  <form class="inline" hx-post="/diagnostics/snapshot" hx-swap="none">
+  <form class="inline" id="snap-form" hx-post="/diagnostics/snapshot" hx-swap="none">
     <input name="stars" placeholder="systems (blank = all), e.g. KELMONENT ITHVALAI" size="34">
     <button>Capture live snapshot</button>
   </form>
@@ -12,6 +12,20 @@
   It reads every device, stockpiles, the mining controllers, the belts your miners are at, recent mining/AMI events and the logs
   of idle drones, and bundles them with the app's own rule settings, jobs and log. Your API token is never included.
   <b>Download</b> the JSON and attach it in the chat to test against live data.</p>
+<details class="card" id="snap-sections">
+  <summary><b>What the snapshot includes</b> <span class="muted small">{{ snap_on | length }} of {{ snap_sections | length }} sections;
+    every device, rules, schedules, jobs and log are always in</span></summary>
+  <input type="hidden" form="snap-form" name="sections_form" value="1">
+  <div class="snap-sections">
+  {% for key, label, what, api in snap_sections %}
+    <label title="{{ what }}"><input type="checkbox" form="snap-form" name="section" value="{{ key }}"{% if key in snap_on %} checked{% endif %}>
+      {{ label }}{% if api %} <span class="pill small">requests</span>{% endif %}<br><span class="muted small">{{ what }}</span></label>
+  {% endfor %}
+  </div>
+  <p class="muted small">Sections marked <i>requests</i> share the request budget: leaving one out hands its share to the others,
+    so more controllers, belts or idle drones get read. The rest only add file size (uploads over about 3 MB get cut).
+    Your choice is kept for the next snapshot.</p>
+</details>
 <div class="card">
   <h2>Send feedback to the game's developers</h2>
   <form hx-post="/diagnostics/feedback" hx-target="#feedback-result" hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseText.includes('result ok')) this.reset()">

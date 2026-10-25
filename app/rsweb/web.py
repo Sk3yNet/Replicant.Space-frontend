@@ -34,6 +34,7 @@ from .tree import build_tree
 from . import production
 from . import ami_schedule as amis
 from . import printqueue
+from . import snapshot as snapmod
 from .ingest import duplicate_timers
 
 HERE = Path(__file__).parent
@@ -3133,14 +3134,15 @@ async def account(request: Request, user: str = Depends(current_user)):
 
 
 # --- diagnostics: live snapshot + mining diagnosis ----------------------------------------------------
-async def _snapshot_run(app, stars: set[str] | None) -> None:
+async def _snapshot_run(app, stars: set[str] | None, sections: set[str] | None = None) -> None:
     from . import snapshot as snapmod
     db = app.state.db
 
     async def progress(done: int, total: int, path: str) -> None:
         await db.kv_set("snapshot_status", {"state": "running", "done": done, "total": total, "path": path, "at": now_iso()})
     try:
-        snap = await snapmod.capture(app.state.api, db, app.state.worker.automations, stars, progress=progress)
+        snap = await snapmod.capture(app.state.api, db, app.state.worker.automations, stars, progress=progress,
+                                    sections=sections)
         await db.kv_set("snapshot_last", snap)
         await db.kv_set("snapshot_status", {"state": "done", "done": snap["requests"], "total": snap["requests"], "at": now_iso()})
     except Exception as e:  # report, never crash the app
@@ -3151,6 +3153,12 @@ async def _snapshot_run(app, stars: set[str] | None) -> None:
                                             "error": f"{type(e).__name__}: {e} ({tb.filename.rsplit('/', 1)[-1]} line {tb.lineno})"})
 
 
+async def _snapshot_sections(db) -> set[str]:
+    """The Diagnostics checkboxes: what the next snapshot includes (all of it until changed)."""
+    saved = await db.kv_get("snapshot_sections", None)
+    return set(snapmod.SECTION_KEYS) if saved is None else set(saved) & set(snapmod.SECTION_KEYS)
+
+
 @router.get("/diagnostics", response_class=HTMLResponse)
 async def diagnostics(request: Request, user: str = Depends(current_user)):
     db = request.app.state.db
@@ -3159,7 +3167,8 @@ async def diagnostics(request: Request, user: str = Depends(current_user)):
     tmpl = "partials/diagnostics_body.html" if request.headers.get("hx-request") else "diagnostics.html"
     ctx = {"snap": snap, "diag": (snap or {}).get("diagnosis"), "status": status,
            "feedback_sent": await db.kv_get("feedback_sent", []) or [], "feedback_types": FEEDBACK_TYPES,
-           "viability": await request.app.state.worker.automations.viability_report()}
+           "viability": await request.app.state.worker.automations.viability_report(),
+           "snap_sections": snapmod.SECTIONS, "snap_on": await _snapshot_sections(db)}
     if request.query_params.get("perf"):
         from . import perf
         return partial(request, "partials/perf.html", perf=await perf.report(db))
@@ -3173,12 +3182,17 @@ async def diagnostics_snapshot(request: Request, user: str = Depends(current_use
     form = await request.form()
     stars = {x.strip().upper() for x in re.split(r"[,\s]+", form.get("stars") or "") if x.strip()} or None
     db = request.app.state.db
+    if form.get("sections_form"):   # the checkboxes were on the page (unchecked ones aren't sent)
+        sections = {k for k in form.getlist("section") if k in snapmod.SECTION_KEYS}
+        await db.kv_set("snapshot_sections", sorted(sections))
+    else:
+        sections = await _snapshot_sections(db)
     st = await db.kv_get("snapshot_status", {}) or {}
     t = getattr(request.app.state, "snapshot_task", None)
     if st.get("state") == "running" and t and not t.done():
         return HTMLResponse('<div class="result err">A snapshot is already running.</div>')
     await db.kv_set("snapshot_status", {"state": "running", "done": 0, "total": 60, "at": now_iso()})
-    request.app.state.snapshot_task = asyncio.create_task(_snapshot_run(request.app, stars))
+    request.app.state.snapshot_task = asyncio.create_task(_snapshot_run(request.app, stars, sections))
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 

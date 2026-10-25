@@ -720,7 +720,7 @@ yield quota. The built-in *Mining Rush: spread out* order uses them.
 | **Notifications** | alerts and accomplishments, with toasts and a badge |
 | **Leaderboards** | every board the game keeps (XP, fleet, trades, distance, reputation, colonies …), top 10 each, your replicants in bold |
 | **Blog** | read and search the game's blog, write a post as one of your replicants, edit or delete your own |
-| **Diagnostics** (menu) | a live snapshot (read-only GETs plus the app's state) with a mining diagnosis, downloadable as JSON; Performance panel; feedback to the game's developers |
+| **Diagnostics** (menu) | a live snapshot (read-only GETs plus the app's state) with a mining diagnosis, downloadable as JSON; checkboxes pick its sections (request sections share the budget); Performance panel; feedback to the game's developers |
 | **Console** (menu) | call any API endpoint through the server-side client |
 
 **Sector range**: any automated trip longer than a day at the game's surge pace (or of unknown length: the game's

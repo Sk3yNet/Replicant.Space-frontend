@@ -251,3 +251,5 @@ svg.system .scan-beam { fill: #8fd8ff; opacity: .35; animation: scan-pulse 1.6s 
 .dash-cards > .card.folded > :not(.card-tools) { margin-bottom: 0; }
 .dash-cards > .card.dragging { opacity: .5; }
 @media (pointer: coarse) { .card-tools { opacity: .8; } .card-tools [data-act="drag"] { display: none; } }
+.snap-sections { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 16px; margin: 8px 0; }
+.snap-sections label { text-transform: none; font-weight: normal; }

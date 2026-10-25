@@ -786,6 +786,10 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             world.queues[code] = []
             return ok({"status": "queue_cleared", "queue": [], "queue_length": 0})
         if cmd == "set_directive":
+            cfg = body.get("configuration") or {}
+            if body.get("directive") == "maintain_ratios" and "ratios" not in cfg:   # live 2026-10-25
+                return ok({"error": "Invalid maintain_ratios directive configuration: configuration.ratios: "
+                                    "Missing data for required field."}, 400)
             world.emit("directive.set", d, directive=body.get("directive"), configuration=body.get("configuration"))
             if any(k in d["device_type"] for k in ("maintenance", "trade")):
                 d["ami_directive"] = {"name": body.get("directive"), "config": body.get("configuration") or {}, "_eval_state": "idle"}

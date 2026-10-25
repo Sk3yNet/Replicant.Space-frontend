@@ -8977,3 +8977,36 @@ def test_data_upload_at_interface(client):
     msg = notify.describe({"event": "device.discovered", "location": "MIRFAKA-OBJ-1",
                           "payload": {"device_type": "guidance_chip", "device_code": "A1B2C3D4"}})
     assert msg == "Scan discovered a guidance chip A1B2C3D4 at MIRFAKA-OBJ-1"
+
+
+def test_snapshot_share_budget():
+    from rsweb.snapshot import share_budget
+    assert share_budget(30, {"controllers": 24, "belts": 9, "idle": 12}) == {"controllers": 11, "belts": 9, "idle": 10}
+    assert share_budget(30, {"controllers": 24, "belts": 0, "idle": 0}) == {"controllers": 24, "belts": 0, "idle": 0}
+    assert share_budget(0, {"controllers": 4}) == {"controllers": 0}
+    assert sum(share_budget(7, {"a": 10, "b": 10, "c": 10}).values()) == 7
+
+
+def test_snapshot_sections_checkboxes(client):
+    import asyncio
+    db = client.app.state.db
+    page = client.get("/diagnostics", headers=H).text
+    assert 'name="section" value="perf" checked' in page and 'name="sections_form"' in page
+    client.post("/diagnostics/snapshot", data={"stars": "", "sections_form": "1",
+                                               "section": ["controllers", "belts", "idle", "fleets"]}, headers=HX)
+    for _ in range(100):
+        st = client.portal.call(db.kv_get, "snapshot_status", {})
+        if st.get("state") != "running":
+            break
+        client.portal.call(asyncio.sleep, 0.05)
+    assert st["state"] == "done", st
+    snap = client.portal.call(db.kv_get, "snapshot_last", None)
+    paths = [c["path"] for c in snap["calls"]]
+    assert "/inventory" not in paths and "/events" not in paths and any(p.startswith("/locations/") for p in paths)
+    assert "perf" not in snap["app"] and "actions" not in snap["app"] and "fleets" in snap["app"]
+    assert "changes" not in snap["app"]["server"] and snap["app"]["server"]["version"]
+    assert all("omitted" in c["body"] for c in snap["calls"] if c["path"] == "/devices")
+    assert snap["diagnosis"]["drones"]   # read from app.devices when the raw pages are left out
+    assert set(snap["sections"]) == {"controllers", "belts", "idle", "fleets"}
+    page = client.get("/diagnostics", headers=H).text   # the choice is kept
+    assert 'value="perf" checked' not in page and 'value="fleets" checked' in page

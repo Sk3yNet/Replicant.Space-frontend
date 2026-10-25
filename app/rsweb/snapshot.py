@@ -19,6 +19,48 @@ from .api import ApiError
 
 SNAPSHOT_VERSION = 1
 
+# What a snapshot can include (Diagnostics checkboxes, kv "snapshot_sections"): (key, label, what it holds, uses API
+# requests). Every device, the rules, schedules, jobs and log are always in. The sections that make requests share the
+# request budget: one left out hands its share to the others (more controllers, belts or idle drones read); the rest
+# only cost file size (uploads over about 3 MB get cut).
+SECTIONS = [
+    ("inventory", "Stockpiles", "every location's stock (/inventory)", True),
+    ("controllers", "Mining controllers", "detail and latest log lines of each mining controller", True),
+    ("belts", "Belts", "open resource sites at the belts of every mining system", True),
+    ("events", "Recent events", "the last 3 hours of game events, all and AMI", True),
+    ("idle", "Idle drones", "detail and latest log lines of mining drones not mining", True),
+    ("raw_devices", "Raw device pages", "the /devices pages as the game sent them (app.devices has the same list merged)", False),
+    ("fleets", "Fleets", "fleets, missions and their latest log lines", False),
+    ("logistics", "Logistics and loadouts", "the last logistics pass, loadout templates, orders and what carriers hold", False),
+    ("relays", "Relays and wards", "ward orders, relay requests and the relay rollout", False),
+    ("asteroids", "Asteroids", "tracked objects and their raw events", False),
+    ("actions", "Last commands", "the last 60 commands sent and what the game answered", False),
+    ("perf", "Performance", "slowest requests, engine stage timings, storage sizes", False),
+    ("changes", "Version history", "the app's change list (the version itself is always in)", False),
+]
+SECTION_KEYS = [k for k, *_ in SECTIONS]
+APP_KEYS = {"fleets": ["fleets"], "logistics": ["logistics", "loadouts_last", "loadouts", "loadout_orders", "stowed_map"],
+            "relays": ["ward_orders", "relay_requests", "relay_rollout"], "asteroids": ["objects", "asteroid_events"],
+            "actions": ["actions"]}
+
+
+def share_budget(left: int, wants: dict[str, int]) -> dict[str, int]:
+    """Split `left` requests between sections wanting `wants[k]` each: equal shares, and whatever a section doesn't
+    need goes to the ones that want more."""
+    caps = {k: 0 for k in wants}
+    open_ = [k for k, w in wants.items() if w > 0]
+    while left > 0 and open_:
+        share = max(1, left // len(open_))
+        for k in list(open_):
+            give = min(share, wants[k] - caps[k], left)
+            caps[k] += give
+            left -= give
+            if caps[k] >= wants[k]:
+                open_.remove(k)
+            if left <= 0:
+                break
+    return caps
+
 
 def star_of(loc: str | None) -> str:
     return (loc or "").split("-")[0]
@@ -49,7 +91,9 @@ def is_mining_ctrl(d: dict) -> bool:
     return is_controller(d) and kind_of(d.get("device_type")) == "mining"
 
 
-async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int = 60, progress=None) -> dict:
+async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int = 60, progress=None,
+                  sections: set[str] | None = None) -> dict:
+    on = set(SECTION_KEYS) if sections is None else set(sections)
     calls: list[dict] = []
     skipped: list[str] = []
 
@@ -88,38 +132,45 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
 
     # 2. stockpiles
     cur = None
-    for _ in range(4):
+    for _ in range(4 if "inventory" in on else 0):
         body = await get("/inventory", limit=50, cursor=cur) or {}
         cur = body.get("next_cursor")
         if not cur:
             break
 
+    # what the per-device sections want; they share what is left of the budget (one left out frees its share)
+    ctrls = [d for d in in_scope if is_mining_ctrl(d)] if "controllers" in on else []
+    belts: list[str] = []
+    if "belts" in on:   # the belts miners and controllers are at, then every belt in a mining system
+        belts = sorted({b for d in in_scope if (is_miner(d) or is_mining_ctrl(d)) for b in [belt_of(d.get("location"))] if b})
+        import json as _json
+        for star in sorted({star_of(c.get("location")) for c in in_scope if is_mining_ctrl(c) and c.get("location")}):
+            row = await db.fetchone("SELECT data FROM systems WHERE star=?", (star,))
+            scan = _json.loads(row["data"]) if row else {}
+            belts += [b["designation"] for b in ((scan.get("asteroid_belt") or {}).get("belts")) or []
+                      if b.get("designation") and b["designation"] not in belts]
+    idle = [d for d in in_scope if is_miner(d) and not str(d.get("status") or "").startswith("mining")] if "idle" in on else []
+    left = max_requests - len(calls) - (2 if "events" in on else 0)
+    caps = share_budget(left, {"controllers": 2 * len(ctrls), "belts": len(belts), "idle": 2 * len(idle)})
+
     # 3. mining controllers (full detail: directive, eval state, managed devices)
-    ctrls = [d for d in in_scope if is_mining_ctrl(d)]
-    for c in ctrls[:12]:
+    for c in ctrls[:caps["controllers"] // 2]:
         await get(f"/devices/{c['device_code']}")
         await get(f"/devices/{c['device_code']}/logs", latest="true", limit=15)   # e.g. ami_overheat
 
-    # 4. the belts miners and controllers are at (open resource sites)
-    belts = sorted({b for d in in_scope if (is_miner(d) or is_mining_ctrl(d)) for b in [belt_of(d.get("location"))] if b})
-    import json as _json
-    for star in sorted({star_of(c.get("location")) for c in ctrls if c.get("location")}):  # every belt in a mining system
-        row = await db.fetchone("SELECT data FROM systems WHERE star=?", (star,))
-        scan = _json.loads(row["data"]) if row else {}
-        belts += [b["designation"] for b in ((scan.get("asteroid_belt") or {}).get("belts")) or []
-                  if b.get("designation") and b["designation"] not in belts]
-    for b in belts[:12]:
+    # 4. the belts (open resource sites)
+    for b in belts[:caps["belts"]]:
         await get(f"/locations/{b}")
 
     # 5. recent mining + AMI events
     # /events returns oldest-first from the start of the window: ask for the last few hours, not the whole day
-    since = (_now() - timedelta(hours=3)).isoformat(timespec="seconds")
-    await get("/events", after=since, limit=100)
-    await get("/events", category="ami", after=since, limit=100)
+    if "events" in on:
+        since = (_now() - timedelta(hours=3)).isoformat(timespec="seconds")
+        await get("/events", after=since, limit=100)
+        await get("/events", category="ami", after=since, limit=100)
 
     # 6. idle (not mining) drones: detail + their latest log lines
-    idle = [d for d in in_scope if is_miner(d) and not str(d.get("status") or "").startswith("mining")]
-    for d in idle[:6]:
+    for d in idle[:caps["idle"] // 2]:
         await get(f"/devices/{d['device_code']}")
         await get(f"/devices/{d['device_code']}/logs", latest="true", limit=15)
 
@@ -179,13 +230,25 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
                     for r in reversed(await db.fetchall("SELECT at, user, method, path, body, status, response FROM actions "
                                                         "ORDER BY id DESC LIMIT 60"))],
     }
-    from . import perf
-    app["perf"] = await perf.report(db)   # slowest requests, engine stage timings, storage sizes
+    if "perf" in on:
+        from . import perf
+        app["perf"] = await perf.report(db)   # slowest requests, engine stage timings, storage sizes
     from . import version as ver
     app["server"] = {"version": ver.VERSION, "fingerprint": ver.FINGERPRINT, "build": ver.BUILD, "run": ver.RUN_ID,
-                     "runs": (await db.kv_get("server_runs", []) or [])[-15:],
-                     "changes": [{"version": v, "date": d, "summary": t} for v, d, t in ver.CHANGES]}
-    snap = {"version": SNAPSHOT_VERSION, "captured_at": _now().isoformat(timespec="seconds"),
+                     "runs": (await db.kv_get("server_runs", []) or [])[-15:]}
+    if "changes" in on:
+        app["server"]["changes"] = [{"version": v, "date": d, "summary": t} for v, d, t in ver.CHANGES]
+    for sec, keys in APP_KEYS.items():
+        if sec not in on:
+            for k in keys:
+                app.pop(k, None)
+    if "raw_devices" not in on:   # the same list is in app.devices; keep the page's paging facts
+        for rec in calls:
+            if rec["path"] == "/devices" and isinstance(rec.get("body"), dict):
+                b = rec["body"]
+                rec["body"] = {"omitted": "raw device pages left out: see app.devices",
+                               "count": len(b.get("devices") or []), "next_cursor": b.get("next_cursor")}
+    snap = {"version": SNAPSHOT_VERSION, "captured_at": _now().isoformat(timespec="seconds"), "sections": sorted(on),
             "scope": sorted(stars) if stars else "all", "partial_device_list": partial,
             "requests": len(calls), "skipped": skipped, "calls": calls, "app": app}
     try:
@@ -205,8 +268,8 @@ def _bodies(snap: dict, prefix: str) -> dict[str, Any]:
 
 
 def devices_of(snap: dict) -> list[dict]:
-    out: list[dict] = []
-    for c in snap.get("calls") or []:
+    out: list[dict] = list((snap.get("app") or {}).get("devices") or [])   # every page merged (since 1.69.0)
+    for c in snap.get("calls") or [] if not out else []:
         if c["path"] == "/devices" and c.get("status") == 200:
             out.extend((c.get("body") or {}).get("devices") or [])
     details = {p.split("/")[2]: b for p, b in _bodies(snap, "/devices/").items() if p.count("/") == 2 and isinstance(b, dict)}
