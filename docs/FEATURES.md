@@ -610,7 +610,7 @@ A factory already waiting for components gets spares pinned to it, or the rest p
   carries (hold and attach slots, cargo).
 - Every other field the game sends that has a value (relay range, print queue slots, strength, current hubs, and any new
   one), the full description, costs (component devices included, with an all-in material total) and print times.
-- What each printer can afford.
+- What each printer can afford (a *hide vessels* checkbox leaves replicant vessels out, remembered in the browser).
 - A production planner that queues prints (spread over several autofactories) and can mine or deliver the shortfall.
 
 <br clear="right">

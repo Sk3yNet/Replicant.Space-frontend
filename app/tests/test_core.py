@@ -227,6 +227,7 @@ def test_as_amounts_shapes():
 def test_blueprints_with_list_shaped_inventory(client):
     r = client.get("/blueprints", headers=H)
     assert r.status_code == 200 and "×" in r.text
+    assert "bp-hide-vessels" in r.text and "afford-vessel" in r.text  # vessels marked for the hide vessels toggle
     r = client.post("/blueprints/plan", data={"location": "SOL-BELT-1", "qty:mining_drone": "1"}, headers=HX)
     import re
     have = re.search(r"<td>structural</td><td class=\"num\">[^<]+</td><td class=\"num\">([\d,.]+)</td>", r.text)
