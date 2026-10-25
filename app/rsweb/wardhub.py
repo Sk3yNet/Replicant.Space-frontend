@@ -14,6 +14,7 @@ warns when that holds less than one maintenance's worth.
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -128,6 +129,51 @@ def hubs(devices: list[dict], hub_events: list[dict], stock: dict[str, dict[str,
                     "days_left": None if days_left is None else round(days_left, 1),
                     "stock": {k: here.get(k, 0) for k in consumed} if consumed else {}, "short": short, "level": level,
                     "ward_too": False})
+    return out
+
+
+UPKEEP_STEP = 20.0     # the game prices hub upkeep per 20 % of capacity (`upkeep_requirements[].quantity_per_20pct`)
+UPKEEP_SPARE_STEPS = 1  # kept on site beyond a full repair, so the next maintenance finds its stock
+
+
+def upkeep_need(d: dict) -> dict:
+    """What a hub wants on site: {per_step: {resource: qty per 20 %}, steps, target: {resource: qty}}. The game draws upkeep
+    from the stockpile at the hub's own location (owner 2026-10-25); `target` is enough to bring the hub back to 100 %
+    plus UPKEEP_SPARE_STEPS more steps."""
+    per = {}
+    for r in d.get("upkeep_requirements") or []:
+        if isinstance(r, dict) and r.get("resource_type") and _num(r.get("quantity_per_20pct")):
+            per[r["resource_type"]] = per.get(r["resource_type"], 0.0) + float(r["quantity_per_20pct"])
+    cap = _cap(d.get("operational_capacity"))
+    steps = (math.ceil(max(0.0, 100.0 - cap) / UPKEEP_STEP - 1e-9) if cap is not None else 0) + UPKEEP_SPARE_STEPS
+    return {"per_step": per, "steps": steps, "target": {k: math.ceil(v * steps) for k, v in per.items()} if per else {}}
+
+
+def patrolled(devices: list[dict]) -> set[str]:
+    """Systems with a maintenance drone of ours on the patrol directive (hub upkeep needs one, docs)."""
+    from . import upkeep as up
+    return {star_of(d.get("location")) for d in devices if up.is_maint(d) and up.patrolling(d) and d.get("location")}
+
+
+def upkeep_rows(devices: list[dict], stock: dict[str, dict[str, float]]) -> list[dict]:
+    """Each active hub of ours with upkeep requirements: {code, star, location, capacity, per_step, steps, target, here,
+    short, urgent, patrol}. `stock`: stock_by_star (per location). Inactive hubs cost no upkeep (game v3.6.2)."""
+    pat = patrolled(devices)
+    out = []
+    for d in devices:
+        if not (is_hub(d) and active(d)):
+            continue
+        n = upkeep_need(d)
+        if not n["per_step"]:
+            continue
+        loc = d.get("location")
+        here = {k: float((stock.get(loc) or {}).get(k) or 0) for k in n["target"]}
+        cap = _cap(d.get("operational_capacity"))
+        out.append({"code": d.get("device_code"), "star": star_of(loc), "location": loc, "name": d.get("name"),
+                    "capacity": None if cap is None else round(cap, 1), **n, "here": here,
+                    "short": {k: round(v - here[k], 1) for k, v in n["target"].items() if here[k] < v},
+                    "urgent": cap is not None and cap < 50, "patrol": star_of(loc) in pat})
+    out.sort(key=lambda r: (r["capacity"] if r["capacity"] is not None else 100, r["code"] or ""))
     return out
 
 

@@ -224,7 +224,9 @@ RULES: list[Rule] = [
          [Option("every_minutes", "int", "Run every (minutes)", 15),
           Option("threshold", "int", "Count a device as worn below (%)", 80),
           Option("critical", "int", "Act when a system's worst device is below (%)", 60),
-          Option("print_missing", "bool", "Print a maintenance drone for a system that has none", False, help="Spends resources")],
+          Option("print_missing", "bool", "Print a maintenance drone for a system that has none", False, help="Spends resources"),
+          Option("hub_upkeep", "bool", "Logistics stocks hub upkeep at each hub's location", True,
+                 help="The game draws a hub's upkeep from the stockpile at its own spot: enough for 100 % plus one 20 % step")],
          default_on=True),
     Rule("restart_idle_miners", "Restart idle mining drones",
          "Every minute, any mining drone sitting idle at a belt gets back to work. Drones an AMI mining controller "
@@ -4043,6 +4045,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             escorts = lg.keep_escorts(ll["escort_wanted"], items, devices, hosts, busy, bps, pos, await self.supply_reach())
             busy |= set(escorts)
         wanted = None
+        from . import wardhub as wh
+        mcfg = await self.rule_cfg("maintenance") or {}   # hub upkeep is stocked at the hub's own spot (owner 2026-10-25)
+        upkeep = (wh.upkeep_rows(devices, {l: as_amounts(i) for l, i in inv.items()})
+                  if mcfg.get("hub_upkeep", True) and mcfg else [])
         p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
                     busy=busy, reach=lg.SECTOR_RANGE_LY, contracts=contracts, trades=trades, incoming=incoming,
                     replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),
@@ -4055,7 +4061,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     # repair patrols stay in the network or at a fleet's home (live 2026-10-22: one sent to ERAJAELAE, lit
                     # only by a survey fleet's replicant, arrived after the fleet left and is stranded out of range)
                     repair_stars=(await self.commandable(devices, stars, networked=True)) | (homes_now & commandable),
-                    lanes=(await self.db.kv_get(lg.KV_STATE, {}) or {}).get("lanes"))
+                    lanes=(await self.db.kv_get(lg.KV_STATE, {}) or {}).get("lanes"), upkeep=upkeep)
         for r in p["requests"]:   # a rescue beyond the sector range waits for your OK (owner 2026-10-22): one alert each
             key = f"rescue-ok:{r['id']}"
             if r.get("confirm") and key not in self.stage_errors:
@@ -5276,6 +5282,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         protected = {e.get("location") for e in (await gev.load(self.db)).values() if e.get("status") == "open" and e.get("location")}
+        protected |= {d.get("location") for d in devices if d.get("device_type") == "system_hub" and d.get("location")}   # its upkeep
         handed = set(await self.db.kv_get("logistics_ami", {}) or {})   # given a delivery by the logistics service: busy
         return co.plan(devices, inv, bps, self.busy_devices(await self.jobs()) | handed, protected, float(cfg.get("min_amount") or 100))
 

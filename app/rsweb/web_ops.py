@@ -144,9 +144,18 @@ async def maintenance_page(request: Request, user: str = Depends(current_user)):
     eng = _eng(request)
     s = await eng.settings()
     cfg = s["rules"].get("maintenance") or {}
+    from . import logistics as lg, wardhub as wh
     st = await load_state(request)
+    lst = await eng.db.kv_get(lg.KV_STATE, {}) or {}
+    jobs = [j for j in await eng.jobs() if j.get("rule") == "logistics" and j.get("status") in ("running", "waiting")]
+    on_way = {(j.get("meta") or {}).get("logistics", {}).get("req"): j for j in jobs}
+    why = {u["req"]: u["why"] for u in lst.get("unmet") or []}
+    hubs = wh.upkeep_rows(st["devices"], wh.stock_by_star(st["inventory"]))
+    for h in hubs:
+        rid = f"upkeep:{h['code']}"
+        h["job"], h["why"] = on_way.get(rid), why.get(rid)
     return await page(request, user, "maintenance.html", "maintenance", report=up.report(st["devices"], float(cfg.get("threshold") or 80)),
-                      cfg=cfg)
+                      cfg=cfg, hubs=hubs, hub_upkeep=bool(cfg.get("enabled")) and cfg.get("hub_upkeep", True), spare_steps=wh.UPKEEP_SPARE_STEPS)
 
 
 @router.post("/maintenance/run", response_class=HTMLResponse)

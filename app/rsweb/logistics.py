@@ -16,7 +16,7 @@ stock is in the same system), 3 long-range transfers, 4 stockpile returns. A req
 Logistics page. Each home system keeps what its own prints need (a reserve): only the surplus is taken.
 
 Task categories (owner 2026-10-23): each request falls in one category (CATEGORIES: prints, trades & contracts, rescues,
-shop listings, repair patrols, stockpile returns). Every free logistics carrier is given one category that has work and
+shop listings, repair patrols, hub upkeep, stockpile returns). Every free logistics carrier is given one category that has work and
 keeps it, pass after pass, until that category runs dry; a category with work and no carrier takes one from the
 biggest. Priority orders the requests within a category. Evacuations (priority 0) go first with every carrier; after
 each category has worked with its own carriers, the ones left over help any category, stockpile returns last.
@@ -80,8 +80,9 @@ TIERS = {0: "evacuation", 1: "queued prints", 2: "local delivery", 3: "long-rang
 # task categories (owner 2026-10-23): each free logistics carrier works one category until it runs dry, so a small
 # category isn't starved by a big one; stockpile returns (reallocations) get no carrier of their own and come last
 CATEGORIES = {"prints": "queued prints", "deals": "trades & contracts", "rescues": "rescues", "shop": "shop listings",
-              "repairs": "repair patrols", "returns": "stockpile returns", "urgent": "evacuations & priority 0"}
-LANES = ("prints", "deals", "rescues", "shop", "repairs")
+              "repairs": "repair patrols", "upkeep": "hub upkeep", "returns": "stockpile returns",
+              "urgent": "evacuations & priority 0"}
+LANES = ("prints", "deals", "rescues", "shop", "repairs", "upkeep")
 PATROL_LOAD = 6                # worn devices one patrolling repair device looks after (upkeep.report's "covered")
 KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like placed relays and beacons: never "rescued"
 MIN_LOAD = 0.25               # a cross-system print delivery leaves with its hold at least this full (or all that's wanted)
@@ -328,13 +329,21 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
              contracts: list[dict], trades: list[dict], incoming: dict[str, dict], fleets: list[dict],
              gather: dict[str, str], busy_stars: set[str], prefs: dict | None = None,
              moved: dict[str, tuple[str, str]] | None = None, home_drop: dict[str, str] | None = None,
-             no_consolidate: set[str] | None = None, evacuate: dict[str, str] | None = None) -> tuple[list[dict], dict, dict]:
+             no_consolidate: set[str] | None = None, evacuate: dict[str, str] | None = None,
+             upkeep: list[dict] | None = None) -> tuple[list[dict], dict, dict]:
     """(requests by priority, spare per pile, reserve per system). `gather`: gather star → its drop point. `moved`: a
-    fleet's old home → (its new home, the drop point there): what's left there follows the fleet."""
+    fleet's old home → (its new home, the drop point there): what's left there follows the fleet. `upkeep`: our active
+    hubs' upkeep (wardhub.upkeep_rows: {code, location, target, urgent}): the game draws it from the stockpile at the
+    hub's own location (owner 2026-10-25), so that pile is kept and topped up to `target`."""
     moved = moved or {}
     prefs = prefs or {}
     costs = print_costs(devices, bps)
-    spare, reserve = surplus(inventory, costs)
+    upkeep = [u for u in upkeep or [] if u.get("location") and u.get("target")]
+    held = {l: dict(e) for l, e in costs.items()}
+    for u in upkeep:   # a hub's pile is spoken for like a factory's
+        e = held.setdefault(u["location"], {"cost": {}})
+        e["cost"] = _add(e.get("cost") or {}, u["target"])
+    spare, reserve = surplus(inventory, held)
     stock = {l: as_amounts(i) for l, i in inventory.items()}
     out: list[dict] = []
 
@@ -360,8 +369,14 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
                     "controller": t["controller"], "trade_code": t["trade_code"], "once": t.get("once", False),
                     "devices_short": t.get("devices_short", False),
                     "rewards": as_amounts(t.get("rewards") or {}), "reward_devices": t.get("reward_devices") or {}})
+    for u in upkeep:
+        need = _short(u["target"], have(u["location"]))
+        if need:
+            out.append({"id": f"upkeep:{u['code']}", "kind": "upkeep", "to": u["location"], "need": need, "price": u["target"],
+                        "tier": 1 if u.get("urgent") else 2, "hub": u["code"],
+                        "label": f"hub upkeep for {u['code']} at {u['location']}"})
     for r in out:
-        if r["kind"] != "print":   # local when the system itself can spare a needed resource
+        if r["kind"] not in ("print", "upkeep"):   # local when the system itself can spare a needed resource
             here = star_of(r["to"])
             local = any(spare.get(l, {}).get(x, 0) >= 1 for l in spare if star_of(l) == here and l != r["to"] for x in r["need"])
             r["tier"] = 2 if local else 3
@@ -371,7 +386,7 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
             out.append({"id": f"evacuate:{loc}", "kind": "return", "to": to, "from": loc, "tier": 0,
                         "need": {r: q for r, q in items.items() if q >= 1},
                         "label": f"evacuate the {loc} stockpile to {to} before impact"})
-    asked = {r["to"] for r in out} | set(costs) | set(evacuate or {})
+    asked = {r["to"] for r in out} | set(costs) | set(evacuate or {}) | {u["location"] for u in upkeep}
     homes = {f.get("home") for f in fleets if f.get("home") and (f.get("station") or f.get("materials") == "self")}
     # a bootstrap fleet builds from what it mines at its home: its piles stay (live 2026-10-22: Delta Force's ISOLITHOR
     # stock was sent for, 28 874 ly from SOLARES)
@@ -466,7 +481,7 @@ def category(r: dict) -> str:
     if r.get("tier") == 0:
         return "urgent"
     return {"print": "prints", "contract": "deals", "trade": "deals", "rescue": "rescues", "listing": "shop",
-            "repair": "repairs"}.get(r["kind"], "returns")
+            "repair": "repairs", "upkeep": "upkeep"}.get(r["kind"], "returns")
 
 
 def _free(d: dict) -> bool:
@@ -604,7 +619,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
          no_consolidate: set[str] | frozenset = frozenset(), evacuate: dict[str, str] | None = None,
          listings: list[dict] | None = None, repair_threshold: float = 80.0,
          repair_to: dict[str, int] | None = None, repair_stars: set[str] | None = None,
-         lanes: dict[str, str] | None = None) -> dict:
+         lanes: dict[str, str] | None = None, upkeep: list[dict] | None = None) -> dict:
     """What the logistics devices do this pass. `hosts`: device → the replicant it hosts. `drop(star)`: where materials land in a
     system. `listings`: shops whose trades you asked for ({controller, location, label}): a logistics device hosting a
     replicant goes there, last of all (the engine reads the trades once a replicant is in the system). `repair_to`: repair
@@ -620,7 +635,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                                     moved={o: (n, drop(n)) for o, n in (moved or {}).items()},
                                     home_drop={f["home"]: drop(f["home"]) for f in fleets or [] if f.get("home")
                                                and (f.get("station") or f.get("materials") == "self") and f["home"] in commandable},
-                                    no_consolidate=set(no_consolidate), evacuate=evacuate)
+                                    no_consolidate=set(no_consolidate), evacuate=evacuate, upkeep=upkeep)
     hosts = riding_hosts(devices, hosts)   # a carrier with a replicant's matrix aboard escorts like its host
     # the vessel the replicant's matrix is in travels as the replicant; a carrier towing that vessel flies by its own travel
     # (live 2026-10-20: /replicants/…/travel moved the towed matrix container: "Device does not have surge capability")
@@ -738,14 +753,14 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         if left is not None and not need:
             return
         dest, dstar = r["to"], star_of(r["to"])
-        if r["kind"] == "print" and dest:
+        if r["kind"] in ("print", "upkeep") and dest:
             for l, h in kept.items():
                 if star_of(l) == dstar and l != dest:
                     for x, q in h.items():
                         spare.setdefault(l, {})[x] = spare.get(l, {}).get(x, 0.0) + q
                         released[(l, x)] = released.get((l, x), 0.0) + q
                     kept[l] = {}
-            for (l, x), q in (shares.get(dest) or {}).items():   # what another hub shares with this one's queue
+            for (l, x), q in (shares.get(dest) or {}).items() if r["kind"] == "print" else ():   # what another hub shares with this one's queue
                 q = min(q, kept.get(l, {}).get(x, 0.0))
                 if q > 0:
                     kept[l][x] -= q
@@ -1075,7 +1090,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     # pass after pass until that category runs dry; a category with work and no carrier takes one from the biggest.
     # First evacuations (priority 0) with every free carrier, then each category with its own carriers, then whatever
     # is left over with every carrier still free (categories in turn, stockpile returns last).
-    tasks = [(r, lambda r=r: deliver(r)) for r in reqs if r["kind"] in ("print", "contract", "trade", "return")]
+    tasks = [(r, lambda r=r: deliver(r)) for r in reqs if r["kind"] in ("print", "contract", "trade", "return", "upkeep")]
     tasks += [(r, lambda r=r, d=d, h=h: rescue(r, d, h)) for r, d, h in sorted(rescue_reqs, key=lambda x: (x[0]["tier"], x[0]["id"]))]
     tasks += [(r, lambda r=r, li=li: shop(r, li)) for r, li in listing_tasks]
     tasks += repair_tasks
@@ -1088,7 +1103,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
 
     def fits(d: dict, cat: str) -> bool:
         c, s = d["device_code"], fl.seats(d, devices)
-        if cat in ("prints", "deals"):   # cargo, a ride for haulers, or an escort
+        if cat in ("prints", "deals", "upkeep"):   # cargo, a ride for haulers, or an escort
             return room(d) >= 1 or bool(held(d)) or c in hosts or (can_surge(d) and s["attach"] > 0)
         if cat == "shop":
             return can_surge(d) and c in hosts

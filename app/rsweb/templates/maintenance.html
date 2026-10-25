@@ -13,6 +13,30 @@
   Rule <a href="#" onclick="document.querySelector('.rules-panel').open=true;return false">Keep maintenance drones patrolling</a> is <b>{{ 'on' if cfg.enabled else 'off' }}</b>
   · worn below {{ cfg.threshold }} % · critical below {{ cfg.critical }} % · print missing drones {{ 'on' if cfg.print_missing else 'off' }}.</p>
 
+{% if hubs %}
+<div class="card">
+  <h2 style="margin:0">Hub upkeep</h2>
+  <p class="small muted">A hub draws its upkeep from the stockpile at its own location, and only with a maintenance drone patrolling
+    its system. The game prices it per 20 % of capacity; the target is enough to bring the hub back to 100 % plus {{ spare_steps }} more step.
+    Logistics delivery is <b>{{ 'on' if hub_upkeep else 'off' }}</b> (rule option <i>Logistics stocks hub upkeep</i>).</p>
+  <table class="small"><tr><th>Hub</th><th>Location</th><th class="num">Capacity</th><th>Per 20 %</th><th>Target on site</th><th>There now</th><th>Delivery</th></tr>
+    {% for h in hubs %}<tr>
+      <td class="mono"><a href="/devices/{{ h.code }}">{{ h.code }}</a>{% if not h.patrol %}<br><span class="lv-alert">no maintenance drone patrolling {{ h.star }}</span>{% endif %}</td>
+      <td>{{ h.location }}</td>
+      <td class="num {{ 'lv-alert' if h.urgent }}">{{ h.capacity if h.capacity is not none else '?' }} %</td>
+      <td>{% for k, v in h.per_step | dictsort %}{{ v | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}</td>
+      <td>{% for k, v in h.target | dictsort %}{{ v }} {{ k }}{{ ', ' if not loop.last }}{% endfor %} <span class="muted">({{ h.steps }} steps)</span></td>
+      <td>{% for k, v in h.here | dictsort %}<span class="{{ 'lv-alert' if k in h.short }}">{{ v | round(0) | int }} {{ k }}</span>{{ ', ' if not loop.last }}{% endfor %}</td>
+      <td>{% if not h.short %}<span class="muted">stocked</span>
+        {% elif h.job %}<a href="/automations">on its way</a> <span class="muted">({{ h.job.title }})</span>
+        {% elif h.why %}<span class="muted">{{ h.why }}</span>
+        {% elif hub_upkeep %}<span class="muted">waiting for the next logistics pass</span>
+        {% else %}<span class="muted">short {% for k, v in h.short | dictsort %}{{ v }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}</td>
+    </tr>{% endfor %}
+  </table>
+</div>
+{% endif %}
+
 {% for r in report %}
 <div class="card">
   <div class="row between">

@@ -292,7 +292,9 @@ Incoming asteroids with a propulsor estimate and **Defend now**.
 <br clear="right">
 
 ### Upkeep
-Wear per system and maintenance coverage.
+Wear per system and maintenance coverage. Hub upkeep: each active hub's price per 20 % of capacity, the target kept at the
+hub's own location (back to 100 % plus one step; the game draws upkeep only from there, with a maintenance drone
+patrolling the system), what is there now and the logistics delivery that tops it up.
 
 ### Terraforming
 
@@ -485,8 +487,8 @@ From a bare heaven vessel (three mining drones and a replicant aboard) to an aut
 Logistics fleets (Fleets › Logistics) have no missions: their devices deliver materials and devices on demand.
 
 ### Task categories
-- Each request has a category: queued prints, trades & contracts, rescues, shop listings, repair patrols, stockpile
-  returns. Every free carrier is given one category that has work and keeps it until that category runs dry, so a small
+- Each request has a category: queued prints, trades & contracts, rescues, shop listings, repair patrols, hub upkeep,
+  stockpile returns. Every free carrier is given one category that has work and keeps it until that category runs dry, so a small
   category isn't starved by a big one (a category with work and no carrier takes one from the biggest).
 - Evacuations (priority 0) go first with every carrier. Carriers left over after each category's turn help any
   category; stockpile returns (reallocations) only get leftovers, last. The Devices card shows each carrier's category.

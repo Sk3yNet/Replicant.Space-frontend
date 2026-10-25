@@ -1003,7 +1003,9 @@ Settled by the docs:
   commands a minute). Feedback `body` up to 2000 characters.
 - **Wards**: `evicted_miners` is a count. Max 25 active wards; no ward in a system with anyone's System Hub.
 - **Hubs**: printed with a 7-day shield; unmaintained 17 days after printing they degrade to 0 %; upkeep wants a
-  stockpile at the hub's location and a maintenance drone patrolling the system. All of an account's hubs form one
+  stockpile at the hub's location and a maintenance drone patrolling the system. A hub's device row lists `upkeep_requirements`
+  `[{resource_type, quantity_per_20pct}]` (live 2026-10-25: FALQUORYX hub 73 carbon + 154 structural per 20 %) and
+  `repair_paid_pct`; the materials must be at the hub's own location (owner 2026-10-25), not just in its system. All of an account's hubs form one
   FTL mesh across the galaxy. **Not so live (2026-10-15):** the SOLARES hub's `GET /devices/{hub}/network` listed only
   nodes within its 15 ly range (relays at 0–7.3 ly), not the FALQUORYX hub — hubs link by distance.
 - **Relays**: 7.5 ly; `GET /devices/{relay}/network` → `connections`, `range_ly`, `status`.

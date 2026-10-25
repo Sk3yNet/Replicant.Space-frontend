@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.258.0"
+VERSION = "1.259.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.259.0", "2026-10-25", "Hub upkeep: the game draws a hub's upkeep from the stockpile at the hub's own location. The Upkeep "
+               "page has a Hub upkeep card per active hub: its price per 20 % (upkeep_requirements), the target on site (back "
+               "to 100 % plus one step), what is there now, whether a maintenance drone patrols its system, and the delivery. "
+               "Logistics tops each hub's spot up to the target (new hub upkeep task category, urgent below 50 %); the pile "
+               "there is kept for the hub and never consolidated away. Rule option: Keep maintenance drones patrolling › "
+               "Logistics stocks hub upkeep (on)."),
     ("1.258.0", "2026-10-25", "New fleet role: rock chaser, for asteroid mining inside relay coverage, in its home system "
                "(hub) or roaming to covered systems within a radius. Fleet details has its target criteria (size, resource "
                "priority, hours of mining after the trip, when to leave, ship-at amount, drop). It picks and tracks a target, "
