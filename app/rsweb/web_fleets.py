@@ -26,6 +26,19 @@ def fleet_order(f: dict) -> tuple[str, str]:
     return ((f.get("name") or f.get("id") or "").casefold(), f.get("id") or "")
 
 
+def join_choices(items: list[dict], st: dict) -> list[dict]:
+    """Every device that could join a fleet, marked with the fleet it's in now (joining moves it out of that one):
+    fleetless first, then by fleet, system and type. Vessels hosting a replicant can join too (a replicant riding with
+    the fleet keeps it commandable where no relay reaches); they're marked so it's clear the replicant goes wherever the
+    fleet goes."""
+    hosted = {r.get("hosted_device_code"): (r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")}
+    names = {x["id"]: x.get("name") or x["id"] for x in items}
+    free = [{**d, "_hosts": hosted.get(d.get("device_code")), "_fleet": fl.fleet_of(d),
+             "_fleet_name": names.get(fl.fleet_of(d) or "", fl.fleet_of(d))} for d in st["devices"]]
+    return sorted(free, key=lambda d: (bool(d["_fleet"]), (d["_fleet_name"] or "").lower(), star_of(d.get("location")),
+                                       d.get("device_type") or "", d.get("device_code") or ""))
+
+
 async def fleets_ctx(request: Request) -> dict:
     eng = request.app.state.worker.automations
     st = await load_state(request)
@@ -44,14 +57,6 @@ async def fleets_ctx(request: Request) -> dict:
             f["chase_cfg"] = rc.settings(f)
             f["chase_view"] = {"phase": "idle", "target": None, "resource": None, "note": None, "ship_note": None,
                                "marked": {}, "launch": None, **(f.get("chase_run") or {})}
-    # vessels hosting a replicant can join too (a replicant riding with the fleet keeps it commandable where no relay
-    # reaches); they're marked so it's clear the replicant goes wherever the fleet goes
-    hosted = {r.get("hosted_device_code"): (r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")}
-    # every device that could join a fleet, marked with the fleet it's in now (joining moves it out of that one);
-    # fleetless first, then by fleet, system and type
-    names = {x["id"]: x.get("name") or x["id"] for x in items}
-    free = [{**d, "_hosts": hosted.get(d.get("device_code")), "_fleet": fl.fleet_of(d),
-             "_fleet_name": names.get(fl.fleet_of(d) or "", fl.fleet_of(d))} for d in st["devices"]]
     stars_seen = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")})
     from .shop import known_traders
     traders = await known_traders(request.app.state.db)
@@ -60,7 +65,6 @@ async def fleets_ctx(request: Request) -> dict:
     homes = sorted(fl.worked_systems(items))
     mine_homes = fl.worked_systems(items, st["devices"])   # a hub home without miners is open to mining missions
     from .census import destination_systems
-    cat = await request.app.state.db.kv_get("stars", {}) or {}
     scanned = {r["star"] for r in await request.app.state.db.fetchall("SELECT star FROM systems")}
     yours = {star_of(d.get("location")) for d in st["devices"] if d.get("location")}
     from . import prospects as _pr
@@ -68,7 +72,8 @@ async def fleets_ctx(request: Request) -> dict:
     dests: dict[str, list[dict]] = {}   # home -> destination list (fleets sharing a home share it)
     for f in items:
         if f.get("home") not in dests:
-            async def dl(h=f.get("home")) -> list[dict]:
+            async def dl(h=f.get("home")) -> list[dict]:   # the catalog (~14 MB) is read only when the list is made
+                cat = await request.app.state.db.kv_get("stars", {}) or {}
                 return destination_systems(cat, scanned | yours, yours, h, limit=300)
             dests[f.get("home")] = await pagecache.get(request, f"dests:{f.get('home')}", dl)
         f["blocked_homes"] = sorted(mine_homes) if f.get("role") == "mining" else homes
@@ -136,8 +141,7 @@ async def fleets_ctx(request: Request) -> dict:
     obs_fleets |= {f["id"] for f in items if (fl.station_wants(f) or {}).get("galactic_observatory")}   # or its loadout wants one
     from . import bootstrap as _bt
     return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items,
-            "types": types, "free": sorted(free, key=lambda d: (bool(d["_fleet"]), (d["_fleet_name"] or "").lower(), star_of(d.get("location")),
-                                                 d.get("device_type") or "", d.get("device_code") or "")),
+            "types": types,
             "stars": stars_all, "roles": fl.ROLE_CHOICES, "phases": fl.PHASES, "traders": traders,
             "boot_reps": [(c, r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")],
             "stages": _bt.STAGES, "labels": _bt.LABEL}
@@ -192,6 +196,17 @@ async def fleets_recompute(request: Request, user: str = Depends(current_user)):
 @router.get("/fleets/details", response_class=HTMLResponse)
 async def fleets_details(request: Request, user: str = Depends(current_user)):
     return await page(request, user, "fleet_details.html", "fleet_details", **await fleets_ctx(request))
+
+
+@router.get("/fleets/{fid}/picker", response_class=HTMLResponse)
+async def fleet_picker(request: Request, fid: str, user: str = Depends(current_user)):
+    """Fleet details › Add / remove devices: the devices to add, loaded when the box opens (every device per fleet was
+    over half of the page, 2026-10-25)."""
+    items = await request.app.state.worker.automations.fleets()
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f:
+        return HTMLResponse('<span class="muted">no such fleet</span>')
+    return partial(request, "partials/fleet_picker.html", f=f, free=join_choices(items, await load_state(request)))
 
 
 def _fleet_locked(fn):

@@ -149,6 +149,8 @@ def bound_for(d: dict, stars: set[str], fleets: dict[str, str] | None = None) ->
             want = t[3:]
             if want in (fleets or {}):
                 return fleets[want] or None
+            if want.upper() in stars and to_tag(want.upper())[3:] == want:   # the usual case, without a pass over the catalog
+                return want.upper()
             return next((s for s in stars if to_tag(s)[3:] == want), want.upper())
     return None
 

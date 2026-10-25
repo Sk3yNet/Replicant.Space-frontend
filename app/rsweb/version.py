@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.260.0"
+VERSION = "1.260.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.260.1", "2026-10-25", "Fleet details loads faster: each fleet's Add / remove devices list of devices to add loads when you open the box (it was every device once per fleet, over half of a 5 MB page; now about 0.9 MB), the loadout plan matches to: tags to stars without a pass over the whole star catalog (also speeds up the engine's loadout pass), and the star catalog is read only when a destination list is remade."),
     ("1.260.0", "2026-10-25", "Carrier balancing has a leeway (Fleets › Logistics › Carriers per hub, default 25 % of a hub's share, at least one carrier): a carrier only moves from a hub more than the leeway over its share to one more than the leeway under it, or to a hub with none, so small imbalances even out by themselves instead of sending plates across the 500 ly between the hubs. A stocked contract that a logistics job is already on its way to fulfill gets no second replicant: three replicant carriers had left for Geothermal Surplus at ELUSORYR-3, two after it was done."),
     ("1.259.0", "2026-10-25", "Hub upkeep: the game draws a hub's upkeep from the stockpile at the hub's own location. The Upkeep "
                "page has a Hub upkeep card per active hub: its price per 20 % (upkeep_requirements), the target on site (back "

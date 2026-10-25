@@ -131,7 +131,8 @@ def test_add_devices_lists_other_fleets_members_grouped(client):
     client.portal.call(e.save_fleets, [{"id": "f", "name": "F", "role": "mining", "home": "SOL", "wants": {}},
                                        {"id": "other", "name": "Other", "role": "mining", "home": "SOL", "wants": {}}])
     page = client.get("/fleets/details", headers=H).text
-    card = page[page.index('id="fleet-f"'):page.index('id="fleet-other"')]
+    assert 'name="add"' not in page                                    # the list loads when the box opens
+    card = client.get("/fleets/f/picker", headers=H).text
     assert "in no fleet" in card and "in Other" in card
     assert card.index("in no fleet") < card.index("in Other")          # fleetless first
     assert 'name="add" value="M3"' not in card                        # its own members aren't offered

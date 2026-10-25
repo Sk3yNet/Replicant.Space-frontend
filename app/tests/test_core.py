@@ -4710,7 +4710,8 @@ def test_vessels_hosting_a_replicant_can_join_a_fleet(client):
     code, rep = next((c, r) for c, r in reps.items() if r.get("hosted_device_code"))
     client.portal.call(eng.save_fleets, [{"id": "s", "name": "Surveyors", "role": "explore", "home": "SOL", "wants": {},
                                           "station": False, "materials": "", "mission": None}])
-    page = client.get("/fleets/details", headers=H).text
+    assert 'hx-get="/fleets/s/picker"' in client.get("/fleets/details", headers=H).text   # loaded when the box opens
+    page = client.get("/fleets/s/picker", headers=H).text
     assert f'name="add" value="{rep["hosted_device_code"]}"' in page and f"hosts {rep.get('name') or code}" in page
 
 
