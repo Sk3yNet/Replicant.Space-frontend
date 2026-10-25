@@ -785,8 +785,9 @@ Arriving in a system with a hub is 25 % faster, whoever owns it, and the game ne
   you type yourself too.
 
 ### Surge hops
-- Inside a system, a surge-capable device standing at the Oort cloud, the Kuiper belt, the entry point or a planet's
-  L4/L5 hops first to whichever of those is nearest its destination (when that saves at least 30 AU and a quarter of
+- A system has three surge spots (game docs): the Oort cloud, the Kuiper belt and the entry point (usually a planet's L5
+  next to the belt). The system page lists them under Bodies.
+- Inside a system, a surge-capable device standing at one of them hops first to whichever of those is nearest its destination (when that saves at least 30 AU and a quarter of
   the cruise), then cruises the rest.
 - From a belt or a body it first goes to the nearest of those spots when that is much shorter than the game's own
   route (leaving a system, the game cruises to the entry point first).

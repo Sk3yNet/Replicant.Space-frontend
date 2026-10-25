@@ -42,11 +42,18 @@ def test_a_refused_via_takes_the_games_own_route(client):
     assert job["steps"][0]["status"] != "failed"
 
 
-def test_from_a_body_via_its_l_point_then_the_hop(client):
+def test_an_l_point_other_than_the_entry_point_is_no_surge_spot(client):
+    # game docs (Joe 2026-10-25): only the Oort cloud, the Kuiper belt and the entry point; an L4 / L5 cruises
     sent, _ = _run(client, at="Z-6-L5")
-    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]}]
+    assert sent == [{"command": "travel", "destination": "Z-BELT-1"}]
     sent, _ = _run(client, at="Z-6")
-    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-6-L4", "Z-KUIPER"]}]
+    assert sent == [{"command": "travel", "destination": "Z-BELT-1"}]
+
+
+def test_system_page_lists_the_surge_spots(client):
+    _run(client)
+    r = client.get("/systems/Z", headers={"X-Auth-Request-Email": "joe@example.com"})
+    assert "Surge spots:" in r.text and "Z-KUIPER" in r.text, r.text[:500]
 
 
 def test_leaving_from_a_belt_goes_via_the_nearest_surge_spot_not_the_entry_point(client):

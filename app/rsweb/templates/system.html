@@ -139,7 +139,9 @@
       <td class="num">{{ t.devices or '' }}</td>
       {% if not fully_surveyed %}<td>{% if t.category == 'planet' %}{{ survey_box(t.code) }}{% endif %}</td>{% endif %}</tr>{% endfor %}
   </table>
-  {% if scan.entry_point %}<p class="small muted">Entry point: {{ scan.entry_point }}</p>{% endif %}
+  {% set outer = scan.outer_system or {} %}{% set spots = [(outer.oort or {}).designation, (outer.kuiper or {}).designation, scan.entry_point] | select | list %}
+  {% if spots %}<p class="small muted" title="A surge-capable device hops in seconds between these, cruises anywhere else, and leaves the system from one of them">
+    Surge spots: {% for x in spots %}<a hx-get="/locations/{{ x }}" hx-target="#loc-panel" href="/locations/{{ x }}">{{ x }}</a>{% if x == scan.entry_point %} (entry point){% endif %}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
   {% if s %}<p class="small muted">Star: {% for k in ['mass_solar','luminosity_solar','temperature_k','age_my'] %}{% if s[k] is defined %}{{ k | human }} {{ s[k] }}{{ ' · ' if not loop.last }}{% endif %}{% endfor %}</p>{% endif %}
 </div>
 <div class="card" style="margin-top:14px"><h2>From the game <span class="muted small">events, stockpiles and stars nearby</span></h2>

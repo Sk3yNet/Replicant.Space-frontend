@@ -1145,15 +1145,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         return f"{star} is out of comms range now (no relay network or replicant there): not leaving without an escort"
 
     async def _surge_spots(self, star: str, radii: dict[str, float]) -> tuple[set[str], str]:
-        """A system's surge-capable places (the Oort cloud, the Kuiper belt, the entry point, a planet's L4 / L5) and its
-        entry point."""
+        """A system's surge-capable places and its entry point. The game docs (owner 2026-10-25) name three: the Oort
+        cloud, the Kuiper belt and the entry point (usually a planet's L5 next to the belt). Live dry runs agree: from
+        FALQUORYX-1-L4 (its entry point) the Kuiper belt and the Oort cloud were 30 s `surge_hop`s, another planet's L4
+        and its own L5 a cruise."""
         cat = await self.db.kv_get("stars", {}) or {}
         entry = next((str(x.get("entry_point") or "").upper() for x in cat.get("stars") or []
                       if isinstance(x, dict) and x.get("designation") == star), "")
-        mine = [x.upper() for x in radii if star_of(x) == star]
-        planets = [x for x in mine if re.fullmatch(rf"{re.escape(star)}-\d+", x)]
-        return ({x for x in mine if x.endswith(("-OORT", "-KUIPER"))} | ({entry} - {""}) |
-                {f"{p_}-{lp}" for p_ in planets for lp in ("L4", "L5")}), entry   # L4 / L5 too (owner 2026-10-22)
+        return ({x.upper() for x in radii if star_of(x) == star and x.upper().endswith(("-OORT", "-KUIPER"))}
+                | ({entry} - {""})), entry
 
     async def _exit_via(self, st: dict, job: dict) -> list[str]:
         """Surge hops (owner 2026-10-22): a surge-capable device hops in seconds between a system's surge-capable places
@@ -1182,7 +1182,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
         def gap(x: str, y: str) -> float:
             return cruise_au(x, y, radii)
         pos, via, saved_from = here, [], 0.0
-        at_spot = here in spots or bool(re.fullmatch(rf"{re.escape(hs)}-\d+-L[45]", here))
+        at_spot = here in spots
         inside = star_of(dest) == hs
         if not at_spot and (inside or entry):
             game = gap(here, entry) if not inside else gap(here, dest)

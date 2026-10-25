@@ -103,11 +103,13 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   gains nothing, and the game's routing never picks a hub: `travel` with `via: ["HUB_STAR"]` does (`hubroute.py`). A `via` ending in
   another system than a body destination needs that system's star last (`via: ["SOLARES", "SOL"]` to SOL-3-1; the game
   then flies the final leg to the body, live 2026-10-20); the app adds it (`hubroute.waypoints`).
-- Surge hop (game docs, owner 2026-10-22): inside a system a surge-capable device hops in seconds between surge-capable
-  places (Oort, Kuiper, the entry point, a planet's L4/L5), then cruises the rest. A plain `travel` from an L-point to a
-  belt cruises all the way (499 AU, 57 min at ISOLITHOR). Leaving a system, the game cruises to the entry point before
-  surging. A `via` of such places works (owner's preview: ISOLITHOR-BELT-1 → ISOBAREA-2-L4 `via: ["ISOLITHOR-KUIPER"]`,
-  515 s instead of 3544 s); the job runner adds it to every trip (`_exit_via`).
+- Surge spots (game docs, owner 2026-10-25): only the Oort cloud, the Kuiper belt and the entry point (usually a
+  planet's L5 next to the belt; first arrival lands at the Oort cloud, or the Kuiper belt for young stars, until a scan
+  finds the entry point; with a hub, surges arrive at the entry point). A surge-capable device hops in seconds (30 s,
+  route leg type `surge_hop`) between them and cruises anywhere else; L4/L5 points other than the entry point cruise
+  (live dry runs 2026-10-25). Leaving a system, the game cruises to the nearest spot before surging. A `via` of spots works
+  (ISOLITHOR-BELT-1 → ISOBAREA-2-L4 `via: ["ISOLITHOR-KUIPER"]`, 515 s instead of 3544 s); the job runner adds it to every
+  trip (`_exit_via`).
 - An active propulsor must be deactivated before it can travel (recall after a diversion: deactivate, then travel).
 - Some blueprints need component devices (blueprint `components`, e.g. biosphere cultivator: 2 hydroponic bays, 1 nutrient
   synthesizer, 1 orbital farm). Without them the factory sits `waiting_for_resources` with
