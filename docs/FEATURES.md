@@ -730,7 +730,7 @@ yield quota. The built-in *Mining Rush: spread out* order uses them.
 |---|---|
 | **Automations** | every rule, jobs step by step with Cancel, and the log; **Confirm** buttons for trips over the sector range |
 | **Events** | full local history with filters |
-| **Messages** | game messages (unread first and highlighted, read ones dimmed; *unread only* box) and BobNet channels (each post shows the system its poster is in; *recent* history includes NPCs) |
+| **Messages** | game messages (unread first and highlighted, read ones dimmed; *unread only* box) and BobNet channels (each post shows the system its poster is in; the feed searches every saved message and pages back with *Older*; *recent* history includes NPCs and pages back through the relay with *Older*) |
 | **Notifications** | alerts and accomplishments, with toasts and a badge |
 | **Leaderboards** | every board the game keeps (XP, fleet, trades, distance, reputation, colonies …), top 10 each, your replicants in bold |
 | **Blog** | read and search the game's blog, write a post as one of your replicants, edit or delete your own |

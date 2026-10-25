@@ -4023,6 +4023,9 @@ def test_bobnet_channels_list_and_subscribe(client):
     assert "<option>#explorers</option>" in page                       # the Send box offers subscribed channels
     r = client.post("/bobnet/history", data={"channel": "#explorers"}, headers=HX)
     assert "anyone near ZALDANAL?" in r.text and "hello" not in r.text
+    assert "Older" in r.text and '&quot;cursor&quot;: 2' in r.text
+    r = client.post("/bobnet/history", data={"cursor": "2"}, headers=HX)   # the page next_cursor points to
+    assert "first light" in r.text and "Older" not in r.text
 
 
 def test_unstationed_fleets_stay_aboard_at_home(client):
@@ -8179,6 +8182,27 @@ def test_bobnet_feed_shows_where_the_poster_is(client):
                                            current_star="ROSALIATE", channel="#general", message="Shop open"))
     page = client.get("/messages", headers=H).text
     assert '@ <a href="/systems/ROSALIATE">ROSALIATE</a></span>: Shop open' in page
+
+
+def test_bobnet_feed_pages_back(client, monkeypatch):
+    from rsweb import web
+    monkeypatch.setattr(web, "BOBNET_PAGE", 2)
+    w = client.app.state.worker
+    for i in range(5):
+        client.portal.call(w.handle_event, _ev(9910 + i, "bobnet.new", replicant_name="Dash", replicant_code="D1",
+                                               channel="#general", message=f"note-{i}"))
+    page = client.get("/messages", headers=H).text
+    assert "note-4" in page and "note-3" in page and "note-2" not in page and "/bobnet/older?before=" in page
+    seq = page.split("/bobnet/older?before=")[1].split('"')[0]
+    r = client.get(f"/bobnet/older?before={seq}", headers=HX).text
+    assert "note-2" in r and "note-1" in r and "note-3" not in r and "/bobnet/older?before=" in r
+    r = client.get("/bobnet/older?before=" + r.split("/bobnet/older?before=")[1].split('"')[0], headers=HX).text
+    assert "note-0" in r and "Older" not in r
+    r = client.get("/bobnet/older?q=NOTE-1", headers=HX).text                  # search: any case, every saved message
+    assert "note-1" in r and "note-0" not in r and "Older" not in r
+    assert "Nothing matches." in client.get("/bobnet/older?q=50%25", headers=HX).text   # % is literal
+    r = client.get("/bobnet/older?q=dash", headers=HX).text                     # the poster's name too, paged
+    assert "note-4" in r and "note-2" not in r and "q=dash" in r
 
 
 def test_relay_rollout_queue_goes_outward_and_chains():

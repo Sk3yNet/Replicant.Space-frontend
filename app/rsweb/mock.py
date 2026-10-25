@@ -550,11 +550,15 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                 {"name": "#explorers", "last_active": iso()}, {"name": "#sol-local", "last_active": None}]})
 
     @app.get("/v1/devices/{code}/messages")
-    async def relay_messages(code: str, limit: int = 20):
+    async def relay_messages(code: str, limit: int = 20, cursor: int | None = None):
+        if cursor is not None:   # one older page, then the end
+            return ok({"messages": [{"id": 0, "channel": "#general", "current_star": "SOL", "message": "first light",
+                                     "replicant_code": REP, "replicant_name": "bob-1", "time": iso()}],
+                       "next_cursor": None, "total": 3})
         return ok({"messages": [{"id": 1, "channel": "#explorers", "current_star": "ABOTEIN", "message": "anyone near ZALDANAL?",
                                  "replicant_code": "FF000001", "replicant_name": "riker-2", "time": iso()},
                                 {"id": 2, "channel": "#general", "current_star": "SOL", "message": "hello", "replicant_code": REP,
-                                 "replicant_name": "bob-1", "time": iso()}][:limit], "next_cursor": None, "total": 2})
+                                 "replicant_name": "bob-1", "time": iso()}][:limit], "next_cursor": 2, "total": 3})
 
     @app.get("/v1/replicants/{code}")
     async def replicant(code: str):

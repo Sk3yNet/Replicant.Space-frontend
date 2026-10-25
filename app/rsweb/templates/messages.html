@@ -30,7 +30,9 @@
     <div class="row between"><h2>BobNet (seen on the event stream)</h2>
       <label class="small" style="text-transform:none"><input type="checkbox" id="bn-mentions"
         onchange="document.querySelectorAll('#bn-feed li').forEach(li => li.style.display = this.checked && !li.dataset.mention ? 'none' : '')"> mentions only</label></div>
-    <ul class="feed" id="bn-feed">{% for e in bobnet %}<li{% if e.mention %} data-mention="1" style="border-left:3px solid var(--warn);padding-left:6px"{% endif %}><span class="t">{{ e.created_at | local('%m-%d %H:%M') }}</span><span>[{{ e.payload.channel }}] <b>{{ e.payload.replicant_name }}</b>{% if e.payload.current_star %}<span class="muted"> @ <a href="/systems/{{ e.payload.current_star }}">{{ e.payload.current_star }}</a></span>{% endif %}: {{ e.payload.message }}</span></li>{% else %}<li class="muted">No chat yet.</li>{% endfor %}</ul>
+    <input type="search" name="q" placeholder="Search all saved BobNet messages (text, poster, channel, system)" style="width:100%;margin:4px 0"
+           hx-get="/bobnet/older" hx-trigger="input changed delay:400ms, search" hx-target="#bn-feed">
+    <ul class="feed" id="bn-feed">{% include "partials/bobnet_rows.html" %}</ul>
     {% if replicants %}
     <form class="inline" hx-post="/replicants/{{ (replicants.keys() | list)[0] }}/message" hx-target="#msg-result" style="margin-top:8px"
           hx-disabled-elt="find button" hx-on::after-request="if (event.detail.xhr && event.detail.xhr.getResponseHeader('X-Sent') === '1') this.querySelector('input[name=text]').value = ''">
@@ -69,7 +71,7 @@
   <div class="card">
     <div class="row between"><h2>Recent on BobNet <span class="muted small">from the relay, all channels</span></h2>
       {% if relay %}<button class="small" hx-post="/bobnet/history" hx-target="#bobnet-history">Load</button>{% endif %}</div>
-    <div id="bobnet-history"><p class="muted small">{{ 'Load the latest 50 messages the relay has heard, or press recent on a channel.' if relay else 'Needs an FTL relay.' }}</p></div>
+    <div id="bobnet-history"><p class="muted small">{{ 'Load the latest 50 messages the relay has heard, or press recent on a channel; Older pages back.' if relay else 'Needs an FTL relay.' }}</p></div>
   </div>
 </div>
 {% endblock %}

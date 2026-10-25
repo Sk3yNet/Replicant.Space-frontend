@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.265.1"
+VERSION = "1.266.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.266.0", "2026-10-25", "Messages: the event-stream BobNet feed has a search box (text, poster, channel or system, any case) over every message the app has saved, and both BobNet cards have an Older button. The feed pages back 80 at a time; Recent on BobNet follows the game's next_cursor for older pages from the relay (per channel too)."),
     ("1.265.1", "2026-10-25", "Map › Systems always shows the relay, beacon and ward columns; the Wards, beacons & relays and only systems missing one options are gone (the filters cover them)."),
     ("1.265.0", "2026-10-25", "Map › Systems: the relay, beacon and ward add / remove buttons are checkboxes that save in the background without reloading the page, so several can be ticked in a row. New filters show only systems with each checked or unchecked, and by civilization (has one, missing a beacon, all have beacons, none), remembered in the browser."),
     ("1.263.0", "2026-10-25", "Fleet details starts with an index of the fleets: a name opens that fleet alone, without loading the rest, and otherwise each card loads as it scrolls into view (the page is about 56 KB instead of 5 MB). The Tags & controllers check is kept an hour like the plans, with a Refresh button. Pages now read the database through their own connection, so they no longer queue behind the engine's queries. Diagnostics › Performance shows each engine stage's CPU time and a new Server stalls table (times the server could not answer for over a second, by the stage running then) to show which passes to move off the server next."),

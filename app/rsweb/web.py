@@ -3022,14 +3022,10 @@ async def messages(request: Request, user: str = Depends(current_user)):
     except ApiError as e:
         err = e.message
     msgs = await request.app.state.db.kv_get("messages", []) or []
-    bobnet = [row_event(r) for r in await request.app.state.db.fetchall(
-        "SELECT * FROM events WHERE event='bobnet.new' ORDER BY seq DESC LIMIT 200")]
     st = await load_state(request)
     # messages naming one of your replicants come first and are highlighted (your own posts aside)
     my = await notify.my_names(request.app.state.db)
-    codes = set(st["replicants"])
-    for e in bobnet:
-        e["mention"] = bool(my) and not notify.is_mine(e, my, codes) and notify.mentions((e.get("payload") or {}).get("message"), my)
+    bobnet = await _bobnet_events(request.app.state.db, my, set(st["replicants"]), 200)
     for m in msgs:
         m["mention"] = bool(my) and notify.mentions(" ".join(str(m.get(k) or "") for k in ("title", "body", "text", "message")), my)
         m["unread"] = message_unread(m)
@@ -3043,7 +3039,8 @@ async def messages(request: Request, user: str = Depends(current_user)):
     channels = sorted(({"name": n, "last_active": (names.get(n) or {}).get("last_active"), "subscribed": n in subscribed,
                         "listed": n in names} for n in set(names) | set(subscribed)),
                       key=lambda c: (not c["subscribed"], -(_ts_num(c["last_active"])), c["name"]))
-    return await page(request, user, "messages.html", "messages", msgs=msgs, err=err, bobnet=bobnet[:80], mentioned=mentioned,
+    return await page(request, user, "messages.html", "messages", msgs=msgs, err=err, bobnet=bobnet[:BOBNET_PAGE],
+                      older=bobnet[BOBNET_PAGE - 1]["seq"] if len(bobnet) > BOBNET_PAGE else None, mentioned=mentioned,
                       unread=sum(1 for m in msgs if m["unread"]),
                       my_names=my,
                       replicants=st["replicants"], channels=channels, subscribed=subscribed, channel_cache=cache,
@@ -3055,6 +3052,38 @@ def _ts_num(v: Any) -> float:
         return datetime.fromisoformat(str(v)).timestamp()
     except (TypeError, ValueError):
         return 0.0
+
+
+BOBNET_PAGE = 80   # event-stream BobNet messages per page on the Messages page
+
+
+async def _bobnet_events(db, my, codes: set, limit: int, before: int | None = None, q: str = "") -> list[dict]:
+    """Saved bobnet.new events, newest first (older than seq `before`; with `q`, those whose message, poster, channel
+    or system contains it, any case), each flagged when it names one of ours."""
+    where, args = "", []
+    if before:
+        where, args = "AND seq < ?", [before]
+    if q := q.strip():
+        like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        where += " AND (" + " OR ".join(f"json_extract(payload, '$.{k}') LIKE ? ESCAPE '\\'"
+                                       for k in ("message", "replicant_name", "channel", "current_star")) + ")"
+        args += [like] * 4
+    out = [row_event(r) for r in await db.fetchall(
+        f"SELECT * FROM events WHERE event='bobnet.new' {where} ORDER BY seq DESC LIMIT ?", (*args, limit))]
+    for e in out:
+        e["mention"] = bool(my) and not notify.is_mine(e, my, codes) and notify.mentions((e.get("payload") or {}).get("message"), my)
+    return out
+
+
+@router.get("/bobnet/older", response_class=HTMLResponse)
+async def bobnet_older(request: Request, before: int | None = None, q: str = "", user: str = Depends(current_user)):
+    """A page of saved BobNet messages (the app keeps every one it has received) as feed rows: the next one older
+    than `before`, or the first matching search `q`."""
+    db = request.app.state.db
+    rows = await _bobnet_events(db, await notify.my_names(db), set((await load_state(request))["replicants"]),
+                                BOBNET_PAGE + 1, before, q)
+    return partial(request, "partials/bobnet_rows.html", bobnet=rows[:BOBNET_PAGE], before=before, q=q.strip(),
+                   older=rows[BOBNET_PAGE - 1]["seq"] if len(rows) > BOBNET_PAGE else None)
 
 
 def bobnet_relay(devices: list[dict]) -> dict | None:
@@ -3101,24 +3130,37 @@ async def bobnet_subscribe(request: Request, user: str = Depends(current_user)):
 
 
 @router.post("/bobnet/history", response_class=HTMLResponse)
-async def bobnet_history(request: Request, channel: str = Form(""), user: str = Depends(current_user)):
-    """The latest BobNet messages a relay has heard (GET /devices/<relay>/messages), optionally one channel."""
+async def bobnet_history(request: Request, channel: str = Form(""), cursor: int | None = Form(None),
+                         user: str = Depends(current_user)):
+    """BobNet messages a relay has heard (GET /devices/<relay>/messages), optionally one channel: the latest 50, or
+    with `cursor` the page the game's next_cursor points to (an Older button follows while there is one)."""
     relay = bobnet_relay((await load_state(request))["devices"])
     if not relay:
         return HTMLResponse('<p class="muted small">Reading BobNet history needs an FTL relay.</p>')
+    # NPCs too (Dash's posts show where the Ark is); latest is incompatible with cursor
+    q = {"cursor": cursor} if cursor is not None else {"latest": "true"}
     try:
-        body = await request.app.state.api.get(f"/devices/{relay['device_code']}/messages", latest="true", limit=50,
-                                                 include_npcs="true")   # NPCs too (Dash's posts show where the Ark is)
+        body = await request.app.state.api.get(f"/devices/{relay['device_code']}/messages", limit=50,
+                                                 include_npcs="true", **q)
     except ApiError as e:
         return HTMLResponse(f'<div class="result err">{html.escape(e.message)}</div>')
-    msgs = [m for m in (body or {}).get("messages") or [] if not channel or m.get("channel") == channel]
+    body = body or {}
+    msgs = [m for m in body.get("messages") or [] if not channel or m.get("channel") == channel]
+    nxt = body.get("next_cursor")
+    older = ""
+    if nxt is not None and nxt != cursor:
+        vals = html.escape(json.dumps({"channel": channel, "cursor": nxt}))
+        older = (f'<div class="bn-older"><button type="button" class="small ghost" hx-post="/bobnet/history" hx-vals="{vals}"'
+                 f' hx-target="closest div" hx-swap="outerHTML">Older</button></div>')
     if not msgs:
-        return HTMLResponse(f'<p class="muted small">Nothing recent{" on " + html.escape(channel) if channel else ""}.</p>')
+        where = " on " + html.escape(channel) if channel else ""
+        return HTMLResponse(f'<p class="muted small">{"Nothing further back on this page" if cursor is not None else "Nothing recent"}'
+                            f'{where}.</p>{older}')
     rows = "".join(f'<li><span class="t">{html.escape(str(m.get("time") or "")[5:16].replace("T", " "))}</span><span>'
                    f'[{html.escape(m.get("channel") or "")}] <b>{html.escape(m.get("replicant_name") or "?")}</b>'
                    f'<span class="muted"> @ {html.escape(m.get("current_star") or "?")}</span>: {html.escape(m.get("message") or "")}'
                    f'</span></li>' for m in msgs)
-    return HTMLResponse(f'<ul class="feed">{rows}</ul>')
+    return HTMLResponse(f'<ul class="feed">{rows}</ul>{older}')
 
 
 @router.post("/messages/read", response_class=HTMLResponse)
