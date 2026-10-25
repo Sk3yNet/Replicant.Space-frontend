@@ -3156,7 +3156,7 @@ async def bobnet_history(request: Request, channel: str = Form(""), cursor: int 
         where = " on " + html.escape(channel) if channel else ""
         return HTMLResponse(f'<p class="muted small">{"Nothing further back on this page" if cursor is not None else "Nothing recent"}'
                             f'{where}.</p>{older}')
-    rows = "".join(f'<li><span class="t">{html.escape(str(m.get("time") or "")[5:16].replace("T", " "))}</span><span>'
+    rows = "".join(f'<li><span class="t">{html.escape(f_local(m.get("time"), "%m-%d %H:%M"))}</span><span>'
                    f'[{html.escape(m.get("channel") or "")}] <b>{html.escape(m.get("replicant_name") or "?")}</b>'
                    f'<span class="muted"> @ {html.escape(m.get("current_star") or "?")}</span>: {html.escape(m.get("message") or "")}'
                    f'</span></li>' for m in msgs)
