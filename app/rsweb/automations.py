@@ -232,7 +232,11 @@ RULES: list[Rule] = [
          [Option("prefer_ami", "bool", "Hand idle drones to a mining controller at the same location", True),
           Option("resource", "choice", "Resource (when mining directly)", "same", ["same"] + RESOURCES,
                  help="'same' = whatever it mined last (falls back to structural)"),
-          Option("cooldown_minutes", "int", "Wait between retries for the same drone (min)", 10)]),
+          Option("cooldown_minutes", "int", "Wait between retries for the same drone (min)", 10),
+          Option("focus_sites", "bool", "Mine one site at a time (drones without a controller)", False,
+                 help="Each restarted drone is sent to the open site with the least of its resource left, so the "
+                      "drones empty one site after another and its survey drone searches again while the other sites "
+                      "keep them busy, instead of every site running out at once. Controllers pick their own sites.")]),
 ]
 RULES_BY_ID = {r.id: r for r in RULES}
 
@@ -5677,11 +5681,22 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
                     continue
                 resource = left[0]
             attempts[code] = now.isoformat(timespec="seconds")
+            site = None
+            if cfg.get("focus_sites"):   # one site at a time, so sites run out in turn (owner 2026-10-25)
+                from .sites import focus_site
+                site = focus_site(await self.db.kv_get(f"loc:{belt}", None), resource,
+                                  await self.depleted_since(belt, reads.get(belt)))
+            on = f"{resource}" + (f" at {site}" if site else "")
             if dry:
-                await self.log("restart_idle_miners", f"[dry run] would restart {code} on {resource}")
+                await self.log("restart_idle_miners", f"[dry run] would restart {code} on {on}")
                 continue
-            ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "start_mining", "resource_type": resource},
-                                         f"auto: restart {code}")
+            body = {"command": "start_mining", "resource_type": resource} | ({"target": site} if site else {})
+            ok, _, err = await self.send("POST", f"/devices/{code}", body, f"auto: restart {code}")
+            if not ok and site and not NO_SITE_RE.search(err or "") and "exhausted" not in (err or "").lower():
+                # the site was refused (closed since our read, or the target not taken): any site will do
+                on = resource
+                ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "start_mining", "resource_type": resource},
+                                             f"auto: restart {code}")
             if not ok and "exhausted" in (err or "").lower():
                 from .salvage import belt_of
                 ex = await self.db.kv_get("exhausted_places", {}) or {}
@@ -5691,7 +5706,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin):
             if quiet:   # skipped 3 h at this belt (live 2026-10-23: 3 alerts at ISOLITHOR-BELT-1 for conductive)
                 nosite.setdefault(belt, {})[resource] = now.isoformat(timespec="seconds")
                 await self.db.kv_set("miner_no_site", nosite)
-            await self.log("restart_idle_miners", f"restarted {code} on {resource}" if ok else f"could not restart {code}: {err}",
+            await self.log("restart_idle_miners", f"restarted {code} on {on}" if ok else f"could not restart {code}: {err}",
                            "info" if ok or quiet else "alert")
         for ccode, drones in handed.items():
             ctrl = next(c for c in devices if c.get("device_code") == ccode)

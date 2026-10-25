@@ -504,6 +504,34 @@ def test_restart_idle_miners(client):
     assert len(client.portal.call(client.app.state.db.fetchall, "SELECT 1 FROM actions WHERE user='automation'")) == n
 
 
+
+def test_restart_idle_miners_focus_one_site(client):
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+    loc = client.portal.call(eng.devices)
+    belt = next(d["location"] for d in loc if d["device_code"] == "2AC61212")
+    world = client.app.state.api.http._transport.app.state.world
+    world.belt_sites = {belt: [
+        {"designation": f"{belt}-SITE-1", "resources_remaining_pct": {"carbon": 80, "structural": 10}},
+        {"designation": f"{belt}-SITE-2", "resources_remaining_pct": {"carbon": 30, "structural": 100}},
+        {"designation": f"{belt}-SITE-3", "resources_remaining_pct": {"carbon": 0, "structural": 5}}]}
+    client.post("/automations/rules/restart_idle_miners", data={"enabled": "on", "resource": "carbon", "cooldown_minutes": "10",
+                                                                 "focus_sites": "on"}, headers=HX)
+    client.portal.call(eng.tick)
+    acts = client.portal.call(db.fetchall, "SELECT path, body FROM actions WHERE user='automation' AND path='/devices/2AC61212'")
+    assert any(f'"target": "{belt}-SITE-2"' in a["body"] for a in acts), acts
+
+
+def test_focus_site_picks_the_least_left():
+    from rsweb.sites import focus_site
+    detail = {"resource_sites": [{"designation": "A-BELT-1-SITE-1", "resources_remaining_pct": {"carbon": 40}},
+                                 {"designation": "A-BELT-1-SITE-2", "resources_remaining_pct": {"carbon": 40, "rares": 0}},
+                                 {"designation": "A-BELT-1-SITE-3", "resources_remaining_pct": {"carbon": 10, "rares": 90}},
+                                 {"designation": "A-1-SAL-1", "site_type": "salvage", "resources_remaining_pct": {"carbon": 1}}]}
+    assert focus_site(detail, "carbon") == "A-BELT-1-SITE-3"
+    assert focus_site(detail, "carbon", {"A-BELT-1-SITE-3"}) == "A-BELT-1-SITE-1"
+    assert focus_site(detail, "volatiles") is None and focus_site(None, "carbon") is None
+
 def test_travel_chain_on_device(client):
     world = client.app.state.api.http._transport.app.state.world
     world.move_seconds = 0.03

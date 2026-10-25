@@ -1005,8 +1005,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             return ok(demo_scan(world, code))
         if "BELT" in code:
             return ok({"location_type": "belt", "location": code, "belt": SOL_SCAN["asteroid_belt"]["belts"][0],
-                       "devices": [], "inventory": [], "resource_sites": [{"designation": f"{code}-SITE-1", "resource_type": "structural", "availability": "high", "quantity": 5200},
-                                          {"designation": f"{code}-SITE-2", "resource_type": "rares", "availability": "low", "quantity": 340}]})
+                       "devices": [], "inventory": [], "resource_sites": getattr(world, "belt_sites", {}).get(code) or [
+                           {"designation": f"{code}-SITE-1", "resource_type": "structural", "availability": "high", "quantity": 5200},
+                           {"designation": f"{code}-SITE-2", "resource_type": "rares", "availability": "low", "quantity": 340}]})
         if code in world.objects:
             return ok({"location": code, "location_type": "object", "object": world.objects[code], "devices": [], "inventory": []})
         if "-SAL-" in code:   # like the game: salvage codes aren't locations

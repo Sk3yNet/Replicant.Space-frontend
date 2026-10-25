@@ -40,6 +40,23 @@ def surveyors_first(ds: list[dict]) -> list[dict]:
     return sorted(ds, key=lambda d: d.get("device_type") != BELT_SURVEYOR)
 
 
+def focus_site(detail: dict | None, resource: str, gone: set[str] | None = None) -> str | None:
+    """The open belt site with the least `resource` left (then the least of everything), for drones mining one site at a
+    time: it runs out first, its survey drone searches again, and the other sites keep the drones busy meanwhile.
+    None when no read site holds it (salvage, `gone` sites and sites without percentages don't count)."""
+    best = None
+    for s in (detail or {}).get("resource_sites") or []:
+        if not isinstance(s, dict) or s.get("site_type") == "salvage" or "-SAL-" in str(s.get("designation") or ""):
+            continue
+        code, pct = s.get("designation"), s.get("resources_remaining_pct")
+        if not code or (gone and code in gone) or not isinstance(pct, dict) or (pct.get(resource) or 0) <= 0:
+            continue
+        key = (pct[resource], sum(v or 0 for v in pct.values()), code)
+        if best is None or key < best[0]:
+            best = (key, code)
+    return best[1] if best else None
+
+
 def star_of(loc: str | None) -> str:
     return (loc or "").split("-")[0]
 

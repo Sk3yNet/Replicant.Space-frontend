@@ -220,6 +220,9 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
   Bootstraps score at full potential, unweighted. AMI mining schedules set to *gather evenly* run *maintain ratios*
   leaning toward what waiting prints lack (when the belt has it), and *Restart idle miners* picks that resource, first
   what the factories the drone feeds wait for, and only among what the belt's open sites still hold.
+  Its *Mine one site at a time* option (off by default; drones without a controller only) sends each restarted drone to
+  the open site with the least of its resource left, so sites run out in turn and their survey drones search again
+  while the other sites keep the drones busy.
 - A stationed fleet's home is scored for review only, marked *home*, when that fleet has miners (loadout or members); a hub home without miners is scored and open to mining missions; ⚑ marks systems where a fleet of yours is homed.
 - **Ward** column, ⛨ yours / ⛨ theirs:
   - *add ward*: activates an idle ward of yours there, else sends a spare, else prints one in range on the autofactory

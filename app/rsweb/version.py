@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.255.0"
+VERSION = "1.256.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.256.0", "2026-10-25", "Restart idle miners has a Mine one site at a time option (off by default) for drones without an AMI controller: each restarted drone goes to the open site with the least of its resource left (start_mining with a target), so the sites run out one after another and each freed survey drone searches again while the other sites keep the drones busy, instead of every site running out within minutes and the belt going dry for an hour. A refused target falls back to any site. Controllers pick their own sites, so their drones are left alone."),
     ("1.255.0", "2026-10-25", "Diagnostics: checkboxes choose what a snapshot includes (stockpiles, controllers, belts, events, idle drones, raw device pages, fleets, logistics, relays, asteroids, last commands, performance, version history), kept for the next one. The sections that make requests share the 60-request budget, so leaving one out lets the others read more controllers, belts or idle drones; the rest only cost file size."),
     ("1.253.2", "2026-10-25", "Mining controllers get maintain_ratios again: the game now wants the ratios under configuration.ratios (it refused the flat form every pass for the Delta Force hub and the print-tilted schedules). Back to the belt no longer tries to fly drones a controller holds in another system (they cannot surge): they are released for a controller there, so Miner_7's 9EE3E14D no longer stops on three drones at SOLARES. Logistics balancing never sends a carrier back the way another of its class is still flying (plates went SOLARES to FALQUORYX and back two minutes apart)."),
     ("1.253.1", "2026-10-25", "A fleet mission whose members cannot all board (the carriers here are full) now stalls with an alert and retries by itself, instead of waiting silently: Surveyor 2 sat 41 h at FALQUORYX because its heaven vessel also held an FTL slingshot that is not in the fleet, so its eighth survey drone never fit. The note names such extra cargo, and Launch anyway also works on a mission stalled before leaving."),
