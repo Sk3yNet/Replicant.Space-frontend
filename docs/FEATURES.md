@@ -749,6 +749,10 @@ values (also in the snapshot). Every page answer carries a Server-Timing header,
 a one-line description, with fill-in blanks (replicant, device, location … with suggestions) that build the path and
 body, which stay editable before sending.
 
+**Repeating commands**: *Repeat* under the console form sends its POST, PATCH or PUT request now and every N minutes
+until stopped (e.g. a belt scan for debris or devices). Each row counts finds in the command's system (a discovered
+device or salvage, which also notify) and can stop at the first one; three failed sends in a row stop it.
+
 ### Desktop wallpaper (optional)
 The Galaxy and System maps as a live Windows wallpaper with [Octos](https://github.com/underpig1/octos) and
 [sk3ynet/replicant-space-octos](https://github.com/sk3ynet/replicant-space-octos). *Account › Desktop wallpaper* creates

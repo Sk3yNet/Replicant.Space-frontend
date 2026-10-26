@@ -15,6 +15,12 @@
       <div id="c-fields" class="row" style="flex-wrap:wrap;gap:6px;margin:6px 0"></div>
       <label>JSON body</label>
       <textarea name="body" id="c-body" placeholder='{"command": "..."}'></textarea>
+      <div class="row small" style="flex-wrap:wrap;gap:6px;margin-top:6px">
+        <span class="muted">Or repeat it:</span> every <input name="every_minutes" type="number" min="1" value="{{ repeat_minutes }}" style="width:5em"> min
+        <input name="name" placeholder="name (optional)" size="16">
+        <label><input type="checkbox" name="stop_on_find"> stop at the first find</label>
+        <button hx-post="/console/repeat" hx-target="#console-result">Repeat</button>
+      </div>
     </form>
     <div id="console-result"></div>
   </div>
@@ -24,6 +30,27 @@
       {% for m, p, b, d in items %}<div style="margin:3px 0"><a href="#" class="mono small c-preset" data-m="{{ m }}" data-p="{{ p }}" data-b="{{ b }}">{{ m }} {{ p }}</a><br><span class="muted small">{{ d }}</span></div>{% endfor %}
     </details>{% endfor %}
   </div>
+</div>
+<div class="card" id="repeats">
+  <h2>Repeating <span class="muted small">{{ repeats | length }}</span></h2>
+  <p class="muted small">A POST, PATCH or PUT command sent again every few minutes until you stop it, such as a belt scan from a replicant
+    (<code>POST /replicants/{replicant}/scan</code>) or a survey drone search. Finds in the command's system (a discovered device or salvage)
+    are counted here and raise a notification each time; the repeat keeps going unless it was set to stop at the first find.
+    Three failed sends in a row stop it.</p>
+  {% if repeats %}<table class="small"><tr><th>Name</th><th>Command</th><th>Every</th><th>Runs</th><th>Last</th><th>Finds</th><th></th></tr>
+  {% for r in repeats %}<tr{{ ' class=muted' if not r.enabled }}>
+    <td>{{ r.name }}{% if not r.enabled %} <span class="pill">stopped</span>{% endif %}</td>
+    <td class="mono">{{ r.method }} {{ r.path }}{% if r.body %}<br>{{ r.body | tojson }}{% endif %}</td>
+    <td>{{ r.every_minutes }} min{% if r.stop_on_find %}<br><span class="muted">stops at a find</span>{% endif %}</td>
+    <td>{{ r.runs or 0 }}</td>
+    <td>{% if r.last_run %}{{ r.last_run | ago }}<br><span class="muted">{{ r.last_result }}</span>{% else %}—{% endif %}</td>
+    <td>{{ r.finds or 0 }}{% if r.last_find %}<br><span class="muted">{{ r.last_find }}</span>{% endif %}</td>
+    <td style="white-space:nowrap">
+      <button class="small" hx-post="/console/repeats/{{ r.id }}/toggle">{{ 'Stop' if r.enabled else 'Resume' }}</button>
+      <button class="small" hx-post="/console/repeats/{{ r.id }}/run">Now</button>
+      <button class="small" hx-post="/console/repeats/{{ r.id }}/delete" hx-confirm="Delete this repeat?">Delete</button>
+    </td></tr>{% endfor %}</table>
+  {% else %}<p class="muted small">Nothing repeating.</p>{% endif %}
 </div>
 <datalist id="c-rep">{% for c, n in reps %}<option value="{{ c }}">{{ n }}</option>{% endfor %}</datalist>
 <datalist id="c-dev">{% for c, t in devs %}<option value="{{ c }}">{{ t | human }}</option>{% endfor %}</datalist>

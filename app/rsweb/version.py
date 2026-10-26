@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.268.0"
+VERSION = "1.269.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.269.0", "2026-10-26", "Console can repeat a command: Repeat sends the POST, PATCH or PUT request now and again every N minutes until you stop it (Console › Repeating: Stop / Resume, Now, Delete), such as a replicant belt scan or a survey drone search. Finds in the command's system (device.discovered, salvage.discovered) are counted on the row and notify each time; the repeat keeps going unless set to stop at the first find. Three failed sends in a row stop it."),
     ("1.268.0", "2026-10-26", "Orders show without a refresh: an order you give (or each step of a chain you started, such as stow or attach before a trip) asks the game for the devices it touched right away and again 20 s later, and for 10 minutes any event about them does too. Arrivals refresh the arriving device (up to 30 per 10 minutes). The device page is live (status, current task, trip, details, carrier rows, events) and follows changes within seconds for a minute after an order. Its trip line counts down, and when it reaches zero the page loads the new location."),
     ("1.267.0", "2026-10-26", "Live pages: 24 pages (Dashboard, Fleets, Logistics, Systems, Stars, Traffic, Contracts, Automations, Notifications, Messages and more) redraw their cards by themselves when devices, jobs or game events change, from the app's cache with no game calls: at most once a minute per tab, only while it is visible, never a card you are typing in or just used. Filters stay applied. The header's ● live switch pauses it. Pages that ask the game when opened (device, replicant, location, Leaderboards, Blog) stay manual."),
     ("1.266.2", "2026-10-25", "A bootstrap hub made before 1.257.0 still asked for a surge carrier (Delta Force · Hub kept printing toward one): its loadout now wants a surge plate instead, switched on the next bootstrap pass."),

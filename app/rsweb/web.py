@@ -3449,7 +3449,9 @@ async def console(request: Request, user: str = Depends(current_user)):
         groups.setdefault(g, []).append((m, p_, b, d))
     devs = sorted(st["devices"], key=lambda d: (d.get("device_type") or "", d.get("device_code") or ""))
     locs = sorted({d.get("location") for d in devs if d.get("location")} | set(st["locations"] or {}))
+    from . import repeats as rp
     return await page(request, user, "console.html", "console", preset_groups=groups, fields=CONSOLE_FIELDS,
+                      repeats=await request.app.state.db.kv_get(rp.KV, []) or [], repeat_minutes=rp.DEFAULT_MINUTES,
                       reps=[(c, r.get("name") or c) for c, r in st["replicants"].items()],
                       devs=[(d.get("device_code"), d.get("device_type") or "") for d in devs if d.get("device_code")],
                       locs=locs, stars=sorted({star_of(x) for x in locs}),
@@ -3481,6 +3483,56 @@ async def console_run(request: Request, method: str = Form("GET"), path: str = F
             return partial(request, "partials/action_result.html", ok=False, status=e.status, error=e.message,
                            label="console", method=method, path=path, response=e.body)
     return await run_action(request, user, method, path, parsed, f"console {method} {path}")
+
+
+@router.post("/console/repeat", response_class=HTMLResponse)
+async def console_repeat(request: Request, user: str = Depends(current_user)):
+    """Send the console's request every N minutes until stopped (Console › Repeating)."""
+    from . import repeats as rp
+    form = await request.form()
+    method = (form.get("method") or "POST").upper()
+    path = (form.get("path") or "").strip()
+    if method not in ("POST", "PATCH", "PUT") or not path:
+        return HTMLResponse('<span class="lv-alert">Only a POST, PATCH or PUT command can repeat.</span>')
+    try:
+        body = parse_json_field(form.get("body"))
+        every = max(1, int(form.get("every_minutes") or rp.DEFAULT_MINUTES))
+    except ValueError as e:
+        return HTMLResponse(f'<span class="lv-alert">{html.escape(str(e))}</span>')
+    db = request.app.state.db
+    seq = (await db.fetchone("SELECT MAX(seq) AS s FROM events") or {}).get("s") or 0
+    eng = request.app.state.worker.automations
+    rid = f"r{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+    async with eng.lock:
+        items = await db.kv_get(rp.KV, []) or []
+        items.append({"id": rid, "name": (form.get("name") or "").strip() or f"{method} {path}", "method": method,
+                      "path": path, "body": body, "every_minutes": every, "stop_on_find": form.get("stop_on_find") == "on",
+                      "enabled": True, "by": user, "created_at": now_iso(), "seen_seq": seq, "runs": 0, "finds": 0,
+                      "last_run": None, "last_result": None})
+        await db.kv_set(rp.KV, items)
+        await eng.run_due_repeats(only=rid)   # the first one goes now
+    await eng.log("repeats", f"repeat added by {user}: {method} {path} every {every} min")
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/console/repeats/{rid}/{action}", response_class=HTMLResponse)
+async def console_repeat_action(request: Request, rid: str, action: str, user: str = Depends(current_user)):
+    from . import repeats as rp
+    db, eng = request.app.state.db, request.app.state.worker.automations
+    async with eng.lock:
+        items = await db.kv_get(rp.KV, []) or []
+        r = next((x for x in items if x.get("id") == rid), None)
+        if not r:
+            return HTMLResponse('<span class="lv-alert">Repeat not found.</span>')
+        if action == "toggle":
+            r["enabled"] = not r.get("enabled", True)
+            r["errors"] = 0
+        elif action == "delete":
+            items = [x for x in items if x.get("id") != rid]
+        await db.kv_set(rp.KV, items)
+        if action == "run":
+            await eng.run_due_repeats(only=rid)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 # =====================================================================================

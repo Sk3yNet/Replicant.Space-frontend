@@ -21,7 +21,7 @@ import time
 from typing import Any
 
 from .api import ApiError
-from .db import now_iso
+from .db import now_iso, row_event
 from . import perf
 from .shapes import as_amounts  # noqa: F401  (kept for rule authors)
 from .ops_rules import OpsRules
@@ -1598,7 +1598,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 return
             for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
-                          "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
+                          "run_due_schedules", "run_due_repeats", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass"):
                 self.stage = stage
                 await asyncio.sleep(0)   # let waiting page requests run between stages
@@ -3409,6 +3409,50 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         sched["last_run"] = _now().isoformat(timespec="seconds")
         sched["last_result"] = "; ".join(results)
         return results
+
+    # --- repeating console commands --------------------------------------------------------------------
+    async def run_due_repeats(self, only: str | None = None) -> None:
+        """Note finds in each repeat's system, then send the ones that are due (only=id: that one, now)."""
+        from . import repeats as rp
+        items = await self.db.kv_get(rp.KV, []) or []
+        if not any(r.get("enabled", True) for r in items) and not only:
+            return
+        devices = await self.devices()
+        reps = await self.db.kv_get("replicants", {}) or {}
+        marks = ",".join("?" * len(rp.FOUND_EVENTS))
+        changed = False
+        for r in items:
+            if only and r.get("id") != only or not only and not r.get("enabled", True):
+                continue
+            star = rp.star_for(r["path"], devices, reps) or r.get("star") or ""
+            for row in await self.db.fetchall(f"SELECT * FROM events WHERE seq > ? AND event IN ({marks}) ORDER BY seq",
+                                              (int(r.get("seen_seq") or 0), *rp.FOUND_EVENTS)):
+                r["seen_seq"] = row["seq"]
+                changed = True
+                ev = row_event(row)
+                where = ev.get("star") or str(ev.get("location") or ev["payload"].get("location") or "").split("-")[0]
+                if star and where and where != star:
+                    continue
+                r["finds"] = int(r.get("finds") or 0) + 1
+                r["last_find"] = f"{rp.find_text(ev)} at {ev.get('location') or where or '?'}"
+                if r.get("stop_on_find") and r.get("enabled", True):
+                    r["enabled"] = False
+                    await self.log("repeats", f"{r['name']}: stopped, found {r['last_find']}", notify=True)
+            if not (only or rp.due(r)):
+                continue
+            r["star"] = star
+            ok, _resp, err = await self.send(r["method"], r["path"], r.get("body"), f"repeat {r['name']}")
+            r["runs"] = int(r.get("runs") or 0) + 1
+            r["last_run"] = _now().isoformat(timespec="seconds")
+            r["last_result"] = "ok" if ok else f"error: {err}"
+            r["errors"] = 0 if ok else int(r.get("errors") or 0) + 1
+            changed = True
+            if r["errors"] >= rp.MAX_ERRORS and r.get("enabled", True):
+                r["enabled"] = False
+                await self.log("repeats", f"{r['name']}: stopped after {r['errors']} failed sends in a row ({err})",
+                               "alert", notify=True)
+        if changed:
+            await self.db.kv_set(rp.KV, items)
 
     async def print_needs(self, devices: list[dict]) -> dict[str, float]:
         """What waiting prints lack, per resource (prospects.print_short), and the system scans (kept a minute)."""
