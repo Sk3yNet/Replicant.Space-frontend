@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Fleets{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 <div class="row between"><h1>Fleets <span class="muted small">{{ fleets | length }} · {{ fleets | selectattr('station') | list | length }} stationed · {{ templates | length }} templates</span></h1>
   <form class="inline" hx-post="/fleets" hx-swap="none">
@@ -28,7 +29,7 @@
 
 <p class="small">Fleet status and templates. Each fleet's members, loadout and missions, the next loadout pass, the tags check and
   what's spare or on the way: <a href="/fleets/details"><b>Fleet details</b></a>.</p>
-<div class="card" id="fleets-overview" style="margin-bottom:14px;overflow-x:auto" hx-get="/fleets/overview" hx-trigger="load" hx-swap="innerHTML">
+<div class="card" id="fleets-overview" data-live style="margin-bottom:14px;overflow-x:auto" hx-get="/fleets/overview" hx-trigger="load" hx-swap="innerHTML">
   <h2>Overview</h2><p class="muted small">Loading fleet status…</p></div>
 
 {% if strays or home_moves %}

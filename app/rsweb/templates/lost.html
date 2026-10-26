@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Lost{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 <h1>Lost equipment <span class="muted small">{{ rows | length }} out of sight</span></h1>
 <p class="muted small">Devices out of sight, with where they were last seen, until they show up again: <b>surging</b> (on an

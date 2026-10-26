@@ -40,6 +40,8 @@ and codes).
 Six tabs, each with sub-tabs; every page keeps its own URL. Account, Diagnostics and Console are in the menu under your
 name. Each rule's settings are on the page it works on, in a collapsed *Rules* panel. Everything below is described in
 full in the **[feature guide](docs/FEATURES.md)**.
+Most pages update live: when devices, jobs or game events change, their cards redraw from the app's cache (no game
+calls) at most once a minute while the tab is visible, but not while you type in them; *● live* in the header pauses it.
 
 | Tab | Page | In short |
 |---|---|---|

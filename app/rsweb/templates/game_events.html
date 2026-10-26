@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Contracts{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 {% macro beacon_mark(loc, star) %}{% set b = beacon.get(star) %}{% set here = b.here.get(loc) if b else none %}
 {%- if here %}<a href="/traffic" class="small lv-done" title="your beacon is at {{ loc }}: {{ here | join(', ') }}">📡 beacon</a>

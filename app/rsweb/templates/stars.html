@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Stars{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 <div class="row between">
   <h1>Stars <span class="muted small">{{ catalogue }} known · {{ cstars }} from censuses · {{ rows | length }} unexplored</span></h1>

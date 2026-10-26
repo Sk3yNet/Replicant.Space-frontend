@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Blueprints{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 <div class="row between"><h1>Blueprints &amp; production planner <span class="muted small">{{ blueprints | length }} known{% if synced %} · synced {{ synced | ago }}{% endif %}</span></h1>
   <span class="row"><span id="bp-refresh">{% if refresh_msg %}<span class="lv-done">{{ refresh_msg }}</span>{% endif %}</span>

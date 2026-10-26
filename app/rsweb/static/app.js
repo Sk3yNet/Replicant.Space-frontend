@@ -173,3 +173,109 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
   }
   document.addEventListener("DOMContentLoaded", init);
 })();
+
+// Live sections: parts of a page are redrawn from the app's own cached state (never a game call) when the server reports a
+// change: at most once a minute, only while the tab is visible, with one request for the whole page. A live section is
+// an element marked data-live with an id, or any card of a page whose <main> has data-live-cards (cards that fill
+// themselves with hx-get, or hold a script, are left alone). A data-live element with its own hx-get asks that again.
+// A section isn't redrawn while it holds focus or a form's typed-in input, or for a minute and a half after a button or form in it
+// was used (its answer stays readable); open <details> stay open. The header's live switch pauses it (remembered in this
+// browser). A page script that filters or decorates a section redoes that on the live:swapped event.
+(() => {
+  const KEY = "live:off", MIN_MS = 60000, SETTLE_MS = 3000, HOLD_MS = 90000;
+  const SELF = /load|revealed|intersect|every|sse:/;
+  const seen = {};
+  let pending = false, last = Date.now(), timer = null, busy = false;
+  const off = () => { try { return localStorage.getItem(KEY) === "1"; } catch (e) { return false; } };
+  const fills = el => el.hasAttribute("hx-get") && SELF.test(el.getAttribute("hx-trigger") || "");
+  function sections(root) {   // [[key, element]] in page order; the same keys for the live page and a fresh copy
+    const main = root.querySelector("main"), out = [], n = {};
+    if (!main) return out;
+    const add = (k, el) => { n[k] = (n[k] || 0) + 1; out.push([n[k] > 1 ? k + "#" + n[k] : k, el]); };
+    main.querySelectorAll("[data-live][id]").forEach(el => add("#" + el.id, el));
+    if (main.hasAttribute("data-live-cards")) main.querySelectorAll(".card").forEach(el => {
+      if (el.closest("[data-live], [data-no-live]") || el.parentElement.closest(".card") || fills(el) || el.querySelector("script")
+          || [...el.querySelectorAll("[hx-get]")].some(fills)) return;
+      const h = el.querySelector("h1, h2, h3");
+      add(el.id ? "#" + el.id : "card:" + (el.dataset.card || (h ? h.textContent.trim() : "")), el);
+    });
+    return out;
+  }
+  function schedule() {
+    pending = true;
+    if (timer || busy || off() || document.hidden || !sections(document).length) return;
+    timer = setTimeout(run, Math.max(SETTLE_MS, last + MIN_MS - Date.now()));
+  }
+  function blocked(el) {
+    const a = document.activeElement;
+    if (a && el.contains(a) && a.matches("input, select, textarea, [contenteditable]")) return true;
+    if (Date.now() - (+el.dataset.liveUsed || 0) < HOLD_MS) return true;
+    return !!el.querySelector("[data-dirty]");
+  }
+  function swap(el, html) {
+    const open = [...el.querySelectorAll("details")].map(d => d.open);
+    el.innerHTML = html;
+    el.querySelectorAll("details").forEach((d, i) => { if (open[i] !== undefined) d.open = open[i]; });
+    if (window.htmx) htmx.process(el);
+    tick();
+    fixDatalists(el);
+    el.dispatchEvent(new CustomEvent("live:swapped", { bubbles: true }));
+  }
+  async function run() {
+    timer = null;
+    if (off() || document.hidden || busy) return;
+    pending = false; busy = true; last = Date.now();
+    try {
+      const mine = sections(document).filter(([, el]) => !blocked(el));
+      mine.filter(([, el]) => fills(el)).forEach(([, el]) =>
+        htmx.ajax("GET", el.getAttribute("hx-get"), { source: el, target: el, swap: el.getAttribute("hx-swap") || "innerHTML" }));
+      const diff = mine.filter(([, el]) => !fills(el));
+      if (!diff.length) return;
+      const u = new URL(location.href);
+      u.searchParams.delete("refresh");
+      const r = await fetch(u, { headers: { "X-Live": "1" }, credentials: "same-origin" });
+      if (!r.ok || r.redirected) return;
+      const fresh = new Map(sections(new DOMParser().parseFromString(await r.text(), "text/html")));
+      diff.forEach(([k, el]) => {
+        const nu = fresh.get(k);
+        if (!nu || blocked(el)) return;
+        const html = nu.innerHTML, prev = k in seen ? seen[k] : el.innerHTML;
+        seen[k] = html;
+        if (html !== prev) swap(el, html);
+      });
+    } catch (e) {
+    } finally {
+      busy = false;
+      if (pending) schedule();
+    }
+  }
+  function badge() {
+    const b = document.getElementById("live-switch");
+    if (!b) return;
+    b.hidden = !sections(document).length;
+    b.classList.toggle("off", off());
+    b.title = off() ? "Live updates paused: click to resume" : "Parts of this page update by themselves: click to pause";
+  }
+  const section = el => el && el.closest && (el.closest("[data-live]") || el.closest("main[data-live-cards] .card"));
+  document.addEventListener("sse:state", schedule);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && pending) schedule(); });
+  // typing into a form holds its section back (a page's own filter boxes outside forms don't)
+  document.addEventListener("input", e => { if (e.target.form && section(e.target)) e.target.setAttribute("data-dirty", ""); });
+  document.addEventListener("htmx:beforeRequest", e => {
+    const s = section(e.detail.elt), cfg = e.detail.requestConfig, t = cfg && cfg.triggeringEvent && cfg.triggeringEvent.type;
+    if (s && t && !/^(sse:|load|revealed|intersect|every)/.test(t)) s.dataset.liveUsed = Date.now();   // a click, a change, a submit
+  });
+  document.addEventListener("htmx:afterRequest", e => {
+    const f = e.detail.elt && e.detail.elt.closest && e.detail.elt.closest("form");
+    if (f && e.detail.successful) f.querySelectorAll("[data-dirty]").forEach(i => i.removeAttribute("data-dirty"));
+  });
+  document.addEventListener("DOMContentLoaded", () => {
+    badge();
+    const b = document.getElementById("live-switch");
+    if (b) b.addEventListener("click", () => {
+      try { off() ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, "1"); } catch (e) {}
+      badge();
+      if (!off()) { last = 0; schedule(); }
+    });
+  });
+})();

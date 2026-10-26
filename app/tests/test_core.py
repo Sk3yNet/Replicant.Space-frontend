@@ -9061,3 +9061,23 @@ def test_snapshot_sections_checkboxes(client):
     assert set(snap["sections"]) == {"controllers", "belts", "idle", "fleets"}
     page = client.get("/diagnostics", headers=H).text   # the choice is kept
     assert 'value="perf" checked' not in page and 'value="fleets" checked' in page
+
+
+def test_live_redraw_is_cache_only_and_not_a_visit(client):
+    """Live sections fetch the page again with X-Live: that's no visit (the digest's "since" stays) and the Messages page
+    doesn't ask the game for messages then; live pages mark their <main> for live cards."""
+    db = client.app.state.db
+    calls = []
+    real = client.app.state.worker.sync_messages
+
+    async def spy():
+        calls.append(1)
+        return await real()
+    client.app.state.worker.sync_messages = spy
+    r = client.get("/messages", headers={**H, "X-Live": "1"})
+    assert r.status_code == 200 and "data-live-cards" in r.text and not calls
+    assert client.portal.call(db.fetchone, "SELECT * FROM visitors") is None
+    client.get("/messages", headers=H)
+    assert calls and client.portal.call(db.fetchone, "SELECT * FROM visitors")
+    assert 'id="live-switch"' in r.text and 'hx-trigger="sse:state"' in r.text
+    assert "data-live-cards" not in client.get("/map", headers=H).text

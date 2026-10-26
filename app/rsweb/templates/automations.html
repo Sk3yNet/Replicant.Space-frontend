@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Automations{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 <div class="row between">
   <h1>Automations</h1>
@@ -58,21 +59,24 @@
     <p class="small muted" id="log-none" hidden>Nothing of the kinds ticked above.</p>
   </div>
   <script>
-  (() => {   // show / hide log entries by kind; the choice is remembered in this browser
-    const boxes = [...document.querySelectorAll("#log-toggles input")];
+  (() => {   // show / hide log entries by kind; the choice is remembered in this browser (and kept over live redraws)
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem("log-sev") || "{}"); } catch (e) {}
-    boxes.forEach(b => { if (b.dataset.sev in saved) b.checked = !!saved[b.dataset.sev]; });
+    const boxes = () => [...document.querySelectorAll("#log-toggles input")];
     const apply = () => {
-      const on = Object.fromEntries(boxes.map(b => [b.dataset.sev, b.checked]));
+      const on = Object.fromEntries(boxes().map(b => [b.dataset.sev, b.checked]));
       let shown = 0;
       document.querySelectorAll("#log-feed li[data-sev]").forEach(li => {
         const vis = on[li.dataset.sev] !== false; li.style.display = vis ? "" : "none"; shown += vis; });
-      document.getElementById("log-none").hidden = shown > 0 || !document.querySelector("#log-feed li[data-sev]");
+      const none = document.getElementById("log-none");
+      if (none) none.hidden = shown > 0 || !document.querySelector("#log-feed li[data-sev]");
+      saved = on;
       try { localStorage.setItem("log-sev", JSON.stringify(on)); } catch (e) {}
     };
-    boxes.forEach(b => b.addEventListener("change", apply));
-    apply();
+    const restore = () => { boxes().forEach(b => { if (b.dataset.sev in saved) b.checked = !!saved[b.dataset.sev]; }); apply(); };
+    document.addEventListener("change", e => { if (e.target.closest("#log-toggles")) apply(); });
+    document.addEventListener("live:swapped", restore);
+    restore();
   })();
   </script>
 </div>

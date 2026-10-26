@@ -75,6 +75,8 @@ button:hover, .btn:hover { background: #274169; text-decoration: none; }
 button.danger { background: #4a1f25; border-color: #7a2d36; }
 button.ghost { background: transparent; }
 button.small, .btn.small { padding: 2px 8px; font-size: 12px; }
+button.live-switch { color: var(--good); border-color: transparent; }
+button.live-switch.off { color: var(--muted); text-decoration: line-through; }
 form.inline { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0; }
 label { color: var(--muted); font-size: 12px; }
 .htmx-request .spin, .htmx-request.spin { opacity: .5; }

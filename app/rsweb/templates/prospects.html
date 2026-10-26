@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Mining prospects{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 <div class="row between"><h1>Mining prospects <span class="muted small">wards: {{ w.active }} of {{ w.cap }} active</span></h1>
   <form class="inline small" method="get" action="/systems/prospects">

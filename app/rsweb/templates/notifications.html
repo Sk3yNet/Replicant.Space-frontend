@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Notifications{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 <div class="row between"><h1>Notifications</h1>
   <span class="row"><a class="btn small {{ 'ghost' if show != 'unread' }}" href="/notifications">unread</a><a class="btn small {{ 'ghost' if show == 'unread' }}" href="/notifications?show=all">all</a>
@@ -24,18 +25,20 @@
   </table>
 </div>
 <script>
-(() => {   // show / hide by kind, remembered in this browser (like the Automations log)
-  const boxes = [...document.querySelectorAll("#notif-toggles input")];
+(() => {   // show / hide by kind, remembered in this browser (like the Automations log) and kept over live redraws
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem("notif-kind") || "{}"); } catch (e) {}
-  boxes.forEach(b => { if (b.dataset.kind in saved) b.checked = !!saved[b.dataset.kind]; });
+  const boxes = () => [...document.querySelectorAll("#notif-toggles input")];
   const apply = () => {
-    const on = Object.fromEntries(boxes.map(b => [b.dataset.kind, b.checked]));
+    const on = Object.fromEntries(boxes().map(b => [b.dataset.kind, b.checked]));
     document.querySelectorAll("#notif-table tr[data-kind]").forEach(tr => tr.style.display = on[tr.dataset.kind] === false ? "none" : "");
+    saved = on;
     try { localStorage.setItem("notif-kind", JSON.stringify(on)); } catch (e) {}
   };
-  boxes.forEach(b => b.addEventListener("change", apply));
-  apply();
+  const restore = () => { boxes().forEach(b => { if (b.dataset.kind in saved) b.checked = !!saved[b.dataset.kind]; }); apply(); };
+  document.addEventListener("change", e => { if (e.target.closest("#notif-toggles")) apply(); });
+  document.addEventListener("live:swapped", restore);
+  restore();
 })();
 </script>
 {% endblock %}

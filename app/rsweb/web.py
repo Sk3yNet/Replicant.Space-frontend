@@ -245,7 +245,7 @@ async def base_ctx(request: Request, user: str, active: str, **kw) -> dict:
 
 async def page(request: Request, user: str, template: str, active: str, **kw) -> HTMLResponse:
     visit = None
-    if not request.headers.get("hx-request"):
+    if not request.headers.get("hx-request") and not request.headers.get("x-live"):   # a live redraw isn't a visit
         visit = await notify.touch_visit(request.app.state.db, user, request.app.state.settings.visit_gap_minutes)
     ctx = await base_ctx(request, user, active, visit=visit, **kw)
     return templates.TemplateResponse(request, template, ctx)
@@ -2640,7 +2640,8 @@ async def blueprints(request: Request, q: str = "", feature: str = "", user: str
     refresh_msg = None
     # Opening the page re-reads the list if it is more than a minute old (one cheap GET).
     last = parse_ts(await db.kv_updated("blueprints"))
-    if request.app.state.api.configured and (not last or datetime.now(timezone.utc) - last > timedelta(minutes=1)):
+    if request.app.state.api.configured and not request.headers.get("x-live") \
+            and (not last or datetime.now(timezone.utc) - last > timedelta(minutes=1)):
         try:
             added = await worker.sync_blueprints()
             if added:
@@ -3018,7 +3019,8 @@ async def notifications_read(request: Request, id: int | None = Form(None), user
 async def messages(request: Request, user: str = Depends(current_user)):
     err = None
     try:
-        await request.app.state.worker.sync_messages()
+        if not request.headers.get("x-live"):   # a live redraw shows what's synced, it doesn't ask the game
+            await request.app.state.worker.sync_messages()
     except ApiError as e:
         err = e.message
     msgs = await request.app.state.db.kv_get("messages", []) or []

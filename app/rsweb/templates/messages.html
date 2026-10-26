@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Messages{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 <div class="row between"><h1>Messages</h1>
   <button class="small" hx-post="/messages/read" hx-target="#msg-result">Mark all read in game</button></div>

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Trail{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 <div class="row between"><h1>Trail <span class="muted small">following {{ s.target_name }}{% if s.target_code %} · <span class="mono">{{ s.target_code }}</span>{% endif %}</span></h1>
   <span><button class="small" hx-post="/trail/read" hx-target="#trail-result">Read all beacons</button>

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Systems{% endblock %}
+{% block live %} data-live-cards{% endblock %}
 {% block content %}
 <div class="row between"><h1>Systems</h1>
   <form class="inline" onsubmit="location.href='/systems/'+this.star.value.toUpperCase(); return false;">
@@ -73,12 +74,14 @@ function opFilter(save) {
   document.getElementById("op-shown").textContent = Object.keys(want).length ? n + " of " + all + " shown" : "";
   if (save !== false) try { localStorage.setItem("sys-op-filter", JSON.stringify(want)); } catch (e) {}
 }
-(function () {
+function opRestore() {   // on load and after a live redraw
   let want = {};
   try { want = JSON.parse(localStorage.getItem("sys-op-filter") || "{}") || {}; } catch (e) {}
   document.querySelectorAll("#op-filters select").forEach(s => { if (want[s.dataset.kind]) s.value = want[s.dataset.kind]; });
   opFilter(false);
-})();
+}
+opRestore();
+document.addEventListener("live:swapped", opRestore);
 </script>
 <details class="card" id="system-tags" style="margin-top:14px"><summary><b>System tags</b> <span class="muted small">from {{ known | length }} cached scans · {{ system_tags | length }} tags</span></summary>
   {% for t, stars in system_tags %}<div class="small" style="margin:4px 0"><span class="pill {{ 'lv-alert' if 'hazard' in t | lower }}">{{ t | human }}</span>
