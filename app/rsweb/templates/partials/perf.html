@@ -16,6 +16,11 @@
   {% for s in perf.stages %}<tr><td class="mono">{{ s.name }}</td><td class="num">{{ s.n }}</td><td class="num">{{ s.avg_ms }}</td>
     <td class="num">{{ s.avg_cpu_ms if s.avg_cpu_ms is defined else '—' }}</td><td class="num">{{ s.last_ms }}</td><td class="num">{{ s.max_ms }}</td></tr>{% endfor %}</table>
 {% set lg = perf.loop_lag or {} %}
+{% set ht = perf.hot or {} %}
+<h3>Where the server is busy</h3>
+<p class="small muted">Sampled every {{ ht.sample_ms or 20 }} ms since the start: busy in {{ ht.busy_pct or 0 }} % of {{ ht.samples or 0 }} samples. Inclusive: every function on the stack; started by: the outermost one (engine stage in brackets).</p>
+<div class="grid g2">{% for title, rows in [("Inclusive", ht.inclusive), ("Started by", ht.entry)] %}<div><b class="small">{{ title }}</b>
+  <table class="small">{% for h in (rows or [])[:15] %}<tr><td class="mono">{{ h.where }}</td><td class="num">{{ h.pct }} %</td></tr>{% endfor %}</table></div>{% endfor %}</div>
 <h3>Server stalls</h3>
 <p class="small muted">Times the server could not answer for over a second (longest {{ lg.max_ms or 0 }} ms; {{ lg.stalls_over_1s or 0 }} stalls, {{ lg.stalled_s or 0 }} s in all), by the engine stage running then.</p>
 {% if lg.by_stage %}<table class="small"><tr><th>Stage</th><th class="num">Stalls</th><th class="num">Total ms</th><th class="num">Max ms</th></tr>

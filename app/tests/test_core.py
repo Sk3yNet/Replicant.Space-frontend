@@ -9117,3 +9117,17 @@ def test_orders_refresh_the_devices_they_touch(client):
         await asyncio.gather(*w._bg)
     client.portal.call(arrive)
     assert next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == code)["status"] != "stale"
+
+
+def test_heavy_passes_spread_over_ticks(client):
+    eng = client.app.state.worker.automations
+    ran = []
+    for name in ("rule_salvage", "rule_restart_idle_miners", "rule_reopen_sites"):
+        async def fake(n=name):
+            ran.append(n)
+            return []
+        setattr(eng, name, fake)
+    for _ in range(4):   # the first tick runs everything, then one heavy pass per tick
+        client.portal.call(eng.tick)
+    assert sorted(ran[:3]) == ["rule_reopen_sites", "rule_restart_idle_miners", "rule_salvage"]
+    assert ran[3:] == ["rule_restart_idle_miners", "rule_reopen_sites", "rule_salvage"], ran

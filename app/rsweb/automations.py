@@ -243,6 +243,9 @@ RULES: list[Rule] = [
 ]
 RULES_BY_ID = {r.id: r for r in RULES}
 
+# heavy passes run every n-th tick, each on its own tick (stage: (n, offset)): each held the server 3–7 s of CPU every
+# minute (snapshot 2026-10-26, 1.271.1); their own cooldowns are in minutes, so a pass every 3 min loses nothing
+SPREAD = {"rule_salvage": (3, 0), "rule_restart_idle_miners": (3, 1), "rule_reopen_sites": (3, 2)}
 STEP_TIMEOUT = 3600          # waiting for travel/scan to finish
 TRIP_GRACE_S = 1800          # past a trip's ETA, a wait (or a refused step) keeps going this long before giving up
 NO_ETA_EXTRA_S = 3600        # still moving and no ETA known: this much longer, once
@@ -497,6 +500,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         self.stage: str | None = None          # what the current tick is doing (for the watchdog / snapshot)
         self._lock_alerted = False
         self.stage_errors: dict[str, str] = {}  # stage -> its last error (announced once)
+        self.tick_n = 0   # ticks run since start (SPREAD)
 
     # --- settings & persistence ---------------------------------------------------------
     async def settings(self) -> dict:
@@ -546,6 +550,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
     def start(self) -> None:
         self.task = asyncio.create_task(self._tick_loop(), name="automations")
         self.lag_task = asyncio.create_task(perf.watch_loop(lambda: self.stage), name="loop-lag")
+        perf.start_sampler(lambda: self.stage)
 
     async def stop(self) -> None:
         for t in (self.task, getattr(self, "lag_task", None)):
@@ -1602,6 +1607,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_repeats", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass"):
+                every, at = SPREAD.get(stage, (1, 0))
+                if self.tick_n and self.tick_n % every != at:
+                    continue   # a heavy pass that runs every few ticks, on a tick of its own (all run on the first)
                 self.stage = stage
                 await asyncio.sleep(0)   # let waiting page requests run between stages
                 t_stage, c_stage = time.perf_counter(), time.thread_time()
@@ -1623,6 +1631,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     for line in out or []:
                         await self.log("civ_beacons", line)
             self.stage = None
+            self.tick_n += 1
             await self.note_tick()
 
     async def trail_follow_pass(self) -> list[str]:

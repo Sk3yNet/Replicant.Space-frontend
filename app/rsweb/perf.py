@@ -87,6 +87,71 @@ LAG_STEP = 0.25
 lag: dict = {"max_ms": 0.0, "stalls": 0, "stalled_ms": 0.0, "by_stage": {}}   # stalls: wakes over 1 s late
 
 
+# sampling profiler: a thread looks at the event loop thread's stack every SAMPLE_S while it's busy, so the snapshot
+# shows which code holds the server (by the outermost and innermost rsweb function), without slowing it like cProfile
+SAMPLE_S = 0.02
+hot: dict = {"samples": 0, "busy": 0, "entry": {}, "leaf": {}, "pair": {}, "func": {}, "inner": {}}
+_sampler: dict = {"thread": None}
+
+
+def _where(f) -> str:
+    return f"{os.path.basename(f.f_code.co_filename)}:{f.f_code.co_name}"
+
+
+def sample_once(main_ident: int, stage_of) -> None:
+    import sys
+    f = sys._current_frames().get(main_ident)
+    hot["samples"] += 1
+    if f is None or (f.f_code.co_name == "select" and "selectors" in f.f_code.co_filename):
+        return   # idle: the loop waits for something to do
+    hot["busy"] += 1
+    hot["inner"][_where(f)] = hot["inner"].get(_where(f), 0) + 1   # the innermost frame, library code included (json, re …)
+    ours = []
+    while f is not None:
+        if "rsweb" in f.f_code.co_filename and "perf.py" not in f.f_code.co_filename:
+            ours.append(_where(f))
+        f = f.f_back
+    if not ours:
+        ours = ["(outside rsweb)"]
+    leaf, entry = ours[0], ours[-1]
+    st = stage_of() if stage_of else None
+    if st:
+        entry = f"{entry} [{st}]"
+    for d, k in ((hot["entry"], entry), (hot["leaf"], leaf), (hot["pair"], f"{entry} → {leaf}")):
+        d[k] = d.get(k, 0) + 1
+    for k in set(ours):   # inclusive: every rsweb function on the stack
+        hot["func"][k] = hot["func"].get(k, 0) + 1
+
+
+def start_sampler(stage_of=None) -> None:
+    """Start the sampling thread once (it lives as long as the process)."""
+    import threading
+    if _sampler["thread"] is not None:
+        return
+    main = threading.get_ident()   # called from the event loop's thread
+
+    def run() -> None:
+        while True:
+            time.sleep(SAMPLE_S)
+            try:
+                sample_once(main, stage_of)
+            except Exception:
+                pass
+    t = threading.Thread(target=run, name="perf-sampler", daemon=True)
+    _sampler["thread"] = t
+    t.start()
+
+
+def hot_report(n: int = 25) -> dict:
+    def top(d: dict) -> list[dict]:
+        busy = max(hot["busy"], 1)
+        return [{"where": k, "samples": v, "pct": round(100 * v / busy, 1)} for k, v in sorted(d.items(), key=lambda x: -x[1])[:n]]
+    return {"sample_ms": SAMPLE_S * 1000, "samples": hot["samples"], "busy": hot["busy"],
+            "busy_pct": round(100 * hot["busy"] / max(hot["samples"], 1), 1),
+            "entry": top(hot["entry"]), "leaf": top(hot["leaf"]), "inclusive": top(hot["func"]), "pairs": top(hot["pair"]),
+            "innermost": top(hot["inner"])}
+
+
 async def watch_loop(stage_of) -> None:
     """Measure event loop stalls, credited to the engine stage running then (stage_of() → name or None)."""
     import asyncio
@@ -172,7 +237,7 @@ async def report(db) -> dict:
                            "avg_ms": round(waits["total_ms"] / max(waits["n"], 1), 1)},
             "loop_lag": {"max_ms": lag["max_ms"], "stalls_over_1s": lag["stalls"], "stalled_s": round(lag["stalled_ms"] / 1000, 1),
                          "by_stage": sorted(({"stage": k, **v} for k, v in lag["by_stage"].items()), key=lambda x: -x["total_ms"])[:15]},
-            "requests_seen": len(requests), "storage": await storage(db)}
+            "hot": hot_report(), "requests_seen": len(requests), "storage": await storage(db)}
 
 
 class Middleware:
