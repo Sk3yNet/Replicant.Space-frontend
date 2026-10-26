@@ -365,7 +365,13 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
 - **Keep in stock** (a *Stock* column beside *Want* in a fleet's loadout editor, and a second box (+) per type in the
   Templates grid, which the template's fleets follow): that many more of a type are kept as spares at the fleet's home.
   - Spares in that system (and stock prints under way) count; what's missing is printed one at a time on an autofactory
-    there that has nothing printing or queued, tagged `spare` and `stock`.
+    there that has nothing printing or queued, tagged `spare` and `stock`. When the home stockpile can't cover it, an idle
+    autofactory at another printing hub within the sector range whose stockpile can prints it, tagged `to:<home>`, and
+    a carrier brings it over (1.274.0).
+- **Printing hubs share autofactories** (1.274.0): stationed fleets that take materials in (FALQUORYX, SOLARES) print
+  for each other within the sector range (1728 ly). A fleet print goes to the other hub when its own stockpile can't
+  cover it, and ward / relay / beacon orders prefer an autofactory whose stockpile covers the print. A hub further away
+  (Delta at ISOLITHOR) keeps its autofactories to itself.
   - Any fleet or ward / relay order can take it (wards are only printed, never activated); once taken for a fleet or a
     system it loses both tags.
   - Stock prints are low priority: logistics supplies them last, and a waiting stock print is moved behind any other.

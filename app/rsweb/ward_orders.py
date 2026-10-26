@@ -119,10 +119,12 @@ def room(f: dict, pending: int = 0) -> int:
 
 
 def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reach: float,
-                 ordered: dict[str, int] | None = None) -> dict | None:
-    """The autofactory to print a ward on, within reach of `star`: the shortest queue (counting wards already ordered
-    on it, `ordered`), then the nearest; one with a full queue is skipped. Compacted or carried ones can't print (seen
-    live 2026-10-11: four orders went to 1131B50B while 3E95BD59, idle beside it, lost every tie on its code)."""
+                 ordered: dict[str, int] | None = None, stocked: set[str] | None = None) -> dict | None:
+    """The autofactory to print a ward on, within reach of `star`: one whose stockpile covers the print (`stocked`, when
+    given: owner 2026-10-26, SOLARES relays sat waiting for conductive while FALQUORYX had plenty), then the shortest
+    queue (counting wards already ordered on it, `ordered`), then the nearest; one with a full queue is skipped.
+    Compacted or carried ones can't print (seen live 2026-10-11: four orders went to 1131B50B while 3E95BD59, idle
+    beside it, lost every tie on its code)."""
     out = []
     for f in devices:
         st = str(f.get("status") or "")
@@ -134,8 +136,15 @@ def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reac
         dist = lo._dist(star_of(f["location"]), star, pos)
         if (reach and reach < dist < 1e9) or room(f, (ordered or {}).get(f["device_code"], 0)) <= 0:
             continue
-        out.append((load(f) + (ordered or {}).get(f["device_code"], 0), dist, f["device_code"], f))
-    return min(out, key=lambda x: x[:3])[3] if out else None
+        out.append((stocked is not None and f["device_code"] not in stocked,
+                    load(f) + (ordered or {}).get(f["device_code"], 0), dist, f["device_code"], f))
+    return min(out, key=lambda x: x[:4])[4] if out else None
+
+
+def stocked(devices: list[dict], cost: dict[str, float], inventory: dict[str, dict]) -> set[str]:
+    """Factories whose location's stockpile holds one print's worth of `cost`."""
+    from .stock import covers
+    return {f["device_code"] for f in devices if lo.is_factory(f) and f.get("location") and covers(f, cost, inventory)}
 
 
 def queued_at(factory: dict, star: str, dtype: str = "system_ward") -> int | None:

@@ -9131,3 +9131,46 @@ def test_heavy_passes_spread_over_ticks(client):
         client.portal.call(eng.tick)
     assert sorted(ran[:3]) == ["rule_reopen_sites", "rule_restart_idle_miners", "rule_salvage"]
     assert ran[3:] == ["rule_restart_idle_miners", "rule_reopen_sites", "rule_salvage"], ran
+
+
+def test_printing_hubs_print_for_each_other_within_sector_range():
+    """Owner 2026-10-26: FALQUORYX and SOLARES (~500 ly apart) print for each other when one's stockpile can't cover a
+    print (SOLARES relays sat waiting for conductive); a hub beyond the sector range (Delta, ISOLITHOR) stays apart."""
+    from rsweb import loadouts as lo, stock, ward_orders as wo
+
+    def fac(code, loc, fid, **kw):
+        return {"device_code": code, "device_type": "autofactory", "location": loc, "status": "idle", "print_queue": [],
+                "available_commands": ["enqueue_print"], "tags": [f"fleet:{fid}"], **kw}
+    devices = [fac("SF", "SOL-BELT-1", "sol"), fac("FF", "FAL-BELT-1", "fal"), fac("DF", "DEL-BELT-1", "del")]
+    fleets = [{"id": fid, "name": fid, "home": home, "station": True, "materials": "self", "wants": {}}
+              for fid, home in (("sol", "SOL"), ("fal", "FAL"), ("del", "DEL"))]
+    fleets[0]["wants"] = {"ftl_relay": 1}
+    bps = [{"device_type": "ftl_relay", "resources": {"conductive": 120, "structural": 80}, "print_time": 600}]
+    stars = {"SOL": {"position": {"x": 0, "y": 0, "z": 0}}, "FAL": {"position": {"x": 500, "y": 0, "z": 0}},
+             "DEL": {"position": {"x": -29000, "y": 0, "z": 0}}}
+    cfg = {"phases": [], "fleets": fleets, "fleets_migrated": True}
+    rich = {"conductive": 3000, "structural": 9000}
+    p = lo.plan(cfg, devices, bps, {"SOL-BELT-1": {"structural": 9000}, "FAL-BELT-1": rich}, stars, {}, set(), [], {})
+    assert [(pr["factory"], pr["star"]) for pr in p["prints"]] == [("FF", "SOL")]      # the stocked hub prints it
+    p = lo.plan(cfg, devices, bps, {"SOL-BELT-1": {"structural": 9000}, "DEL-BELT-1": rich}, stars, {}, set(), [], {})
+    assert [pr["factory"] for pr in p["prints"]] == ["SF"]                               # Delta's isn't lent: waits at home
+    p = lo.plan(cfg, devices, bps, {"SOL-BELT-1": rich, "FAL-BELT-1": rich}, stars, {}, set(), [], {})
+    assert [pr["factory"] for pr in p["prints"]] == ["SF"]                               # stocked at home: home first
+
+    # keep in stock: partners in range, prints bound here count for here (and not for the hub printing them)
+    pos = {k: v["position"] for k, v in stars.items()}
+    sol, fal = {**fleets[0], "stock": {"ftl_relay": 1}}, {**fleets[1], "stock": {"ftl_relay": 1}}
+    assert stock.partners(sol, fleets, pos, 1728) == [fleets[1]]
+    devs = [fac("SF", "SOL-BELT-1", "sol"),
+            fac("FF", "FAL-BELT-1", "fal", print_queue=[{"device_type": "ftl_relay", "tags": ["spare", "stock", "gather", "to:sol"]}])]
+    assert stock.shortfall(sol, devs, [fal]) == {} and stock.shortfall(fal, devs) == {"ftl_relay": 1}
+    devs[1]["print_queue"] = []
+    devs.append({"device_code": "R1", "device_type": "ftl_relay", "location": "FAL-BELT-1", "tags": ["spare", "gather", "to:sol"]})
+    assert stock.shortfall(sol, devs, [fal]) == {} and stock.shortfall(fal, devs) == {"ftl_relay": 1}   # on its way
+
+    # relay / ward orders: a factory whose stockpile covers the print first, ahead of a shorter queue
+    inv = {"SOL-BELT-1": {"structural": 9000}, "FAL-BELT-1": rich}
+    devs = [fac("SF", "SOL-BELT-1", "sol"), fac("FF", "FAL-BELT-1", "fal", print_queue=[{"device_type": "x"}])]
+    have = wo.stocked(devs, {"conductive": 120, "structural": 80}, inv)
+    assert have == {"FF"} and wo.factory_near(devs, "SOL", set(), pos, 1728, None, have)["device_code"] == "FF"
+    assert wo.factory_near(devs, "SOL", set(), pos, 1728)["device_code"] == "SF"

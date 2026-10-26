@@ -138,7 +138,10 @@ class OpsRules:
                     ordered[o["factory"]] = ordered.get(o["factory"], 0) + 1
         if kind == "relay" and await self.relay_prints_paused():
             return None, f"no spare {label} within {reach:g} ly of {star}, and relay prints are paused (Map › Relays)"
-        f = wo.factory_near(devices, star, busy, pos, reach, ordered)
+        from .shapes import as_amounts, normalize_blueprints, normalize_inventory
+        bp = next((b for b in normalize_blueprints(await self.db.kv_get("blueprints", [])) if b.get("device_type") == dtype), {})
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        f = wo.factory_near(devices, star, busy, pos, reach, ordered, wo.stocked(devices, as_amounts(bp.get("resources")), inv))
         if not f:
             return None, f"no spare {label} and no autofactory with a free print slot within {reach:g} ly of {star}"
         await self.create_job("wards", f"print a {label} on {f['device_code']} for {star}", f["device_code"],

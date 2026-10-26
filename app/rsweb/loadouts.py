@@ -650,13 +650,25 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         dist = _dist(star_of(d.get("location")), star, pos)
         return not reach or dist <= reach or dist >= 1e9   # positions unknown: can't tell, so allowed
 
-    def usable(tag: str | None) -> list[dict]:
-        """Factories with queue room a fleet may print on: fleetless ones and its own; another fleet's only when there's
-        nothing else (e.g. every autofactory belongs to the printing hub)."""
+    from .logistics import SECTOR_RANGE_LY
+    hub_tags = {t for t, f in by_tag.items() if f.get("materials") == "self"}   # the printing hubs
+
+    def shared(f: dict, star: str | None) -> bool:
+        """A printing hub's autofactory within the sector range of `star`: the hubs print for each other (owner 2026-10-26:
+        FALQUORYX and SOLARES, ~500 ly apart); one further away (Delta's, at ISOLITHOR) isn't lent."""
+        return bool(star) and fleet_tag_of(f) in hub_tags and _dist(star_of(f.get("location")), star, pos) <= SECTOR_RANGE_LY
+
+    def usable(tag: str | None, star: str | None = None) -> list[dict]:
+        """Factories with queue room a fleet may print on: fleetless ones, its own and the printing hubs' in range of
+        `star`; another fleet's only when there's nothing else (e.g. every autofactory belongs to the printing hub)."""
         open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0 and fam(f) == fleet_fam(tag)]
         sup = supplier(tag)
-        mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) in {tag, sup} - {None}]
+        mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) in {tag, sup} - {None} or shared(f, star)]
         return mine or open_f
+
+    def covers(f: dict, cost: dict[str, float], k: int = 1) -> bool:
+        stock = as_amounts(inventory.get(f.get("location")) or {})
+        return all(stock.get(r, 0) - reserved[f.get("location")][r] >= v * k for r, v in cost.items())
 
     def factory_for(t: str, star: str, tag: str | None = None) -> tuple[dict | None, str]:
         bp = bps.get(t)
@@ -666,7 +678,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if not factories:
             return None, "no autofactory"
         best = None
-        open_f = usable(tag)
+        open_f = usable(tag, star)
         if not open_f:
             return None, "every autofactory's print queue is full"
         sup = supplier(tag)
@@ -726,6 +738,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 need -= len(wait)
             own = [g for g in factories if fleet_tag_of(g) == tag and queue_free.get(g["device_code"], 1) > 0 and near(g, star)]
             if need > 0 and s["print_missing"] and own and row["type"] in bps:
+                # its own stockpile can't cover one: another hub's autofactory that can prints it instead (owner 2026-10-26)
+                cost = as_amounts((bps.get(row["type"]) or {}).get("resources"))
+                if not any(covers(g, cost) for g in own):
+                    alt, _ = factory_for(row["type"], star, tag)
+                    if alt and alt not in own and covers(alt, cost):
+                        own = []
+            if need > 0 and s["print_missing"] and own and row["type"] in bps:
                 # Seen live (2026-10-06): three fleets each with an autofactory, all three prints on one of them. A fleet
                 # with its own autofactory prints there; short of stock, the print waits for materials in its queue.
                 cost = as_amounts((bps.get(row["type"]) or {}).get("resources"))
@@ -757,7 +776,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     # those at the same stockpile, since the stock check above was for that one)
                     peers = [g for g in factories if star_of(g.get("location")) == star_of(f.get("location"))
                              and (not s["need_stock"] or g.get("location") == f.get("location"))
-                             and g in usable(tag)]
+                             and g in usable(tag, star)]
                     # Seen live (2026-10-07): Miner 1 and Miner 2 have no autofactory, all three are Printing Hub 1's; both
                     # their prints went on one of them while another sat idle — the split only had the first one to use.
                     parts = pq.split(peers, row["type"], n, bps, load, queue_free)

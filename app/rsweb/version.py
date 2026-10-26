@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.273.0"
+VERSION = "1.274.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.274.0", "2026-10-26", "FALQUORYX and SOLARES print for each other: a fleet print, a keep-in-stock print or a ward / relay / beacon order goes to the other printing hub's autofactory when the home stockpile can't cover it and the other one can, and a carrier brings the device over. Only hubs within the sector range (1728 ly) share, so Delta stays apart."),
     ("1.273.0", "2026-10-26", "The three heaviest engine passes (salvage, restart idle miners, reopen sites) each run every third minute, on a minute of their own, instead of all three every minute: together they held the server about 13 s of every minute, so pages stalled (the first tick after a start still runs them all). Diagnostics › Performance has a Where the server is busy table: a sampling profiler that names the functions holding the server, inside the engine or not, to find the next thing to move."),
     ("1.272.0", "2026-10-26", "Simulations › Data uploads no longer lists devices already uploaded (the interface consumed them): the app keeps the uploaded codes and shows a count by type instead. Uploads sent before this version are recovered once from the action log."),
     ("1.271.1", "2026-10-26", "Surge hops out of a system to a body elsewhere now end with the destination's star as the last waypoint (the game refused ISOLITHOR-KUIPER straight to KHAZENEN-BELT-1, so the trip fell back to the game's own slower route)."),

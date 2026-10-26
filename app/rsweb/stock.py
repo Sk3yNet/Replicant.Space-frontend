@@ -90,27 +90,62 @@ def idle(d: dict) -> bool:
     return not pq.items(d) and _current(d)[0] is None and not st.startswith(("printing", "waiting_for_resources"))
 
 
-def shortfall(fleet: dict, devices: list[dict]) -> dict[str, int]:
-    """{type: n} still to print for the hub's stock: target minus spares at home minus stock prints under way."""
+def shortfall(fleet: dict, devices: list[dict], partners: list[dict] | None = None) -> dict[str, int]:
+    """{type: n} still to print for the hub's stock: target minus spares at home (or on their way there, `to:` it) minus
+    stock prints under way, here or for here on a `partners` hub's autofactory (partner_prints)."""
     from . import printqueue as pq
     from .fleets import fleet_of
     want = {t: int(n) for t, n in (fleet.get("stock") or {}).items() if int(n or 0) > 0}
     if not want or not fleet.get("home"):
         return {}
+    to = home_tag(fleet["home"])
     have = {t: 0 for t in want}
     for d in devices:
-        t = d.get("device_type")
-        if t in have and SPARE_TAG in (d.get("tags") or []) and not fleet_of(d) \
-                and star_of(d.get("location")) == fleet["home"]:
+        t, tags = d.get("device_type"), d.get("tags") or []
+        if t in have and SPARE_TAG in tags and not fleet_of(d) \
+                and (to in tags or (star_of(d.get("location")) == fleet["home"] and not elsewhere(tags, fleet["home"]))):
             have[t] += 1
-    for f in hub_factories(fleet, devices):
-        for it in pq.items(f):
-            if it["device_type"] in have and is_stock(it):
-                have[it["device_type"]] += max(1, int(it.get("quantity") or 1))
-        t, tags = _current(f)
-        if t in have and (tags is None or STOCK_TAG in tags):   # tags unknown: counted, so it's never printed twice
-            have[t] += 1
+
+    def mine(tags: list[str] | None, home: bool) -> bool:
+        """A stock print counts for this hub: on its own factory unless bound elsewhere, on a partner's when bound here."""
+        return STOCK_TAG in tags and (not elsewhere(tags, fleet["home"]) if home else to in tags) if tags is not None else home
+    for home, facs in ((True, hub_factories(fleet, devices)), (False, [f for p in partners or [] for f in hub_factories(p, devices)])):
+        for f in facs:
+            for it in pq.items(f):
+                if it["device_type"] in have and mine(it.get("tags") or [], home):
+                    have[it["device_type"]] += max(1, int(it.get("quantity") or 1))
+            t, tags = _current(f)
+            if t in have and mine(tags, home):   # tags unknown: counted at home, so it's never printed twice
+                have[t] += 1
     return {t: n - have[t] for t, n in want.items() if n > have[t]}
+
+
+def home_tag(star: str) -> str:
+    from .loadouts import to_tag
+    return to_tag(star)
+
+
+def elsewhere(tags: list[str], home: str) -> bool:
+    """Tagged to go to another system than `home` (a partner hub's stock print, for its own home)."""
+    return any(t.startswith("to:") and t != home_tag(home) for t in tags)
+
+
+def partners(fleet: dict, fleets: list[dict], pos: dict, reach: float) -> list[dict]:
+    """The other printing hubs (stationed fleets that take materials in) within `reach` of this one's home: they print
+    each other's stock when their own stockpile can't (owner 2026-10-26: FALQUORYX and SOLARES, ~500 ly apart; a hub
+    beyond the sector range, like Delta's at ISOLITHOR, is left out)."""
+    from .loadouts import _dist
+    home = fleet.get("home")
+    return [f for f in fleets if f is not fleet and f.get("home") and f["home"] != home and f.get("station")
+            and f.get("materials") == "self" and f.get("role") not in ("logistics", "bootstrap")
+            and _dist(home, f["home"], pos) <= reach]
+
+
+def covers(f: dict, cost: dict[str, float], inventory: dict[str, dict]) -> bool:
+    """The stockpile at the factory's location holds one print's worth of `cost`."""
+    from .shapes import as_amounts
+    have = as_amounts(inventory.get(f.get("location")) or {})
+    return bool(cost) and all(have.get(r, 0) >= v for r, v in cost.items())
 
 
 class StockMixin:
@@ -172,32 +207,56 @@ class StockMixin:
                 return (t_now - datetime.fromisoformat(orders[code])).total_seconds() < ORDER_GAP_S
             except (KeyError, ValueError, TypeError):
                 return False
+        from .logistics import SECTOR_RANGE_LY
+        from .loadouts import GATHER
+        from .shapes import as_amounts, normalize_blueprints, normalize_inventory
+        cat = await self.db.kv_get("stars", {}) or {}
+        pos = {s.get("designation"): s.get("position") or {} for s in cat.get("stars") or [] if isinstance(s, dict)}
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        every = await self.fleets()
         for f in hubs:
             facs = hub_factories(f, devices)
+            mates = partners(f, every, pos, SECTOR_RANGE_LY)
             for fac in facs:   # a stock print waiting ahead of another print goes behind it
                 q = pq.items(fac)
                 if q and stock_last(q) != q and not recent(fac["device_code"]):
                     ok, msg = await self.requeue(fac["device_code"], stock_last(q), "stock prints go last")
                     orders[fac["device_code"]] = now_iso()
                     out.append(f"{fac['device_code']}: stock prints moved to the back — {msg}")
-            short = shortfall(f, devices)
+            short = shortfall(f, devices, mates)
             for t, n in sorted(short.items(), key=lambda kv: (-kv[1], kv[0])):
-                fac = next((x for x in facs if idle(x) and not recent(x["device_code"])), None)
+                cost = as_amounts((bps.get(t) or {}).get("resources"))
+                free = [x for x in facs if idle(x) and not recent(x["device_code"])]
+                fac = next((x for x in free if covers(x, cost, inv)), None)
+                tags = [SPARE_TAG, STOCK_TAG]
+                if not fac:
+                    # the home stockpile can't cover it: a partner hub whose stockpile can prints it and a carrier brings
+                    # it over (owner 2026-10-26: shipping the device beats shipping its materials); else it waits here
+                    fac = next((x for p in mates for x in hub_factories(p, devices)
+                                if idle(x) and not recent(x["device_code"]) and covers(x, cost, inv)), None)
+                    if fac:
+                        tags += [GATHER, home_tag(f["home"])]
+                    else:
+                        fac = free[0] if free else None
                 if not fac:
                     break
-                job = await self.create_job("stock", f"stock: print {t} for {f.get('name') or f['id']} ({f['home']})",
+                away = star_of(fac.get("location")) != f["home"]
+                job = await self.create_job("stock", f"stock: print {t} for {f.get('name') or f['id']} ({f['home']})"
+                                            + (f" at {star_of(fac.get('location'))}" if away else ""),
                                             fac["device_code"],
-                                            [self._stock_step(fac["device_code"], t)], {"devices": []})
+                                            [self._stock_step(fac["device_code"], t, tags)], {"devices": []})
                 orders[fac["device_code"]] = now_iso()
                 if job:
-                    out.append(f"{fac['device_code']}: printing a {t} to keep in stock at {f['home']} ({n} short)")
+                    out.append(f"{fac['device_code']}: printing a {t} to keep in stock at {f['home']} ({n} short)"
+                               + (f", from the {star_of(fac.get('location'))} stockpile" if away else ""))
         await self.db.kv_set(ORDERS_KV, {c: v for c, v in orders.items() if recent(c)})
         for line in out:
             await self.log("stock", line)
         return out
 
     @staticmethod
-    def _stock_step(code: str, dtype: str) -> dict:
+    def _stock_step(code: str, dtype: str, tags: list[str] | None = None) -> dict:
         from .automations import step
         return step(f"{code}: print {dtype} for stock", f"/devices/{code}",
-                    {"command": "enqueue_print", "device_type": dtype, "quantity": 1, "tags": [SPARE_TAG, STOCK_TAG]})
+                    {"command": "enqueue_print", "device_type": dtype, "quantity": 1, "tags": tags or [SPARE_TAG, STOCK_TAG]})
