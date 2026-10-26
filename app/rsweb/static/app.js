@@ -15,6 +15,11 @@ function tick() {
     const left = end - now;
     const out = el.querySelector(".left") || el;
     out.textContent = fmtLeft(left);
+    if (left > 0) el.dataset.ticking = "1";
+    else if (el.dataset.ticking) {   // reached zero while the page was open: a live section shows what happened
+      delete el.dataset.ticking;
+      if (el.closest("[data-live]")) document.dispatchEvent(new Event("live:due"));
+    }
     const bar = el.querySelector(".bar > i");
     if (bar && end > start) bar.style.width = Math.max(0, Math.min(100, 100 * (now - start) / (end - start))) + "%";
     el.classList.toggle("done", left <= 0);
@@ -180,12 +185,13 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
 // themselves with hx-get, or hold a script, are left alone). A data-live element with its own hx-get asks that again.
 // A section isn't redrawn while it holds focus or a form's typed-in input, or for a minute and a half after a button or form in it
 // was used (its answer stays readable); open <details> stay open. The header's live switch pauses it (remembered in this
-// browser). A page script that filters or decorates a section redoes that on the live:swapped event.
+// browser). For a minute after an order (any button or form that changes something) reported changes show
+// within seconds (at most one redraw every 8 s); so do they for a minute after a countdown in a section reaches zero. A page script that filters or decorates a section redoes that on the live:swapped event.
 (() => {
-  const KEY = "live:off", MIN_MS = 60000, SETTLE_MS = 3000, HOLD_MS = 90000;
+  const KEY = "live:off", MIN_MS = 60000, SETTLE_MS = 3000, HOLD_MS = 90000, FAST_MS = 60000, FAST_GAP_MS = 8000;
   const SELF = /load|revealed|intersect|every|sse:/;
   const seen = {};
-  let pending = false, last = Date.now(), timer = null, busy = false;
+  let pending = false, last = Date.now(), timer = null, busy = false, fastUntil = 0;
   const off = () => { try { return localStorage.getItem(KEY) === "1"; } catch (e) { return false; } };
   const fills = el => el.hasAttribute("hx-get") && SELF.test(el.getAttribute("hx-trigger") || "");
   function sections(root) {   // [[key, element]] in page order; the same keys for the live page and a fresh copy
@@ -204,7 +210,8 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
   function schedule() {
     pending = true;
     if (timer || busy || off() || document.hidden || !sections(document).length) return;
-    timer = setTimeout(run, Math.max(SETTLE_MS, last + MIN_MS - Date.now()));
+    const fast = Date.now() < fastUntil;   // just after an order: follow its result closely
+    timer = setTimeout(run, Math.max(SETTLE_MS, last + (fast ? FAST_GAP_MS : MIN_MS) - Date.now()));
   }
   function blocked(el) {
     const a = document.activeElement;
@@ -258,6 +265,7 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
   }
   const section = el => el && el.closest && (el.closest("[data-live]") || el.closest("main[data-live-cards] .card"));
   document.addEventListener("sse:state", schedule);
+  document.addEventListener("live:due", () => { fastUntil = Date.now() + FAST_MS; clearTimeout(timer); timer = null; schedule(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden && pending) schedule(); });
   // typing into a form holds its section back (a page's own filter boxes outside forms don't)
   document.addEventListener("input", e => { if (e.target.form && section(e.target)) e.target.setAttribute("data-dirty", ""); });
@@ -268,6 +276,8 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
   document.addEventListener("htmx:afterRequest", e => {
     const f = e.detail.elt && e.detail.elt.closest && e.detail.elt.closest("form");
     if (f && e.detail.successful) f.querySelectorAll("[data-dirty]").forEach(i => i.removeAttribute("data-dirty"));
+    const verb = e.detail.requestConfig && e.detail.requestConfig.verb;
+    if (e.detail.successful && verb && verb !== "get") { fastUntil = Date.now() + FAST_MS; clearTimeout(timer); timer = null; schedule(); }
   });
   document.addEventListener("DOMContentLoaded", () => {
     badge();

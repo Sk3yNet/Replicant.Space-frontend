@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ code }}{% endblock %}
 {% block content %}
+<div id="dev-head" data-live>
 <h1>{{ dev.device_type | human }} <span class="mono muted">{{ code }}</span>
   <span class="pill {{ dev.status | status_class }}">{{ dev.status }}</span>
   {% if dev.tracking_site %}<span class="small muted">holding site <a href="/locations/{{ dev.tracking_site }}">{{ dev.tracking_site }}</a></span>{% endif %}</h1>
@@ -11,12 +12,13 @@
     {% if doing.task.step %}<span class="muted">· step {{ doing.task.n }}/{{ doing.task.of }}: {{ doing.task.step }}{% if doing.task.status == 'waiting' %} (waiting){% endif %}</span>{% endif %}
     <a class="muted" href="/automations">jobs</a></div>{% endif %}
 </div>{% endif %}
+</div>
 {% if err %}<div class="banner">Live fetch failed ({{ err }}); showing the last synced copy.</div>{% endif %}
-{% if trip %}<div class="card row between" style="align-items:center">
-  <div class="small">Traveling to <b>{{ trip.destination }}</b>{% if trip.seconds_left %} · {{ (trip.seconds_left / 60) | round(0) | int }} min left{% endif %}</div>
+<div id="dev-trip" data-live>{% if trip %}<div class="card row between" style="align-items:center">
+  <div class="small">Traveling to <b>{{ trip.destination }}</b>{% if trip.seconds_left %} · <span data-ends="{{ trip.ends }}" data-arrival>{{ (trip.seconds_left / 60) | round(0) | int }} min</span> left{% endif %}</div>
   <div><button class="small" hx-post="/devices/{{ code }}/cancel-travel" hx-target="#cancel-result"
       hx-confirm="Cancel {{ code }}'s trip? It turns back to where it started (the return takes a while too){{ ' — and takes replicant ' ~ host_rep ~ ' with it' if host_rep }}.">Cancel travel</button></div>
-</div><div id="cancel-result"></div>{% endif %}
+</div>{% endif %}</div>{% if trip %}<div id="cancel-result"></div>{% endif %}
 {% if decom_queued %}<div class="card row between" style="align-items:center">
   <div class="small">Queued to be <b>decommissioned at autofactory {{ decom_queued.factory }}</b> ({{ decom_queued.at }})
     {% if decom_queued.sent_at %}— decommission sent {{ decom_queued.sent_at | ago }}{% else %}— on its way; it's decommissioned once it's there and idle{% endif %}.</div>
@@ -30,7 +32,7 @@
     <span class="muted">It leaves its fleet, is carried there by the loadout pass (compacted first if it's large), and is decommissioned on arrival — the autofactory learns its blueprint. A device built from components also unlocks the components' blueprints (game v3.6.1).</span>
   </form><div id="decom-result"></div></details>{% endif %}
 <div class="grid g2">
-  <div class="card">
+  <div class="card" id="dev-details" data-live>
     <h2>Details</h2>
     <dl class="kv">
       <dt>Location</dt><dd><a href="/systems/{{ dev.location | star_of }}">{{ dev.location }}</a> · <a href="/locations/{{ dev.location }}">location detail</a></dd>
@@ -84,7 +86,7 @@
   </div>
   {% if not carrier.rows %}<p class="muted">Nothing in this system that it can carry.</p>{% else %}
   <form hx-post="/devices/{{ code }}/carrier" hx-target="#carrier-result">
-    <table class="small">
+    <table class="small" id="carrier-rows" data-live>
       <tr><th>Device</th><th>Where</th><th>Status</th><th>{{ 'Launch' if carrier.can_hold else '' }}{{ ' / ' if carrier.can_hold and carrier.can_attach else '' }}{{ 'Detach' if carrier.can_attach else '' }}</th>
         <th>{{ 'Stow' if carrier.can_hold else '' }}{{ ' / ' if carrier.can_hold and carrier.can_attach else '' }}{{ 'Attach' if carrier.can_attach else '' }}</th><th>Recall</th><th></th></tr>
       {% for r in carrier.rows %}
@@ -112,7 +114,7 @@
 {% endif %}
 
 <div class="grid g2" style="margin-top:14px">
-  <div class="card">
+  <div class="card" id="dev-events" data-live>
     <h2>Events (local history)</h2>
     <ul class="feed">{% for e in events %}{% include "partials/event_row.html" %}{% else %}<li class="muted">No events stored for this device yet.</li>{% endfor %}</ul>
   </div>

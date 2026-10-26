@@ -505,14 +505,15 @@ def in_flight(d: dict) -> dict | None:
     tr = d.get("travel") or {}
     if not st.startswith(MOVING) or not (tr.get("final_destination") or tr.get("destination")):
         return None
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
     left = int(tr.get("eta_seconds") or 0)
     try:
         at = datetime.fromisoformat(str(tr.get("final_arrives_at") or tr.get("arrives_at")))
         left = max(left, int((at - datetime.now(timezone.utc)).total_seconds()))
     except (TypeError, ValueError):
         pass
-    return {"destination": tr.get("final_destination") or tr.get("destination"), "seconds_left": max(0, left)}
+    ends = (datetime.now(timezone.utc) + timedelta(seconds=max(0, left))).isoformat(timespec="seconds")
+    return {"destination": tr.get("final_destination") or tr.get("destination"), "seconds_left": max(0, left), "ends": ends}
 
 
 # --- in-system distances: a cruise-only device never makes a long trip just to board -----------------------------

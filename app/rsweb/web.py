@@ -350,6 +350,8 @@ async def call_action(request: Request, user: str, method: str, path: str, body:
     if not err:
         st.hub.publish("state", "action")
         await record_evictions(st, path, resp)
+        if method != "GET":
+            st.worker.after_order(path, body)
     return {"label": label, "method": method, "path": path, "ok": err is None, "status": status,
             "error": err, "response": resp}
 
@@ -401,7 +403,7 @@ async def healthz():
 async def dashboard(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     visit = await notify.touch_visit(request.app.state.db, user, request.app.state.settings.visit_gap_minutes) \
-        if not request.headers.get("hx-request") else None
+        if not request.headers.get("hx-request") and not request.headers.get("x-live") else None
     digest = None
     if visit and not visit.get("digest_dismissed"):
         digest = await notify.build_digest(request.app.state.db, visit["baseline_at"])
@@ -659,15 +661,18 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
     api = request.app.state.api
     err = None
     dev, logs = {}, []
-    try:
-        dev = await api.get(f"/devices/{code}")
-    except ApiError as e:
-        err = e.message
+    live = bool(request.headers.get("x-live"))   # a live redraw: the cached copy, no game calls (the log card isn't live)
+    if not live:
+        try:
+            dev = await api.get(f"/devices/{code}")
+        except ApiError as e:
+            err = e.message
+        try:
+            logs = ((await api.get(f"/devices/{code}/logs", latest="true", limit=20)) or {}).get("events") or []
+        except ApiError:
+            pass
+    if live or err:
         dev = next((d for d in (await load_state(request))["devices"] if d.get("device_code") == code), {})
-    try:
-        logs = ((await api.get(f"/devices/{code}/logs", latest="true", limit=20)) or {}).get("events") or []
-    except ApiError:
-        pass
     events = [row_event(r) for r in await request.app.state.db.fetchall(
         "SELECT * FROM events WHERE device_code=? ORDER BY seq DESC LIMIT 50", (code,))]
     st = await load_state(request)

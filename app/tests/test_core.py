@@ -9081,3 +9081,30 @@ def test_live_redraw_is_cache_only_and_not_a_visit(client):
     assert calls and client.portal.call(db.fetchone, "SELECT * FROM visitors")
     assert 'id="live-switch"' in r.text and 'hx-trigger="sse:state"' in r.text
     assert "data-live-cards" not in client.get("/map", headers=H).text
+
+
+def test_orders_refresh_the_devices_they_touch(client):
+    """After your own order the touched devices (path + codes in the body) are asked for again and patched into the
+    cached list; events about them refresh them for a while after."""
+    from rsweb.ingest import Worker
+    w, db = client.app.state.worker, client.app.state.db
+    assert Worker.order_codes("/devices/AB12CD34", {"command": "stow", "cargo": "0011AAFF", "x": "travel"}) == {"AB12CD34", "0011AAFF"}
+    assert Worker.order_codes("/replicants/R1/travel", {"destination": "SOL-3"}) == set()
+    devices = client.portal.call(db.kv_get, "devices")
+    code = devices[0]["device_code"]
+    devices[0]["status"] = "stale"
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(w.refresh_devices_now, {code})
+    assert next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == code)["status"] != "stale"
+    w._watch.clear()
+    w.watched_event({"event": "device.stowed", "device_code": code})
+    assert not w._bg
+    devices = client.portal.call(db.kv_get, "devices")
+    devices[0]["status"] = "stale"
+    client.portal.call(db.kv_set, "devices", devices)
+
+    async def arrive():   # an arrival refreshes the device straight away
+        w.watched_event({"event": "travel.arrived", "device_code": code})
+        await asyncio.gather(*w._bg)
+    client.portal.call(arrive)
+    assert next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == code)["status"] != "stale"

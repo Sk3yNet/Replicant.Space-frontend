@@ -18,6 +18,7 @@ from . import notify
 from .shapes import normalize_blueprints, normalize_inventory
 
 log = logging.getLogger("rsweb.ingest")
+DEVICE_CODE_RE = re.compile(r"[0-9A-F]{8}")
 
 
 def _parse_ts(v: Any) -> datetime | None:
@@ -189,6 +190,9 @@ class Worker:
         self.stream_since: str | None = None
         self._bp_refresh: asyncio.Task | None = None
         self.late = {"n": 0, "oldest": None}   # late events since the last live one, for the catch-up note
+        self._watch: dict[str, datetime] = {}   # device code → until when its events refresh it (after_order)
+        self._bg: set[asyncio.Task] = set()
+        self._arrivals: list[datetime] = []   # arrival refreshes lately (watched_event)
         from .automations import AutomationEngine
         self.automations = AutomationEngine(db, api, hub, self)
 
@@ -337,6 +341,8 @@ class Worker:
             self.hub.publish("notify", n)
         if ev["event"] in notify.DONE_EVENTS or ev["event"].startswith(("device.", "travel.", "mining.")):
             self.hub.publish("state", ev["event"])
+        if not late:
+            self.watched_event(ev)
         if may_unlock_blueprint(ev):
             bp = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
             if ev["event"] == "blueprint.unlocked" and bp.get("device_type"):
@@ -515,6 +521,86 @@ class Worker:
         await self.set_timer(key, kind, label, end, device_code=code, source="action")
         if kind == "travel" and resp.get("departed_at"):
             await self.note_trip(resp.get("device_code") or code, resp)
+
+    # --- devices touched by your own orders ---------------------------------------------------------
+    WATCH_MINUTES = 10
+
+    @staticmethod
+    def order_codes(path: str, body: Any) -> set[str]:
+        """The devices an order touches: the one in the path (/devices/CODE…) and any device code in the body (stow
+        target / cargo, attach device / carrier …)."""
+        parts = [x for x in str(path).strip("/").split("/") if x]
+        codes = {parts[1]} if len(parts) > 1 and parts[0] == "devices" else set()
+        if isinstance(body, dict):
+            codes |= {v for v in body.values() if isinstance(v, str) and DEVICE_CODE_RE.fullmatch(v)}
+        return codes
+
+    def after_order(self, path: str, body: Any) -> None:
+        """An order you gave (by hand, or a chain you started) went through: ask the game for those devices now and
+        again shortly, and for the next WATCH_MINUTES on any event about them, so pages show the result within
+        seconds instead of at the next device sync (up to a minute, or much longer while the engine runs)."""
+        codes = self.order_codes(path, body)
+        if not codes:
+            return
+        until = datetime.now(timezone.utc) + timedelta(minutes=self.WATCH_MINUTES)
+        for c in codes:
+            self._watch[c] = until
+
+        async def go() -> None:
+            await self.refresh_devices_now(codes)
+            await asyncio.sleep(20)   # stowing / attaching / launching can take a moment in the game
+            await self.refresh_devices_now(codes)
+        self._spawn(go())
+
+    def _spawn(self, coro) -> None:
+        t = asyncio.get_running_loop().create_task(coro)
+        self._bg.add(t)
+        t.add_done_callback(self._bg.discard)
+
+    ARRIVAL_REFRESHES = 30   # per 10 minutes: a fleet arriving at once doesn't eat the request budget
+
+    def watched_event(self, ev: dict) -> None:
+        """An event about a device a recent order touched, or any arrival: refresh it (and any device the event names),
+        so the device page shows the new location when its countdown ends instead of at the next device sync."""
+        watch = self._watch
+        now = datetime.now(timezone.utc)
+        if ev.get("event") == "travel.arrived" and ev.get("device_code"):
+            self._arrivals = [t for t in self._arrivals if now - t < timedelta(minutes=10)]
+            if len(self._arrivals) < self.ARRIVAL_REFRESHES:
+                self._arrivals.append(now)
+                watch.setdefault(ev["device_code"], now + timedelta(seconds=1))
+        if not watch:
+            return
+        for c in [c for c, t in watch.items() if t < now]:
+            watch.pop(c)
+        p = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
+        named = {ev.get("device_code")} | {v for v in p.values() if isinstance(v, str) and DEVICE_CODE_RE.fullmatch(v)}
+        if any(c in watch for c in named if c):
+            self._spawn(self.refresh_devices_now({c for c in named if c}))
+
+    async def refresh_devices_now(self, codes: set[str]) -> None:
+        """GET each device (at most 8) and put the answers on the cached device list."""
+        fresh = {}
+        for c in sorted(codes)[:8]:
+            try:
+                d = await self.api.get(f"/devices/{c}")
+            except ApiError:
+                continue
+            except Exception:
+                log.exception("refreshing device %s failed", c)
+                continue
+            if isinstance(d, dict) and d.get("device_code"):
+                fresh[d["device_code"]] = d
+        if not fresh:
+            return
+        devices = await self.db.kv_get("devices", []) or []
+        for d in devices:
+            f = fresh.pop(d.get("device_code"), None)
+            if f is not None:
+                d.update(f)
+        devices.extend(fresh.values())   # new to the list (printed, adopted)
+        await self.db.kv_set("devices", devices)
+        self.hub.publish("state", "devices")
 
     async def note_trip(self, code: str, resp: dict) -> None:
         """A travel command's answer is the trip itself (origin, route, departed_at, arrives_at …): put it on the cached
