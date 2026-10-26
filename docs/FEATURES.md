@@ -752,6 +752,8 @@ body, which stay editable before sending.
 **Repeating commands**: *Repeat* under the console form sends its POST, PATCH or PUT request now and every N minutes
 until stopped (e.g. a belt scan for debris or devices). Each row counts finds in the command's system (a discovered
 device or salvage, which also notify) and can stop at the first one; three failed sends in a row stop it.
+The Devices page does the same for ticked devices (*Repeat on ticked*, one repeat per device), and a device page's
+Command card has a *Repeat* button and lists its repeats. A repeat waits while its device doesn't offer the command.
 
 ### Desktop wallpaper (optional)
 The Galaxy and System maps as a live Windows wallpaper with [Octos](https://github.com/underpig1/octos) and

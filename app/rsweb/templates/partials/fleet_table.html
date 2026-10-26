@@ -9,6 +9,10 @@
     </select></label>
   <label class="small" style="text-transform:none"><input type="checkbox" name="include_busy"> include devices automations are using</label>
   <button class="small">Send to ticked</button>
+  <span class="small" title="Sends now, then again every N minutes per device until stopped (Console › Repeating)">or repeat every
+    <input name="every_minutes" type="number" min="1" value="10" style="width:4.5em"> min
+    <label style="text-transform:none"><input type="checkbox" name="stop_on_find"> stop at a find</label>
+    <button class="small" name="repeat" value="1">Repeat on ticked</button></span>
   {% endif %}
 </div>
 <div id="bulk-fields"></div>

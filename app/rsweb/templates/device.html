@@ -66,9 +66,20 @@
           {% for c in commands %}<option value="{{ c }}" title="{{ command_help.get(c, '') }}">{{ c | human }}{{ ' ⚠' if c in dangerous }}</option>{% endfor %}
         </select>
         <button>Run</button>
+        <span class="small" title="Sends now, then again every N minutes until stopped">or repeat every
+          <input name="every_minutes" type="number" min="1" value="10" style="width:4.5em"> min
+          <label style="text-transform:none"><input type="checkbox" name="stop_on_find"> stop at a find</label>
+          <button class="small" name="repeat" value="1">Repeat</button></span>
       </div>
       <div id="cmd-fields"><p class="muted small">Pick a command to see its fields.</p></div>
     </form>
+    {% if repeats %}<h3 style="margin-top:10px">Repeating</h3>
+    <table class="small">{% for r in repeats %}<tr{{ ' class=muted' if not r.enabled }}>
+      <td class="mono">{{ (r.body or {}).get('command') }}</td><td>every {{ r.every_minutes }} min{% if not r.enabled %} <span class="pill">stopped</span>{% endif %}</td>
+      <td>{{ r.runs or 0 }} sent{% if r.last_run %}, last {{ r.last_run | ago }} <span class="muted">{{ r.last_result }}</span>{% endif %}</td>
+      <td>{{ r.finds or 0 }} find(s){% if r.last_find %} <span class="muted">{{ r.last_find }}</span>{% endif %}</td>
+      <td style="white-space:nowrap"><button class="small" hx-post="/console/repeats/{{ r.id }}/toggle">{{ 'Stop' if r.enabled else 'Resume' }}</button>
+        <button class="small" hx-post="/console/repeats/{{ r.id }}/delete" hx-confirm="Delete this repeat?">Delete</button></td></tr>{% endfor %}</table>{% endif %}
     {% if same_loc %}
     <details><summary>{{ same_loc | length }} other device(s) at this location (for stow / attach / adopt targets)</summary>
       <table>{% for d in same_loc %}<tr><td class="mono"><a href="/devices/{{ d.device_code }}">{{ d.device_code }}</a></td><td>{{ d.device_type | human }}</td><td><span class="pill {{ d.status | status_class }}">{{ d.status }}</span></td></tr>{% endfor %}</table>

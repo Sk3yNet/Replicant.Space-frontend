@@ -51,3 +51,33 @@ def test_repeat_stops_at_first_find_when_asked_and_after_failed_sends(client):  
 def test_repeat_refuses_get(client):  # noqa: F811
     r = client.post("/console/repeat", data={"method": "GET", "path": "/accounts/me"}, headers=HX)
     assert "can repeat" in r.text and _items(client) == []
+
+
+def test_bulk_repeat_makes_one_repeat_per_ticked_device_and_waits_while_busy(client):  # noqa: F811
+    from test_ops import add, world
+    add(client, device_code="SV000002", device_type="survey_drone", location="SOL-BELT-1", status="idle",
+        features=["cruise", "survey"], available_commands=["scan", "search", "travel"])
+    r = client.post("/fleet/bulk", data={"codes": ["SV000001", "SV000002"], "command": "search", "repeat": "1",
+                                          "every_minutes": "15", "include_busy": "on"}, headers=HX)
+    assert "repeating on 2 device(s) every 15 min" in r.text, r.text
+    items = _items(client)
+    assert {x["path"] for x in items} == {"/devices/SV000001", "/devices/SV000002"}
+    assert all(x["runs"] == 1 and x["body"] == {"command": "search"} and x["every_minutes"] == 15 for x in items)
+    # the game says it can't search right now (still searching): wait, no error, send again once it can
+    d = next(x for x in world(client).devices if x["device_code"] == "SV000002")
+    d["available_commands"] = ["travel"]
+    client.portal.call(client.app.state.worker.sync_devices)
+    rid = next(x["id"] for x in items if x["path"] == "/devices/SV000002")
+    client.post(f"/console/repeats/{rid}/run", headers=HX)
+    rep = next(x for x in _items(client) if x["id"] == rid)
+    assert rep["runs"] == 1 and rep["last_result"].startswith("waiting") and not rep.get("errors") and rep["enabled"]
+    page = client.get("/devices/SV000002", headers=H).text
+    assert "Repeating" in page and "every 15 min" in page
+
+
+def test_device_page_repeat_button(client):  # noqa: F811
+    r = client.post("/devices/SV000001/command", data={"command": "scan", "repeat": "1", "every_minutes": "20",
+                                                       "stop_on_find": "on"}, headers=HX)
+    assert r.headers.get("HX-Refresh") == "true", r.text
+    rep = _items(client)[0]
+    assert rep["path"] == "/devices/SV000001" and rep["stop_on_find"] and rep["every_minutes"] == 20 and rep["runs"] == 1

@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse
 
 from . import commands as cmdspec
 from . import fleets as fl
-from .web import (DANGEROUS, call_action, current_user, load_state, order_commands, parse_json_field, partial,
+from .web import (DANGEROUS, add_repeats, call_action, current_user, load_state, order_commands, parse_json_field, partial,
                   suggestions)
 
 router = APIRouter()
@@ -157,6 +157,8 @@ async def bulk_run(request: Request, user: str = Depends(current_user)):
         return HTMLResponse(f'<div class="result err">{html.escape(str(e))}</div>')
     except ValueError as e:
         return HTMLResponse(f'<div class="result err">Bad arguments: {html.escape(str(e))}</div>')
+    if form.get("repeat"):
+        return await _bulk_repeat(request, user, ctx, {"command": ctx["command"], **body, **extra}, form)
     rows, sent = [], 0
     for code in ctx["ok"]:
         out = await call_action(request, user, "POST", f"/devices/{code}", {"command": ctx["command"], **body, **extra},
@@ -171,6 +173,29 @@ async def bulk_run(request: Request, user: str = Depends(current_user)):
     return HTMLResponse(f'<div class="result {cls}"><strong>{html.escape(ctx["command"])}: {sent} of {len(ctx["codes"])} '
                         f'sent</strong><ul class="small">{"".join(rows)}</ul></div>',
                         headers={"HX-Trigger": "fleet-refreshed"} if sent else {})
+
+
+async def _bulk_repeat(request: Request, user: str, ctx: dict, body: dict, form) -> HTMLResponse:
+    """One repeat per ticked device (Console › Repeating), each sent once now."""
+    from . import repeats as rp
+    try:
+        every = max(1, int(form.get("every_minutes") or rp.DEFAULT_MINUTES))
+    except ValueError:
+        return HTMLResponse('<div class="result err">Repeat every: give a number of minutes.</div>')
+    if not ctx["ok"]:
+        return HTMLResponse('<div class="result err">None of the ticked devices can take this command.</div>')
+    name = (form.get("repeat_name") or "").strip()
+    made = await add_repeats(request, user, [(f"{name or ctx['command']} {code}", "POST", f"/devices/{code}", body)
+                                             for code in ctx["ok"]], every, form.get("stop_on_find") == "on")
+    rows = [f'<li><a class="mono" href="/devices/{r["path"].split("/")[-1]}">{r["path"].split("/")[-1]}</a> '
+            + ('<span class="lv-done">✓</span>' if r.get("last_result") == "ok" else
+               f'<span class="lv-alert">✗ {html.escape(str(r.get("last_result") or ""))}</span>') + "</li>" for r in made]
+    rows += [f'<li><span class="mono">{html.escape(c)}</span> <span class="muted">skipped: {html.escape(w)}</span></li>'
+             for c, w in ctx["skip"]]
+    return HTMLResponse(f'<div class="result ok"><strong>{html.escape(ctx["command"])}: repeating on {len(made)} device(s) '
+                        f'every {every} min</strong> (first send now; stop them on the device page or under '
+                        f'<a href="/console#repeats">Console › Repeating</a>)<ul class="small">{"".join(rows)}</ul></div>',
+                        headers={"HX-Trigger": "fleet-refreshed"})
 
 
 async def _bulk_tags(request: Request, user: str, ctx: dict, tags: list[str]) -> HTMLResponse:

@@ -3441,6 +3441,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             if not (only or rp.due(r)):
                 continue
             r["star"] = star
+            sub, cmd = rp.subject(r["path"]), (r.get("body") or {}).get("command") if isinstance(r.get("body"), dict) else None
+            d = next((x for x in devices if x.get("device_code") == sub[1]), None) if sub and sub[0] == "device" and cmd else None
+            if d and d.get("available_commands") is not None and cmd not in d["available_commands"]:
+                r["last_result"] = f"waiting: {cmd} not available now ({d.get('status') or '?'})"   # sends once it is
+                changed = True
+                continue
             ok, _resp, err = await self.send(r["method"], r["path"], r.get("body"), f"repeat {r['name']}")
             r["runs"] = int(r.get("runs") or 0) + 1
             r["last_run"] = _now().isoformat(timespec="seconds")

@@ -693,6 +693,8 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
                                                          (dev.get("stowed_in_device_code"), dev.get("attached_to_device_code"))), {})).get("location"))
     return await page(request, user, "device.html", "fleet", carrier=carrier, pq=pq, dev=dev, code=code, err=err, logs=logs, events=events,
                       trip=trip, doing=doing, host_rep=host_rep, decom_queued=dq, decom_factories=dfac,
+                      repeats=[r for r in await request.app.state.db.kv_get("console_repeats", []) or []
+                               if r.get("path", "").rstrip("/").upper() == f"/DEVICES/{code.upper()}"],
                       same_loc=same_loc, commands=order_commands(with_attach(dev, same_loc)),
                       dangerous=DANGEROUS)
 
@@ -1041,6 +1043,16 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
         body.pop("direction", None)
         if vec is not None:
             body["direction"] = vec
+    if form.get("repeat"):
+        if command in ("enqueue_print", "message", "set_directive"):
+            return bad(f"{command} can't repeat")
+        try:
+            every = max(1, int(form.get("every_minutes") or 10))
+        except ValueError:
+            return bad("Repeat every: give a number of minutes")
+        await add_repeats(request, user, [(f"{command} {code}", "POST", f"/devices/{code}", {"command": command, **body, **extra})],
+                          every, form.get("stop_on_find") == "on")
+        return HTMLResponse("", headers={"HX-Refresh": "true"})
     if command == "enqueue_print":   # a replicant's vessel prints with the replicant's own print, one at a time
         st = await load_state(request)
         rep = next((c for c, r in st["replicants"].items() if r.get("hosted_device_code") == code), None)
@@ -3499,20 +3511,29 @@ async def console_repeat(request: Request, user: str = Depends(current_user)):
         every = max(1, int(form.get("every_minutes") or rp.DEFAULT_MINUTES))
     except ValueError as e:
         return HTMLResponse(f'<span class="lv-alert">{html.escape(str(e))}</span>')
+    await add_repeats(request, user, [((form.get("name") or "").strip() or f"{method} {path}", method, path, body)],
+                      every, form.get("stop_on_find") == "on")
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+async def add_repeats(request: Request, user: str, specs: list[tuple], every: int, stop_on_find: bool) -> list[dict]:
+    """Save one repeat per (name, method, path, body) and send each once now; returns the saved repeats."""
+    from . import repeats as rp
     db = request.app.state.db
     seq = (await db.fetchone("SELECT MAX(seq) AS s FROM events") or {}).get("s") or 0
     eng = request.app.state.worker.automations
-    rid = f"r{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+    base = int(datetime.now(timezone.utc).timestamp() * 1000)
+    new = [{"id": f"r{base}{i}", "name": name, "method": method, "path": path, "body": body, "every_minutes": every,
+            "stop_on_find": stop_on_find, "enabled": True, "by": user, "created_at": now_iso(), "seen_seq": seq,
+            "runs": 0, "finds": 0, "last_run": None, "last_result": None} for i, (name, method, path, body) in enumerate(specs)]
     async with eng.lock:
         items = await db.kv_get(rp.KV, []) or []
-        items.append({"id": rid, "name": (form.get("name") or "").strip() or f"{method} {path}", "method": method,
-                      "path": path, "body": body, "every_minutes": every, "stop_on_find": form.get("stop_on_find") == "on",
-                      "enabled": True, "by": user, "created_at": now_iso(), "seen_seq": seq, "runs": 0, "finds": 0,
-                      "last_run": None, "last_result": None})
-        await db.kv_set(rp.KV, items)
-        await eng.run_due_repeats(only=rid)   # the first one goes now
-    await eng.log("repeats", f"repeat added by {user}: {method} {path} every {every} min")
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
+        await db.kv_set(rp.KV, items + new)
+        for r in new:
+            await eng.run_due_repeats(only=r["id"])   # the first one goes now
+    for r in new:
+        await eng.log("repeats", f"repeat added by {user}: {r['method']} {r['path']} every {every} min")
+    return [x for x in await db.kv_get(rp.KV, []) or [] if x["id"] in {r["id"] for r in new}]
 
 
 @router.post("/console/repeats/{rid}/{action}", response_class=HTMLResponse)
