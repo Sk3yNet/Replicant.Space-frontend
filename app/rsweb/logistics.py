@@ -67,6 +67,7 @@ from .shapes import as_amounts
 
 KV_STATE = "logistics_state"        # the last pass: requests, runs, unmet
 KV_PREFS = "logistics_prefs"        # {"bump": {request id: tier}, "skip": [request ids], "confirm": {request id: iso}}
+KV_RESCUE_PAUSE = "logistics_rescue_pause"   # {"all": {"until": iso | None}, "fleets": {fleet id: {"until": iso | None}}}
 SURGE_S_PER_LY = 50.0               # the game's surge pace between systems (hubroute: 37.5 into a hub of ours)
 SECTOR_RANGE_H = 24.0               # the sector range (owner 2026-10-22): an automated trip longer than this waits for your OK
 SECTOR_RANGE_LY = SECTOR_RANGE_H * 3600 / SURGE_S_PER_LY   # 1728 ly: logistics carriers serve only stars this near
@@ -118,6 +119,24 @@ def _trip_hours(legs: list[tuple[str | None, str | None]], pos: dict[str, Any]) 
     infinite: that trip asks for your OK (live 2026-10-22: DELTA, about 28,900 ly from SOLARES, isn't in the catalog)."""
     ly = sum(_dist(a, b, pos) for a, b in legs if a and b)
     return math.inf if ly >= 1e9 else ly * SURGE_S_PER_LY / 3600
+
+
+def rescue_pauses(raw: dict | None, now: datetime | None = None) -> dict:
+    """The rescue pauses still in force (owner 2026-10-26): {"all": entry | None, "fleets": {fleet id: entry}}. An entry
+    with no "until" holds until resumed by hand; a timed one lapses by itself."""
+    now = now or datetime.now(timezone.utc)
+    def live(e: Any) -> bool:
+        if not isinstance(e, dict):
+            return False
+        if not e.get("until"):
+            return True
+        try:
+            return datetime.fromisoformat(e["until"]) > now
+        except (TypeError, ValueError):
+            return False
+    raw = raw or {}
+    return {"all": raw.get("all") if live(raw.get("all")) else None,
+            "fleets": {f: e for f, e in (raw.get("fleets") or {}).items() if live(e)}}
 
 
 def _needs_ok(req: dict, hours: float, prefs: dict | None, unmet: list[dict]) -> bool:
@@ -620,12 +639,14 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
          no_consolidate: set[str] | frozenset = frozenset(), evacuate: dict[str, str] | None = None,
          listings: list[dict] | None = None, repair_threshold: float = 80.0,
          repair_to: dict[str, int] | None = None, repair_stars: set[str] | None = None,
-         lanes: dict[str, str] | None = None, upkeep: list[dict] | None = None) -> dict:
+         lanes: dict[str, str] | None = None, upkeep: list[dict] | None = None,
+         rescue_pause: dict | None = None) -> dict:
     """What the logistics devices do this pass. `hosts`: device → the replicant it hosts. `drop(star)`: where materials land in a
     system. `listings`: shops whose trades you asked for ({controller, location, label}): a logistics device hosting a
     replicant goes there, last of all (the engine reads the trades once a replicant is in the system). `repair_to`: repair
     devices already on their way, per star. `repair_stars`: where repair patrols may go (default: commandable). `lanes`:
-    the task category each carrier worked last pass (device → CATEGORIES key).
+    the task category each carrier worked last pass (device → CATEGORIES key). `rescue_pause`: rescue_pauses() (paused
+    rescues are listed, not run).
     Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices", "lanes"}."""
     from . import cargo as cg
     from .loadouts import can_surge
@@ -968,6 +989,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     from .loadouts import at_tag, placed
     fleet_home = {fl.fleet_tag(f["id"]): f.get("home") for f in fleets or [] if f.get("id")}
     rescue_reqs = []
+    paused_tags = {fl.fleet_tag(f): e for f, e in ((rescue_pause or {}).get("fleets") or {}).items()}
     for d in devices:
         code, loc = d.get("device_code"), d.get("location")
         tag = next((t for t in d.get("tags") or [] if t.startswith("fleet:")), None)
@@ -986,6 +1008,11 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         if rid in ((prefs or {}).get("bump") or {}):
             req["tier"] = int(prefs["bump"][rid])
         req["skipped"] = rid in set((prefs or {}).get("skip") or [])
+        pause = (rescue_pause or {}).get("all") or paused_tags.get(tag or "")
+        if pause:
+            req["skipped"] = True
+            req["paused"] = "all rescues" if (rescue_pause or {}).get("all") else "its fleet"
+            req["paused_until"] = pause.get("until")
         rescue_reqs.append((req, d, fleet_home.get(tag)))
     reqs.extend(r for r, _, _ in rescue_reqs)
     def rescue(r: dict, d: dict, home: str | None) -> None:

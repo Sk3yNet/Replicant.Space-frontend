@@ -22,13 +22,32 @@
       <td>{{ r.tier }} · {{ tiers[r.tier] }}{% if r.tier != r.base_tier %} <span class="pill small">bumped</span>{% endif %}{% if r.waiting %} <span class="lv-alert">waiting</span>{% endif %}{% if r.category %}<br><span class="muted">{{ categories.get(r.category, r.category) }}</span>{% endif %}</td>
       <td>{{ r.label }}</td><td>{{ r.to }}</td>
       <td>{% for k, q in r.need.items() %}{{ q | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% else %}<span class="muted">stocked</span>{% endfor %}</td>
-      <td>{% if r.skipped %}skipped{% elif on_way.get(r.id) %}<span class="lv-done">on its way</span> <span class="muted">{{ on_way[r.id].title }}</span>{% elif why.get(r.id) %}<span class="lv-alert">{{ why[r.id] }}</span>{% elif r.need %}queued{% else %}—{% endif %}</td>
+      <td>{% if r.paused %}<span class="lv-warning">paused</span> <span class="muted">{{ r.paused }}{% if r.paused_until %} until {{ r.paused_until | local }}{% endif %}</span>{% elif r.skipped %}skipped{% elif on_way.get(r.id) %}<span class="lv-done">on its way</span> <span class="muted">{{ on_way[r.id].title }}</span>{% elif why.get(r.id) %}<span class="lv-alert">{{ why[r.id] }}</span>{% elif r.need %}queued{% else %}—{% endif %}</td>
       <td><form hx-post="/fleets/logistics/prefs" hx-target="next .tx-r" style="display:inline"><input type="hidden" name="req" value="{{ r.id }}">
         <select name="tier" onchange="this.form.requestSubmit()"><option value="">priority…</option>{% for t, n in tiers.items() %}<option value="{{ t }}"{% if r.tier != r.base_tier and r.tier == t %} selected{% endif %}>{{ t }} {{ n }}</option>{% endfor %}<option value="reset">its own</option></select>
         {% if r.confirm %}<button class="small" name="confirm" value="on" title="{{ ('about %d h of travel' % r.trip_h) if r.trip_h is not none else 'trip of unknown length' }}">Confirm</button>{% endif %}
-        <button class="small" name="skip" value="{{ 'off' if r.skipped else 'on' }}">{{ 'Resume' if r.skipped else 'Skip' }}</button></form><span class="tx-r"></span></td></tr>{% endfor %}
+        {% if not r.paused %}<button class="small" name="skip" value="{{ 'off' if r.skipped else 'on' }}">{{ 'Resume' if r.skipped else 'Skip' }}</button>{% endif %}</form><span class="tx-r"></span></td></tr>{% endfor %}
   </table>{% else %}<p class="muted">Nothing requested right now.</p>{% endif %}
   {% for u in st.unmet or [] %}{% if not u.req %}<p class="lv-alert small">{{ u.why }}</p>{% endif %}{% endfor %}
+</div>
+{% set durations = [('6', '6 h'), ('24', '1 day'), ('72', '3 days'), ('168', '1 week'), ('', 'until resumed')] %}
+<div class="card" id="rescue-pause">
+  <h2>Pause rescues</h2>
+  <p class="muted small">Paused rescues stay listed above but nothing is sent for them. A timed pause ends by itself; a rescue already under way goes on (cancel its job on the Jobs page).</p>
+  <form hx-post="/fleets/logistics/rescue-pause" hx-target="#tx-rpause" class="small">
+    {% if rescue_pause.all %}<b>All rescues paused</b>{% if rescue_pause.all.until %} until {{ rescue_pause.all.until | local }}{% else %} until resumed{% endif %}
+      <button class="small" name="resume" value="1">Resume</button>
+    {% else %}All rescues: <select name="hours">{% for v, n in durations %}<option value="{{ v }}">{{ n }}</option>{% endfor %}</select>
+      <button class="small">Pause</button>{% endif %}<span id="tx-rpause"></span></form>
+  <form hx-post="/fleets/logistics/rescue-pause" hx-target="#tx-rfleet" class="small" style="margin-top:.5em">One fleet:
+    <select name="fleet" required><option value="">fleet…</option>{% for fid, name in all_fleets.items() %}<option value="{{ fid }}">{{ name }}</option>{% endfor %}</select>
+    <select name="hours">{% for v, n in durations %}<option value="{{ v }}">{{ n }}</option>{% endfor %}</select>
+    <button class="small">Pause</button><span id="tx-rfleet"></span></form>
+  {% if rescue_pause.fleets %}<table class="small">{% for fid, e in rescue_pause.fleets.items() %}<tr>
+    <td>{{ all_fleets.get(fid, fid) }}</td>
+    <td>paused {{ ('until ' ~ (e.until | local)) if e.until else 'until resumed' }}</td>
+    <td><form hx-post="/fleets/logistics/rescue-pause" hx-target="next .tx-r" style="display:inline"><input type="hidden" name="fleet" value="{{ fid }}">
+      <button class="small" name="resume" value="1">Resume</button></form><span class="tx-r"></span></td></tr>{% endfor %}</table>{% endif %}
 </div>
 <div class="card">
   <h2>Devices</h2>

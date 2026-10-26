@@ -34,7 +34,39 @@ async def logistics_page(request: Request, user: str = Depends(current_user)):
     return await page(request, user, "logistics.html", "logistics", st=st, jobs=list(reversed(jobs)), on_way=on_way, why=why,
                       tiers=lg.TIERS, categories=lg.CATEGORIES, fleets=fleets, approvals=ok, transit=transit,
                       hub_balance=await db.kv_get("hub_balance", {}) or {}, carrier_classes=bal.CLASSES,
-                      hub_leeway=await db.kv_get(bal.KV_LEEWAY, bal.LEEWAY_PCT), slack=bal.slack)
+                      hub_leeway=await db.kv_get(bal.KV_LEEWAY, bal.LEEWAY_PCT), slack=bal.slack,
+                      rescue_pause=lg.rescue_pauses(await db.kv_get(lg.KV_RESCUE_PAUSE, {})),
+                      all_fleets=dict(sorted(((f["id"], f.get("name") or f["id"]) for f in await eng.fleets() if f.get("id")),
+                                             key=lambda x: x[1].lower())))
+
+
+PAUSE_HOURS = {"6": 6, "24": 24, "72": 72, "168": 168}   # the choices offered; "" holds until resumed
+
+
+@router.post("/fleets/logistics/rescue-pause", response_class=HTMLResponse)
+async def logistics_rescue_pause(request: Request, fleet: str = Form(""), hours: str = Form(""), resume: str = Form(""),
+                                 user: str = Depends(current_user)):
+    """Pause rescues for a while (owner 2026-10-26): all of them (fleet "") or one fleet's devices; resume ends it now."""
+    from datetime import datetime, timedelta, timezone
+    db = request.app.state.db
+    p = lg.rescue_pauses(await db.kv_get(lg.KV_RESCUE_PAUSE, {}))
+    if hours and hours not in PAUSE_HOURS:
+        return _msg(f"unknown pause length {hours}", ok=False)
+    until = ((datetime.now(timezone.utc) + timedelta(hours=PAUSE_HOURS[hours])).isoformat(timespec="seconds")
+             if hours else None)
+    entry = {"until": until, "at": now_iso()}
+    if fleet:
+        if resume:
+            p["fleets"].pop(fleet, None)
+        else:
+            p["fleets"][fleet] = entry
+    else:
+        p["all"] = None if resume else entry
+    await db.kv_set(lg.KV_RESCUE_PAUSE, p)
+    name = next((f.get("name") for f in await request.app.state.worker.automations.fleets() if f.get("id") == fleet), fleet)
+    what = f"{name}'s rescues" if fleet else "all rescues"
+    return _msg(f"{what} resumed" if resume else f"{what} paused " + (f"for {PAUSE_HOURS[hours]} h" if hours else "until resumed")
+                + " (from the next logistics pass; a rescue already under way goes on)")
 
 
 @router.post("/fleets/logistics/leeway", response_class=HTMLResponse)

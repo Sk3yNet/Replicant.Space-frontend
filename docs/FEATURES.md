@@ -569,6 +569,8 @@ Bump or skip a request on the Logistics page.
   home. One that can't is picked up from its last known location by a carrier with a free seat, a replicant along.
 - A rescue whose trips add up to more than the **sector range** (a day at the game's 50 s/ly), or to a star whose
   position isn't known, waits for your **Confirm** on the request (one alert; the OK holds two days).
+- **Pause rescues** (Logistics page): all of them, or one fleet's devices, for 6 h to a week or until resumed. Paused
+  requests stay listed but nothing is sent; a rescue already under way goes on.
 
 ### Repair patrols
 - Repair devices in a logistics fleet (only those) go where the wear is. A system wants one repair device per six

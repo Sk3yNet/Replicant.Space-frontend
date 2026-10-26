@@ -1060,3 +1060,37 @@ def test_a_carrier_keeps_its_category_while_it_has_work():
     assert next(r for r in p["runs"] if r["req"] == "rescue:SV")["escort"] == "HV2"
     p = _category_plan(lanes={"HV2": "repairs"})                  # no repair work: it's given a category that has some
     assert p["lanes"]["HV2"] in ("deals", "rescues")
+
+
+def test_rescues_pause_for_everyone_or_one_fleet_and_a_timed_pause_lapses():
+    """Owner 2026-10-26: take a fleet out of rescues for a while, or stop rescues altogether."""
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("P1", "surge_plate", "B-1", in_control_range=False, tags=["fleet:mine"], **SURGE),
+            dev("P2", "surge_plate", "B-2", in_control_range=False, tags=["fleet:cab"], **SURGE)]
+    now = datetime.now(timezone.utc)
+
+    def go(raw):
+        p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=POS, commandable={"A"},
+                    hosts={"HV": "R1"}, busy=set(), contracts=[], trades=[], incoming={}, replicants={},
+                    drop=lambda s: f"{s}-1", rescue_pause=lg.rescue_pauses(raw))
+        return {r["device"]: r for r in p["requests"] if r["kind"] == "rescue"}, {r.get("rescued") for r in p["runs"]}
+    reqs, sent = go({"fleets": {"Mine": {"until": (now + timedelta(hours=6)).isoformat()}}})
+    assert reqs["P1"]["paused"] == "its fleet" and reqs["P1"]["paused_until"] and "P1" not in sent
+    assert not reqs["P2"].get("paused")
+    reqs, sent = go({"all": {"until": None}})
+    assert all(r["paused"] == "all rescues" for r in reqs.values()) and not sent - {None}
+    reqs, _ = go({"all": {"until": (now - timedelta(minutes=1)).isoformat()}})   # lapsed: rescues go again
+    assert not any(r.get("paused") for r in reqs.values())
+
+
+def test_the_rescue_pause_form_pauses_and_resumes(client):  # noqa: F811
+    db = client.app.state.db
+    assert "6 h" in client.post("/fleets/logistics/rescue-pause", data={"hours": "6"}, headers=HX).text
+    assert client.portal.call(db.kv_get, lg.KV_RESCUE_PAUSE)["all"]["until"]
+    client.post("/fleets/logistics/rescue-pause", data={"fleet": "cab", "hours": ""}, headers=HX)
+    p = lg.rescue_pauses(client.portal.call(db.kv_get, lg.KV_RESCUE_PAUSE))
+    assert p["fleets"]["cab"]["until"] is None and p["all"]
+    assert "All rescues paused" in client.get("/fleets/logistics", headers=H).text
+    client.post("/fleets/logistics/rescue-pause", data={"resume": "1"}, headers=HX)
+    client.post("/fleets/logistics/rescue-pause", data={"fleet": "cab", "resume": "1"}, headers=HX)
+    assert lg.rescue_pauses(client.portal.call(db.kv_get, lg.KV_RESCUE_PAUSE)) == {"all": None, "fleets": {}}
