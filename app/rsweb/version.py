@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.271.1"
+VERSION = "1.272.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.272.0", "2026-10-26", "Simulations › Data uploads no longer lists devices already uploaded (the interface consumed them): the app keeps the uploaded codes and shows a count by type instead. Uploads sent before this version are recovered once from the action log."),
     ("1.271.1", "2026-10-26", "Surge hops out of a system to a body elsewhere now end with the destination's star as the last waypoint (the game refused ISOLITHOR-KUIPER straight to KHAZENEN-BELT-1, so the trip fell back to the game's own slower route)."),
     ("1.271.0", "2026-10-26", "Rescues can be paused: Fleets › Logistics › Pause rescues stops all rescues, or just one fleet's, for 6 h, a day, 3 days, a week or until resumed. Paused rescues stay listed (marked paused) but nothing is sent; a timed pause ends by itself, and a rescue already under way goes on."),
     ("1.270.0", "2026-10-26", "Repeat on the Devices page: Repeat on ticked turns the picked command into one repeat per ticked device (every N minutes, optionally stopping at a find), and a device page's Command card has its own Repeat button and lists that device's repeats with Stop / Resume and Delete. A repeat waits, without counting an error, while its device doesn't offer the command (still scanning, say) and sends as soon as it does."),

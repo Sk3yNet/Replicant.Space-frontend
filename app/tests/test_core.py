@@ -9025,6 +9025,15 @@ def test_data_upload_at_interface(client):
     assert "analysis chute" in r or "upload" in r.lower()
     world = client.app.state.api.http._transport.app.state.world
     assert not any(d.get("device_code") == "GC000001" for d in world.devices)
+    # the cached device list may still hold the consumed chip: it leaves the list, a count stays
+    frag = client.get("/simulations/uploads", headers=HX).text
+    assert "GC000001" not in frag and "Uploaded before: 1 (1 guidance chip)" in frag and "GC000002" in frag
+    # uploads sent before 1.272.0 are recovered from the action log once
+    client.portal.call(db.kv_set, "sim:uploaded", None)
+    client.portal.call(db.execute, "INSERT INTO actions(at, user, method, path, body, status) VALUES(?,?,?,?,?,?)",
+                       ("2026-10-25T00:00:00Z", "x", "POST", "/devices/IF000001/upload", '{"device_code": "GC000002"}', 200))
+    frag = client.get("/simulations/uploads", headers=HX).text
+    assert "GC000002" not in frag and "Uploaded before: 2" in frag
     msg = notify.describe({"event": "device.discovered", "location": "MIRFAKA-OBJ-1",
                           "payload": {"device_type": "guidance_chip", "device_code": "A1B2C3D4"}})
     assert msg == "Scan discovered a guidance chip A1B2C3D4 at MIRFAKA-OBJ-1"

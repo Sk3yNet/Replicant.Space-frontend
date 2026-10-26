@@ -3,6 +3,7 @@ it, and read the reports of past runs (sim.py, sim_engine.py)."""
 from __future__ import annotations
 
 import html
+import json
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -10,7 +11,7 @@ from fastapi.responses import HTMLResponse
 from . import sim, sim_order
 from .db import now_iso
 from .shapes import normalize_blueprints
-from .web import current_user, load_state, page, run_action
+from .web import call_action, current_user, load_state, page, render_action, run_action
 
 router = APIRouter()
 
@@ -207,6 +208,28 @@ def _is_data(d: dict) -> bool:
     return "data" in (d.get("features") or []) or d.get("device_type") == "guidance_chip"
 
 
+UPLOADED_KV = "sim:uploaded"  # {device_code: {"type", "at"}}: devices the interface consumed, kept out of the list
+GONE = {"consumed", "uploaded", "destroyed", "decommissioned"}
+
+
+async def _uploaded(db, devices: list[dict]) -> dict:
+    """Uploaded devices; the first time, seeded from the action log (uploads sent before 1.272.0 were not kept)."""
+    done = await db.kv_get(UPLOADED_KV)
+    if done is None:
+        done = {}
+        types = {d.get("device_code"): d.get("device_type") for d in devices}
+        for r in await db.fetchall("SELECT at, body FROM actions WHERE method='POST' AND path LIKE '/devices/%/upload' "
+                                   "AND status < 300 ORDER BY id"):
+            try:
+                code = (json.loads(r["body"] or "{}") or {}).get("device_code")
+            except ValueError:
+                continue
+            if code:
+                done[code] = {"type": types.get(code), "at": r["at"]}
+        await db.kv_set(UPLOADED_KV, done)
+    return done
+
+
 @router.get("/simulations/uploads", response_class=HTMLResponse)
 async def simulations_uploads(request: Request, user: str = Depends(current_user)):
     """Data uploads at the interface (v3.6.2, POST /devices/{interface}/upload): a data-feature device deployed at the
@@ -215,9 +238,20 @@ async def simulations_uploads(request: Request, user: str = Depends(current_user
     s = await eng.sim_state()
     iface = _iface(s)
     loc = (s.get("interface") or {}).get("location") or sim.DATACENTER
-    devs = [d for d in await eng.devices() if _is_data(d)]
+    done = await _uploaded(request.app.state.db, await eng.devices())
+    devs = [d for d in await eng.devices() if _is_data(d) and d.get("device_code") not in done
+            and str(d.get("status") or "").lower() not in GONE]
+    tally = ""
+    if done:
+        kinds: dict[str, int] = {}
+        for v in done.values():
+            t = str(v.get("type") or "device").replace("_", " ")
+            kinds[t] = kinds.get(t, 0) + 1
+        tally = (f'<p class="muted small">Uploaded before: {len(done)} '
+                 f'({html.escape(", ".join(f"{n} {t}" for t, n in sorted(kinds.items())))}).</p>')
     if not devs:
-        return HTMLResponse('<p class="muted small">No devices with the data feature (a scan may discover one).</p>')
+        return HTMLResponse(tally + '<p class="muted small">No devices with the data feature waiting '
+                            '(a scan may discover one).</p>')
     st = await load_state(request)
     rep_here = any((r.get("location") or r.get("current_location")) == loc for r in st["replicants"].values())
     out = ['<table class="small">']
@@ -233,7 +267,7 @@ async def simulations_uploads(request: Request, user: str = Depends(current_user
                f'<span class="rs-out"></span>')
         out.append(f'<tr><td><b>{typ}</b> <a class="mono" href="/devices/{code}">{code}</a>'
                    f'<div class="muted">{html.escape(str(d.get("location") or "?"))}</div></td><td>{btn}</td></tr>')
-    return HTMLResponse("".join(out) + "</table>")
+    return HTMLResponse("".join(out) + "</table>" + tally)
 
 
 @router.post("/simulations/upload/{code}", response_class=HTMLResponse)
@@ -242,7 +276,15 @@ async def simulations_upload_do(request: Request, code: str, user: str = Depends
     iface = _iface(s)
     if not iface:
         return _msg("The interface is not known yet.", ok=False)
-    return await run_action(request, user, "POST", f"/devices/{iface}/upload", {"device_code": code}, f"upload {code}")
+    typ = next((d.get("device_type") for d in await request.app.state.worker.automations.devices()
+                if d.get("device_code") == code), None)
+    out = await call_action(request, user, "POST", f"/devices/{iface}/upload", {"device_code": code}, f"upload {code}")
+    if out["ok"]:
+        db = request.app.state.db
+        done = await db.kv_get(UPLOADED_KV, {}) or {}
+        done[code] = {"type": typ, "at": now_iso()}
+        await db.kv_set(UPLOADED_KV, done)
+    return render_action(request, out)
 
 
 @router.get("/simulations/leaderboard", response_class=HTMLResponse)
