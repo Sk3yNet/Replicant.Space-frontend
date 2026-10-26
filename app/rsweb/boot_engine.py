@@ -77,6 +77,12 @@ class BootstrapMixin:
                 changed = True
             if any(j["status"] in ("running", "waiting") and (j.get("meta") or {}).get("bootstrap") == f["id"] for j in jobs):
                 continue
+            for c in fleets:   # a hub made before 1.257.0 still wants a surge carrier: a surge plate replaces it
+                if c.get("parent") == f["id"] and c.get("id") == (b.get("children") or {}).get("hub") \
+                        and (c.get("wants") or {}).get("surge_carrier"):
+                    c["wants"].pop("surge_carrier")
+                    c["wants"]["surge_plate"] = max(int(c["wants"].get("surge_plate") or 0), bt.HUB_KIT["surge_plate"])
+                    changed = True
             before = json.dumps(b, sort_keys=True, default=str)
             self._boot_no_site(f, jobs, devices)
             await self._boot_adopt_prints(f, devices)

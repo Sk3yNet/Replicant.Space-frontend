@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.266.1"
+VERSION = "1.266.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.266.2", "2026-10-25", "A bootstrap hub made before 1.257.0 still asked for a surge carrier (Delta Force · Hub kept printing toward one): its loadout now wants a surge plate instead, switched on the next bootstrap pass."),
     ("1.266.1", "2026-10-25", "Recent on BobNet shows times in the app's time zone (TZ) like the rest of the page, instead of the game's UTC."),
     ("1.266.0", "2026-10-25", "Messages: the event-stream BobNet feed has a search box (text, poster, channel or system, any case) over every message the app has saved, and both BobNet cards have an Older button. The feed pages back 80 at a time; Recent on BobNet follows the game's next_cursor for older pages from the relay (per channel too)."),
     ("1.265.1", "2026-10-25", "Map › Systems always shows the relay, beacon and ward columns; the Wards, beacons & relays and only systems missing one options are gone (the filters cover them)."),

@@ -594,3 +594,14 @@ def test_vessel_ferries_outpost_kits():
     dl = [d for d in p["deliveries"] if d["carrier"] == "V"]
     assert dl and {"M1", "M2"} <= set(dl[0]["devices"]) and not any("OTH" in d["devices"] for d in dl)
     assert bt.HUB_KIT.get("surge_plate") == 1 and "surge_carrier" not in bt.HUB_KIT
+
+
+def test_old_hub_wants_a_surge_plate_not_a_carrier(client):
+    e = _setup(client, "hub", [vessel("SOL-BELT-1")], hub="SOL", children={"hub": "p-hub"})
+    items = client.portal.call(e.fleets)
+    items.append({"id": "p-hub", "name": "Pioneer · Hub", "role": "mining", "home": "SOL", "station": True, "parent": "p",
+                  "family": "p", "wants": {"mining_drone": 8, "surge_carrier": 1}})
+    client.portal.call(e.save_fleets, items)
+    client.portal.call(e.bootstrap_pass)
+    hub = next(x for x in client.portal.call(e.fleets) if x["id"] == "p-hub")
+    assert "surge_carrier" not in hub["wants"] and hub["wants"]["surge_plate"] == 1 and hub["wants"]["mining_drone"] == 8
