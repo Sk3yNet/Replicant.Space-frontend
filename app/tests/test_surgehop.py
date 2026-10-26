@@ -59,7 +59,10 @@ def test_system_page_lists_the_surge_spots(client):
 def test_leaving_from_a_belt_goes_via_the_nearest_surge_spot_not_the_entry_point(client):
     # ISOLITHOR 2026-10-22: belt → ISOBAREA took 3544 s by the entry point, 515 s via the Kuiper belt
     sent, _ = _run(client, at="Z-BELT-1", dest="Y-2-L4")
-    assert sent == [{"command": "travel", "destination": "Y-2-L4", "via": ["Z-KUIPER"]}]
+    # the destination's star last (live 2026-10-26: "Cannot travel directly from ISOLITHOR-KUIPER to KHAZENEN-BELT-1")
+    assert sent == [{"command": "travel", "destination": "Y-2-L4", "via": ["Z-KUIPER", "Y"]}]
+    sent, _ = _run(client, at="Z-BELT-1", dest="Y")                                    # to a star: nothing more
+    assert sent == [{"command": "travel", "destination": "Y", "via": ["Z-KUIPER"]}]
     sent, _ = _run(client, at="Z-1-1", dest="Y-2-L4")                                   # next to the entry point: as it is
     assert sent == [{"command": "travel", "destination": "Y-2-L4"}]
 
