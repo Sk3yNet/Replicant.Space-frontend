@@ -23,7 +23,7 @@ each category has worked with its own carriers, the ones left over help any cate
 
 The logistics devices: every member of a logistics fleet. Materials ride in cargo devices: freighters and cargo vessels fly anywhere;
 transport drones and haulers work inside their system, or are towed (attached) to another by a logistics carrier (plate,
-platform, carrier, cargo vessel). Anywhere outside an active relay network (relaynet.coverage)
+platform, carrier, cargo vessel), which also fetches them from another system to the stockpile first. Anywhere outside an active relay network (relaynet.coverage)
 a logistics device hosting a replicant flies alongside — a cargo vessel hosting one carries its own escort — or nothing goes.
 After a delivery outside the network the logistics devices come back to wait in it: their fleet's home when that's covered, else
 the nearest covered system. Inside the network an idle logistics device gathers at the nearest printing hub (a fleet that
@@ -856,7 +856,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                                  "replicant": None, "back": None, "label": r["label"]})
                     continue
             # one run per source system: cargo devices load there, travel together (riding a carrier when one is free
-            # for a long trip) and share one escort
+            # for a long trip) and share one escort; the carrier also fetches haulers and drones from another system
+            # (owner 2026-10-27)
             ride = None
             if not same:
                 rides = [d for c, d in free.items() if c not in used and can_surge(d) and attach_free(d) >= 1
@@ -875,7 +876,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 cands = [d for c, d in free.items() if c not in used and c != (ride or {}).get("device_code")
                          and (room(d) >= 1 or any(held(d).get(x, 0.0) >= 1 for x in need))
                          and (can_surge(d) or (star_of(d.get("location")) == fstar and fstar in commandable
-                                               and (same or (ride and seats >= 1))))
+                                               and (same or (ride and seats >= 1)))
+                              or (ride and seats >= 1 and star_of(d.get("location")) != fstar))
                          and (star_of(d.get("location")) in commandable or c in hosts)
                          and (star_of(d.get("location")) == fstar or _dist(star_of(d.get("location")), fstar, pos) <= reach)]
                 if not cands:
@@ -1497,10 +1499,21 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
     riders = [c["code"] for c in cargos if c.get("rides")]
     flyers = [c["code"] for c in cargos if not c.get("rides")]
 
+    def fetch(c: str, loc: str) -> None:
+        """A rider in another system than `loc` is fetched there by the carrier (it can't surge)."""
+        if ride and at.get(c) and star_of(at[c]) != star_of(loc):
+            hop(at[c], [ride] + ([esc] if esc else []), " (fetch)")
+            steps.append(fl.board_step(ride, c, "attach"))
+            hop(loc, [ride] + ([esc] if esc else []), " (pick up)")
+            steps.append(step(f"{ride}: detach {c}", f"/devices/{ride}", {"command": "detach", "device": c}))
+            at[c] = loc
+
     def go(loc: str, why: str = "") -> None:
         """Everyone to `loc`: riders attach at one meeting point first, then the carrier, the flyers and the escort go."""
         if ride and riders:
             meet = at[riders[0]]
+            for c in riders[1:]:
+                fetch(c, meet)
             hop(meet, riders)
             hop(meet, [ride])
             for c in riders:
@@ -1513,7 +1526,10 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
     outside_pickup = bool(esc and run.get("escort_pickup"))   # stockpiles beyond the network: the escort is there first
     for c in cargos:
         for g in c["legs"]:
+            if c.get("rides"):
+                fetch(c["code"], g["pile"])
             hop(g["pile"], [c["code"]] + ([esc] if esc and outside_pickup else []), " (pick up)")
+            at[c["code"]] = g["pile"]
             steps.append(step(f"{c['code']}: load {', '.join(f'{q:g} {r}' for r, q in g['take'].items())} at {g['pile']}",
                               f"/devices/{c['code']}", {"command": "collect_resources", "resources": g["take"]}, critical=True))
     n0 = len(steps)

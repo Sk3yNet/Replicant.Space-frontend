@@ -160,6 +160,22 @@ def test_a_hauler_is_towed_for_a_long_range_run():
     assert cmds == [("HL", "collect_resources"), ("PL", "attach"), ("PL", "travel"), ("PL", "detach"), ("HL", "deposit_resources")]
 
 
+def test_a_plate_fetches_a_hauler_from_another_system_for_a_run():
+    devs = [dev("HL", "transport_hauler", "B-1", cargo_capacity=80, available_commands=["travel", "collect_resources"]),
+            dev("PL", "surge_plate", "A-1", **SURGE),
+            dev("AF", "autofactory", "Z-2", tags=[], status="waiting_for_resources",
+                print_queue=[{"device_type": "mining_drone", "quantity": 1}])]
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 300}}, pos=POS, commandable={"A", "B", "Z"},
+                hosts={}, busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    run = next(r for r in p["runs"] if r["req"] == "print:Z-2")
+    assert cargo(run) == ["HL"] and run["ride"] == "PL" and run["carry"] == {"carbon": 40}
+    steps = [s for s in lg.run_steps(run, {d["device_code"]: d for d in devs}) if s["body"]]
+    cmds = [(s["path"].split("/")[-1], s["body"].get("command"), s["body"].get("destination")) for s in steps]
+    assert cmds == [("PL", "travel", "B-1"), ("PL", "attach", None), ("PL", "travel", "A-1"), ("PL", "detach", None),
+                    ("HL", "collect_resources", None), ("PL", "attach", None), ("PL", "travel", "Z-2"),
+                    ("PL", "detach", None), ("HL", "deposit_resources", None)]
+
+
 def test_a_contract_is_approved_alone_or_pre_approved_by_its_civilization():
     import asyncio
     from rsweb import gameevents as gev

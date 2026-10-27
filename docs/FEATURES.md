@@ -554,7 +554,8 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
 - **Ships** are picked nearest first (by relay hop), then the smallest that takes the rest in one go (else the
   biggest), and as many as the load needs go at once, as one convoy. Freighters and cargo vessels fly themselves (a
   freighter is too large to attach); haulers and drones stay in their system unless they ride (attached) on a free
-  logistics carrier (plate, platform, carrier, fleet carrier).
+  logistics carrier (plate, platform, carrier, fleet carrier). A hauler or drone in another system than the
+  stockpile is fetched by that carrier first: it flies over, the hauler attaches, and it is towed to the pile to load.
 - A ship still holding what's needed (say, from a trip that failed) is used first, and delivers without picking up again.
 - Device deliveries (and fleet moves done piecemeal) take logistics carriers first.
 - **Batched deals**: contracts and trades at the same location share one delivery. What's there pays the first ones,
