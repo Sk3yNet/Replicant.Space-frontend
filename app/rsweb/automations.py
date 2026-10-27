@@ -88,12 +88,15 @@ RULES: list[Rule] = [
          [Option("every_minutes", "int", "Run every (minutes)", 15),
           Option("adopt_arrivals", "bool", "Hand unmanaged drones to their system's controller", True),
           Option("activate_arrivals", "bool", "Set maintenance drones to patrol / activate inactive AMI controllers when they arrive home", True)]),
-    Rule("fleet_fill", "Fill unstationed fleets from spares",
+    Rule("fleet_fill", "Sort out unstationed fleets (fill from spares, drop extras)",
          "Every N minutes, a fleet that isn't stationed (stationed ones are kept full by the loadout pass), isn't on a "
          "mission and is short of its loadout (or its template's) takes "
          "idle spare devices of the missing types, nearest first: they get the fleet's tag, the fleet's carrier tours the "
          "systems they're in to pick them up and flies back, and spares that surge themselves fly to the fleet. Missions "
-         "still recruit spares in their gather phase whether this is on or not.",
+         "still recruit spares in their gather phase whether this is on or not. Members beyond the loadout (a count "
+         "over, or a type its template sets to 0) are dropped as spares the next time they're idle in a system with one "
+         "of your hubs (e.g. home for repairs); replicants' vessels, matrices, matrix containers, anything carrying "
+         "others, the fleet's relays, beacons and wards and reserved devices (contract:, to:, at:) are never dropped.",
          [Option("every_minutes", "int", "Run every (minutes)", 30)]),
     Rule("consolidate", "Consolidate stockpiles at the autofactory",
          "Every N minutes, in each system with an autofactory: any other stockpile above the minimum is hauled to the "
@@ -4787,15 +4790,29 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         working = {(j.get("meta") or {}).get("fleet") for j in jobs if j["status"] in ("running", "waiting")}
         devices = await self.devices()
         radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
+        hubs = self.hub_stars(devices)
+        ignore = set((await self.loadout_cfg()).get("ignore_tags") or [])
         out = []
         for f in await self.fleets():
             # a stalled or stopped mission still holds its devices where they are: don't send the carrier recruiting
-            if (only and f["id"] != only) or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped") \
-                    or f["id"] in working:
+            if (only and f["id"] != only) or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
                 continue
-            if fl.stationed(f):
+            if fl.stationed(f) or f.get("role") == "bootstrap":
                 continue   # the loadout pass keeps a stationed fleet filled, at its home
-            if not fl.short_list(f, devices):
+            # a logistics fleet always has jobs going: its extras only need to be out of them (busy)
+            if f["id"] in working and f.get("role") != "logistics":
+                continue
+            drop = self.droppable_extras(f, devices, busy, hubs, ignore)
+            if drop:
+                codes = [d["device_code"] for d in drop]
+                job = await self.create_job("fleet_fill", f"{f['name']}: drops {len(codes)} extra(s) at a hub ({', '.join(codes)})",
+                                            None, fl.drop_steps(f, drop), {"devices": codes, "fleet": f["id"]}, force=force)
+                busy |= set(codes)
+                out.append(f"{f['name']}: drops " + ", ".join(f"{d['device_code']} ({d.get('device_type')})" for d in drop)
+                           + " as spares at a hub" + ("" if job else " (dry run)"))
+                if job:
+                    continue   # one job per fleet at a time: the fill comes next pass
+            if f["id"] in working or not fl.short_list(f, devices):
                 continue
             steps, recruits, notes = fl.fill_plan(f, devices, stars, busy, radii, far_au, await self.supply_reach())
             for n in notes:
@@ -4811,6 +4828,33 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             who = ", ".join(f"{d['device_code']} ({d.get('device_type')})" for d in recruits)
             out.append(f"{f['name']}: takes {who}"
                        + ("" if job else " (dry run)"))
+        return out
+
+    @staticmethod
+    def hub_stars(devices: list[dict]) -> set[str]:
+        """Systems with one of our system hubs deployed: where fleets drop their extras."""
+        return {star_of(d["location"]) for d in devices if d.get("device_type") == "system_hub" and d.get("location")
+                and not str(d.get("status") or "").startswith(("destroyed", "decommission"))}
+
+    @staticmethod
+    def droppable_extras(f: dict, devices: list[dict], busy: set[str], hubs: set[str], ignore: set[str]) -> list[dict]:
+        """An unstationed fleet's members beyond its loadout (fleets.extras) that can be let go now (owner 2026-10-27:
+        when the fleet is next in at a hub, e.g. home for repairs): idle in a hub system, out of every job, in comms
+        range, not working, and not riding a carrier that's on its way somewhere."""
+        from . import fleets as fl
+        by = {d.get("device_code"): d for d in devices}
+
+        def moving(d: dict) -> bool:
+            return bool(fl.in_flight(d)) or str(d.get("status") or "").lower().startswith(fl.MOVING)
+
+        out = []
+        for d in fl.extras(f, devices, ignore, hubs):
+            host = by.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code") or "")
+            if (d["device_code"] in busy or fl.where_star(d, by) not in hubs or d.get("in_control_range") is False
+                    or str(d.get("status") or "").lower().startswith(fl.BUSY_STATES) or moving(d)
+                    or (host and (moving(host) or host.get("device_code") in busy))):
+                continue
+            out.append(d)
         return out
 
     async def fleet_owners(self, force: bool = False, only: str | None = None) -> list[str]:
@@ -5757,8 +5801,13 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             last = _ts(attempts.get(code))
             if last and now - last < cooldown:
                 continue
-            ctrl = next((c for c in devices if is_controller(c) and kind_of(c.get("device_type")) == "mining"
-                         and c.get("location") == d.get("location")), None) if cfg.get("prefer_ami", True) else None
+            # the drone's own fleet's controller (another fleet's would take it over: live 2026-10-27, Miner_8's
+            # drones ran under Miner_9's controller at SOLARES-BELT-1), else a fleetless one
+            from .ami_schedule import fleet_of as ctrl_fleet, same_side
+            ctrl = min((c for c in devices if is_controller(c) and kind_of(c.get("device_type")) == "mining"
+                        and c.get("location") == d.get("location") and same_side(c, d)),
+                       key=lambda c: (ctrl_fleet(c) != ctrl_fleet(d), c["device_code"]), default=None) \
+                if cfg.get("prefer_ami", True) else None
             if ctrl:
                 handed.setdefault(ctrl["device_code"], []).append(code)
                 attempts[code] = now.isoformat(timespec="seconds")

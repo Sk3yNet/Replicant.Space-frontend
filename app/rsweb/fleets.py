@@ -1223,6 +1223,78 @@ def outside_controllers(fleet: dict, devices: list[dict]) -> list[dict]:
     return [d for d in devices if d.get("device_code") in runs - mine]
 
 
+# --- extras: members beyond the loadout, dropped at a hub (owner 2026-10-27) ------------------------------------
+CARGO_TYPES = ("ftl_relay", "ftl_beacon", "system_ward")   # carried to be dropped or switched on where the fleet works
+RESERVED_PREFIXES = ("contract:", "to:", "at:")
+BUSY_STATES = ("mining", "searching", "tracking", "scanning", "collecting", "depositing", "printing", "repairing",
+               "launched", "coordinating", "terraforming")
+
+
+def kept_reason(d: dict, devices: list[dict], ignore: set[str] | frozenset = frozenset()) -> str | None:
+    """Why a member is never let go as an extra (None: it may be): a replicant's vessel, a matrix or matrix container
+    or anything with a matrix inside (project rule since 1.186.2), a reserved device (contract:, to:, at:, an ignored
+    tag), one carrying others, the ferry's, or the fleet's relays, beacons and wards (cargo it drops where it works)."""
+    from .logistics import holds_replicant
+    tags = set(d.get("tags") or [])
+    code = d.get("device_code")
+    if holds_replicant(d, devices):
+        return "holds a replicant or matrix"
+    if ignore & tags or any(t.startswith(RESERVED_PREFIXES) for t in tags):
+        return "reserved"
+    if {"ferry", "taxi"} & tags or d.get("taxi_mode") == "taxi":
+        return "the ferry's"
+    if (d.get("device_type") or "") in CARGO_TYPES:
+        return "fleet cargo"
+    if code and any(code in (x.get("stowed_in_device_code"), x.get("attached_to_device_code")) for x in devices):
+        return "carries other devices"
+    return None
+
+
+def extras(fleet: dict, devices: list[dict], ignore: set[str] | frozenset = frozenset(),
+           prefer: set[str] | frozenset = frozenset()) -> list[dict]:
+    """Members beyond the loadout (station_wants: its counts, 0 for the types its template sets to 0; a type left
+    blank is "don't care" and never extra). The kept ones (kept_reason) still count; of the rest, those in a `prefer`
+    star (where they can be dropped now) go first, then the most worn."""
+    wants = station_wants(fleet)
+    if not wants:
+        return []
+    by = {d.get("device_code"): d for d in devices}
+    out = []
+    for t, want in sorted(wants.items()):
+        have = [d for d in members(fleet, devices) if (d.get("device_type") or "") == t]
+        over = len(have) - int(want or 0)
+        if over <= 0:
+            continue
+        free = [d for d in have if not kept_reason(d, devices, ignore)]
+        free.sort(key=lambda d: (where_star(d, by) not in prefer, float(d.get("operational_capacity") or 100),
+                                 d["device_code"]))
+        out += free[:over]
+    return out
+
+
+def drop_steps(fleet: dict, ds: list[dict]) -> list[dict]:
+    """Let extras go where they are: out of the carrier, released by a controller, then out of the fleet as spares
+    (the loadout pass gathers spares at the depot and sends them to whoever is short)."""
+    tag, steps = fleet_tag(fleet["id"]), []
+    for d in ds:
+        code = d["device_code"]
+        if d.get("controller_device_code"):
+            steps.append(step(f"{d['controller_device_code']}: release {code}", f"/devices/{d['controller_device_code']}",
+                              {"command": "release", "devices": [code]}))
+        if d.get("attached_to_device_code"):
+            c = d["attached_to_device_code"]
+            steps.append(step(f"{c}: detach {code}", f"/devices/{c}", {"command": "detach", "device": code}))
+        elif d.get("stowed_in_device_code"):
+            st = step(f"deploy {code} from {d['stowed_in_device_code']}", f"/devices/{code}", {"command": "deploy"},
+                      wait=["device.deployed"], timeout=SHORT_TIMEOUT)
+            st["wait_device"] = code
+            steps.append(st)
+        steps.append(step(f"{code} ({d.get('device_type')}) leaves {fleet.get('name') or fleet['id']} as a spare",
+                          f"/devices/{code}", {"configuration": {"add_tags": ["spare"], "remove_tags": [tag]}},
+                          method="PATCH"))
+    return steps
+
+
 WORK_DONE_STATES = ("exhausted", "depleted", "complete", "done", "idle:no_sources")   # a mining controller's _eval_state
 
 

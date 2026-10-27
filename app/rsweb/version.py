@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.283.0"
+VERSION = "1.284.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.284.0", "2026-10-27", "Fleets sort themselves out. A device of one fleet run by another fleet's controller is released so its own fleet's controller takes it back, and the idle-miner rule only hands a drone to its own fleet's controller (or a fleetless one): Miner_8's drones were mining for Miner_9's controller at SOLARES. Members on their way home that haven't left yet become spares where they wait once the fleet has its count (Delta Force had 4 more miners waiting in ISOLITHOR for 1 open place). Unstationed fleets (survey, logistics, prospector) drop members beyond their loadout as spares the next time they're idle at a hub; blank loadout types stay don't care, and replicants' vessels, matrices, matrix containers, carriers with devices aboard, a fleet's relays, beacons and wards and reserved devices are never dropped."),
     ("1.283.0", "2026-10-27", "Logistics haulers go where the pickup is: a free logistics carrier with a seat (a surge plate, platform or carrier) now fetches a hauler or transport drone from another system, tows it to the stockpile to load, and on to the receiving location. Before, only haulers already in the pickup system were used."),
     ("1.281.1", "2026-10-27", "Rescues leave reserved devices alone: a device tagged for a contract, or tagged to: another system, is no longer brought home when it is out of command range (its deal or its own trip handles it)."),
     ("1.281.0", "2026-10-27", "Bulk profile import on the Reputation page: paste JSON of replicant code (or current name) to name, description, plan, project and pronouns, preview what changes and what is wrong (unknown replicant, too long, duplicate or taken name), then apply. Only changed fields are sent, one profile edit per replicant. Bulk tag edits on the Device list no longer lose a tag when the device refresh after the order lands at the same moment."),

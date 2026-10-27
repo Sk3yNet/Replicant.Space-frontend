@@ -360,6 +360,14 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
   where they're short (within the supply range, default 1728 ly: the sector range), and what's still missing is printed and carried there
   (large devices are compacted first).
 - Placed beacons and relays are never made spare or moved.
+- **Fleets sort themselves out** (1.284.0): a device of one fleet run by another fleet's controller is released, so its
+  own fleet's controller adopts it again (idle miners are only handed to their own fleet's controller, or a fleetless one).
+  Members on their way home that haven't left yet are let go as spares where they wait once the fleet has its count.
+  An unstationed fleet (survey, logistics, prospector) drops members beyond its loadout as spares the next time they're
+  idle in a system with one of your hubs (home for repairs, say); *Fill from spares* (rule *Sort out unstationed fleets*)
+  does it. A type left blank in the loadout is "don't care" and never dropped; set it to 0 to drop it. Never dropped:
+  replicants' vessels, matrices, matrix containers, anything with a matrix or other devices aboard, a fleet's relays,
+  beacons and wards, and reserved devices (`contract:`, `to:`, `at:`, ignored tags).
 - **Belt surveyors** (said to search belts about 4x faster) are adopted by survey controllers (or search on their own without one), ahead of survey drones, wherever belts
   get searched or rocks scanned. In loadouts they are their own item, counted apart from survey drones.
 - **Carriers**: a borrowed carrier only comes from within the supply range of the pick-up (the trip itself can be any

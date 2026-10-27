@@ -520,6 +520,17 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     for d in devices:
         if d.get("device_code") in replicant_hosts and fleet_tag_of(d) in by_tag and not (ignore & set(d.get("tags") or [])):
             riders[fleet_tag_of(d)][d.get("device_type") or "device"] += 1
+    # members on their way home that haven't left yet (no carrier, no job): a fleet already at its count without them
+    # lets the surplus go where it waits (live 2026-10-27: Delta Force had 7 of 8 miners home and 4 more waiting in
+    # ISOLITHOR for a carrier to ANLOREN)
+    waiting_in: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for d in pool:
+        f = by_tag.get(fleet_tag_of(d) or "")
+        dest = bound_for(d, known_stars, fleet_homes)
+        if (f and dest == f["home"] and d.get("location") and star_of(d["location"]) != dest and d["device_code"] not in busy
+                and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code") and not for_contract(d)
+                and not pinned_at(d) and str(d.get("status") or "").startswith("idle")):
+            waiting_in[(f["id"], d.get("device_type") or "device")].append(d)
     for f in groups:
         star, fid, tag = f["home"], f["id"], fl.fleet_tag(f["id"])
         mine = members(f)
@@ -536,6 +547,14 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             if ward_hold:   # home warded by another player: send no more miners (the ones there stay)
                 want = len(have)
             inc = incoming[fid][t]
+            wait = sorted(waiting_in.get((fid, t), []), key=lambda d: d["device_code"])
+            for d in wait[:max(0, min(len(wait), len(have) + inc - want))]:
+                code = d["device_code"]
+                moves.pop(code, None)
+                made_spare.add(code)
+                tag_add[code].add(SPARE)
+                tag_remove[code].update({tag} | {x for x in d.get("tags") or [] if x.startswith(("to:", "home:"))})
+                inc -= 1
             surplus = max(0, len(have) - want)
             # who stays: members first, then non-spare, controller-run, already tagged home here (from before stationed
             # fleets), at home, busy ones (can't be moved anyway), then idle-less-healthy last
@@ -928,6 +947,15 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         c = d.get("controller_device_code")
         if (c and code not in busy and code not in moves and not is_ferry_ctrl(c) and d.get("taxi_mode") != "taxi"
                 and code not in releases.get(c, [])):
+            releases[c].append(code)
+
+    # a device of one fleet run by another fleet's controller is let go (owner 2026-10-27: Miner_8's drones mined for
+    # Miner_9's controller at SOLARES-BELT-1), so its own fleet's controller adopts it again
+    for d in devices:
+        code, c = d["device_code"], d.get("controller_device_code")
+        own, theirs = fleet_tag_of(d), fleet_tag_of(by_code_all.get(c) or {})
+        if (c and own and theirs and own != theirs and code not in busy and code not in moves and not ferry_side(d)
+                and not (ignore & set(d.get("tags") or [])) and code not in releases.get(c, [])):
             releases[c].append(code)
 
     # controllers and the devices they run (a controller leaving lets its drones go and drops its directive first)
@@ -1592,7 +1620,7 @@ def describe(p: dict) -> list[str]:
         if spare:
             out.append(f"{ctrl} releases {', '.join(spare)} (no longer in the loadout: spare)")
         if other:
-            out.append(f"{ctrl} releases {', '.join(other)} (run from another system)")
+            out.append(f"{ctrl} releases {', '.join(other)} (run from another system, or another fleet's)")
     joins = Counter(t for code, tags in p["tag_add"].items() if code not in p["moves"] for t in tags if t.startswith("fleet:"))
     for t, n in sorted(joins.items()):
         out.append(f"{n} device(s) join {t} (they count for that fleet wherever they go)")
@@ -1897,8 +1925,8 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
             add(d, f"idle in {here}, away from {f['name']}'s home {f['home']}", code in moves, "sent home")
         cfleet = next((t for t in ctrl_dev.get("tags") or [] if t.startswith("fleet:")), None)
         if ctrl and cfleet and cfleet not in ftags and not (not ftags and cfleet in stationed):
-            add(d, f"run by {ctrl}, a controller of {cfleet}, but not in that fleet", False,
-                f"release it from {ctrl}, or add it to the fleet")
+            add(d, f"run by {ctrl}, a controller of {cfleet}, but not in that fleet", code in releases,
+                f"released by {ctrl}" if code in releases else f"release it from {ctrl}, or add it to the fleet")
         if code in handoff_drones:
             add(d, "idle in its system with no controller", True, "adopted by the system's controller")
     star_order = {s: i for i, s in enumerate(sorted(known))}
