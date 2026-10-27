@@ -5744,6 +5744,23 @@ def test_profile_edit_and_reputation(client):
     assert "Nothing changed" in client.post(f"/replicants/{rep}/profile", data={"name": "x", "orig_name": "x"}, headers=HX).text
     assert profile_changes({"pronouns": "x" * 51, "orig_pronouns": ""})[1]
     assert profile_changes({"name": "", "orig_name": "bob"})[1]
+    reps = client.portal.call(client.app.state.db.kv_get, "replicants")
+    other = next((c for c in reps if c != rep), None)
+    text = json.dumps({rep: {"name": "Quill_Ferry", "plan": "Haul relays", "pronouns": "they/them"},
+                       "NOPE1234": {"name": "Ghost"}, **({other: {"description": "x" * 501}} if other else {})})
+    r = client.post("/profiles/preview", data={"profiles": text}, headers=HX).text
+    assert "Apply 1 profile" in r and "not one of your replicants" in r and "unchanged: pronouns" in r
+    if other:
+        assert "501 characters" in r
+    r = client.post("/profiles/import", data={"profiles": text}, headers=HX).text
+    assert "saved" in r and world.profile_patches[-1] == {"code": rep, "name": "Quill_Ferry", "plan": "Haul relays"}
+    assert client.portal.call(client.app.state.db.kv_get, "replicants")[rep]["name"] == "Quill_Ferry"
+    assert "not valid JSON" in client.post("/profiles/preview", data={"profiles": "{"}, headers=HX).text
+    r = client.post("/profiles/preview", data={"profiles": json.dumps({"Quill_Ferry": {"name": "Bill"}})}, headers=HX).text
+    assert "Apply 1 profile" in r
+    assert "Name already taken" in client.post("/profiles/import", data={"profiles": json.dumps({rep: {"name": "Bill"}})},
+                                                headers=HX).text
+    assert "Bulk profile import" in client.get("/reputation", headers=H).text
     assert "acquainted" in client.get(f"/replicants/{rep}/reputation", headers=HX).text
     page = client.get("/reputation", headers=H).text
     assert "Veth" in page and "intelligent" in page and "curious, aquatic" in page and "events completed" in page

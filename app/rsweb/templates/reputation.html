@@ -20,5 +20,16 @@
     <h2>Known species</h2>
     {% if c.species_err %}<p class="lv-alert small">{{ c.species_err }}</p>{% elif c.species %}{{ show(c.species) }}{% else %}<p class="muted small">None yet. Survey drones find life when scanning bodies.</p>{% endif %}
   </div>
+  <div class="card">
+    <h2>Bulk profile import</h2>
+    <p class="muted small">Paste JSON of replicant code (or current name) → fields: name, description, plan, project, pronouns.
+      Only fields that differ are sent, one profile edit per replicant. Preview first, then apply.</p>
+    <form hx-post="/profiles/preview" hx-target="#profile-import-result">
+      <textarea name="profiles" rows="8" style="width:100%" class="mono small"
+        placeholder='{"ED399202": {"name": "Regina_Solforge", "description": "…", "plan": "…", "project": "…"}}'></textarea>
+      <button class="small">Preview</button>
+    </form>
+    <div id="profile-import-result"></div>
+  </div>
 </div>
 {% endblock %}

@@ -207,7 +207,7 @@ async def _bulk_tags(request: Request, user: str, ctx: dict, tags: list[str]) ->
     db = request.app.state.db
     devices = await db.kv_get("devices", []) or []
     by = {d.get("device_code"): d for d in devices}
-    rows, sent = [], 0
+    rows, sent, done = [], 0, {}
     for code in ctx["ok"]:
         have = set((by.get(code) or {}).get("tags") or [])
         todo = [t for t in tags if (t not in have) == add]
@@ -220,14 +220,19 @@ async def _bulk_tags(request: Request, user: str, ctx: dict, tags: list[str]) ->
                                 f"{'add' if add else 'remove'} tags {', '.join(todo)} on {code} (bulk)")
         if out["ok"]:
             sent += 1
-            d = by.get(code)
-            if d is not None:
-                d["tags"] = sorted(have | set(todo)) if add else [t for t in d.get("tags") or [] if t not in todo]
+            done[code] = todo
         rows.append(f'<li><a class="mono" href="/devices/{code}">{code}</a> '
                     + ('<span class="lv-done">✓</span>' if out["ok"] else
                        f'<span class="lv-alert">✗ {out["status"]}: {html.escape(str(out["error"] or ""))}</span>') + "</li>")
-    if sent:
-        await db.kv_set("devices", devices)
+    if sent:   # on a fresh read: the orders' own device refreshes wrote the list meanwhile
+        async with request.app.state.worker.devices_lock:
+            devices = await db.kv_get("devices", []) or []
+            for d in devices:
+                todo = done.get(d.get("device_code"))
+                if todo:
+                    have = set(d.get("tags") or [])
+                    d["tags"] = sorted(have | set(todo)) if add else sorted(have - set(todo))
+            await db.kv_set("devices", devices)
     rows += [f'<li><span class="mono">{html.escape(c)}</span> <span class="muted">skipped: {html.escape(w)}</span></li>'
              for c, w in ctx["skip"]]
     verb = "added" if add else "removed"

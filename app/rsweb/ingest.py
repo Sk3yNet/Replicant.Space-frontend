@@ -207,6 +207,7 @@ class Worker:
         self.late = {"n": 0, "oldest": None}   # late events since the last live one, for the catch-up note
         self._watch: dict[str, datetime] = {}   # device code → until when its events refresh it (after_order)
         self._bg: set[asyncio.Task] = set()
+        self.devices_lock = asyncio.Lock()   # quick read-modify-writes of the cached device list (refreshes, bulk tags)
         self._arrivals: list[datetime] = []   # arrival refreshes lately (watched_event)
         from .automations import AutomationEngine
         self.automations = AutomationEngine(db, api, hub, self)
@@ -608,15 +609,16 @@ class Worker:
                 fresh[d["device_code"]] = d
         if not fresh:
             return
-        mine = set(await self.db.kv_get("replicants", {}) or {})
-        fresh = {c: d for c, d in fresh.items() if not foreign(d, mine)}
-        devices = [d for d in await self.db.kv_get("devices", []) or [] if not foreign(d, mine)]
-        for d in devices:
-            f = fresh.pop(d.get("device_code"), None)
-            if f is not None:
-                d.update(f)
-        devices.extend(fresh.values())   # new to the list (printed, adopted)
-        await self.db.kv_set("devices", devices)
+        async with self.devices_lock:
+            mine = set(await self.db.kv_get("replicants", {}) or {})
+            fresh = {c: d for c, d in fresh.items() if not foreign(d, mine)}
+            devices = [d for d in await self.db.kv_get("devices", []) or [] if not foreign(d, mine)]
+            for d in devices:
+                f = fresh.pop(d.get("device_code"), None)
+                if f is not None:
+                    d.update(f)
+            devices.extend(fresh.values())   # new to the list (printed, adopted)
+            await self.db.kv_set("devices", devices)
         self.hub.publish("state", "devices")
 
     async def note_trip(self, code: str, resp: dict) -> None:

@@ -1,0 +1,27 @@
+{% if err %}<div class="result err">{{ err | join('; ') }}.</div>
+{% else %}
+{% set todo = rows | selectattr('errors', 'equalto', []) | selectattr('body') | list %}
+<table class="small">
+  <tr><th>Replicant</th><th>Changes</th><th>{{ 'Result' if done else 'Check' }}</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td><a href="/replicants/{{ r.code }}">{{ r.current }}</a> <span class="muted mono">{{ r.code }}</span></td>
+    <td>{% for f, v in r.body.items() %}<div><b>{{ f }}</b>: {{ v | truncate(90) }}</div>{% endfor %}
+      {% if r.same %}<div class="muted">unchanged: {{ r.same | join(', ') }}</div>{% endif %}</td>
+    <td>{% if r.errors %}<span class="lv-alert">{{ r.errors | join('; ') }}</span>
+      {% elif not r.body %}<span class="muted">nothing to change</span>
+      {% elif r.result %}{% if r.result.ok %}✔ saved{% else %}<span class="lv-alert">✖ {{ r.result.status }}: {{ r.result.error }}</span>{% endif %}
+      {% else %}ready{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% if not done %}
+  {% if todo %}
+  <form hx-post="/profiles/import" hx-target="#profile-import-result" style="margin-top:8px">
+    <textarea name="profiles" hidden>{{ text }}</textarea>
+    <button class="small">Apply {{ todo | length }} profile{{ '' if todo | length == 1 else 's' }}</button>
+    <span class="muted small">Rows with problems are skipped.</span>
+  </form>
+  {% else %}<p class="muted small">Nothing to apply.</p>{% endif %}
+{% endif %}
+{% endif %}

@@ -64,7 +64,7 @@ seconds, and a trip's countdown reaching zero loads the new location.
 | | [Logistics](docs/FEATURES.md#logistics) | deliveries on demand by task category, carriers spread over the hubs, rescues, repair patrols |
 | | Reset & reform | rebuild messy tags |
 | **Economy** | [Blueprints](docs/FEATURES.md#blueprints) | travel, cargo, costs, production planner, [component prints](docs/FEATURES.md#component-prints) |
-| | [Contracts](docs/FEATURES.md#contracts) · [Reputation](docs/FEATURES.md#reputation) · [Shop](docs/FEATURES.md#shop) | contracts and trades, deliveries, shops and traders |
+| | [Contracts](docs/FEATURES.md#contracts) · [Reputation](docs/FEATURES.md#reputation) · [Shop](docs/FEATURES.md#shop) | contracts and trades, deliveries, shops and traders; bulk replicant profile import |
 | | [Simulations](docs/FEATURES.md#simulations) | scenario runs with build orders, terraforming training, research and data uploads |
 | | [Lockers](docs/FEATURES.md#lockers) | equipment lockers: deliver the price, retrieve |
 | **Activity** | [Automations, Events, Messages, Notifications, Leaderboards, Blog](docs/FEATURES.md#activity-and-tools) | rules, jobs and log; history; BobNet; alerts; boards; the game's blog |

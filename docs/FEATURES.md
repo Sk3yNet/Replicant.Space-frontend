@@ -645,7 +645,7 @@ A factory already waiting for components gets spares pinned to it, or the rest p
 - A Trades section (as on Shop).
 
 ### Reputation
-Account and per-replicant reputation, known species.
+Account and per-replicant reputation, known species. **Bulk profile import**: paste JSON `{code or current name: {name, description, plan, project, pronouns}}`, preview the changes and problems per replicant, then apply (one profile edit each, changed fields only).
 
 ### Shop
 - Your trade controllers, trades, other traders: every replicant's trader directory plus every shop a system scan lists,

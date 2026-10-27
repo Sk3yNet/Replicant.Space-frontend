@@ -4,6 +4,7 @@ shown as they come (partials/records.html) and cached in kv "reputation" for the
 from __future__ import annotations
 
 import html
+import json
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -63,6 +64,88 @@ async def replicant_profile(request: Request, code: str, user: str = Depends(cur
             reps[code].update(body)
             await db.kv_set("replicants", reps)
     return render_action(request, out)
+
+
+def parse_import(text: str, reps: dict[str, dict]) -> tuple[list[dict], list[str]]:
+    """Bulk profile import: {code: {name, description, plan, project, pronouns}} (or a list of such objects with a
+    replicant_code). A key may also be a replicant's current name. Each row keeps only the fields that differ from the
+    cached profile, and lists what's wrong with it (unknown replicant, too long, empty name)."""
+    try:
+        data = json.loads(text or "")
+    except ValueError as e:
+        return [], [f"not valid JSON: {e}"]
+    if isinstance(data, list):
+        data = {str(x.get("replicant_code") or x.get("code") or ""): x for x in data if isinstance(x, dict)}
+    if not isinstance(data, dict) or not data:
+        return [], ["expected an object of replicant code → profile fields"]
+    by_name = {str(r.get("name") or ""): c for c, r in reps.items()}
+    rows, seen = [], {}
+    for key, fields in data.items():
+        code = key if key in reps else by_name.get(key, key)
+        cur = reps.get(code) or {}
+        row = {"code": code, "current": cur.get("name") or code, "body": {}, "errors": [], "same": []}
+        if not cur:
+            row["errors"].append("not one of your replicants")
+        if not isinstance(fields, dict):
+            row["errors"].append("expected an object of fields")
+            fields = {}
+        for f, v in fields.items():
+            if f in ("replicant_code", "code"):
+                continue
+            if f not in PROFILE_FIELDS:
+                row["errors"].append(f"unknown field {f}")
+                continue
+            v = str(v or "").strip()
+            if f == "name" and not v:
+                row["errors"].append("the name can't be empty")
+            elif len(v) > PROFILE_FIELDS[f]:
+                row["errors"].append(f"{f} is {len(v)} characters (at most {PROFILE_FIELDS[f]})")
+            elif v == str(cur.get(f) or "").strip():
+                row["same"].append(f)
+            else:
+                row["body"][f] = v
+        name = row["body"].get("name")
+        if name:
+            if name in seen:
+                row["errors"].append(f"name also given to {seen[name]}")
+            seen[name] = code
+        rows.append(row)
+    renamed = {r["code"] for r in rows if r["body"].get("name")}
+    for r in rows:
+        owner = by_name.get(r["body"].get("name") or "")
+        if owner and owner != r["code"] and owner not in renamed:
+            r["errors"].append(f"name already used by {owner}")
+    return rows, []
+
+
+async def _import_rows(request: Request, text: str) -> tuple[list[dict], list[str]]:
+    st = await load_state(request)
+    return parse_import(text, st["replicants"])
+
+
+@router.post("/profiles/preview", response_class=HTMLResponse)
+async def profiles_preview(request: Request, profiles: str = Form(""), user: str = Depends(current_user)):
+    rows, err = await _import_rows(request, profiles)
+    return partial(request, "partials/profile_import.html", rows=rows, err=err, done=False, text=profiles)
+
+
+@router.post("/profiles/import", response_class=HTMLResponse)
+async def profiles_import(request: Request, profiles: str = Form(""), user: str = Depends(current_user)):
+    """Send one PATCH /replicants/{code} per valid row with changes; rows with errors are skipped."""
+    rows, err = await _import_rows(request, profiles)
+    db = request.app.state.db
+    for row in rows:
+        if row["errors"] or not row["body"]:
+            continue
+        out = await call_action(request, user, "PATCH", f"/replicants/{row['code']}", row["body"],
+                                f"{row['code']}: profile import ({', '.join(row['body'])})")
+        row["result"] = out
+        if out["ok"]:
+            reps = await db.kv_get("replicants", {}) or {}
+            if row["code"] in reps:
+                reps[row["code"]].update(row["body"])
+                await db.kv_set("replicants", reps)
+    return partial(request, "partials/profile_import.html", rows=rows, err=err, done=True, text=profiles)
 
 
 async def _get(api, path: str) -> tuple[object, str | None]:
