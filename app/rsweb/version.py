@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.277.1"
+VERSION = "1.278.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.278.0", "2026-10-27", "Device list: filters switch in the browser, with no trip to the server. The page holds every device and hides the ones outside the filter, so narrowing a filter is near instant (about 50 ms for 1,060 devices instead of half a second plus any server stall); the search box asks the server only which devices match the text. Hidden devices are unticked so a bulk command never reaches one you cannot see, and the command counts follow the filter."),
     ("1.277.1", "2026-10-27", "Uploaded devices leave the device list at once instead of lingering 12 hours as unlisted (the reserved tag kept being re-sent to them and failed with Device not found). A data device deployed at the datacenter that drops out of the game's list counts as uploaded, so chips consumed earlier are cleared on the next sync and added to the Data uploads count; the Lost devices page names the reason."),
     ("1.277.0", "2026-10-27", "System page: under Bodies, each system object of the scan (a space station or another megastructure) folds out with its stage, status, progress, description, requirements and contributors, and Full system scan folds out the whole scan."),
     ("1.276.0", "2026-10-27", "Galaxy map: megastructures from system scans show again. They were filed under their designation (SPACE-STATION-006), which names no star, instead of their STAR-OBJ-n location, so none ever showed. Space stations (megastructure type space_station) get the silver wheel instead of the hexagon."),

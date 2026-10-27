@@ -5,7 +5,7 @@
 <div class="row between"><h1>Device list</h1>
   <span class="row"><span id="refresh-msg"></span>
   <button class="small" hx-post="/fleet/refresh" hx-target="#refresh-msg">Refresh from game</button></span></div>
-<form class="inline card" hx-get="/fleet" hx-target="#fleet-table" hx-trigger="input changed delay:300ms, change, fleet-refreshed from:body" hx-push-url="true" style="margin-bottom:12px">
+<form class="inline card" id="fleet-filter" data-no-live onsubmit="return false" style="margin-bottom:12px">
   {% if sim_id %}<input type="hidden" name="sim" value="{{ sim_id }}">{% endif %}
   <input name="q" placeholder="search code, location, status…" value="{{ f.q }}" size="28">
   <select name="type"><option value="">all types</option>{% for t in types %}<option value="{{ t }}" {{ 'selected' if f.type == t }}>{{ t | human }}</option>{% endfor %}</select>
@@ -18,4 +18,71 @@
 </form>
 <div id="bulk-result"></div>
 <div class="card" id="fleet-table">{% include "partials/fleet_table.html" %}</div>
+<script>
+// Filters work on the rows already here (every device is listed, those outside the filter hidden): switching one needs no
+// server round trip and no redraw. The search box asks the server which devices' data holds the text (/fleet/match).
+(() => {
+  const form = document.getElementById("fleet-filter"), table = document.getElementById("fleet-table");
+  const found = {};   // search text → Set of codes
+  let codes = null, timer = null;
+  function apply() {
+    const v = k => (form.elements[k] && form.elements[k].value) || "";
+    const type = v("type"), status = v("status"), star = v("star"), owner = v("owner"), tag = v("tag");
+    const cmds = {};
+    let n = 0;
+    table.querySelectorAll("tr[data-code]").forEach(tr => {
+      const d = tr.dataset;
+      const ok = (!type || d.type === type) && (!status || d.status === status) && (!star || d.star === star)
+        && (!owner || d.owner === owner) && (!tag || d.tags.split(" ").includes(tag)) && (!codes || codes.has(d.code));
+      if (tr.hidden === ok) tr.hidden = !ok;
+      if (!ok) { const c = tr.querySelector(".bulk-pick"); if (c) c.checked = false; return; }   // never sent to an unseen device
+      n++;
+      if (d.cmds) d.cmds.split(" ").forEach(c => { cmds[c] = (cmds[c] || 0) + 1; });
+    });
+    const count = document.getElementById("fleet-count"), none = document.getElementById("fleet-none");
+    if (count) count.textContent = n;
+    if (none) none.hidden = n > 0;
+    table.querySelectorAll("#bulk-cmd option[data-label]").forEach(o => {
+      const k = cmds[o.value] || 0;
+      o.hidden = !k;
+      o.textContent = `${o.dataset.label} (${k} here)${o.dataset.warn || ""}`;
+    });
+    const u = new URL(location.href);
+    ["q", "type", "status", "star", "owner", "tag"].forEach(k => { v(k) ? u.searchParams.set(k, v(k)) : u.searchParams.delete(k); });
+    history.replaceState(history.state, "", u);   // a reload, a live redraw or a shared link keeps the filter
+  }
+  async function search() {
+    const q = form.elements.q.value.trim();
+    if (!q) { codes = null; return apply(); }
+    if (!found[q]) {
+      const u = new URL("/fleet/match", location.href);
+      u.searchParams.set("q", q);
+      if (form.elements.sim) u.searchParams.set("sim", form.elements.sim.value);
+      const r = await fetch(u, { credentials: "same-origin" });
+      if (!r.ok) return;
+      found[q] = new Set(await r.json());
+    }
+    if (form.elements.q.value.trim() === q) { codes = found[q]; apply(); }
+  }
+  form.addEventListener("input", e => {
+    if (e.target.name !== "q") return;   // the lists answer on change
+    clearTimeout(timer);
+    timer = setTimeout(search, 250);
+  });
+  form.addEventListener("change", e => { if (e.target.name !== "q") apply(); });
+  async function reload() {   // after Refresh from game: the fresh list, filtered the same way
+    for (const k in found) delete found[k];
+    const r = await fetch(location.href, { credentials: "same-origin" });
+    if (!r.ok) return;
+    const nu = new DOMParser().parseFromString(await r.text(), "text/html").getElementById("fleet-table");
+    if (!nu) return;
+    table.innerHTML = nu.innerHTML;
+    htmx.process(table);
+    await search();
+  }
+  document.body.addEventListener("fleet-refreshed", reload);
+  table.addEventListener("live:swapped", () => { for (const k in found) delete found[k]; search(); });
+  if (form.elements.q.value.trim()) search(); else apply();
+})();
+</script>
 {% endblock %}

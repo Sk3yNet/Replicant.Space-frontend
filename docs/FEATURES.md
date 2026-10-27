@@ -58,7 +58,8 @@ stars or datacenters involved, the Ark's stop, opportunities, NPCs. *Pause for t
 System → device type → device, with stowed devices nested in their carrier; each device opens its command panel.
 
 ### Device list (`/fleet`)
-- Every device, filterable by type, status, system, owning replicant, tag or text.
+- Every device, filterable by type, status, system, owning replicant, tag or text. The filters work in the browser
+  (hidden rows are unticked), so switching one needs no server round trip; the URL keeps the filter.
 - Tick devices (or all listed) to send them **one command**, or to **add tags** / **remove tags**.
 - Devices that can't take it are listed and skipped: command not available, in use by an automation, a deploy/detach
   while the carrier is between systems.

@@ -610,11 +610,9 @@ def filter_devices(devices: list[dict], q: str, dtype: str, status: str, star: s
     return sorted(out, key=lambda d: (d.get("location") or "", d.get("device_type") or "", d.get("device_code") or ""))
 
 
-@router.get("/fleet", response_class=HTMLResponse)
-async def fleet(request: Request, q: str = "", type: str = "", status: str = "", star: str = "", tag: str = "",
-                owner: str = "", user: str = Depends(current_user)):
-    st = await load_state(request)
-    # a stowed / attached device has no location of its own: show where its carrier is ("in <carrier>")
+async def fleet_shown(request: Request, st: dict) -> list[dict]:
+    """The device list's devices; a stowed / attached device has no location of its own: show where its carrier is
+    ("in <carrier>")."""
     by = {d.get("device_code"): d for d in st["devices"]}
     stowed = await request.app.state.db.kv_get("stowed_map", {}) or {}
     held_by = {c: k for k, kids in stowed.items() for c in kids}
@@ -630,7 +628,19 @@ async def fleet(request: Request, q: str = "", type: str = "", status: str = "",
             if (by.get(carrier or "") or {}).get("location"):
                 d = {**d, "location": by[carrier]["location"], "carried_by": carrier}
         shown.append(d)
+    return shown
+
+
+@router.get("/fleet", response_class=HTMLResponse)
+async def fleet(request: Request, q: str = "", type: str = "", status: str = "", star: str = "", tag: str = "",
+                owner: str = "", user: str = Depends(current_user)):
+    st = await load_state(request)
+    shown = await fleet_shown(request, st)
     devs = filter_devices(shown, q, type, status, star, tag, owner)
+    # the page holds every device and filters in the browser (fleet.html: no round trip, no redraw of a thousand rows);
+    # the rows outside the URL's filter start hidden. The table alone (hx-target fleet-table) holds just the matches.
+    part = request.headers.get("hx-request") and request.headers.get("hx-target") == "fleet-table"
+    rows = devs if part else filter_devices(shown, "", "", "", "", "", "")
     # owning replicants, by name: e.g. to reassign the devices of one gone into a simulation (change_owner)
     rnames = {(r.get("replicant_code") or k): (r.get("name") or k) for k, r in (st.get("replicants") or {}).items() if isinstance(r, dict)}
     owners = sorted(({c: rnames.get(c, c) for c in {d.get("replicant_code") for d in st["devices"]} if c}).items(),
@@ -639,11 +649,20 @@ async def fleet(request: Request, q: str = "", type: str = "", status: str = "",
     stars = sorted({star_of(d.get("location")) for d in shown})
     tags = sorted({t for d in st["devices"] for t in (d.get("tags") or [])})
     from .web_bulk import bulk_commands
-    kw = dict(devices=devs, types=types, stars=stars, tags=tags, owners=owners, bulk_cmds=bulk_commands(devs), dangerous=DANGEROUS,
+    here = dict(bulk_commands(devs))   # every command any device takes, counted over the shown ones
+    kw = dict(devices=devs, rows=rows, match={d.get("device_code") for d in devs}, types=types, stars=stars, tags=tags,
+              owners=owners, bulk_cmds=[(c, here.get(c, 0)) for c, _ in bulk_commands(rows)], dangerous=DANGEROUS,
               f={"q": q, "type": type, "status": status, "star": star, "tag": tag, "owner": owner}, **{k: v for k, v in st.items() if k != "devices"})
-    if request.headers.get("hx-request") and request.headers.get("hx-target") == "fleet-table":
+    if part:
         return partial(request, "partials/fleet_table.html", **kw)
     return await page(request, user, "fleet.html", "fleet", **kw)
+
+
+@router.get("/fleet/match")
+async def fleet_match(request: Request, q: str = "", user: str = Depends(current_user)):
+    """Codes of the devices whose data holds the search text: the device list's search box, filtered in the browser."""
+    shown = await fleet_shown(request, await load_state(request))
+    return JSONResponse([d.get("device_code") for d in filter_devices(shown, q, "", "", "", "", "")])
 
 
 @router.post("/fleet/refresh", response_class=HTMLResponse)

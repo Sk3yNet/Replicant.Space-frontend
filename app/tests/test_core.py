@@ -9234,3 +9234,17 @@ def test_system_page_folds_out_system_objects_and_the_full_scan(client):
     page = client.get("/systems/ARUCALIS", headers=H).text
     assert "Populated Space Station" in page and "hab module" in page and "creme-292" in page
     assert "Full system scan" in page and "SPACE-STATION-006" in page
+
+
+def test_device_list_filters_in_the_browser(client):
+    import re
+    """The page holds every device, the ones outside the URL's filter hidden; the search box asks /fleet/match."""
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "devices", [
+        {"device_code": "D1", "device_type": "mining_drone", "location": "SOL-1", "available_commands": ["travel"]},
+        {"device_code": "D2", "device_type": "survey_drone", "location": "SOL-1", "available_commands": ["system_scan"]}])
+    page = client.get("/fleet?type=survey_drone", headers=H).text
+    assert 'data-code="D1" data-type="mining_drone"' in page and 'data-code="D2"' in page
+    assert re.search(r'data-code="D1"[^>]* hidden>', page) and not re.search(r'data-code="D2"[^>]* hidden>', page)
+    assert re.search(r'data-label="travel"[^>]* hidden>', page) and "system scan (1 here)" in page
+    assert client.get("/fleet/match?q=survey", headers=H).json() == ["D2"]
