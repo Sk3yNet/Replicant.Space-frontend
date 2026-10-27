@@ -2266,8 +2266,7 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
     from . import relayroll as rr
     from . import ward_orders as wo
     st = await load_state(request)
-    cat = await request.app.state.db.kv_get("stars", {}) or {}
-    pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict) and s.get("position")}
+    pos = await relaynet.star_pos(request.app.state.db)
     rn = relaynet.networks(st["devices"], pos, await _bp_map(request))
     rstars = relaynet.replicant_stars(st["replicants"], st["devices"])
     relaynet.coverage(rn, pos, rstars)
@@ -2337,8 +2336,7 @@ async def map_relay_network(request: Request, code: str, user: str = Depends(cur
     except ApiError as e:
         return HTMLResponse(f'<span class="lv-alert small">{html.escape(e.message)}</span>')
     st = await load_state(request)
-    cat = await request.app.state.db.kv_get("stars", {}) or {}
-    pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict) and s.get("position")}
+    pos = await relaynet.star_pos(request.app.state.db)
     rn = relaynet.networks(st["devices"], pos, await _bp_map(request))
     me = star_of(next((d.get("location") for d in st["devices"] if d.get("device_code") == code), "") or "")
     expect = {l["b"] if l["a"] == me else l["a"] for l in rn["links"] if me in (l["a"], l["b"])}
@@ -2548,7 +2546,11 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                                             or ("survey_controller" in (x.get("device_type") or "")
                                                 and str(x.get("status") or "").startswith("launched")) for x in ds)}
         from . import transit
-        positions = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if s.get("position")}
+        from . import relaynet as _rn
+        if sim_view(request):
+            positions = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if s.get("position")}
+        else:   # shared and read-only: relaynet.star_grid / bridges memoize on it
+            positions = await _rn.star_pos(db)
         items = await request.app.state.worker.automations.fleets()
         fleets = [fl.activity(f, st["devices"], status_class) for f in items]
         # observatories prospecting now: a cone from the system along the direction (reach / width learned from finds)
@@ -4350,10 +4352,27 @@ async def wallpaper_static(request: Request, slug: str, path: str):
     return FileResponse(HERE / "static" / path, headers={"Cache-Control": "public, max-age=3600"})
 
 
+WALLPAPER_TTL = 1800   # s; the wallpaper is the lowest priority (owner 2026-10-27): its data may be half an hour old
+
+
+async def _wp_cached(request: Request, kind: str, make) -> Response:
+    """A wallpaper answer, kept WALLPAPER_TTL per URL: each map refresh cost seconds of server time (sampled live
+    2026-10-27) that pages and the engine waited for."""
+    import time as _t
+    store = request.app.state.__dict__.setdefault("wp_cache", {})
+    key = f"{kind}?{request.url.query}"
+    hit = store.get(key)
+    if hit and _t.time() - hit[0] < WALLPAPER_TTL:
+        return Response(hit[1], media_type="application/json")
+    body = json.dumps(await make(), default=str).encode()
+    store[key] = (_t.time(), body)
+    return Response(body, media_type="application/json")
+
+
 @router.get("/wallpaper/{slug}/api/map.json")
 async def wallpaper_map(request: Request, slug: str):
     _, bad = await _wp_auth(request, slug)
-    return bad or JSONResponse(await map_payload(request, request.query_params.get("part") or "all"))
+    return bad or await _wp_cached(request, "map", lambda: map_payload(request, request.query_params.get("part") or "all"))
 
 
 @router.get("/wallpaper/{slug}/api/hud.json")
@@ -4361,8 +4380,10 @@ async def wallpaper_hud(request: Request, slug: str):
     """The wallpaper's dashboard panel: stockpiles with their 48-hour trend, what your devices are doing, your fleets'
     missions and your supply lines."""
     _, bad = await _wp_auth(request, slug)
-    if bad:
-        return bad
+    return bad or await _wp_cached(request, "hud", lambda: _hud_payload(request))
+
+
+async def _hud_payload(request: Request) -> dict:
     st = await load_state(request)
     series = await resource_series(request)
     resources = []
@@ -4377,8 +4398,8 @@ async def wallpaper_hud(request: Request, slug: str):
                "idle": fs["by_class"].get("st-idle", 0)}
     items = await request.app.state.worker.automations.fleets()
     fleets = [fl.activity(f, st["devices"], status_class) for f in items]
-    return JSONResponse({"resources": resources, "devices": devices, "fleets": [f for f in fleets if f["members"]],
-                         "supply": fl.supply_links(items, st["devices"])})
+    return {"resources": resources, "devices": devices, "fleets": [f for f in fleets if f["members"]],
+            "supply": fl.supply_links(items, st["devices"])}
 
 
 @router.get("/wallpaper/{slug}/api/systems.json")

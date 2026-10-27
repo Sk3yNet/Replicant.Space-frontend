@@ -9248,3 +9248,26 @@ def test_device_list_filters_in_the_browser(client):
     assert re.search(r'data-code="D1"[^>]* hidden>', page) and not re.search(r'data-code="D2"[^>]* hidden>', page)
     assert re.search(r'data-label="travel"[^>]* hidden>', page) and "system scan (1 here)" in page
     assert client.get("/fleet/match?q=survey", headers=H).json() == ["D2"]
+
+
+def test_managed_by_folds_in_new_ami_events_and_replays_after_a_delete(tmp_path):
+    import asyncio
+    from rsweb.ami_schedule import managed_by
+    from rsweb.db import DB
+
+    async def go():
+        db = DB(str(tmp_path / "m.sqlite"))
+        await db.open()
+        n = iter(range(100))
+
+        async def ev(event, ctrl, devs):
+            await db.insert_event({"id": f"e{next(n)}", "event": event, "device_code": ctrl, "payload": {"devices": devs}})
+        await ev("ami.digest", "C1", [{"device_code": "D1"}, {"device_code": "D2"}])
+        assert await managed_by(db) == {"D1": "C1", "D2": "C1"}
+        await ev("ami.released", "C1", ["D2"])
+        await ev("ami.adopted", "C2", ["D3"])
+        assert await managed_by(db) == {"D1": "C1", "D3": "C2"}
+        await db.execute("DELETE FROM events WHERE event='ami.adopted'")   # a simulation's events removed
+        assert await managed_by(db) == {"D1": "C1"}
+        await db.close()
+    asyncio.run(go())

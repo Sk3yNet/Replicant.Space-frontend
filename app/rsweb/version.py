@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.278.0"
+VERSION = "1.279.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.279.0", "2026-10-27", "Server speedups from the sampling profiler (snapshots of 2026-10-27): the device sync's lost-device check looked at every catalog star against every relay (about 3 s each sync; now each relay looks only at the stars in its reach, ~13 ms); the map's relay bridges are kept until your relays or the catalog change, and the star grid is built once per catalog update; which controller runs which drone (asked by many engine passes) folds in only new AMI events instead of replaying them all; the desktop wallpaper's map and dashboard data are kept half an hour."),
     ("1.278.0", "2026-10-27", "Device list: filters switch in the browser, with no trip to the server. The page holds every device and hides the ones outside the filter, so narrowing a filter is near instant (about 50 ms for 1,060 devices instead of half a second plus any server stall); the search box asks the server only which devices match the text. Hidden devices are unticked so a bulk command never reaches one you cannot see, and the command counts follow the filter."),
     ("1.277.1", "2026-10-27", "Uploaded devices leave the device list at once instead of lingering 12 hours as unlisted (the reserved tag kept being re-sent to them and failed with Device not found). A data device deployed at the datacenter that drops out of the game's list counts as uploaded, so chips consumed earlier are cleared on the next sync and added to the Data uploads count; the Lost devices page names the reason."),
     ("1.277.0", "2026-10-27", "System page: under Bodies, each system object of the scan (a space station or another megastructure) folds out with its stage, status, progress, description, requirements and contributors, and Full system scan folds out the whole scan."),

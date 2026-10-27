@@ -122,11 +122,11 @@ def covered_stars(devices: list[dict], replicants: dict, pos: dict[str, Any]) ->
             if p:
                 sources.append((p, r))
     out = {star_of(r.get("location") or r.get("current_location")) for r in (replicants or {}).values()}
-    for star, p in pos.items():
-        q = _xyz(p)
-        if q and any(math.dist(q, s) <= rng + 1e-9 for s, rng in sources):
-            out.add(star)
-    return {x for x in out if x}, {x for x in pos if _xyz(pos.get(x))}
+    from .relaynet import _near, star_grid
+    xyz_all, cells = star_grid(pos)   # each source looks only at the grid cells in its reach (was every star × every source)
+    for p, rng in {(tuple(p), rng) for p, rng in sources}:
+        out.update(_near(cells, p, rng))
+    return {x for x in out if x}, set(xyz_all)
 
 
 def why_lost(d: dict, by: dict[str, dict], covered: set[str], known: set[str]) -> str | None:
@@ -243,8 +243,8 @@ async def track(db, devices: list[dict]) -> dict:
     """The device sync's hook: update the record from the list it just stored."""
     s = normalize(await db.kv_get(KV, {}))
     reps = await db.kv_get("replicants", {}) or {}
-    cat = await db.kv_get("stars", {}) or {}
-    pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("position")}
+    from .relaynet import star_pos
+    pos = await star_pos(db)
     listed = {d.get("device_code") for d in devices}
     candidates = [c for c in s["lost"] if c not in listed]
     gone: set[str] = set()

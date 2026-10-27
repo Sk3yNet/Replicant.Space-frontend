@@ -44,8 +44,17 @@ def is_controller(d: dict) -> bool:
 
 async def managed_by(db) -> dict[str, str]:
     """device_code -> controller_code, from each controller's latest AMI digest (and adoption events)."""
-    out: dict[str, str] = {}
-    rows = await db.fetchall("SELECT device_code, event, payload FROM events WHERE event LIKE 'ami.%' ORDER BY seq")
+    # the events part is kept per database and only new ami.* events are folded in: replaying every one of them (and
+    # decoding each payload) on each call held the server seconds per engine pass (sampled live 2026-10-27). A count
+    # that doesn't add up (events deleted, e.g. a simulation's) replays them all again.
+    memo = db.__dict__.setdefault("_managed_memo", {"seq": 0, "n": 0, "out": {}})
+    rows = await db.fetchall("SELECT seq, device_code, event, payload FROM events WHERE event LIKE 'ami.%' AND seq > ? "
+                             "ORDER BY seq", (memo["seq"],))
+    n = (await db.fetchone("SELECT COUNT(*) AS n FROM events WHERE event LIKE 'ami.%'") or {}).get("n") or 0
+    if n != memo["n"] + len(rows):
+        memo.update(seq=0, n=0, out={})
+        rows = await db.fetchall("SELECT seq, device_code, event, payload FROM events WHERE event LIKE 'ami.%' ORDER BY seq")
+    out: dict[str, str] = memo["out"]
     for r in rows:
         p = json.loads(r["payload"] or "{}")
         ctrl = r["device_code"]
@@ -62,6 +71,10 @@ async def managed_by(db) -> dict[str, str]:
             for d in p.get("devices") or []:
                 code = d.get("device_code") if isinstance(d, dict) else d
                 out.pop(code, None)
+    memo["n"] = n
+    if rows:
+        memo["seq"] = rows[-1]["seq"]
+    out = dict(out)
     # the device list's own `controller_device_code` is authoritative whenever the game sends it
     for d in await db.kv_get("devices", []) or []:
         if "controller_device_code" in d:

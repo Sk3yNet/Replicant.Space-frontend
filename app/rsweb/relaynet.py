@@ -132,6 +132,24 @@ def _grid(pos: dict[str, Any]) -> tuple[dict, dict]:
     return xyz_all, cells
 
 
+async def star_pos(db) -> dict[str, Any]:
+    """{star: position} for every catalog star with one, built once per catalog update and shared (same as the
+    engine's star_lookup("pos")): callers only read it, and star_grid / bridges memoize on it."""
+    return await db.kv_derived("stars", "pos", lambda c: {x.get("designation"): x["position"] for x in (c or {}).get("stars") or []
+                                                          if isinstance(x, dict) and x.get("position")}, {})
+
+
+_grid_memo: list = [None, None]   # [pos it was built from, (xyz_all, cells)]
+
+
+def star_grid(pos: dict[str, Any]) -> tuple[dict, dict]:
+    """_grid(pos), kept while the same pos dict comes back (star_pos): building it walks the whole catalog (~30k stars),
+    and the device sync and the map asked for it every time (sampled live 2026-10-27)."""
+    if _grid_memo[0] is not pos:
+        _grid_memo[0], _grid_memo[1] = pos, _grid(pos)
+    return _grid_memo[1]
+
+
 def _near(cells: dict, x: tuple, r: float) -> list[str]:
     k = int(math.ceil(r / RELAY_LY))
     cx = [int(math.floor(c / RELAY_LY)) for c in x]
@@ -201,7 +219,20 @@ def bridges(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE) -> list[d
     ns, of = net["nodes"], net["of"]
     if len(net["networks"]) < 2:
         return []
-    xyz_all, cells = _grid(pos)   # a 7.5 ly grid for neighbor lookups
+    key = (frozenset((n, of[n], ns[n]["range"]) for n in ns), net.get("hop"), max_new, id(pos), len(pos))
+    if _bridge_memo.get("key") == key and _bridge_memo.get("pos") is pos:   # the map asks on every refresh
+        return [dict(b, stars=list(b["stars"])) for b in _bridge_memo["out"]]
+    out = _bridges(net, pos, max_new)
+    _bridge_memo.update(key=key, pos=pos, out=out)
+    return [dict(b, stars=list(b["stars"])) for b in out]
+
+
+_bridge_memo: dict = {}
+
+
+def _bridges(net: dict, pos: dict[str, Any], max_new: int) -> list[dict]:
+    ns, of = net["nodes"], net["of"]
+    xyz_all, cells = star_grid(pos)   # a 7.5 ly grid for neighbor lookups
 
     def near(x: tuple, r: float) -> list[str]:
         return _near(cells, x, r)
@@ -210,8 +241,8 @@ def bridges(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE) -> list[d
 
     def links_to(s: str, x: tuple) -> set[int]:
         """Networks a new relay at s would join: any node within its reach or within the node's own reach."""
-        return {of[o] for o in near(x, max([hop] + [n["range"] for n in ns.values()])) if o in ns
-                and math.dist(x, ns[o]["xyz"]) <= max(hop, ns[o]["range"]) + 1e-9}
+        return {of[o] for o in near(x, reach) if o in ns and math.dist(x, ns[o]["xyz"]) <= max(hop, ns[o]["range"]) + 1e-9}
+    reach = max([hop] + [n["range"] for n in ns.values()])
     best: dict[tuple[int, int], dict] = {}
     for g in net["networks"]:
         start = g["id"]
