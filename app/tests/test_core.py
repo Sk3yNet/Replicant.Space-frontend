@@ -9127,6 +9127,34 @@ def test_orders_refresh_the_devices_they_touch(client):
     assert next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == code)["status"] != "stale"
 
 
+def test_foreign_devices_stay_out_of_the_list(client):
+    """GET /devices/{code} answers for another player's device too (with its owner): it is never added to the cached
+    list, and one already there (Bill's interface F4791EDF, 2026-10-27) goes on the next sync, not kept as unlisted."""
+    from rsweb.ingest import foreign
+    w, db = client.app.state.worker, client.app.state.db
+    bill = {"name": "Bill", "replicant_code": "A8F48B26"}
+    mine = set(client.portal.call(db.kv_get, "replicants") or {})
+    assert foreign({"owner": bill}, mine) and not foreign({"owner": None}, mine)
+    assert not foreign({"owner": {"replicant_code": next(iter(mine))}}, mine)
+    real = w.api.get
+
+    async def fake(path, *a, **kw):
+        if path == "/devices/F4791EDF":
+            return {"device_code": "F4791EDF", "device_type": "replicant_interface", "owner": bill}
+        return await real(path, *a, **kw)
+    w.api.get = fake
+    try:
+        client.portal.call(w.refresh_devices_now, {"F4791EDF"})
+    finally:
+        w.api.get = real
+    assert "F4791EDF" not in {d["device_code"] for d in client.portal.call(db.kv_get, "devices")}
+    devices = client.portal.call(db.kv_get, "devices")
+    client.portal.call(db.kv_set, "devices", devices + [{"device_code": "F4791EDF", "device_type": "replicant_interface",
+                                                          "owner": bill, "location": "MIRFAKA-OBJ-1"}])
+    client.portal.call(w.sync_devices)
+    assert "F4791EDF" not in {d["device_code"] for d in client.portal.call(db.kv_get, "devices")}
+
+
 def test_heavy_passes_spread_over_ticks(client):
     eng = client.app.state.worker.automations
     ran = []

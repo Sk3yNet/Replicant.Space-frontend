@@ -129,6 +129,15 @@ GONE_SQL = (f"(event IN ({','.join('?' * len(GONE_EVENTS))}) OR "
 UNLISTED_KEEP_HOURS = 12
 
 
+def foreign(d: dict, mine) -> bool:
+    """Another player's device. The game's device list names no owner; GET /devices/{code} answers for anyone's device
+    and names its owner (live 2026-10-27: Bill's replicant interface F4791EDF, re-fetched after a simulation order,
+    landed in the list and then lingered 12 h as unlisted)."""
+    o = d.get("owner")
+    code = o.get("replicant_code") if isinstance(o, dict) else None
+    return bool(code) and code not in mine
+
+
 def _uploaded_look(d: dict, datacenter: str) -> bool:
     """A data-feature device deployed at the datacenter: when it leaves the list, the interface consumed it."""
     return ("data" in (d.get("features") or []) and d.get("location") == datacenter
@@ -599,7 +608,9 @@ class Worker:
                 fresh[d["device_code"]] = d
         if not fresh:
             return
-        devices = await self.db.kv_get("devices", []) or []
+        mine = set(await self.db.kv_get("replicants", {}) or {})
+        fresh = {c: d for c, d in fresh.items() if not foreign(d, mine)}
+        devices = [d for d in await self.db.kv_get("devices", []) or [] if not foreign(d, mine)]
         for d in devices:
             f = fresh.pop(d.get("device_code"), None)
             if f is not None:
@@ -708,7 +719,9 @@ class Worker:
             devices.extend(page)
             if not cursor:
                 break
-        prev = await self.db.kv_get("devices", []) or []
+        mine = set(await self.db.kv_get("replicants", {}) or {})   # someone else's device: not ours to keep or miss
+        devices = [d for d in devices if not foreign(d, mine)]
+        prev = [d for d in await self.db.kv_get("devices", []) or [] if not foreign(d, mine)]
         listed = {d.get("device_code") for d in devices}
         missing = [d.get("device_code") for d in prev if d.get("device_code") not in listed]
         gone: set[str] = set()

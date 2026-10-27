@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.280.0"
+VERSION = "1.280.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.280.1", "2026-10-27", "Another player's devices stay out of your device list. Re-fetching a device after an order (the datacenter's replicant interface after a simulation, say) added it even when it was someone else's, and it then lingered 12 hours as unlisted, with a rescue request on the Logistics page. Devices the game names another owner for are dropped on the next sync."),
     ("1.280.0", "2026-10-27", "Logistics page: every logistics job still going has Cancel job (and Confirm trip when it waits for your Confirm), on its request row and under Recent trips. Old jobs are no longer left off (the page showed only the last 15), and a skipped request still shows its running job: C02BCAB4 sat a day at SOLARES waiting for a Confirm the page never offered."),
     ("1.279.2", "2026-10-27", "Surge hops inside a system go as one trip with the spot as a waypoint again (the game takes it from a belt to ISOLITHOR-1-L4); only when the game refuses it as a loop (from the entry point to the belt) does the device hop to the spot first and cruise the rest. Hand-sent trip previews offer the waypoint again."),
     ("1.279.1", "2026-10-27", "Surge hops inside a system are trips of their own: the game refuses a surge spot as a waypoint there (\"Loop detected: already at ISOLITHOR\"), so trips from ISOLITHOR-1-L4 to the belt cruised 499 AU for 57 min. Now the device hops to the Kuiper belt first (30 s), then cruises the rest. Hand-sent trip previews no longer offer the refused waypoint inside a system."),
