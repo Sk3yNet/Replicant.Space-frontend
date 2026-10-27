@@ -25,13 +25,19 @@ async def logistics_page(request: Request, user: str = Depends(current_user)):
     db = request.app.state.db
     st = await db.kv_get(lg.KV_STATE, {}) or {}
     eng = request.app.state.worker.automations
-    jobs = [j for j in await eng.jobs() if j.get("rule") == "logistics"][-15:]
-    on_way = {(j.get("meta") or {}).get("logistics", {}).get("req"): j for j in jobs if j.get("status") in ("running", "waiting")}
+    every = [j for j in await eng.jobs() if j.get("rule") == "logistics"]
+    active = [j for j in every if j.get("status") in ("running", "waiting")]
+    # recent trips, plus every job still going however old (each gets a Cancel)
+    jobs = active + [j for j in every[-15:] if j not in active]
+    jobs.sort(key=lambda j: j.get("created_at") or "")
+    on_way = {(j.get("meta") or {}).get("logistics", {}).get("req"): j for j in active}
+    held = {j["id"]: j["steps"][j["idx"]].get("hold") or "long trip" for j in active
+            if j.get("idx", 0) < len(j.get("steps") or []) and j["steps"][j.get("idx", 0)].get("status") == "confirm"}
     why = {u["req"]: u["why"] for u in st.get("unmet") or []}
     ok = await db.kv_get(lg.KV_TRADES, {}) or {}
     fleets = lg.logistics_fleets(await eng.fleets())
     transit = await cargo.in_transit(db, (await load_state(request))["devices"], await eng.jobs())
-    return await page(request, user, "logistics.html", "logistics", st=st, jobs=list(reversed(jobs)), on_way=on_way, why=why,
+    return await page(request, user, "logistics.html", "logistics", st=st, jobs=list(reversed(jobs)), on_way=on_way, held=held, why=why,
                       tiers=lg.TIERS, categories=lg.CATEGORIES, fleets=fleets, approvals=ok, transit=transit,
                       hub_balance=await db.kv_get("hub_balance", {}) or {}, carrier_classes=bal.CLASSES,
                       hub_leeway=await db.kv_get(bal.KV_LEEWAY, bal.LEEWAY_PCT), slack=bal.slack,

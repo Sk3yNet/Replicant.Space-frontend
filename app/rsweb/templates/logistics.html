@@ -2,6 +2,8 @@
 {% block title %}Logistics{% endblock %}
 {% block live %} data-live-cards{% endblock %}
 {% block content %}
+{% macro job_state(j) %}{% if j.id in held %}<span class="lv-alert">held: {{ held[j.id] }}, Confirm to send it</span>{% else %}<span class="lv-done">on its way</span>{% endif %} <span class="muted">{{ j.title }} (started {{ j.created_at | ago }})</span>{% endmacro %}
+{% macro job_buttons(j) %}{% if j.id in held %}<button class="small" hx-post="/automations/jobs/{{ j.id }}/confirm" title="{{ held[j.id] }}">Confirm trip</button> {% endif %}<button class="small ghost" hx-post="/automations/jobs/{{ j.id }}/cancel" hx-confirm="Cancel this job? The command already sent is not undone, and cargo stays aboard.">Cancel job</button>{% endmacro %}
 <h1>Logistics</h1>
 <p class="muted small">Your logistics fleets (Fleets: role <i>logistics</i>, filled to their loadout like any fleet) carry materials on
   demand: what queued prints need, contracts you approved or whose civilization you pre-approved (Contracts page), and
@@ -22,11 +24,11 @@
       <td>{{ r.tier }} · {{ tiers[r.tier] }}{% if r.tier != r.base_tier %} <span class="pill small">bumped</span>{% endif %}{% if r.waiting %} <span class="lv-alert">waiting</span>{% endif %}{% if r.category %}<br><span class="muted">{{ categories.get(r.category, r.category) }}</span>{% endif %}</td>
       <td>{{ r.label }}</td><td>{{ r.to }}</td>
       <td>{% for k, q in r.need.items() %}{{ q | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% else %}<span class="muted">stocked</span>{% endfor %}</td>
-      <td>{% if r.paused %}<span class="lv-warning">paused</span> <span class="muted">{{ r.paused }}{% if r.paused_until %} until {{ r.paused_until | local }}{% endif %}</span>{% elif r.skipped %}skipped{% elif on_way.get(r.id) %}<span class="lv-done">on its way</span> <span class="muted">{{ on_way[r.id].title }}</span>{% elif why.get(r.id) %}<span class="lv-alert">{{ why[r.id] }}</span>{% elif r.need %}queued{% else %}—{% endif %}</td>
+      <td>{% if r.paused %}<span class="lv-warning">paused</span> <span class="muted">{{ r.paused }}{% if r.paused_until %} until {{ r.paused_until | local }}{% endif %}</span>{% elif on_way.get(r.id) %}{% if r.skipped %}skipped, but {% endif %}{{ job_state(on_way[r.id]) }}{% elif r.skipped %}skipped{% elif why.get(r.id) %}<span class="lv-alert">{{ why[r.id] }}</span>{% elif r.need %}queued{% else %}—{% endif %}</td>
       <td><form hx-post="/fleets/logistics/prefs" hx-target="next .tx-r" style="display:inline"><input type="hidden" name="req" value="{{ r.id }}">
         <select name="tier" onchange="this.form.requestSubmit()"><option value="">priority…</option>{% for t, n in tiers.items() %}<option value="{{ t }}"{% if r.tier != r.base_tier and r.tier == t %} selected{% endif %}>{{ t }} {{ n }}</option>{% endfor %}<option value="reset">its own</option></select>
         {% if r.confirm %}<button class="small" name="confirm" value="on" title="{{ ('about %d h of travel' % r.trip_h) if r.trip_h is not none else 'trip of unknown length' }}">Confirm</button>{% endif %}
-        {% if not r.paused %}<button class="small" name="skip" value="{{ 'off' if r.skipped else 'on' }}">{{ 'Resume' if r.skipped else 'Skip' }}</button>{% endif %}</form><span class="tx-r"></span></td></tr>{% endfor %}
+        {% if not r.paused %}<button class="small" name="skip" value="{{ 'off' if r.skipped else 'on' }}">{{ 'Resume' if r.skipped else 'Skip' }}</button>{% endif %}</form>{% if on_way.get(r.id) %} {{ job_buttons(on_way[r.id]) }}{% endif %}<span class="tx-r"></span></td></tr>{% endfor %}
   </table>{% else %}<p class="muted">Nothing requested right now.</p>{% endif %}
   {% for u in st.unmet or [] %}{% if not u.req %}<p class="lv-alert small">{{ u.why }}</p>{% endif %}{% endfor %}
 </div>
@@ -85,6 +87,6 @@
   {% else %}<p class="muted small">Nothing in any hold right now.</p>{% endif %}
 </div>
 <div class="card"><h2>Recent trips</h2>
-  {% if jobs %}<table class="small">{% for j in jobs %}<tr><td>{{ j.created_at | ago }}</td><td>{{ j.status }}</td><td>{{ j.title }}</td></tr>{% endfor %}</table>
+  {% if jobs %}<table class="small">{% for j in jobs %}<tr><td>{{ j.created_at | ago }}</td><td>{{ j.status }}</td><td>{{ j.title }}</td><td>{% if j.status in ('running', 'waiting') %}{{ job_buttons(j) }}{% endif %}</td></tr>{% endfor %}</table>
   {% else %}<p class="muted">None yet.</p>{% endif %}</div>
 {% endblock %}

@@ -1094,3 +1094,26 @@ def test_the_rescue_pause_form_pauses_and_resumes(client):  # noqa: F811
     client.post("/fleets/logistics/rescue-pause", data={"resume": "1"}, headers=HX)
     client.post("/fleets/logistics/rescue-pause", data={"fleet": "cab", "resume": "1"}, headers=HX)
     assert lg.rescue_pauses(client.portal.call(db.kv_get, lg.KV_RESCUE_PAUSE)) == {"all": None, "fleets": {}}
+
+
+def test_logistics_page_cancels_old_and_held_jobs(client):  # noqa: F811
+    """Every running logistics job gets Cancel on the Logistics page, however old, also for a skipped request;
+    a trip held for Confirm says so and offers Confirm."""
+    db = client.app.state.db
+    old = {"id": "lg-old", "rule": "logistics", "title": "logistics: prints at X-1: C02 carries 3 rares", "status": "waiting",
+           "created_at": "2026-10-01T00:00:00+00:00", "idx": 0,
+           "meta": {"logistics": {"req": "print:X-1"}},
+           "steps": [{"desc": "C02 → X-1", "status": "confirm", "hold": "about 240 h of travel"}]}
+    done = [{"id": f"lg-{i}", "rule": "logistics", "title": f"done {i}", "status": "done",
+             "created_at": f"2026-10-20T00:{i:02d}:00+00:00", "idx": 1, "steps": [{"desc": "x", "status": "done"}]}
+            for i in range(20)]
+    client.portal.call(db.kv_set, "automation_jobs", done + [old])
+    client.portal.call(db.kv_set, "logistics_state", {"requests": [
+        {"id": "print:X-1", "kind": "print", "to": "X-1", "need": {}, "tier": 1, "base_tier": 1, "skipped": True,
+         "label": "prints at X-1"}]})
+    page = client.get("/fleets/logistics", headers=H).text
+    assert "skipped, but" in page and "about 240 h of travel" in page
+    assert page.count("/automations/jobs/lg-old/cancel") == 2 and "/automations/jobs/lg-old/confirm" in page
+    client.post("/automations/jobs/lg-old/cancel", headers=HX)
+    page = client.get("/fleets/logistics", headers=H).text
+    assert "/automations/jobs/lg-old/cancel" not in page
