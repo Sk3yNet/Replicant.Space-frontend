@@ -2482,8 +2482,8 @@ async def map_payload(request: Request, part: str = "all") -> dict:
             if pfrom:
                 await db.kv_set("prospected_from", pfrom)
         from . import megas
-        mega = await megas.known(db)   # star -> megastructures there: the map's hexagon
-        stations = await megas.stations(db)   # colony space stations (GET /overview): the map's station wheel
+        stations = await megas.stations(db)   # space stations (scans, GET /overview): the map's station wheel
+        mega = {k: v for k, v in (await megas.known(db)).items() if megas.other_than_stations(v)}   # the hexagon
         scope = request.query_params.get("scope") or "all"
         mine = set(presence) | set(infra) | scanned | set(prospected) | set(pfrom) \
             | {star_of(r.get("location") or r.get("current_location")) for r in st["replicants"].values()} \

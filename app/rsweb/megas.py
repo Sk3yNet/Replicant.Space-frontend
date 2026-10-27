@@ -15,16 +15,18 @@ def star_of(loc: str | None) -> str:
     return (loc or "").split("-")[0]
 
 
-def in_scan(data: Any) -> set[str]:
-    """Designations of the megastructures a stored system scan mentions, wherever in it they are."""
-    out: set[str] = set()
+def in_scan(data: Any) -> dict[str, str]:
+    """The megastructures a stored system scan mentions, wherever in it they are: {location: megastructure_type}.
+    Keyed by the STAR-OBJ-n location, not the designation (SPACE-STATION-006, DERELICT-RING-001), which names no star:
+    before 1.276.0 every scanned megastructure landed on a nonexistent star and never showed (Joe 2026-10-27)."""
+    out: dict[str, str] = {}
 
     def walk(x: Any) -> None:
         if isinstance(x, dict):
-            code = x.get("designation") or x.get("code") or x.get("location")
+            code = x.get("location") or x.get("designation") or x.get("code")
             kind = str(x.get("location_type") or x.get("object_type") or x.get("type") or "").lower()
             if isinstance(code, str) and (kind == "megastructure" or isinstance(x.get("megastructure"), dict)):
-                out.add(code)
+                out[code] = str(x.get("megastructure_type") or (x.get("megastructure") or {}).get("type") or "")
             for v in x.values():
                 walk(v)
         elif isinstance(x, list):
@@ -41,21 +43,23 @@ async def known(db) -> dict[str, list[str]]:
     key = (stamp["n"], stamp["t"], ev["s"])
     if _cache["key"] == key:
         return _cache["val"]
-    codes = {DATACENTER}
+    codes, stations = {DATACENTER}, set()
     for r in await db.fetchall("SELECT data FROM systems"):
         try:
-            codes |= in_scan(json.loads(r["data"] or "{}"))
+            found = in_scan(json.loads(r["data"] or "{}"))
         except ValueError:
-            pass
+            continue
+        codes |= set(found)
+        stations |= {c for c, t in found.items() if t == "space_station"}
     for r in await db.fetchall("SELECT payload, location FROM events WHERE event = 'megastructure.contributed'"):
         p = json.loads(r["payload"] or "{}") or {}
-        c = p.get("megastructure_designation") or r["location"]
+        c = r["location"] or p.get("location") or p.get("megastructure_designation")   # the designation names no star
         if c:
             codes.add(c)
     out: dict[str, list[str]] = {}
     for c in sorted(codes):
         out.setdefault(star_of(c), []).append(c)
-    _cache.update(key=key, val=out)
+    _cache.update(key=key, val=out, stations=stations)
     return out
 
 
@@ -65,7 +69,7 @@ STATION_RE = ("space station",)
 def stations_in(overview: Any) -> set[str]:
     """Systems with a colony space station, from GET /overview: a storyline or event whose summary says space station
     and lists systems (live 2026-10-27: "Terraforming the Colony Worlds" names the twelve where the Exodus Ark's
-    replicants built one). The game reports no station location or object, so this is the only source."""
+    replicants built one). Scans list a station as a megastructure (type space_station) only once the system is scanned."""
     out: set[str] = set()
     ov = overview if isinstance(overview, dict) else {}
     for x in (ov.get("storylines") or []) + (ov.get("events") or []):
@@ -83,4 +87,13 @@ async def remember_stations(db, overview: Any) -> None:
 
 
 async def stations(db) -> set[str]:
-    return set(await db.kv_get("colony_stations", []) or []) | stations_in(await db.kv_get("overview", {}))
+    """Systems with a space station: scanned (megastructure_type space_station) or named by the overview."""
+    await known(db)
+    return {star_of(c) for c in _cache.get("stations") or ()} | set(await db.kv_get("colony_stations", []) or []) \
+        | stations_in(await db.kv_get("overview", {}))
+
+
+def other_than_stations(codes: list[str]) -> list[str]:
+    """The megastructures among codes that aren't space stations (those get the station wheel, not the hexagon)."""
+    st = _cache.get("stations") or set()
+    return [c for c in codes if c not in st]

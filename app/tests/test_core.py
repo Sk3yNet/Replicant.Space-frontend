@@ -7285,7 +7285,7 @@ def test_megastructures_for_the_map(client):
     db = client.app.state.db
     scan = {"planets": [], "objects": [{"designation": "FLARM-OBJ-1", "location_type": "megastructure"},
                                        {"designation": "FLARM-OBJ-2", "location_type": "object"}]}
-    assert megas.in_scan(scan) == {"FLARM-OBJ-1"}
+    assert set(megas.in_scan(scan)) == {"FLARM-OBJ-1"}
     client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
                        ("FLARM", _json.dumps(scan), "2026-10-15T00:00:00+00:00"))
     client.portal.call(db.insert_event, {"id": "m1", "event": "megastructure.contributed", "location": "VEGA-OBJ-4",
@@ -9191,3 +9191,21 @@ def test_colony_space_stations_on_the_map(client):
     stars = {s["designation"]: s for s in client.get("/api/map.json", headers=H).json()["stars"]}
     assert stars["SOL"].get("station") and not stars.get("FALQUORYX", {}).get("station")
     assert 'id="opt-mark-station"' in client.get("/map", headers=H).text
+
+
+def test_scanned_megastructures_land_on_their_star(client):
+    """Joe 2026-10-27: scans list stations as megastructures at STAR-OBJ-n; the designation names no star."""
+    import json as _json
+    from rsweb import megas
+    db = client.app.state.db
+    scan = {"system_objects": [
+        {"designation": "SPACE-STATION-006", "location": "ARUCALIS-OBJ-1", "object_type": "megastructure",
+         "megastructure_type": "space_station"},
+        {"designation": "DERELICT-RING-001", "location": "TWAFFY-OBJ-1", "object_type": "megastructure",
+         "megastructure_type": "derelict_ring"}]}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("ARUCALIS", _json.dumps(scan), "2026-10-27T00:00:00+00:00"))
+    known = client.portal.call(megas.known, db)
+    assert known["ARUCALIS"] == ["ARUCALIS-OBJ-1"] and "SPACE" not in known
+    assert "ARUCALIS" in client.portal.call(megas.stations, db)
+    assert megas.other_than_stations(["ARUCALIS-OBJ-1", "TWAFFY-OBJ-1"]) == ["TWAFFY-OBJ-1"]
