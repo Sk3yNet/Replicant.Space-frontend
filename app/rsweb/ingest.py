@@ -885,6 +885,8 @@ class Worker:
             ov = await self.api.get("/overview", background=True)
             if isinstance(ov, dict):
                 await self.db.kv_set("overview", ov)
+                from . import megas
+                await megas.remember_stations(self.db, ov)
                 await self.season_check(ov.get("season"))
         except ApiError as e:
             log.info("overview failed: %s", e)

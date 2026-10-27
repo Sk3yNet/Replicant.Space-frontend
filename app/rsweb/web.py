@@ -2483,6 +2483,7 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                 await db.kv_set("prospected_from", pfrom)
         from . import megas
         mega = await megas.known(db)   # star -> megastructures there: the map's hexagon
+        stations = await megas.stations(db)   # colony space stations (GET /overview): the map's station wheel
         scope = request.query_params.get("scope") or "all"
         mine = set(presence) | set(infra) | scanned | set(prospected) | set(pfrom) \
             | {star_of(r.get("location") or r.get("current_location")) for r in st["replicants"].values()} \
@@ -2498,6 +2499,7 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                              if d in prospected else {}),
                           **({"prospected_from": pfrom[d]} if d in pfrom else {}),
                           **({"mega": mega[d]} if d in mega else {}),
+                          **({"station": True} if d in stations else {}),
                           **({"hazardous": hazardous[d]} if d in hazardous else {}),
                           **({"tags": tags_of[d]} if d in tags_of else {})})
             rad, measured = star_radius(s, radii.get(d))

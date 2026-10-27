@@ -9174,3 +9174,20 @@ def test_printing_hubs_print_for_each_other_within_sector_range():
     have = wo.stocked(devs, {"conductive": 120, "structural": 80}, inv)
     assert have == {"FF"} and wo.factory_near(devs, "SOL", set(), pos, 1728, None, have)["device_code"] == "FF"
     assert wo.factory_near(devs, "SOL", set(), pos, 1728)["device_code"] == "SF"
+
+
+def test_colony_space_stations_on_the_map(client):
+    """Owner 2026-10-27: colony space stations aren't megastructures (the game reports no station object, only the
+    overview's storyline), so they get their own map mark, kept once the storyline ends."""
+    from rsweb import megas
+    db = client.app.state.db
+    ov = {"storylines": [{"title": "Terraforming the Colony Worlds", "locations": ["ROSALIATE", "SOL-3"],
+                          "summary": "Humanity is living on space stations, but they need planets."},
+                         {"title": "Other", "locations": ["FALQUORYX"], "summary": "Mine things."}]}
+    assert megas.stations_in(ov) == {"ROSALIATE", "SOL"}
+    client.portal.call(megas.remember_stations, db, ov)
+    client.portal.call(db.kv_set, "overview", {})
+    assert {"ROSALIATE", "SOL"} <= client.portal.call(megas.stations, db)
+    stars = {s["designation"]: s for s in client.get("/api/map.json", headers=H).json()["stars"]}
+    assert stars["SOL"].get("station") and not stars.get("FALQUORYX", {}).get("station")
+    assert 'id="opt-mark-station"' in client.get("/map", headers=H).text

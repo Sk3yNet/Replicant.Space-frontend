@@ -39,7 +39,7 @@ if (!OPTS.dataUrl) {
 // the star (a dotted ring, corner brackets); the others are badges at a fixed spot around it, so you learn where to
 // look: replicant above, devices left, hub upper left, a new find below (the right is the name's). dx/dy: the badge's offset on screen, in ly.
 const MARKS = { devices: 0x6cb6ff, scanned: 0x4fd18b, hub: 0xf0b64f, otherhub: 0xff7a6b, replicant: 0xff5fa2, found: 0xfff27a, prospected: 0x7fe3ff,
-                rich: 0xffa726, anomaly: 0xe040fb };
+                rich: 0xffa726, anomaly: 0xe040fb, station: 0xdfe7ff };
 const BADGE = 0.9, BADGE_AT = 1.7;
 const MARK_SHAPE = {
   scanned:    { size: 2.2 },
@@ -51,6 +51,7 @@ const MARK_SHAPE = {
   found:      { size: BADGE, dx: 0, dy: -BADGE_AT },
   rich:       { size: BADGE, dx: -BADGE_AT * .75, dy: -BADGE_AT * .75 },   // the scan's system tags (resource_rich, anomaly)
   anomaly:    { size: BADGE, dx: BADGE_AT * .75, dy: BADGE_AT * .75 },
+  station:    { size: BADGE, dx: BADGE_AT * .75, dy: -BADGE_AT * .75 },   // a colony space station (GET /overview)
 };
 // Markers are sized in light-years. A simulation's virtual galaxy packs its stars far tighter than the real one, so
 // there every marker shrinks with the stars' spacing (ringScale, set when the stars are drawn).
@@ -203,6 +204,11 @@ const MARK_TEX = {
     g.lineWidth = 5; g.beginPath();
     for (let i = 0; i <= 60; i++) { const a = i / 60 * Math.PI * 4.5, r = 3 + i / 60 * 25; g.lineTo(32 + r * Math.cos(a), 32 + r * Math.sin(a)); }
     g.stroke();
+  }),
+  station: shapeTex(g => {     // a wheel station: a ring, four spokes and a hub
+    g.lineWidth = 6; g.beginPath(); g.arc(32, 32, 24, 0, Math.PI * 2); g.stroke();
+    g.lineWidth = 4; g.beginPath(); g.moveTo(8, 32); g.lineTo(56, 32); g.moveTo(32, 8); g.lineTo(32, 56); g.stroke();
+    g.beginPath(); g.arc(32, 32, 7, 0, Math.PI * 2); g.fill();
   }),
   scanned: shapeTex(g => {     // a dotted ring: a scan sweep
     g.lineWidth = 3; g.setLineDash([5, 5]);
@@ -402,6 +408,7 @@ function build() {
     const tags = (s.tags || []).map(t => t.toLowerCase().replace(/[ -]/g, "_"));   // the scan's system tags
     if (tags.includes("resource_rich")) marks.push("rich");
     if (tags.includes("anomaly")) marks.push("anomaly");
+    if (s.station) marks.push("station");
     if (s.my_ward) {   // your own working ward: the same shield as other players' wards, in your color
       const sh = new THREE.Sprite(new THREE.SpriteMaterial({ map: shieldTex, color: 0x6cb6ff, transparent: true, depthWrite: false }));
       sh.scale.set(1.4 * ringScale, 1.4 * ringScale, 1); sh.position.copy(v).add(new THREE.Vector3(0, 0, 2.2 * ringScale)); sh.userData.mark = "ward";

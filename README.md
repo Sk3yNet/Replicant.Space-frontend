@@ -89,6 +89,7 @@ same. Markers sit at a fixed spot around the star, so you learn where to look.
 | <img src="docs/icons/found.svg" width="22"> | yellow starburst, below | found by your observatories, not scanned yet |
 | <img src="docs/icons/prospected.svg" width="22"> | cyan corner brackets | an observatory prospected from here (once per star) |
 | <img src="docs/icons/megastructure.svg" width="22"> | violet hexagon, below | megastructure |
+| <img src="docs/icons/station.svg" width="22"> | silver wheel, lower right | colony space station (the game's story overview names the systems) |
 | <img src="docs/icons/rich.svg" width="22"> | orange gem, lower left | the scan tags it resource rich |
 | <img src="docs/icons/anomaly.svg" width="22"> | magenta spiral, upper right | the scan tags an anomaly |
 | <img src="docs/icons/hazard.svg" width="22"> | pulsing red haze | the scan tags it hazardous, or an incoming object threatens it |

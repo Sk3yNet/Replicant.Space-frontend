@@ -94,6 +94,8 @@ ICONS = {
     "rich": ('<polygon points="14,22 22,10 42,10 50,22 32,56" fill="#ffa726"/>'
              '<path d="M14 22 L50 22 M26 22 L32 56 L38 22" fill="none" stroke="rgba(0,0,0,.55)" stroke-width="3"/>'),
     "anomaly": spiral(),
+    "station": ('<circle cx="32" cy="32" r="24" fill="none" stroke="#dfe7ff" stroke-width="6"/>'
+                '<path d="M8 32 H56 M32 8 V56" stroke="#dfe7ff" stroke-width="4"/><circle cx="32" cy="32" r="7" fill="#dfe7ff"/>'),
     "hazard": (glow(32, 32, 30, "#ff3b30", "hz", .9)[:-2]   # the haze breathes, like on the map
                + '><animate attributeName="r" values="22;30;22" dur="3s" repeatCount="indefinite"/></circle>' + STAR),
     "surveying": ('<circle cx="32" cy="32" r="8" fill="none" stroke="#4fd18b" stroke-width="3">'

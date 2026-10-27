@@ -57,3 +57,30 @@ async def known(db) -> dict[str, list[str]]:
         out.setdefault(star_of(c), []).append(c)
     _cache.update(key=key, val=out)
     return out
+
+
+STATION_RE = ("space station",)
+
+
+def stations_in(overview: Any) -> set[str]:
+    """Systems with a colony space station, from GET /overview: a storyline or event whose summary says space station
+    and lists systems (live 2026-10-27: "Terraforming the Colony Worlds" names the twelve where the Exodus Ark's
+    replicants built one). The game reports no station location or object, so this is the only source."""
+    out: set[str] = set()
+    ov = overview if isinstance(overview, dict) else {}
+    for x in (ov.get("storylines") or []) + (ov.get("events") or []):
+        if isinstance(x, dict) and any(w in str(x.get("summary") or "").lower() for w in STATION_RE):
+            out |= {star_of(c) for c in x.get("locations") or [] if isinstance(c, str) and c}
+    return out
+
+
+async def remember_stations(db, overview: Any) -> None:
+    """Keep every station system the overview has named (kv colony_stations), so they stay once the storyline ends."""
+    new = stations_in(overview)
+    old = set(await db.kv_get("colony_stations", []) or [])
+    if new - old:
+        await db.kv_set("colony_stations", sorted(old | new))
+
+
+async def stations(db) -> set[str]:
+    return set(await db.kv_get("colony_stations", []) or []) | stations_in(await db.kv_get("overview", {}))

@@ -212,6 +212,9 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
 - An asteroid shows only while it's open; past ones are listed under Concluded on the Defense page.
 - **Megastructures**: a megastructure's location page shows its progress and what it still needs, with a Contribute
   button for your devices there; `/megastructures` has the leaderboard.
+- **Colony space stations**: the galaxy map marks the systems where the Exodus Ark's replicants built a station (a
+  silver wheel, lower right). The game reports no station object or location, so they aren't megastructures; the
+  systems come from the story overview and are kept (kv `colony_stations`) after the storyline ends.
 
 <br clear="right">
 
