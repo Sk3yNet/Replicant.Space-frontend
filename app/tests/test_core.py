@@ -9034,6 +9034,14 @@ def test_data_upload_at_interface(client):
                        ("2026-10-25T00:00:00Z", "x", "POST", "/devices/IF000001/upload", '{"device_code": "GC000002"}', 200))
     frag = client.get("/simulations/uploads", headers=HX).text
     assert "GC000002" not in frag and "Uploaded before: 2" in frag
+    # a data device deployed at the datacenter that leaves the game's list was consumed: dropped, not kept unlisted
+    from rsweb.sim import DATACENTER
+    eaten = {"device_code": "SC000009", "device_type": "sensor_core", "location": DATACENTER, "status": "idle",
+             "features": ["stow", "data"]}
+    client.portal.call(db.kv_set, "devices", (client.portal.call(db.kv_get, "devices") or []) + [eaten])
+    client.portal.call(client.app.state.worker.sync_devices)
+    assert not any(d.get("device_code") == "SC000009" for d in client.portal.call(db.kv_get, "devices"))
+    assert client.portal.call(db.kv_get, "sim:uploaded")["SC000009"]["type"] == "sensor_core"
     msg = notify.describe({"event": "device.discovered", "location": "MIRFAKA-OBJ-1",
                           "payload": {"device_type": "guidance_chip", "device_code": "A1B2C3D4"}})
     assert msg == "Scan discovered a guidance chip A1B2C3D4 at MIRFAKA-OBJ-1"

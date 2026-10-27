@@ -129,6 +129,12 @@ GONE_SQL = (f"(event IN ({','.join('?' * len(GONE_EVENTS))}) OR "
 UNLISTED_KEEP_HOURS = 12
 
 
+def _uploaded_look(d: dict, datacenter: str) -> bool:
+    """A data-feature device deployed at the datacenter: when it leaves the list, the interface consumed it."""
+    return ("data" in (d.get("features") or []) and d.get("location") == datacenter
+            and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code"))
+
+
 def merge_device_snapshot(prev: list[dict], new: list[dict], partial: bool = False, gone: set[str] | None = None,
                           now: str | None = None, accept_short: bool = False) -> list[dict] | None:
     """Guard the device list against snapshots that leave devices out. None = ignore this snapshot entirely.
@@ -716,9 +722,18 @@ class Worker:
             by_prev = {d.get("device_code"): d for d in prev}
             gone |= await given_away(self.db, {c: ((by_prev.get(c) or {}).get("location"), (by_prev.get(c) or {}).get("device_type"))
                                                for c in missing if c not in gone})
+            # broken down by the data interface (Simulations › Data uploads): gone at once as well
+            # (or a data device deployed at the datacenter that left the list: only an upload takes it from there)
+            from .sim import DATACENTER
+            done = await self.db.kv_get("sim:uploaded", {}) or {}
+            uploaded = {c for c in missing if c in done or _uploaded_look(by_prev.get(c) or {}, DATACENTER)} - gone
+            if uploaded - set(done):
+                await self.db.kv_set("sim:uploaded", {**done, **{c: {"type": by_prev[c].get("device_type"), "at": now_iso()}
+                                                              for c in uploaded - set(done)}})
+            gone |= uploaded
             if gone:   # explained: on the Lost devices page with the reason, not silently dropped
                 from . import lost as lost_mod
-                why = await lost_mod.reasons(self.db, sorted(gone))
+                why = {**await lost_mod.reasons(self.db, sorted(gone)), **{c: "uploaded at the data interface" for c in uploaded}}
                 ls = lost_mod.normalize(await self.db.kv_get(lost_mod.KV, {}))
                 lost_mod.record_gone(ls, [{"code": c, "type": (by_prev.get(c) or {}).get("device_type"),
                                            "last_location": (by_prev.get(c) or {}).get("location"),

@@ -284,6 +284,8 @@ async def simulations_upload_do(request: Request, code: str, user: str = Depends
         done = await db.kv_get(UPLOADED_KV, {}) or {}
         done[code] = {"type": typ, "at": now_iso()}
         await db.kv_set(UPLOADED_KV, done)
+        devs = await db.kv_get("devices", []) or []   # consumed: off the device list now, not kept as unlisted
+        await db.kv_set("devices", [d for d in devs if d.get("device_code") != code])
     return render_action(request, out)
 
 
