@@ -986,7 +986,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     # A device that can surge home is reached by a replicant (in its system, or anywhere its own dark relay network
     # covers, nearest first) and commanded home; one that can't is picked up by a carrier, with a replicant along.
     from . import fleets as fl
-    from .loadouts import at_tag, placed
+    from .ami_schedule import in_transit
+    from .loadouts import at_tag, for_contract, placed
     fleet_home = {fl.fleet_tag(f["id"]): f.get("home") for f in fleets or [] if f.get("id")}
     rescue_reqs = []
     paused_tags = {fl.fleet_tag(f): e for f, e in ((rescue_pause or {}).get("fleets") or {}).items()}
@@ -997,6 +998,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 or at_tag(loc) in (d.get("tags") or [])    # stocked there on purpose (an at: tag for where it is)
                 or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or tag in away_fleets
                 or any(t.startswith("boot:") for t in d.get("tags") or [])   # a bootstrap's own: out there on purpose
+                or for_contract(d) or in_transit(d)   # reserved: a contract's, or on its way (to:) to another system
                 or str(d.get("status") or "").lower().startswith(MOVING)):
             continue
         out_of_range = d.get("in_control_range") is False or (d.get("in_control_range") is None and star_of(loc) not in commandable)

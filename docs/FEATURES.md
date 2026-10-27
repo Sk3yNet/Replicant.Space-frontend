@@ -577,7 +577,8 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
 ### Rescues
 - A device out of command range is brought home: its fleet's home, else the nearest covered home.
 - Excepted: placed relays and beacons, wards, hubs, fleets on a mission, and devices tagged `at:` the spot where they are
-  (stocked there on purpose).
+  (stocked there on purpose), devices reserved for a contract (`contract:`), and devices tagged `to:` another system
+  (their own trip takes them there).
 - One that can surge is reached by a replicant in its system or anywhere its dark relay network covers, and commanded
   home. One that can't is picked up from its last known location by a carrier with a free seat, a replicant along.
 - A rescue whose trips add up to more than the **sector range** (a day at the game's 50 s/ly), or to a star whose

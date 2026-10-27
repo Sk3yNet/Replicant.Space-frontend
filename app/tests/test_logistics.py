@@ -314,6 +314,18 @@ def test_a_bootstrap_device_out_of_range_is_not_rescued():
     assert not any(r["id"] == "rescue:MD" for r in p["requests"])                       # left mining there by its bootstrap
 
 
+def test_a_reserved_device_out_of_range_is_not_rescued():
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("PL", "surge_platform", "A-1", **SURGE),
+            dev("CT", "compute_core", "Z-5", tags=["contract:c1"], in_control_range=False, available_commands=["travel"]),
+            dev("TO", "transport_drone", "Z-5", tags=["to:y"], in_control_range=False, available_commands=["travel"]),
+            dev("ZZ", "transport_drone", "Z-5", tags=["to:z"], in_control_range=False, available_commands=["travel"])]
+    p = _rescue_plan(devs)
+    ids = {r["id"] for r in p["requests"]}
+    assert "rescue:CT" not in ids and "rescue:TO" not in ids   # a contract's, or bound for another system
+    assert "rescue:ZZ" in ids                                  # to: its own system: nothing holds it there
+
+
 def test_a_rescue_is_dropped_when_its_device_is_in_range_again_before_it_was_moved():
     job = {"status": "waiting", "idx": 1, "meta": {"logistics": {"req": "rescue:HV2"}},
            "steps": [{"desc": "ESC → DELTA", "path": "/devices/ESC", "body": {"command": "travel", "destination": "DELTA"}},
