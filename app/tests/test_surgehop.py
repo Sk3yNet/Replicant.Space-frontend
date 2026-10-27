@@ -20,7 +20,7 @@ def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1"):
 
     async def fake_send(method, path, body, label):
         sent.append(dict(body or {}))
-        if refuse_hop and body.get("via"):
+        if refuse_hop and (body.get("via") or str(body.get("destination")).endswith("KUIPER")):
             return False, None, "Invalid destination"
         return True, {}, None
     e.send = fake_send
@@ -29,17 +29,29 @@ def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1"):
     return sent, next(j for j in client.portal.call(e.jobs) if j["id"] == job["id"])
 
 
-def test_a_long_cruise_from_the_entry_point_goes_via_the_kuiper_belt(client):
+def _arrive(client, at):
+    e = eng(client)
+    devs = client.portal.call(client.app.state.db.kv_get, "devices", [])
+    client.portal.call(client.app.state.db.kv_set, "devices", [{**devs[0], "location": at}])
+    client.portal.call(e.on_event, {"event": "travel.arrived", "device_code": "V1", "payload": {"destination": at}})
+    return next(j for j in client.portal.call(e.jobs))
+
+
+def test_a_long_cruise_from_the_entry_point_hops_to_the_kuiper_belt_first(client):
+    # live 2026-10-27: inside one system the game refuses the spot as a `via` ("Loop detected: already at ISOLITHOR"),
+    # so the hop is a trip of its own, then the cruise from there
     sent, job = _run(client)
-    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]}]
-    assert "surge hop via Z-KUIPER" in job["steps"][0]["desc"] and len(job["steps"]) == 1
+    assert sent == [{"command": "travel", "destination": "Z-KUIPER"}]
+    assert "surge hop" in job["steps"][0]["desc"] and len(job["steps"]) == 2
+    job = _arrive(client, "Z-KUIPER")
+    assert sent[1:] == [{"command": "travel", "destination": "Z-BELT-1"}]
+    assert [s["status"] for s in job["steps"]] == ["done", "done"]
 
 
-def test_a_refused_via_takes_the_games_own_route(client):
+def test_a_refused_hop_takes_the_games_own_route(client):
     sent, job = _run(client, refuse_hop=True)
-    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]},
-                    {"command": "travel", "destination": "Z-BELT-1"}]
-    assert job["steps"][0]["status"] != "failed"
+    assert sent == [{"command": "travel", "destination": "Z-KUIPER"}, {"command": "travel", "destination": "Z-BELT-1"}]
+    assert job["status"] != "failed"
 
 
 def test_an_l_point_other_than_the_entry_point_is_no_surge_spot(client):

@@ -804,6 +804,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     ok, resp, err = False, None, far
                 else:
                     exit_via = await self.plan_via(st, job)
+                    if await self._hop_legs(st, job):
+                        continue   # the surge hops inside the system go first, each a trip of its own
                     ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
                     if not ok and exit_via:   # refused: the route without the surge spots
                         await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via)} refused ({err}); "
@@ -1099,10 +1101,44 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
 
     async def trip_via(self, device: str, dest: str) -> list[str]:
         """The waypoints the job runner would give `device`'s trip to `dest` (surge hops, a hub, the off-ramp), for a
-        trip sent by hand (a replicant's travel form). Nothing is logged."""
+        trip sent by hand (a replicant's travel form). Nothing is logged. None inside one system: the game refuses a
+        `via` there (_hop_legs)."""
         st = {"path": f"/devices/{device}", "body": {"command": "travel", "destination": dest}, "desc": ""}
         await self.plan_via(st, {"rule": None, "title": ""})
+        d = next((x for x in await self.devices() if x.get("device_code") == device), None) or {}
+        if star_of(d.get("location")) == star_of(str(dest).upper()):
+            return []
         return list(st["body"].get("via") or [])
+
+    async def _hop_legs(self, st: dict, job: dict) -> bool:
+        """A trip inside one system can't take its surge spots as a `via` (live 2026-10-27: F7E30727 ISOLITHOR-1-L4 →
+        ISOLITHOR-BELT-1 via ISOLITHOR-KUIPER: "Loop detected: already at ISOLITHOR", then cruised 499 AU for 57 min).
+        Each spot becomes a trip of its own ahead of this one (a 30 s surge hop), and this one then cruises the rest.
+        True when steps were added ahead of this one (it runs after them)."""
+        body, path = st.get("body") or {}, str(st.get("path") or "")
+        via = [x for x in body.get("via") or [] if "-" in x]
+        if not via or not path.startswith("/devices/") or body.get("command") != "travel":
+            return False
+        code, dest = path.split("/")[2], str(body.get("destination") or "").upper()
+        d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
+        if star_of(d.get("location")) != star_of(dest) or any(star_of(x) != star_of(dest) for x in via):
+            return False
+        add = []
+        for x in via:
+            h = step(f"{code} → {x} (surge hop)", path, {"command": "travel", "destination": x}, wait=["travel.arrived"],
+                     match={"destination": x})
+            h.update(wait_device=code, exit_checked=True, hub_checked=True, riders_checked=True)
+            add.append(h)
+        body.pop("via", None)
+        st["exit_via"] = None
+        i = job["idx"]
+        for s2 in job["steps"][i:]:
+            if isinstance(s2.get("seq0_from"), int) and s2["seq0_from"] >= i:
+                s2["seq0_from"] += len(add)
+        job["steps"][i:i] = add
+        st["tries"] -= 1
+        await self._update(job)
+        return True
 
     async def _hub_via(self, st: dict, job: dict) -> None:
         """A device's trip to another system goes through a hub (ours or another player's: any star the catalog flags
