@@ -204,6 +204,9 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
   salvage, stockpiled.
 - **Belts** card: richness, a viability line, open sites. **Bodies** card: planets, moons, L-points with their salvage
   and stock.
+- Under Bodies, each system object of the scan (a megastructure such as a space station) folds out with its stage,
+  status, progress, description, requirements (have / required) and contributors; **Full system scan** folds out the
+  whole stored scan as JSON.
 - Also: its lockers, the location events you've discovered there, the game's own stockpile figures, and the
   stars nearby (new ones join the map, like a census).
 - *Other players here*: their fixed devices (beacons, relays, wards, hubs, factories, observatories, controllers) from

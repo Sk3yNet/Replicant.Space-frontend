@@ -139,10 +139,25 @@
       <td class="num">{{ t.devices or '' }}</td>
       {% if not fully_surveyed %}<td>{% if t.category == 'planet' %}{{ survey_box(t.code) }}{% endif %}</td>{% endif %}</tr>{% endfor %}
   </table>
+  {% for o in scan.system_objects or [] %}{% set req = o.requirements or {} %}
+  <details class="small sys-object" style="margin-top:6px"><summary><b>{{ o.title or (o.megastructure_type or o.object_type or 'object') | human }}</b>
+    {{ o.designation or '' }} at <a hx-get="/locations/{{ o.location }}" hx-target="#loc-panel" href="/locations/{{ o.location }}">{{ o.location }}</a>
+    <span class="muted">{{ (o.megastructure_type or o.object_type or '') | human }}{% if o.stage %} · {{ o.stage }}{% endif %}{% if o.status %} · {{ o.status }}{% endif %}{% if o.progress_percentage is not none and o.progress_percentage is defined %} · {{ o.progress_percentage | round(1) }}%{% endif %}</span></summary>
+    {% if o.description %}<p style="margin:4px 0">{{ o.description }}</p>{% endif %}
+    <p class="muted" style="margin:4px 0">{% if o.orbital_distance_au is defined %}{{ o.orbital_distance_au }} AU{% endif %}{% if o.deadline %} · deadline {{ o.deadline }}{% endif %}{% if o.contributors is defined %} · {{ o.contributors }} contributor{{ 's' if o.contributors != 1 }}{% endif %}</p>
+    {% if req %}<table class="small"><tr><th>Needs</th><th class="num">Have</th><th class="num">Required</th><th class="num">Remaining</th><th></th></tr>
+      {% for t, r in req | dictsort %}<tr><td>{{ t | human }}</td><td class="num">{{ r.current }}</td><td class="num">{{ r.required }}</td>
+        <td class="num">{{ r.remaining or '' }}</td><td>{{ '✓' if r.complete }}</td></tr>{% endfor %}</table>{% endif %}
+    {% if o.contributors_memorial %}<table class="small" style="margin-top:4px"><tr><th>Contributor</th><th class="num">Devices</th><th class="num">Value</th></tr>
+      {% for c in o.contributors_memorial %}<tr><td>{{ c.name }} <span class="muted mono">{{ c.replicant_code or '' }}</span></td>
+        <td class="num">{{ c.contributions | num }}</td><td class="num">{{ c.total_value | num }}</td></tr>{% endfor %}</table>{% endif %}
+  </details>{% endfor %}
   {% set outer = scan.outer_system or {} %}{% set spots = [(outer.oort or {}).designation, (outer.kuiper or {}).designation, scan.entry_point] | select | list %}
   {% if spots %}<p class="small muted" title="A surge-capable device hops in seconds between these, cruises anywhere else, and leaves the system from one of them">
     Surge spots: {% for x in spots %}<a hx-get="/locations/{{ x }}" hx-target="#loc-panel" href="/locations/{{ x }}">{{ x }}</a>{% if x == scan.entry_point %} (entry point){% endif %}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
   {% if s %}<p class="small muted">Star: {% for k in ['mass_solar','luminosity_solar','temperature_k','age_my'] %}{% if s[k] is defined %}{{ k | human }} {{ s[k] }}{{ ' · ' if not loop.last }}{% endif %}{% endfor %}</p>{% endif %}
+  {% if scan %}<details class="small" style="margin-top:6px"><summary>Full system scan</summary>
+    <pre class="mono" style="max-height:420px;overflow:auto;white-space:pre-wrap">{{ scan | tojson(indent=1) }}</pre></details>{% endif %}
 </div>
 <div class="card" style="margin-top:14px"><h2>From the game <span class="muted small">events, stockpiles and stars nearby</span></h2>
   <div hx-get="/partials/system-extra/{{ star }}" hx-trigger="load"><p class="muted small">Loading…</p></div></div>

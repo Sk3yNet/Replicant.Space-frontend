@@ -9209,3 +9209,20 @@ def test_scanned_megastructures_land_on_their_star(client):
     assert known["ARUCALIS"] == ["ARUCALIS-OBJ-1"] and "SPACE" not in known
     assert "ARUCALIS" in client.portal.call(megas.stations, db)
     assert megas.other_than_stations(["ARUCALIS-OBJ-1", "TWAFFY-OBJ-1"]) == ["TWAFFY-OBJ-1"]
+
+
+def test_system_page_folds_out_system_objects_and_the_full_scan(client):
+    """Joe 2026-10-27: the scan's system objects (a space station) and the whole scan, under the bodies."""
+    import json as _json
+    db = client.app.state.db
+    scan = {"planets": [{"designation": "ARUCALIS-3", "type": "terrestrial"}], "system_objects": [
+        {"designation": "SPACE-STATION-006", "location": "ARUCALIS-OBJ-1", "object_type": "megastructure",
+         "megastructure_type": "space_station", "title": "Space Station", "stage": "Populated Space Station",
+         "status": "completed", "progress_percentage": 100.0, "description": "Fully operational.", "contributors": 1,
+         "contributors_memorial": [{"name": "creme-292", "replicant_code": "E25D16DF", "contributions": 206, "total_value": 143615}],
+         "requirements": {"hab_module": {"complete": True, "current": 85, "remaining": 0, "required": 85}}}]}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("ARUCALIS", _json.dumps(scan), "2026-10-27T00:00:00+00:00"))
+    page = client.get("/systems/ARUCALIS", headers=H).text
+    assert "Populated Space Station" in page and "hab module" in page and "creme-292" in page
+    assert "Full system scan" in page and "SPACE-STATION-006" in page

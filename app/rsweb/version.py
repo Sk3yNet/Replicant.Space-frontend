@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.276.0"
+VERSION = "1.277.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.277.0", "2026-10-27", "System page: under Bodies, each system object of the scan (a space station or another megastructure) folds out with its stage, status, progress, description, requirements and contributors, and Full system scan folds out the whole scan."),
     ("1.276.0", "2026-10-27", "Galaxy map: megastructures from system scans show again. They were filed under their designation (SPACE-STATION-006), which names no star, instead of their STAR-OBJ-n location, so none ever showed. Space stations (megastructure type space_station) get the silver wheel instead of the hexagon."),
     ("1.275.0", "2026-10-27", "Galaxy map: colony space stations get their own mark, a silver wheel lower right of the star, with its own checkbox. The game reports no station object (so they never counted as megastructures); the systems come from the story overview (the twelve colony worlds) and stay marked after the storyline ends."),
     ("1.274.0", "2026-10-26", "FALQUORYX and SOLARES print for each other: a fleet print, a keep-in-stock print or a ward / relay / beacon order goes to the other printing hub's autofactory when the home stockpile can't cover it and the other one can, and a carrier brings the device over. Only hubs within the sector range (1728 ly) share, so Delta stays apart."),
