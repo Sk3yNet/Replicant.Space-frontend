@@ -4222,7 +4222,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 n_ = lg.trade_times(ok, key, tr.get("current_stock"))   # units approved (the game sells one per call)
                 price = lg.times(as_amounts((tr.get("criteria") or {}).get("resources") or {}), n_)
                 dneed = lg.times(fl_counts((tr.get("criteria") or {}).get("devices")), n_)
-                there = Counter(d.get("device_type") for d in devices if d.get("location") == t["location"])
+                there = Counter(d.get("device_type") for d in devices if gev.at_place(d, t["location"]))
                 if price or dneed:
                     trades.append({"key": key, "controller": ctrl, "trade_code": tr.get("trade_code"), "name": tr.get("name"),
                                    "location": t["location"], "price": price, "once": once, "times": n_,

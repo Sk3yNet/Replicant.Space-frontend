@@ -1257,3 +1257,21 @@ def test_the_way_back_never_takes_a_pile_a_request_delivers_to():
     p = run_plan(devs, {"A-1": {"carbon": 1000}, "B-3": {"silicates": 300}}, [c])
     run = next(r for r in p["runs"] if r["req"] == "contract:EV1")
     assert "backhaul" not in run
+
+
+def test_a_deal_pile_is_not_a_source_for_other_deliveries():
+    """Live 2026-10-28: trade runs to MENKUNT-2-L4 loaded carbon and volatiles at KAMUYIS-4, the pile of a contract there."""
+    devs = world()
+    c = {"designation": "EV4", "location": "B-2", "title": "Boom", "price": {"carbon": 50}}
+    t = {"key": "SHOP:T1", "location": "A-2", "price": {"carbon": 30}, "controller": "SHOP", "trade_code": "T1", "name": "T1"}
+    reqs, spare, _ = lg.requests(devices=devs, bps={}, inventory={"B-2": {"carbon": 60}}, pos=POS, contracts=[c],
+                                 trades=[t], incoming={}, fleets=FLEETS, gather={}, busy_stars=set())
+    assert spare["B-2"] == {"carbon": 10}   # only what the contract leaves over
+
+
+def test_a_device_out_of_range_counts_at_its_pinned_deal_location():
+    from rsweb import gameevents as gev
+    d = {"device_type": "propulsor", "location": "ALKALAROPS", "in_control_range": False, "tags": ["at:alkalarops-oort"]}
+    assert gev.at_place(d, "ALKALAROPS-OORT")
+    assert not gev.at_place({**d, "in_control_range": True}, "ALKALAROPS-OORT")
+    assert not gev.at_place({**d, "tags": []}, "ALKALAROPS-OORT")

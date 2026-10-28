@@ -580,6 +580,8 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
 - Device deliveries (and fleet moves done piecemeal) take logistics carriers first.
 - **Batched deals**: contracts and trades at the same location share one delivery. What's there pays the first ones,
   one trip brings what all the others lack (as far as the carriers hold) and its replicant fulfills them all.
+- A deal's own pile is kept for it: no other delivery loads there. Devices a deal asks for count as there when they
+  sit out of command range in its system pinned (at:) to its location, since the game then names only the star.
 - Every vessel in a logistics fleet is available to automation, replicant vessels included (moves of stationed mining
   fleets, deliveries, beacons). While an approved shop trade waits, device runs leave those with a replicant free for
   it. Another fleet's replicant vessel is only used as the escort a trip beyond the network needs.

@@ -405,6 +405,15 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
         e = held.setdefault(u["location"], {"cost": {}})
         e["cost"] = _add(e.get("cost") or {}, u["target"])
     spare, reserve = surplus(inventory, held)
+    # a contract's or trade's own pile pays it: never a source for other deliveries (live 2026-10-28: two MENKUNT-2-L4
+    # trade runs loaded 40 carbon and 20 volatiles at KAMUYIS-4, the pile an approved contract there was waiting on)
+    for deal in [*contracts, *trades]:
+        pile = spare.get(deal.get("location") or "")
+        for x, q in as_amounts(deal.get("price") or {}).items():
+            if pile and x in pile:
+                pile[x] -= q
+                if pile[x] < 1:
+                    del pile[x]
     stock = {l: as_amounts(i) for l, i in inventory.items()}
     out: list[dict] = []
 

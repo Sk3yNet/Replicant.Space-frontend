@@ -72,6 +72,18 @@ async def load(db) -> dict[str, dict]:
     return out
 
 
+def at_place(d: dict, loc: str | None) -> bool:
+    """At the exact location `loc`. The game names only the star of a device out of command range (live 2026-10-28: the
+    propulsors paying a shop trade at ALKALAROPS-OORT listed at ALKALAROPS), so one pinned there (at:) counts too."""
+    where = d.get("location")
+    if not loc or not where:
+        return False
+    if where == loc:
+        return True
+    from .loadouts import at_tag
+    return where == star_of(loc) and d.get("in_control_range") is False and at_tag(loc) in (d.get("tags") or [])
+
+
 def progress(e: dict, inventory: dict[str, dict], devices: list[dict], replicants: dict) -> dict:
     """Per criterion: needed vs what's at the location / in the system; replicants present."""
     loc, star = e.get("location"), e.get("star")
@@ -95,7 +107,7 @@ def progress(e: dict, inventory: dict[str, dict], devices: list[dict], replicant
         dneed = _devices_needed(c)
         drows = []
         for t, n in sorted(dneed.items()):
-            here = sum(1 for d in devices if d.get("device_type") == t and d.get("location") == loc)
+            here = sum(1 for d in devices if d.get("device_type") == t and at_place(d, loc))
             sysn = sum(1 for d in devices if d.get("device_type") == t and star_of(d.get("location")) == star)
             drows.append({"device_type": t, "need": n, "at_location": here, "in_system": sysn,
                           "short_here": max(0, n - here), "short_system": max(0, n - sysn)})

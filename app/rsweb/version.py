@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.294.0"
+VERSION = "1.295.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.295.0", "2026-10-28", "Contracts and trades: the stockpile at a deal's location is kept for it and is no longer a source for other deliveries (two trade runs to MENKUNT-2-L4 had loaded 40 carbon and 20 volatiles from the KAMUYIS-4 contract's pile). Devices a deal asks for count as there when they are out of command range at the deal's star and pinned to its location: the game names only the star then, so a shop trade at ALKALAROPS-OORT paid in propulsors would have waited for its devices forever."),
     ("1.294.0", "2026-10-28", "Dashboard › Logistics backlog: resources at a contract's or trade's location, up to what its open deals still pay, get their own line (set aside for contracts and trades) instead of counting as waiting to move; a trade's payout and leftovers there still count as waiting."),
     ("1.293.2", "2026-10-28", "Shop trades: the approve checkbox is gone. The Logistics buys number is the approval: 0 by default (not approved), any other number is how many units logistics still buys, counting down as they are bought."),
     ("1.293.1", "2026-10-28", "An approved shop trade for several units stays approved until all of them are bought. Before, the approval was dropped as soon as a delivery left, so when the replicant arrived before the rest of the price (or the game refused a unit) only one or two were bought (10 vector charges ordered). Now the units a job did not buy stay approved and logistics brings the rest; a refused unit no longer stops the job; changing the quantity of an approved trade takes effect at once."),
