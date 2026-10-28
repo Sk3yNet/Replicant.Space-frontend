@@ -526,7 +526,8 @@ async def p_backlog(request: Request, hours: int = 168, card: str = "backlog", u
                   ("Systems you can command", {"commandable": g("cmd_systems"), "relay network": g("relay_systems")})]
         title = "Trends"
     else:
-        charts = [("Resources not in a receiving stockpile", {"in other stockpiles": g("res_away"), "in logistics holds": g("res_holds")}),
+        charts = [("Resources not in a receiving stockpile", {"in other stockpiles": g("res_away"),
+                   "set aside for contracts and trades": g("res_deals"), "in logistics holds": g("res_holds")}),
                   ("Devices waiting to be moved", {"waiting": g("dev_waiting")}),
                   ("Logistics requests", {"open": g("req_open"), "unmet": g("req_unmet")}),
                   ("Request age, hours", {"oldest": g("req_age_max_h"), "median": g("req_age_med_h"),

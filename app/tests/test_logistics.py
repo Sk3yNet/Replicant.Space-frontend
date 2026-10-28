@@ -1048,7 +1048,19 @@ def test_backlog_counts_piles_holds_and_devices_waiting():
                         carriers=[devs[0]], devices=devs, strays=[{"code": "S1"}], fleet_homes={"home": "A", "cab": "A"},
                         requests=[{"id": "rescue:R9", "kind": "rescue", "device": "R9"}, {"id": "x", "skipped": True}],
                         unmet=[{"req": "x"}])
-    assert b == {"res_away": 25.5, "res_holds": 30, "dev_waiting": 4, "req_open": 1, "req_unmet": 1}
+    assert b == {"res_away": 25.5, "res_deals": 0, "res_holds": 30, "dev_waiting": 4, "req_open": 1, "req_unmet": 1}
+
+
+def test_backlog_splits_what_open_deals_still_pay():
+    from rsweb import metrics
+    b = metrics.backlog(inventory={"C-3": {"carbon": 40, "iron": 7}, "D-1": {"carbon": 9}}, receiving=set(), carriers=[],
+                        devices=[], strays=[], fleet_homes={},
+                        requests=[{"id": "contract:K1", "kind": "contract", "to": "C-3", "price": {"carbon": 25}},
+                                  {"id": "trade:T", "kind": "trade", "to": "C-3", "price": {"carbon": 10}},
+                                  {"id": "trade:S", "kind": "trade", "to": "D-1", "price": {"carbon": 5}, "skipped": True}],
+                        unmet=[])
+    # 35 carbon owed at C-3; the rest (5 carbon, a trade's 7 iron payout) and the skipped trade's pile wait to move
+    assert (b["res_deals"], b["res_away"]) == (35, 21)
 
 
 def test_logistics_pass_samples_the_backlog_for_the_dashboard(client):  # noqa: F811

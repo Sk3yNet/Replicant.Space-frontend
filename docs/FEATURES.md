@@ -38,7 +38,8 @@ stars or datacenters involved, the Ark's stop, opportunities, NPCs. *Pause for t
 
 **Logistics backlog** (sampled every 10 minutes by the logistics pass, kept 30 days, 2d / 7d / 30d):
 - resources in stockpiles other than a receiving stockpile (a stationed or materials-taking fleet home's drop point),
-  and aboard logistics devices;
+  set aside at a contract's or trade's location (up to what the open deals there still pay; a trade's payout and
+  leftovers count as waiting to move), and aboard logistics devices;
 - devices waiting to be moved: fleet strays, `to:` / `at:` devices not there yet, rescues;
 - open and unmet logistics requests, request age and lead time;
 - carrier use and hold fill;

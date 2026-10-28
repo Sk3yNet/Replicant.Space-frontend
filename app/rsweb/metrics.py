@@ -40,8 +40,23 @@ def backlog(*, inventory: dict[str, dict], receiving: set[str], carriers: list[d
     logistics-fleet devices; `strays`: fleets.strays(...); `fleet_homes`: fleet id → home, for to:<fleet id> tags."""
     from .fleets import where_star
     from .loadouts import pinned_at, to_tag
-    away = sum(q for loc, items in inventory.items() if loc not in receiving
-               for q in (items or {}).values() if isinstance(q, (int, float)) and q > 0)
+    # piles at a contract's or trade's location, up to what the open deals there still pay: set aside, not backlog;
+    # anything beyond that (a trade's payout, leftovers) waits to move to a stockpile like any other pile
+    owed: dict[str, dict[str, float]] = {}
+    for r in requests:
+        if r.get("kind") in ("contract", "trade") and not r.get("skipped") and r.get("to"):
+            o = owed.setdefault(r["to"], {})
+            for res, q in as_amounts(r.get("price") or {}).items():
+                o[res] = o.get(res, 0) + q
+    away = deal = 0.0
+    for loc, items in inventory.items():
+        if loc in receiving:
+            continue
+        for res, q in (items or {}).items():
+            if isinstance(q, (int, float)) and q > 0:
+                kept = min(q, max(0.0, (owed.get(loc) or {}).get(res, 0)))
+                deal += kept
+                away += q - kept
     holds = sum(q for d in carriers for q in as_amounts(d.get("cargo")).values() if q > 0)
     by = {d.get("device_code"): d for d in devices}
     waiting = {s["code"] for s in strays}
@@ -57,7 +72,7 @@ def backlog(*, inventory: dict[str, dict], receiving: set[str], carriers: list[d
         if off or (pin and d.get("location") != pin):
             waiting.add(d["device_code"])
     waiting |= {r["device"] for r in requests if r.get("kind") == "rescue" and r.get("device")}
-    return {"res_away": round(away, 1), "res_holds": round(holds, 1), "dev_waiting": len(waiting),
+    return {"res_away": round(away, 1), "res_deals": round(deal, 1), "res_holds": round(holds, 1), "dev_waiting": len(waiting),
             "req_open": sum(1 for r in requests if not r.get("skipped")), "req_unmet": len(unmet)}
 
 
