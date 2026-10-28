@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.286.0"
+VERSION = "1.287.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.287.0", "2026-10-28", "A printing hub short of keep-in-stock devices first takes the other hub's extras: spares there beyond that hub's own stock are sent over (a carrier brings them, and they arrive as spares, switched off) and only what is still missing is printed. SOLARES kept printing relays for its stock of 8 while about 95 spare relays sat at FALQUORYX."),
     ("1.286.0", "2026-10-28", "Idle spares are gathered at the nearest receiving point: each goes to the home of the closest fleet set to receiving (FALQUORYX, SOLARES, ISOLITHOR), within the supply range, instead of all going to one spare depot. A spare already in a receiving system stays there. A spare depot set on the Fleets page still takes them all."),
     ("1.285.0", "2026-10-28", "Order more than one from a shop: each trade row has a quantity. Buy buys that many one after another (the game sells one unit per call) and stops at the first refusal; approve × n has logistics deliver n prices in one trip and execute the trade n times (at most the listed stock)."),
     ("1.284.1", "2026-10-28", "Keep-in-stock prints stay at their hub: spare gathering no longer takes a hub's stock print of a type that hub keeps in stock to the spare depot. SOLARES kept printing propulsors, relays and wards to refill its stock while each one was shipped to FALQUORYX (about 140 spare propulsors there for a stock of 10)."),

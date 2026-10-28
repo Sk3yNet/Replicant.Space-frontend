@@ -380,6 +380,9 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
 - **Keep in stock** (a *Stock* column beside *Want* in a fleet's loadout editor, and a second box (+) per type in the
   Templates grid, which the template's fleets follow): that many more of a type are kept as spares at the fleet's home.
   Spare gathering leaves those stock prints at the hub (1.284.1), so they aren't shipped away and printed again.
+  A hub short of stock first takes another printing hub's extra spares of that type (beyond that hub's own stock, within
+  the sector range): they're tagged `gather`, `stock` and `to:<home>` and a carrier brings them over as spares (1.287.0).
+  Only what's still missing is printed.
 - **Spare gathering**: idle spares go to the nearest receiving fleet's home within the supply range (1.286.0), or all to
   the spare depot when one is set on the Fleets page.
   - Spares in that system (and stock prints under way) count; what's missing is printed one at a time on an autofactory

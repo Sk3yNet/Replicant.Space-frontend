@@ -141,6 +141,23 @@ def partners(fleet: dict, fleets: list[dict], pos: dict, reach: float) -> list[d
             and _dist(home, f["home"], pos) <= reach]
 
 
+def surplus(partner: dict, dtype: str, devices: list[dict], skip: set[str] | frozenset = frozenset()) -> list[dict]:
+    """Idle spares of `dtype` at a partner hub's home beyond what that hub keeps in stock itself: sent over before a
+    print is ordered (owner 2026-10-28: SOLARES printed relays while ~95 spares sat at FALQUORYX). Those already bound
+    somewhere, pinned, in a carrier, for a contract, or in `skip` (busy) stay."""
+    from .fleets import fleet_of
+    from .loadouts import for_contract, pinned_at
+    home = partner.get("home")
+    keep = int((partner.get("stock") or {}).get(dtype) or 0)
+    ok = sorted((d for d in devices if d.get("device_type") == dtype and SPARE_TAG in (d.get("tags") or [])
+                 and not fleet_of(d) and star_of(d.get("location")) == home and d.get("device_code") not in skip
+                 and not any(str(t).startswith("to:") for t in d.get("tags") or []) and not pinned_at(d)
+                 and not for_contract(d) and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+                 and str(d.get("status") or "").startswith(("idle", "inactive"))),
+                key=lambda d: (STOCK_TAG not in (d.get("tags") or []), d.get("device_code") or ""))
+    return ok[keep:]   # the hub keeps its own stock (stock-tagged ones first)
+
+
 def covers(f: dict, cost: dict[str, float], inventory: dict[str, dict]) -> bool:
     """The stockpile at the factory's location holds one print's worth of `cost`."""
     from .shapes import as_amounts
@@ -183,12 +200,15 @@ class StockMixin:
         devices = await self.devices()
         out: list[str] = []
         # a stock print taken for a fleet or a system (no longer spare, or bound somewhere) isn't stock any more
-        # (owner 2026-10-20: fleet relays reserved for a system kept the tag)
+        # (owner 2026-10-20: fleet relays reserved for a system kept the tag); one on its way to a hub's stock
+        # (`gather` + `to:`) still is
+        from .loadouts import GATHER
         busy = self.busy_devices(await self.jobs())
         for d in devices:
             tags = d.get("tags") or []
             if STOCK_TAG in tags and d.get("device_code") not in busy \
-                    and (SPARE_TAG not in tags or any(t.startswith(("to:", "fleet:")) for t in tags)):
+                    and (SPARE_TAG not in tags or any(t.startswith("fleet:") for t in tags)
+                         or (GATHER not in tags and any(t.startswith("to:") for t in tags))):
                 ok, _, err = await self.send("PATCH", f"/devices/{d['device_code']}",
                                              {"configuration": {"remove_tags": [STOCK_TAG]}}, "auto: drop the stock tag")
                 if ok:
@@ -208,7 +228,6 @@ class StockMixin:
             except (KeyError, ValueError, TypeError):
                 return False
         from .logistics import SECTOR_RANGE_LY
-        from .loadouts import GATHER
         from .shapes import as_amounts, normalize_blueprints, normalize_inventory
         cat = await self.db.kv_get("stars", {}) or {}
         pos = {s.get("designation"): s.get("position") or {} for s in cat.get("stars") or [] if isinstance(s, dict)}
@@ -226,6 +245,18 @@ class StockMixin:
                     out.append(f"{fac['device_code']}: stock prints moved to the back — {msg}")
             short = shortfall(f, devices, mates)
             for t, n in sorted(short.items(), key=lambda kv: (-kv[1], kv[0])):
+                # a partner hub's spares beyond its own stock come over first: a carrier brings them (`to:` the home,
+                # `gather` so they stay spare there); only what's still missing is printed
+                for d in [d for p in mates for d in surplus(p, t, devices, busy)][:n]:
+                    add = [x for x in (GATHER, STOCK_TAG, home_tag(f["home"])) if x not in (d.get("tags") or [])]
+                    ok, _, _ = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": {"add_tags": add}},
+                                               f"auto: spare {t} sent to {f['home']} for its stock")
+                    if ok:
+                        d["tags"] = list(d.get("tags") or []) + add
+                        n -= 1
+                        out.append(f"{d['device_code']}: spare {t} at {star_of(d.get('location'))} sent to keep in stock at {f['home']}")
+                if n <= 0:
+                    continue
                 cost = as_amounts((bps.get(t) or {}).get("resources"))
                 free = [x for x in facs if idle(x) and not recent(x["device_code"])]
                 fac = next((x for x in free if covers(x, cost, inv)), None)

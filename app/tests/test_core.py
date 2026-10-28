@@ -8502,9 +8502,10 @@ def test_a_reserved_stock_relay_loses_its_stock_tag(client):
     eng.send = fake_send
     client.portal.call(db.kv_set, "devices", [
         {"device_code": "R1", "device_type": "ftl_relay", "location": "SOL-3", "tags": ["fleet:hub", "stock", "to:ALPHA"]},
-        {"device_code": "R2", "device_type": "ftl_relay", "location": "SOL-3", "tags": ["spare", "stock"]}])
+        {"device_code": "R2", "device_type": "ftl_relay", "location": "SOL-3", "tags": ["spare", "stock"]},
+        {"device_code": "R3", "device_type": "ftl_relay", "location": "SOL-3", "tags": ["spare", "stock", "gather", "to:alpha"]}])
     client.portal.call(eng.stock_pass)
-    assert sent == [("/devices/R1", {"configuration": {"remove_tags": ["stock"]}})]   # R2 is still a spare in stock
+    assert sent == [("/devices/R1", {"configuration": {"remove_tags": ["stock"]}})]   # R2 is still a spare in stock, R3 on its way to a hub's
     st = lo.self_move_steps("R2", "ALPHA", {}, {"device_code": "R2", "tags": ["spare", "stock"], "location": "SOL-3"})
     assert st[0]["body"]["configuration"] == {"add_tags": [lo.to_tag("ALPHA")], "remove_tags": ["spare", "stock"]}
 
@@ -9220,6 +9221,20 @@ def test_printing_hubs_print_for_each_other_within_sector_range():
     devs[1]["print_queue"] = []
     devs.append({"device_code": "R1", "device_type": "ftl_relay", "location": "FAL-BELT-1", "tags": ["spare", "gather", "to:sol"]})
     assert stock.shortfall(sol, devs, [fal]) == {} and stock.shortfall(fal, devs) == {"ftl_relay": 1}   # on its way
+    # owner 2026-10-28: a partner's spares beyond its own stock go over before anything is printed (SOLARES printed
+    # relays while ~95 sat at FALQUORYX); the hub keeps its own stock, stock-tagged ones first
+    spare = lambda c, loc, *t, **kw: {"device_code": c, "device_type": "ftl_relay", "location": loc, "status": "inactive",
+                                      "tags": ["spare", *t], **kw}
+    devs = [spare("A", "FAL-BELT-1"), spare("B", "FAL-1-L4", "stock"), spare("C", "FAL-BELT-1"),
+            spare("D", "FAL-BELT-1", "to:sol"), spare("E", "FAL-BELT-1", "at:fal-1-l4"), spare("F", "FAL-BELT-1", status="relaying"),
+            spare("G", "SOL-BELT-1")]
+    assert [d["device_code"] for d in stock.surplus(fal, "ftl_relay", devs)] == ["A", "C"]
+    assert [d["device_code"] for d in stock.surplus(fal, "ftl_relay", devs, {"A"})] == ["C"]
+    # the loadout planner carries a spare sent over (gather + to:) as a spare: it stays spare (and off) there
+    devs = [fac("SF", "SOL-BELT-1", "sol"), spare("S", "FAL-BELT-1", "stock", "gather", "to:sol")]
+    p = lo.plan({**cfg, "fleets": [{**fleets[0], "wants": {}}, fleets[1]]}, devs, bps, {}, stars, {}, set(), [], {})
+    assert p["moves"].get("S") == "SOL" and "S" in p["gathering"]
+    assert lo.self_move_steps("S", "SOL", {}, devs[1], gathering=True)[0]["body"]["configuration"].get("remove_tags") is None
 
     # relay / ward orders: a factory whose stockpile covers the print first, ahead of a shorter queue
     inv = {"SOL-BELT-1": {"structural": 9000}, "FAL-BELT-1": rich}
@@ -9316,3 +9331,27 @@ def test_managed_by_folds_in_new_ami_events_and_replays_after_a_delete(tmp_path)
         assert await managed_by(db) == {"D1": "C1"}
         await db.close()
     asyncio.run(go())
+
+
+def test_a_hub_short_of_stock_takes_a_partners_extra_spares_before_printing(client):
+    """Owner 2026-10-28: SOLARES printed relays for its stock while ~95 spare relays sat at FALQUORYX. The stock pass
+    sends a partner hub's spares beyond its own stock over (gather + to:) and prints only what's still missing."""
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    sent = []
+
+    async def fake_send(method, path, body, label):
+        sent.append((path, body))
+        return True, {}, None
+    eng.send = fake_send
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "SOL", "position": {"x": 0, "y": 0, "z": 0}},
+                                                      {"designation": "FAL", "position": {"x": 500, "y": 0, "z": 0}}]})
+    client.portal.call(db.kv_set, "devices", [
+        {"device_code": "F1", "device_type": "ftl_relay", "location": "FAL-BELT-1", "status": "inactive", "tags": ["spare", "stock"]},
+        {"device_code": "F2", "device_type": "ftl_relay", "location": "FAL-BELT-1", "status": "inactive", "tags": ["spare"]},
+        {"device_code": "F3", "device_type": "ftl_relay", "location": "FAL-BELT-1", "status": "inactive", "tags": ["spare"]}])
+    client.portal.call(eng.save_fleets, [
+        {"id": f, "name": f, "role": "mining", "home": h, "station": True, "materials": "self", "stock": {"ftl_relay": n}}
+        for f, h, n in (("sol", "SOL", 3), ("fal", "FAL", 1))])
+    out = client.portal.call(eng.stock_pass)
+    assert sent == [(f"/devices/{c}", {"configuration": {"add_tags": ["gather", "stock", "to:sol"]}}) for c in ("F2", "F3")]
+    assert sum("sent to keep in stock at SOL" in x for x in out) == 2

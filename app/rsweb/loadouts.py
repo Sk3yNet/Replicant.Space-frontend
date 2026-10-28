@@ -472,10 +472,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
 
     # incoming to each fleet: members on their way home, plus prints ordered for it
     incoming: dict[str, Counter] = defaultdict(Counter)
+    sent_spare: list[str] = []   # spares sent to a hub's stock (`gather` + `to:`, stock.py): they stay spare there
     for d in pool:
         dest = bound_for(d, known_stars, fleet_homes)
         if dest and star_of(d.get("location")) != dest:
             moves[d["device_code"]] = dest
+            if GATHER in (d.get("tags") or []) and SPARE in (d.get("tags") or []) and not fleet_tag_of(d):
+                sent_spare.append(d["device_code"])
             f = by_tag.get(fleet_tag_of(d) or "")
             if not fleet_tag_of(d) and GATHER not in (d.get("tags") or []) and homes_of.get(dest) and not for_contract(d):
                 f = homes_of[dest][0]   # sent before stationed fleets (no fleet tag yet): it joins the fleet there on arrival
@@ -887,7 +890,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             busy.discard(code)
 
     # spares nobody needs this pass are gathered at the nearest receiving fleet's home (or the chosen spare depot) for later use
-    gathering: list[str] = []
+    gathering: list[str] = [c for c in sent_spare if c in moves]
     points = gather_points(cfg, devices) if s.get("gather_spares", True) and not only else []
 
     def kept_in_stock(d: dict) -> bool:
