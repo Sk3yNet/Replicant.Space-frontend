@@ -1202,3 +1202,18 @@ def test_a_system_that_can_spare_it_all_goes_before_a_nearer_sliver():
     assert len(runs) == 1 and [g["pile"] for cg in runs[0]["cargos"] for g in cg["legs"]] == ["A-1"]
     p = run_plan(devs, {"A-1": {"carbon": 100}, "B-BELT": {"carbon": 100}}, [c])       # nowhere has it all: nearest first
     assert {g["pile"] for r in p["runs"] if r["req"] == "contract:EV1" for cg in r["cargos"] for g in cg["legs"]} >= {"B-BELT"}
+
+
+def test_a_delivery_brings_a_stray_pile_back_instead_of_flying_home_empty():
+    # Joe 2026-10-28: a lower priority run is better than a wasted trip
+    devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=500, **SURGE),
+            dev("HV", "heaven_vessel", "A-1", **SURGE)]
+    c = {"designation": "EV1", "location": "B-3", "title": "Local", "price": {"carbon": 50}}
+    p = run_plan(devs, {"A-1": {"carbon": 1000}, "B-BELT": {"silicates": 300}}, [c])
+    run = next(r for r in p["runs"] if r["req"] == "contract:EV1")
+    assert run["backhaul"] == {"pile": "B-BELT", "to": "A-1", "takes": {"F1": {"silicates": 300}}}
+    assert not any(r.get("req") == "return:B-BELT" and r.get("cargos") for r in p["runs"])   # not fetched twice
+    steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
+    tail = [(s["desc"], (s["body"] or {}).get("command")) for s in steps if "way back" in s["desc"] or "deposit at A-1" in s["desc"]]
+    assert [x[1] for x in tail] == ["travel", "collect_resources", "travel", "deposit_resources"]
+    assert "on the way back 300 silicates from B-BELT → A-1" in lg.describe(run)

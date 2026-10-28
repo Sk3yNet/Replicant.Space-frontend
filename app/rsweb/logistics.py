@@ -1287,6 +1287,9 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         runs.append({"req": None, "kind": "dump", "cargos": [], "escort": c, "legs": [], "to": receive[to_star],
                      "carry": cargo, "dump": extra, "fulfil": None, "replicant": None, "back": None,
                      "label": f"{c} drops off what isn't its work at {to_star}"})
+    # the way back (owner 2026-10-28: "a lower priority run would be better than a wasted trip"): a delivery's ships
+    # would fly home empty, so they load a stray pile near the drop-off and bring it to the nearest printing hub
+    backhaul(runs, spare, gather, reqs, pool, commandable, pos, bpl)
     # the rest of the idle logistics devices gather at the nearest printing hub (a fleet that takes materials in, inside
     # the network; owner's request 2026-10-17): those that can surge fly there, the others are towed by a free carrier
     hubs = sorted(s for s in gather if s in commandable and gather[s])
@@ -1325,6 +1328,61 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                        "replicant": hosts.get(d["device_code"]), "covered": star_of(d.get("location")) in commandable,
                        "lane": worked.get(d["device_code"])}
                       for d in pool], "lanes": worked}
+
+
+BACKHAUL_KINDS = ("print", "contract", "trade", "upkeep")
+
+
+def backhaul(runs: list[dict], spare: dict[str, dict[str, float]], gather: dict[str, str], reqs: list[dict],
+             pool: list[dict], commandable: set[str], pos: dict[str, Any], bpl: list[dict]) -> None:
+    """Sets run["backhaul"] = {"pile", "to", "takes": {code: {resource: qty}}} on delivery runs (ships flying
+    themselves, no ride) that end outside a printing hub's system: after the drop-off they fly to a stray stockpile (not in a hub system, at least MIN_RETURN,
+    in the drop-off's system or within a relay hop of it, no farther from the hub than the drop-off is plus a hop),
+    load what they hold, and deposit it at the hub. What the hub's prints lack goes first, then the biggest amounts.
+    Takes from `spare`, so the stockpile returns of this pass don't fetch it too."""
+    from . import cargo as cg
+    by = {d["device_code"]: d for d in pool}
+    hubs = sorted(h for h in gather if h in commandable and gather[h])
+    if not hubs:
+        return
+    lacks: dict[str, dict[str, float]] = defaultdict(dict)
+    for r in reqs:
+        if r["kind"] == "print" and r.get("to"):
+            for x, q in (r.get("need") or {}).items():
+                lacks[star_of(r["to"])][x] = lacks[star_of(r["to"])].get(x, 0.0) + q
+    for run in runs:
+        cargos = [c for c in run.get("cargos") or [] if not c.get("rides")]
+        dstar = star_of(run.get("to"))
+        if (run.get("kind") not in BACKHAUL_KINDS or run.get("ami") or not cargos or run.get("back") or run.get("ride")
+                or dstar in gather
+                or (run.get("rewards") and run.get("home")) or dstar not in commandable):
+            continue
+        hub = min(hubs, key=lambda h: (_dist(dstar, h, pos), h))
+        home_d = _dist(dstar, hub, pos)
+        piles = [l for l, s_ in spare.items() if star_of(l) not in gather and star_of(l) in commandable
+                 and sum(q for q in s_.values() if q >= 1) >= MIN_RETURN
+                 and (star_of(l) == dstar or _dist(dstar, star_of(l), pos) <= RELAY_HOP)
+                 and _dist(star_of(l), hub, pos) <= home_d + RELAY_HOP]
+        if not piles:
+            continue
+        want = lacks.get(hub, {})
+        pile = min(piles, key=lambda l: (star_of(l) != dstar, -sum(min(q, want.get(x, 0.0)) for x, q in spare[l].items()),
+                                         -sum(spare[l].values()), l))
+        takes = {}
+        for c in cargos:
+            d = by.get(c["code"]) or {}
+            room_ = float(cg.capacity_of(d, bpl, None) or c.get("room") or 0.0)
+            take = {}
+            for x, q in sorted(spare[pile].items(), key=lambda kv: (-min(kv[1], want.get(kv[0], 0.0)), -kv[1], kv[0])):
+                n = math.floor(min(q, room_))
+                if n >= 1:
+                    take[x] = n
+                    room_ -= n
+                    spare[pile][x] -= n
+            if take:
+                takes[c["code"]] = take
+        if takes:
+            run["backhaul"] = {"pile": pile, "to": gather[hub], "takes": takes}
 
 
 def holds_replicant(d: dict, devices: list[dict]) -> bool:
@@ -1601,6 +1659,15 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
         for c in loaded:
             steps.append(step(f"{c}: deposit the payout at {run['home']}", f"/devices/{c}", {"command": "deposit_resources"}))
         return steps
+    bh = run.get("backhaul")
+    if bh:   # the way back: a stray stockpile to the printing hub instead of an empty trip (not critical: extra)
+        hop(bh["pile"], list(bh["takes"]), " (on the way back: pick up)")
+        for c, take in bh["takes"].items():
+            steps.append(step(f"{c}: load {', '.join(f'{q:g} {r_}' for r_, q in take.items())} at {bh['pile']} (on the way back)",
+                              f"/devices/{c}", {"command": "collect_resources", "resources": take}))
+        hop(bh["to"], list(bh["takes"]), " (on the way back)")
+        for c in bh["takes"]:
+            steps.append(step(f"{c}: deposit at {bh['to']}", f"/devices/{c}", {"command": "deposit_resources"}))
     if run.get("back"):
         go(run["back"], " (waits in the relay network)")
     return steps
@@ -1637,4 +1704,11 @@ def describe(run: dict) -> str:
         s += ", then fulfills" + (f" all {len(run['also']) + 1}" if run.get("also") else "")
     if run.get("rewards") and run.get("home"):
         s += f" and brings the payout to {run['home']}"
+    if run.get("backhaul"):
+        bh = run["backhaul"]
+        tot = {}
+        for take in bh["takes"].values():
+            for x, q in take.items():
+                tot[x] = tot.get(x, 0) + q
+        s += f"; on the way back {', '.join(f'{q:g} {x}' for x, q in sorted(tot.items()))} from {bh['pile']} → {bh['to']}"
     return s

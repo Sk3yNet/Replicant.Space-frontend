@@ -550,7 +550,9 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
      Consolidate rule covers with an AMI transport controller are left to it).
 4. **Stockpile returns**: stray stockpiles brought back to a gather point (a fleet that takes materials in), or, where
    such a fleet moved away, to its new home. Not from a system an AMI ferry already empties; a return load that finds
-   less than planned takes what is left. With no gather point, the page says so.
+   less than planned takes what is left. With no gather point, the page says so. A delivery outside a hub's system
+   also brings a stray pile near its drop-off (same system or one relay hop) back to the nearest printing hub on the
+   way back, instead of flying home empty (*on the way back …* in the job row).
 5. **Rescues**, 6. **shop listings** (*Get listing*), 7. **repair patrols**.
 
 Bump or skip a request on the Logistics page. Every logistics job still going has *Cancel job* there (and *Confirm trip* when a long trip waits for your Confirm), on its request row and under Recent trips.
