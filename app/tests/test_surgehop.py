@@ -7,15 +7,21 @@ SCAN = {"planets": [{"designation": "Z-1", "orbital_distance_au": 1.0}, {"design
         "outer_system": {"kuiper": {"designation": "Z-KUIPER", "distance_au": 505}}}
 
 
-def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1"):
+def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1", hub=False, scanned=True):
     from rsweb import automations as au
     from rsweb.db import now_iso
     e, db = eng(client), client.app.state.db
     client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "Z", "entry_point": "Z-1-L4"}]})
     client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
                        ("Z", json.dumps(SCAN), now_iso()))
+    radii = client.portal.call(eng(client).cruise_radii)   # the scan gives the belt and Kuiper radii
+    if not scanned:   # the radii stay known (as from the star catalog), but no scan of ours found the entry point
+        e.cruise_radii = lambda: _radii(radii)
+        client.portal.call(db.execute, "DELETE FROM systems WHERE star=?", ("Z",))
     client.portal.call(db.kv_set, "devices", [{"device_code": "V1", "device_type": "heaven_vessel", "status": "idle",
-                                               "location": at, "features": ["surge", "cruise"]}])
+                                               "location": at, "features": ["surge", "cruise"]}]
+                       + ([{"device_code": "H1", "device_type": "system_hub", "status": "relaying", "location": "Z-1-L4"}]
+                          if hub else []))
     sent = []
 
     async def fake_send(method, path, body, label):
@@ -27,6 +33,12 @@ def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1"):
     job = client.portal.call(e.create_job, "fleets", "trip", "V1",
                              [au.step(f"V1 → {dest}", "/devices/V1", {"command": "travel", "destination": dest})], {}, True)
     return sent, next(j for j in client.portal.call(e.jobs) if j["id"] == job["id"])
+
+
+def _radii(r):
+    async def f():
+        return r
+    return f()
 
 
 def _arrive(client, at):
@@ -88,14 +100,14 @@ def test_leaving_from_a_belt_goes_via_the_nearest_surge_spot_not_the_entry_point
 
 def test_arriving_takes_the_off_ramp_nearest_the_destination(client):
     # 2D6BFDF1 2026-10-22: surged to ISOLITHOR-1-L4, then cruised 499 AU to ISOLITHOR-BELT-1
-    sent, job = _run(client, at="Y-2-L4", dest="Z-BELT-1")
+    sent, job = _run(client, at="Y-2-L4", dest="Z-BELT-1", scanned=False)
     assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z", "Z-KUIPER"]}]   # the star first (live)
     sent, _ = _run(client, at="Y-2-L4", dest="Z-1")                                     # next to the entry point: as it is
     assert sent == [{"command": "travel", "destination": "Z-1"}]
 
 
 def test_trip_via_plans_a_hand_sent_trip_quietly(client):
-    _run(client, at="Y-2-L4")   # sets up system Z and V1
+    _run(client, at="Y-2-L4", scanned=False)   # sets up system Z and V1
     e = eng(client)
     log0 = len(client.portal.call(client.app.state.db.kv_get, "automation_log", []) or [])
     assert client.portal.call(e.trip_via, "V1", "Z-BELT-1") == ["Z", "Z-KUIPER"]
@@ -153,3 +165,34 @@ def test_device_travel_form_takes_the_planned_route_and_shows_the_saving(client)
                     headers=HX)
     assert "Re-routed via Z, Z-KUIPER: saves 5 min (30 %)" in r.text, r.text[:2000]
     assert sent[0]["via"] == ["Z", "Z-KUIPER"] and "via" not in sent[1]
+
+
+def test_arriving_in_a_hub_system_lands_at_the_entry_point_then_hops_to_the_off_ramp(client):
+    # live 2026-10-28: F7E30727 ANLOREN → ISOLITHOR-BELT-1 via ISOLITHOR-KUIPER landed at ISOLITHOR-1-L4 (a hub there)
+    # and cruised 527 AU to the Kuiper belt, 49 min
+    sent, job = _run(client, at="Y-2-L4", dest="Z-BELT-1", hub=True, scanned=False)
+    assert sent == [{"command": "travel", "destination": "Z-1-L4"}]
+    assert [s["body"]["destination"] for s in job["steps"]] == ["Z-1-L4", "Z-KUIPER", "Z-BELT-1"]
+    job = _arrive(client, "Z-1-L4")
+    assert sent[1:] == [{"command": "travel", "destination": "Z-KUIPER"}]
+    job = _arrive(client, "Z-KUIPER")
+    assert sent[2:] == [{"command": "travel", "destination": "Z-BELT-1"}]
+    assert client.portal.call(eng(client).trip_via, "V1", "Z-BELT-1") == []      # one hand-sent trip: no off-ramp
+
+
+def test_a_scanned_system_lands_at_its_entry_point_too(client):
+    sent, job = _run(client, at="Y-2-L4", dest="Z-BELT-1")
+    assert sent == [{"command": "travel", "destination": "Z-1-L4"}] and len(job["steps"]) == 3
+
+
+def test_a_wait_lasts_until_the_current_legs_eta_when_the_game_underprices_it(client):
+    from datetime import timedelta
+    from rsweb import automations as au
+    e, db = eng(client), client.app.state.db
+    now = au._now()
+    tr = {"final_arrives_at": (now - timedelta(minutes=40)).isoformat(), "arrives_at": (now + timedelta(minutes=10)).isoformat()}
+    client.portal.call(db.kv_set, "devices", [{"device_code": "V1", "device_type": "surge_plate", "status": "travelling",
+                                               "location": "Z-1-L4", "travel": tr}])
+    st = {"wait_device": "V1", "started_at": (now - timedelta(hours=1)).isoformat(), "timeout": 3600, "desc": "trip"}
+    job = client.portal.call(e.create_job, "fleets", "trip", "V1", [au.step("x", "", None, method="WAIT")], {}, True)
+    assert client.portal.call(e._still_travelling, st, job, now)

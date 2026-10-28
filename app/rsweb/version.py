@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.288.1"
+VERSION = "1.289.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.289.0", "2026-10-28", "Four automation fixes from the 10-27 and 10-28 snapshots. Drones left standing `recall_waiting` are adopted again: Miner_2's 8 drones had stood at XERLARNIS-5-L4 since 10-09 and Miner_1's at BELNULEON-10-L4 since 10-26, with no controller. AMI deliveries ask for the level the destination should hold (the game delivers until it holds the requirement): SOLARES hub upkeep asked for the 57/130 shortfall while 69/158 was there, so every delivery ended at once with nothing moved, every 5 min for hours; the same applied to contract deliveries and consolidation. Trips into a scanned or hub system land at its entry point, so the Kuiper off-ramp is now a 30 s hop of its own after arriving instead of a via the game cruised 527 AU to (Delta trips ISOLITHOR to ANLOREN and back took about an hour and their waits gave up), and a wait lasts until the current leg's ETA when that is later than the trip's. Contract and print runs take their materials from a system that can spare all of it before a nearer one with only a little (one contract had sent three freighters, two for 19 and 10 units)."),
     ("1.288.1", "2026-10-28", "Device page Stow into lists every carrier here with room: a free hold slot (stowed) or, on plates, platforms, carriers and mobile fleets, a free attach point (the carrier attaches it). Before, only vessel holds were offered, so the list was empty wherever the carriers had no hold; full holds are left out, and an empty list now says why."),
     ("1.288.0", "2026-10-28", "Automations: every job row (active and recent) says what its carriers carry or will pick up: device types and codes with their state (to pick up, aboard, dropped) and materials to load, read from the job's stow, attach and load steps (and a loadouts delivery's device list)."),
     ("1.287.0", "2026-10-28", "A printing hub short of keep-in-stock devices first takes the other hub's extras: spares there beyond that hub's own stock are sent over (a carrier brings them, and they arrive as spares, switched off) and only what is still missing is printed. SOLARES kept printing relays for its stock of 8 while about 95 spare relays sat at FALQUORYX."),

@@ -236,6 +236,20 @@ def test_in_system_deliveries_go_to_a_free_ami_transport_controller():
     assert st[1]["body"] == {"command": "launch"}
 
 
+def test_ami_delivery_requirement_is_the_level_the_destination_should_hold():
+    # live 2026-10-28: SOLARES-4-L4 held 69/158; a requirement of the 57/130 shortfall completed at once, moving nothing
+    devs = world()
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    c = {"designation": "EV2", "location": "B-3", "title": "Local", "price": {"carbon": 50}}
+    ctrl = dev("TC", "ami_transport_controller", "B-1", tags=[])
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"B-BELT": {"carbon": 500}, "B-3": {"carbon": 20}}, pos=POS,
+                commandable={"A", "B"}, hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[c], trades=[], incoming={},
+                replicants={}, drop=lambda s: f"{s}-1", ami=[ctrl])
+    run = next(r for r in p["runs"] if r["req"] == "contract:EV2")
+    assert run["carry"] == {"carbon": 30}
+    assert lg.run_steps(run, {})[0]["body"]["configuration"]["requirement"] == {"carbon": 50}
+
+
 def test_a_big_load_goes_as_one_convoy_with_one_escort_smallest_fitting_ship_first():
     devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE),
             dev("F2", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE),
@@ -1175,3 +1189,16 @@ def test_logistics_page_cancels_old_and_held_jobs(client):  # noqa: F811
     client.post("/automations/jobs/lg-old/cancel", headers=HX)
     page = client.get("/fleets/logistics", headers=H).text
     assert "/automations/jobs/lg-old/cancel" not in page
+
+
+def test_a_system_that_can_spare_it_all_goes_before_a_nearer_sliver():
+    # live 2026-10-28: three freighters for one contract, two for 19 and 10 units from a nearer belt
+    devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=500, **SURGE),
+            dev("F2", "cargo_freighter", "B-1", cargo_capacity=500, **SURGE),
+            dev("HV", "heaven_vessel", "A-1", **SURGE)]
+    c = {"designation": "EV1", "location": "Z-3", "title": "Big", "price": {"carbon": 180}}
+    p = run_plan(devs, {"A-1": {"carbon": 1000}, "B-BELT": {"carbon": 10}}, [c])
+    runs = [r for r in p["runs"] if r["req"] == "contract:EV1"]
+    assert len(runs) == 1 and [g["pile"] for cg in runs[0]["cargos"] for g in cg["legs"]] == ["A-1"]
+    p = run_plan(devs, {"A-1": {"carbon": 100}, "B-BELT": {"carbon": 100}}, [c])       # nowhere has it all: nearest first
+    assert {g["pile"] for r in p["runs"] if r["req"] == "contract:EV1" for cg in r["cargos"] for g in cg["legs"]} >= {"B-BELT"}

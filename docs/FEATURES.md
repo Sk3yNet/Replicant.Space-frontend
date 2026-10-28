@@ -853,5 +853,7 @@ Arriving in a system with a hub is 25 % faster, whoever owns it, and the game ne
   route (leaving a system, the game cruises to the entry point first).
 - The spots go in the trip's `via`, ahead of any hub waypoints.
 - **Off-ramp**: arriving in another system, the trip ends with that system's spot nearest the destination when the game
-  would arrive much further off; the step reads *(surge hop via …)*.
+  would arrive much further off; the step reads *(surge hop via …)*. Where surges land at the entry point (a system
+  we scanned, or one with a hub) the trip goes there first, hops to the spot as a trip of its own, then cruises on;
+  a hand-sent trip there leaves the off-ramp out.
 - If the game refuses them, the trip takes its own route.

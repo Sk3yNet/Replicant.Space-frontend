@@ -89,7 +89,9 @@ def plan(devices: list[dict], inventory: dict[str, Any], bps: dict[str, dict], b
                        key=lambda c: (-sum(1 for d in devices if d.get("controller_device_code") == c["device_code"]), c["device_code"]))
         for (loc, items, total, helps), c in zip(pickups, ctrls):
             out.append({"star": star, "controller": c["device_code"], "collect": loc, "deliver": home,
-                        "requirement": {r: int(q) for r, q in items.items() if int(q) > 0}, "total": int(total),
+                        # the game delivers until the destination holds the requirement: the home pile plus this one
+                        "requirement": {r: int(piles.get(home, {}).get(r, 0) + q) for r, q in items.items() if int(q) > 0},
+                        "total": int(total),
                         "helps": {r: int(v + 0.999) for r, v in helps.items()}, "factory": fac["device_code"],
                         "factory_status": fac.get("status")})
         for loc, items, total, helps in pickups[len(ctrls):]:

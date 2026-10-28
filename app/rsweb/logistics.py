@@ -682,6 +682,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
              if (c := d.get("device_code")) in hosts}
     direct = {c: r for c, r in hosts.items() if not any(towed.get(x) == c and hosts[x] == r for x in hosts)}
     ami_free = {c["device_code"]: c for c in ami or []}
+    ami_level: dict[str, dict[str, float]] = {}   # per destination: what AMI deliveries this pass bring it up to
     pool = fleet_devices(fleets, devices)
     bpl = list(bps.values())
     free = {d["device_code"]: d for d in pool if d["device_code"] not in busy and _free(d)}
@@ -846,8 +847,17 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             return l != dest and (star_of(l) in commandable or can_escort())
         assigned = bool(r.get("_assigned"))
         while need:
-            piles = sorted((l for l, s in spare.items() if sources_ok(l) and any(s.get(x, 0) >= 1 for x in need)),
-                           key=lambda l: (_dist(star_of(l), dstar, pos), -sum(spare[l].get(x, 0) for x in need), l))
+            piles = [l for l, s in spare.items() if sources_ok(l) and any(s.get(x, 0) >= 1 for x in need)]
+            # a system that can spare all of it first (the destination's own system before any): the rest comes from
+            # farther anyway, so a near sliver only adds a trip (live 2026-10-28: three freighters for one Geothermal
+            # Surplus contract, two of them for 19 and 10 units from KELCERUM-BELT-1)
+            has = defaultdict(lambda: defaultdict(float))
+            for l in piles:
+                for x in need:
+                    has[star_of(l)][x] += spare[l].get(x, 0.0)
+            covers = {st_: all(h[x] >= q for x, q in need.items()) for st_, h in has.items()}
+            piles.sort(key=lambda l: (star_of(l) != dstar, not covers[star_of(l)], _dist(star_of(l), dstar, pos),
+                                      -sum(spare[l].get(x, 0) for x in need), l))
             if not piles:
                 if not assigned:
                     unmet.append({"req": r["id"], "why": "no stockpile can spare " + ", ".join(f"{q:g} {x}" for x, q in sorted(need.items()))
@@ -868,7 +878,14 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                         need[x] -= q
                     need = {x: q for x, q in need.items() if q >= 1}
                     assigned = True
+                    # the game's `requirement` is what the destination should hold ("deliver until"): what's there,
+                    # plus what this pass already sent there, plus this take (live 2026-10-28: SOLARES-4-L4 held
+                    # 69/158 and a requirement of 57/130 completed at once, moving nothing, every 5 min for hours)
+                    at = ami_level.setdefault(dest, dict(as_amounts(inventory.get(dest) or {})))
+                    for x, q in take.items():
+                        at[x] = at.get(x, 0.0) + q
                     runs.append({"req": r["id"], "kind": r["kind"], "ami": ctrl, "cargos": [], "escort": None,
+                                 "require": {x: math.ceil(at[x] - 1e-9) for x in take},
                                  "legs": [{"pile": first, "take": take}], "to": dest, "carry": take, "fulfil": None,
                                  "replicant": None, "back": None, "label": r["label"]})
                     continue
@@ -1391,7 +1408,7 @@ def ami_steps(run: dict) -> list[dict]:
     c = run["ami"]
     return [step(f"{c}: delivery {g['pile']} → {run['to']} (logistics request)", f"/devices/{c}",
                  {"command": "set_directive", "directive": "delivery",
-                  "configuration": {"route": {"collect": g["pile"], "deliver": run["to"]}, "requirement": g["take"]}},
+                  "configuration": {"route": {"collect": g["pile"], "deliver": run["to"]}, "requirement": run.get("require") or g["take"]}},
                  critical=True),
             step(f"{c}: launch", f"/devices/{c}", {"command": "launch"})]
 

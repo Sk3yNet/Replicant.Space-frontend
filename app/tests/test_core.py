@@ -2291,6 +2291,19 @@ def test_arrivals_join_their_systems_controller():
     assert handoffs(_arrival_world(), {"MD1": "MC9"}, {"SD1"}) == []                           # managed per digests / busy
 
 
+def test_recall_waiting_drones_join_their_systems_controller():
+    # live 2026-10-28: drones a controller let go mid-recall stood recall_waiting for weeks, never adopted
+    from rsweb.ami_schedule import handoffs, adoptable
+    w = _arrival_world()
+    for d in w:
+        if d["device_code"] == "MD1":
+            d["status"] = "recall_waiting"
+    assert [(h["drone"], h["controller"]) for h in handoffs(w, {}, set())][0] == ("MD1", "MC1")
+    ctrl = next(d for d in w if d["device_code"] == "MC1")
+    ctrl = dict(ctrl, location="ITH-2-L4")
+    assert "MD1" in adoptable(w, ctrl, {})
+
+
 def test_inactive_arrivals_are_activated_once():
     from rsweb.ami_schedule import wakeups
     w = _arrival_world()
@@ -2933,7 +2946,8 @@ def test_consolidate_falquoryx_leftovers():
     assert len(plans) == 1
     p = plans[0]
     assert p["controller"] == "DF451241" and p["collect"] == "FALQUORYX-5" and p["deliver"] == "FALQUORYX-BELT-1"
-    assert p["requirement"] == {"conductive": 127, "rares": 58, "silicates": 224, "structural": 615, "volatiles": 211}
+    # "deliver until": the home pile plus what's picked up (rares 68, structural 6284, volatiles 36 there already)
+    assert p["requirement"] == {"conductive": 127, "rares": 126, "silicates": 224, "structural": 6899, "volatiles": 247}
     assert p["helps"] == {"volatiles": 64, "rares": 12}
     body = co.steps(p)[0]["body"]
     assert body == {"command": "set_directive", "directive": "delivery",

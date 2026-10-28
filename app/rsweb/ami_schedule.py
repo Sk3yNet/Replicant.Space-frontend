@@ -148,6 +148,13 @@ def same_side(a: dict, b: dict) -> bool:
     return fa == fb or (fa is None and fb in STATIONED) or (fb is None and fa in STATIONED)
 
 
+def standing(d: dict) -> bool:
+    """Idle, or `recall_waiting`: a drone whose controller let it go mid-recall stands there for good (live 2026-10-28:
+    Miner_2's 8 drones at XERLARNIS-5-L4 since 10-09, Miner_1's at BELNULEON-10-L4 since 10-26, none adopted)."""
+    st = str(d.get("status") or "")
+    return st.startswith("idle") or st == "recall_waiting"
+
+
 def reserved(d: dict) -> bool:
     """Not available to the in-system work rules: a fleet member away from its station, a device on its way to another
     system, or a spare (the loadout let it go so it can be sent where it's needed — re-adopting it here would undo that)."""
@@ -163,7 +170,7 @@ def adoptable(devices: list[dict], ctrl: dict, managed: dict[str, str]) -> list[
     # belt surveyors first (about 4x faster at belt searches, owner 2026-10-24)
     return [d["device_code"] for d in sorted(devices, key=lambda d: (d.get("device_type") != "belt_surveyor", d["device_code"]))
             if runs(kind, d.get("device_type")) and d.get("location") == ctrl.get("location")
-            and str(d.get("status", "")).startswith("idle") and d.get("device_code") not in managed
+            and standing(d) and d.get("device_code") not in managed
             and d.get("device_code") != ctrl.get("device_code") and not is_controller(d)
             and same_side(d, ctrl) and not in_transit(d) and "spare" not in (d.get("tags") or [])
             and not d.get("attached_to_device_code") and not d.get("stowed_in_device_code")]
@@ -248,7 +255,7 @@ def handoffs(devices: list[dict], managed: dict[str, str], busy: set[str], skip:
         here = star_of(d.get("location"))
         homes = {t[5:] for t in tags if t.startswith("home:")}   # an old home: tag, until the loadout pass converts it
         if (not kind or not here or code in run_by or code in busy or code in skip or reserved(d) or "spare" in tags
-                or ignore & tags or not str(d.get("status") or "").startswith("idle") or d.get("location_stale")
+                or ignore & tags or not standing(d) or d.get("location_stale")
                 or d.get("in_control_range") is False or d.get("stowed_in_device_code") or d.get("attached_to_device_code")
                 or (homes and _home_key(here) not in homes)):
             continue

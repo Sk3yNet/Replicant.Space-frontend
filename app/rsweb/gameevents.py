@@ -132,13 +132,16 @@ def delivery_plan(e: dict, prog: dict, devices: list[dict]) -> dict:
                  and "controller" in (d.get("device_type") or "") and "ferry" not in (d.get("tags") or [])), None)
     legs = []
     remaining = dict(short)
+    level = dict(prog.get("piles", {}).get(loc) or {})   # a delivery's requirement is what the location should hold
     for pile, items in sorted(prog.get("piles", {}).items(), key=lambda kv: -sum(kv[1].values())):
         if pile == loc or not remaining:
             continue
         take = {r: min(q, items.get(r, 0.0)) for r, q in remaining.items() if items.get(r, 0.0) > 0}
         if not take:
             continue
-        legs.append({"collect": pile, "deliver": loc, "requirement": {r: int(q + 0.999) for r, q in take.items()}})
+        for r, q in take.items():
+            level[r] = level.get(r, 0.0) + q
+        legs.append({"collect": pile, "deliver": loc, "requirement": {r: int(level[r] + 0.999) for r in take}})
         for r, q in take.items():
             remaining[r] -= q
             if remaining[r] <= 0:

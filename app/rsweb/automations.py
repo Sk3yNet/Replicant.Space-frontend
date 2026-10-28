@@ -844,6 +844,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     ok, resp, err = False, None, far
                 else:
                     exit_via = await self.plan_via(st, job)
+                    if await self._ramp_legs(st, job):
+                        continue   # to the entry point where it lands, the hop to the off-ramp, then the rest
                     ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
                     if not ok and exit_via and "loop detected" in (err or "").lower() and await self._hop_legs(st, job):
                         await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via)} refused ({err}); "
@@ -1146,7 +1148,16 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         trip sent by hand (a replicant's travel form). Nothing is logged."""
         st = {"path": f"/devices/{device}", "body": {"command": "travel", "destination": dest}, "desc": ""}
         await self.plan_via(st, {"rule": None, "title": ""})
-        return list(st["body"].get("via") or [])
+        via = list(st["body"].get("via") or [])
+        ramp = st.get("arrive_via")
+        if ramp in via and await self._hub_entry(star_of(ramp)):
+            # one trip can't take the off-ramp where surges land at the entry point (it cruises from there): leave it out
+            via = via[:via.index(ramp)]
+            while via and star_of(via[-1]) == star_of(ramp):
+                via.pop()
+            from . import hubroute
+            via = hubroute.waypoints(via, dest.upper()) if via else []
+        return via
 
     async def _hop_legs(self, st: dict, job: dict) -> bool:
         """A trip inside one system whose surge spots the game refused as a `via` (live 2026-10-27: F7E30727
@@ -1177,6 +1188,62 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         job["steps"][i:i] = add
         st["tries"] -= 1
         await self._update(job)
+        return True
+
+    async def _hub_entry(self, star: str) -> str | None:
+        """Where surges into `star` land when that's its entry point: once a scan has found it, or with an active hub
+        there (anyone's; game docs, owner 2026-10-25). None otherwise (they land at the Oort cloud or Kuiper belt)."""
+        from . import wardhub as wh
+        _, entry = await self._surge_spots(star, await self.cruise_radii())
+        if not entry:
+            return None
+        hubs = {star_of(x.get("location")) for x in await self.devices() if wh.is_hub(x) and wh.active(x)} \
+            | await self.star_lookup("hubs")
+        return entry if star in hubs or await self.system_scan(star) else None
+
+    async def _ramp_legs(self, st: dict, job: dict) -> bool:
+        """An off-ramp (a surge spot in the destination system, _exit_via) into a system whose surges land at its entry
+        point (_hub_entry), where the game then cruises to the off-ramp as a via (live 2026-10-28: F7E30727
+        ANLOREN → ISOLITHOR-BELT-1 via ISOLITHOR-KUIPER cruised 527 AU from ISOLITHOR-1-L4, 49 min, though the game's
+        route priced that leg at 13 s; three Delta trips waited out their hour). The trip is split: to the entry point,
+        a surge hop of its own to the off-ramp (30 s), then this trip cruises the rest.
+        True when steps were added ahead of this one (it runs after them)."""
+        from . import hubroute
+        body, path = st.get("body") or {}, str(st.get("path") or "")
+        ramp = st.get("arrive_via")
+        if not ramp or ramp not in (body.get("via") or []) or body.get("command") != "travel" or not path.startswith("/devices/"):
+            return False
+        ds = star_of(ramp)
+        entry = await self._hub_entry(ds)
+        if not entry or entry == ramp:
+            return False
+        code = path.split("/")[2]
+        via = list(body.get("via") or [])
+        before = via[:via.index(ramp)]
+        while before and star_of(before[-1]) == ds:   # the star stars_between put ahead of the off-ramp
+            before.pop()
+        flags = {"wait_device": code, "exit_checked": True, "hub_checked": True, "riders_checked": True, "sector_ok": True}
+        first = step(f"{code} → {entry} (entry point, then a surge hop to {ramp})", path,
+                     {"command": "travel", "destination": entry} | ({"via": hubroute.waypoints(before, entry)} if before else {}),
+                     wait=["travel.arrived"], match={"destination": entry})
+        hop = step(f"{code} → {ramp} (surge hop)", path, {"command": "travel", "destination": ramp},
+                   wait=["travel.arrived"], match={"destination": ramp})
+        add = []
+        for h in (first, hop):
+            h.update(flags)
+            add.append(h)
+        body.pop("via", None)
+        st["exit_via"], st["arrive_via"] = None, None
+        i = job["idx"]
+        for s2 in job["steps"][i:]:
+            if isinstance(s2.get("seq0_from"), int) and s2["seq0_from"] >= i:
+                s2["seq0_from"] += len(add)
+        job["steps"][i:i] = add
+        st["tries"] -= 1
+        await self._update(job)
+        if job.get("rule"):
+            await self.log(job["rule"], f"{job['title']}: {code} flies to {entry} first, hops to {ramp}, then on to "
+                                        f"{body.get('destination')} (surges into {ds} land at its entry point)")
         return True
 
     async def _hub_via(self, st: dict, job: dict) -> None:
@@ -1462,7 +1529,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         d = next((x for x in await self.devices() if x.get("device_code") == code), None)
         first = _ts(st.setdefault("first_started_at", st.get("started_at") or now.isoformat(timespec="seconds"))) or now
         tr = (d or {}).get("travel") or {}
-        eta = _ts(tr.get("final_arrives_at") or tr.get("arrives_at")) or _ts((job.get("etas") or {}).get(code or ""))
+        # the later of the trip's ETA and the current leg's: the game's route can underprice a leg (live 2026-10-28:
+        # F7E30727's whole trip was due 22:52, its 527 AU leg to ISOLITHOR-KUIPER 23:45, and the wait gave up at 22:41)
+        etas = [t for t in (_ts(tr.get("final_arrives_at")), _ts(tr.get("arrives_at"))) if t]
+        eta = max(etas) if etas else _ts((job.get("etas") or {}).get(code or ""))
         limit = (eta + timedelta(seconds=TRIP_GRACE_S)) if eta else (first + timedelta(seconds=st.get("timeout", STEP_TIMEOUT)
                                                                                     + NO_ETA_EXTRA_S))
         if not d or now > limit:
