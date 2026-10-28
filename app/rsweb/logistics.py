@@ -1058,7 +1058,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     # covers, nearest first) and commanded home; one that can't is picked up by a carrier, with a replicant along.
     from . import fleets as fl
     from .ami_schedule import in_transit
-    from .loadouts import at_tag, for_contract, placed
+    from .gameevents import at_place
+    from .loadouts import at_tag, for_contract, pinned_at, placed
     fleet_home = {fl.fleet_tag(f["id"]): f.get("home") for f in fleets or [] if f.get("id")}
     rescue_reqs = []
     paused_tags = {fl.fleet_tag(f): e for f, e in ((rescue_pause or {}).get("fleets") or {}).items()}
@@ -1067,6 +1068,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         tag = next((t for t in d.get("tags") or [] if t.startswith("fleet:")), None)
         if (not loc or code in hosts or code in busy or code in used or placed(d) or (d.get("device_type") or "") in KEPT_OUT
                 or at_tag(loc) in (d.get("tags") or [])    # stocked there on purpose (an at: tag for where it is)
+                or (pinned_at(d) and at_place(d, pinned_at(d)))   # the same, out of range: the game names only the star
                 or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or tag in away_fleets
                 or any(t.startswith("boot:") for t in d.get("tags") or [])   # a bootstrap's own: out there on purpose
                 or for_contract(d) or in_transit(d)   # reserved: a contract's, or on its way (to:) to another system
@@ -1088,12 +1090,20 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             req["paused_until"] = pause.get("until")
         rescue_reqs.append((req, d, fleet_home.get(tag)))
     reqs.extend(r for r, _, _ in rescue_reqs)
+    together: dict[str, str] = {}   # a device picked up by another rescue's carrier this pass → that rescue's device
+
+    def self_flyer(d: dict) -> bool:
+        return can_surge(d) and "travel" in (d.get("available_commands") or ["travel"])
+
     def rescue(r: dict, d: dict, home: str | None) -> None:
         if r["skipped"]:
             return
         code, loc, star = d["device_code"], d["location"], star_of(d["location"])
-        if code in used:   # taken as a carrier this pass
+        if code in used:   # taken as a carrier this pass, or picked up with another
+            if code in together and not any(u["req"] == r["id"] for u in unmet):
+                unmet.append({"req": r["id"], "why": f"picked up together with {together[code]}"})
             return
+        fleet_home = home
         if not (home and home in commandable):   # fleetless (or its home is dark): the nearest covered home system
             homes = [f["home"] for f in fleets or [] if f.get("home") in commandable and (f.get("station") or f.get("materials") == "self")]
             home = min(homes, key=lambda h: (_dist(star, h, pos), h), default=None)
@@ -1101,7 +1111,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         if not home_loc:
             unmet.append({"req": r["id"], "why": "no system inside an active relay network to bring it to"})
             return
-        if can_surge(d) and "travel" in (d.get("available_commands") or ["travel"]):
+        if self_flyer(d):
             # a replicant where it can command it: its own system, or any system its dark network covers
             spots = sorted({star} | next((n for n in dark_nets or [] if star in n), set()))
             best = None
@@ -1127,21 +1137,26 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                          "rescued": code, "mode": "self", "point": point, "to": home_loc, "carry": {},
                          "back": back, "label": r["label"]})
             return
-        # it can't fly home: a carrier picks it up (stowed or attached; large devices are compacted first)
+        # it can't fly home: a carrier picks it up (stowed or attached; large devices are compacted first), with the
+        # other devices stranded in the same system for the same home as far as its free seats go (owner 2026-10-28)
+        group = [(r2, d2) for r2, d2, h2 in rescue_reqs if r2 is not r and not r2["skipped"] and h2 == fleet_home
+                 and d2["device_code"] not in used and star_of(d2["location"]) == star and not self_flyer(d2)]
         cands = []
         for c, e in free.items():
             if c in used or not can_surge(e) or not (star_of(e.get("location")) == star or _dist(star_of(e.get("location")), star, pos) <= reach):
                 continue
             if star_of(e.get("location")) not in commandable and c not in hosts:
                 continue
-            mode = fl.take_seat(dict(fl.seats(e, devices)), d)
+            seats_left = dict(fl.seats(e, devices))
+            mode = fl.take_seat(seats_left, d)
             if mode:
-                cands.append((c in hosts, _dist(star_of(e.get("location")), star, pos), c, e, mode))
+                more = [(r2, d2, m2) for r2, d2 in group if (m2 := fl.take_seat(seats_left, d2))]
+                cands.append((-len(more), c not in hosts, _dist(star_of(e.get("location")), star, pos), c, e, mode, more))
         if not cands:
             unmet.append({"req": r["id"], "why": f"no free logistics carrier with a free seat {_within(reach, star)}"})
             return
-        cands.sort(key=lambda x: (not x[0], x[1], x[2]))   # one hosting a replicant needs no escort
-        _, _, c, carrier, mode = cands[0]
+        cands.sort(key=lambda x: x[:4])   # the most of them aboard first, then one hosting a replicant (no escort), nearest
+        _, _, _, c, carrier, mode, more = cands[0]
         if _needs_ok(r, _trip_hours([(star_of(carrier.get("location")), star), (star, star_of(home_loc))], pos), prefs, unmet):
             return
         esc = None
@@ -1153,8 +1168,12 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 return
             used.add(esc["device_code"])
         used.add(c)
+        for r2, d2, _ in more:
+            used.add(d2["device_code"])
+            together[d2["device_code"]] = code
         runs.append({"req": r["id"], "kind": "rescue", "cargos": [], "ride": c, "escort": esc and esc["device_code"],
-                     "rescued": code, "mode": mode, "point": loc, "to": home_loc, "carry": {}, "back": None, "label": r["label"]})
+                     "rescued": code, "mode": mode, "point": loc, "to": home_loc, "carry": {}, "back": None, "label": r["label"],
+                     "more": [{"code": d2["device_code"], "mode": m2, "req": r2["id"]} for r2, d2, m2 in more]})
 
     # shop listings you asked for: a replicant to the shop's system, lowest priority (owner, 2026-10-20)
     listing_tasks = []
@@ -1512,7 +1531,7 @@ def ami_steps(run: dict) -> list[dict]:
 
 def run_devices(run: dict) -> list[str]:
     return [c["code"] for c in run.get("cargos") or []] + [c for c in (run.get("ride"), run.get("escort"), run.get("rescued"), run.get("repairer")) if c] \
-        + [x["code"] for x in run.get("dump") or []]
+        + [x["code"] for x in run.get("dump") or []] + [x["code"] for x in run.get("more") or []]
 
 
 def stale_rescues(jobs: list[dict], devices: list[dict]) -> list[tuple[dict, str]]:
@@ -1618,15 +1637,28 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
                 hop(run["back"], [esc], " (waits in the relay network)")
             return steps
         hop(point, [ride] + ([esc] if esc else []), " (pick up)")   # the carrier fetches it, a replicant along
-        steps.append(fl.board_step(ride, code, run["mode"]))
+        aboard = [{"code": code, "mode": run["mode"]}, *(run.get("more") or [])]   # others stranded there ride along
+        for x in aboard:
+            there = at.get(x["code"]) or point
+            if star_of(there) != there:
+                hop(there, [ride], " (pick up)")
+            else:   # known only by its star: once there, the carrier goes to its own spot
+                st = step(f"{ride} → {x['code']} in {there}", f"/devices/{ride}", {"command": "travel", "destination": there})
+                w = step(f"wait for {ride} at {x['code']}", "", None, method="WAIT", wait=["travel.arrived"],
+                         match={"destination": there}, timeout=STEP_TIMEOUT)
+                st["meet"] = w["meet"] = x["code"]
+                w["wait_device"], w["seq0_from"] = ride, len(steps)
+                steps += [st, w]
+            steps.append(fl.board_step(ride, x["code"], x["mode"]))
         hop(home, [ride] + ([esc] if esc else []), " (home)")
-        if run["mode"] == "attach":
-            steps.append(step(f"{ride}: detach {code}", f"/devices/{ride}", {"command": "detach", "device": code}))
-        else:
-            st = step(f"deploy {code} from {ride}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
-                      timeout=STEP_TIMEOUT)
-            st["wait_device"] = code
-            steps.append(st)
+        for x in aboard:
+            if x["mode"] == "attach":
+                steps.append(step(f"{ride}: detach {x['code']}", f"/devices/{ride}", {"command": "detach", "device": x["code"]}))
+            else:
+                st = step(f"deploy {x['code']} from {ride}", f"/devices/{x['code']}", {"command": "deploy"},
+                          wait=["device.deployed"], timeout=STEP_TIMEOUT)
+                st["wait_device"] = x["code"]
+                steps.append(st)
         return steps
     riders = [c["code"] for c in cargos if c.get("rides")]
     flyers = [c["code"] for c in cargos if not c.get("rides")]
@@ -1719,7 +1751,8 @@ def describe(run: dict) -> str:
     what = ", ".join(f"{q:g} {r}" for r, q in sorted((run.get("carry") or {}).items()))
     if run.get("kind") == "rescue":
         how = (f"{run['escort']} goes to {run['point']} to command it, it flies home to {run['to']}" if run["mode"] == "self"
-               else f"{run['ride']} picks it up ({run['mode']}) and brings it to {run['to']}"
+               else f"{run['ride']} picks it up ({run['mode']})"
+               + (f" with {', '.join(x['code'] for x in run['more'])}" if run.get("more") else "") + f" and brings it to {run['to']}"
                + (f", {run['escort']} alongside" if run.get("escort") else ""))
         return f"{run['label']}: {how}"
     if run.get("kind") == "repair":

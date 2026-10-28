@@ -1275,3 +1275,52 @@ def test_a_device_out_of_range_counts_at_its_pinned_deal_location():
     assert gev.at_place(d, "ALKALAROPS-OORT")
     assert not gev.at_place({**d, "in_control_range": True}, "ALKALAROPS-OORT")
     assert not gev.at_place({**d, "tags": []}, "ALKALAROPS-OORT")
+
+
+def test_devices_stranded_in_one_system_share_the_carrier_with_the_most_free_seats():
+    """Owner 2026-10-28: trade rewards at ALKALAROPS went home one per carrier; the game names only the star out of range."""
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("P1", "racing_vessel", "A-1", **SURGE),
+            dev("PL", "surge_platform", "A-1", **SURGE),
+            dev("T1", "transport_drone", "Z", tags=[], in_control_range=False, available_commands=["travel"]),
+            dev("T2", "transport_drone", "Z", tags=[], in_control_range=False, available_commands=["travel"])]
+    from rsweb import fleets as fl
+    seats = {c: fl.seats(d, devs) for c, d in (("P1", devs[1]), ("PL", devs[2]))}
+    assert seats["PL"]["attach"] >= 2, seats
+    p = _rescue_plan(devs)
+    runs = [r for r in p["runs"] if r["kind"] == "rescue"]
+    assert len(runs) == 1 and runs[0]["ride"] == "PL" and [x["code"] for x in runs[0]["more"]] == ["T2"]
+    assert any(u["req"] == "rescue:T2" and "together with T1" in u["why"] for u in p["unmet"])
+    steps = lg.run_steps(runs[0], {d["device_code"]: d for d in devs})
+    meets = [s for s in steps if s.get("meet")]
+    assert [s["meet"] for s in meets] == ["T1", "T1", "T2", "T2"]   # a trip and its wait for each, resolved on the way
+    assert [s["body"]["device"] for s in steps if (s["body"] or {}).get("command") in ("attach", "detach")] == ["T1", "T2", "T1", "T2"]
+    assert "T2" in lg.run_devices(runs[0])
+
+
+def test_an_out_of_range_device_pinned_in_its_system_is_not_rescued():
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("PL", "surge_platform", "A-1", **SURGE),
+            dev("CC", "compute_core", "Z", tags=["at:z-oort"], in_control_range=False, available_commands=["travel"])]
+    assert not any(r["id"] == "rescue:CC" for r in _rescue_plan(devs)["requests"])
+
+
+def test_a_meet_trip_goes_to_the_device_spot_or_is_skipped(client):  # noqa: F811
+    from test_ops import add, eng as _eng
+    add(client, device_code="RV000001", device_type="racing_vessel", location="SOL-OORT", status="idle", tags=[])
+    add(client, device_code="TD000009", device_type="transport_drone", location="SOL-3-L4", status="idle", tags=[])
+    e = _eng(client)
+    job = {"idx": 0, "id": "j", "steps": [
+        {"desc": "RV → TD in SOL", "path": "/devices/RV000001", "method": "POST", "meet": "TD000009",
+         "body": {"command": "travel", "destination": "SOL"}},
+        {"desc": "wait", "path": "", "method": "WAIT", "meet": "TD000009", "match": {"destination": "SOL"}}]}
+    e._update = lambda j: _noop()
+    assert client.portal.call(e._meet, job["steps"][0], job) is False
+    assert job["steps"][0]["body"]["destination"] == "SOL-3-L4" and job["steps"][1]["match"] == {"destination": "SOL-3-L4"}
+    job["steps"][0]["meet"] = job["steps"][1]["meet"] = "RV000001"   # already beside it: no trip
+    assert client.portal.call(e._meet, job["steps"][0], job) is True
+    assert [s.get("status") for s in job["steps"]] == ["skipped", "skipped"]
+
+
+async def _noop():
+    return None

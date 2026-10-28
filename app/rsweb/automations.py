@@ -834,6 +834,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     st["timeout"] = max(st.get("timeout", STEP_TIMEOUT), (eta - _now()).total_seconds() + 1800)
                 ok, resp, err = True, None, None
             else:
+                if st.get("meet") and await self._meet(st, job):
+                    continue   # already beside it (or it can't be found): no trip
                 if await self._let_off_riders(st, job):
                     continue   # other fleets' members get off first; this trip goes out after them
                 why = await self._beyond_sector(st, job)
@@ -1249,6 +1251,33 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             await self.log(job["rule"], f"{job['title']}: {code} flies to {entry} first, hops to {ramp}, then on to "
                                         f"{body.get('destination')} (surges into {ds} land at its entry point)")
         return True
+
+    async def _meet(self, st: dict, job: dict) -> bool:
+        """A carrier's trip to a device known only by its star (the game names only the star of a device out of command
+        range: live 2026-10-28, a rescue's carrier sent to ALKALAROPS for a device at ALKALAROPS-OORT): with the replicant
+        in the system now, the device's own spot is read and the trip (and its wait) goes there. True when there's no trip
+        to make (already beside it, or still no spot): the step and its wait are skipped."""
+        code = st["meet"]
+        carrier = str(st.get("path") or "").split("/")[2]
+        try:
+            d = await self.api.request("GET", f"/devices/{code}", background=True) or {}
+        except ApiError:
+            d = {}
+        loc = str(d.get("location") or "")
+        here = next((x.get("location") for x in await self.devices() if x.get("device_code") == carrier), None)
+        wait = next((w for w in job["steps"][job["idx"] + 1:] if w.get("meet") == code and w.get("method") == "WAIT"), None)
+        if not loc or loc == star_of(loc) or loc == here:
+            for x in (st, wait):
+                if x:
+                    x["status"] = "skipped"
+            await self._update(job)
+            return True
+        st["body"]["destination"] = loc
+        st["desc"] = f"{carrier} → {loc} (to {code})"
+        if wait:
+            wait["match"] = {"destination": loc}
+            wait["desc"] = f"wait for {carrier} at {loc}"
+        return False
 
     async def _hub_via(self, st: dict, job: dict) -> None:
         """A device's trip to another system goes through a hub (ours or another player's: any star the catalog flags
