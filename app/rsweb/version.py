@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.296.2"
+VERSION = "1.297.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.297.0", "2026-10-28", "Relay, ward and beacon orders (relay rollout, system page, Prospects) take spares in reach before printing, and now take a printing hub's own keep-in-stock spares last: the extras at FALQUORYX go out first instead of SOLARES's stock of 8, which would only be printed again. A queued print no longer gives way to a hub's own stock spare."),
     ("1.296.2", "2026-10-28", "Fixes from the 21:03 snapshot. A deal bought several times whose next unit is refused (its price not all there yet) skips the other units at once and the job carries on; before, three refusals stopped it with four alerts (Trajectory Deflector ×10 at ALKALAROPS-OORT, 5 of 50 propulsors there). A fleet's automatic retry now really re-runs the stalled phase: it left the failed job in place, so each retry stalled again at once one phase earlier (Surveyor 3: recall, watch, work, deploy), each a new alert. A survey fleet's watch waits 3 minutes for a fresh device list before it calls the survey done; the cached list could predate the launch (Surveyor 3 recalled its drones a minute after launch)."),
     ("1.296.1", "2026-10-28", "Rescue carriers are sized to the job: the seats every device stranded in a system (for the same home) needs pick the smallest carrier that seats them all, so a big carrier is not sent for one device; when none fits, the one that seats the most goes and the rest get another. Seats to spare pick up rescues in systems within 15 ly on the way."),
     ("1.296.0", "2026-10-28", "Rescues: devices stranded in the same system for the same home share one carrier, and the carrier with the most free seats for them is chosen first (two trade rewards at ALKALAROPS had a carrier each). Out of command range the game names only the star, so once the replicant is in the system the pick-up carrier reads each device's own spot and goes there (or skips the trip when it is already beside it). An out-of-range device pinned (at:) in the system it is in is no longer rescued."),

@@ -64,8 +64,10 @@ def printing_for(devices: list[dict], star: str, dtype: str = "system_ward") -> 
 
 
 def spare_ward(devices: list[dict], star: str, busy: set[str], pos: dict, reach: float,
-               dtype: str = "system_ward") -> dict | None:
-    """A device of this type that isn't working and belongs to no fleet or contract, nearest first, within reach."""
+               dtype: str = "system_ward", kept: set[str] | frozenset = frozenset()) -> dict | None:
+    """A device of this type that isn't working and belongs to no fleet or contract, nearest first, within reach.
+    `kept` (a printing hub's own keep-in-stock spares) go last: taking one only gets it printed again there, while
+    another hub's extras wait unused (owner 2026-10-28: use up the spare relays at FALQUORYX)."""
     out = []
     for d in devices:
         tags = d.get("tags") or []
@@ -79,8 +81,8 @@ def spare_ward(devices: list[dict], star: str, busy: set[str], pos: dict, reach:
         dist = lo._dist(here, star, pos) if here else 1e9
         if reach and reach < dist < 1e9:
             continue
-        out.append((dist, d.get("device_code"), d))
-    return min(out, key=lambda x: x[:2])[2] if out else None
+        out.append((d.get("device_code") in kept, dist, d.get("device_code"), d))
+    return min(out, key=lambda x: x[:3])[3] if out else None
 
 
 def civ_places(rows: list[dict], star: str) -> list[str]:

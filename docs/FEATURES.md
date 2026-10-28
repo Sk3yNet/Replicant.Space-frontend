@@ -185,6 +185,7 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
 - Your ward, FTL relay and FTL beacon, each with a checkbox (ticked: one works
   there or is on order) that saves at once without reloading the page, so several can be ticked in a row:
   - ticking: activate an idle one there, else send a spare, else print one in range (a relay is placed at an L4/L5 point);
+    a printing hub's own keep-in-stock spares are sent last, after any other spare in range (1.297.0);
   - unticking: deactivate it and tag it spare (drops its `home:` / `at:` / `to:` tags; asks first), or cancel its order.
 - Filters (remembered in the browser): relay / beacon / ward checked or unchecked, and civilization (has one, missing
   a beacon, all have beacons, none).

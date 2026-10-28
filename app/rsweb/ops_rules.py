@@ -121,7 +121,8 @@ class OpsRules:
         from . import ward_orders as wo
         dtype, label = wo.KINDS[kind], wo.LABELS[kind]
         pos, reach = await self._outpost_ctx()
-        spare = wo.spare_ward(devices, star, busy, pos, reach, dtype)
+        from .stock import kept
+        spare = wo.spare_ward(devices, star, busy, pos, reach, dtype, kept(await self.fleets(), dtype, devices))
         if spare:
             rem = [t for t in spare.get("tags") or [] if t in (lo.SPARE, lo.STOCK) or t.startswith(("home:", "at:"))]
             await self.create_job("wards", f"{label} {spare['device_code']} → {star}", spare["device_code"],
@@ -438,8 +439,10 @@ class OpsRules:
         if idx is None:
             return None
         pos, reach = await self._outpost_ctx()
-        spare = wo.spare_ward(devices, star, busy, pos, reach, dtype)
-        if not spare:
+        from .stock import kept
+        stock = kept(await self.fleets(), dtype, devices)
+        spare = wo.spare_ward(devices, star, busy, pos, reach, dtype, stock)
+        if not spare or spare["device_code"] in stock:   # a hub's own stock would only be printed again there
             return None
         rem = [t for t in spare.get("tags") or [] if t in (lo.SPARE, lo.STOCK) or t.startswith(("home:", "at:"))]
         await self.create_job("wards", f"{label} {spare['device_code']} → {star} (instead of the print on {f['device_code']})",

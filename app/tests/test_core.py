@@ -9492,3 +9492,19 @@ def test_replicant_details_read_only_when_needed(client):
             assert asked[-1] == f"/replicants/{code}" and len(asked) == first + 2
     finally:
         w.api.get = real
+
+
+def test_relay_orders_use_another_hubs_extras_before_a_hubs_own_stock():
+    """Owner 2026-10-28 (use up the spare relays at FALQUORYX): a relay / ward order sends the nearest spare in reach,
+    but a printing hub's own keep-in-stock spares go last, since taking one only gets it printed again there."""
+    from rsweb import stock, ward_orders as wo
+    pos = {"SOL": {"x": 0, "y": 0, "z": 0}, "FAL": {"x": 500, "y": 0, "z": 0}, "NEAR": {"x": 5, "y": 0, "z": 0}}
+    r = lambda c, loc, *t: {"device_code": c, "device_type": "ftl_relay", "location": loc, "status": "inactive",
+                            "tags": ["spare", *t]}
+    devs = [r("S1", "SOL-BELT-1", "stock"), r("F1", "FAL-BELT-1", "stock"), r("F2", "FAL-BELT-1"), r("F3", "FAL-1-L4")]
+    hubs = [{"id": "sol", "home": "SOL", "stock": {"ftl_relay": 1}}, {"id": "fal", "home": "FAL", "stock": {"ftl_relay": 1}}]
+    keep = stock.kept(hubs, "ftl_relay", devs)
+    assert keep == {"S1", "F1"}
+    assert wo.spare_ward(devs, "NEAR", set(), pos, 1728, "ftl_relay")["device_code"] == "S1"          # nearest
+    assert wo.spare_ward(devs, "NEAR", set(), pos, 1728, "ftl_relay", keep)["device_code"] == "F2"    # FAL's extras first
+    assert wo.spare_ward(devs[:2], "NEAR", set(), pos, 1728, "ftl_relay", keep)["device_code"] == "S1"  # else still a spare

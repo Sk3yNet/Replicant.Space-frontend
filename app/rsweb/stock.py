@@ -158,6 +158,16 @@ def surplus(partner: dict, dtype: str, devices: list[dict], skip: set[str] | fro
     return ok[keep:]   # the hub keeps its own stock (stock-tagged ones first)
 
 
+def kept(fleets: list[dict], dtype: str, devices: list[dict]) -> set[str]:
+    """The spares of `dtype` each printing hub keeps as its own stock (the ones surplus() leaves at home)."""
+    out: set[str] = set()
+    for f in fleets:
+        if f.get("home") and int((f.get("stock") or {}).get(dtype) or 0) > 0:
+            extra = {d.get("device_code") for d in surplus(f, dtype, devices)}
+            out |= {d.get("device_code") for d in surplus({**f, "stock": {}}, dtype, devices)} - extra
+    return out
+
+
 def covers(f: dict, cost: dict[str, float], inventory: dict[str, dict]) -> bool:
     """The stockpile at the factory's location holds one print's worth of `cost`."""
     from .shapes import as_amounts
