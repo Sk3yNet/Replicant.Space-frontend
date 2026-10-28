@@ -37,6 +37,7 @@
       <details><summary><span class="pill {{ 'st-work' if j.status == 'done' else 'st-idle' }}">{{ j.status }}</span> {{ j.title }}
         <span class="muted small">{{ (j.finished_at or j.created_at) | ago }}</span></summary>
         {% if j.run != RUN_ID %}<div class="small muted">from {{ ('v' ~ j.v) if j.v else 'before versioning' }}{% if j.run %}, run {{ j.run }}{% endif %} — an earlier server run</div>{% endif %}
+        {% with c = (cargo or {}).get(j.id) if cargo is defined else none %}{% include "partials/job_cargo.html" %}{% endwith %}
         <ol class="small">{% for st in j.steps %}<li class="{{ 'lv-alert' if st.status in ('skipped','failed') else '' }}">{{ st.desc }} — {{ st.status }}{% if st.eta and st.status in ('waiting', 'retrying', 'running') %} · expected {{ st.eta | local }}{% elif st.status == 'retrying' and st.retry_at %} · next try {{ st.retry_at | local }}{% endif %}{% if st.error %} ({{ st.error }}){% endif %}</li>{% endfor %}</ol>
       </details>
     {% else %}<p class="muted">None yet.</p>{% endfor %}

@@ -3687,8 +3687,11 @@ async def automations_page(request: Request, user: str = Depends(current_user)):
     finished = [j for j in reversed(jobs) if j["status"] not in ("running", "waiting")][:15]
     entries = [{**e, "sev": auto.severity(e)} for e in reversed(await request.app.state.db.kv_get("automation_log", []) or [])]
     sev_counts = Counter(e["sev"] for e in entries)
+    devs = await request.app.state.db.kv_get("devices", []) or []
+    cargo = {j["id"]: auto.job_cargo(j, devs) for j in active + finished}
     return await page(request, user, "automations.html", "automations", rules=auto.RULES, s=await eng.settings(),
-                      rule_home=RULE_HOME, active_jobs=active, finished=finished, entries=entries, sev_counts=sev_counts)
+                      rule_home=RULE_HOME, active_jobs=active, finished=finished, entries=entries, sev_counts=sev_counts,
+                      cargo=cargo)
 
 
 def _schedule_rep(devices: list[dict], target: str) -> dict | None:
@@ -3838,7 +3841,10 @@ async def automations_survey_now(request: Request, vessel: str = Form(...), user
 @router.get("/partials/automation-jobs", response_class=HTMLResponse)
 async def p_automation_jobs(request: Request, user: str = Depends(current_user)):
     jobs = await request.app.state.worker.automations.jobs()
-    return partial(request, "partials/automation_jobs.html", active=[j for j in jobs if j["status"] in ("running", "waiting")])
+    active = [j for j in jobs if j["status"] in ("running", "waiting")]
+    devs = await request.app.state.db.kv_get("devices", []) or []
+    return partial(request, "partials/automation_jobs.html", active=active,
+                   cargo={j["id"]: auto.job_cargo(j, devs) for j in active})
 
 
 # =====================================================================================

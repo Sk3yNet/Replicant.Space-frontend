@@ -407,6 +407,43 @@ def step(desc: str, path: str, body: dict | None, wait: list[str] | None = None,
             "error": None, "tries": 0}
 
 
+def job_cargo(job: dict, devices: list[dict] | None = None) -> dict:
+    """What a job's carriers carry or will pick up, read from its steps (stow / attach / collect_resources) and, for a
+    loadouts delivery, from meta devices. devices: [{code, type, state}] with state "to pick up", "aboard" or
+    "dropped"; materials: {resource: amount} with loaded True once the collect step went through."""
+    types = {d.get("device_code"): d.get("device_type") for d in devices or []}
+    out: dict[str, str] = {}
+    materials: dict[str, float] = {}
+    loaded = False
+    for st in job.get("steps") or []:
+        b = st.get("body") or {}
+        done = st.get("status") == "done"
+        cmd = b.get("command")
+        code = None
+        if cmd == "stow" and b.get("target"):
+            code = str(st.get("path") or "").rstrip("/").rsplit("/", 1)[-1]
+        elif cmd == "attach" and b.get("device"):
+            code = b["device"]
+        elif cmd == "detach" and b.get("device") in out:
+            if done:
+                out[b["device"]] = "dropped"
+            continue
+        elif cmd == "collect_resources":
+            for r, n in (b.get("resources") or {}).items():
+                materials[r] = materials.get(r, 0) + (n or 0)
+            loaded = loaded or done
+            continue
+        if code and code != job.get("device"):
+            if out.get(code) != "aboard":
+                out[code] = "aboard" if done else "to pick up"
+    if job.get("rule") == "loadouts":
+        for code in (job.get("meta") or {}).get("devices") or []:
+            if code != job.get("device"):
+                out.setdefault(code, "to pick up")
+    return {"devices": [{"code": c, "type": types.get(c), "state": s} for c, s in out.items()],
+            "materials": materials, "loaded": loaded}
+
+
 def event_matches(st: dict, ev: dict, device: str | None) -> bool:
     if ev.get("event") not in st.get("wait", []):
         return False

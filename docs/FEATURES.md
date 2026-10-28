@@ -9,7 +9,7 @@ setup; [screens](screens/README.md) has a screenshot of every page. Per-release 
 [How automation works](#how-automation-works)
 
 > **Where settings live:** each rule's settings are on the page it works on, in a collapsed *Rules* panel at the top.
-> The Automations page lists every rule with an on/off switch, plus the jobs and the log.
+> The Automations page lists every rule with an on/off switch, plus the jobs (each says what its carriers carry or will pick up: devices and materials) and the log.
 
 ---
 

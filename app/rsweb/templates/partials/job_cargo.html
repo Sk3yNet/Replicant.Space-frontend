@@ -1,0 +1,5 @@
+{% if c and (c.devices or c.materials) %}<div class="small">Cargo:
+  {%- for d in c.devices %} {% if d.type %}{{ d.type | human }} {% endif %}<a class="mono" href="/devices/{{ d.code }}">{{ d.code }}</a>
+    <span class="muted">({{ d.state }})</span>{{ ',' if not loop.last or c.materials }}{% endfor %}
+  {%- if c.materials %} {% for r, n in c.materials | dictsort %}{{ n | num }} {{ r | human }}{{ ', ' if not loop.last }}{% endfor %}
+    <span class="muted">({{ 'loaded' if c.loaded else 'to load' }})</span>{% endif %}</div>{% endif %}

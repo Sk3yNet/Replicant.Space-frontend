@@ -7,6 +7,7 @@
         {% if j.idx < j.steps | length and j.steps[j.idx].status == 'confirm' %}<button class="small" hx-post="/automations/jobs/{{ j.id }}/confirm" title="{{ j.steps[j.idx].hold }}">Confirm</button>{% endif %}
         <button class="small ghost" hx-post="/automations/jobs/{{ j.id }}/cancel" hx-confirm="Cancel this job? (the current command is not undone)">Cancel</button></span>
     </div>
+    {% with c = (cargo or {}).get(j.id) if cargo is defined else none %}{% include "partials/job_cargo.html" %}{% endwith %}
     {% set cur = j.steps[j.idx] if j.idx < j.steps | length else none %}
     {% if cur %}<div class="small">Now: {{ cur.desc }}{% if cur.status == 'confirm' %} <span class="lv-alert">— {{ cur.hold }}: Confirm to send it</span>{% endif %}{% if cur.status == 'waiting' %} <span class="muted">— waiting for {{ cur.wait | join(' / ') }}</span>{% endif %}</div>{% endif %}
     <div class="timer"><div class="bar"><i style="width:{{ (100 * j.idx / (j.steps | length)) | round }}%"></i></div></div>
