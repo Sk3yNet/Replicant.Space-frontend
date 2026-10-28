@@ -1359,6 +1359,47 @@ def test_job_stops_after_repeated_failures(client):
     assert job["status"] == "failed" and sum(1 for st in job["steps"] if st["status"] == "skipped") == 3
 
 
+def test_later_units_of_a_deal_refused_skip_quietly(client):
+    """Live 2026-10-28: a trade approved ×10 had 5 of 50 propulsors on site; one unit went through and three refusals
+    stopped the job with four alerts. The other units are skipped at once and the job carries on."""
+    eng = client.app.state.worker.automations
+    world = client.app.state.api.http._transport.app.state.world
+    from rsweb.automations import step
+    world.trades["TC000009"] = [{"trade_code": "T9", "current_stock": 1}]
+    steps = []
+    for i in range(5):
+        st = step("execute trade X ×5 at TC000009", "/devices/TC000009/trades/T9", None, critical=i == 0)
+        st["extra_unit"] = i > 0
+        steps.append(st)
+    steps.append(step("then", "/devices/TC000009/trades/T9", None))
+    job = client.portal.call(eng.create_job, "logistics", "deal", None, steps, {}, True)
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
+    assert job["status"] == "done"
+    assert [x["status"] for x in job["steps"][:5]] == ["done"] + ["skipped"] * 4
+    log = [x for x in client.portal.call(client.app.state.db.kv_get, "automation_log", []) if x["text"].startswith("deal")]
+    assert not any(x["level"] == "alert" and "execute" in x["text"] for x in log) and any("bought 1 of 5" in x["text"] for x in log)
+
+
+def test_a_watch_waits_for_a_fresh_device_list():
+    """Live 2026-10-28: Surveyor 3's watch read a cached list from before the launch, saw no directive and recalled."""
+    from rsweb import fleets as fl
+    fleet = {"id": "s", "role": "explore", "wants": {}}
+    devs = [{"device_code": "SC1", "device_type": "ami_survey_controller", "location": "A-1", "status": "idle",
+             "tags": ["fleet:s"]}]
+    m = {"phase": "watch", "phase_at": "2026-10-28T19:54:28+00:00"}
+    assert not fl.watch_done(fleet, m, devs, "2026-10-28T19:55:33+00:00")[0]
+    assert fl.watch_done(fleet, m, devs, "2026-10-28T19:58:00+00:00")[0]
+
+
+def test_rewind_drops_the_stalled_job():
+    """Live 2026-10-28: the auto retry left the failed recall job in place, so each retry stalled again at once one
+    phase earlier (watch, work, deploy), each a new 'try 1 of 8' alert."""
+    from rsweb import fleets as fl
+    m = {"status": "stalled", "phase": "recall", "job": "j1"}
+    fl.rewind({"role": "explore"}, m)
+    assert "job" not in m and m["phase"] == "watch" and m["recall_now"]
+
+
 def test_ami_survey_not_restarted_on_every_arrival(client):
     eng = client.app.state.worker.automations
 

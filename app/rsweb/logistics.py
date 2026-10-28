@@ -1724,6 +1724,8 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
             for i in range(dl.get("times") or 1):   # a later unit refused leaves the rest approved (settle_trades)
                 st = fl.fulfil_step(dl, run.get("replicant"), template)
                 st["critical"] = i == 0
+                if i:
+                    st["extra_unit"] = True   # refused: the rest of this deal's units are skipped quietly (automations)
                 steps.append(st)
     if run.get("rewards") and run.get("home") and cargos:
         # load what the deal paid out (each ship up to its hold; not critical: the payout can differ from what was listed)

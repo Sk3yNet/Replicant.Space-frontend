@@ -1065,11 +1065,27 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     await self.log(job["rule"], f"stopped: {job['title']} — {st['desc']} failed: {err}{ownership_hint(err)}", "alert", notify=True)
                     return
                 st["status"] = "skipped"
+                if st.get("extra_unit"):
+                    # a later unit of a deal bought several times: its price isn't all there yet (live 2026-10-28: 5 of
+                    # 50 propulsors at ALKALAROPS-OORT, three refusals stopped the job). Skip the other units; they stay
+                    # approved for the next delivery (logistics.settle_trades)
+                    rest = [x for x in job["steps"][job["idx"] + 1:] if x.get("extra_unit") and x.get("path") == st.get("path")
+                            and x.get("status") == "pending"]
+                    for x in rest:
+                        x["status"], x["error"] = "skipped", err
+                    bought = sum(1 for x in job["steps"] if x.get("path") == st.get("path") and x.get("status") == "done")
+                    await self.log(job["rule"], f"{job['title']}: {st['desc'].split(' at ')[0]}: bought {bought} of "
+                                                f"{bought + 1 + len(rest)} ({err}); the rest stays approved")
+                    job["idx"] += 1
+                    while job["idx"] < len(job["steps"]) and job["steps"][job["idx"]] in rest:
+                        job["idx"] += 1
+                    await self._update(job)
+                    continue
                 quiet = bool(NO_SITE_RE.search(err or ""))
                 await self.log(job["rule"], f"{job['title']}: skipped '{st['desc']}' ({err}){ownership_hint(err)}",
                                "info" if quiet else "alert")
                 job["idx"] += 1
-                done_steps = [x for x in job["steps"][:job["idx"]] if x["method"] != "WAIT"
+                done_steps = [x for x in job["steps"][:job["idx"]] if x["method"] != "WAIT" and not x.get("extra_unit")
                               and not NO_SITE_RE.search(str(x.get("error") or ""))]
                 last3, last6 = done_steps[-3:], done_steps[-6:]
                 if ((len(last3) == 3 and all(x["status"] == "skipped" and x.get("error") == err for x in last3))

@@ -429,6 +429,7 @@ RETRY_TRIES = 8        # then it waits for Retry (15 min … 6 h: about a day of
 def rewind(fleet: dict, m: dict) -> None:
     """Back to running, set up to re-run the phase that stalled (Retry, the comms-range resume, the auto retry)."""
     m["status"] = "running"
+    m.pop("job", None)   # the stalled job: left in place, the next pass saw it failed and stalled again at once
     if m.get("end_here"):
         m.pop("end_started", None)   # re-run the recall & board
         return
@@ -1299,6 +1300,7 @@ WORK_DONE_STATES = ("exhausted", "depleted", "complete", "done", "idle:no_source
 
 
 IDLE_SURVEY_MINUTES = 3   # drones without a controller: idle this long (no scan, no trip, no job) before the survey's done
+FRESH_LIST_S = 180        # a watch trusts the survey controller's directive only once the device list was re-read (every 2 min)
 
 
 def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str,
@@ -1329,6 +1331,15 @@ def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str,
             if mins < IDLE_SURVEY_MINUTES:
                 return False, f"drones idle for {mins:.0f} min — making sure they're finished", {"idle_since": since}
             return True, "drones finished", {"idle_since": since}
+        from datetime import datetime
+        try:
+            age = (datetime.fromisoformat(now_iso) - datetime.fromisoformat(mission.get("phase_at") or "")).total_seconds()
+        except (TypeError, ValueError):
+            age = FRESH_LIST_S
+        if mission.get("phase") == "watch" and age < FRESH_LIST_S:
+            # the cached list can predate the work phase's set_directive and launch (live 2026-10-28: Surveyor 3's watch
+            # saw no directive a minute after launch, recalled the drones mid-survey and the recall failed)
+            return False, "waiting for a fresh device list", {}
         if not (ctrl.get("ami_directive") or {}).get("name") and not str(ctrl.get("status") or "").startswith(
                 ("surveying", "scanning", "searching", "launched", "coordinating")):
             # its directive is gone (cleared by a recall, or stowed): nothing is surveying (seen live 2026-10-11:
