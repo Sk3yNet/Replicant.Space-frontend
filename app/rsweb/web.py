@@ -2642,11 +2642,12 @@ def printers(state: dict) -> list[dict]:
         if "print" in (d.get("features") or []) and d.get("device_type") != "heaven_vessel":
             out.append({"kind": "device", "code": d["device_code"], "device": d["device_code"],
                         "name": f"{f_human(d.get('device_type'))} {d['device_code']}", "location": d.get("location"),
-                        "autofactory": "autofactory" in (d.get("device_type") or "")})
+                        "autofactory": "autofactory" in (d.get("device_type") or ""),
+                        "vessel": (d.get("device_type") or "").endswith("vessel")})
     out.sort(key=lambda p: (not p["autofactory"], p["name"]))
     for code, r in state["replicants"].items():
         out.append({"kind": "replicant", "code": code, "name": f"{r.get('name') or code} (vessel)",
-                    "host": r.get("hosted_device_code"), "device": r.get("hosted_device_code"), "autofactory": False,
+                    "host": r.get("hosted_device_code"), "device": r.get("hosted_device_code"), "autofactory": False, "vessel": True,
                     "location": r.get("location") or r.get("current_location")})
     return out
 

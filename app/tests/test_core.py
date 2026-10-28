@@ -224,6 +224,14 @@ def test_as_amounts_shapes():
     assert inv[0]["items"] == {"carbon": 2.0}
 
 
+def test_printers_mark_every_vessel():
+    from rsweb.web import printers
+    devs = [{"device_code": "R1", "device_type": "racing_vessel", "features": ["print"]},
+            {"device_code": "A1", "device_type": "autofactory", "features": ["print"]}]
+    ps = {p["code"]: p["vessel"] for p in printers({"devices": devs, "replicants": {"X": {"name": "X"}}})}
+    assert ps == {"R1": True, "A1": False, "X": True}  # the hide vessels toggle covers racing vessels too
+
+
 def test_blueprints_with_list_shaped_inventory(client):
     r = client.get("/blueprints", headers=H)
     assert r.status_code == 200 and "×" in r.text
