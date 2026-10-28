@@ -320,7 +320,8 @@ open them directly with `DEV_USER` unset and an `X-Auth-Request-Email` header, o
 | `ALLOWED_EMAILS` | – | comma list; empty = anyone oauth2-proxy lets through |
 | `RS_GET_PER_MIN` / `RS_ACT_PER_MIN` | 110 / 55 | client-side budget (game: 120 / 60) |
 | `RS_GET_RESERVE` / `RS_ACT_RESERVE` | 30 / 20 | budget background polling may not touch |
-| `POLL_ACCOUNT`, `POLL_DEVICES`, `POLL_INVENTORY`, `POLL_MESSAGES`, `POLL_BLUEPRINTS`, `POLL_CATALOGUE` | 60, 60, 120, 300, 300, 1800 s | blueprints also refresh after likely-unlock events and when the Blueprints page opens |
+| `POLL_ACCOUNT`, `POLL_DEVICES`, `POLL_INVENTORY`, `POLL_MESSAGES`, `POLL_BLUEPRINTS`, `POLL_CATALOGUE` | 60, 120, 120, 300, 300, 1800 s | blueprints also refresh after likely-unlock events and when the Blueprints page opens; devices you order or that arrive are re-read at once |
+| `POLL_REPLICANT` | 600 s | a replicant's details (`/replicants/{code}`) are re-read this often, or sooner when it moves, its vessel has an event, or you order it |
 | `POLL_TRAFFIC`, `POLL_OBJECTS` | 600, 900 s | beacon audit logs (one GET per deployed beacon) and incoming asteroids (one GET per tracked object; none when there are none) |
 | `VISIT_GAP_MINUTES` | 30 | idle gap that starts a new visit for the digest |
 

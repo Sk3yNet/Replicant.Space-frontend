@@ -2,6 +2,12 @@
 <p class="muted small">{{ perf.requests_seen }} recent requests timed. Every page answer also carries a Server-Timing header (browser dev
   tools → Network → Timing). Requests over 1 s are written to the server log. Pages waited on the engine lock {{ perf.lock_waits.n }}
   time(s), {{ perf.lock_waits.avg_ms }} ms on average, {{ perf.lock_waits.max_ms }} ms at most.</p>
+{% set rd = perf.reads or {} %}
+<h3>Game reads</h3>
+<p class="small muted">GETs sent to the game over the last {{ rd.minutes or 0 }} min: {{ rd.per_min or 0 }} a minute on average,
+  {{ rd.peak_min or 0 }} in the busiest minute (the game allows 120 a minute). Codes and places are folded into {code} and {place}.</p>
+{% if rd.rows %}<table class="small"><tr><th>Asked by</th><th>Path</th><th class="num">Count</th><th class="num">Per min</th></tr>
+  {% for r in rd.rows %}<tr><td class="mono">{{ r.source }}</td><td class="mono">{{ r.path }}</td><td class="num">{{ r.n }}</td><td class="num">{{ r.per_min }}</td></tr>{% endfor %}</table>{% endif %}
 <h3>Pages, slowest on average</h3>
 <table class="small"><tr><th>Request</th><th class="num">Count</th><th class="num">Avg ms</th><th class="num">Max ms</th><th class="num">Avg queries</th><th class="num">Avg KB decoded</th></tr>
   {% for p in perf.by_path %}<tr><td class="mono">{{ p.path }}</td><td class="num">{{ p.n }}</td><td class="num">{{ p.avg_ms }}</td>

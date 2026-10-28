@@ -9390,3 +9390,56 @@ def test_stow_into_attach_carrier_sends_attach(client):
     assert r.status_code == 200
     row = client.portal.call(client.app.state.db.fetchone, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")
     assert row["path"] == "/devices/SP000001" and '"attach"' in row["body"] and "D8C2A140" in row["body"]
+
+
+def test_bucket_sliding_window():
+    # a full minute's worth sent at once leaves no room until the oldest leaves the window (1.293.0)
+    b = Bucket(10)
+    for _ in range(10):
+        assert b.wait_time() == 0
+        b.take()
+    assert 59 < b.wait_time() <= 60
+    for i in range(10):
+        b.recent[i] -= 61
+    assert b.wait_time() == 0 and b.used_last_minute() == 0
+
+
+def test_read_patterns():
+    from rsweb import perf
+    perf.reads.clear()
+    perf.note_read("/devices/15DFB014/logs")
+    perf.note_read("/locations/FALQUORYX-BELT-1")
+    perf.note_read("/devices")
+    rows = {r["path"] for r in perf.reads_report()["rows"]}
+    assert rows == {"/devices/{code}/logs", "/locations/{place}", "/devices"}
+
+
+def test_replicant_details_read_only_when_needed(client):
+    # 1.293.0: a replicant's details are re-read when it moved, its vessel had an event, an order named it, or after
+    # POLL_REPLICANT — not every account sync
+    w = client.app.state.worker
+    asked: list[str] = []
+    real = w.api.get
+
+    async def counting(path, *a, **kw):
+        if path.startswith("/replicants/"):
+            asked.append(path)
+        return await real(path, *a, **kw)
+    w.api.get = counting
+    try:
+        client.portal.call(w.sync_account)
+        first = len(asked)
+        client.portal.call(w.sync_account)
+        assert len(asked) == first                    # nothing changed: summary only
+        code = next(iter(client.portal.call(client.app.state.db.kv_get, "replicants")))
+        w.after_order(f"/replicants/{code}/travel", {})
+        client.portal.call(w.sync_account)
+        assert asked[first:] == [f"/replicants/{code}"]
+        reps = client.portal.call(client.app.state.db.kv_get, "replicants")
+        hosted = reps[code].get("hosted_device_code")
+        if hosted:
+            client.portal.call(w.process_event, {"id": "1-0", "event": "travel.arrived", "device_code": hosted, "payload": {}})
+            client.portal.call(w.sync_account)
+            assert asked[-1] == f"/replicants/{code}" and len(asked) == first + 2
+    finally:
+        w.api.get = real

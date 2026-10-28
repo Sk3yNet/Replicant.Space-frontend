@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import os
+import re
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -55,6 +56,50 @@ def note_api(ms: float) -> None:
     if m is not None:
         m["api_n"] += 1
         m["api_ms"] += ms
+
+
+READS_WINDOW = 600                  # game reads are reported over the last 10 minutes
+reads: deque = deque(maxlen=3000)  # game GETs: (time, source, path pattern)
+_CODE_RE = re.compile(r"/[0-9A-F]{8}(?=/|$)")
+_PLACE_RE = re.compile(r"/[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*(?=/|$)")
+
+
+def read_source() -> str:
+    """Who is asking the game: a page, a poller (its task name), an engine stage, or other background work."""
+    if in_request():
+        return "page"
+    try:
+        import asyncio
+        name = asyncio.current_task().get_name()
+    except RuntimeError:
+        return "other"
+    if name == "automations":
+        st = _sampler.get("stage_of")
+        stage = st() if st else None
+        return f"engine: {stage}" if stage else "engine"
+    return "background" if name.startswith("Task-") else name
+
+
+def note_read(path: str) -> None:
+    pattern = _PLACE_RE.sub("/{place}", _CODE_RE.sub("/{code}", path.split("?")[0]))
+    reads.append((time.time(), read_source(), pattern))
+
+
+def reads_report(n: int = 30) -> dict:
+    """Game reads per minute over the last READS_WINDOW seconds, by source and path, and the busiest minute."""
+    now = time.time()
+    recent = [r for r in reads if r[0] >= now - READS_WINDOW]
+    span = min(READS_WINDOW, now - recent[0][0]) / 60 if recent else 1
+    span = max(span, 1)
+    by: dict[tuple, int] = {}
+    for _, src, pat in recent:
+        by[(src, pat)] = by.get((src, pat), 0) + 1
+    minutes: dict[int, int] = {}
+    for t, _, _ in recent:
+        minutes[int(t // 60)] = minutes.get(int(t // 60), 0) + 1
+    return {"minutes": round(span, 1), "per_min": round(len(recent) / span, 1), "peak_min": max(minutes.values(), default=0),
+            "rows": [{"source": s, "path": p, "n": c, "per_min": round(c / span, 1)}
+                     for (s, p), c in sorted(by.items(), key=lambda x: -x[1])[:n]]}
 
 
 def note_lock_wait(ms: float) -> None:
@@ -128,6 +173,7 @@ def start_sampler(stage_of=None) -> None:
     import threading
     if _sampler["thread"] is not None:
         return
+    _sampler["stage_of"] = stage_of
     main = threading.get_ident()   # called from the event loop's thread
 
     def run() -> None:
@@ -237,7 +283,7 @@ async def report(db) -> dict:
                            "avg_ms": round(waits["total_ms"] / max(waits["n"], 1), 1)},
             "loop_lag": {"max_ms": lag["max_ms"], "stalls_over_1s": lag["stalls"], "stalled_s": round(lag["stalled_ms"] / 1000, 1),
                          "by_stage": sorted(({"stage": k, **v} for k, v in lag["by_stage"].items()), key=lambda x: -x["total_ms"])[:15]},
-            "hot": hot_report(), "requests_seen": len(requests), "storage": await storage(db)}
+            "hot": hot_report(), "reads": reads_report(), "requests_seen": len(requests), "storage": await storage(db)}
 
 
 class Middleware:

@@ -48,37 +48,34 @@ class ApiError(Exception):
 
 @dataclass
 class Bucket:
-    """Token bucket refilled continuously at `per_min` tokens per minute."""
+    """At most `per_min` requests in any 60 s window. The game counts a rolling minute: a token bucket that started
+    full and refilled at the same rate let through up to twice the limit in one minute (1.293.0)."""
 
     per_min: int
-    tokens: float = 0.0
-    updated: float = field(default_factory=time.monotonic)
     blocked_until: float = 0.0
-    recent: deque = field(default_factory=lambda: deque(maxlen=500))
+    recent: deque = field(default_factory=lambda: deque(maxlen=1000))   # monotonic send times, last minute
 
-    def __post_init__(self) -> None:
-        self.tokens = float(self.per_min)
-
-    def _refill(self) -> None:
-        now = time.monotonic()
-        self.tokens = min(self.per_min, self.tokens + (now - self.updated) * self.per_min / 60.0)
-        self.updated = now
+    def _prune(self, now: float) -> None:
+        while self.recent and self.recent[0] <= now - 60:
+            self.recent.popleft()
 
     def wait_time(self, reserve: int = 0) -> float:
-        self._refill()
         now = time.monotonic()
         if now < self.blocked_until:
             return self.blocked_until - now
-        need = 1 + reserve - self.tokens
-        return 0.0 if need <= 0 else need * 60.0 / self.per_min
+        self._prune(now)
+        room = max(1, self.per_min - reserve)
+        if len(self.recent) < room:
+            return 0.0
+        # the send that has to leave the window before there's room again
+        return max(0.05, self.recent[len(self.recent) - room] + 60 - now)
 
     def take(self) -> None:
-        self.tokens -= 1
-        self.recent.append(time.time())
+        self.recent.append(time.monotonic())
 
     def used_last_minute(self) -> int:
-        cutoff = time.time() - 60
-        return sum(1 for t in self.recent if t >= cutoff)
+        self._prune(time.monotonic())
+        return len(self.recent)
 
 
 class RSClient:
@@ -162,6 +159,8 @@ class RSClient:
         attempt = 0
         while True:
             await self._acquire(method, background)
+            if method in READ_METHODS:
+                perf.note_read(path)
             try:
                 t0 = time.perf_counter()
                 try:

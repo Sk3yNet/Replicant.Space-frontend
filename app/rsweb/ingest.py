@@ -6,6 +6,7 @@ import json
 import logging
 import random
 import re
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -209,6 +210,9 @@ class Worker:
         self._bg: set[asyncio.Task] = set()
         self.devices_lock = asyncio.Lock()   # quick read-modify-writes of the cached device list (refreshes, bulk tags)
         self._arrivals: list[datetime] = []   # arrival refreshes lately (watched_event)
+        self._rep_dirty: set[str] = set()     # replicants whose details the next account sync re-reads (sync_account)
+        self._hosted: dict[str, str] = {}     # hosted device code → replicant code
+        self._event_read: dict[str, float] = {}   # device code → when an event last had it re-read (after_order)
         from .automations import AutomationEngine
         self.automations = AutomationEngine(db, api, hub, self)
 
@@ -304,6 +308,11 @@ class Worker:
     async def process_event(self, ev: dict, notify_live: bool = True) -> None:
         """Everything a new event sets off. Each part is guarded: the event is stored already, so a part that fails
         on odd data must not stop the rest (or drop the stream connection)."""
+        if self._hosted:   # an event about a replicant's vessel: its details are re-read at the next account sync
+            p = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
+            for c in {ev.get("device_code")} | {v for v in p.values() if isinstance(v, str)}:
+                if c in self._hosted:
+                    self._rep_dirty.add(self._hosted[c])
         for part in (self.apply_timers, self.on_prospect if ev["event"] == "prospect.completed" else None):
             if part:
                 try:
@@ -555,6 +564,9 @@ class Worker:
         """An order you gave (by hand, or a chain you started) went through: ask the game for those devices now and
         again shortly, and for the next WATCH_MINUTES on any event about them, so pages show the result within
         seconds instead of at the next device sync (up to a minute, or much longer while the engine runs)."""
+        parts = [x for x in str(path).strip("/").split("/") if x]
+        if len(parts) > 1 and parts[0] == "replicants":
+            self._rep_dirty.add(parts[1])
         codes = self.order_codes(path, body)
         if not codes:
             return
@@ -563,9 +575,13 @@ class Worker:
             self._watch[c] = until
 
         async def go() -> None:
+            t0 = time.time()
             await self.refresh_devices_now(codes)
             await asyncio.sleep(20)   # stowing / attaching / launching can take a moment in the game
-            await self.refresh_devices_now(codes)
+            # once more, unless an event about the device already had it re-read meanwhile (1.293.0)
+            later = {c for c in codes if self._event_read.get(c, 0) < t0}
+            if later:
+                await self.refresh_devices_now(later)
         self._spawn(go())
 
     def _spawn(self, coro) -> None:
@@ -592,6 +608,11 @@ class Worker:
         p = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
         named = {ev.get("device_code")} | {v for v in p.values() if isinstance(v, str) and DEVICE_CODE_RE.fullmatch(v)}
         if any(c in watch for c in named if c):
+            t = time.time()
+            for c in named:
+                if c:
+                    self._event_read[c] = t
+            self._event_read = {c: v for c, v in self._event_read.items() if v > t - 120}
             self._spawn(self.refresh_devices_now({c for c in named if c}))
 
     async def refresh_devices_now(self, codes: set[str]) -> None:
@@ -694,16 +715,28 @@ class Worker:
         await self.db.kv_set("account", me)
         from .shapes import ACCOUNT_TZ
         ACCOUNT_TZ[0] = (me or {}).get("timezone") or ACCOUNT_TZ[0]
-        # Replicant details (position, stowed devices, status).
+        # Replicant details (position, stowed devices, status): one GET per replicant, so only when it moved (the
+        # account's summary has its location each minute), an event named its vessel, an order named it, or every
+        # POLL_REPLICANT seconds (1.293.0: re-reading all 22 each minute was a fifth of the read budget)
+        prev = await self.db.kv_get("replicants", {}) or {}
+        now = time.time()
         reps = {}
         for r in (me or {}).get("replicants") or []:
             code = r.get("replicant_code")
             if not code:
                 continue
+            old = prev.get(code) or {}
+            moved = any(old.get(k) != r.get(k) for k in ("current_location", "current_star", "hosted_device_code"))
+            due = now - float(old.get("_read_at") or 0) >= self.s.poll_replicant
+            if old and not old.get("_error") and not moved and not due and code not in self._rep_dirty:
+                reps[code] = {**old, **r}
+                continue
+            self._rep_dirty.discard(code)
             try:
-                reps[code] = {**r, **(await self.api.get(f"/replicants/{code}", background=True) or {})}
+                reps[code] = {**r, **(await self.api.get(f"/replicants/{code}", background=True) or {}), "_read_at": now}
             except ApiError as e:
                 reps[code] = {**r, "_error": e.message}
+        self._hosted = {r["hosted_device_code"]: c for c, r in reps.items() if r.get("hosted_device_code")}
         await self.db.kv_set("replicants", reps)
         await self.prune_timers()
         self.hub.publish("state", "account")

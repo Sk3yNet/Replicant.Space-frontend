@@ -38,7 +38,8 @@ class Settings:
 
     # Poll intervals (seconds).
     poll_account: int = int(os.getenv("POLL_ACCOUNT", "60"))
-    poll_devices: int = int(os.getenv("POLL_DEVICES", "60"))
+    poll_replicant: int = int(os.getenv("POLL_REPLICANT", "600"))   # each replicant's details, unless it moved first
+    poll_devices: int = int(os.getenv("POLL_DEVICES", "120"))   # 25 GETs a read at 1,200 devices
     poll_inventory: int = int(os.getenv("POLL_INVENTORY", "120"))
     poll_messages: int = int(os.getenv("POLL_MESSAGES", "300"))
     poll_blueprints: int = int(os.getenv("POLL_BLUEPRINTS", "300"))
