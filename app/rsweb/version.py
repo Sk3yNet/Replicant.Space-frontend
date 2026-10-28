@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.288.0"
+VERSION = "1.288.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.288.1", "2026-10-28", "Device page Stow into lists every carrier here with room: a free hold slot (stowed) or, on plates, platforms, carriers and mobile fleets, a free attach point (the carrier attaches it). Before, only vessel holds were offered, so the list was empty wherever the carriers had no hold; full holds are left out, and an empty list now says why."),
     ("1.288.0", "2026-10-28", "Automations: every job row (active and recent) says what its carriers carry or will pick up: device types and codes with their state (to pick up, aboard, dropped) and materials to load, read from the job's stow, attach and load steps (and a loadouts delivery's device list)."),
     ("1.287.0", "2026-10-28", "A printing hub short of keep-in-stock devices first takes the other hub's extras: spares there beyond that hub's own stock are sent over (a carrier brings them, and they arrive as spares, switched off) and only what is still missing is printed. SOLARES kept printing relays for its stock of 8 while about 95 spare relays sat at FALQUORYX."),
     ("1.286.0", "2026-10-28", "Idle spares are gathered at the nearest receiving point: each goes to the home of the closest fleet set to receiving (FALQUORYX, SOLARES, ISOLITHOR), within the supply range, instead of all going to one spare depot. A spare already in a receiving system stays there. A spare depot set on the Fleets page still takes them all."),

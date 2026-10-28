@@ -9355,3 +9355,24 @@ def test_a_hub_short_of_stock_takes_a_partners_extra_spares_before_printing(clie
     out = client.portal.call(eng.stock_pass)
     assert sent == [(f"/devices/{c}", {"configuration": {"add_tags": ["gather", "stock", "to:sol"]}}) for c in ("F2", "F3")]
     assert sum("sent to keep in stock at SOL" in x for x in out) == 2
+
+
+def test_stow_into_offers_attach_carriers():
+    """Stow into lists carriers here with room: holds first, else attach points (up the chain); full ones are left out."""
+    devs = [{"device_code": "ME", "device_type": "mining_drone", "location": "X-BELT-1", "features": ["stow"]},
+            {"device_code": "HV", "device_type": "heaven_vessel", "location": "X-BELT-1", "stow_capacity": 10, "stow_used": 10},
+            {"device_code": "PL", "device_type": "surge_platform", "location": "X-BELT-1", "attach_capacity": 4},
+            {"device_code": "CV", "device_type": "cargo_vessel", "location": "X-BELT-1", "stow_capacity": 50},
+            {"device_code": "FAR", "device_type": "cargo_vessel", "location": "Y-BELT-1", "stow_capacity": 50}]
+    from rsweb import commands as c
+    f = c.COMMANDS["stow"][0]
+    opts = {o["value"]: o["label"] for o in c.device_options({"devices": devs, "here": "X-BELT-1"}, f, "ME")}
+    assert set(opts) == {"PL", "CV"} and "attach (4 free)" in opts["PL"] and "stow (50 free)" in opts["CV"]
+
+
+def test_stow_into_attach_carrier_sends_attach(client):
+    # survey drone D8C2A140 and surge plate SP000001 are both at SOL-3: the plate has no hold, so it attaches the drone
+    r = client.post("/devices/D8C2A140/command", data={"command": "stow", "f.target": "SP000001"}, headers=HX)
+    assert r.status_code == 200
+    row = client.portal.call(client.app.state.db.fetchone, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")
+    assert row["path"] == "/devices/SP000001" and '"attach"' in row["body"] and "D8C2A140" in row["body"]

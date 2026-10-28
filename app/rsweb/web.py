@@ -1101,6 +1101,16 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
                                 f"stow {cargo} in {code}")
     if command == "stow":
         body.pop("cargo", None)
+    if command == "stow" and body.get("target"):   # the hold takes it, else the carrier's attach points (up the chain)
+        devs = (await load_state(request))["devices"]
+        by = {d.get("device_code"): d for d in devs}
+        cc = fl.cargo_carrier(by.get(body["target"]) or {}, devs, fl.stowable(by.get(code) or {})) if body["target"] in by else None
+        if cc and cc["mode"] == "attach":
+            car = cc["carrier"]["device_code"]
+            return await run_action(request, user, "POST", f"/devices/{car}", {"command": "attach", "device": code},
+                                    f"{car}: attach {code}")
+        if cc:
+            body["target"] = cc["carrier"]["device_code"]
     if command == "attach":
         carrier, cargo = (body.get("carrier"), code) if body.get("carrier") else (code, body.get("device"))
         if not cargo:

@@ -68,7 +68,8 @@
         {% if not f.required %}<option value="">—</option>{% endif %}
         {% for o in opts %}<option value="{{ o.value }}">{{ o.value }} · {{ o.label }}</option>{% endfor %}
       </select>
-      {% if not opts %}<span class="muted small">No matching devices found — sync may still be running.</span>{% endif %}
+      {% if not opts and (f.filter or {}).get("carrier") %}<span class="muted small">No carrier here with a free {{ 'hold slot or attach point' if f.filter.carrier == 'board' else ('hold slot' if f.filter.carrier == 'hold' else 'attach point') }}.</span>
+      {% elif not opts %}<span class="muted small">No matching devices found — sync may still be running.</span>{% endif %}
     {% elif f.kind == "location" and (f.filter or {}).get("scope") == "system" and sys_targets is defined and sys_targets
               and target_options(sys_targets, (f.filter or {}).get("targets")) %}
       {% set groups = target_options(sys_targets, (f.filter or {}).get("targets")) %}

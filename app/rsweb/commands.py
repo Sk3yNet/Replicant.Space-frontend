@@ -53,8 +53,9 @@ COMMANDS: dict[str, list[Field]] = {
                F("via", "via", label="via", help="Optional: locations to route through (comma-separated), or 'direct' "
                                                   "to skip the nav chip"),
                F("dry_run", "bool", default=False, help="Preview the route and ETA without leaving")],
-    "stow": [F("target", "device", label="stow into (a carrier here)", filter={"here": True, "carrier": "hold"},
-               help="Leave blank to stow on the default carrier", side="no_hold"),
+    "stow": [F("target", "device", label="stow into (a carrier here)", filter={"here": True, "carrier": "board"},
+               help="A hold takes it in; a carrier without one (plate, platform, fleet) tows it. Leave blank to stow on "
+                    "the default carrier", side="no_hold"),
              F("cargo", "device", label="device to take into my hold", filter={"here": True, "cargo": True},
                side="has_hold")],
     "deploy": [F("cargo", "device", label="device to deploy from my hold", filter={"stowed_in_self": True},
@@ -314,7 +315,7 @@ def field_applies(sugg: dict, f: Field, self_code: str | None) -> bool:
 def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
     """Devices for a device/devices field: same location first, filtered by the field's filter."""
     here = sugg.get("here")
-    out = []
+    out, me = [], None
     for d in sugg["devices"]:
         if d.get("device_code") == self_code:
             continue
@@ -335,14 +336,23 @@ def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
         if flt.get("here") and (not here or d.get("location") != here or d.get("stowed_in_device_code")
                                 or d.get("attached_to_device_code")):
             continue
-        if flt.get("carrier"):
+        how = ""
+        if flt.get("carrier") == "board":   # stow into: a free hold slot, else free attach points, up the chain
+            from .fleets import cargo_carrier, stowable
+            me = me or next((x for x in sugg["devices"] if x.get("device_code") == self_code), {})
+            cc = cargo_carrier(d, sugg["devices"], stowable(me))
+            if not cc:
+                continue
+            how = f" · {cc['mode']}" + (f" on {cc['carrier']['device_code']}" if cc["carrier"] is not d else "") + \
+                f" ({cc['free']} free)"
+        elif flt.get("carrier"):
             from .fleets import capacity, hold
             if (hold(d) if flt["carrier"] == "hold" else capacity(d)) <= 0:
                 continue
         if flt.get("cargo") and "vessel" in (d.get("device_type") or "") and "drone" not in (d.get("device_type") or ""):
             continue   # a vessel isn't cargo
         out.append({"value": d["device_code"], "label": f"{(d.get('device_type') or '').replace('_', ' ')} · "
-                    f"{d.get('location')} · {d.get('status')}", "near": d.get("location") == here})
+                    f"{d.get('location')} · {d.get('status')}{how}", "near": d.get("location") == here})
     out.sort(key=lambda o: (not o["near"], o["label"]))
     return out
 
