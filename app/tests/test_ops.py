@@ -219,6 +219,9 @@ def test_shop_configure_add_remove_and_buy(client):
                                      "trades": world(client).trades["TRD00001"]}})
     r = client.post("/shop/buy", data={"controller": "TRD00001", "trade_code": code}, headers=HX)
     assert "result ok" in r.text
+    world(client).trades["TRD00001"][0]["current_stock"] = 2   # several units: one call each, stop at the first refusal
+    r = client.post("/shop/buy", data={"controller": "TRD00001", "trade_code": code, "qty": "3"}, headers=HX)
+    assert "Bought 2 of 3" in r.text and world(client).trades["TRD00001"][0]["current_stock"] == 0
     r = client.post(f"/shop/TRD00001/trades/{code}/delete", headers=HX)
     assert r.headers.get("HX-Refresh") == "true" and world(client).trades["TRD00001"] == []
 

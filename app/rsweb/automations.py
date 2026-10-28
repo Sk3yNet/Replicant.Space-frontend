@@ -4092,15 +4092,16 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 # left out of the requests)
                 if not once or key in taken or not t.get("location") or tr.get("current_stock") == 0:
                     continue
-                price = as_amounts((tr.get("criteria") or {}).get("resources") or {})
-                dneed = fl_counts((tr.get("criteria") or {}).get("devices"))
+                n_ = lg.trade_times(ok, key, tr.get("current_stock"))   # units approved (the game sells one per call)
+                price = lg.times(as_amounts((tr.get("criteria") or {}).get("resources") or {}), n_)
+                dneed = lg.times(fl_counts((tr.get("criteria") or {}).get("devices")), n_)
                 there = Counter(d.get("device_type") for d in devices if d.get("location") == t["location"])
                 if price or dneed:
                     trades.append({"key": key, "controller": ctrl, "trade_code": tr.get("trade_code"), "name": tr.get("name"),
-                                   "location": t["location"], "price": price, "once": once,
+                                   "location": t["location"], "price": price, "once": once, "times": n_,
                                    "devices_short": any(there[k] < n for k, n in dneed.items()),
-                                   "rewards": (tr.get("rewards") or {}).get("resources") or {},
-                                   "reward_devices": fl_counts((tr.get("rewards") or {}).get("devices"))})
+                                   "rewards": lg.times(as_amounts((tr.get("rewards") or {}).get("resources") or {}), n_),
+                                   "reward_devices": lg.times(fl_counts((tr.get("rewards") or {}).get("devices")), n_)})
         # a replicant about to leave doesn't cover its system for a delivery planned now (seen live 2026-10-17: two
         # deliveries to RHYBRENEUS-3 sent unescorted found the system out of comms range on arrival)
         commandable = await self.commandable(devices, stars, without=leaving)
@@ -4229,6 +4230,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         keys.append(run["req"].split(":", 1)[1])
                     for key in keys:
                         ok.setdefault("trades", {}).pop(key, None)
+                        ok.setdefault("counts", {}).pop(key, None)
                         ok.setdefault("done", {})[key] = now_iso()
                     if keys:
                         await self.db.kv_set(lg.KV_TRADES, ok)
@@ -4356,7 +4358,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             for ctrl, t in (await known_traders(self.db)).items():
                 for tr in t.get("trades") or []:
                     key = f"{ctrl}:{tr.get('trade_code')}"
-                    need = fl.device_counts((tr.get("criteria") or {}).get("devices"))
+                    need = lg.times(fl.device_counts((tr.get("criteria") or {}).get("devices")),
+                                    lg.trade_times(ok, key, tr.get("current_stock")))
                     if need and t.get("location") and key in (ok.get("trades") or {}):
                         trade_runs.setdefault(f"trade:{key}", {
                             "designation": f"trade:{key}", "location": t["location"], "star": star_of(t["location"]),

@@ -699,6 +699,36 @@ def test_an_approved_trade_in_a_warded_system_is_a_request(client):  # noqa: F81
     assert any(r["id"] == "trade:C1:T1" for r in st["requests"])
 
 
+def test_an_approved_trade_for_several_units_pays_and_executes_each(client):  # noqa: F811
+    """Owner 2026-10-28: order more than one from a shop. The game's buy call sells one unit, so one delivery pays n
+    prices and the trade is executed n times (at most the listed stock)."""
+    db, e = client.app.state.db, eng(client)
+    cat = client.portal.call(db.kv_get, "stars") or {"stars": []}
+    cat["stars"] += [{"designation": d, "position": p} for d, p in POS.items()]
+    client.portal.call(db.kv_set, "stars", cat)
+    client.portal.call(db.kv_set, "devices", world())
+    client.portal.call(db.kv_set, "inventory", [{"location": "A-1", "items": {"carbon": 300}}])
+    client.portal.call(db.kv_set, "replicants", {"R1": {"location": "A-1", "hosted_device_code": "HV"}})
+    client.portal.call(db.kv_set, "traders_cache", {"C1": {"controller_code": "C1", "location": "B-3", "star": "B",
+                                                           "read_at": "2026-10-20T00:00:00+00:00",
+                                                           "trades": [{"trade_code": "T1", "name": "Widget", "current_stock": 3,
+                                                                       "criteria": {"resources": {"carbon": 50}},
+                                                                       "rewards": {"resources": {"rares": 2}}}]}})
+    r = client.post("/shop/approve", data={"controller": "C1", "trade_code": "T1", "on": "on", "qty": "5"}, headers=HX)
+    assert "approved ×5" in r.text
+    assert client.portal.call(db.kv_get, "trade_approvals")["counts"] == {"C1:T1": 5}
+    items = client.portal.call(e.fleets)
+    client.portal.call(e.save_fleets, items + [{"id": "cab", "name": "Cab", "role": "logistics", "home": "A", "wants": {}}])
+    client.portal.call(e.logistics_pass, True)
+    req = next(r for r in client.portal.call(db.kv_get, "logistics_state")["requests"] if r["id"] == "trade:C1:T1")
+    assert req["price"] == {"carbon": 150} and req["times"] == 3 and req["rewards"] == {"rares": 6}   # capped at stock 3
+    run = {"to": "B-3", "legs": [], "cargos": [], "carry": {}, "fulfil": lg._deal(req), "replicant": "R1"}
+    execs = [s for s in lg.run_steps(run, {}) if s["path"] == "/devices/C1/trades/T1"]
+    assert len(execs) == 3 and "×3" in execs[0]["desc"]
+    client.post("/shop/approve", data={"controller": "C1", "trade_code": "T1"}, headers=HX)
+    assert client.portal.call(db.kv_get, "trade_approvals")["counts"] == {}
+
+
 def test_a_priority_shows_at_once_and_every_tier_is_accepted(client):  # noqa: F811
     db = client.app.state.db
     client.portal.call(db.kv_set, lg.KV_STATE, {"at": "2026-10-20T10:00:00+00:00", "requests": [

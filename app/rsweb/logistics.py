@@ -73,7 +73,23 @@ SECTOR_RANGE_H = 24.0               # the sector range (owner 2026-10-22): an au
 SECTOR_RANGE_LY = SECTOR_RANGE_H * 3600 / SURGE_S_PER_LY   # 1728 ly: logistics carriers serve only stars this near
 KV_PICKUPS = "logistics_pickups"   # {deal location: {"types": {type: n}, "to": gather star, "at"}} — devices paid out
 KV_MOVES = "logistics_moves"   # {old home star: {"to": new home star, "fleet", "at"}} — a destination fleet's stock follows it
-KV_TRADES = "trade_approvals"  # {"trades": {controller:trade_code: iso}, "done": {key: iso}}
+KV_TRADES = "trade_approvals"  # {"trades": {controller:trade_code: iso}, "counts": {key: n}, "done": {key: iso}}
+
+
+def trade_times(ok: dict, key: str, stock=None) -> int:
+    """Units of an approved trade to buy (Shop: approve ×n; default 1), at most the listed stock. The game's buy call
+    fulfills one unit and takes no quantity, so a delivery pays n prices and executes the trade n times."""
+    try:
+        n = max(1, int((ok.get("counts") or {}).get(key) or 1))
+    except (TypeError, ValueError):
+        n = 1
+    if isinstance(stock, int) and stock > 0:
+        n = min(n, stock)
+    return n
+
+
+def times(amounts: dict, n: int) -> dict:
+    return {k: v * n for k, v in amounts.items()} if n > 1 else dict(amounts)
 ROLE = "logistics"
 MIN_RETURN = 25.0              # a stray pile smaller than this isn't worth a trip
 TIERS = {0: "evacuation", 1: "queued prints", 2: "local delivery", 3: "long-range transfer", 4: "stockpile return", 5: "rescue",
@@ -387,6 +403,7 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
                     "need": _short(t["price"], have(t["location"])), "label": f"trade {t.get('name') or t['trade_code']}",
                     "on_way": _short(t["price"], stock.get(t["location"]) or {}),
                     "controller": t["controller"], "trade_code": t["trade_code"], "once": t.get("once", False),
+                    "times": t.get("times", 1),
                     "devices_short": t.get("devices_short", False),
                     "rewards": as_amounts(t.get("rewards") or {}), "reward_devices": t.get("reward_devices") or {}})
     for u in upkeep:
@@ -1325,8 +1342,9 @@ def _deal(r: dict) -> dict | None:
     if r["kind"] == "contract":
         return {"kind": "contract", "designation": r["designation"], "location": r["to"], "label": r["label"]}
     if r["kind"] == "trade":
+        n = r.get("times", 1)
         return {"kind": "trade", "controller": r["controller"], "trade_code": r["trade_code"], "location": r["to"],
-                "label": r["label"]}
+                "label": r["label"] + (f" ×{n}" if n > 1 else ""), "times": n}
     return None
 
 
@@ -1543,9 +1561,8 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
             steps.append(step(f"{c['code']}: deposit at {run['to']}", f"/devices/{c['code']}", {"command": "deposit_resources"},
                               critical=True))
     if run.get("fulfil"):
-        steps.append(fl.fulfil_step(run["fulfil"], run.get("replicant"), template))
-        for dl in run.get("also") or []:   # the other deals at the same location this delivery paid for
-            steps.append(fl.fulfil_step(dl, run.get("replicant"), template))
+        for dl in [run["fulfil"]] + (run.get("also") or []):   # and the other deals at the same location it paid for
+            steps += [fl.fulfil_step(dl, run.get("replicant"), template) for _ in range(dl.get("times") or 1)]
     if run.get("rewards") and run.get("home") and cargos:
         # load what the deal paid out (each ship up to its hold; not critical: the payout can differ from what was listed)
         left, loaded = dict(run["rewards"]), []

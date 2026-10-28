@@ -282,10 +282,22 @@ async def shop_delete_trade(request: Request, code: str, trade: str, user: str =
 async def shop_buy(request: Request, user: str = Depends(current_user)):
     form = await request.form()
     ctrl, trade = (form.get("controller") or "").strip().upper(), (form.get("trade_code") or "").strip()
-    out = await call_action(request, user, "POST", f"/devices/{ctrl}/trades/{trade}", None, f"buy {trade} at {ctrl}")
+    qty = str(form.get("qty") or "1").strip()
+    n = min(int(qty), 100) if qty.isdigit() and int(qty) > 0 else 1
+    bought = 0   # the game sells one unit per call (no quantity): buy n times, stop at the first refusal
+    for i in range(n):
+        out = await call_action(request, user, "POST", f"/devices/{ctrl}/trades/{trade}", None,
+                                f"buy {trade} at {ctrl}" + (f" ({i + 1}/{n})" if n > 1 else ""))
+        if not out["ok"]:
+            break
+        bought += 1
     note = None
     if not out["ok"]:
         note = "Trades are paid from what you hold at the shop's location — bring the payment there first."
+        if bought:
+            note = f"Bought {bought} of {n}, then the game refused. " + note
+    elif n > 1:
+        note = f"Bought all {n}."
     return render_action(request, out, note)
 
 

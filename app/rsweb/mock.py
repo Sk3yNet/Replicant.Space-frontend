@@ -961,6 +961,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         t = next((t for t in world.trades.get(code, []) if t["trade_code"] == trade), None)
         if not t:
             return ok({"error": "Trade not found"}, 404)
+        if t["current_stock"] <= 0:
+            return ok({"error": "Trade is out of stock"}, 400)
         t["current_stock"] -= 1
         return ok({"status": "trade_completed", "trade_code": trade})
 

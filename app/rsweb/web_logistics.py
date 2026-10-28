@@ -133,16 +133,22 @@ async def logistics_run(request: Request, user: str = Depends(current_user)):
 
 @router.post("/shop/approve", response_class=HTMLResponse)
 async def trade_approve(request: Request, controller: str = Form(...), trade_code: str = Form(...), on: str = Form(""),
-                        user: str = Depends(current_user)):
-    """Approve one trade: the logistics service delivers its price and executes it, once. Shop listings nobody approved are
-    never fulfilled."""
+                        qty: str = Form("1"), user: str = Depends(current_user)):
+    """Approve one trade: the logistics service delivers its price and executes it, once, or qty times (one delivery
+    pays qty prices). Shop listings nobody approved are never fulfilled."""
     db = request.app.state.db
     ok = await db.kv_get(lg.KV_TRADES, {}) or {}
-    box = ok.setdefault("trades", {})
+    box, counts = ok.setdefault("trades", {}), ok.setdefault("counts", {})
     key = f"{controller}:{trade_code}"
+    n = int(qty) if qty.strip().isdigit() and int(qty) > 0 else 1
     if on == "on":
-        box[key] = now_iso()
+        box[key] = box.get(key) or now_iso()
+        if n > 1:
+            counts[key] = n
+        else:
+            counts.pop(key, None)
     else:
         box.pop(key, None)
+        counts.pop(key, None)
     await db.kv_set(lg.KV_TRADES, ok)
-    return HTMLResponse(f'<span class="muted small">{"approved" if on == "on" else "approval withdrawn"}</span>')
+    return HTMLResponse(f'<span class="muted small">{(f"approved ×{n}" if n > 1 else "approved") if on == "on" else "approval withdrawn"}</span>')

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.284.1"
+VERSION = "1.285.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.285.0", "2026-10-28", "Order more than one from a shop: each trade row has a quantity. Buy buys that many one after another (the game sells one unit per call) and stops at the first refusal; approve × n has logistics deliver n prices in one trip and execute the trade n times (at most the listed stock)."),
     ("1.284.1", "2026-10-28", "Keep-in-stock prints stay at their hub: spare gathering no longer takes a hub's stock print of a type that hub keeps in stock to the spare depot. SOLARES kept printing propulsors, relays and wards to refill its stock while each one was shipped to FALQUORYX (about 140 spare propulsors there for a stock of 10)."),
     ("1.284.0", "2026-10-27", "Fleets sort themselves out. A device of one fleet run by another fleet's controller is released so its own fleet's controller takes it back, and the idle-miner rule only hands a drone to its own fleet's controller (or a fleetless one): Miner_8's drones were mining for Miner_9's controller at SOLARES. Members on their way home that haven't left yet become spares where they wait once the fleet has its count (Delta Force had 4 more miners waiting in ISOLITHOR for 1 open place). Unstationed fleets (survey, logistics, prospector) drop members beyond their loadout as spares the next time they're idle at a hub; blank loadout types stay don't care, and replicants' vessels, matrices, matrix containers, carriers with devices aboard, a fleet's relays, beacons and wards and reserved devices are never dropped."),
     ("1.283.0", "2026-10-27", "Logistics haulers go where the pickup is: a free logistics carrier with a seat (a surge plate, platform or carrier) now fetches a hauler or transport drone from another system, tows it to the stockpile to load, and on to the receiving location. Before, only haulers already in the pickup system were used."),
