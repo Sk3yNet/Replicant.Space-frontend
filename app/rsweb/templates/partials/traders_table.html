@@ -1,6 +1,6 @@
 {# Shops and their trades. Needs: traders (shop.known_traders), mine (your replicant codes), trade_side() #}
   {% if traders %}
-  <table class="small"><tr><th>Shop</th><th>Where</th><th>Trade</th><th>You pay</th><th>You get</th><th class="num">Stock</th><th title="approved: the logistics service delivers the price and executes the trade, once">Logistics</th><th></th></tr>
+  <table class="small"><tr><th>Shop</th><th>Where</th><th>Trade</th><th>You pay</th><th>You get</th><th class="num">Stock</th><th title="units for logistics to buy, 0 = not approved: it delivers the price and executes the trade">Logistics buys</th><th></th></tr>
     {% for code, t in traders.items() %}
     {% set where %}{{ t.location or 'location not given' }}{% if t.seen_at %}<div class="muted">seen {{ t.seen_at | ago }}{% if t.from_scan %} (scan){% endif %}</div>{% endif %}
       <button class="small ghost" hx-post="/shop/forget" hx-vals='{{ {"controller": (code) | string} | tojson }}' hx-swap="none"
@@ -15,12 +15,11 @@
       <td>{% if loop.first %}{{ where }}{% else %}{{ t.location }}{% endif %}</td><td>{{ tr.name }}</td><td>{{ trade_side(tr.criteria) }}</td><td>{{ trade_side(tr.rewards) }}</td>
       <td class="num">{{ tr.current_stock }}</td>
       {% set tk = (code ~ ':' ~ tr.trade_code) %}{% set apv = trade_ok or {} %}{% set qmax = tr.current_stock if (tr.current_stock or 0) > 0 else 100 %}
-      <td class="small"><label><input type="checkbox" name="on" hx-post="/shop/approve" hx-target="next .tx-a" hx-trigger="change" hx-include="closest td"
-        hx-vals='{{ {"controller": (code) | string, "trade_code": (tr.trade_code) | string} | tojson }}' {{ 'checked' if tk in (apv.trades or {}) }}> approve</label>
-        × <input type="number" class="tx-q" name="qty" min="1" max="{{ qmax }}" value="{{ (apv.counts or {}).get(tk, 1) }}" style="width:4em"
-          hx-post="/shop/approve" hx-trigger="change" hx-target="next .tx-a" hx-include="closest td"
+      <td class="small"><input type="number" class="tx-q" name="qty" min="0" max="{{ qmax }}" style="width:4em"
+          value="{{ ((apv.counts or {}).get(tk, 1)) if tk in (apv.trades or {}) else 0 }}"
+          hx-post="/shop/approve" hx-trigger="change" hx-target="next .tx-a"
           hx-vals='{{ {"controller": (code) | string, "trade_code": (tr.trade_code) | string} | tojson }}'
-          title="units still to buy: logistics delivers this many prices and executes the trade this many times; the approval stays until all are bought">
+          title="units for logistics to buy (0 = not approved): it delivers that many prices and executes the trade that many times; the number counts down as units are bought">
 <span class="tx-a"></span></td>
       <td><input type="number" class="sh-q" name="qty" min="1" max="{{ qmax }}" value="1" style="width:4em" title="units to buy (the game sells one per call: bought one after another)">
         <button class="small" hx-post="/shop/buy" hx-include="previous .sh-q" hx-vals='{{ {"controller": (code) | string, "trade_code": (tr.trade_code) | string} | tojson }}' hx-target="next .sh-b"

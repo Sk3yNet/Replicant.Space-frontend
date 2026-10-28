@@ -546,7 +546,7 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
 1. **Queued prints**: their cost minus what's stocked, waiting ones first.
 2. **Local delivery** and 3. **long-range transfer**:
    - contracts you approved or whose civilization you pre-approved (Contracts);
-   - trades you approved (Shop: *approve* × n, used once: one delivery pays n prices and the trade runs n times, at most
+   - trades you approved (Shop: *Logistics buys* n, 0 = not approved: one delivery pays n prices and the trade runs n times, at most
      the stock; plain shop listings are never fulfilled);
    - a home system's piles consolidated at its drop point (its autofactory, else its biggest pile; systems the
      Consolidate rule covers with an AMI transport controller are left to it).
@@ -686,8 +686,8 @@ Account and per-replicant reputation, known species. **Bulk profile import**: pa
 - Bill is the exception: his BobNet post that he moved closes his shop until it's seen again.
 - A trade run paid in devices gets spare ones delivered and deployed at the shop.
 - Each trade has a quantity: *Buy* buys that many one after another (the game sells one unit per call) and stops at
-  the first refusal; *approve* × n has logistics deliver n prices and execute it n times. The approval stays until n units are
-  bought (the box shows how many are left), so units a trip couldn't buy are delivered and bought later.
+  the first refusal; *Logistics buys* n (0 = not approved) has logistics deliver n prices and execute it n times. The number
+  is the outstanding balance: it counts down as units are bought, so units a trip couldn't buy are delivered and bought later.
 
 ### Lockers
 Equipment lockers are NPC devices that hand out a set loadout once per account (e.g. SOL-OORT, TWAFFY-OORT).

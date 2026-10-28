@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.293.1"
+VERSION = "1.293.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.293.2", "2026-10-28", "Shop trades: the approve checkbox is gone. The Logistics buys number is the approval: 0 by default (not approved), any other number is how many units logistics still buys, counting down as they are bought."),
     ("1.293.1", "2026-10-28", "An approved shop trade for several units stays approved until all of them are bought. Before, the approval was dropped as soon as a delivery left, so when the replicant arrived before the rest of the price (or the game refused a unit) only one or two were bought (10 vector charges ordered). Now the units a job did not buy stay approved and logistics brings the rest; a refused unit no longer stops the job; changing the quantity of an approved trade takes effect at once."),
     ("1.293.0", "2026-10-28", "Fewer game reads (the app neared the game's 120 GETs a minute). The read limiter counts a rolling minute: the old refilling budget started full and could let through about twice its limit in one minute. The device list is read every 2 minutes instead of every minute (25 GETs a read at 1,214 devices; POLL_DEVICES). A replicant's details are re-read only when it moved, an event names its vessel, you order it, or every 10 minutes (POLL_REPLICANT), instead of all 22 every minute. A device you order is re-read 20 s later only if no event about it already refreshed it. Diagnostics › Performance shows Game reads: GETs a minute over the last 10 minutes by who asked (page, poller, engine stage) and path."),
     ("1.292.0", "2026-10-28", "Printed components are tagged as components: a print's component devices carry the `component` tag, pinned to the factory, without the item's spare, stock or fleet tags, so no loadout makes them spare and no other factory takes them. A factory waiting for components claims the ones already at its location first. Both printing hubs' vector charge prints sat at 4 of 6 impulse charges: the charges came out tagged like the stock print, the hub loadout (impulse charge: 0) kept making them spare, and each hub's component pass sent the other's spares over."),

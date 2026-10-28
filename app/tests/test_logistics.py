@@ -729,7 +729,7 @@ def test_an_approved_trade_for_several_units_pays_and_executes_each(client):  # 
                                                                        "criteria": {"resources": {"carbon": 50}},
                                                                        "rewards": {"resources": {"rares": 2}}}]}})
     r = client.post("/shop/approve", data={"controller": "C1", "trade_code": "T1", "on": "on", "qty": "5"}, headers=HX)
-    assert "approved ×5" in r.text
+    assert "5 to buy" in r.text
     assert client.portal.call(db.kv_get, "trade_approvals")["counts"] == {"C1:T1": 5}
     items = client.portal.call(e.fleets)
     client.portal.call(e.save_fleets, items + [{"id": "cab", "name": "Cab", "role": "logistics", "home": "A", "wants": {}}])
@@ -740,8 +740,9 @@ def test_an_approved_trade_for_several_units_pays_and_executes_each(client):  # 
     execs = [s for s in lg.run_steps(run, {}) if s["path"] == "/devices/C1/trades/T1"]
     assert len(execs) == 3 and "×3" in execs[0]["desc"]
     assert [x["critical"] for x in execs] == [True, False, False]   # a later refusal doesn't stop the job
-    client.post("/shop/approve", data={"controller": "C1", "trade_code": "T1"}, headers=HX)
-    assert client.portal.call(db.kv_get, "trade_approvals")["counts"] == {}
+    client.post("/shop/approve", data={"controller": "C1", "trade_code": "T1", "qty": "0"}, headers=HX)   # 0 = not approved
+    ok = client.portal.call(db.kv_get, "trade_approvals")
+    assert ok["counts"] == {} and ok["trades"] == {}
 
 
 def test_an_approval_for_several_units_stays_until_all_are_bought():
