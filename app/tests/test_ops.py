@@ -317,6 +317,28 @@ def test_spares_are_gathered_at_the_depot_and_stay_spare():
     assert any("gather 2 idle spare(s) at the depot DEP" in x for x in lo.describe(p))
 
 
+
+def test_a_hubs_stock_prints_arent_gathered_at_the_depot():
+    """Seen live 2026-10-27: SOLARES printed its propulsor stock again and again as each one was gathered at FALQUORYX."""
+    from rsweb import loadouts as lo
+    stars = {"DEP": {"position": {"x": 0, "y": 0, "z": 0}}, "OTH": {"position": {"x": 1, "y": 0, "z": 0}}}
+    devices = [
+        {"device_code": "AF1", "device_type": "autofactory", "location": "DEP-3-L4", "status": "idle",
+         "available_commands": ["enqueue_print"], "features": ["print"]},
+        {"device_code": "CV1", "device_type": "cargo_vessel", "location": "OTH-5", "status": "idle", "stow_capacity": 50,
+         "features": ["surge", "cruise", "attach"], "available_commands": ["travel"]},
+        {"device_code": "P1", "device_type": "propulsor", "location": "OTH-BELT-1", "status": "idle", "tags": ["spare", "stock"],
+         "features": ["cruise", "stow"], "available_commands": ["travel", "stow"]},
+        {"device_code": "P2", "device_type": "propulsor", "location": "OTH-BELT-1", "status": "idle", "tags": ["spare"],
+         "features": ["cruise", "stow"], "available_commands": ["travel", "stow"]},
+        {"device_code": "MD1", "device_type": "mining_drone", "location": "OTH-BELT-1", "status": "idle", "tags": ["spare", "stock"],
+         "features": ["cruise", "mine", "stow"], "available_commands": ["travel", "stow", "start_mining"]},
+    ]
+    hub = {"id": "hub", "name": "Hub", "role": "mining", "home": "OTH", "station": True, "stock": {"propulsor": 2}}
+    cfg = {"phases": [], "systems": {}, "roles": {"DEP": "destination"}, "fleets": [hub]}
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
+    assert p["gathering"] == ["MD1", "P2"]   # the hub's own stock print stays; other spares still go to the depot
+
 def test_redundant_beacon_marked_spare_via_traffic_page(client):
     add(client, device_code="BCN00002", device_type="ftl_beacon", location="SOL-KUIPER", status="monitoring",
         features=["stow", "audit"], available_commands=["deploy", "stow"])

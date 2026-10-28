@@ -379,6 +379,7 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
   any distance (e.g. a Sol-sector fleet supplied from a home-sector printing hub).
 - **Keep in stock** (a *Stock* column beside *Want* in a fleet's loadout editor, and a second box (+) per type in the
   Templates grid, which the template's fleets follow): that many more of a type are kept as spares at the fleet's home.
+  Spare gathering leaves those stock prints at the hub (1.284.1), so they aren't shipped to the spare depot and printed again.
   - Spares in that system (and stock prints under way) count; what's missing is printed one at a time on an autofactory
     there that has nothing printing or queued, tagged `spare` and `stock`. When the home stockpile can't cover it, an idle
     autofactory at another printing hub within the sector range whose stockpile can prints it, tagged `to:<home>`, and

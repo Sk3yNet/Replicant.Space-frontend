@@ -876,6 +876,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     # spares nobody needs this pass are gathered at the depot (a delivery / autofactory system) for later use
     gathering: list[str] = []
     depot = spare_depot(cfg, devices) if s.get("gather_spares", True) and not only else None
+
+    def kept_in_stock(d: dict) -> bool:
+        """A keep-in-stock print at a hub that keeps its type in stock: gathering it away would only get it printed
+        again there (SOLARES printed ~130 propulsors for the FALQUORYX depot, 2026-10-27)."""
+        t = d.get("device_type")
+        return STOCK in (d.get("tags") or []) and any(int((f.get("stock") or {}).get(t) or 0) > 0
+                                                       for f in homes_of.get(star_of(d.get("location")), []))
     if depot:
         for t, ds in donors.items():
             for d in ds:
@@ -883,6 +890,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 if (code in moves or code in busy or star_of(d.get("location")) == depot or not d.get("location")
                         or d.get("controller_device_code") or working(d) or pinned_at(d) or d.get("location_stale")
                         or d.get("taxi_mode") == "taxi" or "taxi" in (d.get("tags") or []) or fam(d)
+                        or kept_in_stock(d)
                         or not near(d, depot)   # never flown further than the supply range just to be parked
                         or not str(d.get("status") or "").startswith(("idle", "stowed", "inactive", "monitoring", "deployed"))):
                     continue
