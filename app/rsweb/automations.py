@@ -3032,12 +3032,22 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             return []
         await self.db.kv_set("components_last", now_iso())
         devices = await self.devices()
+        out = []
+        claim = comp.claimable(devices)
+        for d, tags in claim:   # already there but not tagged as its components (spare, stock, untagged): claimed
+            cfg = comp.retag(d, tags)
+            ok, _, _ = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": cfg},
+                                       f"components: {d['device_code']} kept at {d['location']}")
+            if ok:
+                d["tags"] = [t for t in d.get("tags") or [] if t not in cfg["remove_tags"] and t not in tags] + tags
+        if claim:
+            out.append(f"{len(claim)} device(s) at factories waiting for them tagged as components")
+            await self.log("components", out[-1])
         gaps = comp.shortfalls(devices)
         if not gaps:
-            return []
+            return out
         busy = self.busy_devices(await self.jobs())
         blocked = {g["factory"] for g in gaps}
-        out = []
         for g in gaps:
             pinned, printed, note = await self.pin_or_print(g["type"], g["short"], g["location"], devices, busy,
                                                             f"components for {g['factory']}", tags=g["tags"], not_at=blocked)

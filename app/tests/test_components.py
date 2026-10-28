@@ -24,7 +24,7 @@ def test_a_new_print_queues_its_components_first_with_its_tags(client):  # noqa:
     af = next(d for d in client.app.state.api.http._transport.app.state.world.devices if d["device_code"] == "AF00BEEF")
     started = ["hydroponic_bay"] if af["status"] == "printing (hydroponic_bay)" and len(q) < 4 else []   # an idle factory starts the head
     assert (started + [x["device_type"] for x in q])[-4:] == ["hydroponic_bay", "hydroponic_bay", "orbital_farm", "biosphere_cultivator"]
-    assert q[-2]["tags"] == ["contract:x-1", "to:sol", "at:sol-3-l4"] and "at:kamuyis-4" in q[-1]["tags"]
+    assert q[-2]["tags"] == ["contract:x-1", "component", "to:sol", "at:sol-3-l4"] and "at:kamuyis-4" in q[-1]["tags"]
     page = client.get("/blueprints", headers={"X-Auth-Request-Email": "joe@example.com"}).text
     assert "component device" in page and "all in: 20 carbon, 7 structural, 4 volatiles" in page
 
@@ -78,7 +78,7 @@ def test_a_new_print_uses_components_already_there_and_spares_before_printing(cl
     body = {"command": "enqueue_print", "device_type": "biosphere_cultivator", "quantity": 1, "tags": ["contract:x-1"]}
     client.portal.call(comp.before_print, Api(), db, "/devices/AF1", body)
     # one bay deployed there + one in its queue = the two it needs; the farm is a spare, pinned there: nothing printed
-    assert sent == [("PATCH", "/devices/OF1", {"configuration": {"add_tags": ["contract:x-1", "to:sol", "at:sol-3-l4"],
+    assert sent == [("PATCH", "/devices/OF1", {"configuration": {"add_tags": ["contract:x-1", "component", "to:sol", "at:sol-3-l4"],
                                                                   "remove_tags": ["spare"]}})]
     # a second cultivator: the bays are spoken for now that one is queued
     devs = client.portal.call(db.kv_get, "devices")
@@ -145,3 +145,37 @@ def test_a_pinned_spare_is_no_longer_spare(client):  # noqa: F811
     tags = next(d for d in world.devices if d["device_code"] == "FA00F00D")["tags"]
     assert "spare" not in tags and "stock" not in tags and "at:sol-3-1" in tags, tags
     assert assigned({"tags": ["spare", "at:sol-3-1"]}) and not assigned({"tags": ["spare", "to:sol", "gather"]})
+
+
+def test_components_are_tagged_and_not_traded_between_hubs(client):  # noqa: F811
+    # live 2026-10-28: both printing hubs' vector charge prints sat at 4 of 6 impulse charges; the charges came out of
+    # the stock print tagged spare/stock, the hub loadout (impulse charge: 0) kept making them spare, and each hub's
+    # component pass sent the other's spares over (each leaving with both at: pins)
+    from rsweb import loadouts
+    assert comp.component_tags(["spare", "stock", "fleet:x", "to:a", "at:a-1"], "SOLARES-BELT-1") == \
+        ["component", "to:solares", "at:solares-belt-1"]
+    fac = lambda code, loc: {"device_code": code, "device_type": "autofactory", "location": loc, "status": "waiting_for_resources",  # noqa: E731
+                             "print_queue": [{"device_type": "vector_charge", "tags": ["spare", "stock"]}],
+                             "waiting_for": {"components": {"impulse_charge": {"have": 2, "need": 3}}}}
+    ic = lambda code, loc, tags: {"device_code": code, "device_type": "impulse_charge", "location": loc, "status": "idle",  # noqa: E731
+                                  "tags": tags}
+    devs = [fac("AF1", "SOLARES-BELT-1"), fac("AF2", "FALQUORYX-BELT-1"),
+            ic("S1", "SOLARES-BELT-1", ["at:solares-belt-1", "spare"]), ic("S2", "SOLARES-BELT-1", []),
+            ic("F1", "FALQUORYX-BELT-1", ["at:falquoryx-belt-1", "spare"]), ic("F2", "FALQUORYX-BELT-1", ["spare", "stock"]),
+            ic("X1", "ABOTEIN-2", ["spare"])]
+    claim = comp.claimable(devs)
+    assert sorted(d["device_code"] for d, _ in claim) == ["F1", "F2", "S1", "S2"]
+    f2 = next((d, t) for d, t in claim if d["device_code"] == "F2")
+    assert comp.retag(*f2) == {"add_tags": ["component", "to:falquoryx", "at:falquoryx-belt-1"], "remove_tags": ["spare", "stock"]}
+    for d, t in claim:
+        d["tags"] = [x for x in d["tags"] if x not in comp.retag(d, t)["remove_tags"] and x not in t] + t
+    # another factory's components (or spares pinned elsewhere) aren't spares to take; a free spare is
+    assert [d["device_code"] for d in comp.spares_elsewhere(devs, "SOLARES-BELT-1", "impulse_charge")] == ["X1"]
+    assert loadouts.is_component({"tags": ["component"]})
+    e = client.app.state.worker.automations
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices += [dict(d) for d in devs[2:]]
+    pinned, printed, _ = client.portal.call(e.pin_or_print, "impulse_charge", 2, "SOLARES-BELT-1", devs[4:], set(), "t",
+                                            None, comp.component_tags([], "SOLARES-BELT-1"), {"AF1", "AF2"})
+    assert pinned == ["X1"]
+    assert set(next(d for d in world.devices if d["device_code"] == "X1")["tags"]) == {"component", "to:solares", "at:solares-belt-1"}

@@ -639,8 +639,11 @@ orbital farm), deployed at the factory. Every print the app queues (manual ones 
 3. puts the rest ahead of it on the same factory, with the item's tags (its location pins swapped for the factory's).
    One the game won't print (a locked blueprint) is logged and the item queued anyway.
 
-A factory already waiting for components gets spares pinned to it, or the rest printed at another autofactory (every
-5 minutes).
+Components are tagged `component` and pinned to the factory (`to:`/`at:`); the item's spare, stock and fleet tags
+don't pass on, so no fleet counts them, the loadout pass never makes them spare, and no other factory takes them.
+
+A factory already waiting for components first claims the ones of that type already at its location (tags them
+`component`), then gets free spares pinned to it, or the rest printed at another autofactory (every 5 minutes).
 
 ### Blueprints
 

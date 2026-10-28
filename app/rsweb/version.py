@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.291.1"
+VERSION = "1.292.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.292.0", "2026-10-28", "Printed components are tagged as components: a print's component devices carry the `component` tag, pinned to the factory, without the item's spare, stock or fleet tags, so no loadout makes them spare and no other factory takes them. A factory waiting for components claims the ones already at its location first. Both printing hubs' vector charge prints sat at 4 of 6 impulse charges: the charges came out tagged like the stock print, the hub loadout (impulse charge: 0) kept making them spare, and each hub's component pass sent the other's spares over."),
     ("1.291.1", "2026-10-28", "The way back no longer takes a pile that a request delivers to: F10B1A2F dropped 200 silicates at RILXORAE-3 for Dyson Swarm Seed and took the 500 conductive an earlier trip had left there back to FALQUORYX, round after round (KELMORNEA-3 for Planetary Shield Project the same). A surge's arrival counts at the spot it landed: the game names the star as the destination (15DFB014 landed at BELNULEON-10-L4 with destination BELNULEON), so trips ending at an entry point waited out their hour; a trip step also finishes once its device stands at the destination (F7E30727 and 3E6D7DD7 sat at ISOLITHOR-1-L4)."),
     ("1.291.0", "2026-10-28", "Tags & controllers check: a fleetless device run by the controller of a fleet that is not stationed (such as a logistics fleet) now joins that fleet while the fleet has room for its type, and is released by the controller when the fleet is full (live: hauler F0A908ED under Delta Logistics' consolidate controller A0B8F5C7 joins as its 4th hauler). A device that reached its to: system while still aboard its carrier, or on a running delivery job, is shown as handled: that job detaches it and drops the to: tag (live: transport drone 7B1B81BA at ANLOREN-7-L4)."),
     ("1.290.0", "2026-10-28", "Deliveries use the way back: a logistics ship that drops materials for a print, contract, trade or hub upkeep outside a printing hub's system no longer flies home empty. It loads a stray stockpile in that system or within a relay hop (not in a hub system, at least 25 units, not farther from the hub than the drop-off) and brings it to the nearest printing hub, what the hub's prints lack first. The job row says \"on the way back ... from ... → ...\"; that pile isn't sent another ship the same pass. Ships riding a carrier and payout trips are left as before."),

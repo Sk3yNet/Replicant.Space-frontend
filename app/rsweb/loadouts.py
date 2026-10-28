@@ -283,6 +283,11 @@ def survey_cargo(devices: list[dict], fleets: list[dict]) -> set[str]:
             and tags & set(d.get("tags") or [])}
 
 
+def is_component(d: dict) -> bool:
+    """Kept for a print that uses it up (components.py): it goes to / stays at that factory, no fleet takes it."""
+    return "component" in (d.get("tags") or [])
+
+
 def for_contract(d: dict) -> bool:
     """Tagged for a contract (contractsupply.py): it goes to / stays at the contract's location, no fleet takes it."""
     return any(str(t).startswith("contract:") for t in d.get("tags") or [])
@@ -480,7 +485,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             if GATHER in (d.get("tags") or []) and SPARE in (d.get("tags") or []) and not fleet_tag_of(d):
                 sent_spare.append(d["device_code"])
             f = by_tag.get(fleet_tag_of(d) or "")
-            if not fleet_tag_of(d) and GATHER not in (d.get("tags") or []) and homes_of.get(dest) and not for_contract(d):
+            if (not fleet_tag_of(d) and GATHER not in (d.get("tags") or []) and homes_of.get(dest) and not for_contract(d)
+                    and not is_component(d)):
                 f = homes_of[dest][0]   # sent before stationed fleets (no fleet tag yet): it joins the fleet there on arrival
             if f and f["home"] == dest:
                 incoming[f["id"]][d.get("device_type")] += 1
@@ -506,8 +512,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     # fleetless devices each stationed fleet may take: in its home system, not spare, not on the way elsewhere
     unassigned: dict[str, list[dict]] = defaultdict(list)
     for d in pool:
-        if fleet_tag_of(d) or d["device_code"] in replicant_hosts or for_contract(d):
-            continue   # a device on its way to (or kept at) a contract's location isn't the fleet there's to take
+        if fleet_tag_of(d) or d["device_code"] in replicant_hosts or for_contract(d) or is_component(d):
+            continue   # a device on its way to (or kept at) a contract's location, or a print's component, isn't the fleet there's to take
         tags = set(d.get("tags") or [])
         dest = bound_for(d, known_stars, fleet_homes)
         if dest and star_of(d.get("location")) != dest and not ferry_side(d):
@@ -648,7 +654,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         code = d["device_code"]
         tags = set(d.get("tags") or [])
         spare_now = (SPARE in tags or SPARE in tag_add[code]) and SPARE not in tag_remove[code]
-        if spare_now and not fleet_now(code) and code not in moves and code not in busy and not ferry_side(d) and not for_contract(d):
+        if (spare_now and not fleet_now(code) and code not in moves and code not in busy and not ferry_side(d)
+                and not for_contract(d) and not is_component(d)):
             donors[d.get("device_type") or "device"].append(d)
 
     def working(d: dict) -> bool:

@@ -283,15 +283,18 @@ class SimMixin:
         materials), split over the autofactories at that factory's stockpile. `tags` replaces the to: / at: pins as the tags
         to add; factories in `not_at` don't print; `load` (code -> queued seconds) balances successive calls. Returns (codes
         pinned, how many queued to print, note on what failed)."""
-        from .loadouts import at_tag, is_factory, to_tag
+        from .components import retag
+        from .loadouts import at_tag, is_component, is_factory, pinned_at, to_tag
         tags = tags or [to_tag(star_of(loc)), at_tag(loc)]
+        # a spare pinned elsewhere, or another factory's component, stays (live 2026-10-28: the SOLARES and FALQUORYX
+        # hubs' component passes swapped impulse charges, each leaving with both factories' at: pins)
         spares = [d for d in devices if d.get("device_type") == ctype and d not in (skip or []) and at_tag(loc) not in (d.get("tags") or [])
-                  and "spare" in (d.get("tags") or []) and d.get("device_code") not in busy]
+                  and "spare" in (d.get("tags") or []) and d.get("device_code") not in busy
+                  and not is_component(d) and not pinned_at(d)]
         pinned: list[str] = []
         printed, note = 0, None
         for d in spares[:n]:
-            ok, _, err = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": {"add_tags": tags,
-                                         "remove_tags": [t for t in ("spare", "stock") if t in (d.get("tags") or []) and t not in tags]}},
+            ok, _, err = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": retag(d, tags)},
                                          f"{why}: {d['device_code']} to {loc}")
             if ok:
                 pinned.append(d["device_code"])

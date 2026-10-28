@@ -8,7 +8,10 @@ waits at the head until they're there (`waiting_for.components: {type: {have, ne
   won't print (a locked blueprint) is logged and the item queued anyway: the factory waits for it. They carry the item's tags (its reservation: contract, fleet, spare …), with the item's
   to:/at: pins swapped for the factory's location so the loadout pass keeps them there.
 - A factory already waiting for components gets them from spares (pinned to its location) or printed at another
-  autofactory (component_pass in the engine).
+  autofactory (component_pass in the engine). Components of the missing type already at its location are claimed
+  (tagged `component`) first: printed before 1.292.0 they came out tagged spare/stock or untagged, the printing hub's
+  loadout (impulse charge: 0) made them spare, and the two hubs' component passes sent them back and forth (live
+  2026-10-28: both vector charge prints sat at 4 of 6 impulse charges while two charges crossed between the systems).
 """
 from __future__ import annotations
 
@@ -17,6 +20,7 @@ from typing import Any
 
 PRINT_PATH = re.compile(r"^/?(?:v1/)?devices/([^/]+)$")
 MAX_DEPTH = 3
+COMPONENT = "component"   # loadouts.is_component: reserved for a print at its pinned location, never spare
 
 
 def components(bp: dict | None) -> dict[str, int]:
@@ -47,10 +51,42 @@ def total_resources(device_type: str, bps: dict[str, dict], depth: int = 0) -> d
 
 
 def component_tags(tags: list[str] | None, location: str) -> list[str]:
-    """The item's tags for its components: its reservation kept, its location pins replaced by the factory's."""
+    """The item's tags for its components: `component`, pinned to the factory's location; the item's location pins and
+    the tags that would count them for a fleet or as stock left out."""
     from .loadouts import at_tag, to_tag
-    keep = [t for t in tags or [] if not t.startswith(("to:", "at:"))]
-    return keep + [to_tag(location.split("-")[0]), at_tag(location)]
+    keep = [t for t in tags or [] if t not in ("spare", "stock", COMPONENT) and not t.startswith(("to:", "at:", "fleet:", "home:"))]
+    return keep + [COMPONENT, to_tag(location.split("-")[0]), at_tag(location)]
+
+
+def retag(d: dict, tags: list[str]) -> dict:
+    """The PATCH configuration that makes a device a component with `tags`: its spare/stock tags and other pins go."""
+    return {"add_tags": tags, "remove_tags": [t for t in d.get("tags") or [] if t not in tags and (
+        t in ("spare", "stock") or t.startswith(("to:", "at:", "fleet:", "home:")))]}
+
+
+def claimable(devices: list[dict]) -> list[tuple[dict, list[str]]]:
+    """Devices at a factory waiting for components of their type that aren't tagged as its components yet:
+    [(device, tags)], at most what the factory still needs."""
+    from . import printqueue as pq
+    from .loadouts import for_contract, is_component, pinned_at
+    out = []
+    for f in devices:
+        wf = (f.get("waiting_for") or {}).get("components") or {}
+        if not isinstance(wf, dict) or not f.get("location"):
+            continue
+        tags = component_tags((pq.items(f) or [{}])[0].get("tags"), f["location"])
+        for t, x in sorted(wf.items()):
+            if not isinstance(x, dict):
+                continue
+            here = [d for d in devices if d.get("device_type") == t and d.get("location") == f["location"]
+                    and not d.get("stowed_in_device_code") and not str(d.get("status") or "").startswith(("stowed", "compact"))
+                    and not any(str(g).startswith("fleet:") for g in d.get("tags") or []) and not for_contract(d)
+                    and pinned_at(d) in (None, f["location"])]
+            mine = sum(1 for d in here if is_component(d))
+            for d in sorted((d for d in here if not is_component(d)), key=lambda d: d.get("device_code") or "")[
+                    :max(0, int(x.get("need") or 0) - mine)]:
+                out.append((d, tags))
+    return out
 
 
 async def before_print(api: Any, db: Any, path: str, body: Any, depth: int = 0) -> None:
@@ -77,8 +113,7 @@ async def before_print(api: Any, db: Any, path: str, body: Any, depth: int = 0) 
         left = n * qty - free_here(devices, fac, t, bps)
         for d in spares_elsewhere(devices, fac["location"], t)[:max(0, left)]:   # pinned: the loadout pass brings them
             try:
-                await api.request("PATCH", f"/devices/{d['device_code']}", json_body={"configuration": {
-                    "add_tags": tags, "remove_tags": [t for t in ("spare", "stock") if t in (d.get("tags") or []) and t not in tags]}})
+                await api.request("PATCH", f"/devices/{d['device_code']}", json_body={"configuration": retag(d, tags)})
                 left -= 1
             except Exception:  # noqa: BLE001  (not pinned: printed instead)
                 pass
@@ -127,20 +162,24 @@ def free_here(devices: list[dict], fac: dict, device_type: str, bps: dict[str, d
 
 
 def spares_elsewhere(devices: list[dict], location: str, device_type: str) -> list[dict]:
-    """Spare components of a type away from the location and not already pinned there."""
-    from .loadouts import at_tag
+    """Spare components of a type away from the location and not pinned anywhere (another factory's components stay)."""
+    from .loadouts import is_component, pinned_at
     return sorted((d for d in devices if d.get("device_type") == device_type and "spare" in (d.get("tags") or [])
-                   and d.get("location") != location and at_tag(location) not in (d.get("tags") or [])),
+                   and d.get("location") != location and not pinned_at(d) and not is_component(d)),
                   key=lambda d: d.get("device_code") or "")
 
 
 def coming(devices: list[dict], location: str, device_type: str) -> int:
     """Devices of a type on their way to `location` or queued to print for it (pinned there by an at: tag)."""
-    from .loadouts import at_tag
+    from .loadouts import at_tag, to_tag
     from . import printqueue as pq
     pin = at_tag(location)
+
+    def bound(d: dict) -> bool:   # pinned to two places (before 1.292.0): the one its to: tag names
+        tags = d.get("tags") or []
+        return sum(1 for t in tags if t.startswith("at:")) < 2 or to_tag(location.split("-")[0]) in tags
     n = sum(1 for d in devices if d.get("device_type") == device_type and pin in (d.get("tags") or [])
-            and (d.get("location") != location or d.get("stowed_in_device_code")))
+            and (d.get("location") != location or d.get("stowed_in_device_code")) and bound(d))
     for f in devices:
         for it in pq.items(f) if pq.has_queue(f) else []:
             if it.get("device_type") == device_type and pin in (it.get("tags") or []):
