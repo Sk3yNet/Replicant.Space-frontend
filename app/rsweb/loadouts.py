@@ -988,6 +988,29 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 and not (ignore & set(d.get("tags") or [])) and code not in releases.get(c, [])):
             releases[c].append(code)
 
+    # a fleetless device run by an unstationed fleet's controller in its system (live 2026-10-28: hauler F0A908ED under
+    # Delta Logistics' consolidate controller A0B8F5C7 at ISOLITHOR) joins that fleet while the fleet has room for its
+    # type (or doesn't count it): it is already working for the fleet, and releasing a loaded hauler mid-run would drop
+    # its cargo run. With the fleet full, the controller lets it go instead. (Under a stationed fleet's controller a
+    # fleetless device is one of the home system's devices: same_side lets it work there.)
+    unstationed = {fl.fleet_tag(f["id"]): f for f in cfg["fleets"] if f.get("id") and not f.get("station")}
+    joined: Counter = Counter()
+    for d in pool:
+        code, c = d["device_code"], d.get("controller_device_code")
+        f = unstationed.get(fleet_tag_of(by_code_all.get(c) or {}) or "")
+        if (not c or not f or fleet_tag_of(d) or any(t.startswith("fleet:") for t in tag_add.get(code, ()))
+                or code in moves or code in releases.get(c, []) or ferry_side(d) or SPARE in (d.get("tags") or [])
+                or ignore & set(d.get("tags") or []) or ctrl_star(d) != star_of(d.get("location"))):
+            continue
+        tag, t = fl.fleet_tag(f["id"]), d.get("device_type") or ""
+        want = fl.station_wants(f).get(t)
+        have = sum(1 for x in devices if tag in (x.get("tags") or []) and (x.get("device_type") or "") == t) + joined[tag, t]
+        if want is None or have < want:
+            tag_add[code].add(tag)
+            joined[tag, t] += 1
+        elif code not in busy:
+            releases[c].append(code)
+
     # controllers and the devices they run (a controller leaving lets its drones go and drops its directive first)
     managed_map: dict[str, list[str]] = defaultdict(list)
     for d in devices:
@@ -1893,7 +1916,7 @@ def ferry_steps(r: dict) -> list[dict]:
 
 # --- audit: do tags and controller assignments match the loadouts? ---------------------------------------------
 def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, handoff_drones: set[str] | None = None,
-          replicant_hosts: dict | None = None) -> list[dict]:
+          replicant_hosts: dict | None = None, busy: set[str] | None = None) -> list[dict]:
     """Inconsistencies between tags, controller assignments and the fleets, each with whether the next pass (`p`, the
     current plan) or the arrival hand-off fixes it. Devices of fleets away on a mission and ignored devices are left out,
     like in the planner."""
@@ -1907,7 +1930,8 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
     releases = {c for codes in (p.get("releases") or {}).values() for c in codes}
     tag_rem = p.get("tag_remove") or {}
     moves, arrived = p.get("moves") or {}, set(p.get("arrived") or [])
-    handoff_drones = handoff_drones or set()
+    handoff_drones, busy = handoff_drones or set(), busy or set()
+    tag_add = p.get("tag_add") or {}
     out: list[dict] = []
 
     def add(d: dict, issue: str, fixed: bool, how: str) -> None:
@@ -1950,15 +1974,21 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
                 "released" if code in releases else "moved")
         dest = bound_for(d, known)
         if dest and here == dest:
-            add(d, f"arrived in {dest} but still tagged to:{dest.lower()}", code in arrived, "arrival step clears it")
+            # a device still aboard its carrier, or on a running delivery job, is cleared by that job's last step (live
+            # 2026-10-28: 7B1B81BA attached to 3E6D7DD7 at ANLOREN-7-L4, its job's detach and -to:anloren still to come)
+            riding = code in busy or in_transit(d, by)
+            add(d, f"arrived in {dest} but still tagged to:{dest.lower()}", code in arrived or riding,
+                "arrival step clears it" if code in arrived else "its delivery job clears it on drop-off")
         f = stationed.get(ftags[0]) if ftags else None
         if f and here and here != f["home"] and not dest and SPARE not in tags and not ctrl and d.get("taxi_mode") != "taxi" \
                 and str(d.get("status") or "").startswith(("idle", "stowed")) and not d.get("location_stale"):
             add(d, f"idle in {here}, away from {f['name']}'s home {f['home']}", code in moves, "sent home")
         cfleet = next((t for t in ctrl_dev.get("tags") or [] if t.startswith("fleet:")), None)
         if ctrl and cfleet and cfleet not in ftags and not (not ftags and cfleet in stationed):
-            add(d, f"run by {ctrl}, a controller of {cfleet}, but not in that fleet", code in releases,
-                f"released by {ctrl}" if code in releases else f"release it from {ctrl}, or add it to the fleet")
+            joins = cfleet in tag_add.get(code, ())
+            add(d, f"run by {ctrl}, a controller of {cfleet}, but not in that fleet", code in releases or joins,
+                f"joins {cfleet}" if joins else f"released by {ctrl}" if code in releases
+                else f"release it from {ctrl}, or add it to the fleet")
         if code in handoff_drones:
             add(d, "idle in its system with no controller", True, "adopted by the system's controller")
     star_order = {s: i for i, s in enumerate(sorted(known))}

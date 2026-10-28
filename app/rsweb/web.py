@@ -3905,9 +3905,10 @@ async def loadout_ctx(request: Request) -> dict:
         cat = await db.kv_get("stars", {}) or {}
         star_cat = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
         hosts = {r.get("hosted_device_code"): code for code, r in st["replicants"].items() if r.get("hosted_device_code")}
-        pending_handoffs = {h["drone"] for h in handoffs(st["devices"], await managed_by(db), eng.busy_devices(await eng.jobs()),
+        busy = eng.busy_devices(await eng.jobs())
+        pending_handoffs = {h["drone"] for h in handoffs(st["devices"], await managed_by(db), busy,
                                                           set(p.get("moves") or {}), set(cfg.get("ignore_tags") or []), limit=200)}
-        return lo.audit(cfg, st["devices"], star_cat, p, pending_handoffs, hosts)
+        return lo.audit(cfg, st["devices"], star_cat, p, pending_handoffs, hosts, busy)
     audit = await pagecache.get(request, "audit", tags_check)
     from . import consolidate as co
     consolidation = [co.describe(x) for x in await pagecache.get(request, "consolidate_plan", eng.consolidate_plan)]

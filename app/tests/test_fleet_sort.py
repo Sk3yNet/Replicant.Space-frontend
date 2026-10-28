@@ -73,3 +73,31 @@ def test_extras_drop_at_a_hub_and_spare_the_protected():
     assert [d["device_code"] for d in Engine.droppable_extras(f, moving, set(), hubs, set())] == ["MD1"]
     assert [d["device_code"] for d in Engine.droppable_extras(f, devices, {"MD2"}, hubs, set())] == ["MD1"]
     assert fl.kept_reason(next(d for d in devices if d["device_code"] == "MC1"), devices) == "holds a replicant or matrix"
+
+
+def test_fleetless_device_under_an_unstationed_fleets_controller_joins_or_is_released():
+    # live 2026-10-28: hauler F0A908ED under Delta Logistics' consolidate controller A0B8F5C7, in no fleet
+    ctrl = D("C1", "ami_transport_controller", "ISO-BELT-1", ["fleet:dl"], features=["ami"], status="coordinating")
+    mine = [D(f"M{i}", "transport_hauler", "ISO-BELT-1", ["fleet:dl"], controller_device_code="C1", status="hauling")
+            for i in range(3)]
+    stray = D("F0", "transport_hauler", "ISO-1-L4", [], controller_device_code="C1", status="travelling")
+    cfg = {"fleets": [{"id": "dl", "name": "DL", "role": "logistics", "home": "ISO", "station": False,
+                       "wants": {"transport_hauler": 4}}]}
+    p = lo.plan(cfg, [ctrl, *mine, stray], [], {}, {}, {}, set(), [], {})
+    assert "fleet:dl" in p["tag_add"].get("F0", []) and not p["releases"].get("C1")   # room for a 4th: it joins
+    rows = lo.audit(cfg, [ctrl, *mine, stray], {}, p)
+    assert any(r["code"] == "F0" and r["fixed"] and r["how"] == "joins fleet:dl" for r in rows)
+    cfg["fleets"][0]["wants"] = {"transport_hauler": 3}
+    p = lo.plan(cfg, [ctrl, *mine, stray], [], {}, {}, {}, set(), [], {})
+    assert p["releases"].get("C1") == ["F0"] and "fleet:dl" not in p["tag_add"].get("F0", [])   # full: let go
+
+
+def test_arrived_device_still_aboard_its_carrier_is_left_to_its_job():
+    carrier = D("P1", "surge_plate", "ANL-7-L4", [], status="travelling")
+    drone = D("T1", "transport_drone", "ANL-7-L4", ["to:anl"], attached_to_device_code="P1", status="attached")
+    cfg = {"fleets": []}
+    stars = {"ANL": {"position": {"x": 0, "y": 0, "z": 0}}}
+    p = lo.plan(cfg, [carrier, drone], [], {}, stars, {}, set(), [], {})
+    assert "T1" not in p["arrived"]
+    row = next(r for r in lo.audit(cfg, [carrier, drone], stars, p) if r["code"] == "T1")
+    assert row["fixed"] and "delivery job" in row["how"]

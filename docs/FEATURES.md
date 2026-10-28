@@ -362,6 +362,8 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
 - Placed beacons and relays are never made spare or moved.
 - **Fleets sort themselves out** (1.284.0): a device of one fleet run by another fleet's controller is released, so its
   own fleet's controller adopts it again (idle miners are only handed to their own fleet's controller, or a fleetless one).
+  A fleetless device run by an unstationed fleet's controller joins that fleet while it has room for the type, else it
+  is released (1.291.0).
   Members on their way home that haven't left yet are let go as spares where they wait once the fleet has its count.
   An unstationed fleet (survey, logistics, prospector) drops members beyond its loadout as spares the next time they're
   idle in a system with one of your hubs (home for repairs, say); *Fill from spares* (rule *Sort out unstationed fleets*)
