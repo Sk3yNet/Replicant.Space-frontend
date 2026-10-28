@@ -1277,25 +1277,35 @@ def test_a_device_out_of_range_counts_at_its_pinned_deal_location():
     assert not gev.at_place({**d, "tags": []}, "ALKALAROPS-OORT")
 
 
-def test_devices_stranded_in_one_system_share_the_carrier_with_the_most_free_seats():
-    """Owner 2026-10-28: trade rewards at ALKALAROPS went home one per carrier; the game names only the star out of range."""
+def test_rescues_take_the_smallest_carrier_that_seats_the_whole_system_and_nearby_strays():
+    """Owner 2026-10-28: trade rewards at ALKALAROPS went home one per carrier; size the carrier to what the system needs
+    (no mobile fleet for one device), seats to spare pick up nearby rescues. Out of range the game names only the star."""
+    pos = {**POS, "Y": {"x": 70, "y": 0, "z": 0}}
     devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
-            dev("P1", "racing_vessel", "A-1", **SURGE),
-            dev("PL", "surge_platform", "A-1", **SURGE),
+            dev("BIG", "surge_platform", "A-1", attach_capacity=10, **SURGE),
+            dev("PL2", "surge_platform", "A-1", attach_capacity=2, **SURGE),
+            dev("PL3", "surge_platform", "A-1", attach_capacity=3, **SURGE),
             dev("T1", "transport_drone", "Z", tags=[], in_control_range=False, available_commands=["travel"]),
-            dev("T2", "transport_drone", "Z", tags=[], in_control_range=False, available_commands=["travel"])]
-    from rsweb import fleets as fl
-    seats = {c: fl.seats(d, devs) for c, d in (("P1", devs[1]), ("PL", devs[2]))}
-    assert seats["PL"]["attach"] >= 2, seats
-    p = _rescue_plan(devs)
-    runs = [r for r in p["runs"] if r["kind"] == "rescue"]
-    assert len(runs) == 1 and runs[0]["ride"] == "PL" and [x["code"] for x in runs[0]["more"]] == ["T2"]
+            dev("T2", "transport_drone", "Z", tags=[], in_control_range=False, available_commands=["travel"]),
+            dev("T3", "transport_drone", "Y", tags=[], in_control_range=False, available_commands=["travel"])]
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=pos, commandable={"A", "B"}, hosts={"HV": "R1"},
+                busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    runs = [r for r in p["runs"] if r["kind"] == "rescue" and r.get("req")]
+    assert len(runs) == 1 and runs[0]["ride"] == "PL2" and [x["code"] for x in runs[0]["more"]] == ["T2"]
     assert any(u["req"] == "rescue:T2" and "together with T1" in u["why"] for u in p["unmet"])
     steps = lg.run_steps(runs[0], {d["device_code"]: d for d in devs})
-    meets = [s for s in steps if s.get("meet")]
-    assert [s["meet"] for s in meets] == ["T1", "T1", "T2", "T2"]   # a trip and its wait for each, resolved on the way
+    assert [s["meet"] for s in steps if s.get("meet")] == ["T1", "T1", "T2", "T2"]   # a trip and its wait each, resolved there
     assert [s["body"]["device"] for s in steps if (s["body"] or {}).get("command") in ("attach", "detach")] == ["T1", "T2", "T1", "T2"]
     assert "T2" in lg.run_devices(runs[0])
+    devs[3]["attach_capacity"] = 3   # PL3 seats Z's two and has one to spare: the nearby stray at Y rides along
+    devs[2]["attach_capacity"] = 1
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=pos, commandable={"A", "B"}, hosts={"HV": "R1"},
+                busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    run = next(r for r in p["runs"] if r["kind"] == "rescue" and r.get("req"))
+    assert run["ride"] == "PL3" and [x["code"] for x in run["more"]] == ["T2", "T3"]
+    steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
+    assert [s["body"]["destination"] for s in steps if (s["body"] or {}).get("command") == "travel"
+            and s["path"] == "/devices/PL3"] == ["Z", "Z", "Z", "Y", "Y", "A-1"]
 
 
 def test_an_out_of_range_device_pinned_in_its_system_is_not_rescued():

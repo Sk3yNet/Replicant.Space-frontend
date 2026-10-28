@@ -604,8 +604,8 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
   (their own trip takes them there).
 - One that can surge is reached by a replicant in its system or anywhere its dark relay network covers, and commanded
   home. One that can't is picked up from its last known location by a carrier with a free seat, a replicant along.
-  Others stranded in the same system for the same home ride along: the carrier with the most free seats for them is
-  chosen first. Out of range the game names only the star, so once the replicant is in the system the carrier goes to
+  The seats every device stranded in that system (for the same home) needs pick the carrier: the smallest that seats
+  them all, else the one that seats the most and the rest get another; seats to spare pick up rescues within 15 ly. Out of range the game names only the star, so once the replicant is in the system the carrier goes to
   each device's own spot. A device pinned (`at:`) in the system it's stranded in counts as stocked there.
 - A rescue whose trips add up to more than the **sector range** (a day at the game's 50 s/ly), or to a star whose
   position isn't known, waits for your **Confirm** on the request (one alert; the OK holds two days).

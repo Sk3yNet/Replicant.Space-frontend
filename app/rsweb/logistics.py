@@ -131,6 +131,7 @@ KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like plac
 MIN_LOAD = 0.25               # a cross-system print delivery leaves with its hold at least this full (or all that's wanted)
 LONG_HAUL_LY = 15.0            # beyond this a part load waits even when a print is stalled for materials
 RELAY_HOP = 7.5                # distances compared in relay hops: anything in the same hop counts as equally near
+RESCUE_NEAR_LY = 15.0          # a rescue carrier with seats to spare also picks up devices stranded this near
 MOVING = ("travel", "cruis", "surg", "moving", "recall", "returning", "collecting", "depositing", "mining", "printing")
 
 
@@ -1137,10 +1138,16 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                          "rescued": code, "mode": "self", "point": point, "to": home_loc, "carry": {},
                          "back": back, "label": r["label"]})
             return
-        # it can't fly home: a carrier picks it up (stowed or attached; large devices are compacted first), with the
-        # other devices stranded in the same system for the same home as far as its free seats go (owner 2026-10-28)
-        group = [(r2, d2) for r2, d2, h2 in rescue_reqs if r2 is not r and not r2["skipped"] and h2 == fleet_home
-                 and d2["device_code"] not in used and star_of(d2["location"]) == star and not self_flyer(d2)]
+        # it can't fly home: a carrier picks it up (stowed or attached; large devices are compacted first). Owner
+        # 2026-10-28: the seats every device stranded in this system (for the same home) needs decide the carrier: the
+        # smallest that seats them all (no big carrier for one device), else the one that seats the most and the rest get
+        # another; seats left over pick up rescues in nearby systems on the way.
+        others = [(r2, d2) for r2, d2, h2 in rescue_reqs if r2 is not r and not r2["skipped"] and h2 == fleet_home
+                  and d2["device_code"] not in used and not self_flyer(d2)]
+        group = [(r2, d2) for r2, d2 in others if star_of(d2["location"]) == star]
+        near = sorted(((r2, d2) for r2, d2 in others if star_of(d2["location"]) != star
+                       and _dist(star_of(d2["location"]), star, pos) <= RESCUE_NEAR_LY),
+                      key=lambda x: (_dist(star_of(x[1]["location"]), star, pos), x[1]["device_code"]))
         cands = []
         for c, e in free.items():
             if c in used or not can_surge(e) or not (star_of(e.get("location")) == star or _dist(star_of(e.get("location")), star, pos) <= reach):
@@ -1151,12 +1158,16 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             mode = fl.take_seat(seats_left, d)
             if mode:
                 more = [(r2, d2, m2) for r2, d2 in group if (m2 := fl.take_seat(seats_left, d2))]
-                cands.append((-len(more), c not in hosts, _dist(star_of(e.get("location")), star, pos), c, e, mode, more))
+                full = len(more) == len(group)
+                fit = seats_left["hold"] + seats_left["attach"] if full else -len(more)   # fewest seats to spare / most aboard
+                cands.append(((not full, fit, c not in hosts, _dist(star_of(e.get("location")), star, pos), c), e, mode, more,
+                              seats_left))
         if not cands:
             unmet.append({"req": r["id"], "why": f"no free logistics carrier with a free seat {_within(reach, star)}"})
             return
-        cands.sort(key=lambda x: x[:4])   # the most of them aboard first, then one hosting a replicant (no escort), nearest
-        _, _, _, c, carrier, mode, more = cands[0]
+        cands.sort(key=lambda x: x[0])   # then one hosting a replicant (no escort), nearest
+        (*_, c), carrier, mode, more, seats_left = cands[0]
+        more += [(r2, d2, m2) for r2, d2 in near if (m2 := fl.take_seat(seats_left, d2))]
         if _needs_ok(r, _trip_hours([(star_of(carrier.get("location")), star), (star, star_of(home_loc))], pos), prefs, unmet):
             return
         esc = None
@@ -1640,6 +1651,8 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
         aboard = [{"code": code, "mode": run["mode"]}, *(run.get("more") or [])]   # others stranded there ride along
         for x in aboard:
             there = at.get(x["code"]) or point
+            if star_of(there) != star_of(at.get(ride)):   # stranded in a nearby system: there with the replicant
+                hop(there, [ride] + ([esc] if esc else []), " (pick up)")
             if star_of(there) != there:
                 hop(there, [ride], " (pick up)")
             else:   # known only by its star: once there, the carrier goes to its own spot
