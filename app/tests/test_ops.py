@@ -342,6 +342,27 @@ def test_a_hubs_stock_prints_arent_gathered_at_the_depot():
     p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
     assert p["gathering"] == ["MD1", "P2"]   # the hub's own stock print stays; other spares still go to the depot
 
+
+def test_spares_are_gathered_at_the_nearest_receiving_point():
+    """Owner 2026-10-28: each idle spare goes to the nearest receiving fleet's home, not one depot for all."""
+    from rsweb import loadouts as lo
+    stars = {"A": {"position": {"x": 0, "y": 0, "z": 0}}, "B": {"position": {"x": 500, "y": 0, "z": 0}},
+             "NA": {"position": {"x": 5, "y": 0, "z": 0}}, "NB": {"position": {"x": 495, "y": 0, "z": 0}}}
+
+    def drone(code, loc):
+        return {"device_code": code, "device_type": "mining_drone", "location": loc, "status": "idle", "tags": ["spare"],
+                "features": ["cruise", "mine", "stow"], "available_commands": ["travel", "stow", "start_mining"]}
+    devices = [drone("D1", "NA-BELT-1"), drone("D2", "NB-BELT-1"), drone("D3", "B-BELT-1")]
+    fleets = [{"id": "a", "name": "A hub", "role": "mining", "home": "A", "station": True, "materials": "self"},
+              {"id": "b", "name": "B hub", "role": "mining", "home": "B", "station": True, "materials": "self"}]
+    cfg = {"phases": [], "systems": {}, "fleets": fleets}
+    assert lo.gather_points(cfg, devices) == ["A", "B"]
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {})
+    assert p["gathering"] == ["D1", "D2"] and p["moves"]["D1"] == "A" and p["moves"]["D2"] == "B"   # D3 is at one already
+    assert any("nearest receiving point: D1 → A, D2 → B" in x for x in lo.describe(p))
+    cfg["settings"] = {"spare_depot": "a"}   # a chosen depot still takes them all
+    assert lo.gather_points(cfg, devices) == ["A"]
+
 def test_redundant_beacon_marked_spare_via_traffic_page(client):
     add(client, device_code="BCN00002", device_type="ftl_beacon", location="SOL-KUIPER", status="monitoring",
         features=["stow", "audit"], available_commands=["deploy", "stow"])

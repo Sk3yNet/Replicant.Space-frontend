@@ -59,6 +59,19 @@ def spare_depot(cfg: dict, devices: list[dict]) -> str | None:
     return None
 
 
+def gather_points(cfg: dict, devices: list[dict]) -> list[str]:
+    """Where idle spares are gathered, each at the nearest of these: the chosen spare depot, else the homes of the
+    receiving fleets (materials 'self', owner 2026-10-28), else spare_depot()'s pick."""
+    s = cfg.get("settings") or {}
+    if s.get("spare_depot"):
+        return [str(s["spare_depot"]).upper()]
+    homes = sorted({f["home"] for f in fl.destinations(cfg.get("fleets") or [])})
+    if homes:
+        return homes
+    one = spare_depot(cfg, devices)
+    return [one] if one else []
+
+
 def can_travel(d: dict) -> bool:
     """Can fly on its own inside a system (beacons can't: a carrier has to come and pick them up)."""
     cmds = d.get("available_commands")
@@ -873,9 +886,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if code in busy and f and f["home"] == dest and left_behind(d, dest, fl.fleet_tag(f["id"])):
             busy.discard(code)
 
-    # spares nobody needs this pass are gathered at the depot (a delivery / autofactory system) for later use
+    # spares nobody needs this pass are gathered at the nearest receiving fleet's home (or the chosen spare depot) for later use
     gathering: list[str] = []
-    depot = spare_depot(cfg, devices) if s.get("gather_spares", True) and not only else None
+    points = gather_points(cfg, devices) if s.get("gather_spares", True) and not only else []
 
     def kept_in_stock(d: dict) -> bool:
         """A keep-in-stock print at a hub that keeps its type in stock: gathering it away would only get it printed
@@ -883,12 +896,18 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         t = d.get("device_type")
         return STOCK in (d.get("tags") or []) and any(int((f.get("stock") or {}).get(t) or 0) > 0
                                                        for f in homes_of.get(star_of(d.get("location")), []))
-    if depot:
+
+    def nearest_point(d: dict) -> str:
+        here = star_of(d.get("location"))
+        return min(points, key=lambda st: (_dist(here, st, pos), st))
+    if points:
         for t, ds in donors.items():
             for d in ds:
                 code = d["device_code"]
-                if (code in moves or code in busy or star_of(d.get("location")) == depot or not d.get("location")
-                        or d.get("controller_device_code") or working(d) or pinned_at(d) or d.get("location_stale")
+                if code in moves or code in busy or not d.get("location") or star_of(d.get("location")) in points:
+                    continue
+                depot = nearest_point(d)
+                if (d.get("controller_device_code") or working(d) or pinned_at(d) or d.get("location_stale")
                         or d.get("taxi_mode") == "taxi" or "taxi" in (d.get("tags") or []) or fam(d)
                         or kept_in_stock(d)
                         or not near(d, depot)   # never flown further than the supply range just to be parked
@@ -1268,7 +1287,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
             "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
             "by_code": by_code, "managed": managed_map, "made_spare": sorted(made_spare), "gathering": sorted(gathering),
-            "depot": depot, "assign": assign}
+            "depot": ", ".join(sorted({moves[c] for c in gathering})) or ", ".join(points) or None, "assign": assign}
 
 
 ATTACH_CARRIERS = ("surge_plate", "surge_platform", "surge_carrier", "mobile_fleet")
@@ -1652,7 +1671,9 @@ def describe(p: dict) -> list[str]:
         came = f" (flies in from {star_of(dl['fetch_from'])} to pick them up at {dl['carrier_loc']})" if dl.get("fetch_from") else ""
         out.append(f"{dl['carrier']} {how} {', '.join(dl['devices'])} and carries them from {dl['from']} to {', '.join([dl['to']] + list(dl.get('stops') or []))}{came}")
     if p.get("gathering"):
-        out.append(f"gather {len(p['gathering'])} idle spare(s) at the depot {p.get('depot')}: {', '.join(p['gathering'])}")
+        out.append(f"gather {len(p['gathering'])} idle spare(s) at the depot {p.get('depot')}: {', '.join(p['gathering'])}"
+                   if ", " not in (p.get("depot") or "") else f"gather {len(p['gathering'])} idle spare(s) at the nearest "
+                   f"receiving point: {', '.join(c + ' → ' + p['moves'].get(c, '?') for c in p['gathering'])}")
     for code in p.get("returning") or []:
         d = p["by_code"].get(code, {})
         out.append(f"{code} ({d.get('device_type')}) is away from its fleet's home, in {star_of(d.get('location'))}: "

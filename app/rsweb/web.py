@@ -3898,7 +3898,7 @@ async def loadout_ctx(request: Request) -> dict:
     consolidate_on = bool(((await eng.settings())["rules"].get("consolidate") or {}).get("enabled"))
     return {"cfg": cfg, "types": types, "plan": p, "lines": lo.describe(p), "present": present, "audit": audit,
             "audit_age": pagecache.age_minutes(request, "audit"),
-            "depot": lo.spare_depot(cfg, st["devices"]),
+            "depot": ", ".join(lo.gather_points(cfg, st["devices"])),
             "consolidation": consolidation, "consolidate_on": consolidate_on,
             "active_jobs": [j for j in jobs if j["status"] in ("running", "waiting")],
             "recent_jobs": [j for j in reversed(jobs) if j["status"] not in ("running", "waiting")][:8],
