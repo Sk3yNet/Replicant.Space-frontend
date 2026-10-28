@@ -686,7 +686,8 @@ Account and per-replicant reputation, known species. **Bulk profile import**: pa
 - Bill is the exception: his BobNet post that he moved closes his shop until it's seen again.
 - A trade run paid in devices gets spare ones delivered and deployed at the shop.
 - Each trade has a quantity: *Buy* buys that many one after another (the game sells one unit per call) and stops at
-  the first refusal; *approve* × n has logistics deliver n prices and execute it n times.
+  the first refusal; *approve* × n has logistics deliver n prices and execute it n times. The approval stays until n units are
+  bought (the box shows how many are left), so units a trip couldn't buy are delivered and bought later.
 
 ### Lockers
 Equipment lockers are NPC devices that hand out a set loadout once per account (e.g. SOL-OORT, TWAFFY-OORT).

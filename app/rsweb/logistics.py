@@ -63,6 +63,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .automations import STEP_TIMEOUT, step
+from .db import now_iso
 from .shapes import as_amounts
 
 KV_STATE = "logistics_state"        # the last pass: requests, runs, unmet
@@ -86,6 +87,31 @@ def trade_times(ok: dict, key: str, stock=None) -> int:
     if isinstance(stock, int) and stock > 0:
         n = min(n, stock)
     return n
+
+
+def settle_trades(ok: dict, jobs: list[dict]) -> bool:
+    """Count what each ended fulfil job bought (its trade executions that went through) against the approval: one
+    left over stays approved for the rest (a convoy's replicant can arrive before the rest of the price; owner
+    2026-10-28: 10 vector charges approved, one or two bought, approval gone). True when anything changed."""
+    by_id = {j["id"]: j for j in jobs}
+    changed = False
+    for key, jid in list((ok.get("running") or {}).items()):
+        j = by_id.get(jid)
+        if j and j.get("status") in ("running", "waiting", "pending"):
+            continue
+        ctrl, _, code = key.partition(":")
+        path = f"/devices/{ctrl}/trades/{code}"
+        bought = sum(1 for st in (j or {}).get("steps") or [] if st.get("path") == path and st.get("status") == "done")
+        left = trade_times(ok, key) - bought if j else 0
+        ok["running"].pop(key)
+        if left > 0 and key in (ok.get("trades") or {}):
+            ok.setdefault("counts", {})[key] = left
+        else:
+            (ok.get("trades") or {}).pop(key, None)
+            (ok.get("counts") or {}).pop(key, None)
+            ok.setdefault("done", {})[key] = now_iso()
+        changed = True
+    return changed
 
 
 def times(amounts: dict, n: int) -> dict:
@@ -1641,7 +1667,10 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
                               critical=True))
     if run.get("fulfil"):
         for dl in [run["fulfil"]] + (run.get("also") or []):   # and the other deals at the same location it paid for
-            steps += [fl.fulfil_step(dl, run.get("replicant"), template) for _ in range(dl.get("times") or 1)]
+            for i in range(dl.get("times") or 1):   # a later unit refused leaves the rest approved (settle_trades)
+                st = fl.fulfil_step(dl, run.get("replicant"), template)
+                st["critical"] = i == 0
+                steps.append(st)
     if run.get("rewards") and run.get("home") and cargos:
         # load what the deal paid out (each ship up to its hold; not critical: the payout can differ from what was listed)
         left, loaded = dict(run["rewards"]), []

@@ -135,7 +135,7 @@ async def logistics_run(request: Request, user: str = Depends(current_user)):
 async def trade_approve(request: Request, controller: str = Form(...), trade_code: str = Form(...), on: str = Form(""),
                         qty: str = Form("1"), user: str = Depends(current_user)):
     """Approve one trade: the logistics service delivers its price and executes it, once, or qty times (one delivery
-    pays qty prices). Shop listings nobody approved are never fulfilled."""
+    pays qty prices; it stays approved until qty units are bought). Shop listings nobody approved are never fulfilled."""
     db = request.app.state.db
     ok = await db.kv_get(lg.KV_TRADES, {}) or {}
     box, counts = ok.setdefault("trades", {}), ok.setdefault("counts", {})
@@ -150,5 +150,6 @@ async def trade_approve(request: Request, controller: str = Form(...), trade_cod
     else:
         box.pop(key, None)
         counts.pop(key, None)
+        (ok.get("running") or {}).pop(key, None)
     await db.kv_set(lg.KV_TRADES, ok)
     return HTMLResponse(f'<span class="muted small">{(f"approved ×{n}" if n > 1 else "approved") if on == "on" else "approval withdrawn"}</span>')

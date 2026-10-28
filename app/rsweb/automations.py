@@ -4204,12 +4204,16 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from collections import Counter
         from .fleets import device_counts as fl_counts
         ok = await self.db.kv_get(lg.KV_TRADES, {}) or {}
+        if lg.settle_trades(ok, jobs):
+            await self.db.kv_set(lg.KV_TRADES, ok)
         trades = []
         from .shop import known_traders
         for ctrl, t in (await known_traders(self.db)).items():
             for tr in t.get("trades") or []:
                 key = f"{ctrl}:{tr.get('trade_code')}"
                 once = key in (ok.get("trades") or {})   # only a trade you approved: shop listings are never fulfilled
+                if key in fulfilling or key in (ok.get("running") or {}):   # a job is on it: settled when it ends
+                    continue
                 # a ward's species lock stops other players completing location events (contracts) in its system, not a
                 # shop's trades: Bill's shop is often at SOL, which is warded (owner 2026-10-20: an approved SOL trade was
                 # left out of the requests)
@@ -4347,14 +4351,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 if run.get("fulfil") and run.get("reward_devices") and run.get("home"):
                     pickups[run["to"]] = {"types": run["reward_devices"], "to": star_of(run["home"]), "at": now_iso()}
                 out.append(lg.describe(run))
-                if run.get("fulfil"):   # an approval counts once (each trade the run fulfills)
+                if run.get("fulfil"):   # the approval stays until the job ends; then the units it bought are counted
                     keys = [x["req"].split(":", 1)[1] for x in run.get("also") or [] if x["kind"] == "trade"]
                     if run["kind"] == "trade":
                         keys.append(run["req"].split(":", 1)[1])
                     for key in keys:
-                        ok.setdefault("trades", {}).pop(key, None)
-                        ok.setdefault("counts", {}).pop(key, None)
-                        ok.setdefault("done", {})[key] = now_iso()
+                        ok.setdefault("running", {})[key] = job["id"]
                     if keys:
                         await self.db.kv_set(lg.KV_TRADES, ok)
         if wanted is not None:

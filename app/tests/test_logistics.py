@@ -739,8 +739,25 @@ def test_an_approved_trade_for_several_units_pays_and_executes_each(client):  # 
     run = {"to": "B-3", "legs": [], "cargos": [], "carry": {}, "fulfil": lg._deal(req), "replicant": "R1"}
     execs = [s for s in lg.run_steps(run, {}) if s["path"] == "/devices/C1/trades/T1"]
     assert len(execs) == 3 and "×3" in execs[0]["desc"]
+    assert [x["critical"] for x in execs] == [True, False, False]   # a later refusal doesn't stop the job
     client.post("/shop/approve", data={"controller": "C1", "trade_code": "T1"}, headers=HX)
     assert client.portal.call(db.kv_get, "trade_approvals")["counts"] == {}
+
+
+def test_an_approval_for_several_units_stays_until_all_are_bought():
+    """Owner 2026-10-28: 10 vector charges approved, one or two bought and the approval was gone. The approval now stays
+    while the job runs and keeps the units it didn't buy."""
+    path = "/devices/C1/trades/T1"
+    ok = {"trades": {"C1:T1": "x"}, "counts": {"C1:T1": 10}, "running": {"C1:T1": "j1"}}
+    job = {"id": "j1", "status": "waiting", "steps": [{"path": path, "status": "done"}]}
+    assert not lg.settle_trades(ok, [job]) and ok["running"] == {"C1:T1": "j1"}
+    job["status"] = "failed"
+    job["steps"] += [{"path": path, "status": "done"}, {"path": path, "status": "failed"}]
+    assert lg.settle_trades(ok, [job])
+    assert ok["counts"] == {"C1:T1": 8} and "C1:T1" in ok["trades"] and ok["running"] == {}
+    ok["running"]["C1:T1"] = "j2"
+    lg.settle_trades(ok, [{"id": "j2", "status": "done", "steps": [{"path": path, "status": "done"}] * 8}])
+    assert ok["trades"] == {} and ok["counts"] == {} and "C1:T1" in ok["done"]
 
 
 def test_a_priority_shows_at_once_and_every_tier_is_accepted(client):  # noqa: F811
