@@ -1336,7 +1336,8 @@ BACKHAUL_KINDS = ("print", "contract", "trade", "upkeep")
 def backhaul(runs: list[dict], spare: dict[str, dict[str, float]], gather: dict[str, str], reqs: list[dict],
              pool: list[dict], commandable: set[str], pos: dict[str, Any], bpl: list[dict]) -> None:
     """Sets run["backhaul"] = {"pile", "to", "takes": {code: {resource: qty}}} on delivery runs (ships flying
-    themselves, no ride) that end outside a printing hub's system: after the drop-off they fly to a stray stockpile (not in a hub system, at least MIN_RETURN,
+    themselves, no ride) that end outside a printing hub's system: after the drop-off they fly to a stray stockpile
+    (not where any request or run of this pass delivers, not in a hub system, at least MIN_RETURN,
     in the drop-off's system or within a relay hop of it, no farther from the hub than the drop-off is plus a hop),
     load what they hold, and deposit it at the hub. What the hub's prints lack goes first, then the biggest amounts.
     Takes from `spare`, so the stockpile returns of this pass don't fetch it too."""
@@ -1350,6 +1351,9 @@ def backhaul(runs: list[dict], spare: dict[str, dict[str, float]], gather: dict[
         if r["kind"] == "print" and r.get("to"):
             for x, q in (r.get("need") or {}).items():
                 lacks[star_of(r["to"])][x] = lacks[star_of(r["to"])].get(x, 0.0) + q
+    # a pile some request delivers to is no stray (live 2026-10-28: F10B1A2F dropped 200 silicates at RILXORAE-3 for
+    # Dyson Swarm Seed and took the 500 conductive an earlier trip had left there back to FALQUORYX, again and again)
+    kept = {r["to"] for r in reqs if r.get("to") and r["kind"] != "return"} | {r["to"] for r in runs if r.get("to")}
     for run in runs:
         cargos = [c for c in run.get("cargos") or [] if not c.get("rides")]
         dstar = star_of(run.get("to"))
@@ -1359,7 +1363,7 @@ def backhaul(runs: list[dict], spare: dict[str, dict[str, float]], gather: dict[
             continue
         hub = min(hubs, key=lambda h: (_dist(dstar, h, pos), h))
         home_d = _dist(dstar, hub, pos)
-        piles = [l for l, s_ in spare.items() if star_of(l) not in gather and star_of(l) in commandable
+        piles = [l for l, s_ in spare.items() if l not in kept and star_of(l) not in gather and star_of(l) in commandable
                  and sum(q for q in s_.values() if q >= 1) >= MIN_RETURN
                  and (star_of(l) == dstar or _dist(dstar, star_of(l), pos) <= RELAY_HOP)
                  and _dist(star_of(l), hub, pos) <= home_d + RELAY_HOP]

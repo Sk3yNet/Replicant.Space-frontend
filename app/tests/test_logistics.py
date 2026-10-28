@@ -1217,3 +1217,13 @@ def test_a_delivery_brings_a_stray_pile_back_instead_of_flying_home_empty():
     tail = [(s["desc"], (s["body"] or {}).get("command")) for s in steps if "way back" in s["desc"] or "deposit at A-1" in s["desc"]]
     assert [x[1] for x in tail] == ["travel", "collect_resources", "travel", "deposit_resources"]
     assert "on the way back 300 silicates from B-BELT → A-1" in lg.describe(run)
+
+
+def test_the_way_back_never_takes_a_pile_a_request_delivers_to():
+    # live 2026-10-28: RILXORAE-3 got 200 silicates and lost the 500 conductive left there for the same contract
+    devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=500, **SURGE),
+            dev("HV", "heaven_vessel", "A-1", **SURGE)]
+    c = {"designation": "EV1", "location": "B-3", "title": "Local", "price": {"carbon": 50, "silicates": 300}}
+    p = run_plan(devs, {"A-1": {"carbon": 1000}, "B-3": {"silicates": 300}}, [c])
+    run = next(r for r in p["runs"] if r["req"] == "contract:EV1")
+    assert "backhaul" not in run

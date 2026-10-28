@@ -459,6 +459,10 @@ def event_matches(st: dict, ev: dict, device: str | None) -> bool:
         if have is None:
             continue
         have, want = str(have).upper(), str(v).upper()
+        if k == "destination" and have != want and "-" not in have and str(ev.get("location") or "").upper() == want:
+            # a surge's arrival names the star; the event's location is where it landed (live 2026-10-28: 15DFB014
+            # landed at BELNULEON-10-L4 with destination "BELNULEON", and the trip waited out its hour)
+            continue
         if k == "destination" and "-" not in want:
             # traveling "to a star" lands at one of its locations (entry point, L4 …)
             if have != want and not have.startswith(want + "-"):
@@ -1471,8 +1475,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         the event was older than the wait, and nothing moved for half an hour)."""
         if "travel.arrived" not in (st.get("wait") or []):
             return False
-        code = st.get("wait_device") or job.get("device")
-        dest = str((st.get("match") or {}).get("destination") or "").upper()
+        path = str(st.get("path") or "")
+        code = st.get("wait_device") or (path.split("/")[2] if path.startswith("/devices/") else None) or job.get("device")
+        dest = str((st.get("match") or {}).get("destination") or (st.get("body") or {}).get("destination") or "").upper()
         by = {x.get("device_code"): x for x in await self.devices()}
         d, seen = by.get(code), set()
         # already aboard a carrier standing there counts too (live 2026-10-18: a survey controller with recall on stowed
@@ -1719,7 +1724,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         await self._advance(job["id"])
                     continue
                 started = _ts(st.get("started_at")) or now
-                if st.get("method") == "WAIT" and (now - started).total_seconds() > 60 and await self._arrived_now(st, job):
+                if (st.get("method") == "WAIT" or "travel.arrived" in (st.get("wait") or [])) \
+                        and (now - started).total_seconds() > 60 and await self._arrived_now(st, job):
                     st["status"], st["note"] = "done", "already there"
                     job["idx"] += 1
                     job["status"] = "running"

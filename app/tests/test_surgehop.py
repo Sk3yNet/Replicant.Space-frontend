@@ -196,3 +196,13 @@ def test_a_wait_lasts_until_the_current_legs_eta_when_the_game_underprices_it(cl
     st = {"wait_device": "V1", "started_at": (now - timedelta(hours=1)).isoformat(), "timeout": 3600, "desc": "trip"}
     job = client.portal.call(e.create_job, "fleets", "trip", "V1", [au.step("x", "", None, method="WAIT")], {}, True)
     assert client.portal.call(e._still_travelling, st, job, now)
+
+
+def test_a_surge_arrival_naming_the_star_matches_the_spot_it_landed_at():
+    # live 2026-10-28: travel.arrived {destination: BELNULEON}, location BELNULEON-10-L4
+    from rsweb.automations import event_matches
+    st = {"wait": ["travel.arrived"], "match": {"destination": "BELNULEON-10-L4"}}
+    ev = {"event": "travel.arrived", "device_code": "X", "location": "BELNULEON-10-L4",
+          "payload": {"destination": "BELNULEON", "travel_type": "surge"}}
+    assert event_matches(st, ev, "X")
+    assert not event_matches(st, {**ev, "location": "BELNULEON-OORT"}, "X")
