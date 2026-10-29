@@ -47,8 +47,8 @@ async def chatter_page(request: Request, user: str = Depends(current_user)):
 
 async def channels(db, cfg: dict) -> list[str]:
     """The two chatter channels, #general and #trade, then every channel a saved BobNet post was in."""
-    seen = [r[0] for r in await db.fetchall(
-        "SELECT DISTINCT json_extract(payload, '$.channel') FROM events WHERE event='bobnet.new' LIMIT 50")]
+    seen = [r["ch"] for r in await db.fetchall(
+        "SELECT DISTINCT json_extract(payload, '$.channel') AS ch FROM events WHERE event='bobnet.new' LIMIT 50")]
     out = []
     for c in [cfg["general"], cfg["bots"], "#general", "#trade", *sorted(str(x) for x in seen if x)]:
         if c not in out:

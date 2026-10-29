@@ -150,7 +150,10 @@ def test_placeholders_from_bills_post_and_no_quick_repeats(client):  # noqa: F81
 
 def test_write_a_message_by_hand(client):  # noqa: F811
     _reps(client, npc=False)
+    client.portal.call(client.app.state.db.insert_event, {"id": "b1", "event": "bobnet.new",
+                                                          "payload": {"channel": "#lounge", "message": "hi"}})
     page = client.get("/chatter", headers=H).text
+    assert "#lounge" in page
     assert "Write a message" in page and "#bots" in page and "#trade" in page
     r = client.post("/chatter/write", data={"code": REP, "channel": "#general", "other": "sk3y-bots", "text": "Hello"}, headers=HX)
     assert r.headers.get("X-Sent") == "1" and _world(client).bobnet_posts[-1] == {"code": REP, "channel": "#sk3y-bots", "text": "Hello"}
