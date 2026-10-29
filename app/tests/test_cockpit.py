@@ -73,3 +73,42 @@ def test_scanned_moons_are_offered_as_destinations(client):  # noqa: F811
     assert 'value="ETHIREL-2-4"' in form and 'value="ETHIREL-2-5"' not in form and "ETHIREL-3-1" not in form
     t = client.portal.call(system_targets, db, "ETHIREL")
     assert [x["code"] for x in t["targets"] if x["category"] == "moon"] == [f"ETHIREL-2-{n}" for n in range(1, 5)]
+
+
+def test_events_reach_the_page_while_a_tick_holds_the_engine_lock(client):  # noqa: F811
+    """Live 2026-10-29: an 80 s tick held the lock and the stream waited in automations.on_event, so the rounds of a
+    swoop run arrived after it ended. Now the event is announced at once and the automations get it after the tick."""
+    w = client.app.state.worker
+    seen, handled = [], []
+    q = client.app.state.hub.subscribe()
+    orig = w.automations.on_event
+
+    async def spy(ev, late=False):
+        await orig(ev, late=late)
+        handled.append(ev["id"])
+    w.automations.on_event = spy
+
+    async def run():
+        import asyncio
+        held, release = asyncio.Event(), asyncio.Event()
+
+        async def tick():   # another task, like the engine's tick
+            async with w.automations.lock:
+                held.set()
+                await release.wait()
+        t = asyncio.create_task(tick())
+        await held.wait()
+        for n in (1, 2):
+            await asyncio.wait_for(w.handle_event({"id": f"sw{n}", "event": "swoop.round", "category": "swoop",
+                                                   "created_at": "2026-10-29T16:36:34+00:00",
+                                                   "payload": {"round": n, "debris_status": "flanking"}}), 2)
+        while not q.empty():
+            kind, data = q.get_nowait()
+            if kind == "event":
+                seen.append(data["id"])
+        assert handled == []
+        release.set()
+        await t
+        await asyncio.wait_for(w._auto_task, 2)
+    client.portal.call(run)
+    assert seen == ["sw1", "sw2"] and handled == ["sw1", "sw2"]

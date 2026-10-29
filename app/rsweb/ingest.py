@@ -7,7 +7,7 @@ import logging
 import random
 import re
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -208,6 +208,8 @@ class Worker:
         self.late = {"n": 0, "oldest": None}   # late events since the last live one, for the catch-up note
         self._watch: dict[str, datetime] = {}   # device code → until when its events refresh it (after_order)
         self._bg: set[asyncio.Task] = set()
+        self._auto_q: deque = deque()   # events waiting for the engine lock, in order (see _automate)
+        self._auto_task: asyncio.Task | None = None
         self.devices_lock = asyncio.Lock()   # quick read-modify-writes of the cached device list (refreshes, bulk tags)
         self._arrivals: list[datetime] = []   # arrival refreshes lately (watched_event)
         self._rep_dirty: set[str] = set()     # replicants whose details the next account sync re-reads (sync_account)
@@ -238,7 +240,7 @@ class Worker:
 
     async def stop(self) -> None:
         await self.automations.stop()
-        for t in self.tasks:
+        for t in self.tasks + ([self._auto_task] if self._auto_task else []):
             t.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
 
@@ -376,10 +378,31 @@ class Worker:
                 src[bp["device_type"]] = bp.get("source")
                 await self.db.kv_set("blueprint_sources", dict(list(src.items())[-200:]))
             self.request_blueprint_refresh()
-        try:
-            await self.automations.on_event(ev, late=late)
-        except Exception:
-            log.exception("automations failed on %s", ev.get("event"))
+        await self._automate(ev, late)
+
+    async def _automate(self, ev: dict, late: bool) -> None:
+        """Hand the event to the automations. They take the engine lock, which a tick can hold for a minute (80 s
+        live 2026-10-29 after a restart): waiting here held up the event stream, so a swoop run's rounds reached the
+        cockpit only after it ended. While the lock is busy, events queue in order for a worker instead."""
+        lock = self.automations.lock
+        if not self._auto_q and not (self._auto_task and not self._auto_task.done()) and (
+                not lock.locked() or lock._owner is asyncio.current_task()):
+            try:
+                await self.automations.on_event(ev, late=late)
+            except Exception:
+                log.exception("automations failed on %s", ev.get("event"))
+            return
+        self._auto_q.append((ev, late))
+        if not self._auto_task or self._auto_task.done():
+            self._auto_task = asyncio.create_task(self._drain_automations())
+
+    async def _drain_automations(self) -> None:
+        while self._auto_q:
+            ev, late = self._auto_q.popleft()
+            try:
+                await self.automations.on_event(ev, late=late)
+            except Exception:
+                log.exception("automations failed on %s", ev.get("event"))
 
     async def note_caught_up(self) -> None:
         """First live event after a run of late ones: one note instead of a notification per replayed event."""

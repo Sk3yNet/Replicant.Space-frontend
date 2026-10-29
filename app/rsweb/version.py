@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.306.1"
+VERSION = "1.306.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.306.2", "2026-10-29", "Game events no longer wait for the automation engine. Each event was handed to the automations before the next one was read, and those wait for the engine's lock, which a tick can hold for over a minute (80 s right after a restart). So during a swoop run the rounds reached the cockpit only after the run had ended. Now events show at once, and the automations catch up in order once the tick is done. The cockpit's What works table also lists the overhead and blocked debris seen live."),
     ("1.306.1", "2026-10-29", "Cockpit throttle has two positions: boost pushes it full up and brake full down (it no longer steps back through the middle). It starts in the middle and goes back there at the start of each round."),
     ("1.306.0", "2026-10-29", "Cockpit follows the real swoop run (from the first live run): a warmup countdown where moves are practice, then each round's debris status (flanking, incoming, clear), description and time limit, with right or wrong on the first move and the buttons locked until the next round. Rounds name only the replicant, so the cockpit now matches them to the vessel's pilot; before, they didn't count as the vessel's events. A What works table tallies every graded move by debris status and lights up the move that worked before. The Flight box is gone, and the events list always has room."),
     ("1.305.0", "2026-10-29", "Travel destinations and system target lists include every moon of a scanned planet (STAR-P-1 up to its moon count), so a moon such as ETHIREL-2-4 is offered before any device has been there. Before, only moons the app had seen were listed; typing the code always worked."),

@@ -163,13 +163,13 @@ label.sw { font-size: 11px; color: var(--muted); cursor: pointer; } label.sw inp
       $("g-time").textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }
     let left = 0, span = 1;
     if (run.phase === "warmup") { left = run.warmEnd - now(); span = run.warmSpan;
-      if (left > 0) setAlert(`WARMUP · ${(left / 1000).toFixed(0)} s · moves are practice`, "calm"); }
+      setAlert(left > 0 ? `WARMUP · ${(left / 1000).toFixed(0)} s · moves are practice` : "Warmup over · waiting for round 1", "calm"); }
     else if (run.phase === "round") { left = run.roundEnd - now(); span = run.roundEnd - run.roundStart; }
     $("timer").style.width = Math.max(0, Math.min(100, 100 * left / span)) + "%";
   }, 100);
 
   // ---- what works: every graded move, by debris status ----
-  const STATUSES = ["flanking", "incoming", "clear"];
+  const STATUSES = ["flanking", "incoming", "overhead", "blocked", "clear"];
   function best(status) {
     const row = learned[status] || {};
     const right = ACTS.filter(a => (row[a] || {}).right).sort((a, b) => row[b].right - row[a].right);
