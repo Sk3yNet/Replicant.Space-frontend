@@ -134,6 +134,34 @@ def progress(e: dict, inventory: dict[str, dict], devices: list[dict], replicant
     return {"criteria": crits, "best": best, "present": present, "nearby": nearby, "state": state, "piles": piles}
 
 
+def option_costs(prog: dict, devices: list[dict], blueprints: list[dict]) -> None:
+    """Per criterion with devices: how many of each type are tagged spare, and the option's total cost in resources
+    (what it asks for plus each device's blueprint cost times the quantity). Types without a blueprint go in
+    cost_unknown."""
+    bps = {b.get("device_type"): b for b in blueprints or []}
+    spare: dict[str, int] = defaultdict(int)
+    for d in devices:
+        if "spare" in (d.get("tags") or []):
+            spare[d.get("device_type") or ""] += 1
+    for c in prog.get("criteria") or []:
+        if not c.get("devices"):
+            continue
+        total: dict[str, float] = defaultdict(float)
+        for x in c.get("resources") or []:
+            total[x["resource"]] += x["need"]
+        unknown = []
+        for x in c["devices"]:
+            x["spare"] = spare.get(x["device_type"], 0)
+            bp = bps.get(x["device_type"])
+            if bp is None:
+                unknown.append(x["device_type"])
+                continue
+            for r, q in as_amounts(bp.get("resources") or {}).items():
+                total[r] += float(q) * x["need"]
+        c["cost"] = dict(sorted(((r, q) for r, q in total.items() if q), key=lambda kv: -kv[1]))
+        c["cost_unknown"] = unknown
+
+
 def delivery_plan(e: dict, prog: dict, devices: list[dict]) -> dict:
     """How to get the best criterion's resources to the event location: one AMI transport `delivery` per
     source pile (biggest piles first), until the shortfall is covered."""

@@ -1334,3 +1334,20 @@ def test_a_meet_trip_goes_to_the_device_spot_or_is_skipped(client):  # noqa: F81
 
 async def _noop():
     return None
+
+
+def test_contract_option_spares_and_cost():
+    from rsweb import gameevents as gev
+    e = {"location": "SOL-3", "star": "SOL", "criteria": [
+        {"name": "relays", "resources": {"carbon": 10}, "devices": [{"device_type": "ftl_relay", "quantity": 2}]},
+        {"name": "odd", "resources": {}, "devices": [{"device_type": "mystery", "quantity": 1}]},
+        {"name": "plain", "resources": {"carbon": 5}}]}
+    devices = [{"device_code": "A", "device_type": "ftl_relay", "tags": ["spare"], "location": "SOL-BELT-1"},
+               {"device_code": "B", "device_type": "ftl_relay", "tags": ["fleet:x"], "location": "SOL-BELT-1"}]
+    prog = gev.progress(e, {}, devices, {})
+    gev.option_costs(prog, devices, [{"device_type": "ftl_relay", "resources": {"carbon": 20, "metals": 5}}])
+    relays, odd, plain = prog["criteria"]
+    assert relays["devices"][0]["spare"] == 1
+    assert relays["cost"] == {"carbon": 50, "metals": 10} and relays["cost_unknown"] == []
+    assert odd["cost"] == {} and odd["cost_unknown"] == ["mystery"]
+    assert "cost" not in plain

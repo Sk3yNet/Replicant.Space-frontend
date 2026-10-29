@@ -39,13 +39,18 @@
         <span class="muted">— deliveries, device supply, auto-fulfill and the Fulfill button use it</span></div>{% endif %}
       {% for c in p.criteria %}
       <h3 style="margin:6px 0{{ ';opacity:.55' if (p.criteria | selectattr('chosen') | list) and not c.chosen }}">{{ 'Criteria' if c.name == 'default' else c.name | human }}{% if c.chosen %} <span class="pill small st-work">chosen</span>{% endif %} {% if c.ready_here %}<span class="lv-done small">✓ all here</span>{% elif c.ready_system %}<span class="small">in system — needs delivering</span>{% endif %}</h3>
-      <table class="small"><tr><th>Needs</th><th class="num">Qty</th><th class="num">At {{ e.location }}</th><th class="num">In {{ e.star }}</th></tr>
+      <table class="small"><tr><th>Needs</th><th class="num">Qty</th><th class="num">At {{ e.location }}</th><th class="num">In {{ e.star }}</th>{% if c.devices %}<th class="num" title="devices of this type tagged spare, anywhere">Spare</th>{% endif %}</tr>
         {% for x in c.resources %}<tr><td>{{ x.resource }}</td><td class="num">{{ x.need | num }}</td>
           <td class="num {{ 'lv-done' if not x.short_here else '' }}">{{ x.at_location | num }}</td>
-          <td class="num {{ 'lv-alert' if x.short_system else '' }}">{{ x.in_system | num }}</td></tr>{% endfor %}
+          <td class="num {{ 'lv-alert' if x.short_system else '' }}">{{ x.in_system | num }}</td>{% if c.devices %}<td></td>{% endif %}</tr>{% endfor %}
         {% for x in c.devices %}<tr><td>{{ x.device_type | human }}</td><td class="num">{{ x.need }}</td>
-          <td class="num">{{ x.at_location }}</td><td class="num {{ 'lv-alert' if x.short_system else '' }}">{{ x.in_system }}</td></tr>{% endfor %}
+          <td class="num">{{ x.at_location }}</td><td class="num {{ 'lv-alert' if x.short_system else '' }}">{{ x.in_system }}</td>
+          <td class="num {{ 'lv-done' if x.spare >= x.need else '' }}">{{ x.spare }}</td></tr>{% endfor %}
       </table>
+      {% if c.devices %}<div class="small"><b>Total cost:</b>
+        {% for r, q in c.cost.items() %}{{ q | round | int }} {{ r }}{{ ', ' if not loop.last }}{% else %}<span class="muted">nothing known</span>{% endfor %}
+        <span class="muted" title="the resources it asks for plus each device's blueprint cost times the quantity">(resources asked + devices printed)</span>
+        {% if c.cost_unknown %}<span class="lv-warning">· no blueprint for {{ c.cost_unknown | map('human') | join(', ') }}</span>{% endif %}</div>{% endif %}
       {% endfor %}
     </div>
     <div>

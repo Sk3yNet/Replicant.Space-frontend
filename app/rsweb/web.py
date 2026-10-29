@@ -4048,11 +4048,13 @@ async def game_events_ctx(request: Request) -> dict:
     settings = await db.kv_get("event_settings", {}) or {}
     supply = await db.kv_get("contract_supply", {}) or {}
     life, approvals = await gev.life_map(db), await db.kv_get(gev.APPROVALS_KV, {}) or {}
+    bps = normalize_blueprints(await db.kv_get("blueprints", []))
     open_, closed = [], []
     for e in sorted(evs.values(), key=lambda e: e.get("discovered_at") or "", reverse=True):
         if e["status"] == "open":
             e["prog"] = gev.progress(e, inv, st["devices"], st["replicants"])
             e["plan"] = gev.delivery_plan(e, e["prog"], st["devices"])
+            gev.option_costs(e["prog"], st["devices"], bps)
             e["supply"] = supply.get(e["designation"])
             key, label = gev.species_key(e, life)
             e["approval"] = {"key": key, "label": label, "on": key in approvals}

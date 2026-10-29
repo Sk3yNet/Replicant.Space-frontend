@@ -680,6 +680,8 @@ A factory already waiting for components first claims the ones of that type alre
 
 ### Contracts
 - In-game events with criteria (any one option completes it), rewards and progress.
+- Options that ask for devices show how many of each type are tagged spare and the option's total cost in resources
+  (what it asks for plus the devices' blueprint costs).
 - A beacon mark per civilization: yours at its body, only in its system, or none.
 - *Send replicant*, *deliver materials*, *fulfill*.
 - **Deliver devices** sends spare devices to a contract's location; printing what no spare covers waits for
