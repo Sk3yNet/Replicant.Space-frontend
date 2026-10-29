@@ -79,7 +79,7 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   (RHYBRENEUS, 2026-10-18: 18 logistics devices stranded `out_of_range` when the app still counted relay reach as coverage).
 - Relays never fold (hubs do, and only work at L4/L5). A relay left switched off out of everyone's reach can't be
   commanded: switch it on before the carrier leaves. Out of reach the game lists a relay `out_of_range` whether it's on
-  or off. A hub links to relays only within the relay's own 7.5 ly (live list from the SOLARES hub, 2026-10-15).
+  or off. Two relay devices link when either one's range reaches the other: relays link to hubs up to 15 ly away (owner 2026-10-29). A deep space relay station (`deep_space_relay_station`) reaches 10 ly.
 - Simulations run at the datacenter (MIRFAKA-OBJ-1) through its replicant interface, a device owned by Bill (F4791EDF on
   2026-10-15): scan for devices from a replicant there and use that code in `/v1/devices/:interface_code/simulate`.
   The interface also offers research and (v3.6.2) data uploads: `POST .../upload {"device_code"}` consumes a deployed
