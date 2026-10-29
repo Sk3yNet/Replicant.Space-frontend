@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
 from . import chatter as ch
+from .db import now_iso
 from .web import current_user, load_state, page, partial
 
 router = APIRouter()
@@ -38,9 +39,44 @@ async def chatter_page(request: Request, user: str = Depends(current_user)):
     npc_list = [names[c] for c in ch.npcs(reps)]
     not_npc = [names[c] for c in reps if c not in ch.npcs(reps)]
     return await page(request, user, "chatter.html", "chatter", cfg=cfg, state=state, by_trigger=groups, answers=answers,
-                      names=names, triggers=ch.TRIGGERS, npc_list=npc_list, not_npc=not_npc,
+                      names=names, triggers=ch.TRIGGERS, slots=ch.SLOTS,
+                      channels=await channels(request.app.state.db, cfg), npc_list=npc_list, not_npc=not_npc,
                       today=ch.posted_today(state), describe=lambda m: ch.describe(m, reps),
                       channel=lambda m: ch.channel_of(m, cfg, "(same as the post)"))
+
+
+async def channels(db, cfg: dict) -> list[str]:
+    """The two chatter channels, #general and #trade, then every channel a saved BobNet post was in."""
+    seen = [r[0] for r in await db.fetchall(
+        "SELECT DISTINCT json_extract(payload, '$.channel') FROM events WHERE event='bobnet.new' LIMIT 50")]
+    out = []
+    for c in [cfg["general"], cfg["bots"], "#general", "#trade", *sorted(str(x) for x in seen if x)]:
+        if c not in out:
+            out.append(c)
+    return out
+
+
+@router.post("/chatter/write", response_class=HTMLResponse)
+async def chatter_write(request: Request, code: str = Form(...), channel: str = Form(""), other: str = Form(""),
+                        text: str = Form(""), user: str = Depends(current_user)):
+    """Write a message by hand as any of your replicants (NPC or not), to a listed channel or one typed in."""
+    from .web import replicant_message
+    ch_name = (other or channel).strip()
+    if not ch_name:
+        return HTMLResponse('<div class="result err">Pick or type a channel.</div>')
+    if not ch_name.startswith("#"):
+        ch_name = "#" + ch_name
+    st = await load_state(request)
+    if code not in st["replicants"]:
+        return HTMLResponse('<div class="result err">Not one of your replicants.</div>')
+    resp = await replicant_message(request, code, ch_name, text, user)
+    if resp.headers.get("X-Sent") == "1":
+        db = request.app.state.db
+        state = ch.norm_state(await db.kv_get(ch.STATE_KV, {}))
+        state["posted"] = (state["posted"] + [{"at": now_iso(), "id": "", "by": code, "channel": ch_name,
+                                               "text": text.strip(), "why": "written by hand", "ok": True}])[-ch.POSTED_KEEP:]
+        await db.kv_set(ch.STATE_KV, state)
+    return resp
 
 
 @router.post("/chatter/settings", response_class=HTMLResponse)

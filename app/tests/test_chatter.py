@@ -117,3 +117,42 @@ def test_profile_npc_flag(client):  # noqa: F811
     assert 'name="is_npc"' in client.get(f"/replicants/{rep}", headers=H).text
     client.post(f"/replicants/{rep}/profile", data={"orig_is_npc": "0", "is_npc": "1"}, headers=HX)
     assert _world(client).profile_patches[-1] == {"code": rep, "is_npc": True}
+
+
+def test_placeholders_from_bills_post_and_no_quick_repeats(client):  # noqa: F811
+    _reps(client)
+    _set(client, "stars", {"stars": [{"designation": "NOSOXA", "region": "outer"}, {"designation": "SOL", "region": "solzone"}]})
+    lib = {"replies": [{"id": "bf1", "to": "Bill", "by": OTHER, "channel": "general", "text": "The girls of {from} are sad to see you go, Bill."},
+                       {"id": "bf2", "to": "Bill", "by": OTHER, "text": "Nice {nope}."}],
+           "lines": [{"id": "l1", "by": "any", "on": "arrived", "text": "Hello {star} in {region}. Hi {poster}."}]}
+    r = client.post("/chatter/preview", data={"messages": json.dumps(lib)}, headers=HX).text
+    assert "unknown placeholder {nope}" in r and "only filled in replies" in r
+    cfg = ch.normalize({"enabled": True, "npc_reply_chance": 1, "delay_min": 0, "delay_max": 0,
+                        "replies": [lib["replies"][0], {"id": "bf3", "to": "Bill", "by": OTHER, "text": "Bye from {from}."}]})
+    _set(client, ch.KV, cfg)
+    e = eng(client)
+    plain = {"event": "bobnet.new", "payload": {"replicant_name": "Bill", "channel": "#general", "current_star": "SOL",
+                                                "message": "Hello everyone"}}
+    client.portal.call(e.chatter_on_event, plain)   # names no system: no answer that needs {from}
+    assert not ch.norm_state(_kv(client, ch.STATE_KV))["queue"]
+    moved = {"event": "bobnet.new", "payload": {"replicant_name": "Bill", "channel": "#general", "current_star": "SOL",
+                                                "message": "Skunkworks is on the move. NOSOXA is in the rear-view mirror."}}
+    client.portal.call(e.chatter_on_event, moved)
+    client.portal.call(e.chatter_pass)
+    assert _world(client).bobnet_posts[-1]["text"] in ("The girls of NOSOXA are sad to see you go, Bill.", "Bye from NOSOXA.")
+    st = {"posted": [{"id": "a"}, {"id": "b"}, {"id": "c"}]}
+    opts = [{"id": x} for x in "abcd"]
+    assert ch.pick(opts, ch.norm_state(st))["id"] == "d"   # never posted first
+    assert ch.pick(opts[:3], ch.norm_state(st))["id"] == "a"   # then the longest ago
+    assert ch.post_values({"current_star": "SOL", "message": "SOL and NOSOXA"}, {"SOL": {}, "NOSOXA": {"region": "outer"}}) \
+        == {"poster": None, "star": "SOL", "from": "NOSOXA", "region": "outer"}
+
+
+def test_write_a_message_by_hand(client):  # noqa: F811
+    _reps(client, npc=False)
+    page = client.get("/chatter", headers=H).text
+    assert "Write a message" in page and "#bots" in page and "#trade" in page
+    r = client.post("/chatter/write", data={"code": REP, "channel": "#general", "other": "sk3y-bots", "text": "Hello"}, headers=HX)
+    assert r.headers.get("X-Sent") == "1" and _world(client).bobnet_posts[-1] == {"code": REP, "channel": "#sk3y-bots", "text": "Hello"}
+    assert ch.norm_state(_kv(client, ch.STATE_KV))["posted"][-1]["why"] == "written by hand"
+    assert "Not one of your" in client.post("/chatter/write", data={"code": "NOPE", "channel": "#general", "text": "x"}, headers=HX).text

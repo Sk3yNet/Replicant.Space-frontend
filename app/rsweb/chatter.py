@@ -41,6 +41,11 @@ DEFAULTS = {"enabled": False, "general": "#general", "bots": "#bots", "chance": 
             "npc_reply_chance": 0.5, "every_hours": 24, "daily_cap": 20, "delay_min": 1, "delay_max": 6,
             "max_depth": 4}
 UNSAFE = re.compile(r"[\"'&<>]")
+# placeholders a message may use: filled from the post it answers or the event it is about; a message whose
+# placeholders can't all be filled isn't picked
+SLOTS = {"poster": "who posted (answers)", "from": "the system the post names, such as the one Bill left",
+         "star": "the system the poster or the event is in", "region": "the catalog region of {from}, else of {star}"}
+SLOT_RE = re.compile(r"\{(\w+)\}")
 POSTED_KEEP = 200
 
 
@@ -145,6 +150,11 @@ def parse_import(text: str, reps: dict[str, dict], cfg: dict) -> tuple[list[dict
             row["errors"].append(f"text is {len(t)} characters (at most {TEXT_MAX})")
         elif UNSAFE.search(t):
             row["warnings"].append("has quotes, ampersands or angle brackets, which BobNet may show oddly")
+        odd = slots(t) - set(SLOTS)
+        if odd:
+            row["errors"].append(f"unknown placeholder {', '.join('{' + x + '}' for x in sorted(odd))} (use {', '.join('{' + x + '}' for x in SLOTS)})")
+        if "poster" in slots(t) and row["kind"] == "line":
+            row["warnings"].append("{poster} is only filled in replies")
         if (m.get("by"), m.get("on"), m.get("after"), m.get("to"), m.get("text")) in dup:
             row["errors"].append("already in the library")
         m.setdefault("id", msg_id(m))
@@ -224,12 +234,44 @@ def trigger_of(ev: dict, devices: list[dict], reps: dict[str, dict], exhausted: 
     return trig, who
 
 
+def slots(text: str) -> set[str]:
+    return set(SLOT_RE.findall(text or ""))
+
+
+def fill(text: str, values: dict) -> str:
+    return SLOT_RE.sub(lambda m: str(values.get(m.group(1)) or m.group(0)), text or "")
+
+
+def fillable(options: list[dict], values: dict | None) -> list[dict]:
+    values = values or {}
+    return [o for o in options if all(values.get(k) for k in slots(o.get("text")))]
+
+
+def post_values(payload: dict, stars: dict[str, dict]) -> dict:
+    """Placeholder values from a BobNet post: the poster, the system they're in, and the first other known system the
+    post names (Bill: "NOSOXA is in the rear-view mirror")."""
+    star = str(payload.get("current_star") or "")
+    text = str(payload.get("message") or "")
+    named = [w for w in re.findall(r"[A-Z][A-Z0-9]{2,}", text) if w in stars and w != star]
+    frm = named[0] if named else None
+    region = (stars.get(frm or star) or {}).get("region")
+    return {"poster": payload.get("replicant_name"), "star": star or None, "from": frm, "region": region}
+
+
 def pick(options: list[dict], state: dict, rnd: random.Random | None = None) -> dict | None:
-    """A random option, avoiding the ones posted most recently while others are left."""
+    """A random option among those never posted, else among the least recently posted third: a poster answered
+    every day cycles through the whole set before anything repeats."""
     rnd = rnd or random
-    recent = [p.get("id") for p in state["posted"][-12:]]
-    fresh = [o for o in options if o["id"] not in recent]
-    return rnd.choice(fresh or options) if options else None
+    if not options:
+        return None
+    last = {}
+    for i, p in enumerate(state["posted"]):
+        last[p.get("id")] = i
+    fresh = [o for o in options if o["id"] not in last]
+    if fresh:
+        return rnd.choice(fresh)
+    old = sorted(options, key=lambda o: last[o["id"]])
+    return rnd.choice(old[:max(1, len(old) // 3)])
 
 
 def replies_to(post_id: str, cfg: dict) -> list[dict]:
@@ -267,12 +309,13 @@ def speaker_for(m: dict, other_than: str | None, reps: dict[str, dict], rnd: ran
 
 
 def queue_item(m: dict, by: str, channel: str, cfg: dict, depth: int, why: str, rnd: random.Random | None = None,
-               now: float | None = None) -> dict:
+               now: float | None = None, values: dict | None = None) -> dict:
     rnd = rnd or random
     lo, hi = float(cfg["delay_min"]), max(float(cfg["delay_max"]), float(cfg["delay_min"]))
     due = (now or _now()) + rnd.uniform(lo, hi) * 60
     return {"due": datetime.fromtimestamp(due, timezone.utc).isoformat(timespec="seconds"), "id": m["id"], "by": by,
-            "channel": channel, "text": m["text"], "depth": depth, "why": why}
+            "channel": channel, "text": fill(m["text"], values or {}), "depth": depth, "why": why,
+            "values": {k: v for k, v in (values or {}).items() if v}}
 
 
 class ChatterMixin:
@@ -296,7 +339,10 @@ class ChatterMixin:
             pname = str(p.get("replicant_name") or "")
             if _now() - _ts(state["answered"].get(pname.lower())) < float(cfg["every_hours"]) * 3600:
                 return
-            opts = npc_replies(pname, str(p.get("message") or ""), cfg)
+            cat = await self.db.kv_get("stars", {}) or {}
+            stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
+            values = post_values(p, stars)
+            opts = fillable(npc_replies(pname, str(p.get("message") or ""), cfg), values)
             if not opts or random.random() >= float(cfg["npc_reply_chance"]):
                 return
             m = pick(opts, state)
@@ -304,7 +350,7 @@ class ChatterMixin:
             if not by:
                 return
             state["answered"][pname.lower()] = now_iso()
-            item = queue_item(m, by, channel_of(m, cfg, p.get("channel")), cfg, 1, f"answers {pname}")
+            item = queue_item(m, by, channel_of(m, cfg, p.get("channel")), cfg, 1, f"answers {pname}", values=values)
         else:
             from . import sites
             exhausted = None
@@ -318,11 +364,15 @@ class ChatterMixin:
                 return
             if _now() - _ts(state["last"].get(who)) < float(cfg["every_hours"]) * 3600:
                 return
-            opts = [m for m in cfg["lines"] if m.get("on") == trig and m.get("by") in (who, "any")]
+            star = str(ev.get("star") or ev.get("location") or "").split("-")[0] or None
+            cat = await self.db.kv_get("stars", {}) or {}
+            region = next((x.get("region") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("designation") == star), None)
+            values = {"star": star, "region": region}
+            opts = fillable([m for m in cfg["lines"] if m.get("on") == trig and m.get("by") in (who, "any")], values)
             if not opts or random.random() >= float(cfg["chance"]):
                 return
             m = pick(opts, state)
-            item = queue_item(m, who, channel_of(m, cfg), cfg, 0, trig)
+            item = queue_item(m, who, channel_of(m, cfg), cfg, 0, trig, values=values)
             item["due"] = now_iso()   # an event line goes out on the next tick; only replies wait
             state["last"][who] = now_iso()
         state["queue"].append(item)
@@ -342,13 +392,14 @@ class ChatterMixin:
         state["posted"] = (state["posted"] + [rec])[-POSTED_KEEP:]
         if rec["ok"] and item.get("depth", 0) < int(cfg["max_depth"]):
             reps = await self.db.kv_get("replicants", {}) or {}
-            opts = replies_to(item["id"], cfg)
+            values = {**(item.get("values") or {}), "poster": (reps.get(item["by"]) or {}).get("name") or item["by"]}
+            opts = fillable(replies_to(item["id"], cfg), values)
             if opts and random.random() < float(cfg["reply_chance"]):
                 m = pick(opts, state)
                 by = speaker_for(m, item["by"], reps)
                 if by:
                     state["queue"].append(queue_item(m, by, channel_of(m, cfg, item["channel"]), cfg,
-                                                     item.get("depth", 0) + 1, f"answers {item['by']}"))
+                                                     item.get("depth", 0) + 1, f"answers {item['by']}", values=values))
         return rec
 
     async def chatter_pass(self) -> list[str]:

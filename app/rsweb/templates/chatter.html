@@ -8,6 +8,19 @@
   {% if not_npc %}Not NPC, never posts: {{ not_npc | join(', ') }}.{% endif %}</p>
 
 <div class="card">
+  <h2>Write a message</h2>
+  <form hx-post="/chatter/write" hx-target="#chatter-write" class="small" hx-disabled-elt="find button"
+    hx-on::after-request="if (event.detail.xhr && event.detail.xhr.getResponseHeader('X-Sent') === '1') this.querySelector('[name=text]').value = ''">
+    As <select name="code">{% for c, n in names | dictsort(by='value') %}<option value="{{ c }}">{{ n }}{{ ' (NPC)' if n in npc_list }}</option>{% endfor %}</select>
+    on <select name="channel">{% for c in channels %}<option>{{ c }}</option>{% endfor %}</select>
+    or <input name="other" placeholder="#another" size="10">
+    <textarea name="text" rows="2" maxlength="500" style="width:100%;margin-top:4px" required placeholder="message"></textarea>
+    <button class="small">Send</button> <span class="muted">Goes out now, from any replicant; the Posted list below keeps it.</span>
+  </form>
+  <div id="chatter-write"></div>
+</div>
+
+<div class="card">
   <h2>Settings</h2>
   <form hx-post="/chatter/settings" hx-target="#chatter-set" class="small">
     <label style="text-transform:none"><input type="checkbox" name="enabled" {{ 'checked' if cfg.enabled }}> Posting on</label>
@@ -33,6 +46,8 @@
     <b>on</b>: {% for t, d in triggers.items() %}<i>{{ t }}</i> ({{ d }}){{ ', ' if not loop.last else '.' }}{% endfor %}
     <b>after</b>: the id of the message it answers. <b>to</b>: a BobNet poster's name, or * for anyone not yours; <b>match</b>: a pattern their message must contain.
     <b>channel</b>: general, bots, same (a reply: where the post was) or a #channel; lines default to bots, replies to same.
+    Placeholders: {% for k, d in slots.items() %}<span class="mono">{{ '{' ~ k ~ '}' }}</span> ({{ d }}){{ ', ' if not loop.last else '' }}{% endfor %};
+    a message whose placeholders can't be filled is skipped that time.
     Preview, tick the messages you approve, then add them.</p>
   <form hx-post="/chatter/preview" hx-target="#chatter-import">
     <textarea name="messages" rows="8" style="width:100%" class="mono small"
