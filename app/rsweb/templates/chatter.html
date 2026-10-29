@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Chatter{% endblock %}
+{% block content %}
+<h1>NPC chatter</h1>
+<p class="muted small">Your NPC replicants post canned BobNet lines about game events they took part in, answer each other, and
+  answer what other NPCs say. Only replicants marked <b>NPC</b> on their page post
+  ({% if npc_list %}now: {{ npc_list | join(', ') }}{% else %}none yet{% endif %}).
+  {% if not_npc %}Not NPC, never posts: {{ not_npc | join(', ') }}.{% endif %}</p>
+
+<div class="card">
+  <h2>Settings</h2>
+  <form hx-post="/chatter/settings" hx-target="#chatter-set" class="small">
+    <label style="text-transform:none"><input type="checkbox" name="enabled" {{ 'checked' if cfg.enabled }}> Posting on</label>
+    <div style="margin-top:4px">General channel <input name="general" value="{{ cfg.general }}" size="10">
+      Bots channel <input name="bots" value="{{ cfg.bots }}" size="10"></div>
+    <div style="margin-top:4px">Each NPC posts at most every <input name="every_hours" value="{{ cfg.every_hours }}" size="4"> hours
+      <span class="muted">(24 = once a day; a conversation's replies don't count)</span></div>
+    <div style="margin-top:4px">Chance an event gets a line <input name="chance" value="{{ cfg.chance }}" size="4">,
+      a line gets an answer <input name="reply_chance" value="{{ cfg.reply_chance }}" size="4">,
+      another NPC's post gets an answer <input name="npc_reply_chance" value="{{ cfg.npc_reply_chance }}" size="4"> <span class="muted">(0 to 1)</span></div>
+    <div style="margin-top:4px">Answers wait <input name="delay_min" value="{{ cfg.delay_min }}" size="3"> to <input name="delay_max" value="{{ cfg.delay_max }}" size="3"> minutes,
+      a conversation stops after <input name="max_depth" value="{{ cfg.max_depth }}" size="2"> answers,
+      at most <input name="daily_cap" value="{{ cfg.daily_cap }}" size="3"> posts a day in all <span class="muted">(today: {{ today }})</span></div>
+    <button class="small" style="margin-top:6px">Save</button>
+  </form>
+  <div id="chatter-set"></div>
+</div>
+
+<div class="card">
+  <h2>Bulk import</h2>
+  <p class="muted small">Paste JSON: <span class="mono">{"lines": [{"id", "by", "on", "channel", "text"}], "replies": [{"id", "by", "after" or "to" (+ "match"), "channel", "text"}]}</span>.
+    <b>by</b>: a replicant code or name, or <i>any</i> (lines: whoever took part; replies: another NPC).
+    <b>on</b>: {% for t, d in triggers.items() %}<i>{{ t }}</i> ({{ d }}){{ ', ' if not loop.last else '.' }}{% endfor %}
+    <b>after</b>: the id of the message it answers. <b>to</b>: a BobNet poster's name, or * for anyone not yours; <b>match</b>: a pattern their message must contain.
+    <b>channel</b>: general, bots, same (a reply: where the post was) or a #channel; lines default to bots, replies to same.
+    Preview, tick the messages you approve, then add them.</p>
+  <form hx-post="/chatter/preview" hx-target="#chatter-import">
+    <textarea name="messages" rows="8" style="width:100%" class="mono small"
+      placeholder='{"lines": [{"id": "w1", "by": "Wilhelmina_Waymark", "on": "survey_done", "channel": "general", "text": "…"}], "replies": [{"after": "w1", "by": "any", "text": "…"}]}'></textarea>
+    <button class="small">Preview</button>
+  </form>
+  <div id="chatter-import"></div>
+</div>
+
+<div class="card">
+  <h2>Library <span class="muted small">{{ cfg.lines | length }} lines, {{ cfg.replies | length }} replies</span></h2>
+  {% macro row(m, indent=0) %}
+    <tr><td class="mono muted">{{ m.id }}</td><td>{% if indent %}<span class="muted">{{ '↳ ' * indent }}</span>{% endif %}{{ 'any NPC' if m.by == 'any' else names.get(m.by, m.by) }}</td>
+      <td>{{ m.text }}<div class="muted">{{ channel(m) }}</div></td>
+      <td style="white-space:nowrap"><button class="small ghost" hx-post="/chatter/post" hx-vals='{"id": "{{ m.id }}"}' hx-target="next span">Post now</button>
+        <button class="small ghost" hx-post="/chatter/remove" hx-vals='{"id": "{{ m.id }}"}' hx-target="next span" hx-confirm="Remove this message?">Remove</button> <span></span></td></tr>
+    {% if indent < 5 %}{% for r in answers.get(m.id, []) %}{{ row(r, indent + 1) }}{% endfor %}{% endif %}
+  {% endmacro %}
+  <table class="small">
+  {% for t, d in triggers.items() %}{% if by_trigger.get(t) %}
+    <tr><th colspan="4">{{ t }} <span class="muted">{{ d }}</span></th></tr>
+    {% for m in by_trigger[t] %}{{ row(m) }}{% endfor %}
+  {% endif %}{% endfor %}
+  {% set tos = cfg.replies | selectattr('to') | rejectattr('after') | list %}
+  {% if tos %}<tr><th colspan="4">Answers to others' posts</th></tr>
+    {% for m in tos %}<tr><td class="mono muted">{{ m.id }}</td><td>{{ 'any NPC' if m.by == 'any' else names.get(m.by, m.by) }}</td>
+      <td><span class="muted">{{ describe(m) }}:</span> {{ m.text }}<div class="muted">{{ channel(m) }}</div></td>
+      <td style="white-space:nowrap"><button class="small ghost" hx-post="/chatter/post" hx-vals='{"id": "{{ m.id }}"}' hx-target="next span">Post now</button>
+        <button class="small ghost" hx-post="/chatter/remove" hx-vals='{"id": "{{ m.id }}"}' hx-target="next span" hx-confirm="Remove this message?">Remove</button> <span></span></td></tr>
+      {% for r in answers.get(m.id, []) %}{{ row(r, 1) }}{% endfor %}{% endfor %}{% endif %}
+  </table>
+  {% if not cfg.lines and not cfg.replies %}<p class="muted small">Empty. Import some messages above.</p>
+  {% else %}<button class="small ghost" hx-post="/chatter/clear" hx-vals='{"what": "library"}' hx-target="#chatter-clear" hx-confirm="Remove every message from the library?">Clear library</button>{% endif %}
+  <div id="chatter-clear"></div>
+</div>
+
+<div class="card">
+  <h2>Queue</h2>
+  {% if state.queue %}<table class="small"><tr><th>Due</th><th>Who</th><th>Message</th><th>Why</th></tr>
+    {% for q in state.queue %}<tr><td>{{ q.due | local }}</td><td>{{ names.get(q.by, q.by) }}</td><td>{{ q.text }}<div class="muted">{{ q.channel }}</div></td><td>{{ q.why }}</td></tr>{% endfor %}</table>
+    <button class="small ghost" hx-post="/chatter/clear" hx-vals='{"what": "queue"}' hx-target="#chatter-q">Clear queue</button><div id="chatter-q"></div>
+  {% else %}<p class="muted small">Nothing waiting.</p>{% endif %}
+  <h2 style="margin-top:12px">Posted</h2>
+  {% if state.posted %}<table class="small"><tr><th>When</th><th>Who</th><th>Message</th><th>Why</th></tr>
+    {% for p in state.posted | reverse %}{% if loop.index <= 40 %}<tr><td>{{ p.at | ago }}</td><td>{{ names.get(p.by, p.by) }}</td>
+      <td>{{ p.text }}<div class="muted">{{ p.channel }}{% if not p.ok %} <span class="lv-alert">✖ {{ p.error }}</span>{% endif %}</div></td><td>{{ p.why }}</td></tr>{% endif %}{% endfor %}</table>
+  {% else %}<p class="muted small">Nothing yet.</p>{% endif %}
+</div>
+{% endblock %}

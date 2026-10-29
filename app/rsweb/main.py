@@ -86,6 +86,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     from . import web_lockers
     app.include_router(web_lockers.router)
     from . import web_extras
+    from . import web_chatter
+    app.include_router(web_chatter.router)
     app.include_router(web_extras.router)
     app.add_exception_handler(web.AuthError, web.auth_error_handler)
     from . import perf

@@ -1,0 +1,28 @@
+{% if err %}<div class="result err">{{ err | join('; ') }}.</div>
+{% else %}
+{% set ok_rows = rows | selectattr('errors', 'equalto', []) | list %}
+{% if done %}<div class="result">Added {{ added }} message{{ '' if added == 1 else 's' }} to the library. Reload the page to see them.</div>{% endif %}
+<form hx-post="/chatter/import" hx-target="#chatter-import" style="margin-top:8px">
+  <textarea name="messages" hidden>{{ text }}</textarea>
+  <table class="small">
+    <tr><th>{% if not done %}<input type="checkbox" checked onclick="this.closest('form').querySelectorAll('input[name=ok]:not(:disabled)').forEach(c => c.checked = this.checked)">{% endif %}</th>
+      <th>Who</th><th>When</th><th>Message</th><th>{{ 'Result' if done else 'Check' }}</th></tr>
+    {% for r in rows %}{% set m = r.msg %}
+    <tr>
+      <td>{% if not done %}<input type="checkbox" name="ok" value="{{ loop.index0 }}" {{ 'disabled' if r.errors else 'checked' }}>{% endif %}</td>
+      <td>{{ r.who or m.by }}<div class="muted mono">{{ m.id }}</div></td>
+      <td>{% if m.on %}{{ m.on }}{% elif m.after %}answers {{ m.after }}{% else %}answers {{ m.to }}{% if m.match %} /{{ m.match }}/{% endif %}{% endif %}</td>
+      <td>{{ m.text }}<div class="muted">{{ m.channel or ('same' if r.kind == 'reply' else 'bots') }}</div></td>
+      <td>{% if r.errors %}<span class="lv-alert">{{ r.errors | join('; ') }}</span>
+        {% elif done %}{{ r.result }}{% else %}ready{% endif %}
+        {% if r.warnings %}<div class="muted">{{ r.warnings | join('; ') }}</div>{% endif %}</td>
+    </tr>{% endfor %}
+  </table>
+  {% if not done %}
+    {% if ok_rows %}<button class="small" style="margin-top:6px">Add the ticked messages</button>
+      <label class="small" style="text-transform:none"><input type="checkbox" name="replace"> replace the whole library</label>
+      <span class="muted small">Rows with problems can't be ticked.</span>
+    {% else %}<p class="muted small">Nothing to add.</p>{% endif %}
+  {% endif %}
+</form>
+{% endif %}

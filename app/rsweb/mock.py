@@ -150,6 +150,7 @@ class World:
         self.objects: dict[str, dict] = {}           # STAR-OBJ-n -> object
         self.profiles: dict[str, dict] = {}          # other replicants' public profiles
         self.profile_patches: list[dict] = []         # PATCH /replicants/{code} bodies
+        self.bobnet_posts: list[dict] = []            # POST /replicants/{code}/message bodies
         self.evict_next: list = []                    # what the next ward activate reports as evicted_miners
         self.xp = 87340
         self.replicants: list[dict] = []             # the demo galaxy's replicants (load_demo)
@@ -717,6 +718,7 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
     @app.post("/v1/replicants/{code}/message")
     async def msg(code: str, request: Request):
         body = await request.json()
+        world.bobnet_posts.append({"code": code, **body})
         world.emit("bobnet.new", None, id=world.seq, replicant_name="bob-1", replicant_code=REP, current_star="SOL",
                    channel=body.get("channel"), message=body.get("text"))
         return ok({"status": "sent"})

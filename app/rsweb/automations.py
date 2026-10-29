@@ -29,6 +29,7 @@ from .boot_engine import BootstrapMixin
 from .sim_engine import SimMixin
 from .stock import StockMixin
 from .chase_engine import ChaseMixin
+from .chatter import ChatterMixin
 
 log = logging.getLogger("rsweb.auto")
 
@@ -536,7 +537,7 @@ def survey_targets(scan: dict, surveyed: dict, include_moons: bool, include_belt
     return out[:max(0, max_targets)]
 
 
-class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixin):
+class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixin, ChatterMixin):
     def __init__(self, db, api, hub, worker):
         self.db, self.api, self.hub, self.worker = db, api, hub, worker
         self.lock = EngineLock()
@@ -1732,6 +1733,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 except Exception as e:
                     log.exception("shop post check failed")
                     await self.log("shop", f"checking a shop's BobNet post failed: {e}", "alert")
+            if not late and name in ("bobnet.new", "directive.completed", "scan.completed", "site.depleted",
+                                     "travel.arrived", "salvage.discovered", "event.completed"):
+                try:   # NPC chatter: a canned line or reply (chatter.py)
+                    await self.chatter_on_event(ev)
+                except Exception:
+                    log.exception("chatter failed")
             if name == "travel.arrived" and not late:
                 try:
                     await self.on_arrival(ev)
@@ -1802,7 +1809,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_repeats", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass", "chatter_pass"):
                 every, at = SPREAD.get(stage, (1, 0))
                 if self.tick_n and self.tick_n % every != at:
                     continue   # a heavy pass that runs every few ticks, on a tick of its own (all run on the first)

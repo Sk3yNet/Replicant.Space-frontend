@@ -20,6 +20,15 @@ PROFILE_FIELDS = {"name": 60, "pronouns": 50, "description": 500, "plan": 500, "
 # cohort_permission: whether sibling replicants may operate on this one's devices (only matters while the account's
 # replicant_cooperation is "individual"); docs: replicant.space/docs/concepts/replicants
 CHOICE_FIELDS = {"cohort_permission": ("private", "public")}
+# is_npc: the game marks the replicant's BobNet posts as NPC chatter (readers hide them with include_npcs=false)
+BOOL_FIELDS = ("is_npc",)
+
+
+def as_bool(v) -> bool | None:
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    return True if s in ("1", "true", "yes", "on") else False if s in ("0", "false", "no", "off", "") else None
 
 
 def profile_changes(form) -> tuple[dict, list[str]]:
@@ -45,6 +54,11 @@ def profile_changes(form) -> tuple[dict, list[str]]:
                 bad.append(f"{f} must be one of {', '.join(allowed)}")
             else:
                 body[f] = v
+    for f in BOOL_FIELDS:   # a checkbox: sent only when ticked, so the hidden orig_ field says it was on the form
+        if f"orig_{f}" in form:
+            v = f in form
+            if v != (as_bool(form.get(f"orig_{f}")) or False):
+                body[f] = v
     return body, bad
 
 
@@ -67,7 +81,7 @@ async def replicant_profile(request: Request, code: str, user: str = Depends(cur
 
 
 def parse_import(text: str, reps: dict[str, dict]) -> tuple[list[dict], list[str]]:
-    """Bulk profile import: {code: {name, description, plan, project, pronouns}} (or a list of such objects with a
+    """Bulk profile import: {code: {name, description, plan, project, pronouns, is_npc}} (or a list of such objects with a
     replicant_code). A key may also be a replicant's current name. Each row keeps only the fields that differ from the
     cached profile, and lists what's wrong with it (unknown replicant, too long, empty name)."""
     try:
@@ -91,6 +105,15 @@ def parse_import(text: str, reps: dict[str, dict]) -> tuple[list[dict], list[str
             fields = {}
         for f, v in fields.items():
             if f in ("replicant_code", "code"):
+                continue
+            if f in BOOL_FIELDS:
+                b = as_bool(v)
+                if b is None:
+                    row["errors"].append(f"{f} must be true or false")
+                elif b == bool(cur.get(f)):
+                    row["same"].append(f)
+                else:
+                    row["body"][f] = b
                 continue
             if f not in PROFILE_FIELDS:
                 row["errors"].append(f"unknown field {f}")

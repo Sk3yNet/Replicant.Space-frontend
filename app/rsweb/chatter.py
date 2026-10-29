@@ -1,0 +1,398 @@
+"""NPC chatter (Activity › Chatter): your NPC replicants post canned BobNet lines when game events happen, answer
+each other in short conversations, and answer what other NPCs (Bill, Riker …) say.
+
+The library (kv "chatter") holds approved messages, imported in bulk with a per-message approval (web_chatter.py):
+- event lines: {id, by, on, channel, text}; `on` is a trigger (TRIGGERS), `by` a replicant code or "any" (whoever's
+  device the event is about);
+- replies: {id, by, after | to (+ match), channel, text}; `after` names the line or reply it answers (a conversation:
+  posting that line queues one of its replies), `to` a poster's name on BobNet ("*" anyone not yours) and `match` an
+  optional regex on their message. A reply's `by` may be "any": one of your NPCs other than the one it answers.
+`channel` is "general" or "bots" (the two channels in the settings), "same" (a reply: where the post it answers was),
+or a literal "#channel".
+
+Only replicants marked NPC on their profile post (the game's is_npc flag: readers can hide NPC chatter). Posting is off
+until switched on. Each NPC starts a post at most once every `every_hours` (default 24: once a day; a conversation's
+replies don't count), each trigger fires with a chance, and the same `every_hours` holds for answering one poster.
+A daily cap bounds it all.
+Replies wait a random delay in a queue (kv "chatter:state") that the engine stage chatter_pass sends."""
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import random
+import re
+from datetime import datetime, timezone
+from .db import now_iso
+
+log = logging.getLogger("rsweb.chatter")
+KV = "chatter"
+STATE_KV = "chatter:state"
+TEXT_MAX = 500
+TRIGGERS = {
+    "survey_done": "a survey finished (AMI survey of a system, or a belt or system scan)",
+    "belt_mined": "the last open site of a belt was mined out",
+    "site_depleted": "a mining site was mined out (the belt has more)",
+    "arrived": "the replicant's own vessel arrived",
+    "salvage_found": "salvage was discovered",
+    "contract_done": "a contract or civilization event was completed",
+}
+DEFAULTS = {"enabled": False, "general": "#general", "bots": "#bots", "chance": 0.5, "reply_chance": 0.85,
+            "npc_reply_chance": 0.5, "every_hours": 24, "daily_cap": 20, "delay_min": 1, "delay_max": 6,
+            "max_depth": 4}
+UNSAFE = re.compile(r"[\"'&<>]")
+POSTED_KEEP = 200
+
+
+def normalize(c: dict | None) -> dict:
+    c = dict(c or {})
+    for k, v in DEFAULTS.items():
+        c.setdefault(k, v)
+    c["lines"] = [x for x in c.get("lines") or [] if isinstance(x, dict)]
+    c["replies"] = [x for x in c.get("replies") or [] if isinstance(x, dict)]
+    return c
+
+
+def norm_state(s: dict | None) -> dict:
+    s = dict(s or {})
+    s["queue"] = list(s.get("queue") or [])
+    s["posted"] = list(s.get("posted") or [])
+    s["last"] = dict(s.get("last") or {})       # replicant code -> when it last posted
+    s["answered"] = dict(s.get("answered") or {})   # BobNet poster name (lower) -> when we last answered them
+    return s
+
+
+def msg_id(m: dict) -> str:
+    key = json.dumps([m.get("by"), m.get("on"), m.get("after"), m.get("to"), m.get("text")], sort_keys=True)
+    return hashlib.sha1(key.encode()).hexdigest()[:8]
+
+
+def kind(m: dict) -> str:
+    return "reply" if (m.get("after") or m.get("to")) else "line"
+
+
+def channel_of(m: dict, cfg: dict, same: str | None = None) -> str:
+    ch = str(m.get("channel") or ("same" if kind(m) == "reply" else "bots")).strip()
+    if ch == "same":
+        return same or cfg["bots"]
+    if ch in ("general", "bots"):
+        return cfg[ch]
+    return ch if ch.startswith("#") else "#" + ch
+
+
+def _resolve(who: str, reps: dict[str, dict]) -> str | None:
+    if who == "any":
+        return "any"
+    if who in reps:
+        return who
+    for c, r in reps.items():
+        if str(r.get("name") or "").lower() == who.lower():
+            return c
+    return None
+
+
+def parse_import(text: str, reps: dict[str, dict], cfg: dict) -> tuple[list[dict], list[str]]:
+    """Bulk import: {"lines": [...], "replies": [...]} or {"messages": [...]} or a list. Each row has the cleaned
+    message, its errors (it can't be imported) and warnings (it can, but may not post as hoped)."""
+    try:
+        data = json.loads(text or "")
+    except ValueError as e:
+        return [], [f"not valid JSON: {e}"]
+    items: list = []
+    if isinstance(data, dict):
+        for k in ("lines", "replies", "messages"):
+            items += data.get(k) or []
+    elif isinstance(data, list):
+        items = data
+    items = [x for x in items if isinstance(x, dict)]
+    if not items:
+        return [], ['expected {"lines": [...], "replies": [...]} with at least one message']
+    have = {m["id"] for m in cfg["lines"] + cfg["replies"]}
+    known = set(have) | {str(x.get("id")) for x in items if x.get("id")}
+    dup = {(m.get("by"), m.get("on"), m.get("after"), m.get("to"), m.get("text")) for m in cfg["lines"] + cfg["replies"]}
+    rows = []
+    for x in items:
+        m = {k: (str(v).strip() if not isinstance(v, (int, float)) else v) for k, v in x.items() if v not in (None, "")}
+        row = {"msg": m, "errors": [], "warnings": [], "kind": kind(m), "who": ""}
+        by = _resolve(str(m.get("by") or ""), reps)
+        if not m.get("by"):
+            row["errors"].append("no by (replicant code, name or any)")
+        elif not by:
+            row["errors"].append(f"{m['by']} is not one of your replicants")
+        else:
+            m["by"] = by
+            r = reps.get(by) or {}
+            row["who"] = "any NPC" if by == "any" else (r.get("name") or by)
+            if by != "any" and not r.get("is_npc"):
+                row["warnings"].append("not marked NPC: it will not post until it is")
+        if row["kind"] == "line":
+            if m.get("on") not in TRIGGERS:
+                row["errors"].append(f"on must be one of {', '.join(TRIGGERS)}" + (f" (not {m['on']})" if m.get("on") else ""))
+        else:
+            if m.get("on"):
+                row["errors"].append("a reply has after or to, not on")
+            if m.get("after") and str(m["after"]) not in known:
+                row["errors"].append(f"after {m['after']}: no message has that id")
+            if m.get("match"):
+                try:
+                    re.compile(str(m["match"]))
+                except re.error as e:
+                    row["errors"].append(f"match is not a valid pattern: {e}")
+        t = str(m.get("text") or "")
+        if not t:
+            row["errors"].append("no text")
+        elif len(t) > TEXT_MAX:
+            row["errors"].append(f"text is {len(t)} characters (at most {TEXT_MAX})")
+        elif UNSAFE.search(t):
+            row["warnings"].append("has quotes, ampersands or angle brackets, which BobNet may show oddly")
+        if (m.get("by"), m.get("on"), m.get("after"), m.get("to"), m.get("text")) in dup:
+            row["errors"].append("already in the library")
+        m.setdefault("id", msg_id(m))
+        if m["id"] in have:
+            row["errors"].append(f"id {m['id']} is already in the library")
+        try:
+            channel_of(m, cfg)
+        except Exception:
+            row["errors"].append("bad channel")
+        rows.append(row)
+    return rows, []
+
+
+def add_rows(cfg: dict, rows: list[dict], approved: set[int], replace: bool = False) -> int:
+    """Put the approved rows without errors in the library; returns how many."""
+    if replace:
+        cfg["lines"], cfg["replies"] = [], []
+    n = 0
+    for i, row in enumerate(rows):
+        if i not in approved or row["errors"]:
+            continue
+        cfg["lines" if row["kind"] == "line" else "replies"].append(row["msg"])
+        n += 1
+    return n
+
+
+def _ts(v: str | None) -> float:
+    try:
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _now() -> float:
+    return datetime.now(timezone.utc).timestamp()
+
+
+def posted_today(state: dict, now: float | None = None) -> int:
+    now = now or _now()
+    return sum(1 for p in state["posted"] if p.get("ok") and now - _ts(p.get("at")) < 86400)
+
+
+def npcs(reps: dict[str, dict]) -> list[str]:
+    return [c for c, r in reps.items() if r.get("is_npc")]
+
+
+def trigger_of(ev: dict, devices: list[dict], reps: dict[str, dict], exhausted: set[str] | None = None) -> tuple[str, str] | None:
+    """(trigger, speaker code) for a game event, or None. The speaker is the replicant that took part: the one riding
+    the vessel the event is about, else the owner of the device."""
+    from .sites import belt_of
+    name = ev.get("event") or ""
+    p = ev.get("payload") or {}
+    code = ev.get("device_code")
+    dev = next((d for d in devices if d.get("device_code") == code), None) if code else None
+    hosted = {r.get("hosted_device_code"): c for c, r in reps.items() if r.get("hosted_device_code")}
+    who = hosted.get(code) or (dev or {}).get("replicant_code") or ev.get("replicant_code")
+    trig = None
+    if name == "directive.completed" and "survey" in (ev.get("device_type") or "") \
+            and (p.get("directive") or "survey_system") == "survey_system":
+        trig = "survey_done"
+    elif name == "scan.completed":
+        target = str(p.get("scan_target") or ev.get("location") or "")
+        if str(p.get("scan_type") or "") in ("system", "belt") or "-BELT-" in target:
+            trig = "survey_done"
+    elif name == "site.depleted":
+        belt = belt_of(p.get("site") or ev.get("location"))
+        trig = "belt_mined" if belt and belt in (exhausted or set()) else "site_depleted"
+    elif name == "travel.arrived":
+        if code in hosted:
+            trig = "arrived"
+    elif name == "salvage.discovered":
+        trig = "salvage_found"
+    elif name == "event.completed":
+        trig = "contract_done"
+    if not trig or not who or who not in reps:
+        return None
+    return trig, who
+
+
+def pick(options: list[dict], state: dict, rnd: random.Random | None = None) -> dict | None:
+    """A random option, avoiding the ones posted most recently while others are left."""
+    rnd = rnd or random
+    recent = [p.get("id") for p in state["posted"][-12:]]
+    fresh = [o for o in options if o["id"] not in recent]
+    return rnd.choice(fresh or options) if options else None
+
+
+def replies_to(post_id: str, cfg: dict) -> list[dict]:
+    return [r for r in cfg["replies"] if str(r.get("after") or "") == post_id]
+
+
+def npc_replies(name: str, text: str, cfg: dict) -> list[dict]:
+    """Replies that answer a post by someone not yours: `to` the poster's name (or "*"), `match` on the text."""
+    out = []
+    for r in cfg["replies"]:
+        to = str(r.get("to") or "")
+        if not to or r.get("after"):
+            continue
+        if to != "*" and to.lower() != (name or "").lower():
+            continue
+        if r.get("match"):
+            try:
+                if not re.search(str(r["match"]), text or "", re.I):
+                    continue
+            except re.error:
+                continue
+        out.append(r)
+    # a reply that matches the text beats a catch-all for the poster
+    specific = [r for r in out if r.get("match")]
+    return specific or out
+
+
+def speaker_for(m: dict, other_than: str | None, reps: dict[str, dict], rnd: random.Random | None = None) -> str | None:
+    rnd = rnd or random
+    if m.get("by") != "any":
+        by = m.get("by")
+        return by if by in reps and reps[by].get("is_npc") and by != other_than else None
+    pool = [c for c in npcs(reps) if c != other_than]
+    return rnd.choice(pool) if pool else None
+
+
+def queue_item(m: dict, by: str, channel: str, cfg: dict, depth: int, why: str, rnd: random.Random | None = None,
+               now: float | None = None) -> dict:
+    rnd = rnd or random
+    lo, hi = float(cfg["delay_min"]), max(float(cfg["delay_max"]), float(cfg["delay_min"]))
+    due = (now or _now()) + rnd.uniform(lo, hi) * 60
+    return {"due": datetime.fromtimestamp(due, timezone.utc).isoformat(timespec="seconds"), "id": m["id"], "by": by,
+            "channel": channel, "text": m["text"], "depth": depth, "why": why}
+
+
+class ChatterMixin:
+    async def chatter_cfg(self) -> dict:
+        return normalize(await self.db.kv_get(KV, {}))
+
+    async def chatter_on_event(self, ev: dict) -> None:
+        """A game event or BobNet post: queue a line or a reply when the library has one and the dice say so."""
+        cfg = await self.chatter_cfg()
+        if not cfg["enabled"] or ev.get("virtual"):
+            return
+        reps = await self.db.kv_get("replicants", {}) or {}
+        state = norm_state(await self.db.kv_get(STATE_KV, {}))
+        name = ev.get("event") or ""
+        p = ev.get("payload") or {}
+        item = None
+        if name == "bobnet.new":
+            poster = p.get("replicant_code")
+            if poster in reps:   # our own posts: conversations are chained when a line is sent, not from the feed
+                return
+            pname = str(p.get("replicant_name") or "")
+            if _now() - _ts(state["answered"].get(pname.lower())) < float(cfg["every_hours"]) * 3600:
+                return
+            opts = npc_replies(pname, str(p.get("message") or ""), cfg)
+            if not opts or random.random() >= float(cfg["npc_reply_chance"]):
+                return
+            m = pick(opts, state)
+            by = speaker_for(m, None, reps)
+            if not by:
+                return
+            state["answered"][pname.lower()] = now_iso()
+            item = queue_item(m, by, channel_of(m, cfg, p.get("channel")), cfg, 1, f"answers {pname}")
+        else:
+            from . import sites
+            exhausted = None
+            if name == "site.depleted":
+                exhausted = set(sites.exhausted_belts(await self.devices(), await self.exhausted_places()))
+            hit = trigger_of(ev, await self.devices(), reps, exhausted)
+            if not hit:
+                return
+            trig, who = hit
+            if not reps[who].get("is_npc"):
+                return
+            if _now() - _ts(state["last"].get(who)) < float(cfg["every_hours"]) * 3600:
+                return
+            opts = [m for m in cfg["lines"] if m.get("on") == trig and m.get("by") in (who, "any")]
+            if not opts or random.random() >= float(cfg["chance"]):
+                return
+            m = pick(opts, state)
+            item = queue_item(m, who, channel_of(m, cfg), cfg, 0, trig)
+            item["due"] = now_iso()   # an event line goes out on the next tick; only replies wait
+            state["last"][who] = now_iso()
+        state["queue"].append(item)
+        await self.db.kv_set(STATE_KV, state)
+
+    async def chatter_send(self, item: dict, cfg: dict, state: dict) -> dict:
+        """Post one queued message; on success queue one of the replies that answer it."""
+        rec = {"at": now_iso(), "id": item["id"], "by": item["by"], "channel": item["channel"], "text": item["text"],
+               "why": item.get("why")}
+        try:
+            await self.api.post(f"/replicants/{item['by']}/message", {"channel": item["channel"], "text": item["text"]},
+                                background=True)
+            rec["ok"] = True
+        except Exception as e:
+            rec["ok"], rec["error"] = False, str(getattr(e, "message", None) or e)[:200]
+            await self.log("chatter", f"{item['by']} could not post on {item['channel']}: {rec['error']}", "warning")
+        state["posted"] = (state["posted"] + [rec])[-POSTED_KEEP:]
+        if rec["ok"] and item.get("depth", 0) < int(cfg["max_depth"]):
+            reps = await self.db.kv_get("replicants", {}) or {}
+            opts = replies_to(item["id"], cfg)
+            if opts and random.random() < float(cfg["reply_chance"]):
+                m = pick(opts, state)
+                by = speaker_for(m, item["by"], reps)
+                if by:
+                    state["queue"].append(queue_item(m, by, channel_of(m, cfg, item["channel"]), cfg,
+                                                     item.get("depth", 0) + 1, f"answers {item['by']}"))
+        return rec
+
+    async def chatter_pass(self) -> list[str]:
+        """Send the queued messages that are due, within the daily cap (one per replicant per tick)."""
+        cfg = await self.chatter_cfg()
+        state = norm_state(await self.db.kv_get(STATE_KV, {}))
+        if not state["queue"]:
+            return []
+        if not cfg["enabled"]:
+            return []   # kept until it's switched on again, or cleared on the Chatter page
+        reps = await self.db.kv_get("replicants", {}) or {}
+        now, out, busy, keep = _now(), [], set(), []
+        items, state["queue"] = state["queue"], []   # answers queued while sending wait for a later tick
+        for item in items:
+            if not (reps.get(item["by"]) or {}).get("is_npc"):
+                continue   # only NPCs post (the flag may have been taken off since it was queued)
+            if _ts(item.get("due")) > now or item["by"] in busy:
+                keep.append(item)
+                continue
+            if now - _ts(item.get("due")) > 6 * 3600:
+                continue   # stale: the moment has passed
+            if posted_today(state, now) >= int(cfg["daily_cap"]):
+                continue   # over the daily cap: dropped, not saved for later
+            busy.add(item["by"])
+            rec = await self.chatter_send(item, cfg, state)
+            if rec.get("ok"):
+                out.append(f"{item['by']} on {item['channel']}: {item['text'][:60]}")
+        state["queue"] = keep + state["queue"]
+        await self.db.kv_set(STATE_KV, state)
+        return out
+
+
+def post_now(m: dict, by: str, cfg: dict) -> dict:
+    """A queue item due now (the Chatter page's Post now)."""
+    item = queue_item(m, by, channel_of(m, cfg), cfg, 0, "by hand")
+    item["due"] = now_iso()
+    return item
+
+
+def describe(m: dict, reps: dict[str, dict]) -> str:
+    if m.get("on"):
+        return TRIGGERS.get(m["on"], m["on"])
+    if m.get("after"):
+        return f"answers {m['after']}"
+    to = "anyone else" if m.get("to") == "*" else m.get("to")
+    return f"answers {to}" + (f" when they say /{m['match']}/" if m.get("match") else "")
+

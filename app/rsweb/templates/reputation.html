@@ -22,7 +22,7 @@
   </div>
   <div class="card">
     <h2>Bulk profile import</h2>
-    <p class="muted small">Paste JSON of replicant code (or current name) → fields: name, description, plan, project, pronouns.
+    <p class="muted small">Paste JSON of replicant code (or current name) → fields: name, description, plan, project, pronouns, is_npc (true or false).
       Only fields that differ are sent, one profile edit per replicant. Preview first, then apply.</p>
     <form hx-post="/profiles/preview" hx-target="#profile-import-result">
       <textarea name="profiles" rows="8" style="width:100%" class="mono small"
