@@ -4449,7 +4449,7 @@ async def _wp_cached(request: Request, kind: str, make) -> Response:
     store = request.app.state.__dict__.setdefault("wp_cache", {})
     key = f"{kind}?{request.url.query}"
     hit = store.get(key)
-    if hit and _t.time() - hit[0] < WALLPAPER_TTL:
+    if hit and (_t.time() - hit[0] < WALLPAPER_TTL or request.app.state.worker.automations.focused()):
         return Response(hit[1], media_type="application/json")
     body = json.dumps(await make(), default=str).encode()
     store[key] = (_t.time(), body)

@@ -392,7 +392,10 @@ class Worker:
         live 2026-10-29 after a restart): waiting here held up the event stream, so a swoop run's rounds reached the
         cockpit only after it ended. While the lock is busy, events queue in order for a worker instead."""
         lock = self.automations.lock
-        if not self._auto_q and not (self._auto_task and not self._auto_task.done()) and (
+        # during a swoop run (Automations.focus) event-driven rules wait too: a site.depleted event ran the salvage
+        # rule for 19 s inside one, and the stream held the engine for 56 s mid-run (live 2026-10-29 23:28)
+        hold = self.automations.focused() and ev.get("category") != "swoop"
+        if not hold and not self._auto_q and not (self._auto_task and not self._auto_task.done()) and (
                 not lock.locked() or lock._owner is asyncio.current_task()):
             try:
                 await self.automations.on_event(ev, late=late)
@@ -405,6 +408,8 @@ class Worker:
 
     async def _drain_automations(self) -> None:
         while self._auto_q:
+            while self.automations.focused():
+                await asyncio.sleep(1)
             ev, late = self._auto_q.popleft()
             try:
                 await self.automations.on_event(ev, late=late)

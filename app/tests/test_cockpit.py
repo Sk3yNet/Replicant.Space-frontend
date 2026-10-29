@@ -151,3 +151,26 @@ def test_cockpit_engine_status_hold_and_release(client):  # noqa: F811
     assert client.post("/cockpit-engine/hold", json={"seconds": 0}, headers=HX).json()["state"] == "idle"
     assert not eng.focused()
     assert client.post("/cockpit-engine/hold", json={"seconds": 99999}, headers=HX).json()["held_s"] <= 900
+
+
+def test_event_rules_wait_while_a_swoop_run_is_on(client):  # noqa: F811
+    """Live 2026-10-29 23:28: a site.depleted event ran the salvage rule mid-run and stalled the server for 56 s."""
+    w = client.app.state.worker
+    handled = []
+    orig = w.automations.on_event
+
+    async def spy(ev, late=False):
+        await orig(ev, late=late)
+        handled.append(ev["id"])
+    w.automations.on_event = spy
+
+    async def run():
+        import asyncio
+        w.automations.focus(60)
+        await w.handle_event({"id": "dep1", "event": "site.depleted", "category": "site", "payload": {}})
+        await asyncio.sleep(1.5)
+        assert handled == []
+        await w.handle_event({"id": "end1", "event": "swoop.complete", "category": "swoop", "payload": {}})
+        await asyncio.wait_for(w._auto_task, 5)
+    client.portal.call(run)
+    assert handled == ["dep1", "end1"]
