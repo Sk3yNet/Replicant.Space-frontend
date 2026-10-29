@@ -145,7 +145,7 @@ def test_placeholders_from_bills_post_and_no_quick_repeats(client):  # noqa: F81
     assert ch.pick(opts, ch.norm_state(st))["id"] == "d"   # never posted first
     assert ch.pick(opts[:3], ch.norm_state(st))["id"] == "a"   # then the longest ago
     assert ch.post_values({"current_star": "SOL", "message": "SOL and NOSOXA"}, {"SOL": {}, "NOSOXA": {"region": "outer"}}) \
-        == {"poster": None, "star": "SOL", "from": "NOSOXA", "region": "outer"}
+        == {"poster": None, "star": "SOL", "from": "NOSOXA", "region": "outer", "arrival": None}
 
 
 def test_write_a_message_by_hand(client):  # noqa: F811
