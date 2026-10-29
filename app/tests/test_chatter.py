@@ -22,8 +22,8 @@ def _set(c, k, v):
 
 
 def _reps(c, npc=True):
-    _set(c, "replicants", {REP: {"name": "bob-1", "is_npc": npc, "hosted_device_code": "HOSTV001"},
-                           OTHER: {"name": "Corwin_Beltscry", "is_npc": True}})
+    _set(c, "replicants", {REP: {"name": "bob-1", "is_npc": npc, "hosted_device_code": "HOSTV001", "current_star": "SOL"},
+                           OTHER: {"name": "Corwin_Beltscry", "is_npc": True, "current_star": "SOL"}})
 
 
 LIB = {"lines": [{"id": "s1", "by": "bob-1", "on": "survey_done", "channel": "general", "text": "Survey done. The rocks are rocks."},
@@ -183,7 +183,7 @@ def test_timer_per_channel_and_another_npc_tries_a_refused_reply(client, monkeyp
     _reps(client)
     third = "EF56AB78"
     reps = _kv(client, "replicants")
-    reps[third] = {"name": "Pip_Parcelwick", "is_npc": True}
+    reps[third] = {"name": "Pip_Parcelwick", "is_npc": True, "current_star": "LERNA"}
     _set(client, "replicants", reps)
     cfg = ch.normalize({"enabled": True, "chance": 1, "npc_reply_chance": 1, "reply_chance": 0, "delay_min": 0, "delay_max": 0,
                         "bots_hours": 0.5,
@@ -201,7 +201,7 @@ def test_timer_per_channel_and_another_npc_tries_a_refused_reply(client, monkeyp
     assert sorted(p["text"] for p in posts) == ["Bots line.", "General line."]   # one per channel, then both wait
     _world(client).bobnet_refuse.update({REP, OTHER, third})
     _world(client).bobnet_refuse.discard(third)
-    monkeypatch.setattr(ch, "speaker_for", lambda m, other, reps, rnd=None: REP)   # the first try is refused
+    monkeypatch.setattr(ch, "speaker_for", lambda m, other, reps, rnd=None, can=None: REP)   # the first try is refused
     riker = {"event": "bobnet.new", "payload": {"replicant_name": "Riker", "channel": "#general", "message": "Hello"}}
     for _ in range(4):
         client.portal.call(e.chatter_on_event, riker)
@@ -210,3 +210,16 @@ def test_timer_per_channel_and_another_npc_tries_a_refused_reply(client, monkeyp
     fails = [p for p in ch.norm_state(_kv(client, ch.STATE_KV))["posted"] if not p["ok"]]
     assert fails and fails[0]["by"] == REP and all(p.get("retry") for p in fails)
     assert len([p for p in posts if p["text"] == "Hi Riker."]) == 1   # Riker answered once on #general today
+
+
+def test_no_active_relay_systems_are_skipped():
+    reps = {"A": {"is_npc": True, "current_star": "SOL"}, "B": {"is_npc": True, "current_star": "LERNA"},
+            "C": {"is_npc": True, "current_star": "FAR"}}
+    relays = ch.relay_stars([{"device_type": "ftl_relay", "location": "SOL-3-L4", "status": "active"},
+                             {"device_type": "ftl_relay", "location": "FAR-3-L4", "status": "inactive"}])
+    assert relays == {"SOL"}
+    state = ch.norm_state({"no_relay": {"FAR": ch.now_iso()}})
+    can = ch.poster_check(reps, relays, state)
+    assert can("A") == (True, True) and can("B") == (True, False) and can("C")[0] is False
+    assert ch.speaker_for({"by": "any"}, None, reps, can=can) == "A"   # our relay first
+    assert ch.speaker_for({"by": "C"}, None, reps, can=can) is None

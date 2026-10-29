@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.301.0"
+VERSION = "1.301.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.301.1", "2026-10-29", "NPC chatter: a replicant can post on BobNet only from a system with an active relay (the game answers No active relay in this system). Replies that any NPC may give go to an NPC in a system with one of our active relays or hubs first; an event line from an NPC where the game refused for lack of a relay is skipped for 6 hours without using up its timer."),
     ("1.301.0", "2026-10-29", "NPC chatter: each channel has its own post timer, so an NPC can post once a day on #general and once a day on the bots channel (the general and bots channels can set their own hours). When the game refuses a reply that any NPC may give, another NPC tries it on the next tick (up to 3); an event line stays with the NPC that took part."),
     ("1.300.1", "2026-10-29", "Test update for the {arrival} placeholder (no change in behavior)."),
     ("1.300.0", "2026-10-29", "NPC chatter: a new placeholder, {arrival}, names who a post says just arrived (Riker: Jim-1 just arrived back in SOL), so NPCs can welcome them by name."),

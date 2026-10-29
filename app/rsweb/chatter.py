@@ -68,7 +68,8 @@ def norm_state(s: dict | None) -> dict:
     s["queue"] = list(s.get("queue") or [])
     s["posted"] = list(s.get("posted") or [])
     s["last"] = dict(s.get("last") or {})       # replicant code -> when it last posted
-    s["answered"] = dict(s.get("answered") or {})   # BobNet poster name (lower) -> when we last answered them
+    s["answered"] = dict(s.get("answered") or {})
+    s["no_relay"] = dict(s.get("no_relay") or {})   # system -> when the game said it has no active relay   # BobNet poster name (lower) -> when we last answered them
     return s
 
 
@@ -320,13 +321,47 @@ def npc_replies(name: str, text: str, cfg: dict) -> list[dict]:
     return specific or out
 
 
-def speaker_for(m: dict, other_than: str | None, reps: dict[str, dict], rnd: random.Random | None = None) -> str | None:
+RELAY_TYPES = ("ftl_relay", "system_hub")
+NO_RELAY_HOURS = 6   # a system the game said has no active relay is skipped this long (unless we have one there)
+
+
+def rep_star(r: dict) -> str:
+    return str(r.get("current_star") or str(r.get("current_location") or r.get("location") or "").split("-")[0])
+
+
+def relay_stars(devices: list[dict]) -> set[str]:
+    """Systems with an active relay or hub of ours: a replicant posts on BobNet only from a system with an active
+    relay ("No active relay in this system", live 2026-10-29)."""
+    from .wardhub import active
+    return {str(d.get("location") or "").split("-")[0] for d in devices
+            if d.get("device_type") in RELAY_TYPES and active(d)}
+
+
+def poster_check(reps: dict[str, dict], relays: set[str], state: dict, now: float | None = None):
+    """can(code) -> (may post, has our relay). Unknown systems (someone else's relay may be there) may post until the
+    game refuses one; then that system waits NO_RELAY_HOURS."""
+    now = now or _now()
+    def can(code: str) -> tuple[bool, bool]:
+        star = rep_star(reps.get(code) or {})
+        if not star:
+            return False, False
+        if star in relays:
+            return True, True
+        return now - _ts(state["no_relay"].get(star)) >= NO_RELAY_HOURS * 3600, False
+    return can
+
+
+def speaker_for(m: dict, other_than: str | None, reps: dict[str, dict], rnd: random.Random | None = None,
+                can=None) -> str | None:
+    """Who says `m`: its own NPC, or for "any" an NPC that can post, preferring one with our relay in its system."""
     rnd = rnd or random
+    can = can or (lambda c: (True, True))
     if m.get("by") != "any":
         by = m.get("by")
-        return by if by in reps and reps[by].get("is_npc") and by != other_than else None
-    pool = [c for c in npcs(reps) if c != other_than]
-    return rnd.choice(pool) if pool else None
+        return by if by in reps and reps[by].get("is_npc") and by != other_than and can(by)[0] else None
+    pool = [c for c in npcs(reps) if c != other_than and can(c)[0]]
+    best = [c for c in pool if can(c)[1]]
+    return rnd.choice(best or pool) if pool else None
 
 
 def queue_item(m: dict, by: str, channel: str, cfg: dict, depth: int, why: str, rnd: random.Random | None = None,
@@ -342,6 +377,9 @@ def queue_item(m: dict, by: str, channel: str, cfg: dict, depth: int, why: str, 
 class ChatterMixin:
     async def chatter_cfg(self) -> dict:
         return normalize(await self.db.kv_get(KV, {}))
+
+    async def chatter_can(self, reps: dict, state: dict):
+        return poster_check(reps, relay_stars(await self.devices()), state)
 
     async def chatter_on_event(self, ev: dict) -> None:
         """A game event or BobNet post: queue a line or a reply when the library has one and the dice say so."""
@@ -366,7 +404,7 @@ class ChatterMixin:
             if not opts or random.random() >= float(cfg["npc_reply_chance"]):
                 return
             m = pick(opts, state)
-            by = speaker_for(m, None, reps)
+            by = speaker_for(m, None, reps, can=await self.chatter_can(reps, state))
             if not by:
                 return
             chan = channel_of(m, cfg, p.get("channel"))
@@ -382,8 +420,8 @@ class ChatterMixin:
             if not hit:
                 return
             trig, who = hit
-            if not reps[who].get("is_npc"):
-                return
+            if not reps[who].get("is_npc") or not (await self.chatter_can(reps, state))(who)[0]:
+                return   # not an NPC, or no relay where it is: the line would be refused
             star = str(ev.get("star") or ev.get("location") or "").split("-")[0] or None
             cat = await self.db.kv_get("stars", {}) or {}
             region = next((x.get("region") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("designation") == star), None)
@@ -412,10 +450,16 @@ class ChatterMixin:
             await self.log("chatter", f"{item['by']} could not post on {item['channel']}: {rec['error']}", "warning")
             # a reply anyone may give: another NPC tries on the next tick (an event line stays with the one who
             # took part)
+            reps = await self.db.kv_get("replicants", {}) or {}
+            if "relay" in rec["error"].lower():
+                star = rep_star(reps.get(item["by"]) or {})
+                if star:
+                    state["no_relay"][star] = now_iso()
             tried = [*(item.get("tried") or []), item["by"]]
             if item.get("alt") and len(tried) < MAX_TRIES:
-                reps = await self.db.kv_get("replicants", {}) or {}
-                pool = [c for c in npcs(reps) if c not in tried and c != item.get("other_than")]
+                can = await self.chatter_can(reps, state)
+                pool = [c for c in npcs(reps) if c not in tried and c != item.get("other_than") and can(c)[0]]
+                pool = [c for c in pool if can(c)[1]] or pool
                 if pool:
                     nxt = random.choice(pool)
                     state["queue"].append({**item, "by": nxt, "tried": tried, "due": now_iso()})
@@ -427,7 +471,7 @@ class ChatterMixin:
             opts = fillable(replies_to(item["id"], cfg), values)
             if opts and random.random() < float(cfg["reply_chance"]):
                 m = pick(opts, state)
-                by = speaker_for(m, item["by"], reps)
+                by = speaker_for(m, item["by"], reps, can=await self.chatter_can(reps, state))
                 if by:
                     nxt = queue_item(m, by, channel_of(m, cfg, item["channel"]), cfg, item.get("depth", 0) + 1,
                                      f"answers {item['by']}", values=values)

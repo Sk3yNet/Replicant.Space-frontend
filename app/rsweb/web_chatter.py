@@ -185,13 +185,14 @@ async def chatter_post(request: Request, id: str = Form(...), user: str = Depend
     m = next((x for x in cfg["lines"] + cfg["replies"] if x.get("id") == id), None)
     if not m:
         return HTMLResponse('<span class="lv-alert">not in the library</span>')
-    by = ch.speaker_for(m, None, reps)
-    if not by:
-        return HTMLResponse('<span class="lv-alert">no NPC to say it (mark the replicant NPC on its page)</span>')
-    if not cfg["enabled"]:
-        return HTMLResponse('<span class="lv-alert">posting is off (Settings)</span>')
     db = request.app.state.db
     state = ch.norm_state(await db.kv_get(ch.STATE_KV, {}))
+    can = ch.poster_check(reps, ch.relay_stars(st["devices"]), state)
+    by = ch.speaker_for(m, None, reps, can=can)
+    if not by:
+        return HTMLResponse('<span class="lv-alert">no NPC to say it (mark the replicant NPC on its page; it needs an active relay in its system)</span>')
+    if not cfg["enabled"]:
+        return HTMLResponse('<span class="lv-alert">posting is off (Settings)</span>')
     state["queue"].append(ch.post_now(m, by, cfg))
     await db.kv_set(ch.STATE_KV, state)
     return HTMLResponse(f'<span class="muted">queued for {html.escape((reps.get(by) or {}).get("name") or by)}</span>')
