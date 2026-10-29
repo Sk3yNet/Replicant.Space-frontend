@@ -142,6 +142,9 @@ async def cockpit_swoop(request: Request, code: str, user: str = Depends(current
     out = await call_action(request, user, "POST", f"/devices/{code}", cmd, f"swoop {action or 'start'} {code}")
     ms = round((time.monotonic() - t0) * 1000)
     resp = out["response"]
+    if out["ok"] and not action:   # don't wait for the swoop.started event to free the loop
+        from .ingest import SWOOP_FOCUS_S
+        request.app.state.worker.automations.focus(SWOOP_FOCUS_S)
     graded = isinstance(resp, dict) and isinstance(resp.get("correct"), bool)
     return JSONResponse({"ok": out["ok"], "status": out["status"], "error": out["error"], "response": resp,
                          "action": action, "ms": ms, "learned": await learned(request.app.state.db) if graded else None})

@@ -112,3 +112,27 @@ def test_events_reach_the_page_while_a_tick_holds_the_engine_lock(client):  # no
         await asyncio.wait_for(w._auto_task, 2)
     client.portal.call(run)
     assert seen == ["sw1", "sw2"] and handled == ["sw1", "sw2"]
+
+
+def test_a_swoop_run_holds_the_engine_and_map_until_it_ends(client):  # noqa: F811
+    """Live 2026-10-29 23:09: ticks of 18-47 s and map redraws of 21 s stalled the loop and round 4 came too late."""
+    eng = client.app.state.worker.automations
+    calls = []
+    import rsweb.web as web
+    orig = web.map_payload
+
+    async def counting(request, part):
+        calls.append(part)
+        return {"n": len(calls)}
+    web.map_payload = counting
+    try:
+        assert client.get("/api/map.json", headers=H).json() == {"n": 1}
+        r = client.post(f"/cockpit/{HOST}/swoop", json={}, headers=HX).json()
+        assert r["ok"] and eng.focused()
+        assert client.get("/api/map.json", headers=H).json() == {"n": 1}   # the last one, not a redraw
+        client.portal.call(client.app.state.worker.handle_event,
+                           {"id": "done1", "event": "swoop.complete", "category": "swoop", "payload": {"score": 1}})
+        assert not eng.focused()
+        assert client.get("/api/map.json", headers=H).json() == {"n": 2}
+    finally:
+        web.map_payload = orig

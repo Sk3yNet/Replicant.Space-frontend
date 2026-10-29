@@ -2430,9 +2430,17 @@ async def galaxy_map(request: Request, user: str = Depends(current_user)):
     return await page(request, user, "map.html", "map", replicants=st["replicants"], map_focus=focus)
 
 
+_MAP_LAST: dict[str, Any] = {}
+
+
 @router.get("/api/map.json")
 async def map_data(request: Request, user: str = Depends(current_user)):
-    return JSONResponse(await map_payload(request, request.query_params.get("part") or "all"))
+    part = request.query_params.get("part") or "all"
+    key = f"{part}?{sim_view(request) or ''}"
+    if request.app.state.worker.automations.focused() and key in _MAP_LAST:
+        return JSONResponse(_MAP_LAST[key])   # a swoop run is on: a map redraw took up to 21 s of the event loop
+    _MAP_LAST[key] = out = await map_payload(request, part)
+    return JSONResponse(out)
 
 
 def mining_now(devices: list[dict]) -> dict[str, int]:

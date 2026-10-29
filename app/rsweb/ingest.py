@@ -198,6 +198,8 @@ def merge_device_snapshot(prev: list[dict], new: list[dict], partial: bool = Fal
     return out
 
 
+SWOOP_FOCUS_S = 180   # a swoop run: 20 s warmup + 5 rounds of up to 20 s, with room to spare
+
 class Worker:
     def __init__(self, settings: Settings, db: DB, api: RSClient, hub: Hub):
         self.s, self.db, self.api, self.hub = settings, db, api, hub
@@ -378,6 +380,11 @@ class Worker:
                 src[bp["device_type"]] = bp.get("source")
                 await self.db.kv_set("blueprint_sources", dict(list(src.items())[-200:]))
             self.request_blueprint_refresh()
+        if ev.get("category") == "swoop" and not late:   # a live run: keep the loop free until it's over
+            if ev["event"] == "swoop.started":
+                self.automations.focus(SWOOP_FOCUS_S)
+            elif ev["event"] == "swoop.complete":
+                self.automations.focus(0)
         await self._automate(ev, late)
 
     async def _automate(self, ev: dict, late: bool) -> None:

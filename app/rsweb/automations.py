@@ -604,10 +604,23 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 t.cancel()
                 await asyncio.gather(t, return_exceptions=True)
 
+    focus_until = 0.0   # time.monotonic(): until then nothing heavy runs (a swoop run is being flown, web_cockpit.py)
+
+    def focus(self, seconds: float) -> None:
+        """Keep the event loop free for a live run: no new tick, and a running tick stops at its next stage. Live
+        2026-10-29: ticks of 18-47 s and loop stalls up to 18 s made round 4 of two swoop runs arrive too late."""
+        self.focus_until = time.monotonic() + seconds if seconds > 0 else 0.0
+
+    def focused(self) -> bool:
+        return time.monotonic() < self.focus_until
+
     async def _tick_loop(self) -> None:
         await asyncio.sleep(15)
         while True:
             try:
+                if self.focused():
+                    await asyncio.sleep(2)
+                    continue
                 await self.watchdog()
                 if self.lock.locked() and self.lock.held_for() > LOCK_ALERT_SECONDS:
                     await asyncio.sleep(60)   # still stuck: don't queue up another tick behind it
@@ -1820,6 +1833,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 every, at = SPREAD.get(stage, (1, 0))
                 if self.tick_n and self.tick_n % every != at:
                     continue   # a heavy pass that runs every few ticks, on a tick of its own (all run on the first)
+                if self.focused():
+                    break   # a swoop run started: the rest of this tick waits for the next one
                 self.stage = stage
                 await asyncio.sleep(0)   # let waiting page requests run between stages
                 t_stage, c_stage = time.perf_counter(), time.thread_time()
