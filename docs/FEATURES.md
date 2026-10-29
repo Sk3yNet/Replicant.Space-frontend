@@ -92,19 +92,17 @@ Controllers with their latest digest, a directive picker with targets from the c
 launch / withdraw, and **AMI schedules** that re-issue directives to idle controllers.
 
 ### Cockpit
-- Fly the *swoop* debris run by hand (game spec 2026-10-29: `swoop` with action boost, dodge, dive, roll or brake;
-  no action starts the run). The picker lists devices with the swoop command first, then every replicant's vessel;
-  a vessel that lists swoop links here from its device page and its command form.
-- Full screen: a viewport with streaming stars and incoming debris, a throttle (boost, brake), a stick (dodge, dive,
-  roll) and a Start swoop button. Keys: W/↑ boost, S/↓ brake, Q/A/← dodge, E/D/→ roll, Space dive, Enter start. A game
+- Fly the *swoop* debris run by hand. The picker lists devices with the swoop command first, then every replicant's
+  vessel; a vessel that lists swoop links here from its device page and its command form.
+- The run (live 2026-10-29): *Start swoop*, a 20 s warmup where moves are practice, then 5 rounds. Each round names a
+  debris status (flanking, incoming, clear) with a description and a time limit; only the first move of a round is
+  graded, later ones are ignored. The end gives passed and failed rounds, score and vessel damage.
+- Full screen: the viewport draws the round's debris with a countdown bar; a throttle (boost, brake), a stick (dodge,
+  dive, roll) and Start. Keys: W/↑ boost, S/↓ brake, Q/A/← dodge, E/D/→ roll, Space dive, Enter start. A game
   controller works too: stick or d-pad, A dive, right trigger boost, left trigger brake, Start.
-- The debris event isn't documented, so the page reads any event about the vessel for a direction (left, right,
-  above, below, ahead), a time to react, a named move (lights the button up), a result (dodged or hit) and a score.
-  Every such event shows raw, and event types the app has never stored are marked *new type*.
-- Gauges: run time, score, dodges, hits and the round trip of the last command; each command is logged with its answer.
-- *Flight*: a run starts at a set spot (live 2026-10-29: "Vessel must be deployed at ETHIREL-2-4", a moon; vessels
-  have no deploy command, so it means being there). A refused start remembers the spot (kv `cockpit:need`), and the
-  Flight box previews and flies the trip on a planned route. Known swoop spots also show in every travel form.
+- *What works*: every graded move tallied by its round's debris status (from the actions log and the round events), so
+  the move that beat a status before lights up and failed ones dim. Buttons lock once a round is answered.
+- Gauges: run time, round, passed, failed, score, damage and the round trip of the last command.
 
 ### Lost
 - Devices out of sight, with their last known location and where they're heading, until they're seen again (then

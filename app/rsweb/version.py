@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.305.0"
+VERSION = "1.306.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.306.0", "2026-10-29", "Cockpit follows the real swoop run (from the first live run): a warmup countdown where moves are practice, then each round's debris status (flanking, incoming, clear), description and time limit, with right or wrong on the first move and the buttons locked until the next round. Rounds name only the replicant, so the cockpit now matches them to the vessel's pilot; before, they didn't count as the vessel's events. A What works table tallies every graded move by debris status and lights up the move that worked before. The Flight box is gone, and the events list always has room."),
     ("1.305.0", "2026-10-29", "Travel destinations and system target lists include every moon of a scanned planet (STAR-P-1 up to its moon count), so a moon such as ETHIREL-2-4 is offered before any device has been there. Before, only moons the app had seen were listed; typing the code always worked."),
     ("1.304.0", "2026-10-29", "Cockpit: when the game refuses Start swoop because the run starts somewhere else (live: Vessel must be deployed at ETHIREL-2-4, a moon), the cockpit remembers that spot and fills it into a new Flight box, which previews the trip and flies there on a planned route (surge hops, hubs). An arrival at the spot says you're ready to swoop. Travel forms now offer known swoop spots, and the cockpit lists the moons the app knows in that system."),
     ("1.303.0", "2026-10-29", "Devices › Cockpit: a full-screen cockpit to fly the new swoop debris run by hand (Start swoop, then boost, dodge, dive, roll or brake by button, keyboard or game controller). Debris warnings from the game show in the viewport with their direction and countdown, the move the game names lights up, and run time, score, dodges, hits and ping show as gauges. The debris event isn't in the game's spec, so every event about the vessel shows raw and event types never seen before are marked new. A vessel that lists swoop links to its cockpit from its device page and command form."),

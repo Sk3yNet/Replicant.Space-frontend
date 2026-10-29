@@ -769,33 +769,47 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                   "entry_point": None, "estimated_planets": 3, "estimated_travel_time": 291,
                                   "explored": False, "has_hub": False, "has_life": None, "has_ward": True,
                                   "position": {"x": 5.0, "y": 3.0, "z": 0.0}, "region": "solzone"}]})
-        if cmd == "swoop":   # a guess at the debris run (the live event shape is unknown, spec 2026-10-29)
+        if cmd == "swoop":   # the debris run as played live 2026-10-29 (which move beats which status is invented here)
             act = body.get("action")
             spot = getattr(world, "swoop_spot", None)
             if spot and d.get("location") != spot:
                 return ok({"error": f"Vessel must be deployed at {spot}"}, 400)
-            run = world.trips.setdefault("swoop:" + code, {"score": 0, "want": None, "n": 0})
+            run = world.trips.get("swoop:" + code)
+            beats = {"flanking": "brake", "incoming": "dodge", "clear": "boost"}
             if not act:
-                run.update(score=0, want=None, n=0)
-
-                def debris():
-                    if run["n"] >= 5:
-                        world.emit("swoop.completed", d, score=run["score"])
-                        return
-                    run["n"] += 1
-                    side, run["want"] = random.choice([("left", "roll"), ("right", "dodge"), ("above", "dive"),
-                                                       ("ahead", "brake"), ("below", "boost")])
-                    world.emit("swoop.debris_incoming", d, direction=side, react_seconds=4, counter=run["want"])
-                    loop.call_later(6, debris)
+                warm = getattr(world, "swoop_warmup", 20)
+                run = world.trips["swoop:" + code] = {"phase": "warmup", "round": 0, "status": None, "answered": False,
+                                                      "pass": 0, "warm": 0}
                 loop = asyncio.get_running_loop()
-                loop.call_later(2, debris)
-                world.emit("swoop.started", d)
-                return ok({"device_code": code, "status": "swooping"})
-            good = act == run.get("want")
-            run["score"] += 10 if good else 0
-            run["want"] = None
-            world.emit("swoop.reaction", d, action=act, result="dodged" if good else "hit", score=run["score"])
-            return ok({"device_code": code, "action": act, "result": "dodged" if good else "hit", "score": run["score"]})
+
+                def next_round():
+                    if run["round"] >= 5:
+                        world.emit("swoop.complete", d, rounds_pass=run["pass"], rounds_fail=5 - run["pass"],
+                                   total_rounds=5, score=200 + 100 * run["pass"], vessel_damage=3.0 * (5 - run["pass"]))
+                        world.trips.pop("swoop:" + code, None)
+                        return
+                    run.update(phase="active", round=run["round"] + 1, answered=False,
+                               status=random.choice(list(beats)))
+                    secs = random.choice([6, 9, 10])
+                    ev = world.emit("swoop.round", None, round=run["round"], debris_status=run["status"],
+                                    description="Shattered rock is closing in.", duration_seconds=secs)
+                    ev["replicant_code"] = REP
+                    loop.call_later(secs, next_round)
+                loop.call_later(warm, next_round)
+                world.emit("swoop.started", d, rounds=5, warmup_seconds=warm)
+                return ok({"available_actions": ["boost", "dodge", "dive", "roll", "brake"], "rounds": 5,
+                           "status": "swoop_starting", "warmup_seconds": warm})
+            if not run:
+                return ok({"error": "No active swoop session"}, 400)
+            if run["phase"] == "warmup":
+                run["warm"] += 1
+                return ok({"action": act, "status": "warmup", "warmup_actions": run["warm"]})
+            if run["answered"]:
+                return ok({"round": run["round"], "status": "active", "waiting": True})
+            run["answered"] = True
+            good = beats[run["status"]] == act
+            run["pass"] += good
+            return ok({"correct": good, "round": run["round"], "status": "active"})
         if cmd == "change_owner":
             if d.get("replicant_code") == body.get("target"):
                 return ok({"error": "Device already belongs to that replicant"}, 400)
