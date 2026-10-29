@@ -3412,7 +3412,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         on = lambda code, loc: [lo.activate_step(code)] if lo.relay_ready_at(p["by_code"].get(code) or {}, loc) else []  # noqa: E731
         for code, loc in p.get("pins") or []:
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {loc} (pinned)", code,
-                                                  [lo.pin_step(code, loc)] + on(code, loc), {"devices": [code]}, force=manual))
+                                                  ([lo.deactivate_step(code)] if lo.relay_off_to_pin(p["by_code"].get(code) or {}, devices) else [])
+                                                  + [lo.pin_step(code, loc)] + on(code, loc), {"devices": [code]}, force=manual))
         for code, loc in p.get("places") or []:
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {loc} (placement)", code,
                                                   [lo.pin_step(code, loc, "where its type works")] + on(code, loc),

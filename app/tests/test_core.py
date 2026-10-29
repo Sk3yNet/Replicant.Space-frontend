@@ -3135,6 +3135,22 @@ def test_pinned_devices_reach_their_spot():
     assert "at:ithvalai-3" in rh["body"]["configuration"]["remove_tags"]
 
 
+def test_relaying_relay_goes_to_its_pin():
+    # live 2026-10-29: B2B8B2EA, sent to the OTHILETH-1-EVT-007 contract, relayed at OTHILETH-1-L4 and never moved
+    from rsweb import loadouts as lo
+    relay = {"device_code": "B2B8B2EA", "device_type": "ftl_relay", "location": "OTHILETH-1-L4", "status": "relaying",
+             "in_control_range": True, "available_commands": ["deactivate", "travel"],
+             "tags": ["at:othileth-1", "contract:othileth-1-evt-007"]}
+    other = {"device_code": "4A8A3109", "device_type": "ftl_relay", "location": "OTHILETH-1-L4", "status": "relaying",
+             "tags": []}
+    cfg = {"phases": [], "systems": {}}
+    p = lo.plan(cfg, [relay, other], [], {}, {"OTHILETH": {}}, {}, set(), [], {})
+    assert ("B2B8B2EA", "OTHILETH-1") in p["pins"] and lo.relay_off_to_pin(relay, [relay, other])
+    # the system's only relay stays on where it is
+    p = lo.plan(cfg, [relay], [], {}, {"OTHILETH": {}}, {}, set(), [], {})
+    assert not p["pins"] and not lo.relay_off_to_pin(relay, [relay])
+
+
 def test_a_grounded_pinned_device_is_carried_to_its_spot():
     """Live 2026-10-21: 3 compute cores for the TWAFFY-OORT locker were dropped at TWAFFY's entry point (TWAFFY-11-L4)
     and could not fly to their pin on their own."""

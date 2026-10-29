@@ -1276,7 +1276,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if (pin and star_of(pin) == star_of(d.get("location")) and d.get("location") != pin and code not in busy
                 and code not in moves and code not in arrived and not bound_for(d, known_stars, fleet_homes) and not working(d)
                 and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
-                and not d.get("location_stale") and str(d.get("status") or "").startswith(("idle", "inactive"))
+                and not d.get("location_stale") and (str(d.get("status") or "").startswith(("idle", "inactive"))
+                                                     or relay_off_to_pin(d, devices))
                 and "travel" in (d.get("available_commands") or ["travel"])):
             pins.append((code, pin))
 
@@ -1658,6 +1659,18 @@ def relay_ready_at(d: dict, loc: str | None) -> bool:
     from .placement import is_lagrange
     return (d.get("device_type") or "") == "ftl_relay" and is_lagrange(loc) \
         and not str(d.get("status") or "").startswith("relaying") and SPARE not in (d.get("tags") or [])
+
+
+def relay_off_to_pin(d: dict, devices: list[dict]) -> bool:
+    """A relay switched on away from its pin (live 2026-10-29: B2B8B2EA, sent to the OTHILETH-1-EVT-007 contract,
+    relaying at OTHILETH-1-L4 for days) is switched off and moved, but only while another relay keeps its system
+    covered."""
+    return (d.get("device_type") or "") == "ftl_relay" and str(d.get("status") or "").startswith("relaying") \
+        and star_of(d.get("location")) in relaying_stars(devices, {d.get("device_code")})
+
+
+def deactivate_step(code: str) -> dict:
+    return step(f"deactivate {code}", f"/devices/{code}", {"command": "deactivate"})
 
 
 def activate_step(code: str) -> dict:
