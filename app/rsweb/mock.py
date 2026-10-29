@@ -771,6 +771,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                   "position": {"x": 5.0, "y": 3.0, "z": 0.0}, "region": "solzone"}]})
         if cmd == "swoop":   # a guess at the debris run (the live event shape is unknown, spec 2026-10-29)
             act = body.get("action")
+            spot = getattr(world, "swoop_spot", None)
+            if spot and d.get("location") != spot:
+                return ok({"error": f"Vessel must be deployed at {spot}"}, 400)
             run = world.trips.setdefault("swoop:" + code, {"score": 0, "want": None, "n": 0})
             if not act:
                 run.update(score=0, want=None, n=0)

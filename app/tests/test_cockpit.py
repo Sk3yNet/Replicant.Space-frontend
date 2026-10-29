@@ -35,3 +35,20 @@ def test_events_about_the_vessel_are_marked_mine():
     out = wc.slim(ev, HOST)
     assert out["mine"] and out["payload"]["direction"] == "left"
     assert not wc.slim({"event": "x", "device_code": "OTHER", "payload": {}}, HOST)["mine"]
+
+
+def test_a_refused_start_names_the_spot_and_the_cockpit_flies_there(client):  # noqa: F811
+    from test_ops import world
+    world(client).swoop_spot = "SOL-3-1"
+    r = client.post(f"/cockpit/{HOST}/swoop", json={}, headers=HX).json()
+    assert not r["ok"] and r["need"] == "SOL-3-1"
+    assert client.portal.call(client.app.state.db.kv_get, wc.NEED_KV, {}) == {HOST: "SOL-3-1"}
+    page = client.get(f"/cockpit/{HOST}", headers=H).text
+    assert '"need": "SOL-3-1"' in page
+    assert "SOL-3-1" in client.get(f"/devices/{HOST}/command-form?command=travel", headers=HX).text
+    f = client.post(f"/cockpit/{HOST}/fly", json={"destination": "sol-3-1"}, headers=HX).json()
+    assert f["ok"] and f["destination"] == "SOL-3-1"
+    rows = client.portal.call(client.app.state.db.fetchall, "SELECT body FROM actions ORDER BY id")
+    last = json.loads(rows[-1]["body"])
+    assert last["command"] == "travel" and last["destination"] == "SOL-3-1"
+    assert wc.needed_spot("Vessel must be deployed at ETHIREL-2-4") == "ETHIREL-2-4"

@@ -5,17 +5,28 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
-from .web import call_action, current_user, f_human, load_state, page, templates
+from . import hubroute
+from .targets import system_targets
+from .web import call_action, current_user, f_human, load_state, page, star_of, templates
 
 router = APIRouter()
 
 ACTIONS = ("boost", "dodge", "dive", "roll", "brake")
 RECENT = 40
+NEED_KV = "cockpit:need"   # {device code: the spot the game says the run starts from}
+# live 2026-10-29: 400 "Vessel must be deployed at ETHIREL-2-4" (a moon; vessels have no deploy command, so it means be there)
+NEED_RE = re.compile(r"must be (?:deployed |located |stationed )?(?:at|in) ([A-Z0-9]+(?:-[A-Z0-9]+)*)")
+
+
+def needed_spot(error: str | None) -> str | None:
+    m = NEED_RE.search(error or "")
+    return m.group(1) if m else None
 
 
 def pilots(st: dict) -> list[dict]:
@@ -72,7 +83,11 @@ async def cockpit(request: Request, code: str, user: str = Depends(current_user)
     db = request.app.state.db
     rows = await db.fetchall("SELECT * FROM events WHERE device_code=? OR payload LIKE ? ORDER BY seq DESC LIMIT ?",
                              (code, f"%{code}%", RECENT))
-    boot = {"code": code, "actions": ACTIONS, "known": await _known_types(db),
+    need = (await db.kv_get(NEED_KV, {}) or {}).get(code)
+    star = star_of(need or dev.get("location") or "")
+    spots = [t["code"] for t in (await system_targets(db, star))["targets"] if t["category"] == "moon"] if star else []
+    boot = {"spots": sorted(set(spots) | ({need} if need else set())), "code": code, "actions": ACTIONS, "known": await _known_types(db), "location": dev.get("location"),
+            "status": dev.get("status"), "need": need,
             "recent": [slim(dict(r), code) for r in reversed(rows)]}
     return templates.TemplateResponse(request, "cockpit.html", {
         "request": request, "dev": dev, "me": me or {"code": code, "type": f_human(dev.get("device_type")),
@@ -93,29 +108,32 @@ async def cockpit_swoop(request: Request, code: str, user: str = Depends(current
     cmd = {"command": "swoop"} | ({"action": action} if action else {})
     t0 = time.monotonic()
     out = await call_action(request, user, "POST", f"/devices/{code}", cmd, f"swoop {action or 'start'} {code}")
+    ms = round((time.monotonic() - t0) * 1000)
+    need = needed_spot(out["error"])
+    if need:
+        db = request.app.state.db
+        await db.kv_set(NEED_KV, {**(await db.kv_get(NEED_KV, {}) or {}), code: need})
     return JSONResponse({"ok": out["ok"], "status": out["status"], "error": out["error"], "response": out["response"],
-                         "action": action, "ms": round((time.monotonic() - t0) * 1000)})
+                         "action": action, "ms": ms, "need": need})
 
 
-@router.get("/cockpit/{code}/stream")
-async def cockpit_stream(request: Request, code: str, user: str = Depends(current_user)):
-    """Every game event as JSON (the page decides what to draw), the moment the app receives it."""
-    st = request.app.state
-    q = st.hub.subscribe()
-
-    async def gen():
-        try:
-            yield "retry: 2000\n\n"
-            while not await request.is_disconnected():
-                try:
-                    kind, data = await asyncio.wait_for(q.get(), timeout=10)
-                except asyncio.TimeoutError:
-                    yield ": keepalive\n\n"
-                    continue
-                if kind == "event" and isinstance(data, dict):
-                    yield f"event: game\ndata: {json.dumps(slim(data, code), default=str)}\n\n"
-        finally:
-            st.hub.unsubscribe(q)
-
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+@router.post("/cockpit/{code}/fly")
+async def cockpit_fly(request: Request, code: str, user: str = Depends(current_user)):
+    """Fly to the run's spot (a moon such as ETHIREL-2-4), planned like the job runner's trips (surge hops, hubs);
+    dry_run previews the ETA. A refused plan goes the game's own way."""
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    dest = str((body or {}).get("destination") or "").strip().upper()
+    if not dest:
+        return JSONResponse({"ok": False, "error": "Pick a destination"}, 400)
+    trip = {"command": "travel", "destination": dest} | ({"dry_run": True} if body.get("dry_run") else {})
+    path, label = f"/devices/{code}", f"travel on {code} to {dest} (cockpit)"
+    via = await request.app.state.worker.automations.trip_via(code, dest)
+    out = await call_action(request, user, "POST", path, {**trip, "via": via}, f"{label} via {', '.join(via)}") if via else None
+    if not out or not out["ok"]:
+        via, out = [], await call_action(request, user, "POST", path, trip, label)
+    return JSONResponse({"ok": out["ok"], "status": out["status"], "error": out["error"], "response": out["response"],
+                         "via": via, "destination": dest, "dry_run": bool(body.get("dry_run")),
+                         "seconds": hubroute.total_seconds(out["response"]) if out["ok"] else None})

@@ -102,6 +102,9 @@ launch / withdraw, and **AMI schedules** that re-issue directives to idle contro
   above, below, ahead), a time to react, a named move (lights the button up), a result (dodged or hit) and a score.
   Every such event shows raw, and event types the app has never stored are marked *new type*.
 - Gauges: run time, score, dodges, hits and the round trip of the last command; each command is logged with its answer.
+- *Flight*: a run starts at a set spot (live 2026-10-29: "Vessel must be deployed at ETHIREL-2-4", a moon; vessels
+  have no deploy command, so it means being there). A refused start remembers the spot (kv `cockpit:need`), and the
+  Flight box previews and flies the trip on a planned route. Known swoop spots also show in every travel form.
 
 ### Lost
 - Devices out of sight, with their last known location and where they're heading, until they're seen again (then

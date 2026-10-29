@@ -924,6 +924,9 @@ async def suggestions(request: Request, here: str | None) -> dict:
     bps = normalize_blueprints(await db.kv_get("blueprints", []))
     systems = [{"star": r["star"], "data": json.loads(r["data"])} for r in await db.fetchall("SELECT star, data FROM systems")]
     sugg = cmdspec.build_suggestions(st, bps, systems, await db.kv_get("stars", {}) or {}, here)
+    for code, spot in (await db.kv_get("cockpit:need", {}) or {}).items():   # where the game says a swoop run starts (moons)
+        if spot not in {o["value"] for o in sugg["locations"]}:
+            sugg["locations"].insert(0, {"value": spot, "label": f"swoop spot ({code})"})
     if here:
         local = await system_targets(db, star_of(here))
         known = {t["code"]: t for t in local["targets"]}

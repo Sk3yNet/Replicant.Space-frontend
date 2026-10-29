@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.303.0"
+VERSION = "1.304.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.304.0", "2026-10-29", "Cockpit: when the game refuses Start swoop because the run starts somewhere else (live: Vessel must be deployed at ETHIREL-2-4, a moon), the cockpit remembers that spot and fills it into a new Flight box, which previews the trip and flies there on a planned route (surge hops, hubs). An arrival at the spot says you're ready to swoop. Travel forms now offer known swoop spots, and the cockpit lists the moons the app knows in that system."),
     ("1.303.0", "2026-10-29", "Devices › Cockpit: a full-screen cockpit to fly the new swoop debris run by hand (Start swoop, then boost, dodge, dive, roll or brake by button, keyboard or game controller). Debris warnings from the game show in the viewport with their direction and countdown, the move the game names lights up, and run time, score, dodges, hits and ping show as gauges. The debris event isn't in the game's spec, so every event about the vessel shows raw and event types never seen before are marked new. A vessel that lists swoop links to its cockpit from its device page and command form."),
     ("1.302.0", "2026-10-29", "NPC chatter: placeholders {pilot} (who an announcer's post is about, such as Patch calling the exploding moon run at DELTA) and {score} (the number after Score:), so the crowd can cheer or groan for the pilot by name."),
     ("1.301.2", "2026-10-29", "NPC chatter settings: one limiter per channel, how often one of the NPCs may start a post there (all NPCs together; default 24 hours for the general and bots channels, blank means never, other channels such as #trade can get a row). It replaces the per-NPC timer and its two overrides. Replies inside a conversation still don't count."),
