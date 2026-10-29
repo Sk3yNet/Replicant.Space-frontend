@@ -100,7 +100,7 @@ class World:
         self.devices = [
             {"device_code": HOST, "device_type": "heaven_vessel", "location": "SOL-BELT-1", "status": "stationary",
              "features": ["surge", "cruise", "system_scan", "mine", "cradle", "print", "census"], "operational_capacity": 98.0,
-             "available_commands": ["travel", "deactivate", "stellar_census"], "stow_capacity": 10},
+             "available_commands": ["travel", "deactivate", "stellar_census", "swoop"], "stow_capacity": 10},
         ]
         for i, (res, st) in enumerate([("structural", "mining (structural)"), ("conductive", "mining (conductive)"),
                                        ("silicates", "idle"), ("carbon", "mining (carbon)")]):
@@ -769,6 +769,30 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                   "entry_point": None, "estimated_planets": 3, "estimated_travel_time": 291,
                                   "explored": False, "has_hub": False, "has_life": None, "has_ward": True,
                                   "position": {"x": 5.0, "y": 3.0, "z": 0.0}, "region": "solzone"}]})
+        if cmd == "swoop":   # a guess at the debris run (the live event shape is unknown, spec 2026-10-29)
+            act = body.get("action")
+            run = world.trips.setdefault("swoop:" + code, {"score": 0, "want": None, "n": 0})
+            if not act:
+                run.update(score=0, want=None, n=0)
+
+                def debris():
+                    if run["n"] >= 5:
+                        world.emit("swoop.completed", d, score=run["score"])
+                        return
+                    run["n"] += 1
+                    side, run["want"] = random.choice([("left", "roll"), ("right", "dodge"), ("above", "dive"),
+                                                       ("ahead", "brake"), ("below", "boost")])
+                    world.emit("swoop.debris_incoming", d, direction=side, react_seconds=4, counter=run["want"])
+                    loop.call_later(6, debris)
+                loop = asyncio.get_running_loop()
+                loop.call_later(2, debris)
+                world.emit("swoop.started", d)
+                return ok({"device_code": code, "status": "swooping"})
+            good = act == run.get("want")
+            run["score"] += 10 if good else 0
+            run["want"] = None
+            world.emit("swoop.reaction", d, action=act, result="dodged" if good else "hit", score=run["score"])
+            return ok({"device_code": code, "action": act, "result": "dodged" if good else "hit", "score": run["score"]})
         if cmd == "change_owner":
             if d.get("replicant_code") == body.get("target"):
                 return ok({"error": "Device already belongs to that replicant"}, 400)

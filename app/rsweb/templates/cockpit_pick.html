@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Cockpit{% endblock %}
+{% block content %}
+<h1>Cockpit</h1>
+<p class="muted small">Fly the <span class="mono">swoop</span> debris run by hand. Pick a vessel to open its full-screen
+  cockpit: start the run, then boost, dodge, dive, roll or brake as the debris comes in. Devices that list the swoop
+  command come first; every replicant's vessel is listed too, since the command may only show during the event.</p>
+<div class="card">
+  {% if pilots %}
+  <table>
+    <thead><tr><th>Vessel</th><th>Pilot</th><th>Location</th><th>Status</th><th>Swoop</th><th></th></tr></thead>
+    <tbody>
+    {% for p in pilots %}
+      <tr><td><a href="/devices/{{ p.code }}" class="mono">{{ p.code }}</a> {{ p.type }}</td>
+        <td>{{ p.pilot or '—' }}</td><td>{{ p.location or '—' }}</td><td>{{ p.status or '—' }}</td>
+        <td>{{ '✓' if p.swoop else '' }}</td>
+        <td><a class="btn small" href="/cockpit/{{ p.code }}">Open cockpit</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No replicant vessels and no device with the swoop command yet.</p>{% endif %}
+</div>
+{% endblock %}

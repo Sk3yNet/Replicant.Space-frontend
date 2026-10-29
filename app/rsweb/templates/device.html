@@ -5,6 +5,9 @@
 <h1>{{ dev.device_type | human }} <span class="mono muted">{{ code }}</span>
   <span class="pill {{ dev.status | status_class }}">{{ dev.status }}</span>
   {% if dev.tracking_site %}<span class="small muted">holding site <a href="/locations/{{ dev.tracking_site }}">{{ dev.tracking_site }}</a></span>{% endif %}</h1>
+{% if 'swoop' in (dev.available_commands or []) %}<div class="card row between cockpit-cta" style="align-items:center">
+  <div class="small"><b>Debris run</b>: this vessel can swoop. Fly it live, with buttons, keys or a game controller.</div>
+  <a class="btn" href="/cockpit/{{ code }}">Open cockpit</a></div>{% endif %}
 {% if doing %}<div class="card small" id="doing">
   {% if doing.fleet %}<div><b>Fleet <a href="/fleets/details?fleet={{ doing.fleet.id }}">{{ doing.fleet.name }}</a></b>
     <span class="muted">{{ doing.fleet.role }}</span>: {{ doing.fleet.status }}{% if doing.fleet.last %} <span class="muted">· {{ doing.fleet.last }}</span>{% endif %}</div>{% endif %}

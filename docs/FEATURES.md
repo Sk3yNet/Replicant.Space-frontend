@@ -91,6 +91,18 @@ System → device type → device, with stowed devices nested in their carrier; 
 Controllers with their latest digest, a directive picker with targets from the controller's system, adopt / release /
 launch / withdraw, and **AMI schedules** that re-issue directives to idle controllers.
 
+### Cockpit
+- Fly the *swoop* debris run by hand (game spec 2026-10-29: `swoop` with action boost, dodge, dive, roll or brake;
+  no action starts the run). The picker lists devices with the swoop command first, then every replicant's vessel;
+  a vessel that lists swoop links here from its device page and its command form.
+- Full screen: a viewport with streaming stars and incoming debris, a throttle (boost, brake), a stick (dodge, dive,
+  roll) and a Start swoop button. Keys: W/↑ boost, S/↓ brake, Q/A/← dodge, E/D/→ roll, Space dive, Enter start. A game
+  controller works too: stick or d-pad, A dive, right trigger boost, left trigger brake, Start.
+- The debris event isn't documented, so the page reads any event about the vessel for a direction (left, right,
+  above, below, ahead), a time to react, a named move (lights the button up), a result (dodged or hit) and a score.
+  Every such event shows raw, and event types the app has never stored are marked *new type*.
+- Gauges: run time, score, dodges, hits and the round trip of the last command; each command is logged with its answer.
+
 ### Lost
 - Devices out of sight, with their last known location and where they're heading, until they're seen again (then
   listed under *Seen again*): surging, left out of the device list, out of relay range with no replicant in their

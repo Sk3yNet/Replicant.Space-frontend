@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cockpit {{ dev.device_code }} · Replicant Space</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%23ffb347'/></svg>">
+<style>
+:root { --bg: #05070c; --panel: #0e1420; --panel2: #141c2c; --line: #263452; --text: #dbe4f3; --muted: #7d8bab;
+  --amber: #ffb347; --cyan: #5fd8ff; --good: #4fd18b; --bad: #ff5a5a; --warn: #f0d24f; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 14px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow: hidden; }
+a { color: var(--cyan); text-decoration: none; }
+.pit { display: grid; height: 100vh; grid-template-rows: auto 1fr auto; gap: 8px; padding: 8px; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 6px 12px; }
+.bar .id b { color: var(--amber); letter-spacing: .06em; }
+.bar .sp { flex: 1; }
+.lamp { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #444; margin-right: 5px; vertical-align: middle; }
+.lamp.on { background: var(--good); box-shadow: 0 0 8px var(--good); } .lamp.off { background: var(--bad); }
+.gauge { text-align: center; min-width: 64px; } .gauge small { display: block; color: var(--muted); font-size: 10px; letter-spacing: .12em; }
+.gauge span { font-size: 18px; color: var(--cyan); }
+.mid { display: grid; grid-template-columns: 1fr 340px; gap: 8px; min-height: 0; }
+.view { position: relative; border: 2px solid #2b3a5c; border-radius: 40px 40px 14px 14px; overflow: hidden; min-height: 200px;
+  background: radial-gradient(ellipse at center, #0b1430 0%, #03050b 70%); box-shadow: inset 0 0 60px #000; }
+.view canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hud { position: absolute; left: 0; right: 0; top: 14px; text-align: center; pointer-events: none; }
+.alert { display: inline-block; padding: 6px 16px; border-radius: 6px; font-size: 20px; letter-spacing: .1em; color: var(--bad);
+  border: 1px solid var(--bad); background: rgba(60,0,0,.55); }
+.alert.calm { color: var(--muted); border-color: var(--line); background: rgba(10,14,24,.6); font-size: 14px; }
+.alert.good { color: var(--good); border-color: var(--good); background: rgba(0,40,20,.55); }
+.hint { margin-top: 6px; color: var(--warn); font-size: 13px; min-height: 18px; }
+.side { display: grid; grid-template-rows: auto 1fr auto; gap: 8px; min-height: 0; }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 0; overflow: auto; }
+.box h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: .14em; color: var(--muted); font-weight: normal; text-transform: uppercase;
+  display: flex; justify-content: space-between; gap: 6px; }
+.feed { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.feed li { padding: 3px 0; border-bottom: 1px dashed #1c2740; cursor: pointer; }
+.feed li .t { color: var(--muted); } .feed li.alertrow { color: var(--bad); }
+.tag { font-size: 10px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--amber); color: var(--amber); margin-left: 4px; }
+.tag.ok { border-color: var(--good); color: var(--good); } .tag.err { border-color: var(--bad); color: var(--bad); }
+pre.raw { margin: 0; font-size: 11px; white-space: pre-wrap; word-break: break-all; color: #b9c7e3; max-height: 22vh; overflow: auto; }
+.console { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: stretch; background: linear-gradient(#141c2c, #0b101b);
+  border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; }
+.cluster { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.lbl { font-size: 10px; letter-spacing: .16em; color: var(--muted); text-align: center; text-transform: uppercase; }
+button.k { font: inherit; color: var(--text); background: linear-gradient(#22304d, #162037); border: 1px solid #3a4f7a; border-radius: 10px;
+  min-width: 84px; min-height: 52px; padding: 6px 10px; cursor: pointer; letter-spacing: .1em; text-transform: uppercase;
+  box-shadow: 0 3px 0 #0a0f1a, inset 0 1px 0 rgba(255,255,255,.08); touch-action: manipulation; user-select: none; }
+button.k kbd { display: block; font-size: 10px; color: var(--muted); letter-spacing: 0; }
+button.k:active, button.k.hit { transform: translateY(2px); box-shadow: 0 1px 0 #0a0f1a; background: linear-gradient(#2d4470, #1c2b4c); }
+button.k.suggest { border-color: var(--warn); box-shadow: 0 0 14px rgba(240,210,79,.6), 0 3px 0 #0a0f1a; color: var(--warn); }
+button.k.busy { opacity: .7; }
+.throttle { display: grid; grid-template-rows: 1fr auto 1fr; gap: 6px; align-items: center; justify-items: center; }
+.rail { width: 18px; height: 54px; border-radius: 9px; background: #070a12; border: 1px solid var(--line); position: relative; }
+.rail i { position: absolute; left: -9px; width: 34px; height: 12px; border-radius: 4px; background: var(--amber); top: 21px; transition: top .25s; }
+.stick { display: grid; grid-template-columns: repeat(3, auto); gap: 6px; }
+.go { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; }
+button.k.start { background: radial-gradient(#7a2a12, #3e1306); border-color: var(--amber); color: var(--amber); min-width: 150px; min-height: 64px;
+  border-radius: 34px; font-size: 16px; }
+.small { font-size: 11px; color: var(--muted); }
+.flash { animation: flash .5s; } @keyframes flash { from { background: rgba(255,60,60,.35); } to { background: transparent; } }
+label.sw { font-size: 11px; color: var(--muted); cursor: pointer; } label.sw input { vertical-align: middle; }
+@media (max-width: 900px) {
+  html, body { overflow: auto; height: auto; } .pit { display: flex; flex-direction: column; height: auto; min-height: 100vh; }
+  .mid { display: contents; } .view { min-height: 42vh; order: 1; } .console { order: 2; } .side { order: 3; grid-template-rows: auto auto auto; }
+  .bar { order: 0; }
+  .console { grid-template-columns: 1fr; } button.k { min-width: 68px; }
+}
+</style>
+</head>
+<body>
+<div class="pit">
+  <div class="bar">
+    <a href="/devices/{{ dev.device_code }}" title="Back to the device page">◀</a>
+    <span class="id"><b>{{ dev.device_code }}</b> {{ me.type }}{% if me.pilot %} · pilot {{ me.pilot }}{% endif %}</span>
+    <span class="small" id="loc">{{ dev.location or 'in transit' }} · {{ dev.status }}</span>
+    {% if not me.swoop %}<span class="tag" title="The device list doesn't show the swoop command for this vessel right now; you can still try it">no swoop listed</span>{% endif %}
+    <span class="sp"></span>
+    <span class="gauge"><small>RUN</small><span id="g-time">--:--</span></span>
+    <span class="gauge"><small>SCORE</small><span id="g-score">–</span></span>
+    <span class="gauge"><small>DODGED</small><span id="g-ok">0</span></span>
+    <span class="gauge"><small>HITS</small><span id="g-hit">0</span></span>
+    <span class="gauge"><small>PING</small><span id="g-ping">–</span></span>
+    <span class="small"><span class="lamp" id="lamp"></span><span id="link">connecting</span></span>
+    <label class="sw"><input type="checkbox" id="sound" checked> sound</label>
+  </div>
+
+  <div class="mid">
+    <div class="view" id="view">
+      <canvas id="sky"></canvas>
+      <div class="hud"><div class="alert calm" id="alert">Standing by. Press Start swoop (Enter) when you're ready</div>
+        <div class="hint" id="hint"></div></div>
+    </div>
+    <div class="side">
+      <div class="box"><h3>Last message <span id="raw-what" class="small"></span></h3><pre class="raw" id="raw">–</pre></div>
+      <div class="box"><h3>Events <label class="sw"><input type="checkbox" id="all"> all</label></h3><ul class="feed" id="feed"></ul></div>
+      <div class="box"><h3>Commands</h3><ul class="feed" id="log"></ul></div>
+    </div>
+  </div>
+
+  <div class="console">
+    <div class="cluster">
+      <div class="throttle">
+        <button class="k" data-act="boost">Boost<kbd>W / ↑</kbd></button>
+        <div class="rail"><i id="lever"></i></div>
+        <button class="k" data-act="brake">Brake<kbd>S / ↓</kbd></button>
+      </div>
+      <div class="lbl">throttle</div>
+    </div>
+    <div class="go">
+      <button class="k start" data-act="">Start swoop<kbd>Enter</kbd></button>
+      <div class="small" id="pad">Keys or a game controller (stick, A dive, triggers boost and brake, Start)</div>
+    </div>
+    <div class="cluster">
+      <div class="lbl">stick</div>
+      <div class="stick">
+        <button class="k" data-act="dodge">Dodge<kbd>Q / A / ←</kbd></button>
+        <button class="k" data-act="dive">Dive<kbd>Space</kbd></button>
+        <button class="k" data-act="roll">Roll<kbd>E / D / →</kbd></button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(() => {
+  const BOOT = {{ boot | tojson }};
+  const CODE = BOOT.code, ACTS = BOOT.actions;
+  const known = new Set(BOOT.known || []);
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+  const RUN_RE = /swoop|debris|incoming|obstacle|hazard|collision|dodge|moon/i;
+  const DIRS = {left: [-1, 0], port: [-1, 0], right: [1, 0], starboard: [1, 0], up: [0, -1], above: [0, -1], high: [0, -1], top: [0, -1],
+    down: [0, 1], below: [0, 1], low: [0, 1], bottom: [0, 1], ahead: [0, 0], front: [0, 0], center: [0, 0], centre: [0, 0]};
+
+  // ---- read whatever the game sends: direction, time to react, the expected move, score ----
+  function walk(o, path, out) {
+    if (o && typeof o === "object") { for (const [k, v] of Object.entries(o)) walk(v, path.concat(k), out); }
+    else out.push([path.join(".").toLowerCase(), o]);
+    return out;
+  }
+  function analyze(obj) {
+    const a = {};
+    for (const [k, v] of walk(obj || {}, [], [])) {
+      const key = k.split(".").pop();
+      if (typeof v === "string") {
+        const s = v.toLowerCase().trim();
+        if (DIRS[s] && !a.dir) a.dir = s;
+        else if (!a.dir && /direction|side|from|approach|bearing/.test(key)) {
+          const w = s.split(/[^a-z]+/).find(x => DIRS[x]); if (w) a.dir = w;
+        }
+        if (ACTS.includes(s) && !/^action$|command/.test(k) && !a.move) a.move = s;
+        if (/expires|deadline|impact_at|react_by|until|_at$/.test(key) && !isNaN(Date.parse(v)) && /deadline|expire|react|impact|until/.test(key))
+          a.deadline = Date.parse(v);
+        if (/result|outcome|status/.test(key)) a.result = s;
+      } else if (typeof v === "number") {
+        if (/(^|_)(eta|seconds|window|time_to|react|deadline|impact_in|ttl|time_left|countdown)/.test(key) && v > 0 && v < 3600 && !a.deadline)
+          a.deadline = Date.now() + (/_ms$|millis/.test(key) ? v : v * 1000);
+        if (/^(angle|bearing|heading)/.test(key)) a.angle = v;
+        if (/^score$|^points$/.test(key)) a.score = v;
+        if (/^(hull|health|integrity|lives|shield)/.test(key)) a.hull = [key, v];
+      } else if (typeof v === "boolean" && /hit|collid|dodged|success|survived/.test(key)) {
+        a.result = (/dodged|success|survived/.test(key) === v) ? "dodged" : "hit";
+      }
+    }
+    return a;
+  }
+
+  // ---- the viewport: stars streaming past, debris coming in ----
+  const cv = $("sky"), cx = cv.getContext("2d");
+  let W = 0, H = 0, speed = 1, target = 1;
+  const stars = Array.from({length: 260}, () => ({x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random()}));
+  const rocks = [];
+  function size() { const r = cv.getBoundingClientRect(); W = cv.width = r.width * devicePixelRatio; H = cv.height = r.height * devicePixelRatio; }
+  addEventListener("resize", size); size();
+  function frame() {
+    speed += (target - speed) * 0.05;
+    cx.fillStyle = "rgba(3,5,11,0.45)"; cx.fillRect(0, 0, W, H);
+    const mx = W / 2, my = H / 2;
+    for (const s of stars) {
+      s.z -= 0.004 * speed; if (s.z <= 0.02) { s.x = Math.random() * 2 - 1; s.y = Math.random() * 2 - 1; s.z = 1; }
+      const px = mx + s.x / s.z * mx * 0.5, py = my + s.y / s.z * my * 0.5, r = (1 - s.z) * 2.2 * devicePixelRatio;
+      cx.fillStyle = `rgba(200,220,255,${1 - s.z})`; cx.fillRect(px, py, r, r);
+    }
+    const now = Date.now();
+    for (let i = rocks.length - 1; i >= 0; i--) {
+      const k = rocks[i], span = k.end - k.start, f = Math.min(1, (now - k.start) / span);
+      if (now > k.end + 1500) { rocks.splice(i, 1); continue; }
+      const [dx, dy] = k.vec, x = mx + dx * (1 - f) * mx * 0.95, y = my + dy * (1 - f) * my * 0.95, r = (8 + 60 * f) * devicePixelRatio;
+      cx.beginPath(); cx.arc(x, y, r, 0, 7); cx.fillStyle = k.done ? "rgba(79,209,139,.35)" : "rgba(170,120,90,.85)"; cx.fill();
+      cx.strokeStyle = k.done ? "#4fd18b" : "#ff5a5a"; cx.lineWidth = 2 * devicePixelRatio; cx.stroke();
+      if (!k.done && now < k.end) { cx.fillStyle = "#ffb347"; cx.font = `${14 * devicePixelRatio}px monospace`;
+        cx.fillText(((k.end - now) / 1000).toFixed(1) + "s", x + r + 4, y); }
+    }
+    // reticle
+    cx.strokeStyle = "rgba(95,216,255,.5)"; cx.lineWidth = 1.5 * devicePixelRatio;
+    cx.beginPath(); cx.arc(mx, my, 26 * devicePixelRatio, 0, 7); cx.moveTo(mx - 44 * devicePixelRatio, my); cx.lineTo(mx - 14 * devicePixelRatio, my);
+    cx.moveTo(mx + 14 * devicePixelRatio, my); cx.lineTo(mx + 44 * devicePixelRatio, my); cx.stroke();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---- state shown in the gauges ----
+  const run = {start: null, ok: 0, hit: 0, score: null};
+  let last = {r: null, t: 0};
+  setInterval(() => {
+    if (!run.start) return;
+    const s = Math.floor((Date.now() - run.start) / 1000);
+    $("g-time").textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  }, 250);
+  function gauges() { $("g-ok").textContent = run.ok; $("g-hit").textContent = run.hit; $("g-score").textContent = run.score ?? "–"; }
+  let audio;
+  function beep(f = 660, ms = 120) {
+    if (!$("sound").checked) return;
+    try { audio = audio || new AudioContext(); const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = f; o.connect(g); g.connect(audio.destination); g.gain.value = 0.08; o.start(); o.stop(audio.currentTime + ms / 1000); } catch (e) {}
+  }
+  function suggest(move) {
+    document.querySelectorAll("button.k[data-act]").forEach(b => b.classList.toggle("suggest", !!move && b.dataset.act === move));
+  }
+  function show(title, obj) { $("raw-what").textContent = title; $("raw").textContent = JSON.stringify(obj, null, 1); }
+
+  function react(source, obj, type) {
+    const a = analyze(obj);
+    if (a.score != null) run.score = a.score;
+    const fresh = a.result && !(last.r === a.result && Date.now() - last.t < 2500);   // the answer and its event say it twice
+    if (a.result) last = {r: a.result, t: Date.now()};
+    if (fresh) {
+      if (/dodg|miss|avoid|clear|success|safe/.test(a.result)) { run.ok++; rocks.forEach(k => k.done = true); setAlert("CLEAR", "good"); beep(880, 90); }
+      else if (/hit|collid|struck|fail|damage/.test(a.result)) { run.hit++; $("view").classList.remove("flash"); void $("view").offsetWidth;
+        $("view").classList.add("flash"); setAlert("HIT", ""); beep(160, 300); }
+    }
+    const incoming = a.dir || a.deadline || a.move || /debris|incoming|obstacle/i.test(type || "");
+    if (incoming && !/dodged|missed|cleared/i.test(type || "")) {
+      const vec = a.dir ? DIRS[a.dir] : (a.angle != null ? [Math.cos(a.angle * Math.PI / 180), -Math.sin(a.angle * Math.PI / 180)] : [Math.random() - .5, Math.random() - .5]);
+      const end = a.deadline || Date.now() + 4000;
+      rocks.push({vec, start: Date.now(), end: Math.max(end, Date.now() + 500)});
+      setAlert(`DEBRIS${a.dir ? " · " + a.dir.toUpperCase() : ""}${a.deadline ? " · " + ((a.deadline - Date.now()) / 1000).toFixed(1) + " s" : ""}`, "");
+      $("hint").textContent = a.move ? `The game names the move: ${a.move.toUpperCase()}` : (source === "event" ? `from ${type}` : "");
+      suggest(a.move); beep(520, 140);
+    }
+    if (/end|complete|finish|over/i.test(type || "") && RUN_RE.test(type || "")) { setAlert(`Run over${run.score != null ? " · score " + run.score : ""}`, "good"); run.start = null; suggest(null); }
+    gauges();
+  }
+  function setAlert(text, cls) { const el = $("alert"); el.className = "alert " + (cls || ""); el.textContent = text; }
+
+  // ---- events ----
+  const feed = $("feed");
+  function addEvent(ev, live) {
+    const isNew = ev.event && !known.has(ev.event);
+    if (ev.event) known.add(ev.event);
+    const runish = RUN_RE.test(ev.event || "");
+    if (!$("all").checked && !ev.mine && !runish && !isNew) return;
+    const li = document.createElement("li");
+    const t = (ev.created_at || "").slice(11, 19);
+    li.innerHTML = `<span class="t">${esc(t)}</span> ${esc(ev.event)}${isNew && live ? '<span class="tag">new type</span>' : ""}`
+      + `${ev.mine ? "" : ' <span class="small">' + esc(ev.device_code || "") + "</span>"}`;
+    if (runish) li.classList.add("alertrow");
+    li.onclick = () => show(ev.event, ev);
+    feed.prepend(li); while (feed.children.length > 80) feed.lastChild.remove();
+    if (live && (ev.mine || runish)) {
+      show(ev.event, ev);
+      if (runish && !run.start && !/end|complete|finish|over/i.test(ev.event)) run.start = Date.now();
+      react("event", ev.payload, ev.event);
+    }
+  }
+  (BOOT.recent || []).forEach(e => addEvent(e, false));
+  function connect() {
+    const es = new EventSource(`/cockpit/${CODE}/stream`);
+    es.onopen = () => { $("lamp").className = "lamp on"; $("link").textContent = "live"; };
+    es.onerror = () => { $("lamp").className = "lamp off"; $("link").textContent = "reconnecting"; };
+    es.addEventListener("game", m => { try { addEvent(JSON.parse(m.data), true); } catch (e) {} });
+  }
+  connect();
+
+  // ---- commands ----
+  const log = $("log");
+  let levers = 0;
+  async function send(act) {
+    const btn = document.querySelector(`button.k[data-act="${act}"]`);
+    if (btn) { btn.classList.add("hit", "busy"); setTimeout(() => btn.classList.remove("hit"), 120); }
+    if (act === "boost") { target = Math.min(4, target + 1.2); levers = Math.max(-1, Math.min(1, levers + 1)); }
+    if (act === "brake") { target = Math.max(0.2, target - 1.2); levers = Math.max(-1, Math.min(1, levers - 1)); }
+    $("lever").style.top = (21 - levers * 20) + "px";
+    if (act) { suggest(null); $("hint").textContent = ""; rocks.forEach(k => { if (Date.now() < k.end) k.done = true; }); }
+    const li = document.createElement("li"); li.innerHTML = `<span class="t">${new Date().toTimeString().slice(0, 8)}</span> ${esc(act || "start")} <span class="tag">…</span>`;
+    log.prepend(li); while (log.children.length > 60) log.lastChild.remove();
+    try {
+      const r = await fetch(`/cockpit/${CODE}/swoop`, {method: "POST", headers: {"Content-Type": "application/json", "HX-Request": "true"}, body: JSON.stringify({action: act || null})});
+      const j = await r.json();
+      $("g-ping").textContent = (j.ms ?? "–") + " ms";
+      li.querySelector(".tag").outerHTML = j.ok ? `<span class="tag ok">${j.ms} ms</span>` : `<span class="tag err">${esc(j.status || "")}</span>`;
+      if (!j.ok) li.insertAdjacentHTML("beforeend", ` <span class="small">${esc(j.error || "")}</span>`);
+      li.onclick = () => show(`${act || "start"} → ${j.status}`, j.response ?? j.error);
+      show(`${act || "start"} → ${j.status}`, j.response ?? j.error);
+      if (j.ok) { if (!act) { run.start = Date.now(); run.ok = run.hit = 0; setAlert("Swoop started · watch for debris", "calm"); } react("response", j.response, act ? "" : "swoop"); }
+      else setAlert(j.error || "Refused", "");
+    } catch (e) { li.querySelector(".tag").outerHTML = `<span class="tag err">network</span>`; }
+    if (btn) btn.classList.remove("busy");
+  }
+  document.querySelectorAll("button.k[data-act]").forEach(b => b.addEventListener("click", () => send(b.dataset.act)));
+  const KEYS = {ArrowUp: "boost", w: "boost", ArrowDown: "brake", s: "brake", ArrowLeft: "dodge", a: "dodge", q: "dodge",
+    ArrowRight: "roll", d: "roll", e: "roll", " ": "dive", Enter: ""};
+  addEventListener("keydown", ev => {
+    if (ev.repeat || ev.target.closest("input, textarea, select")) return;
+    const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+    if (k in KEYS) { ev.preventDefault(); send(KEYS[k]); }
+  });
+
+  // ---- game controller: d-pad / left stick, A dive, triggers boost (RT) and brake (LT), Start begins the run ----
+  const held = {};
+  function poll() {
+    for (const gp of navigator.getGamepads ? navigator.getGamepads() : []) {
+      if (!gp) continue;
+      $("pad").textContent = `Controller: ${gp.id.slice(0, 40)}`;
+      const b = i => gp.buttons[i] && gp.buttons[i].pressed, ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
+      const want = {boost: b(7) || b(12) || ay < -0.7, brake: b(6) || b(13) || ay > 0.7, dodge: b(14) || ax < -0.7,
+        roll: b(15) || ax > 0.7, dive: b(0), "": b(9)};
+      for (const [act, on] of Object.entries(want)) { if (on && !held[act]) send(act); held[act] = on; }
+    }
+    requestAnimationFrame(poll);
+  }
+  addEventListener("gamepadconnected", () => requestAnimationFrame(poll));
+})();
+</script>
+</body>
+</html>

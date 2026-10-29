@@ -52,6 +52,7 @@ seconds, and a trip's countdown reaching zero loads the new location.
 | | [Device](docs/FEATURES.md#device-page) · [Replicant](docs/FEATURES.md#replicant-page) | every command, print queue, carrier card, permissions; travel, scan, profile, slingshot |
 | | [AMI](docs/FEATURES.md#ami) | controllers, directives, schedules |
 | | [Lost](docs/FEATURES.md#lost) | devices out of sight and devices gone, with the reason |
+| | [Cockpit](docs/FEATURES.md#cockpit) | fly the swoop debris run by hand: buttons, keys or a game controller |
 | **Map** | [Galaxy](docs/FEATURES.md#galaxy) | live 3D map: markers, fleets, traffic, relay networks ([legend](#map-legend)) |
 | | [Stars](docs/FEATURES.md#stars) · [Systems](docs/FEATURES.md#systems-list) · [System](docs/FEATURES.md#system-page) | nearest unexplored stars; systems by distance with ward / relay / beacon checkboxes and filters; one system's map, resources, belts, bodies |
 | | [Prospects](docs/FEATURES.md#prospects) | every scanned system scored out of 100, wards |

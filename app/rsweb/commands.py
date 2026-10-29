@@ -53,6 +53,8 @@ COMMANDS: dict[str, list[Field]] = {
                F("via", "via", label="via", help="Optional: locations to route through (comma-separated), or 'direct' "
                                                   "to skip the nav chip"),
                F("dry_run", "bool", default=False, help="Preview the route and ETA without leaving")],
+    "swoop": [F("action", "choice", options=["", "boost", "dodge", "dive", "roll", "brake"],
+                help="Blank starts the debris run; the rest react to incoming debris (fly it live on the Cockpit page)")],
     "stow": [F("target", "device", label="stow into (a carrier here)", filter={"here": True, "carrier": "board"},
                help="A hold takes it in; a carrier without one (plate, platform, fleet) tows it. Leave blank to stow on "
                     "the default carrier", side="no_hold"),
@@ -116,6 +118,8 @@ COMMANDS: dict[str, list[Field]] = {
 DESCRIPTIONS: dict[str, str] = {
     "travel": "Fly to a location. Inside a system this is a cruise; to another system the game plans surge legs (needs the "
               "surge feature, else ride a carrier). A drone tracking a site must be deactivated first.",
+    "swoop": "The debris run (spec 2026-10-29): swoop starts it, then boost, dodge, dive, roll or brake as debris comes "
+             "in. Fly it live from Devices › Cockpit.",
     "stow": "Board a carrier's hold (vessels). Pick from either side: on the device, the carrier; on the "
             "carrier, the device — the command goes to the device either way. It must be at the carrier's location; it "
             "then rides along and doesn't show a location of its own.",

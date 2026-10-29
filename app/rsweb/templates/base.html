@@ -17,7 +17,7 @@
   {# 6 groups; each page keeps its URL and shows up as a sub-tab of its group #}
   {% set groups = [
     ("Dashboard", "/", [("dashboard", "/", "Dashboard")]),
-    ("Devices", "/tree", [("tree", "/tree", "Tree"), ("fleet", "/fleet", "Device list"), ("ami", "/ami", "AMI"), ("lost", "/lost", "Lost")]),
+    ("Devices", "/tree", [("tree", "/tree", "Tree"), ("fleet", "/fleet", "Device list"), ("ami", "/ami", "AMI"), ("lost", "/lost", "Lost"), ("cockpit", "/cockpit", "Cockpit")]),
     ("Map", "/map", [("map", "/map", "Galaxy"), ("stars", "/stars", "Stars"), ("systems", "/systems", "Systems"), ("prospects", "/systems/prospects", "Prospects"), ("relays", "/map/relays", "Relays"), ("traffic", "/traffic", "Traffic"), ("trail", "/trail", "Trail"), ("wards", "/wards", "Wards & hubs"),
                      ("defence", "/defence", "Defense"), ("terraforming", "/terraforming", "Terraforming"), ("tfcandidates", "/terraforming/candidates", "Terraforming candidates"), ("maintenance", "/maintenance", "Upkeep")]),
     ("Fleets", "/fleets", [("fleets", "/fleets", "Fleets"), ("fleet_details", "/fleets/details", "Fleet details"), ("logistics", "/fleets/logistics", "Logistics"), ("reform", "/fleets/reform", "Reset & reform")]),
