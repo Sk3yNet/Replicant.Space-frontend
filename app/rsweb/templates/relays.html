@@ -3,8 +3,9 @@
 {% block live %} data-live-cards{% endblock %}
 {% block content %}
 <h1>Relay network</h1>
-<p class="muted small">Your working FTL relays (7.5 ly, or the range a relay reports) and active system hubs (15 ly) link
-  when they're within reach of each other; linked ones form a network, each in its own color here and on the galaxy map
+<p class="muted small">Your working FTL relays (7.5 ly, or the range a relay reports), deep space relay stations (10 ly)
+  and active system hubs (15 ly) link when each is within the other's reach (the shorter range counts: a hub links a
+  relay only within the relay's 7.5 ly); linked ones form a network, each in its own color here and on the galaxy map
   (<i>relay network</i> option). Other players' relays don't join yours. A relay must sit at an L4/L5 point; it may go in a
   warded system. A network is <b>active</b> when one of your replicants is within its reach: only then can devices it
   covers be commanded. Anything delivered beyond an active network rides a vessel hosting a replicant, or isn't sent.</p>
@@ -33,15 +34,23 @@
   <h2>Bridges</h2>
   <p class="muted small">The fewest new relays (7.5 ly a hop) that join two of your networks — only when it takes {{ max_new }} or fewer.
     <i>Add route</i> asks for a relay in each system on it, like <i>add</i> on the Systems list: an idle one there is switched
-    on, else a spare is sent, else one is printed in range; placement takes it to an L4/L5 point.</p>
+    on, else a spare is sent, else one is printed in range; placement takes it to an L4/L5 point.
+    {% if roll.long %}With <i>long-range stations</i> on (Relay rollout below), a deep space relay station ({{ station.range | round(1) }} ly)
+    goes where it saves relays: a link needs both ends in reach, so a wide gap gets one at each end, and one of your
+    systems may get one beside its relay (<span class="pill small">station</span>).{% else %}Gaps no relay chain crosses
+    show up once <i>long-range stations</i> is ticked under Relay rollout.{% endif %}</p>
+  {% if station.known %}<p class="small">Deep space relay station <code>deep_space_relay_station</code>: {{ station.range | round(1) }} ly
+    · costs {% for r, q in station.cost | dictsort %}{{ q | num }} {{ r }}{{ ', ' if not loop.last }}{% else %}?{% endfor %}
+    {% if station.relay_cost %}<span class="muted">(an FTL relay: {% for r, q in station.relay_cost | dictsort %}{{ q | num }} {{ r }}{{ ', ' if not loop.last }}{% endfor %})</span>{% endif %}</p>
+  {% else %}<p class="small muted">No deep space relay station blueprint among yours yet: a station order can't be printed.</p>{% endif %}
   {% if not bridges %}<p class="muted">{{ 'Nothing to join: one network.' if nets | length < 2 else 'No two networks are within ' ~ max_new ~ ' relays of each other.' }}</p>{% else %}
   <table class="small"><tr><th>Joins</th><th class="num">New relays</th><th>Route</th><th></th></tr>
     {% for b in bridges %}<tr>
       <td><span style="color:{{ nets[b.a].color }}">●</span> {{ b.a + 1 }} ↔ <span style="color:{{ nets[b.b].color }}">●</span> {{ b.b + 1 }}</td>
       <td class="num">{{ b.n }}</td>
-      <td>{% for s in b.stars %}<a href="/systems/{{ s }}">{{ s }}</a>{% if s in b.ordered %} <span class="pill small st-move">on its way</span>{% endif %}{{ ' → ' if not loop.last }}{% endfor %}</td>
-      <td>{% if b.ordered | length < b.stars | length %}<button class="small" hx-post="/map/relays/route" hx-vals='{{ {"stars": b.stars | join(",")} | tojson }}'
-          hx-target="next .rl-out" hx-confirm="Ask for a relay in {{ b.stars | join(', ') }}?">Add route</button>{% endif %}<span class="rl-out"></span></td></tr>{% endfor %}
+      <td>{% for s in b.stars %}<a href="/systems/{{ s }}">{{ s }}</a>{% if s in b.long %} <span class="pill small" title="a deep space relay station ({{ station.range | round(1) }} ly)">station</span>{% endif %}{% if s in b.ordered %} <span class="pill small st-move">on its way</span>{% endif %}{{ ' → ' if not loop.last }}{% endfor %}</td>
+      <td>{% if b.ordered | length < b.stars | length %}<button class="small" hx-post="/map/relays/route" hx-vals='{{ {"stars": b.stars | join(","), "long": b.long | join(",")} | tojson }}'
+          hx-target="next .rl-out" hx-confirm="Ask for a relay in {{ b.stars | reject('in', b.long) | join(', ') or 'no system' }}{% if b.long %} and a deep space relay station in {{ b.long | join(', ') }}{% endif %}?">Add route</button>{% endif %}<span class="rl-out"></span></td></tr>{% endfor %}
   </table>{% endif %}
 </div>
 <div class="card">
@@ -55,13 +64,16 @@
     relay print not started yet (queued ones are dequeued, orders waiting on a print are dropped) and no relay is printed
     for any order, the Systems list's included, until you start again; a print already running finishes. Each seed reaches as far as its own
     radius (the default until you change it; a new seed can be typed as <code>STAR:ly</code>), and a system counts for the
-    nearest seed whose radius it lies in.</p>
+    nearest seed whose radius it lies in. <i>Long-range stations</i>: once no system is left that a relay chain reaches,
+    one a deep space relay station ({{ station.range | round(1) }} ly) reaches gets one, and so does the system it links
+    from when that one has none yet (a link needs both ends in reach); the Bridges above use them too.</p>
   <form class="row small" hx-post="/map/relays/rollout" hx-target="next .rr-out">
     <label>Seeds <input name="seeds" size="30" value="{{ roll.seeds | join(' ') }}" placeholder="e.g. SOL FALQUORYX"></label>
     <label>default radius <input name="radius" type="number" min="1" max="1000" step="1" value="{{ roll.radius | int }}" style="width:5em"> ly</label>
     {% for s in roll.seeds %}<label>{{ s }} <input name="r_{{ s }}" type="number" min="1" max="1000" step="1"
       value="{{ (roll.radii[s] if s in roll.radii else roll.radius) | int }}" style="width:5em"> ly</label>{% endfor %}
     <label><input type="checkbox" name="chained" value="1" {{ 'checked' if roll.chained }}> chained</label>
+    <label title="deep space relay stations ({{ station.range | round(1) }} ly) where no relay chain reaches"><input type="checkbox" name="long" value="1" {{ 'checked' if roll.long }}> long-range stations</label>
     {% if roll.on %}<button name="action" value="save">Save</button><button class="ghost" name="action" value="stop" title="Stop the rollout and cancel every relay print not started yet">Pause</button>
     {% else %}<button name="action" value="start">{{ 'Resume' if roll.paused else 'Start' }}</button><button class="ghost" name="action" value="save">Save</button>{% if not roll.paused %}<button class="ghost" name="action"
       value="stop" title="Cancel every relay print not started yet and print no new ones">Pause prints</button>{% endif %}{% endif %}
@@ -70,10 +82,12 @@
   <p class="small">{% if roll.on %}<span class="lv-done">running</span>{% else %}<span class="muted">not running</span>{% endif %}{% if roll.paused %} · <span class="lv-alert">relay prints paused</span>{% endif %}
     · {{ roll.done }} up · {{ roll.ordered | length }} on order (room for {{ [roll.capacity, 1] | max }}) · {{ n_next }} to go{% if roll.skipped %} · {{ roll.skipped | length }} skipped{% endif %}
     {% for s in roll.seeds if s not in known %}<br><span class="lv-alert">{{ s }} isn't in the star catalog</span>{% endfor %}</p>
-  {% if roll.ordered %}<p class="small">On order: {% for s in roll.ordered %}<a href="/systems/{{ s }}">{{ s }}</a>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
-  {% if up_next %}<table class="small"><tr><th>Next</th><th class="num">ly from seed</th><th>Seed</th></tr>
-    {% for x in up_next %}<tr><td><a href="/systems/{{ x.star }}">{{ x.star }}</a></td><td class="num">{{ x.ly }}</td><td>{{ x.seed }}</td></tr>{% endfor %}
-    {% if n_next > up_next | length %}<tr><td colspan="3" class="muted">… and {{ n_next - up_next | length }} more</td></tr>{% endif %}
+  {% if roll.ordered %}<p class="small">On order: {% for s in roll.ordered %}<a href="/systems/{{ s }}">{{ s }}</a>{% if s in stations %} (station){% endif %}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+  {% if up_next %}<table class="small"><tr><th>Next</th><th>Gets</th><th class="num">ly from seed</th><th>Seed</th></tr>
+    {% for x in up_next %}<tr><td><a href="/systems/{{ x.star }}">{{ x.star }}</a></td>
+      <td>{% if x.kind == 'station' %}station{% if x.pair %} (and one in <a href="/systems/{{ x.pair }}">{{ x.pair }}</a>){% endif %}{% else %}relay{% endif %}</td>
+      <td class="num">{{ x.ly }}</td><td>{{ x.seed }}</td></tr>{% endfor %}
+    {% if n_next > up_next | length %}<tr><td colspan="4" class="muted">… and {{ n_next - up_next | length }} more</td></tr>{% endif %}
   </table>{% endif %}
   {% if roll.skipped %}<details class="small"><summary>Skipped</summary>
     {% for s, why in roll.skipped | dictsort %}<a href="/systems/{{ s }}">{{ s }}</a>: {{ why }}<br>{% endfor %}</details>{% endif %}

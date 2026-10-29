@@ -24,8 +24,10 @@ KV = "ward_orders"
 EXPIRE_DAYS = 3
 QUEUE_CAP = 10       # print queue slots when the device row doesn't say (autofactory queue_size)
 LOST_MINUTES = 20    # a print not in its factory's queue this long after it was ordered never got there
-KINDS = {"ward": "system_ward", "relay": "ftl_relay", "beacon": "ftl_beacon"}
-LABELS = {"ward": "ward", "relay": "FTL relay", "beacon": "FTL beacon"}
+KINDS = {"ward": "system_ward", "relay": "ftl_relay", "beacon": "ftl_beacon",
+         "station": "deep_space_relay_station"}   # station: the 10 ly relay (relaynet.STATION)
+LABELS = {"ward": "ward", "relay": "FTL relay", "beacon": "FTL beacon", "station": "deep space relay station"}
+RELAY_KINDS = ("relay", "station")
 
 
 def kv_key(kind: str) -> str:

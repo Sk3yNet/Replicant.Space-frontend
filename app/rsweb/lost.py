@@ -17,7 +17,7 @@ from typing import Any
 
 KV = "lost"
 FOUND_KEEP = 50
-RANGE = {"ftl_relay": 7.5, "system_hub": 15.0}
+RANGE = {"ftl_relay": 7.5, "deep_space_relay_station": 10.0, "system_hub": 15.0}
 MOVING = ("surg", "travel", "cruis")
 
 

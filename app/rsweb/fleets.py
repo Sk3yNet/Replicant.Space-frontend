@@ -1225,7 +1225,7 @@ def outside_controllers(fleet: dict, devices: list[dict]) -> list[dict]:
 
 
 # --- extras: members beyond the loadout, dropped at a hub (owner 2026-10-27) ------------------------------------
-CARGO_TYPES = ("ftl_relay", "ftl_beacon", "system_ward")   # carried to be dropped or switched on where the fleet works
+CARGO_TYPES = ("ftl_relay", "deep_space_relay_station", "ftl_beacon", "system_ward")   # carried to be dropped or switched on where the fleet works
 RESERVED_PREFIXES = ("contract:", "to:", "at:")
 BUSY_STATES = ("mining", "searching", "tracking", "scanning", "collecting", "depositing", "printing", "repairing",
                "launched", "coordinating", "terraforming")

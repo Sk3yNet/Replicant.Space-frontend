@@ -349,7 +349,7 @@ def npc_replies(name: str, text: str, cfg: dict) -> list[dict]:
     return specific or out
 
 
-RELAY_TYPES = ("ftl_relay", "system_hub")
+RELAY_TYPES = ("ftl_relay", "deep_space_relay_station", "system_hub")
 NO_RELAY_HOURS = 6   # a system the game said has no active relay is skipped this long (unless we have one there)
 
 

@@ -154,8 +154,9 @@ of the catalog after). What each marker and line means is in the [map legend](..
 <img src="screens/relays.jpg" width="320" align="right" alt="Relays">
 
 - **Live links**: asks any relay or hub which neighbors it has really linked with, and flags links expected but missing.
-- **Networks**: working relays (7.5 ly, or the range a relay reports) and active hubs (15 ly, by distance like relays,
-  checked live 2026-10-15) that reach each other, each in its own color.
+- **Networks**: working relays (7.5 ly, or the range a relay reports), deep space relay stations (10 ly) and active hubs
+  (15 ly, by distance like relays, checked live 2026-10-15) that reach each other, each in its own color. A link needs
+  both ends in reach: the shorter range counts (a hub links a relay only within the relay's 7.5 ly).
   - **Active** when one of your replicants is within reach: only then can what it covers be commanded.
   - Range only links relays: a relay or hub delivers commands to its own system alone, so a network commands the
     systems it has nodes in, while a replicant is in one of them.
@@ -165,6 +166,8 @@ of the catalog after). What each marker and line means is in the [map legend](..
   - A delivered relay is switched on before its carrier leaves.
   - A switched-off relay gets a red ring unless its system has a working relay or hub.
 - **Suggested bridges**: the fewest new relays (at most 10) joining two networks, with *Add route* to order them.
+  With *long-range stations* on, a deep space relay station goes where it saves devices, one at each end of a wide gap
+  (one of your systems may get one beside its relay); the page shows the station blueprint's cost.
 - **Relay rollout**: a relay in every system within a radius of seed systems you name, nearest first.
   - Each seed has its own radius (a box per seed, or `STAR:ly` in the seeds list); unset ones use the default.
   - As many orders open as your logistics vessels with a replicant aboard have free hold slots (each as *add* on the
@@ -174,6 +177,9 @@ of the catalog after). What each marker and line means is in the [map legend](..
     as a replicant vessel.
   - *Chained* (default) only goes to a system within 7.5 ly of a relay or hub of yours, one on order, or a seed, so the
     network grows outward in one piece.
+  - *Long-range stations*: once no system is left that a relay chain reaches, one within a station's 10 ly gets a
+    deep space relay station, and so does the system it links from when that one has none yet. The Systems list has a
+    *Station* column to order one by hand.
   - A system that can't get one is skipped until *Retry skipped*; five failures in a row pause the rollout.
   - *Pause* cancels every relay print not started yet (print jobs, queued prints for a system, orders waiting on a
     print) and no order prints a relay until *Resume*; spares are still sent. *Pause prints* does the same while the

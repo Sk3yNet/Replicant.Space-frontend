@@ -5,8 +5,9 @@ Survey crews no longer drop relays or beacons (removed 2026-10-11): ask for one 
 """
 from __future__ import annotations
 
-KINDS = {"relay": "ftl_relay", "beacon": "ftl_beacon", "ward": "system_ward"}   # what the Systems list shows
-LABELS = {"relay": "FTL relay", "beacon": "FTL beacon", "ward": "system ward"}
+KINDS = {"relay": "ftl_relay", "station": "deep_space_relay_station", "beacon": "ftl_beacon",
+         "ward": "system_ward"}   # what the Systems list shows
+LABELS = {"relay": "FTL relay", "station": "deep space relay station", "beacon": "FTL beacon", "ward": "system ward"}
 
 
 def star_of(loc: str | None) -> str:

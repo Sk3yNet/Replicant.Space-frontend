@@ -137,7 +137,7 @@ class OpsRules:
             for o in ((await self.db.kv_get(wo.kv_key(k), {}) or {}) if k != kind else orders).values():
                 if wo.pending_print(o):
                     ordered[o["factory"]] = ordered.get(o["factory"], 0) + 1
-        if kind == "relay" and await self.relay_prints_paused():
+        if kind in wo.RELAY_KINDS and await self.relay_prints_paused():
             return None, f"no spare {label} within {reach:g} ly of {star}, and relay prints are paused (Map › Relays)"
         from .shapes import as_amounts, normalize_blueprints, normalize_inventory
         bp = next((b for b in normalize_blueprints(await self.db.kv_get("blueprints", [])) if b.get("device_type") == dtype), {})
@@ -254,7 +254,7 @@ class OpsRules:
                 if (here and here["device_code"] not in busy
                         and "activate" in (here.get("available_commands") or ["activate"])
                         and (kind != "ward" or wh.wards(devices)["active"] < wh.WARD_CAP)
-                        and (kind != "relay" or is_lagrange(here.get("location")))):
+                        and (kind not in wo.RELAY_KINDS or is_lagrange(here.get("location")))):
                     await self.create_job("wards", f"activate {label} {here['device_code']} in {star}", here["device_code"],
                                           [step(f"activate {label} {here['device_code']}", f"/devices/{here['device_code']}",
                                                 {"command": "activate"})], {"devices": [here["device_code"]]}, force=True)
@@ -277,17 +277,18 @@ class OpsRules:
         from . import relayroll as rr
         from . import ward_orders as wo
         from .automations import step
-        dtype, label = wo.KINDS["relay"], wo.LABELS["relay"]
+        dtypes = {wo.KINDS[k] for k in wo.RELAY_KINDS}   # relays and long-range stations
+        label = "relay"
         out: list[str] = []
         for j in await self.jobs():
             if (j["status"] in ("running", "waiting") and (j.get("meta") or {}).get("outpost")
-                    and str(j.get("title") or "").startswith(f"print a {label} ")):
+                    and str(j.get("title") or "").startswith(tuple(f"print a {wo.LABELS[k]} " for k in wo.RELAY_KINDS))):
                 j["status"], j["finished_at"] = "cancelled", now_iso()
                 await self._update(j)
                 out.append(f"canceled: {j['title']}")
         for f in await self.devices():
             idx = [i for i, q in enumerate(f.get("print_queue") or []) if isinstance(q, dict)
-                   and q.get("device_type") == dtype and any(str(t).startswith("to:") for t in q.get("tags") or [])]
+                   and q.get("device_type") in dtypes and any(str(t).startswith("to:") for t in q.get("tags") or [])]
             if not idx:
                 continue
             code = f["device_code"]
@@ -296,13 +297,16 @@ class OpsRules:
                                         {"command": "dequeue_print", "index": i}) for i in sorted(idx, reverse=True)],
                                   {"devices": [code]}, force=True)
             out.append(f"{code}: dropping {len(idx)} queued {label} print(s)")
-        orders = await self.db.kv_get(wo.kv_key("relay"), {}) or {}
-        gone = [s for s, o in orders.items() if o.get("how") == "print"]
-        for s in gone:
-            orders.pop(s)
-        if gone:
-            await self.db.kv_set(wo.kv_key("relay"), orders)
-            out.append(f"{len(gone)} relay order(s) waiting on a print dropped")
+        gone: list[str] = []
+        for k in wo.RELAY_KINDS:
+            orders = await self.db.kv_get(wo.kv_key(k), {}) or {}
+            drop = [s for s, o in orders.items() if o.get("how") == "print"]
+            for s in drop:
+                orders.pop(s)
+            if drop:
+                await self.db.kv_set(wo.kv_key(k), orders)
+                out.append(f"{len(drop)} {wo.LABELS[k]} order(s) waiting on a print dropped")
+            gone += drop
         st = rr.state(await self.db.kv_get(rr.KV, {}))
         for s in gone:
             st["ordered"].pop(s, None)
@@ -327,8 +331,14 @@ class OpsRules:
         cat = await self.db.kv_get("stars", {}) or {}
         pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("position")}
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
-        have = set(relaynet.nodes(devices, pos, bps))
-        orders = await self.db.kv_get(wo.kv_key("relay"), {}) or {}
+        ns = relaynet.nodes(devices, pos, bps)
+        have = set(ns)
+        hops = relaynet.hops(bps)
+
+        async def open_orders() -> tuple[dict, dict]:
+            return ({**(await self.db.kv_get(wo.kv_key("station"), {}) or {}), **(await self.db.kv_get(wo.kv_key("relay"), {}) or {})},
+                    await self.db.kv_get(wo.kv_key("station"), {}) or {})
+        orders, stations = await open_orders()
         out: list[str] = []
         for star in list(st["ordered"]):   # orders the rollout made that are over: up, or dropped
             if star in orders:
@@ -345,21 +355,29 @@ class OpsRules:
         cap = rr.capacity(devices, ltags, lambda d: _free(d, bps, {}))
         st["capacity"] = cap
         while st["on"] and len(st["ordered"]) < max(1, cap):
+            ranges = {**{x: n["range"] for x, n in ns.items()}, **{x: hops["long_hop"] for x in stations}}
             nxt = rr.queue(st["seeds"], pos, have, set(orders) | set(st["ordered"]), set(st["skipped"]),
-                           float(st["radius"]), bool(st["chained"]), limit=1, radii=st["radii"])
+                           float(st["radius"]), bool(st["chained"]), limit=1, radii=st["radii"], ranges=ranges,
+                           hop=hops["hop"], long_hop=hops["long_hop"] if st["long"] else 0.0)
             if not nxt:
                 if not st["ordered"]:
                     st["on"] = False
                     await self.log("wards", f"relay rollout finished: {st['done']} relays up, {len(st['skipped'])} systems "
                                    "skipped", notify=True)
                 break
-            star = nxt[0]["star"]
-            msg = await self.order_outpost("relay", star, st["by"] or "relay rollout")
-            orders = await self.db.kv_get(wo.kv_key("relay"), {}) or {}
+            star, kind, pair = nxt[0]["star"], nxt[0]["kind"], nxt[0]["pair"]
+            msg = await self.order_outpost(kind, star, st["by"] or "relay rollout")
+            orders, stations = await open_orders()
             if star in orders:
                 st["ordered"][star] = orders[star].get("at")
                 st["streak"] = 0
                 out.append(f"{star}: {msg}")
+                if pair and pair not in stations:   # the near end of the wide gap gets a station too
+                    pmsg = await self.order_outpost("station", pair, st["by"] or "relay rollout")
+                    orders, stations = await open_orders()
+                    if pair in stations:
+                        st["ordered"][pair] = stations[pair].get("at")
+                    out.append(f"{pair}: {pmsg}")
                 continue
             st["skipped"][star] = msg
             out.append(f"{star}: skipped ({msg})")

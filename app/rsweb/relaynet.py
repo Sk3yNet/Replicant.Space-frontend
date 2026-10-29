@@ -22,6 +22,10 @@ from typing import Any
 
 RELAY_LY = 7.5
 HUB_LY = 15.0
+STATION = "deep_space_relay_station"   # the long-range relay: 10 ly once activated (game v2.3.6 changelog)
+STATION_LY = 10.0
+RANGES = {"ftl_relay": RELAY_LY, STATION: STATION_LY, "system_hub": HUB_LY}   # when neither device nor blueprint says
+RELAY_TYPES = ("ftl_relay", STATION)   # what the relay orders and the rollout put up
 MAX_BRIDGE = 10
 # one color per network, clear of the map's hazard red, resource orange, anomaly magenta and supply amber
 PALETTE = ["#4fc3f7", "#fff176", "#69f0ae", "#b39ddb", "#d4e157", "#80cbc4", "#e0e0e0", "#90a4ff", "#c5a880", "#a5d6a7"]
@@ -63,7 +67,7 @@ def reach(d: dict, bps: dict[str, dict] | None = None) -> float | None:
     if "relay" in t and (st.startswith("relaying") or (st.startswith("out_of_range") and d.get("_on"))):
         # out of range and switched on (the status doesn't say which: d["_on"], from the activation history — see
         # web.relays_on): linked to nothing, a network of its own
-        return float(own or RELAY_LY)
+        return float(own or RANGES.get(t, RELAY_LY))
     if "hub" in t and st and not st.startswith(("inactive", "idle", "stowed", "compact", "travel", "cruis", "surg", "unfurl")):
         return float(own or HUB_LY)
     return None
@@ -87,6 +91,18 @@ def nodes(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | None 
     return out
 
 
+def links(ly: float, ra: float, rb: float) -> bool:
+    """Two nodes link only when each reaches the other (live 2026-10-15: the SOLARES hub listed relays only within the
+    relay's own 7.5 ly), so a long-range station bridges a wide gap only with one at the other end too."""
+    return ly <= min(ra, rb) + 1e-9
+
+
+def hops(bps: dict[str, dict] | None = None) -> dict[str, float]:
+    """A new relay's reach and a new long-range station's: {"hop", "long_hop"} (blueprint range, else the default)."""
+    return {"hop": own_range((bps or {}).get("ftl_relay")) or RELAY_LY,
+            "long_hop": own_range((bps or {}).get(STATION)) or STATION_LY}
+
+
 def networks(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | None = None) -> dict:
     """{"networks": [{id, color, stars, relays, hubs}], "links": [{a, b, ly, net}], "of": {star: net id}} — biggest first."""
     ns = nodes(devices, pos, bps)
@@ -98,12 +114,12 @@ def networks(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | No
             parent[x] = parent[parent[x]]
             x = parent[x]
         return x
-    links = []
+    found = []
     for i, a in enumerate(stars):
         for b in stars[i + 1:]:
             ly = math.dist(ns[a]["xyz"], ns[b]["xyz"])
-            if ly <= max(ns[a]["range"], ns[b]["range"]) + 1e-9:
-                links.append({"a": a, "b": b, "ly": round(ly, 2),
+            if links(ly, ns[a]["range"], ns[b]["range"]):
+                found.append({"a": a, "b": b, "ly": round(ly, 2),
                               "hub": "hub" in ns[a]["kinds"] or "hub" in ns[b]["kinds"]})
                 parent[find(a)] = find(b)
     groups: dict[str, list[str]] = defaultdict(list)
@@ -118,10 +134,9 @@ def networks(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | No
                     "relays": sum(1 for s in g if "relay" in ns[s]["kinds"]),
                     "hubs": sum(1 for s in g if "hub" in ns[s]["kinds"]),
                     "devices": sorted(c for s in g for c in ns[s]["devices"])})
-    for l in links:
+    for l in found:
         l["net"] = of[l["a"]]
-    hop = own_range((bps or {}).get("ftl_relay")) or RELAY_LY   # a new relay's reach (bridges)
-    return {"networks": out, "links": links, "of": of, "nodes": ns, "hop": hop}
+    return {"networks": out, "links": found, "of": of, "nodes": ns, **hops(bps)}
 
 
 def _grid(pos: dict[str, Any]) -> tuple[dict, dict]:
@@ -213,62 +228,91 @@ def coverage(net: dict, pos: dict[str, Any], replicant_stars: set[str]) -> dict:
     return {"covered": dict(covered), "active": active, "commandable": commandable}
 
 
-def bridges(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE) -> list[dict]:
+def bridges(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE, long: bool = False) -> list[dict]:
     """The fewest new relays linking each pair of your networks (≤ max_new). [{a, b, stars: [new relay systems in order],
-    n}] — one per pair, cheapest first. A breadth-first search from each network over catalog stars, 7.5 ly a hop."""
+    n, long: [those of them that get a long-range station]}] — one per pair, cheapest first. A search from each network
+    over catalog stars, 7.5 ly a hop; with `long`, a deep space relay station (10 ly) may go where it saves devices, at
+    both ends of a wide gap (an existing system of yours may get one too), fewest stations among equally short routes."""
     ns, of = net["nodes"], net["of"]
     if len(net["networks"]) < 2:
         return []
-    key = (frozenset((n, of[n], ns[n]["range"]) for n in ns), net.get("hop"), max_new, id(pos), len(pos))
+    key = (frozenset((n, of[n], ns[n]["range"]) for n in ns), net.get("hop"), net.get("long_hop"), long, max_new,
+           id(pos), len(pos))
     if _bridge_memo.get("key") == key and _bridge_memo.get("pos") is pos:   # the map asks on every refresh
-        return [dict(b, stars=list(b["stars"])) for b in _bridge_memo["out"]]
-    out = _bridges(net, pos, max_new)
+        return [dict(b, stars=list(b["stars"]), long=list(b["long"])) for b in _bridge_memo["out"]]
+    out = _bridges(net, pos, max_new, long)
     _bridge_memo.update(key=key, pos=pos, out=out)
-    return [dict(b, stars=list(b["stars"])) for b in out]
+    return [dict(b, stars=list(b["stars"]), long=list(b["long"])) for b in out]
 
 
 _bridge_memo: dict = {}
 
 
-def _bridges(net: dict, pos: dict[str, Any], max_new: int) -> list[dict]:
+def _bridges(net: dict, pos: dict[str, Any], max_new: int, long: bool = False) -> list[dict]:
+    import heapq
     ns, of = net["nodes"], net["of"]
     xyz_all, cells = star_grid(pos)   # a 7.5 ly grid for neighbor lookups
-
-    def near(x: tuple, r: float) -> list[str]:
-        return _near(cells, x, r)
-
     hop = net.get("hop") or RELAY_LY
-
-    def links_to(s: str, x: tuple) -> set[int]:
-        """Networks a new relay at s would join: any node within its reach or within the node's own reach."""
-        return {of[o] for o in near(x, reach) if o in ns and math.dist(x, ns[o]["xyz"]) <= max(hop, ns[o]["range"]) + 1e-9}
-    reach = max([hop] + [n["range"] for n in ns.values()])
+    lh = float(net.get("long_hop") or STATION_LY) if long else 0.0
+    kinds = [hop] + ([lh] if lh > hop else [])
     best: dict[tuple[int, int], dict] = {}
+
+    def path(state: tuple, prev: dict, placed: dict) -> tuple[list[str], list[str]]:
+        stars, lng = [], []
+        c = state
+        while c:
+            if placed.get(c):
+                stars.append(c[0])
+                if c[1] == lh:
+                    lng.append(c[0])
+            c = prev[c]
+        return list(reversed(stars)), list(reversed(lng))
+
     for g in net["networks"]:
         start = g["id"]
-        prev: dict[str, str | None] = {}
-        depth: dict[str, int] = {}
-        q: deque[str] = deque()
-        for s in g["stars"]:   # first hop: systems a new relay could link this network from
-            for t in near(ns[s]["xyz"], max(hop, ns[s]["range"])):
-                if t not in ns and t not in depth:
-                    depth[t], prev[t] = 1, None
-                    q.append(t)
-        while q:
-            s = q.popleft()
-            joined = links_to(s, xyz_all[s]) - {start}
-            for other in joined:
-                key = tuple(sorted((start, other)))
-                if key not in best or best[key]["n"] > depth[s]:
-                    path, c = [], s
-                    while c:
-                        path.append(c)
-                        c = prev[c]
-                    best[key] = {"a": key[0], "b": key[1], "stars": list(reversed(path)), "n": depth[s]}
-            if joined or depth[s] >= max_new:
+        cost: dict[tuple, tuple[int, int]] = {}
+        prev: dict[tuple, tuple | None] = {}
+        placed: dict[tuple, bool] = {}
+        heap: list = []
+
+        def push(c: tuple[int, int], state: tuple, parent: tuple | None, new: bool) -> None:
+            if state not in cost or c < cost[state]:
+                cost[state], prev[state], placed[state] = c, parent, new
+                heapq.heappush(heap, (c, state))
+        for s in g["stars"]:
+            push((0, 0), (s, ns[s]["range"]), None, False)
+            if lh > ns[s]["range"]:   # a station added beside what works there
+                push((1, 1), (s, lh), None, True)
+        while heap:
+            c, state = heapq.heappop(heap)
+            if cost.get(state) != c:
                 continue
-            for t in near(xyz_all[s], hop):
-                if t not in ns and t not in depth:
-                    depth[t], prev[t] = depth[s] + 1, s
-                    q.append(t)
-    return sorted(best.values(), key=lambda b: (b["n"], b["a"], b["b"]))
+            s, r = state
+            x = xyz_all.get(s) or ns[s]["xyz"]
+            for t in _near(cells, x, r):
+                if t == s:
+                    continue
+                d = math.dist(x, xyz_all[t])
+                if t in ns:
+                    other = of[t]
+                    if other == start:
+                        continue
+                    if links(d, r, ns[t]["range"]):
+                        total, extra = c, None
+                    elif lh and links(d, r, lh) and c[0] < max_new:
+                        total, extra = (c[0] + 1, c[1] + 1), t   # a station at the far end too
+                    else:
+                        continue
+                    k = tuple(sorted((start, other)))
+                    if total[0] and (k not in best or (best[k]["n"], len(best[k]["long"])) > total):
+                        stars, lng = path(state, prev, placed)
+                        if extra:
+                            stars, lng = stars + [extra], lng + [extra]
+                        best[k] = {"a": k[0], "b": k[1], "stars": stars, "n": total[0], "long": lng}
+                    continue
+                if c[0] >= max_new:
+                    continue
+                for rt in kinds:
+                    if links(d, r, rt):
+                        push((c[0] + 1, c[1] + (rt == lh)), (t, rt), state, True)
+    return sorted(best.values(), key=lambda b: (b["n"], len(b["long"]), b["a"], b["b"]))

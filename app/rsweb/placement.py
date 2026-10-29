@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-RULES = {"ftl_relay": "lagrange", "system_hub": "lagrange", "ami_mining_controller": "belt", "ami_survey_controller": "belt_or_inner"}
+RULES = {"ftl_relay": "lagrange", "deep_space_relay_station": "lagrange", "system_hub": "lagrange", "ami_mining_controller": "belt", "ami_survey_controller": "belt_or_inner"}
 WHY = {"lagrange": "a relay or system hub only works at an L4/L5 Lagrange point", "belt": "a mining controller belongs at the asteroid belt",
        "belt_or_inner": "a survey controller belongs at the asteroid belt (or the inner system when there's none)"}
 

@@ -2276,11 +2276,14 @@ async def relay_overlay(request: Request, st: dict, positions: dict) -> dict:
     nets = rn["networks"]
     ends = lambda net_id, star: min(nets[net_id]["stars"], key=lambda x: math.dist(  # noqa: E731
         rn["nodes"][x]["xyz"], relaynet._xyz(positions.get(star)) or (0, 0, 0)))
+    from . import relayroll as rr
+    long = bool(rr.state(await request.app.state.db.kv_get(rr.KV, {}))["long"])
     suggested = []
-    for b in relaynet.bridges(rn, positions):
+    for b in relaynet.bridges(rn, positions, long=long):
         suggested.append({"stars": b["stars"], "from": ends(b["a"], b["stars"][0]), "to": ends(b["b"], b["stars"][-1]),
-                          "n": b["n"]})
-    orders = await request.app.state.db.kv_get(wo.kv_key("relay"), {}) or {}
+                          "n": b["n"], "long": b["long"]})
+    orders = {**(await request.app.state.db.kv_get(wo.kv_key("station"), {}) or {}),
+              **(await request.app.state.db.kv_get(wo.kv_key("relay"), {}) or {})}
     # a hub's links get the hub color; two relays that are both linked to the same hub are connected through it, so
     # their own link isn't drawn
     hub_of: dict[str, set[str]] = defaultdict(set)
@@ -2309,24 +2312,33 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
     from . import ward_orders as wo
     st = await load_state(request)
     pos = await relaynet.star_pos(request.app.state.db)
-    rn = relaynet.networks(st["devices"], pos, await _bp_map(request))
+    bps = await _bp_map(request)
+    rn = relaynet.networks(st["devices"], pos, bps)
     rstars = relaynet.replicant_stars(st["replicants"], st["devices"])
     relaynet.coverage(rn, pos, rstars)
-    br = relaynet.bridges(rn, pos)
-    orders = await request.app.state.db.kv_get(wo.kv_key("relay"), {}) or {}
-    for b in br:
-        b["ordered"] = [s for s in b["stars"] if s in orders]
     roll = rr.state(await request.app.state.db.kv_get(rr.KV, {}))
+    br = relaynet.bridges(rn, pos, long=roll["long"])
+    db = request.app.state.db
+    relays, stations = await db.kv_get(wo.kv_key("relay"), {}) or {}, await db.kv_get(wo.kv_key("station"), {}) or {}
+    orders = {**stations, **relays}
+    for b in br:
+        b["ordered"] = [s for s in b["stars"] if s in (stations if s in b["long"] else relays)]
+    ranges = {**{x: n["range"] for x, n in rn["nodes"].items()}, **{x: rn["long_hop"] for x in stations}}
     up_next = rr.queue(roll["seeds"], pos, set(rn["nodes"]), set(orders) | set(roll["ordered"]), set(roll["skipped"]),
-                       float(roll["radius"]), bool(roll["chained"]), radii=roll["radii"]) if roll["seeds"] else []
+                       float(roll["radius"]), bool(roll["chained"]), radii=roll["radii"], ranges=ranges, hop=rn["hop"],
+                       long_hop=rn["long_hop"] if roll["long"] else 0.0) if roll["seeds"] else []
+    from .shapes import as_amounts
+    sbp = bps.get(relaynet.STATION)
+    station = {"known": bool(sbp), "range": rn["long_hop"], "hop": rn["hop"],
+               "cost": as_amounts((sbp or {}).get("resources")), "relay_cost": as_amounts((bps.get("ftl_relay") or {}).get("resources"))}
     return await page(request, user, "relays.html", "relays", nets=rn["networks"], nodes=rn["nodes"], bridges=br,
-                      orders=orders, max_new=relaynet.MAX_BRIDGE, roll=roll, up_next=up_next[:15], n_next=len(up_next),
-                      known=set(pos))
+                      orders=orders, stations=stations, max_new=relaynet.MAX_BRIDGE, roll=roll, up_next=up_next[:15],
+                      n_next=len(up_next), known=set(pos), station=station)
 
 
 @router.post("/map/relays/rollout", response_class=HTMLResponse)
 async def map_relays_rollout(request: Request, action: str = Form(...), seeds: str = Form(""), radius: float = Form(50),
-                             chained: str = Form(""), user: str = Depends(current_user)):
+                             chained: str = Form(""), long: str = Form(""), user: str = Depends(current_user)):
     """Relay rollout (relayroll.py): save its settings and start, pause, or retry the skipped systems. Each seed's radius
     comes from its r_<SEED> field or a SEED:ly entry in the seeds list; one equal to the default isn't kept."""
     from . import relayroll as rr
@@ -2350,7 +2362,7 @@ async def map_relays_rollout(request: Request, action: str = Form(...), seeds: s
                         radii[star] = clamp(raw)
                 except ValueError:
                     pass
-            roll.update(seeds=list(dict.fromkeys(names)), radius=radius, radii=radii, chained=bool(chained))
+            roll.update(seeds=list(dict.fromkeys(names)), radius=radius, radii=radii, chained=bool(chained), long=bool(long))
         if action == "start":
             if not roll["seeds"]:
                 return HTMLResponse('<span class="lv-alert small">Name at least one seed system.</span>')
@@ -2389,13 +2401,15 @@ async def map_relay_network(request: Request, code: str, user: str = Depends(cur
 
 
 @router.post("/map/relays/route", response_class=HTMLResponse)
-async def map_relays_route(request: Request, stars: str = Form(...), user: str = Depends(current_user)):
-    """Add route: a relay request for every system on a bridge (as the Systems list's add relay)."""
+async def map_relays_route(request: Request, stars: str = Form(...), long: str = Form(""), user: str = Depends(current_user)):
+    """Add route: a relay request for every system on a bridge (as the Systems list's add relay); the systems in `long`
+    get a long-range station instead (deep space relay station)."""
     eng = request.app.state.worker.automations
+    wide = {x.strip().upper() for x in long.split(",") if x.strip()}
     out = []
     async with eng.lock:
         for s in [x.strip().upper() for x in stars.split(",") if x.strip()][:relaynet_max()]:
-            out.append(f"{s}: {await eng.order_outpost('relay', s, user)}")
+            out.append(f"{s}: {await eng.order_outpost('station' if s in wide else 'relay', s, user)}")
     return HTMLResponse('<div class="result small">' + "<br>".join(html.escape(x) for x in out) + "</div>",
                         headers={"HX-Refresh": "true"})
 

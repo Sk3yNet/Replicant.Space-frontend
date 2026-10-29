@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.308.2"
+VERSION = "1.309.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.309.0", "2026-10-29", "Long-range relay stations. The deep space relay station (deep_space_relay_station, 10 ly) counts in your relay networks at its own range, and a link now needs both ends in reach (a hub links a relay only within the relay's 7.5 ly, as seen live). Map › Relays has a long-range stations option: the bridges then put a station where it saves relays, one at each end of a gap no relay chain crosses (Add route orders stations and relays), and the rollout gives a station to a system only a station reaches, plus one in the system it links from. The page shows the station blueprint's cost, and the Systems list has a Station column for ordering one by hand. Stations ride with relays, are placed at L4/L5 and switched on at the drop; pausing relay prints stops station prints too."),
     ("1.308.2", "2026-10-29", "Trips you send by hand inside a system hop too. From the entry point the game refuses the Kuiper belt as a waypoint (\"Loop detected\"), and the device and replicant travel forms then fell back to the game's own route: 5DF3161B cruised 499 AU (about an hour) from ISOLITHOR-1-L4 to ISOLITHOR-BELT-1. Now Go starts a short job that hops to the Kuiper belt first (30 s) and cruises the rest, and the route preview says so. A hand-built chain with the planned waypoints hops the same way."),
     ("1.308.1", "2026-10-29", "A relay pinned to a spot in its system but switched on somewhere else is switched off and flown there, as long as another relay keeps the system covered. Before, only idle devices went to their pin, so the relay sent to the OTHILETH-1-EVT-007 Trade Route Request sat relaying at OTHILETH-1-L4 and the contract waited for it forever."),
     ("1.308.0", "2026-10-29", "Contracts page: each option that asks for devices shows how many of each type are tagged spare (new Spare column) and the option's total cost in resources: what it asks for plus each device's blueprint cost times the quantity. A device type with no known blueprint is named. Version 1.307.0 was left for a parallel thread."),

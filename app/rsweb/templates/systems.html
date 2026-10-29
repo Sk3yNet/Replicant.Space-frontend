@@ -12,7 +12,7 @@
     <label style="text-transform:none">distances from
       <select name="origin" onchange="this.form.submit()">{% for o in origins %}<option {{ 'selected' if o == origin }}>{{ o }}</option>{% endfor %}</select></label>
     <span class="row" style="gap:8px" id="op-filters">{% for k, label in outpost_kinds.items() %}
-      <label style="text-transform:none">{{ {'relay': 'Relay', 'beacon': 'Beacon', 'ward': 'Ward'}[k] }}
+      <label style="text-transform:none">{{ {'relay': 'Relay', 'station': 'Station', 'beacon': 'Beacon', 'ward': 'Ward'}[k] }}
         <select data-kind="{{ k }}" onchange="opFilter()"><option value="">any</option><option value="1">checked</option><option value="0">unchecked</option></select></label>{% endfor %}
       <label style="text-transform:none" title="local civilizations (✦) in the system">Civilization
         <select data-kind="civ" onchange="opFilter()"><option value="">any</option><option value="yes">has one</option><option value="gap">missing a beacon</option><option value="ok">all have beacons</option><option value="none">none</option></select></label>
@@ -22,7 +22,7 @@
   </form>
   <table>
     <tr><th>System</th><th class="num">Devices</th><th title="⌂ homed here · → on a mission here">Fleets</th>
-      {% for k, label in outpost_kinds.items() %}<th title="your {{ label }}s in the system">{{ {'relay': 'Relay', 'beacon': 'Beacon', 'ward': 'Ward'}[k] }}</th>{% endfor %}
+      {% for k, label in outpost_kinds.items() %}<th title="your {{ label }}s in the system">{{ {'relay': 'Relay', 'station': 'Station', 'beacon': 'Beacon', 'ward': 'Ward'}[k] }}</th>{% endfor %}
       <th class="num">Locations with presence</th><th class="num">Stockpiled</th><th class="num">Mineable</th><th class="num">Salvage</th><th>Most available</th><th>Scan cached</th><th class="num" title="from {{ origin }}; nearest first">Distance</th></tr>
     {% for s, p in rows %}
     <tr class="sys-row" data-civ="{{ ('gap' if p.civ_gap else 'ok') if p.civ else 'none' }}"{% for k in outpost_kinds %} data-{{ k }}="{{ 1 if p.working[k] or p.orders[k] else 0 }}"{% endfor %}><td><a href="/systems/{{ s }}">{{ s }}</a>{% for c in p.civ %} <a href="/traffic" class="{{ 'lv-done' if c.beacon else 'lv-alert' }}"

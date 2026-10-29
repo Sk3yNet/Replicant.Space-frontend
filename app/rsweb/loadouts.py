@@ -27,6 +27,7 @@ from typing import Any
 from . import fleets as fl
 from . import printqueue as pq
 from .automations import SHORT_TIMEOUT, STEP_TIMEOUT, step
+from .relaynet import RELAY_TYPES
 from .shapes import as_amounts
 
 SPARE = "spare"
@@ -243,7 +244,7 @@ def fill_rank(device_type: str | None) -> int:
     return len(FILL_ORDER)
 
 
-PLACED_TYPES = ("ftl_beacon", "ftl_relay")
+PLACED_TYPES = ("ftl_beacon", "ftl_relay", "deep_space_relay_station")
 
 
 def assigned(d: dict) -> bool:
@@ -1574,7 +1575,7 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
                           timeout=SHORT_TIMEOUT, critical=True)
                 st["wait_device"] = code
             out.append(st)
-            if (by_code.get(code) or {}).get("device_type") == "ftl_relay" and code not in gathering:
+            if (by_code.get(code) or {}).get("device_type") in RELAY_TYPES and code not in gathering:
                 # switched on while the carrier is still there: left off out of everyone's reach it can't be commanded
                 # any more (live 2026-10-15: F6A3A357 dropped at KAMUYIS, "out_of_range"); placement takes it to L4/L5 after
                 out.append(activate_step(code))
@@ -1640,7 +1641,7 @@ def arrived_steps(code: str, d: dict, stowed_in: dict, join: str | None = None) 
     return steps
 
 
-ESCORTED_TYPES = ("ftl_relay", "ftl_beacon")
+ESCORTED_TYPES = ("ftl_relay", "ftl_beacon", "deep_space_relay_station")
 
 
 def escort_wanted(p: dict) -> dict[str, int]:
@@ -1657,7 +1658,7 @@ def relay_ready_at(d: dict, loc: str | None) -> bool:
     """An FTL relay arriving at, or moved to, an L4/L5 point is switched on there (owner, 2026-10-15). (A delivery
     switches it on at the drop-off anyway, while its carrier is still there: see delivery_steps.)"""
     from .placement import is_lagrange
-    return (d.get("device_type") or "") == "ftl_relay" and is_lagrange(loc) \
+    return (d.get("device_type") or "") in RELAY_TYPES and is_lagrange(loc) \
         and not str(d.get("status") or "").startswith("relaying") and SPARE not in (d.get("tags") or [])
 
 
