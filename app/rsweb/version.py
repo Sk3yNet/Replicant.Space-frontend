@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.299.2"
+VERSION = "1.300.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.300.0", "2026-10-29", "NPC chatter: a new placeholder, {arrival}, names who a post says just arrived (Riker: Jim-1 just arrived back in SOL), so NPCs can welcome them by name."),
     ("1.299.2", "2026-10-29", "Activity › Chatter no longer fails with a server error once BobNet posts are saved (the channel list read the rows wrongly)."),
     ("1.299.1", "2026-10-29", "BobNet mentions also catch each part of a replicant name with underscores: a post saying Towline or hester counts as mentioning Hester_Towline (parts of 3 letters or more)."),
     ("1.299.0", "2026-10-29", "NPC chatter: Write a message sends a BobNet post now as any replicant you pick, to a channel you pick (the chatter channels, #general, #trade, every channel seen) or type in. Messages can use placeholders, {from} (the system a post names, such as the one Bill just left), {star}, {region} and {poster}, filled from the post or event they answer; a message whose placeholders can't be filled is skipped. Answers cycle through every message before any repeats."),

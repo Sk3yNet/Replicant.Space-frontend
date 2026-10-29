@@ -44,8 +44,10 @@ UNSAFE = re.compile(r"[\"'&<>]")
 # placeholders a message may use: filled from the post it answers or the event it is about; a message whose
 # placeholders can't all be filled isn't picked
 SLOTS = {"poster": "who posted (answers)", "from": "the system the post names, such as the one Bill left",
-         "star": "the system the poster or the event is in", "region": "the catalog region of {from}, else of {star}"}
+         "star": "the system the poster or the event is in",
+         "arrival": "who a post says just arrived (Riker: Jim-1 just arrived back in SOL)", "region": "the catalog region of {from}, else of {star}"}
 SLOT_RE = re.compile(r"\{(\w+)\}")
+ARRIVAL_RE = re.compile(r"([\w-]+) (?:just |has )?(?:arrived|returned)\b", re.I)
 POSTED_KEEP = 200
 
 
@@ -255,7 +257,9 @@ def post_values(payload: dict, stars: dict[str, dict]) -> dict:
     named = [w for w in re.findall(r"[A-Z][A-Z0-9]{2,}", text) if w in stars and w != star]
     frm = named[0] if named else None
     region = (stars.get(frm or star) or {}).get("region")
-    return {"poster": payload.get("replicant_name"), "star": star or None, "from": frm, "region": region}
+    arr = ARRIVAL_RE.search(text)
+    return {"poster": payload.get("replicant_name"), "star": star or None, "from": frm, "region": region,
+            "arrival": arr.group(1) if arr else None}
 
 
 def pick(options: list[dict], state: dict, rnd: random.Random | None = None) -> dict | None:

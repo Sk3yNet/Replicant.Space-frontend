@@ -167,3 +167,13 @@ def test_mentions_match_each_part_of_an_underscored_name():
     assert mentions("hey towline!", names) and mentions("HESTER?", names) and mentions("Hester_Towline rocks", names)
     assert not mentions("Sk3yNet", names) and not mentions("Towlines", names) and mentions("@Sk3y", names)
     assert not mentions("Pip went home", ["Pi_Xy"])   # parts under 3 letters are left out
+
+
+def test_arrival_placeholder_from_rikers_post():
+    v = ch.post_values({"replicant_name": "Riker", "current_star": "SOL", "message": "Heads up folks - Jim-1 just arrived back "
+                        "in SOL from deep space. Another replicant returned home. Welcome them if you see them."}, {"SOL": {}})
+    assert v["arrival"] == "Jim-1" and v["from"] is None
+    cfg = ch.normalize({"replies": [{"id": "a", "to": "Riker", "match": "just arrived", "text": "Welcome back, {arrival}."},
+                                    {"id": "b", "to": "Riker", "text": "Hi Riker."}]})
+    opts = ch.fillable(ch.npc_replies("Riker", "Jim-1 just arrived back in SOL", cfg), v)
+    assert [o["id"] for o in opts] == ["a"] and ch.fill(opts[0]["text"], v) == "Welcome back, Jim-1."
