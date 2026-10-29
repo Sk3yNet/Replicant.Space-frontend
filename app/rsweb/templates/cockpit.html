@@ -268,6 +268,7 @@ label.sw { font-size: 11px; color: var(--muted); cursor: pointer; } label.sw inp
     if (run.phase === "round" && !run.answered && run.round && run.round !== p.round) run.fail++;   // let it pass unanswered
     run.phase = "round"; run.round = p.round; run.status = p.debris_status; run.answered = false;
     run.roundStart = now(); run.roundEnd = now() + (p.duration_seconds || 8) * 1000; run.start = run.start || now();
+    lever(0);
     setAlert(`ROUND ${p.round} · ${String(p.debris_status || "?").toUpperCase()}`, "");
     $("desc").textContent = p.description || ""; spawn(p.debris_status, p.duration_seconds || 8);
     beep(520, 140); gauges(); drawLearn(); advise();
@@ -318,14 +319,13 @@ label.sw { font-size: 11px; color: var(--muted); cursor: pointer; } label.sw inp
 
   // ---- commands ----
   const log = $("log");
-  let levers = 0;
+  function lever(pos) { target = pos > 0 ? 4 : pos < 0 ? 0.2 : 1; $("lever").style.top = (21 - pos * 20) + "px"; }
   async function send(act) {
     const btn = document.querySelector(`button.k[data-act="${act}"]`);
     if (btn) { btn.classList.add("hit"); setTimeout(() => btn.classList.remove("hit"), 120); }
     if (act && run.phase === "round" && run.answered) { $("hint").textContent = `Round ${run.round} is answered: wait for the next one`; return; }
-    if (act === "boost") { target = Math.min(4, target + 1.2); levers = Math.min(1, levers + 1); }
-    if (act === "brake") { target = Math.max(0.2, target - 1.2); levers = Math.max(-1, levers - 1); }
-    $("lever").style.top = (21 - levers * 20) + "px";
+    if (act === "boost") lever(1);    // two positions: full boost or full brake; only a new round centers it
+    if (act === "brake") lever(-1);
     const round = run.phase === "round" ? run.round : null, status = run.status;
     if (act && round) { run.answered = true; advise(); }
     const li = document.createElement("li");
