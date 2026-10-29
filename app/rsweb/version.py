@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.310.0"
+VERSION = "1.311.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.311.0", "2026-10-29", "Long-range stations step down when a relay will do. Once a plain FTL relay would link a station's system just as well (every network keeps the same systems with the station cut to 7.5 ly), a relay is ordered there; when it works, the station is switched off and marked spare for the next gap, one at a time. Stations pinned to a contract or spot are left alone."),
     ("1.310.0", "2026-10-29", "Acknowledged BobNet mentions drop off the Messages page's Mentioning you card. Each mention has an acknowledge button, and the card has Acknowledge all; reading the mention's notification (bell or Notifications page) counts too. Game messages that mention you lead the list only while unread; once read they sit with the other read ones. The BobNet feed keeps its mention highlight."),
     ("1.309.1", "2026-10-29", "Relay links go back to either end's reach (Joe: relays link to hubs further than 7.5 ly away), so a single deep space relay station bridges a gap of up to 10 ly to any relay or hub, and the rollout no longer adds a second station in the system it links from. Bridge and rollout searches look as far as the longest reach around, so a station or hub's link to a farther system is found."),
     ("1.309.0", "2026-10-29", "Long-range relay stations. The deep space relay station (deep_space_relay_station, 10 ly) counts in your relay networks at its own range, and a link now needs both ends in reach (a hub links a relay only within the relay's 7.5 ly, as seen live). Map › Relays has a long-range stations option: the bridges then put a station where it saves relays, one at each end of a gap no relay chain crosses (Add route orders stations and relays), and the rollout gives a station to a system only a station reaches, plus one in the system it links from. The page shows the station blueprint's cost, and the Systems list has a Station column for ordering one by hand. Stations ride with relays, are placed at L4/L5 and switched on at the drop; pausing relay prints stops station prints too."),

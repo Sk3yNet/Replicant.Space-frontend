@@ -385,6 +385,36 @@ class OpsRules:
         await self.db.kv_set(rr.KV, st)
         return out
 
+    async def station_swap_pass(self) -> list[str]:
+        """A long-range station a plain relay could stand in for (relaynet.swappable_stations) gets a relay ordered in
+        its system; once that relay works there, the station is switched off and marked spare (remove_outpost), one per
+        pass, so the next check sees the network without it."""
+        from . import relaynet
+        from . import ward_orders as wo
+        from .shapes import normalize_blueprints
+        devices = await self.devices()
+        if not any(d.get("device_type") == relaynet.STATION for d in devices):
+            return []
+        cat = await self.db.kv_get("stars", {}) or {}
+        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("position")}
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        relays = await self.db.kv_get(wo.kv_key("relay"), {}) or {}
+        busy = self.busy_devices(await self.jobs())
+        out: list[str] = []
+        for star in relaynet.swappable_stations(devices, pos, bps):
+            here = [d for d in devices if star_of_(d.get("location")) == star]
+            if any(d["device_code"] in busy for d in here if d.get("device_type") == relaynet.STATION):
+                continue
+            if any(d.get("device_type") == "ftl_relay" and relaynet.reach(d, bps) is not None for d in here):
+                msg = await self.remove_outpost("station", star, "station swap")
+                await self.log("wards", f"{star}: a relay links it now, so the long-range station goes spare ({msg})", notify=True)
+                out.append(f"{star}: {msg}")
+                break   # one at a time: two stations may each be redundant only while the other works
+            if star not in relays:
+                msg = await self.order_outpost("relay", star, "station swap")
+                out.append(f"{star}: a relay would do the long-range station's job: {msg}")
+        return out
+
     async def _beacon_to_civ(self, star: str, civ: list[str], devices: list[dict], busy: set[str],
                              keep: list[str] | None = None) -> str | None:
         """A requested beacon has reached a system with a local civilization: a vessel there carries a beacon of yours

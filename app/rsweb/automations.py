@@ -249,7 +249,7 @@ RULES_BY_ID = {r.id: r for r in RULES}
 
 # heavy passes run every n-th tick, each on its own tick (stage: (n, offset)): each held the server 3–7 s of CPU every
 # minute (snapshot 2026-10-26, 1.271.1); their own cooldowns are in minutes, so a pass every 3 min loses nothing
-SPREAD = {"rule_salvage": (3, 0), "rule_restart_idle_miners": (3, 1), "rule_reopen_sites": (3, 2)}
+SPREAD = {"station_swap_pass": (5, 3), "rule_salvage": (3, 0), "rule_restart_idle_miners": (3, 1), "rule_reopen_sites": (3, 2)}
 STEP_TIMEOUT = 3600          # waiting for travel/scan to finish
 TRIP_GRACE_S = 1800          # past a trip's ETA, a wait (or a refused step) keeps going this long before giving up
 NO_ETA_EXTRA_S = 3600        # still moving and no ETA known: this much longer, once
@@ -1813,7 +1813,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_repeats", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass", "chatter_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "station_swap_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass", "chatter_pass"):
                 every, at = SPREAD.get(stage, (1, 0))
                 if self.tick_n and self.tick_n % every != at:
                     continue   # a heavy pass that runs every few ticks, on a tick of its own (all run on the first)

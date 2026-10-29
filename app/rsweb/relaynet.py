@@ -212,6 +212,31 @@ def dark_stars(devices: list[dict]) -> set[str]:
     return dark - lit
 
 
+def partition(net: dict) -> set[frozenset]:
+    return {frozenset(g["stars"]) for g in net["networks"]}
+
+
+def swappable_stations(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | None = None) -> list[str]:
+    """Systems whose working long-range station a plain FTL relay could replace (owner 2026-10-29: once a cheaper relay
+    connects the system through another path, the station is replaced and goes spare): with the station's range cut to
+    a relay's, every network keeps the same systems. Fewest-first by system name; check again after each swap, since
+    two stations may each be redundant only while the other stays."""
+    base = partition(networks(devices, pos, bps))
+    out = []
+    for d in devices:
+        if d.get("device_type") != STATION or reach(d, bps) is None or any(
+                str(t).startswith(("contract:", "at:")) for t in d.get("tags") or []):
+            continue
+        s = star_of(d.get("location"))
+        if s in out:
+            continue
+        relay = {k: v for k, v in d.items() if k not in RANGE_KEYS}
+        relay["device_type"] = "ftl_relay"
+        if partition(networks([relay if x is d else x for x in devices], pos, bps)) == base:
+            out.append(s)
+    return sorted(out)
+
+
 def coverage(net: dict, pos: dict[str, Any], replicant_stars: set[str]) -> dict:
     """Where you can give commands: {"covered": {net id: the systems its nodes are in}, "active": {net ids with one of
     your replicants in one of those systems}, "commandable": systems an active network covers, or where a replicant is}.

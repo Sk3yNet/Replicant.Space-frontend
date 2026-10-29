@@ -9592,3 +9592,40 @@ def test_relay_orders_use_another_hubs_extras_before_a_hubs_own_stock():
     assert wo.spare_ward(devs, "NEAR", set(), pos, 1728, "ftl_relay")["device_code"] == "S1"          # nearest
     assert wo.spare_ward(devs, "NEAR", set(), pos, 1728, "ftl_relay", keep)["device_code"] == "F2"    # FAL's extras first
     assert wo.spare_ward(devs[:2], "NEAR", set(), pos, 1728, "ftl_relay", keep)["device_code"] == "S1"  # else still a spare
+
+
+def test_station_swapped_for_relay_once_a_relay_path_exists(client):
+    """Owner 2026-10-29: once a cheaper relay can link a system another way, the long-range station is replaced and
+    goes spare."""
+    from rsweb import relaynet as rn
+    from rsweb import ward_orders as wo
+    P = lambda x: {"x": x, "y": 0, "z": 0}  # noqa: E731
+    pos = {"A": P(0), "M": P(4), "S": P(8), "B": P(16), "N": P(12)}
+    R = lambda c, t, s: {"device_code": c, "device_type": t, "location": f"{s}-4-L4", "status": "relaying"}  # noqa: E731
+    devs = [R("R1", "ftl_relay", "A"), R("R2", "ftl_relay", "B"), R("S1", rn.STATION, "S"), R("R3", "ftl_relay", "M")]
+    assert rn.swappable_stations(devs, pos) == []   # S–B is 8 ly: only the station's 10 ly links it
+    devs.append(R("R4", "ftl_relay", "N"))
+    assert rn.swappable_stations(devs, pos) == ["S"]
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": s, "position": p} for s, p in pos.items()]})
+    calls = []
+
+    async def devices():
+        return devs
+
+    async def order(kind, star, user=""):
+        calls.append(("add", kind, star))
+        await db.kv_set(wo.kv_key(kind), {star: {"at": "2026-10-29T00:00:00+00:00", "how": "print"}})
+        return "printing"
+
+    async def remove(kind, star, user=""):
+        calls.append(("remove", kind, star))
+        return "deactivating"
+    eng.devices, eng.order_outpost, eng.remove_outpost = devices, order, remove
+    client.portal.call(eng.station_swap_pass)
+    client.portal.call(eng.station_swap_pass)   # the order is open: not asked twice
+    assert calls == [("add", "relay", "S")]
+    devs.append(R("R5", "ftl_relay", "S"))      # the relay is up beside the station
+    client.portal.call(eng.station_swap_pass)
+    assert calls[-1] == ("remove", "station", "S")

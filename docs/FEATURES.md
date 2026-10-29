@@ -179,6 +179,9 @@ of the catalog after). What each marker and line means is in the [map legend](..
     network grows outward in one piece.
   - *Long-range stations*: once no system is left that a relay chain reaches, one within a station's 10 ly gets a
     deep space relay station. The Systems list has a *Station* column to order one by hand.
+  - Once a plain relay would link a station's system just as well (the networks keep the same systems with the
+    station cut to 7.5 ly), a relay is ordered there; when it works, the station is switched off and marked spare,
+    one at a time.
   - A system that can't get one is skipped until *Retry skipped*; five failures in a row pause the rollout.
   - *Pause* cancels every relay print not started yet (print jobs, queued prints for a system, orders waiting on a
     print) and no order prints a relay until *Resume*; spares are still sent. *Pause prints* does the same while the
