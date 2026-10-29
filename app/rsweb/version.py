@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.299.0"
+VERSION = "1.299.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.299.1", "2026-10-29", "BobNet mentions also catch each part of a replicant name with underscores: a post saying Towline or hester counts as mentioning Hester_Towline (parts of 3 letters or more)."),
     ("1.299.0", "2026-10-29", "NPC chatter: Write a message sends a BobNet post now as any replicant you pick, to a channel you pick (the chatter channels, #general, #trade, every channel seen) or type in. Messages can use placeholders, {from} (the system a post names, such as the one Bill just left), {star}, {region} and {poster}, filled from the post or event they answer; a message whose placeholders can't be filled is skipped. Answers cycle through every message before any repeats."),
     ("1.298.0", "2026-10-29", "NPC chatter (Activity › Chatter): replicants marked NPC post canned BobNet lines about game events they took part in (survey done, belt or site mined out, their vessel arriving, salvage, contracts), answer each other in short conversations, and answer posts by other NPCs such as Bill, Riker and Dash. Messages come in by bulk import with a tick per message, go to the general or a bots channel, and post at most once a day per NPC by default (adjustable, with chances and a daily cap); posting is off until switched on. The replicant page and the bulk profile import set the game's NPC flag."),
     ("1.297.0", "2026-10-28", "Relay, ward and beacon orders (relay rollout, system page, Prospects) take spares in reach before printing, and now take a printing hub's own keep-in-stock spares last: the extras at FALQUORYX go out first instead of SOLARES's stock of 8, which would only be printed again. A queued print no longer gives way to a hub's own stock spare."),

@@ -156,3 +156,11 @@ def test_write_a_message_by_hand(client):  # noqa: F811
     assert r.headers.get("X-Sent") == "1" and _world(client).bobnet_posts[-1] == {"code": REP, "channel": "#sk3y-bots", "text": "Hello"}
     assert ch.norm_state(_kv(client, ch.STATE_KV))["posted"][-1]["why"] == "written by hand"
     assert "Not one of your" in client.post("/chatter/write", data={"code": "NOPE", "channel": "#general", "text": "x"}, headers=HX).text
+
+
+def test_mentions_match_each_part_of_an_underscored_name():
+    from rsweb.notify import mentions
+    names = ["Hester_Towline", "Sk3y"]
+    assert mentions("hey towline!", names) and mentions("HESTER?", names) and mentions("Hester_Towline rocks", names)
+    assert not mentions("Sk3yNet", names) and not mentions("Towlines", names) and mentions("@Sk3y", names)
+    assert not mentions("Pip went home", ["Pi_Xy"])   # parts under 3 letters are left out

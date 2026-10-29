@@ -232,11 +232,22 @@ async def my_names(db: DB) -> list[str]:
     return sorted(n for n in names if len(n) >= 2)
 
 
+def name_parts(names: list[str]) -> list[str]:
+    """The names, and each part of a name with underscores (Hester_Towline → also Hester and Towline; parts of 3
+    letters or more, Joe 2026-10-29)."""
+    out = list(names)
+    for n in names:
+        out += [x for x in str(n).split("_") if len(x) >= 3 and x not in out]
+    return out
+
+
 def mentions(text: Any, names: list[str]) -> bool:
-    """`text` names one of `names` as a whole word, any case ("@Sk3y", "sk3y?", "Sk3y-4" yes; "Sk3yNet" no)."""
+    """`text` names one of `names`, or a part of one between underscores, as a whole word, any case ("@Sk3y", "sk3y?",
+    "Sk3y-4", "towline" for Hester_Towline yes; "Sk3yNet" no). "_" counts as a word character, so "Hester_Towline"
+    itself still matches whole."""
     import re
     t = str(text or "")
-    return any(re.search(rf"(?<![\w]){re.escape(n)}(?![\w])", t, re.IGNORECASE) for n in names)
+    return any(re.search(rf"(?<![^\W_]){re.escape(n)}(?![^\W_])", t, re.IGNORECASE) for n in name_parts(names))
 
 
 def is_mine(ev: dict, names: list[str], codes: set[str]) -> bool:
