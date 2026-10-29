@@ -3739,8 +3739,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
 
     async def devices(self) -> list[dict]:
         if not getattr(self, "_no_attach_loaded", False):
-            from . import fleets as fl
+            from . import fleets as fl, shapes
             fl.NO_ATTACH_TYPES.update(await self.db.kv_get("no_attach_types", {}) or {})
+            fl.learn_stowable(shapes.normalize_blueprints(await self.db.kv_get("blueprints", [])))
             self._no_attach_loaded = True
         devs = await self.db.kv_get("devices", []) or []
         s = await self.db.kv_get("sim", {}) or {}

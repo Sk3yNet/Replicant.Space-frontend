@@ -436,6 +436,8 @@ class Worker:
         new_bps = normalize_blueprints((body or {}).get("blueprints"))
         old = await self.db.kv_get("blueprints", None)
         await self.db.kv_set("blueprints", new_bps)
+        from .fleets import learn_stowable
+        learn_stowable(new_bps)
         await self.db.kv_set("sync:blueprints", {"ok": True, "at": now_iso()})
         if old is None:  # first sync: everything is "known", nothing is "new"
             return []

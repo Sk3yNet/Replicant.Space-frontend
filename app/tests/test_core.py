@@ -3182,6 +3182,17 @@ def test_large_devices_learned_from_a_refused_attach_only_stow(client):
         fl.NO_ATTACH_TYPES.discard("vector_charge")
 
 
+def test_blueprint_stow_feature_makes_a_type_stowable():
+    from rsweb import fleets as fl
+    d = {"device_code": "X1", "device_type": "gravity_lens", "features": ["focus"], "available_commands": ["travel"]}
+    assert not fl.stowable(d)
+    try:
+        fl.learn_stowable([{"device_type": "gravity_lens", "features": ["focus", "stow"]}])
+        assert fl.stowable(d)
+    finally:
+        fl.STOWABLE_TYPES.discard("gravity_lens")
+
+
 def test_a_grounded_pinned_device_is_carried_to_its_spot():
     """Live 2026-10-21: 3 compute cores for the TWAFFY-OORT locker were dropped at TWAFFY's entry point (TWAFFY-11-L4)
     and could not fly to their pin on their own."""

@@ -167,8 +167,13 @@ def flies_itself(d: dict) -> bool:
     return "surge" in (d.get("features") or []) and not is_carrier(d)
 
 
-# types known to stow whatever their features say (owner 2026-10-29: vector charges stow; they can't be attached)
+# types whose blueprint lists the `stow` feature (owner 2026-10-29: a device's own features may not, e.g. vector charges,
+# which can't be attached either); kept up to date by learn_stowable from the cached blueprints
 STOWABLE_TYPES = {"vector_charge"}
+
+
+def learn_stowable(bps: list[dict]) -> None:
+    STOWABLE_TYPES.update(b["device_type"] for b in bps or [] if b.get("device_type") and "stow" in (b.get("features") or []))
 
 
 def stowable(d: dict) -> bool:
