@@ -14,7 +14,12 @@
     <option value="{{ v }}" {{ 'selected' if f.status == v }}>{{ l }}</option>{% endfor %}</select>
   <select name="star"><option value="">all systems</option>{% for s in stars %}<option {{ 'selected' if f.star == s }}>{{ s }}</option>{% endfor %}</select>
   {% if owners | length > 1 %}<select name="owner" title="the replicant that owns the device"><option value="">any owner</option>{% for c, n in owners %}<option value="{{ c }}" {{ 'selected' if f.owner == c }}>{{ n }}{{ ' (' ~ c ~ ')' if n != c }}</option>{% endfor %}</select>{% endif %}
-  {% if tags %}<select name="tag"><option value="">any tag</option>{% for t in tags %}<option {{ 'selected' if f.tag == t }}>{{ t }}</option>{% endfor %}</select>{% endif %}
+  {% if tags.plain or tags.fleets or tags.groups %}<select name="tag" title="pins, trips and contracts are one entry each: type a single one (at:sol-3) in the search box"><option value="">any tag</option>
+    {% if tags.extra %}<option value="{{ tags.extra }}" selected>{{ tags.extra }}</option>{% endif %}
+    {% for t, n in tags.plain %}<option value="{{ t }}" {{ 'selected' if f.tag == t }}>{{ t }} ({{ n }})</option>{% endfor %}
+    {% if tags.groups %}<optgroup label="kinds">{% for k, label, places, n in tags.groups %}<option value="{{ k }}" {{ 'selected' if f.tag == k }}>{{ k }}… {{ label }} ({{ n }} devices, {{ places }} tags)</option>{% endfor %}</optgroup>{% endif %}
+    {% if tags.fleets %}<optgroup label="fleets">{% for t, n in tags.fleets %}<option value="{{ t }}" {{ 'selected' if f.tag == t }}>{{ t[6:] }} ({{ n }})</option>{% endfor %}</optgroup>{% endif %}
+  </select>{% endif %}
 </form>
 <div id="bulk-result"></div>
 <div class="card" id="fleet-table">{% include "partials/fleet_table.html" %}</div>
@@ -33,7 +38,7 @@
     table.querySelectorAll("tr[data-code]").forEach(tr => {
       const d = tr.dataset;
       const ok = (!type || d.type === type) && (!status || d.status === status) && (!star || d.star === star)
-        && (!owner || d.owner === owner) && (!tag || d.tags.split(" ").includes(tag)) && (!codes || codes.has(d.code));
+        && (!owner || d.owner === owner) && (!tag || (tag.endsWith(":") ? d.tags.split(" ").some(t => t.startsWith(tag)) : d.tags.split(" ").includes(tag))) && (!codes || codes.has(d.code));
       if (tr.hidden === ok) tr.hidden = !ok;
       if (!ok) { const c = tr.querySelector(".bulk-pick"); if (c) c.checked = false; return; }   // never sent to an unseen device
       n++;

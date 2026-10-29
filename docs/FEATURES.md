@@ -61,6 +61,8 @@ System → device type → device, with stowed devices nested in their carrier; 
 ### Device list (`/fleet`)
 - Every device, filterable by type, status, system, owning replicant, tag or text. The filters work in the browser
   (hidden rows are unticked), so switching one needs no server round trip; the URL keeps the filter.
+- The tag filter has one entry per kind for pins (`at:`), trips (`to:`), contracts, home and bootstrap tags, matching
+  every tag of that kind; fleets have their own group. Type a single pin (`at:sol-3`) in the search box.
 - Tick devices (or all listed) to send them **one command**, or to **add tags** / **remove tags**.
 - Devices that can't take it are listed and skipped: command not available, in use by an automation, a deploy/detach
   while the carrier is between systems.

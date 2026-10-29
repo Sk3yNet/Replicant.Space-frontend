@@ -591,6 +591,37 @@ async def p_rate(request: Request, user: str = Depends(current_user)):
 
 
 # --- fleet ------------------------------------------------------------------------------
+# Tag kinds the Device list's tag filter folds into one "any" entry each (one tag per pinned place, contract or trip:
+# 31 civ-beacon pins alone on 2026-10-28). A single one is still found by typing it in the search box.
+TAG_GROUPS = (("at:", "pinned at a place"), ("to:", "bound for a system"), ("contract:", "for a contract"),
+              ("home:", "home system"), ("boot:", "bootstrap"))
+
+
+def tag_matches(tag: str, tags: list) -> bool:
+    """A Device list tag filter: one tag, or a kind (`at:`, ending in a colon) matching every tag of that kind."""
+    return any(str(t).startswith(tag) for t in tags) if tag.endswith(":") else tag in tags
+
+
+def tag_options(devices: list[dict], chosen: str = "") -> dict:
+    """The tag filter's choices: plain tags, fleets, and one entry per folded kind, each with its device count."""
+    count = Counter(t for d in devices for t in set(d.get("tags") or []))
+    plain, fleets, kinds = [], [], {}
+    for t, n in sorted(count.items()):
+        kind = next((k for k, _ in TAG_GROUPS if t.startswith(k)), None)
+        if kind:
+            kinds.setdefault(kind, [0, 0])[0] += 1
+        elif t.startswith("fleet:"):
+            fleets.append((t, n))
+        else:
+            plain.append((t, n))
+    for d in devices:
+        for k in {k for t in d.get("tags") or [] for k, _ in TAG_GROUPS if str(t).startswith(k)}:
+            kinds[k][1] += 1
+    groups = [(k, label, *kinds[k]) for k, label in TAG_GROUPS if k in kinds]
+    extra = chosen if chosen and not chosen.endswith(":") and chosen not in {t for t, _ in plain + fleets} else ""
+    return {"plain": plain, "fleets": fleets, "groups": groups, "extra": extra}
+
+
 def filter_devices(devices: list[dict], q: str, dtype: str, status: str, star: str, tag: str, owner: str = "") -> list[dict]:
     out = []
     ql = q.lower().strip()
@@ -601,7 +632,7 @@ def filter_devices(devices: list[dict], q: str, dtype: str, status: str, star: s
             continue
         if star and star_of(d.get("location")) != star:
             continue
-        if tag and tag not in (d.get("tags") or []):
+        if tag and not tag_matches(tag, d.get("tags") or []):
             continue
         if owner and d.get("replicant_code") != owner:
             continue
@@ -648,7 +679,7 @@ async def fleet(request: Request, q: str = "", type: str = "", status: str = "",
                     key=lambda x: (str(x[1]).lower(), x[0]))
     types = sorted({d.get("device_type") or "?" for d in st["devices"]})
     stars = sorted({star_of(d.get("location")) for d in shown})
-    tags = sorted({t for d in st["devices"] for t in (d.get("tags") or [])})
+    tags = tag_options(st["devices"], tag)
     from .web_bulk import bulk_commands
     here = dict(bulk_commands(devs))   # every command any device takes, counted over the shown ones
     kw = dict(devices=devs, rows=rows, match={d.get("device_code") for d in devs}, types=types, stars=stars, tags=tags,
