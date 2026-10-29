@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.301.2"
+VERSION = "1.302.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.302.0", "2026-10-29", "NPC chatter: placeholders {pilot} (who an announcer's post is about, such as Patch calling the exploding moon run at DELTA) and {score} (the number after Score:), so the crowd can cheer or groan for the pilot by name."),
     ("1.301.2", "2026-10-29", "NPC chatter settings: one limiter per channel, how often one of the NPCs may start a post there (all NPCs together; default 24 hours for the general and bots channels, blank means never, other channels such as #trade can get a row). It replaces the per-NPC timer and its two overrides. Replies inside a conversation still don't count."),
     ("1.301.1", "2026-10-29", "NPC chatter: a replicant can post on BobNet only from a system with an active relay (the game answers No active relay in this system). Replies that any NPC may give go to an NPC in a system with one of our active relays or hubs first; an event line from an NPC where the game refused for lack of a relay is skipped for 6 hours without using up its timer."),
     ("1.301.0", "2026-10-29", "NPC chatter: each channel has its own post timer, so an NPC can post once a day on #general and once a day on the bots channel (the general and bots channels can set their own hours). When the game refuses a reply that any NPC may give, another NPC tries it on the next tick (up to 3); an event line stays with the NPC that took part."),

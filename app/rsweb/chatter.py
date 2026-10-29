@@ -47,9 +47,25 @@ UNSAFE = re.compile(r"[\"'&<>]")
 # placeholders can't all be filled isn't picked
 SLOTS = {"poster": "who posted (answers)", "from": "the system the post names, such as the one Bill left",
          "star": "the system the poster or the event is in",
-         "arrival": "who a post says just arrived (Riker: Jim-1 just arrived back in SOL)", "region": "the catalog region of {from}, else of {star}"}
+         "arrival": "who a post says just arrived (Riker: Jim-1 just arrived back in SOL)",
+         "pilot": "who a post is about: its first word, or the name after picking up / start from (Patch: creme-1707 hits full reverse)",
+         "score": "the number after Score: in a post", "region": "the catalog region of {from}, else of {star}"}
 SLOT_RE = re.compile(r"\{(\w+)\}")
 ARRIVAL_RE = re.compile(r"([\w-]+) (?:just |has )?(?:arrived|returned)\b", re.I)
+PILOT_RE = re.compile(r"(?:picking up|start from|go for|over to) ([\w-]+)", re.I)
+NOT_NAMES = {"i", "im", "quiet", "the", "a", "an", "heads", "and", "it", "this", "that", "we", "they", "he", "she"}
+SCORE_RE = re.compile(r"\bscore:?\s*(\d+)", re.I)
+
+
+def pilot_of(text: str) -> str | None:
+    """Who an announcer's post is about (Patch at the exploding moon: "creme-1707 hits full reverse", "Quiet start
+    from creme-1707", "I am picking up creme-1707 on sensors")."""
+    m = PILOT_RE.search(text or "")
+    if m:
+        return m.group(1)
+    first = re.match(r"\s*([\w-]+)", text or "")
+    w = first.group(1) if first else ""
+    return w if w and re.sub(r"\W", "", w).lower() not in NOT_NAMES else None
 POSTED_KEEP = 200
 MAX_TRIES = 3   # NPCs that try a refused reply before it's dropped
 
@@ -288,7 +304,8 @@ def post_values(payload: dict, stars: dict[str, dict]) -> dict:
     region = (stars.get(frm or star) or {}).get("region")
     arr = ARRIVAL_RE.search(text)
     return {"poster": payload.get("replicant_name"), "star": star or None, "from": frm, "region": region,
-            "arrival": arr.group(1) if arr else None}
+            "arrival": arr.group(1) if arr else None, "pilot": pilot_of(text),
+            "score": (SCORE_RE.search(text) or [None, None])[1]}
 
 
 def pick(options: list[dict], state: dict, rnd: random.Random | None = None) -> dict | None:

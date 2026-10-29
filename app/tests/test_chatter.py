@@ -146,7 +146,7 @@ def test_placeholders_from_bills_post_and_no_quick_repeats(client):  # noqa: F81
     assert ch.pick(opts, ch.norm_state(st))["id"] == "d"   # never posted first
     assert ch.pick(opts[:3], ch.norm_state(st))["id"] == "a"   # then the longest ago
     assert ch.post_values({"current_star": "SOL", "message": "SOL and NOSOXA"}, {"SOL": {}, "NOSOXA": {"region": "outer"}}) \
-        == {"poster": None, "star": "SOL", "from": "NOSOXA", "region": "outer", "arrival": None}
+        == {"poster": None, "star": "SOL", "from": "NOSOXA", "region": "outer", "arrival": None, "pilot": "SOL", "score": None}
 
 
 def test_write_a_message_by_hand(client):  # noqa: F811
@@ -235,3 +235,12 @@ def test_channel_limiters_in_settings(client):  # noqa: F811
     assert ch.hours_for(cfg, "#bots") is None and not ch.ready(ch.norm_state({}), "#bots", cfg)
     assert ch.ready(ch.norm_state({}), "#trade", cfg)
     assert "#trade" in client.get("/chatter", headers=H).text
+
+
+def test_pilot_and_score_placeholders_from_patch():
+    v = ch.post_values({"message": "creme-1707 exits the field in decent shape. Respectable flying. Score: 419"}, {})
+    assert v["pilot"] == "creme-1707" and v["score"] == "419"
+    assert ch.post_values({"message": "I'm picking up creme-1707 on sensors"}, {})["pilot"] == "creme-1707"
+    assert ch.post_values({"message": "Quiet start from creme-1707 - barely a shimmer"}, {})["pilot"] == "creme-1707"
+    assert ch.post_values({"message": "The Drafel are not impressed."}, {})["pilot"] is None
+    assert ch.post_values({"message": "limps out. Score: 0"}, {})["score"] == "0"
