@@ -92,9 +92,9 @@ def nodes(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | None 
 
 
 def links(ly: float, ra: float, rb: float) -> bool:
-    """Two nodes link only when each reaches the other (live 2026-10-15: the SOLARES hub listed relays only within the
-    relay's own 7.5 ly), so a long-range station bridges a wide gap only with one at the other end too."""
-    return ly <= min(ra, rb) + 1e-9
+    """Two nodes link when either reaches the other (owner 2026-10-29: relays link to hubs further than 7.5 ly), so a
+    long-range station bridges a gap of up to 10 ly to any relay or hub."""
+    return ly <= max(ra, rb) + 1e-9
 
 
 def hops(bps: dict[str, dict] | None = None) -> dict[str, float]:
@@ -231,8 +231,8 @@ def coverage(net: dict, pos: dict[str, Any], replicant_stars: set[str]) -> dict:
 def bridges(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE, long: bool = False) -> list[dict]:
     """The fewest new relays linking each pair of your networks (≤ max_new). [{a, b, stars: [new relay systems in order],
     n, long: [those of them that get a long-range station]}] — one per pair, cheapest first. A search from each network
-    over catalog stars, 7.5 ly a hop; with `long`, a deep space relay station (10 ly) may go where it saves devices, at
-    both ends of a wide gap (an existing system of yours may get one too), fewest stations among equally short routes."""
+    over catalog stars, 7.5 ly a hop; with `long`, a deep space relay station (10 ly) may go where it saves devices (an
+    existing system of yours may get one beside its relay), fewest stations among equally short routes."""
     ns, of = net["nodes"], net["of"]
     if len(net["networks"]) < 2:
         return []
@@ -255,6 +255,7 @@ def _bridges(net: dict, pos: dict[str, Any], max_new: int, long: bool = False) -
     hop = net.get("hop") or RELAY_LY
     lh = float(net.get("long_hop") or STATION_LY) if long else 0.0
     kinds = [hop] + ([lh] if lh > hop else [])
+    far = max(kinds + [n["range"] for n in ns.values()])   # a link needs either end in reach: look this far
     best: dict[tuple[int, int], dict] = {}
 
     def path(state: tuple, prev: dict, placed: dict) -> tuple[list[str], list[str]]:
@@ -289,7 +290,7 @@ def _bridges(net: dict, pos: dict[str, Any], max_new: int, long: bool = False) -
                 continue
             s, r = state
             x = xyz_all.get(s) or ns[s]["xyz"]
-            for t in _near(cells, x, r):
+            for t in _near(cells, x, max(r, far)):
                 if t == s:
                     continue
                 d = math.dist(x, xyz_all[t])
@@ -300,7 +301,7 @@ def _bridges(net: dict, pos: dict[str, Any], max_new: int, long: bool = False) -
                     if links(d, r, ns[t]["range"]):
                         total, extra = c, None
                     elif lh and links(d, r, lh) and c[0] < max_new:
-                        total, extra = (c[0] + 1, c[1] + 1), t   # a station at the far end too
+                        total, extra = (c[0] + 1, c[1] + 1), t   # a station added at the far end
                     else:
                         continue
                     k = tuple(sorted((start, other)))

@@ -8308,26 +8308,25 @@ def test_relay_rollout_queue_goes_outward_and_chains():
            {"S": 0, "A": 5, "B": 10, "C": 3, "FAR": 40, "D": -6, "OUT": 80}.items()}
     q = rr.queue(["S"], pos, set(), set(), set(), 50, True)
     assert [x["star"] for x in q] == ["S", "C", "A", "D", "B"]   # FAR: no relay within 7.5 ly of it; OUT: past 50 ly
-    assert q[1] == {"star": "C", "ly": 3.0, "seed": "S", "kind": "relay", "pair": None}
+    assert q[1] == {"star": "C", "ly": 3.0, "seed": "S", "kind": "relay"}
     assert [x["star"] for x in rr.queue(["S"], pos, {"S"}, {"C"}, {"D"}, 50, False)] == ["A", "B", "FAR"]
     assert [x["star"] for x in rr.queue(["S"], pos, set(), set(), set(), 50, True, limit=2)] == ["S", "C"]
     assert rr.queue(["NOWHERE"], pos, set(), set(), set(), 50, True) == []
 
 
 def test_relay_rollout_long_range_stations(client):
-    """Owner 2026-10-29: a 10 ly deep space relay station bridges gaps a relay can't; both ends need one."""
+    """Owner 2026-10-29: a 10 ly deep space relay station bridges gaps a relay can't (either end in reach links)."""
     from rsweb import relayroll as rr
     pos = {s: {"x": x, "y": 0, "z": 0} for s, x in
            {"S": 0, "A": 5, "B": 10, "W": 19, "V": 25, "X": 34, "FAR": 60}.items()}
     assert [x["star"] for x in rr.queue(["S"], pos, {"S"}, set(), set(), 50, True)] == ["A", "B"]
     q = rr.queue(["S"], pos, {"S"}, set(), set(), 50, True, long_hop=10.0)
-    # relays first; W only by a station, with one in B too; V is a relay hop from W, X a station hop (W has one)
-    assert [(x["star"], x["kind"], x["pair"]) for x in q] == [("A", "relay", None), ("B", "relay", None),
-                                                             ("W", "station", "B"), ("V", "relay", None),
-                                                             ("X", "station", "V")]
-    # a station already on order in B: W needs no second one there
+    # relays first; W (9 ly from B) only by a station; V is a relay hop from W, X 9 ly from V a station again
+    assert [(x["star"], x["kind"]) for x in q] == [("A", "relay"), ("B", "relay"), ("W", "station"), ("V", "relay"),
+                                                   ("X", "station")]
+    # a station already on order in B reaches W: a relay there links to it
     q = rr.queue(["S"], pos, {"S", "A"}, {"B"}, set(), 50, True, ranges={"B": 10.0}, long_hop=10.0, limit=1)
-    assert q == [{"star": "W", "ly": 19.0, "seed": "S", "kind": "station", "pair": None}]
+    assert q == [{"star": "W", "ly": 19.0, "seed": "S", "kind": "relay"}]
     r = client.post("/map/relays/rollout", headers=HX, data={"action": "save", "seeds": "S", "radius": "50",
                                                             "chained": "1", "long": "1"})
     assert r.status_code == 200 and rr.state(client.portal.call(client.app.state.db.kv_get, rr.KV, {}))["long"]
@@ -8389,7 +8388,7 @@ def test_relay_rollout_pass_keeps_orders_open_and_skips_failures(client, monkeyp
 
 
 def test_relay_rollout_pass_orders_station_pairs(client, monkeypatch):
-    """Owner 2026-10-29: with long-range stations on, a gap no relay crosses gets a station at both ends."""
+    """Owner 2026-10-29: with long-range stations on, a gap no relay crosses gets a station."""
     from rsweb import relayroll as rr
     monkeypatch.setattr(rr, "capacity", lambda *a: 3)
     from rsweb import ward_orders as wo
@@ -8415,9 +8414,9 @@ def test_relay_rollout_pass_orders_station_pairs(client, monkeypatch):
     assert calls == [] and not rr.state(client.portal.call(db.kv_get, rr.KV, {}))["on"]   # no relay reaches W
     client.portal.call(db.kv_set, rr.KV, {"on": True, "seeds": ["S"], "chained": True, "long": True})
     client.portal.call(eng.relay_rollout_pass)
-    assert calls == [("station", "W"), ("station", "S")]
+    assert calls == [("station", "W")]
     st = rr.state(client.portal.call(db.kv_get, rr.KV, {}))
-    assert sorted(st["ordered"]) == ["S", "W"] and st["on"]
+    assert sorted(st["ordered"]) == ["W"] and st["on"]
 
 
 def test_relays_route_orders_stations(client, monkeypatch):

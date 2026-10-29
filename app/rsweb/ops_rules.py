@@ -365,19 +365,13 @@ class OpsRules:
                     await self.log("wards", f"relay rollout finished: {st['done']} relays up, {len(st['skipped'])} systems "
                                    "skipped", notify=True)
                 break
-            star, kind, pair = nxt[0]["star"], nxt[0]["kind"], nxt[0]["pair"]
+            star, kind = nxt[0]["star"], nxt[0]["kind"]
             msg = await self.order_outpost(kind, star, st["by"] or "relay rollout")
             orders, stations = await open_orders()
             if star in orders:
                 st["ordered"][star] = orders[star].get("at")
                 st["streak"] = 0
                 out.append(f"{star}: {msg}")
-                if pair and pair not in stations:   # the near end of the wide gap gets a station too
-                    pmsg = await self.order_outpost("station", pair, st["by"] or "relay rollout")
-                    orders, stations = await open_orders()
-                    if pair in stations:
-                        st["ordered"][pair] = stations[pair].get("at")
-                    out.append(f"{pair}: {pmsg}")
                 continue
             st["skipped"][star] = msg
             out.append(f"{star}: skipped ({msg})")

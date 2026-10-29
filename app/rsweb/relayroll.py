@@ -41,13 +41,13 @@ def state(raw: dict | None) -> dict:
 def queue(seeds: list[str], pos: dict[str, Any], have: set[str], ordered: set[str], skipped: set[str],
           radius: float, chained: bool, limit: int | None = None, radii: dict[str, float] | None = None,
           ranges: dict[str, float] | None = None, hop: float = RELAY_LY, long_hop: float = 0.0) -> list[dict]:
-    """Systems still without a relay, in rollout order: [{star, ly (to the nearest seed), seed, kind, pair}], nearest first.
+    """Systems still without a relay, in rollout order: [{star, ly (to the nearest seed), seed, kind}], nearest first.
     A seed's reach is radii[seed], else radius; a system counts for the nearest seed whose reach it lies in.
     Chained: only those within a relay's hop of a system that has one, has one on order, or is a seed, growing outward
     as each is reached (the order the rollout would go in if every order succeeded). `ranges`: how far what's there (or
-    on order) reaches, {star: ly}, else `hop`. With `long_hop` (the long-range station's reach), a system no relay chain
-    reaches but a station's hop does comes after every relay one: kind "station", and `pair` names the system it links
-    from when that one needs a station too (a link needs both ends in reach: relaynet.links)."""
+    on order) reaches, {star: ly}, else `hop` (a link needs either end in reach: relaynet.links). With `long_hop` (the
+    long-range station's reach), a system no relay chain reaches but a station's hop does comes after every relay one:
+    kind "station"."""
     xyz_all, cells = _grid(pos)
     seed_xyz = [(s, xyz_all[s]) for s in seeds if s in xyz_all]
     if not seed_xyz:
@@ -66,7 +66,7 @@ def queue(seeds: list[str], pos: dict[str, Any], have: set[str], ordered: set[st
         if (hit := nearest_seed(x)):
             todo[s] = hit
     rank = lambda s: (todo[s][1], s)  # noqa: E731
-    kind: dict[str, tuple[str, str | None]] = {}
+    kind: dict[str, str] = {}
     if not chained:
         out = sorted(todo, key=rank)
     else:   # a frontier search: always the nearest-to-a-seed system that touches what's already there or planned
@@ -77,7 +77,7 @@ def queue(seeds: list[str], pos: dict[str, Any], have: set[str], ordered: set[st
             rng.setdefault(s, hop)
         long_hop = long_hop if long_hop > hop else 0.0
         heap: list[tuple] = []
-        best: dict[str, tuple] = {}   # the best way found to each system: (0 relay | 1 station, ly, star, pair)
+        best: dict[str, tuple] = {}   # the best way found to each system: (0 relay | 1 station, ly, star)
 
         def offer(t: str, item: tuple) -> None:
             if t in todo and t not in kind and (t not in best or item < best[t]):
@@ -86,16 +86,16 @@ def queue(seeds: list[str], pos: dict[str, Any], have: set[str], ordered: set[st
 
         def push_near(s: str) -> None:
             x, r = xyz_all[s], rng[s]
-            for t in _near(cells, x, max(hop, long_hop)):
+            for t in _near(cells, x, max(r, hop, long_hop)):
                 if t not in todo:
                     continue
                 d = math.dist(x, xyz_all[t])
-                if d <= min(r, hop) + 1e-9:
-                    offer(t, (0, *rank(t), None))
+                if d <= max(r, hop) + 1e-9:
+                    offer(t, (0, *rank(t)))
                 elif long_hop and d <= long_hop + 1e-9:
-                    offer(t, (1, *rank(t), None if r >= long_hop else s))
+                    offer(t, (1, *rank(t)))
         for s in [s for s, _ in seed_xyz if s in todo]:   # a seed without a relay goes first
-            offer(s, (0, *rank(s), None))
+            offer(s, (0, *rank(s)))
         for s in reached:
             push_near(s)
         out = []
@@ -105,17 +105,13 @@ def queue(seeds: list[str], pos: dict[str, Any], have: set[str], ordered: set[st
             if s in kind or best.get(s) != item:
                 continue
             station = item[0] == 1
-            kind[s] = ("station" if station else "relay", item[3])
+            kind[s] = "station" if station else "relay"
             out.append(s)
             rng[s] = long_hop if station else hop
-            if item[3]:   # the near end gets a station too: it reaches further now
-                rng[item[3]] = long_hop
-                push_near(item[3])
             push_near(s)
     if limit is not None:
         out = out[:limit]
-    return [{"star": s, "ly": round(todo[s][1], 2), "seed": todo[s][0], "kind": kind.get(s, ("relay", None))[0],
-             "pair": kind.get(s, ("relay", None))[1]} for s in out]
+    return [{"star": s, "ly": round(todo[s][1], 2), "seed": todo[s][0], "kind": kind.get(s, "relay")} for s in out]
 
 
 def capacity(devices: list[dict], logistics_tags: set[str], free) -> int:

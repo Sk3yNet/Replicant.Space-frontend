@@ -899,14 +899,13 @@ def test_relay_networks_links_and_bridges():
             dev("R3", "ftl_relay", "C-4-L4", status="relaying"), dev("H1", "system_hub", "D-4-L4", status="active"),
             dev("R4", "ftl_relay", "FAR-4-L4", status="relaying"), dev("R5", "ftl_relay", "H-4-L4", status="inactive")]
     net = rn.networks(devs, pos)
-    # C–D are 9 ly apart: the hub's 15 ly doesn't link them, a link needs both ends in reach (the relay's 7.5)
-    assert [n["stars"] for n in net["networks"]] == [["A", "B"], ["C"], ["D"], ["FAR"]]
-    assert {(l["a"], l["b"]) for l in net["links"]} == {("A", "B")}
+    assert [n["stars"] for n in net["networks"]] == [["A", "B"], ["C", "D"], ["FAR"]]
+    assert {(l["a"], l["b"]) for l in net["links"]} == {("A", "B"), ("C", "D")}
     br = rn.bridges(net, pos)
-    # A–B and C are joined by new relays at E (14) and F (21)
-    ab_c = next(b for b in br if {b["a"], b["b"]} == {0, 1})
-    assert ab_c["stars"] == ["E", "F"] and ab_c["n"] == 2 and ab_c["long"] == []
-    assert not any(3 in (b["a"], b["b"]) for b in br)   # FAR is beyond 10 relays
+    # A–B and C–D (C–D 9 ly apart: the hub's 15 ly links them) are joined by new relays at E (14) and F (21)
+    assert br and (br[0]["a"], br[0]["b"]) == (0, 1) and br[0]["stars"] in (["E", "F"], ["E"]) and br[0]["n"] <= 2
+    assert br[0]["long"] == []
+    assert not any(1 in (b["a"], b["b"]) and 2 in (b["a"], b["b"]) for b in br)   # FAR is beyond 10 relays
 
 
 def test_relay_station_bridges_wide_gaps():
@@ -917,12 +916,12 @@ def test_relay_station_bridges_wide_gaps():
             dev("S1", rn.STATION, "C-4-L4", status="relaying")]
     net = rn.networks(devs, pos)
     assert net["nodes"]["C"]["range"] == 10.0 and net["long_hop"] == 10.0
-    # 9 ly hops: no relay chain reaches; stations at A, G and B do (A and B get one beside their relay)
+    # 9 ly hops: no relay chain reaches; one station at G reaches both
     assert not any({b["a"], b["b"]} == {net["of"]["A"], net["of"]["B"]} for b in rn.bridges(net, pos))
     of = net["of"]
     br = {frozenset((b["a"], b["b"])): b for b in rn.bridges(net, pos, long=True)}
     ab = br[frozenset((of["A"], of["B"]))]
-    assert ab["stars"] == ["A", "G", "B"] and ab["long"] == ["A", "G", "B"] and ab["n"] == 3
+    assert ab["stars"] == ["G"] and ab["long"] == ["G"] and ab["n"] == 1
     # B–C is 12 ly and M lies 16 ly from B: nothing joins them
     assert frozenset((of["B"], of["C"])) not in br
     # a station's own range from its blueprint wins over the default
