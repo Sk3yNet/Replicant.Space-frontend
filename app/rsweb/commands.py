@@ -47,6 +47,15 @@ class Field:
 
 F = Field
 
+def moon_numbers(planet: dict) -> range:
+    """A scanned planet's moons as STAR-P-1 … STAR-P-n (the scan gives only moon_count; live codes such as ETHIREL-2-4 and
+    BELNULEON-5-34 count up from 1, unverified that they never skip)."""
+    try:
+        return range(1, min(int(planet.get("moon_count") or 0), 99) + 1)
+    except (TypeError, ValueError):
+        return range(0)
+
+
 # --- device commands --------------------------------------------------------------------------
 COMMANDS: dict[str, list[Field]] = {
     "travel": [F("destination", "location", required=True, help="Location code (planet, belt, L4/L5, star …)"),
@@ -272,6 +281,8 @@ def build_suggestions(state: dict, blueprints: list[dict], systems: list[dict], 
             add(des, p.get("type", "planet"))
             for lp in ("L4", "L5"):
                 add(f"{des}-{lp}", "Lagrange")
+            for n in moon_numbers(p):
+                add(f"{des}-{n}", f"moon of {des}")
         for b in ((scan.get("asteroid_belt") or {}).get("belts")) or []:
             add(b.get("designation"), "belt")
         for k in ("kuiper", "oort"):

@@ -14,6 +14,7 @@ from collections import defaultdict
 from typing import Any
 
 from .db import now_iso
+from .commands import moon_numbers
 from .shapes import as_amounts
 
 LEVELS = ["scarce", "low", "moderate", "high", "rich"]
@@ -98,6 +99,8 @@ async def system_targets(db, star: str) -> dict:
         add(des, note)
         for lp in ("L4", "L5"):
             add(f"{des}-{lp}", f"Lagrange point of {des}")
+        for n in moon_numbers(p):
+            add(f"{des}-{n}", f"moon of {des}")
     for b in ((scan.get("asteroid_belt") or {}).get("belts")) or []:
         add(b.get("designation"), " · ".join(x for x in [b.get("density"), _res_note(b.get("resources"))] if x))
         for r, lvl in (b.get("resources") or {}).items():

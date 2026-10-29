@@ -52,3 +52,15 @@ def test_a_refused_start_names_the_spot_and_the_cockpit_flies_there(client):  # 
     last = json.loads(rows[-1]["body"])
     assert last["command"] == "travel" and last["destination"] == "SOL-3-1"
     assert wc.needed_spot("Vessel must be deployed at ETHIREL-2-4") == "ETHIREL-2-4"
+
+
+def test_scanned_moons_are_offered_as_destinations(client):  # noqa: F811
+    from rsweb.targets import system_targets
+    db = client.app.state.db
+    scan = {"planets": [{"designation": "ETHIREL-2", "type": "gas_giant", "moon_count": 4}, {"designation": "ETHIREL-3"}]}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("ETHIREL", json.dumps(scan), "2026-10-29T00:00:00+00:00"))
+    form = client.get(f"/devices/{HOST}/command-form?command=travel", headers=HX).text
+    assert 'value="ETHIREL-2-4"' in form and 'value="ETHIREL-2-5"' not in form and "ETHIREL-3-1" not in form
+    t = client.portal.call(system_targets, db, "ETHIREL")
+    assert [x["code"] for x in t["targets"] if x["category"] == "moon"] == [f"ETHIREL-2-{n}" for n in range(1, 5)]
