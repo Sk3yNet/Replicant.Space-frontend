@@ -11,9 +11,9 @@ The library (kv "chatter") holds approved messages, imported in bulk with a per-
 or a literal "#channel".
 
 Only replicants marked NPC on their profile post (the game's is_npc flag: readers can hide NPC chatter). Posting is off
-until switched on. Each NPC starts a post at most once every `every_hours` per channel (default 24: once a day; the
-general and bots channels may set their own hours; a conversation's replies don't count), each trigger fires with a
-chance, and the same per-channel timer holds for answering one poster. A refused reply that any NPC may give is tried
+until switched on. Each channel has one limiter, `limits` (hours, for all NPCs together; blank = never; default 24 for
+the general and bots channels): how often one of the NPCs may start a post there, an event line or an answer to
+another NPC (a conversation's replies don't count). Each trigger fires with a chance. A refused reply that any NPC may give is tried
 by another NPC (up to MAX_TRIES); an event line stays with the NPC that took part.
 A daily cap bounds it all.
 Replies wait a random delay in a queue (kv "chatter:state") that the engine stage chatter_pass sends."""
@@ -40,7 +40,7 @@ TRIGGERS = {
     "contract_done": "a contract or civilization event was completed",
 }
 DEFAULTS = {"enabled": False, "general": "#general", "bots": "#bots", "chance": 0.5, "reply_chance": 0.85,
-            "npc_reply_chance": 0.5, "every_hours": 24, "general_hours": None, "bots_hours": None, "daily_cap": 20, "delay_min": 1, "delay_max": 6,
+            "npc_reply_chance": 0.5, "daily_cap": 20, "delay_min": 1, "delay_max": 6,
             "max_depth": 4}
 UNSAFE = re.compile(r"[\"'&<>]")
 # placeholders a message may use: filled from the post it answers or the event it is about; a message whose
@@ -56,6 +56,12 @@ MAX_TRIES = 3   # NPCs that try a refused reply before it's dropped
 
 def normalize(c: dict | None) -> dict:
     c = dict(c or {})
+    if not isinstance(c.get("limits"), dict):   # before 1.301.2: a timer per NPC (every_hours, general_hours, bots_hours)
+        every = c.get("every_hours", 24)
+        c["limits"] = {k: c.get(f"{k}_hours") if c.get(f"{k}_hours") not in (None, "") else every
+                       for k in ("general", "bots")}
+    for k in ("every_hours", "general_hours", "bots_hours"):
+        c.pop(k, None)
     for k, v in DEFAULTS.items():
         c.setdefault(k, v)
     c["lines"] = [x for x in c.get("lines") or [] if isinstance(x, dict)]
@@ -69,7 +75,8 @@ def norm_state(s: dict | None) -> dict:
     s["posted"] = list(s.get("posted") or [])
     s["last"] = dict(s.get("last") or {})       # replicant code -> when it last posted
     s["answered"] = dict(s.get("answered") or {})
-    s["no_relay"] = dict(s.get("no_relay") or {})   # system -> when the game said it has no active relay   # BobNet poster name (lower) -> when we last answered them
+    s["no_relay"] = dict(s.get("no_relay") or {})   # system -> when the game said it has no active relay
+    s["chan"] = dict(s.get("chan") or {})           # channel -> when an NPC last started a post there
     return s
 
 
@@ -253,18 +260,22 @@ def fillable(options: list[dict], values: dict | None) -> list[dict]:
     return [o for o in options if all(values.get(k) for k in slots(o.get("text")))]
 
 
-def hours_for(cfg: dict, channel: str) -> float:
-    """How long an NPC waits between posts on a channel (each channel has its own timer): the general or bots
-    channel's own hours when set, else every_hours."""
-    for k in ("general", "bots"):
-        if channel == cfg.get(k) and cfg.get(f"{k}_hours") not in (None, ""):
-            return float(cfg[f"{k}_hours"])
-    return float(cfg["every_hours"])
+def hours_for(cfg: dict, channel: str) -> float | None:
+    """How often one of the NPCs may start a post on a channel (Joe 2026-10-29: one limiter per channel, for all NPCs
+    together), in hours; None (blank) means never. limits is keyed "general" and "bots" for the two named channels,
+    else by the channel itself."""
+    key = "general" if channel == cfg.get("general") else "bots" if channel == cfg.get("bots") else channel
+    v = (cfg.get("limits") or {}).get(key)
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
 
 
-def ready(stamps: dict, key: str, channel: str, cfg: dict, now: float | None = None) -> bool:
-    """`key` (an NPC, or a poster we answer) is past its timer on `channel`."""
-    return (now or _now()) - _ts(stamps.get(f"{key} {channel}")) >= hours_for(cfg, channel) * 3600
+def ready(state: dict, channel: str, cfg: dict, now: float | None = None) -> bool:
+    """An NPC may start a post on `channel` now."""
+    h = hours_for(cfg, channel)
+    return h is not None and (now or _now()) - _ts(state["chan"].get(channel)) >= h * 3600
 
 
 def post_values(payload: dict, stars: dict[str, dict]) -> dict:
@@ -400,7 +411,7 @@ class ChatterMixin:
             stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
             values = post_values(p, stars)
             opts = [m for m in fillable(npc_replies(pname, str(p.get("message") or ""), cfg), values)
-                    if ready(state["answered"], pname.lower(), channel_of(m, cfg, p.get("channel")), cfg)]
+                    if ready(state, channel_of(m, cfg, p.get("channel")), cfg)]
             if not opts or random.random() >= float(cfg["npc_reply_chance"]):
                 return
             m = pick(opts, state)
@@ -408,7 +419,7 @@ class ChatterMixin:
             if not by:
                 return
             chan = channel_of(m, cfg, p.get("channel"))
-            state["answered"][f"{pname.lower()} {chan}"] = now_iso()
+            state["chan"][chan] = now_iso()
             item = queue_item(m, by, chan, cfg, 1, f"answers {pname}", values=values)
             item["alt"] = m.get("by") == "any"   # refused: another NPC may say it instead
         else:
@@ -427,13 +438,13 @@ class ChatterMixin:
             region = next((x.get("region") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("designation") == star), None)
             values = {"star": star, "region": region}
             opts = [m for m in fillable([m for m in cfg["lines"] if m.get("on") == trig and m.get("by") in (who, "any")], values)
-                    if ready(state["last"], who, channel_of(m, cfg), cfg)]
+                    if ready(state, channel_of(m, cfg), cfg)]
             if not opts or random.random() >= float(cfg["chance"]):
                 return
             m = pick(opts, state)
             item = queue_item(m, who, channel_of(m, cfg), cfg, 0, trig, values=values)
             item["due"] = now_iso()   # an event line goes out on the next tick; only replies wait
-            state["last"][f"{who} {item['channel']}"] = now_iso()
+            state["chan"][item["channel"]] = now_iso()
         state["queue"].append(item)
         await self.db.kv_set(STATE_KV, state)
 

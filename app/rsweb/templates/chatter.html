@@ -26,10 +26,16 @@
     <label style="text-transform:none"><input type="checkbox" name="enabled" {{ 'checked' if cfg.enabled }}> Posting on</label>
     <div style="margin-top:4px">General channel <input name="general" value="{{ cfg.general }}" size="10">
       Bots channel <input name="bots" value="{{ cfg.bots }}" size="10"></div>
-    <div style="margin-top:4px">Each NPC posts at most every <input name="every_hours" value="{{ cfg.every_hours }}" size="4"> hours
-      on each channel <span class="muted">(24 = once a day; each channel has its own timer; a conversation's replies don't count)</span></div>
-    <div style="margin-top:4px">Own hours for the general channel <input name="general_hours" value="{{ cfg.general_hours if cfg.general_hours is not none else '' }}" size="4">
-      and the bots channel <input name="bots_hours" value="{{ cfg.bots_hours if cfg.bots_hours is not none else '' }}" size="4"> <span class="muted">(blank: as above)</span></div>
+    {% macro hrs(v) %}{{ ('%g' % v) if v is not none else '' }}{% endmacro %}
+    <table class="small" style="margin-top:6px;width:auto"><tr><th>Channel</th><th>One NPC post every … hours</th></tr>
+      <tr><td>{{ cfg.general }} <span class="muted">(general)</span></td><td><input name="lim_general" value="{{ hrs(cfg.limits.get('general')) }}" size="5"></td></tr>
+      <tr><td>{{ cfg.bots }} <span class="muted">(bots)</span></td><td><input name="lim_bots" value="{{ hrs(cfg.limits.get('bots')) }}" size="5"></td></tr>
+      {% for c, v in cfg.limits.items() if c not in ('general', 'bots') %}
+      <tr><td><input name="lim_ch" value="{{ c }}" size="10"></td><td><input name="lim_h" value="{{ hrs(v) }}" size="5"></td></tr>{% endfor %}
+      <tr><td><input name="lim_ch" placeholder="#another" size="10"></td><td><input name="lim_h" size="5"></td></tr>
+    </table>
+    <div class="muted">For all NPCs together: 24 = one post a day in that channel. Blank = never. Event lines and answers to other NPCs count; replies inside a conversation don't.
+      A channel not listed is never posted to (an answer posted where Bill or Dash wrote, such as #trade, needs a row).</div>
     <div style="margin-top:4px">Chance an event gets a line <input name="chance" value="{{ cfg.chance }}" size="4">,
       a line gets an answer <input name="reply_chance" value="{{ cfg.reply_chance }}" size="4">,
       another NPC's post gets an answer <input name="npc_reply_chance" value="{{ cfg.npc_reply_chance }}" size="4"> <span class="muted">(0 to 1)</span></div>

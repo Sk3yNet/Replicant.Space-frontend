@@ -52,8 +52,9 @@ def test_import_preview_approval_and_page(client):  # noqa: F811
     assert cfg["lines"][0]["by"] == REP   # a name is resolved to the code
     assert "already in the library" in client.post("/chatter/preview", data={"messages": json.dumps(LIB)}, headers=HX).text
     page = client.get("/chatter", headers=H).text
-    assert "NPC chatter" in page and "Survey done" in page and "Mostly harmless" in page and "every_hours" in page
-    assert ch.DEFAULTS["every_hours"] == 24 and not ch.DEFAULTS["enabled"]
+    assert "NPC chatter" in page and "Survey done" in page and "Mostly harmless" in page and "lim_general" in page
+    assert ch.normalize({})["limits"] == {"general": 24, "bots": 24} and not ch.DEFAULTS["enabled"]
+    assert ch.normalize({"every_hours": 12, "bots_hours": 2})["limits"] == {"general": 12, "bots": 2}   # older settings
 
 
 def test_event_line_conversation_and_pace(client):  # noqa: F811
@@ -186,12 +187,12 @@ def test_timer_per_channel_and_another_npc_tries_a_refused_reply(client, monkeyp
     reps[third] = {"name": "Pip_Parcelwick", "is_npc": True, "current_star": "LERNA"}
     _set(client, "replicants", reps)
     cfg = ch.normalize({"enabled": True, "chance": 1, "npc_reply_chance": 1, "reply_chance": 0, "delay_min": 0, "delay_max": 0,
-                        "bots_hours": 0.5,
+                        "limits": {"general": 24, "bots": 0.5, "#lounge": 24},
                         "lines": [{"id": "g", "by": REP, "on": "survey_done", "channel": "general", "text": "General line."},
                                   {"id": "b", "by": REP, "on": "survey_done", "channel": "bots", "text": "Bots line."}],
-                        "replies": [{"id": "r", "to": "Riker", "by": "any", "channel": "general", "text": "Hi Riker."}]})
+                        "replies": [{"id": "r", "to": "Riker", "by": "any", "channel": "#lounge", "text": "Hi Riker."}]})
     _set(client, ch.KV, cfg)
-    assert ch.hours_for(cfg, "#bots") == 0.5 and ch.hours_for(cfg, "#general") == 24
+    assert ch.hours_for(cfg, "#bots") == 0.5 and ch.hours_for(cfg, "#general") == 24 and ch.hours_for(cfg, "#trade") is None
     e = eng(client)
     ev = {"event": "scan.completed", "device_code": "HOSTV001", "payload": {"scan_target": "SOL-BELT-1"}}
     posts = _world(client).bobnet_posts
@@ -206,10 +207,10 @@ def test_timer_per_channel_and_another_npc_tries_a_refused_reply(client, monkeyp
     for _ in range(4):
         client.portal.call(e.chatter_on_event, riker)
         client.portal.call(e.chatter_pass)
-    assert posts[-1] == {"code": third, "channel": "#general", "text": "Hi Riker."}
+    assert posts[-1] == {"code": third, "channel": "#lounge", "text": "Hi Riker."}
     fails = [p for p in ch.norm_state(_kv(client, ch.STATE_KV))["posted"] if not p["ok"]]
     assert fails and fails[0]["by"] == REP and all(p.get("retry") for p in fails)
-    assert len([p for p in posts if p["text"] == "Hi Riker."]) == 1   # Riker answered once on #general today
+    assert len([p for p in posts if p["text"] == "Hi Riker."]) == 1   # one NPC post a day on #lounge
 
 
 def test_no_active_relay_systems_are_skipped():
@@ -223,3 +224,14 @@ def test_no_active_relay_systems_are_skipped():
     assert can("A") == (True, True) and can("B") == (True, False) and can("C")[0] is False
     assert ch.speaker_for({"by": "any"}, None, reps, can=can) == "A"   # our relay first
     assert ch.speaker_for({"by": "C"}, None, reps, can=can) is None
+
+
+def test_channel_limiters_in_settings(client):  # noqa: F811
+    r = client.post("/chatter/settings", data={"lim_general": "12", "lim_bots": "", "lim_ch": ["trade", "#x", ""],
+                                               "lim_h": ["6", "", "3"]}, headers=HX)
+    assert "Saved" in r.text
+    cfg = ch.normalize(_kv(client, ch.KV))
+    assert cfg["limits"] == {"general": 12.0, "bots": None, "#trade": 6.0}
+    assert ch.hours_for(cfg, "#bots") is None and not ch.ready(ch.norm_state({}), "#bots", cfg)
+    assert ch.ready(ch.norm_state({}), "#trade", cfg)
+    assert "#trade" in client.get("/chatter", headers=H).text

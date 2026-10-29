@@ -89,7 +89,7 @@ async def chatter_settings(request: Request, user: str = Depends(current_user)):
         v = str(form.get(k) or "").strip()
         if v:
             cfg[k] = v if v.startswith("#") else "#" + v
-    for k, lo, hi in (("chance", 0, 1), ("reply_chance", 0, 1), ("npc_reply_chance", 0, 1), ("every_hours", 0, 720),
+    for k, lo, hi in (("chance", 0, 1), ("reply_chance", 0, 1), ("npc_reply_chance", 0, 1),
                       ("daily_cap", 0, 500), ("delay_min", 0, 1440), ("delay_max", 0, 1440), ("max_depth", 0, 10)):
         if k not in form:
             continue
@@ -102,19 +102,30 @@ async def chatter_settings(request: Request, user: str = Depends(current_user)):
             bad.append(f"{k} (between {lo} and {hi})")
             continue
         cfg[k] = int(v) if k in ("daily_cap", "max_depth") else v
-    for k in ("general_hours", "bots_hours"):   # blank: the channel uses every_hours
-        if k not in form:
-            continue
-        v = str(form.get(k) or "").strip()
-        if not v:
-            cfg[k] = None
-            continue
-        try:
-            f = float(v)
-            assert 0 <= f <= 720
-            cfg[k] = f
-        except (ValueError, AssertionError):
-            bad.append(f"{k} (between 0 and 720)")
+    # one limiter per channel: hours between NPC posts there, blank = never (general, bots, then other channels by
+    # name; an other channel left blank is dropped, which also means never)
+    if "lim_general" in form:
+        limits = {}
+        rows = [("general", form.get("lim_general")), ("bots", form.get("lim_bots"))]
+        rows += list(zip(form.getlist("lim_ch"), form.getlist("lim_h")))
+        for key, v in rows:
+            key, v = str(key or "").strip(), str(v or "").strip()
+            if not key:
+                continue
+            if key not in ("general", "bots") and not key.startswith("#"):
+                key = "#" + key
+            if not v:
+                if key in ("general", "bots"):
+                    limits[key] = None
+                continue
+            try:
+                f = float(v)
+                assert 0 <= f <= 720
+                limits[key] = f
+            except (ValueError, AssertionError):
+                bad.append(f"hours for {key} (between 0 and 720, or blank for never)")
+                limits[key] = (cfg["limits"] or {}).get(key)
+        cfg["limits"] = limits
     await _save(request, cfg)
     msg = f"Saved. Posting is {'on' if cfg['enabled'] else 'off'}."
     if bad:
