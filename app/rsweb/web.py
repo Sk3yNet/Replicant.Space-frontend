@@ -1187,14 +1187,39 @@ def saving_note(via: list[str], direct: Any, planned: Any) -> str:
     return note + "."
 
 
+def loop_refused(err: Any) -> bool:
+    """The game refuses a surge spot inside the system as a waypoint from the entry point ("Loop detected: already at
+    ISOLITHOR"); the job runner then hops there first and cruises the rest (Automations._hop_legs)."""
+    return "loop detected" in str(err or "").lower()
+
+
+HOP_FIRST_NOTE = "Go hops to {via} first (a 30 s surge hop), then cruises the rest: the game refuses that waypoint from here."
+
+
+async def hop_first_chain(request: Request, user: str, path: str, body: dict, device: str, via: list[str]) -> HTMLResponse:
+    """A hand-sent trip inside one system whose surge spot the game refused as a loop (live 2026-10-29: 5DF3161B
+    ISOLITHOR-1-L4 → ISOLITHOR-BELT-1 then cruised 499 AU for 57 min): a job that hops to the spot, then goes on."""
+    dest = str(body.get("destination") or "").upper()
+    first = auto.step(f"{device} → {dest}", path, {**body, "via": via}, wait=["travel.arrived"],
+                      match={"destination": dest}, critical=True)
+    first.update(wait_device=device, exit_checked=True, hub_checked=True)
+    return await start_chain(request, user, f"{device} → {dest} (surge hop to {', '.join(via)} first)", first, [], device)
+
+
 async def planned_device_trip(request: Request, user: str, code: str, body: dict) -> HTMLResponse:
     """A device's trip from its command form, planned like automated trips (surge hops, a hub, the off-ramp: the game's
-    own route takes none of them). A preview says what the plan saves; a refused plan goes the game's way."""
+    own route takes none of them). A preview says what the plan saves; a refused plan goes the game's way, except a
+    surge spot refused as a loop, which the device hops to first."""
     path, label = f"/devices/{code}", f"travel on {code}"
     via = await request.app.state.worker.automations.trip_via(code, str(body["destination"]).upper())
     if not via:
         return await run_action(request, user, "POST", path, body, label)
     out = await call_action(request, user, "POST", path, {**body, "via": via}, f"{label} via {', '.join(via)}")
+    if not out["ok"] and loop_refused(out["error"]):
+        if not body.get("dry_run"):
+            return await hop_first_chain(request, user, path, body, code, via)
+        return render_action(request, await call_action(request, user, "POST", path, body, label),
+                             note=HOP_FIRST_NOTE.format(via=", ".join(via)))
     if not out["ok"]:
         return render_action(request, await call_action(request, user, "POST", path, body, label),
                              note=f"The planned waypoints ({', '.join(via)}) were refused ({out['error']}): the game's own route.")
@@ -1376,7 +1401,7 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
         except ApiError as e:
             return partial(request, "partials/action_result.html", ok=False, status=e.status, error=e.message,
                            label="route preview", method="POST", path=path, response=e.body)
-        resp, saved, refused = direct, None, None
+        resp, saved, refused, hop_first = direct, None, None, None
         if via:
             try:
                 resp = await api.post(path, {"destination": destination, "via": via, "dry_run": True})
@@ -1385,9 +1410,12 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
                 if saved and saved[0] <= 0:   # no faster than the game's own route: go direct
                     resp, via, saved = direct, [], None
             except ApiError as e:
-                resp, refused, via = direct, e.message, []
+                if loop_refused(e.message):   # Go hops there first, then cruises the rest
+                    resp, hop_first = direct, HOP_FIRST_NOTE.format(via=", ".join(via))
+                else:
+                    resp, refused, via = direct, e.message, []
         return partial(request, "partials/route_preview.html", code=code, destination=destination, r=resp, via=via,
-                       saved=saved, refused=refused, hm=hubroute.hm,
+                       saved=saved, refused=refused, hop_first=hop_first, hm=hubroute.hm,
                        legs=resp.get("route") if isinstance(resp.get("route"), list) else [resp.get("route")] if resp.get("route") else [],
                        sugg=await suggestions(request, destination), uid=f"r-{code}", **await chain_context(request, host, code))
     form = await request.form()
@@ -1402,8 +1430,11 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
                           wait=["travel.arrived"], match={"destination": destination}, critical=True)
         first["wait_device"] = host  # the arrival event is reported for the host vessel
         return await start_chain(request, user, f"{code} → {destination}, then {len(followups)} step(s)", first, followups, host)
-    return await run_action(request, user, "POST", f"/replicants/{code}/travel", body,
-                            f"{code} → {destination}" + (f" via {', '.join(via)}" if via else ""))
+    path = f"/replicants/{code}/travel"
+    out = await call_action(request, user, "POST", path, body, f"{code} → {destination}" + (f" via {', '.join(via)}" if via else ""))
+    if not out["ok"] and via and host and loop_refused(out["error"]):
+        return await hop_first_chain(request, user, path, {"destination": destination}, host, via)
+    return render_action(request, out)
 
 
 SLINGSHOT_MIN_CAPACITY = 80.0   # docs: a slingshot needs ≥80 % capacity and drops to 5 % per use

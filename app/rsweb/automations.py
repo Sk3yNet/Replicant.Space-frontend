@@ -854,8 +854,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     if await self._ramp_legs(st, job):
                         continue   # to the entry point where it lands, the hop to the off-ramp, then the rest
                     ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
-                    if not ok and exit_via and "loop detected" in (err or "").lower() and await self._hop_legs(st, job):
-                        await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via)} refused ({err}); "
+                    if not ok and "loop detected" in (err or "").lower() and await self._hop_legs(st, job):
+                        await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via or st['body'].get('via') or [])} refused ({err}); "
                                                     "hopping there first", "warning")
                         continue   # the surge hops inside the system go first, each a trip of its own
                     if not ok and exit_via:   # refused: the route without the surge spots
@@ -1187,18 +1187,22 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         ISOLITHOR-1-L4 → ISOLITHOR-BELT-1 via ISOLITHOR-KUIPER: "Loop detected: already at ISOLITHOR", then cruised 499 AU
         for 57 min; from the belt to ISOLITHOR-1-L4 the same via was taken). Each spot becomes a trip of its own ahead of
         this one (a 30 s surge hop), and this one then cruises the rest.
+        A replicant's trip (/replicants/{code}/travel, a hand-sent chain with the planned `via`) hops the same way.
         True when steps were added ahead of this one (it runs after them)."""
         body, path = st.get("body") or {}, str(st.get("path") or "")
         via = [x for x in body.get("via") or [] if "-" in x]
-        if not via or not path.startswith("/devices/") or body.get("command") != "travel":
+        rep = path.startswith("/replicants/") and path.endswith("/travel")
+        if not via or not (rep or (path.startswith("/devices/") and body.get("command") == "travel")):
             return False
-        code, dest = path.split("/")[2], str(body.get("destination") or "").upper()
+        code = str(st.get("wait_device") or "") if rep else path.split("/")[2]
+        dest = str(body.get("destination") or "").upper()
         d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
         if star_of(d.get("location")) != star_of(dest) or any(star_of(x) != star_of(dest) for x in via):
             return False
         add = []
         for x in via:
-            h = step(f"{code} → {x} (surge hop)", path, {"command": "travel", "destination": x}, wait=["travel.arrived"],
+            h = step(f"{code} → {x} (surge hop)", path, {"destination": x} if rep else {"command": "travel", "destination": x},
+                     wait=["travel.arrived"],
                      match={"destination": x})
             h.update(wait_device=code, exit_checked=True, hub_checked=True, riders_checked=True)
             add.append(h)

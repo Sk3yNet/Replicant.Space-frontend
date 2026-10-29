@@ -206,3 +206,54 @@ def test_a_surge_arrival_naming_the_star_matches_the_spot_it_landed_at():
           "payload": {"destination": "BELNULEON", "travel_type": "surge"}}
     assert event_matches(st, ev, "X")
     assert not event_matches(st, {**ev, "location": "BELNULEON-OORT"}, "X")
+
+
+def _loop_api(client):
+    from rsweb.api import ApiError
+    api, sent = client.app.state.api, []
+
+    async def fake_request(method, path, json_body=None, **kw):
+        if method == "POST":
+            sent.append((path, dict(json_body or {})))
+        if (json_body or {}).get("via"):
+            raise ApiError(400, "Loop detected: already at Z")
+        return {"status": "preview" if (json_body or {}).get("dry_run") else "travelling", "total_time_seconds": 3000.0}
+    api.request = fake_request
+    vars(eng(client)).pop("send", None)   # _run's fake: the job runner sends through the API again
+    return sent
+
+
+def test_a_hand_sent_trip_refused_as_a_loop_hops_first(client):
+    # live 2026-10-29: 5DF3161B ISOLITHOR-1-L4 → ISOLITHOR-BELT-1 from its travel form cruised 499 AU (the game's route)
+    _run(client)   # sets up system Z and V1 at Z-1-L4
+    sent = _loop_api(client)
+    HX = {"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}
+    r = client.post("/devices/V1/command", data={"command": "travel", "f.destination": "Z-BELT-1", "f.dry_run": "on"},
+                    headers=HX)
+    assert "Go hops to Z-KUIPER first" in r.text, r.text[:2000]
+    sent.clear()
+    client.post("/devices/V1/command", data={"command": "travel", "f.destination": "Z-BELT-1"}, headers=HX)
+    bodies = [b for p, b in sent if p == "/devices/V1"]
+    assert bodies[-1] == {"command": "travel", "destination": "Z-KUIPER"}, sent
+    assert {"command": "travel", "destination": "Z-BELT-1"} not in bodies   # no 499 AU cruise
+    job = _arrive(client, "Z-KUIPER")
+    assert [b for p, b in sent if p == "/devices/V1"][-1] == {"command": "travel", "destination": "Z-BELT-1"}
+    assert job["status"] != "failed"
+
+
+def test_a_replicant_trip_refused_as_a_loop_hops_first(client):
+    from rsweb import automations as au
+    _run(client)
+    e, sent = eng(client), []
+
+    async def fake_send(method, path, body, label):
+        sent.append((path, dict(body or {})))
+        return (False, None, "Loop detected: already at Z") if body.get("via") else (True, {}, None)
+    e.send = fake_send
+    first = au.step("R1 → Z-BELT-1", "/replicants/R1/travel", {"destination": "Z-BELT-1", "via": ["Z-KUIPER"]},
+                    wait=["travel.arrived"], match={"destination": "Z-BELT-1"})
+    first["wait_device"] = "V1"
+    client.portal.call(e.create_job, "chain", "trip", "V1", [first], {}, True)
+    assert sent[-1] == ("/replicants/R1/travel", {"destination": "Z-KUIPER"})
+    _arrive(client, "Z-KUIPER")
+    assert sent[-1] == ("/replicants/R1/travel", {"destination": "Z-BELT-1"})

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.308.1"
+VERSION = "1.308.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.308.2", "2026-10-29", "Trips you send by hand inside a system hop too. From the entry point the game refuses the Kuiper belt as a waypoint (\"Loop detected\"), and the device and replicant travel forms then fell back to the game's own route: 5DF3161B cruised 499 AU (about an hour) from ISOLITHOR-1-L4 to ISOLITHOR-BELT-1. Now Go starts a short job that hops to the Kuiper belt first (30 s) and cruises the rest, and the route preview says so. A hand-built chain with the planned waypoints hops the same way."),
     ("1.308.1", "2026-10-29", "A relay pinned to a spot in its system but switched on somewhere else is switched off and flown there, as long as another relay keeps the system covered. Before, only idle devices went to their pin, so the relay sent to the OTHILETH-1-EVT-007 Trade Route Request sat relaying at OTHILETH-1-L4 and the contract waited for it forever."),
     ("1.308.0", "2026-10-29", "Contracts page: each option that asks for devices shows how many of each type are tagged spare (new Spare column) and the option's total cost in resources: what it asks for plus each device's blueprint cost times the quantity. A device type with no known blueprint is named. Version 1.307.0 was left for a parallel thread."),
     ("1.306.2", "2026-10-29", "Game events no longer wait for the automation engine. Each event was handed to the automations before the next one was read, and those wait for the engine's lock, which a tick can hold for over a minute (80 s right after a restart). So during a swoop run the rounds reached the cockpit only after the run had ended. Now events show at once, and the automations catch up in order once the tick is done. The cockpit's What works table also lists the overhead and blocked debris seen live."),
