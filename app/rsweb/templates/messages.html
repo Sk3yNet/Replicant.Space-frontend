@@ -7,8 +7,10 @@
 {% if err %}<div class="banner">{{ err }}</div>{% endif %}
 <div id="msg-result"></div>
 {% if mentioned %}<div class="card" style="margin-bottom:14px;border-left:3px solid var(--warn)">
-  <h2>Mentioning you <span class="muted small">{{ my_names | join(', ') }} · {{ mentioned | length }}</span></h2>
-  <ul class="feed">{% for e in mentioned[:20] %}<li><span class="t">{{ e.created_at | local('%m-%d %H:%M') }}</span><span>[{{ e.payload.channel }}] <b>{{ e.payload.replicant_name }}</b>{% if e.payload.current_star %}<span class="muted"> @ <a href="/systems/{{ e.payload.current_star }}">{{ e.payload.current_star }}</a></span>{% endif %}: {{ e.payload.message }}</span></li>{% endfor %}</ul>
+  <div class="row between"><h2>Mentioning you <span class="muted small">{{ my_names | join(', ') }} · {{ mentioned | length }}</span></h2>
+    <button class="small ghost" hx-post="/messages/mentions/ack" hx-swap="none">Acknowledge all</button></div>
+  <ul class="feed">{% for e in mentioned[:20] %}<li><span class="t">{{ e.created_at | local('%m-%d %H:%M') }}</span><span>[{{ e.payload.channel }}] <b>{{ e.payload.replicant_name }}</b>{% if e.payload.current_star %}<span class="muted"> @ <a href="/systems/{{ e.payload.current_star }}">{{ e.payload.current_star }}</a></span>{% endif %}: {{ e.payload.message }}
+    <button class="small ghost" hx-post="/messages/mentions/ack" hx-vals='{{ {"event_id": e.id} | tojson }}' hx-swap="none">acknowledge</button></span></li>{% endfor %}</ul>
 </div>{% endif %}
 <div class="grid g2">
   <div class="card">
@@ -17,8 +19,8 @@
         onchange="document.querySelectorAll('#msg-list .msg').forEach(d => d.style.display = this.checked && !d.dataset.unread ? 'none' : '')"> unread only</label></div>
     <div id="msg-list">
     {% for m in msgs %}
-      {% if loop.index0 and m.mention == loop.previtem.mention and not m.unread and loop.previtem.unread %}<div class="msg small muted" style="padding:10px 0 2px;text-transform:uppercase;letter-spacing:.05em">Read</div>{% endif %}
-      <div class="msg"{% if m.unread %} data-unread="1"{% endif %} style="border-bottom:1px solid var(--line);padding:8px 0{% if m.mention %};border-left:3px solid var(--warn);padding-left:8px{% elif m.unread %};border-left:3px solid var(--accent);padding-left:8px;background:rgba(108,182,255,.06){% else %};opacity:.55{% endif %}">
+      {% if loop.index0 and not m.unread and loop.previtem.unread %}<div class="msg small muted" style="padding:10px 0 2px;text-transform:uppercase;letter-spacing:.05em">Read</div>{% endif %}
+      <div class="msg"{% if m.unread %} data-unread="1"{% endif %} style="border-bottom:1px solid var(--line);padding:8px 0{% if m.mention and m.unread %};border-left:3px solid var(--warn);padding-left:8px{% elif m.unread %};border-left:3px solid var(--accent);padding-left:8px;background:rgba(108,182,255,.06){% else %};opacity:.55{% endif %}">
         <div class="row between"><strong>{% if m.unread %}● {% endif %}{{ m.title or m.message_type or 'message' }}</strong>
           <span class="small muted">{{ (m.created_at or m.sent_at) | local }} {% if m.unread %}<span class="pill st-idle">unread</span>{% endif %}</span></div>
         <div>{{ m.body or m.text or m.message }}</div>

@@ -5558,6 +5558,10 @@ def test_mentions_of_my_replicant_notify_and_come_first(client):
     assert client.portal.call(_n.unread_errors, db) >= 1                     # mentions count in the badge
     page = client.get("/messages", headers=H).text
     assert "Mentioning you" in page and 'data-mention="1"' in page and 'id="bn-mentions"' in page
+    # acknowledged, it drops off the card (the feed keeps its highlight)
+    client.post("/messages/mentions/ack", data={"event_id": "bn-1"}, headers=HX)
+    page = client.get("/messages", headers=H).text
+    assert "Mentioning you" not in page and 'data-mention="1"' in page
 
 
 def test_my_names_include_the_base_name(client):

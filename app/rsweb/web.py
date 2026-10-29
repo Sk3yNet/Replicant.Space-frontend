@@ -3128,10 +3128,12 @@ async def messages(request: Request, user: str = Depends(current_user)):
     for m in msgs:
         m["mention"] = bool(my) and notify.mentions(" ".join(str(m.get(k) or "") for k in ("title", "body", "text", "message")), my)
         m["unread"] = message_unread(m)
-    # mentions first, then unread ones; stable: newest-first order kept within each group
-    msgs = sorted(msgs, key=lambda m: (not m["mention"], not m["unread"]))
-    mentioned = [e for e in bobnet if e["mention"]]
+    # unread mentions first, then unread ones; a read mention is acknowledged and sits with the read ones
+    msgs = sorted(msgs, key=lambda m: (not (m["mention"] and m["unread"]), not m["unread"]))
     db = request.app.state.db
+    # a BobNet mention stays on the card until its notification is read (acknowledged here or on Notifications)
+    open_ids = {r["event_id"] for r in await db.fetchall("SELECT event_id FROM notifications WHERE level='mention' AND read=0")}
+    mentioned = [e for e in bobnet if e["mention"] and e["id"] in open_ids]
     subscribed = list(((await db.kv_get("account", {})) or {}).get("bobnet_channels") or [])
     cache = await db.kv_get("bobnet_channels", {}) or {}
     names = {c.get("name"): c for c in cache.get("channels") or [] if c.get("name")}
@@ -3260,6 +3262,17 @@ async def bobnet_history(request: Request, channel: str = Form(""), cursor: int 
                    f'<span class="muted"> @ {html.escape(m.get("current_star") or "?")}</span>: {html.escape(m.get("message") or "")}'
                    f'</span></li>' for m in msgs)
     return HTMLResponse(f'<ul class="feed">{rows}</ul>{older}')
+
+
+@router.post("/messages/mentions/ack", response_class=HTMLResponse)
+async def mentions_ack(request: Request, event_id: str = Form(""), user: str = Depends(current_user)):
+    """Acknowledge a BobNet mention (or all of them): its notification is marked read and it leaves the card."""
+    db = request.app.state.db
+    if event_id:
+        await db.execute("UPDATE notifications SET read=1 WHERE level='mention' AND event_id=?", (event_id,))
+    else:
+        await db.execute("UPDATE notifications SET read=1 WHERE level='mention' AND read=0")
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @router.post("/messages/read", response_class=HTMLResponse)
