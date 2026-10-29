@@ -103,6 +103,10 @@ launch / withdraw, and **AMI schedules** that re-issue directives to idle contro
 - *What works*: every graded move tallied by its round's debris status (from the actions log and the round events), so
   the move that beat a status before lights up and failed ones dim. Buttons lock once a round is answered.
 - Gauges: run time, round, passed, failed, score, damage and the round trip of the last command.
+- Automations: a pass can stall the server for many seconds, so during a run (Start to swoop.complete, 3 min at
+  most) no pass starts and a running one stops at its next step; the map serves its last data. The cockpit shows the
+  engine (busy with time left, held, idle with the next pass), *Hold 5 min* / *Release*, and Start during a pass waits
+  for it to stop (Start again goes at once).
 
 ### Lost
 - Devices out of sight, with their last known location and where they're heading, until they're seen again (then

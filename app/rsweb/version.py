@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.311.4"
+VERSION = "1.312.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.312.0", "2026-10-29", "Cockpit shows the automation engine: busy (the step it is on and about how long is left), held (time left), or idle (next pass in). Hold 5 min pauses automations, and pressing it again adds 5 minutes; Release lets them run. Start while a pass is running holds automations and starts the run as soon as the pass stops at its next step; press Start again to go at once."),
     ("1.311.4", "2026-10-29", "Swoop runs get the server to themselves: from Start (or the swoop.started event) until swoop.complete, at most 3 minutes, no automation tick starts, a running tick stops at its next stage, and the galaxy map serves its last data instead of redrawing. Live, ticks of 18 to 47 s and 21 s map redraws stalled the server, so round 4 of two runs in a row reached the cockpit too late to play."),
     ("1.311.3", "2026-10-29", "A device counts as stowable when its type's blueprint lists the stow feature, even if the device's own features don't (vector charges)."),
     ("1.311.2", "2026-10-29", "Vector charges count as stowable, so rescues and loadouts put them in a hold instead of trying to attach them (the game refuses: Cannot attach a large device)."),

@@ -150,6 +150,31 @@ async def cockpit_swoop(request: Request, code: str, user: str = Depends(current
                          "action": action, "ms": ms, "learned": await learned(request.app.state.db) if graded else None})
 
 
+HOLD_MAX_S = 900
+
+
+@router.get("/cockpit-engine")
+async def cockpit_engine(request: Request, user: str = Depends(current_user)):
+    """The automation engine as the cockpit shows it: busy (stage, time left), held, or idle (next pass in)."""
+    return JSONResponse(request.app.state.worker.automations.engine_state())
+
+
+@router.post("/cockpit-engine/hold")
+async def cockpit_hold(request: Request, user: str = Depends(current_user)):
+    """Hold automations for {seconds} (no new pass; a running one stops at its next stage); 0 lets them run again."""
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    try:
+        secs = max(0.0, min(float((body or {}).get("seconds") or 0), HOLD_MAX_S))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "seconds must be a number"}, 400)
+    eng = request.app.state.worker.automations
+    eng.focus(secs)
+    return JSONResponse(eng.engine_state())
+
+
 @router.get("/cockpit/{code}/stream")
 async def cockpit_stream(request: Request, code: str, rep: str = "", user: str = Depends(current_user)):
     """Every game event as JSON (the page decides what to draw), the moment the app receives it."""

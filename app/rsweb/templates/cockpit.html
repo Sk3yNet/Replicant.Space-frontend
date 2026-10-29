@@ -124,6 +124,9 @@ label.sw { font-size: 11px; color: var(--muted); cursor: pointer; } label.sw inp
     </div>
     <div class="go">
       <button class="k start" data-act="">Start swoop<kbd>Enter</kbd></button>
+      <div class="small" id="eng-line"><span class="lamp" id="eng-lamp"></span><span id="eng">Automations: …</span>
+        <button class="k" id="hold" style="min-height:24px; min-width:0; padding:2px 8px; font-size:10px">Hold 5 min</button>
+        <button class="k" id="release" style="min-height:24px; min-width:0; padding:2px 8px; font-size:10px" hidden>Release</button></div>
       <div class="small" id="pad">Keys or a game controller (stick, A dive, triggers boost and brake, Start)</div>
     </div>
     <div class="cluster">
@@ -320,7 +323,38 @@ label.sw { font-size: 11px; color: var(--muted); cursor: pointer; } label.sw inp
   // ---- commands ----
   const log = $("log");
   function lever(pos) { target = pos > 0 ? 4 : pos < 0 ? 0.2 : 1; $("lever").style.top = (21 - pos * 20) + "px"; }
+  // ---- the automation engine: a pass can stall the server for many seconds, so a run starts when it's quiet ----
+  let eng = {state: "idle"}, waitStart = false;
+  const mmss = n => n == null ? "?" : n >= 60 ? `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}` : `${n} s`;
+  function drawEng() {
+    const lamp = $("eng-lamp");
+    let txt;
+    if (eng.state === "busy") { lamp.className = "lamp off";
+      txt = `Automations busy (${eng.stage || "starting"})${eng.left_s ? `, about ${mmss(eng.left_s)} left` : ""}${eng.held_s ? ", stopping at the next step" : ""}`; }
+    else if (eng.state === "held") { lamp.className = "lamp on"; txt = `Automations held: ${mmss(eng.held_s)} left`; }
+    else { lamp.className = "lamp"; txt = `Automations idle${eng.next_s != null ? `, next pass in ${mmss(eng.next_s)}` : ""}`; }
+    $("eng").textContent = txt;
+    $("release").hidden = !eng.held_s; $("hold").textContent = eng.held_s ? "+5 min" : "Hold 5 min";
+  }
+  async function engine() {
+    try { eng = await (await fetch("/cockpit-engine")).json(); drawEng(); } catch (e) {}
+    if (waitStart && eng.state !== "busy") { waitStart = false; send(""); }
+  }
+  async function hold(secs) {
+    try { eng = await (await fetch("/cockpit-engine/hold", {method: "POST", headers: {"Content-Type": "application/json", "HX-Request": "true"},
+      body: JSON.stringify({seconds: secs})})).json(); drawEng(); } catch (e) {}
+  }
+  $("hold").onclick = () => hold((eng.held_s || 0) + 300);
+  $("release").onclick = () => hold(0);
+  setInterval(() => { if (run.phase !== "round" && run.phase !== "warmup") engine(); }, 1000);
+  engine();
+
   async function send(act) {
+    if (!act && run.phase !== "round" && run.phase !== "warmup" && !waitStart && eng.state === "busy") {
+      waitStart = true; await hold(Math.max(eng.held_s || 0, 180));   // stop the pass at its next step, then start
+      setAlert("Waiting for automations to stop · press Start again to go now", "calm"); return;
+    }
+    waitStart = false;
     const btn = document.querySelector(`button.k[data-act="${act}"]`);
     if (btn) { btn.classList.add("hit"); setTimeout(() => btn.classList.remove("hit"), 120); }
     if (act && run.phase === "round" && run.answered) { $("hint").textContent = `Round ${run.round} is answered: wait for the next one`; return; }

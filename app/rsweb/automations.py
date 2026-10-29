@@ -614,6 +614,25 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
     def focused(self) -> bool:
         return time.monotonic() < self.focus_until
 
+    tick_t0: float | None = None   # time.monotonic() of the running tick's start; None between ticks
+    tick_t1 = 0.0                  # when the last tick ended
+    tick_last_s = 0.0              # how long it took
+
+    def engine_state(self) -> dict:
+        """For the cockpit: busy (stage, running for, about how long left), held (for how long), or idle (next pass in)."""
+        now = time.monotonic()
+        held = max(0.0, self.focus_until - now)
+        out = {"held_s": round(held), "stage": self.stage}
+        if self.tick_t0 is not None:
+            ran = now - self.tick_t0
+            out |= {"state": "busy", "ran_s": round(ran),
+                    "left_s": round(max(1.0, self.tick_last_s - ran)) if self.tick_last_s else None}
+        elif held:
+            out["state"] = "held"
+        else:
+            out |= {"state": "idle", "next_s": round(max(0.0, self.tick_t1 + 60 - now)) if self.tick_t1 else None}
+        return out
+
     async def _tick_loop(self) -> None:
         await asyncio.sleep(15)
         while True:
@@ -626,10 +645,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     await asyncio.sleep(60)   # still stuck: don't queue up another tick behind it
                     continue
                 t_tick, c_tick = time.perf_counter(), time.thread_time()
+                self.tick_t0 = time.monotonic()
                 try:
                     await self.tick()
                 finally:
                     perf.note_stage("(whole tick)", (time.perf_counter() - t_tick) * 1000, (time.thread_time() - c_tick) * 1000)
+                    if not self.focused():   # a tick cut short by a hold says nothing about how long a whole one takes
+                        self.tick_last_s = time.monotonic() - self.tick_t0
+                    self.tick_t0, self.tick_t1 = None, time.monotonic()
             except asyncio.CancelledError:
                 raise
             except Exception as e:

@@ -136,3 +136,18 @@ def test_a_swoop_run_holds_the_engine_and_map_until_it_ends(client):  # noqa: F8
         assert client.get("/api/map.json", headers=H).json() == {"n": 2}
     finally:
         web.map_payload = orig
+
+
+def test_cockpit_engine_status_hold_and_release(client):  # noqa: F811
+    eng = client.app.state.worker.automations
+    assert client.get("/cockpit-engine", headers=H).json()["state"] == "idle"
+    r = client.post("/cockpit-engine/hold", json={"seconds": 300}, headers=HX).json()
+    assert r["state"] == "held" and 295 <= r["held_s"] <= 300 and eng.focused()
+    import time
+    eng.tick_t0, eng.tick_last_s, eng.stage = time.monotonic() - 5, 20.0, "stock_pass"
+    r = client.get("/cockpit-engine", headers=H).json()
+    assert r["state"] == "busy" and r["stage"] == "stock_pass" and 14 <= r["left_s"] <= 15
+    eng.tick_t0, eng.stage = None, None
+    assert client.post("/cockpit-engine/hold", json={"seconds": 0}, headers=HX).json()["state"] == "idle"
+    assert not eng.focused()
+    assert client.post("/cockpit-engine/hold", json={"seconds": 99999}, headers=HX).json()["held_s"] <= 900
