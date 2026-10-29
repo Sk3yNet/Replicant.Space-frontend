@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.311.1"
+VERSION = "1.311.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.311.2", "2026-10-29", "Vector charges count as stowable, so rescues and loadouts put them in a hold instead of trying to attach them (the game refuses: Cannot attach a large device)."),
     ("1.311.1", "2026-10-29", "Fixes. The loadout pass crashed (NameError: devices) since 1.308.1 whenever a relaying relay was due at its pin, which stopped everything after it in the pass. A device type the game refuses to attach (Cannot attach a large device: vector charge 42B4755C, rescued twice) is remembered, and carriers then offer it only a hold slot; the rescue says so when none has one."),
     ("1.311.0", "2026-10-29", "Long-range stations step down when a relay will do. Once a plain FTL relay would link a station's system just as well (every network keeps the same systems with the station cut to 7.5 ly), a relay is ordered there; when it works, the station is switched off and marked spare for the next gap, one at a time. Stations pinned to a contract or spot are left alone."),
     ("1.310.0", "2026-10-29", "Acknowledged BobNet mentions drop off the Messages page's Mentioning you card. Each mention has an acknowledge button, and the card has Acknowledge all; reading the mention's notification (bell or Notifications page) counts too. Game messages that mention you lead the list only while unread; once read they sit with the other read ones. The BobNet feed keeps its mention highlight."),

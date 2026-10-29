@@ -3171,10 +3171,12 @@ def test_large_devices_learned_from_a_refused_attach_only_stow(client):
     charge = {"device_code": "42B4755C", "device_type": "vector_charge", "location": "ALKALAROPS-KUIPER",
               "features": [], "available_commands": ["travel"]}
     client.portal.call(client.app.state.db.kv_set, "devices", [charge])
-    assert fl.take_seat({"hold": 0, "attach": 2}, charge) == "attach"
+    assert fl.take_seat({"hold": 1, "attach": 2}, charge) == "stow"   # stows first (owner 2026-10-29)
+    fl.NO_ATTACH_TYPES.discard("vector_charge")
     try:
         client.portal.call(eng.learn_no_attach, "42B4755C")
         assert fl.take_seat({"hold": 0, "attach": 2}, charge) is None
+        assert fl.take_seat({"hold": 1, "attach": 2}, charge) == "stow"
         assert "vector_charge" in client.portal.call(client.app.state.db.kv_get, "no_attach_types", {})
     finally:
         fl.NO_ATTACH_TYPES.discard("vector_charge")

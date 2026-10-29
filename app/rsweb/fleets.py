@@ -167,11 +167,15 @@ def flies_itself(d: dict) -> bool:
     return "surge" in (d.get("features") or []) and not is_carrier(d)
 
 
+# types known to stow whatever their features say (owner 2026-10-29: vector charges stow; they can't be attached)
+STOWABLE_TYPES = {"vector_charge"}
+
+
 def stowable(d: dict) -> bool:
     """Can ride in a hold: the device itself has the `stow` feature (or stow/deploy commands). In live data
     (2026-10-02) drones, AMI controllers, maintenance drones, beacons, relays, wards and surge plates do;
     transport drones and haulers don't, so those need attach points."""
-    if "stow" in (d.get("features") or []):
+    if "stow" in (d.get("features") or []) or (d.get("device_type") or "") in STOWABLE_TYPES:
         return True
     cmds = d.get("available_commands") or []
     if "stow" in cmds or "deploy" in cmds:
