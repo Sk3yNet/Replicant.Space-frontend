@@ -1163,7 +1163,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 cands.append(((not full, fit, c not in hosts, _dist(star_of(e.get("location")), star, pos), c), e, mode, more,
                               seats_left))
         if not cands:
-            unmet.append({"req": r["id"], "why": f"no free logistics carrier with a free seat {_within(reach, star)}"})
+            hold_only = "" if fl.attachable(d) else " in its hold (the game won't attach a large device)"
+            unmet.append({"req": r["id"], "why": f"no free logistics carrier with a free seat{hold_only} {_within(reach, star)}"})
             return
         cands.sort(key=lambda x: x[0])   # then one hosting a replicant (no escort), nearest
         (*_, c), carrier, mode, more, seats_left = cands[0]

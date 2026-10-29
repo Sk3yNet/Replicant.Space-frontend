@@ -544,6 +544,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         self.task: asyncio.Task | None = None
         self.stage: str | None = None          # what the current tick is doing (for the watchdog / snapshot)
         self._lock_alerted = False
+        self._no_attach_loaded = False   # fleets.NO_ATTACH_TYPES read from kv (devices())
         self.stage_errors: dict[str, str] = {}  # stage -> its last error (announced once)
         self.tick_n = 0   # ticks run since start (SPREAD)
 
@@ -1035,6 +1036,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 # seen live (2026-10-06): a second owner pass for a device the first had already moved
                 ok, st["note"] = True, err
                 st["wait"] = []
+            if not ok and (st.get("body") or {}).get("command") == "attach" and "cannot attach a large device" in (err or "").lower():
+                await self.learn_no_attach(str((st.get("body") or {}).get("device") or ""))
             if not ok:
                 hint = next((h for k, h in (st.get("hint") or {}).items() if k in (err or "").lower()), None)
                 st["error"] = err = f"{err} — {hint}" if hint else err
@@ -3416,7 +3419,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         on = lambda code, loc: [lo.activate_step(code)] if lo.relay_ready_at(p["by_code"].get(code) or {}, loc) else []  # noqa: E731
         for code, loc in p.get("pins") or []:
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {loc} (pinned)", code,
-                                                  ([lo.deactivate_step(code)] if lo.relay_off_to_pin(p["by_code"].get(code) or {}, devices) else [])
+                                                  ([lo.deactivate_step(code)] if code in (p.get("pins_off") or []) else [])
                                                   + [lo.pin_step(code, loc)] + on(code, loc), {"devices": [code]}, force=manual))
         for code, loc in p.get("places") or []:
             started += bool(await self.create_job("loadouts", f"loadouts: {code} → {loc} (placement)", code,
@@ -3721,7 +3724,24 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 out.update(j.get("meta", {}).get("devices", []))
         return out
 
+    async def learn_no_attach(self, code: str) -> None:
+        """The game refused to attach `code` as a large device: no carrier is offered attach points for its type again
+        (fleets.NO_ATTACH_TYPES; kv no_attach_types {type: first seen})."""
+        from . import fleets as fl
+        t = next((d.get("device_type") for d in await self.db.kv_get("devices", []) or [] if d.get("device_code") == code), None)
+        if not t or t in fl.NO_ATTACH_TYPES:
+            return
+        known = await self.db.kv_get("no_attach_types", {}) or {}
+        known.setdefault(t, now_iso())
+        await self.db.kv_set("no_attach_types", known)
+        fl.NO_ATTACH_TYPES.add(t)
+        await self.log("logistics", f"the game won't attach a {t} (large device): from now on it only rides in a hold")
+
     async def devices(self) -> list[dict]:
+        if not getattr(self, "_no_attach_loaded", False):
+            from . import fleets as fl
+            fl.NO_ATTACH_TYPES.update(await self.db.kv_get("no_attach_types", {}) or {})
+            self._no_attach_loaded = True
         devs = await self.db.kv_get("devices", []) or []
         s = await self.db.kv_get("sim", {}) or {}
         if s.get("active"):   # a simulation's devices are its own (sim_engine): no other automation touches them

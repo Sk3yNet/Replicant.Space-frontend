@@ -1271,7 +1271,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             self_moves.append((code, home))
 
     # pinned devices (`at:<location>`) in their pin's system but somewhere else in it: send them to the spot
-    pins = []
+    pins, pins_off = [], []   # pins_off: relays switched off before they move (relay_off_to_pin)
     for d in pool:
         code, pin = d["device_code"], pinned_at(d)
         if (pin and star_of(pin) == star_of(d.get("location")) and d.get("location") != pin and code not in busy
@@ -1281,6 +1281,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                                                      or relay_off_to_pin(d, devices))
                 and "travel" in (d.get("available_commands") or ["travel"])):
             pins.append((code, pin))
+            if relay_off_to_pin(d, devices):
+                pins_off.append(code)
 
     # placement: relays at a Lagrange point, mining controllers at the belt, survey controllers at the belt (or the inner
     # system without one) — see placement.py. Idle ones are sent there; working ones are only reported.
@@ -1318,7 +1320,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         return {"returning": [], "releases": {}, "report": report, "tag_add": {}, "tag_remove": {}, "moves": {}, "prints": [],
                 "self_moves": [], "deliveries": [], "arrived": [], "unmet": unmet, "by_code": by_code, "stale": len(stale),
                 "assign": {}}
-    return {"compact": compact, "pins": pins, "places": places, "misplaced": misplaced, "returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
+    return {"compact": compact, "pins": pins, "pins_off": pins_off, "places": places, "misplaced": misplaced, "returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
             "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
             "by_code": by_code, "managed": managed_map, "made_spare": sorted(made_spare), "gathering": sorted(gathering),

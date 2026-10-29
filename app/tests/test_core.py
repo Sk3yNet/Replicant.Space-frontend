@@ -3145,10 +3145,39 @@ def test_relaying_relay_goes_to_its_pin():
              "tags": []}
     cfg = {"phases": [], "systems": {}}
     p = lo.plan(cfg, [relay, other], [], {}, {"OTHILETH": {}}, {}, set(), [], {})
-    assert ("B2B8B2EA", "OTHILETH-1") in p["pins"] and lo.relay_off_to_pin(relay, [relay, other])
+    assert ("B2B8B2EA", "OTHILETH-1") in p["pins"] and p["pins_off"] == ["B2B8B2EA"] and lo.relay_off_to_pin(relay, [relay, other])
     # the system's only relay stays on where it is
     p = lo.plan(cfg, [relay], [], {}, {"OTHILETH": {}}, {}, set(), [], {})
     assert not p["pins"] and not lo.relay_off_to_pin(relay, [relay])
+
+
+def test_loadout_pass_switches_a_relaying_relay_off_before_its_pin(client):
+    # live 2026-10-29 (1.308.1): the pass itself crashed with NameError 'devices' on this path
+    eng = client.app.state.worker.automations
+    relay = {"device_code": "B2B8B2EA", "device_type": "ftl_relay", "location": "OTHILETH-1-L4", "status": "relaying",
+             "in_control_range": True, "available_commands": ["deactivate", "travel"], "tags": ["at:othileth-1"]}
+    other = {"device_code": "4A8A3109", "device_type": "ftl_relay", "location": "OTHILETH-1-L4", "status": "relaying",
+             "tags": []}
+    client.portal.call(client.app.state.db.kv_set, "devices", [relay, other])
+    client.portal.call(eng.apply_loadouts, None, True)
+    job = next(j for j in client.portal.call(eng.jobs) if j["title"] == "loadouts: B2B8B2EA → OTHILETH-1 (pinned)")
+    assert job["steps"][0]["body"] == {"command": "deactivate"}
+
+
+def test_large_devices_learned_from_a_refused_attach_only_stow(client):
+    # live 2026-10-29: a rescue sent a carrier to attach vector charge 42B4755C, twice: "Cannot attach a large device"
+    from rsweb import fleets as fl
+    eng = client.app.state.worker.automations
+    charge = {"device_code": "42B4755C", "device_type": "vector_charge", "location": "ALKALAROPS-KUIPER",
+              "features": [], "available_commands": ["travel"]}
+    client.portal.call(client.app.state.db.kv_set, "devices", [charge])
+    assert fl.take_seat({"hold": 0, "attach": 2}, charge) == "attach"
+    try:
+        client.portal.call(eng.learn_no_attach, "42B4755C")
+        assert fl.take_seat({"hold": 0, "attach": 2}, charge) is None
+        assert "vector_charge" in client.portal.call(client.app.state.db.kv_get, "no_attach_types", {})
+    finally:
+        fl.NO_ATTACH_TYPES.discard("vector_charge")
 
 
 def test_a_grounded_pinned_device_is_carried_to_its_spot():

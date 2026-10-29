@@ -158,7 +158,7 @@ def carry_info(bp: dict) -> dict:
     else:
         if stowable({"features": f}):
             ways.append("stowed")
-        if t != "cargo_freighter":
+        if attachable({"device_type": t}):
             ways.append("attached")
     return {"ways": ways, "hold": hold(bp), "attach": capacity(bp), "cargo": _int(bp.get("cargo_capacity"))}
 
@@ -223,12 +223,21 @@ def cargo_carrier(d: dict, devices: list[dict], stowable_: bool = True) -> dict 
     return None
 
 
+# device types the game won't attach ("Cannot attach a large device"): cargo freighters (live 2026-10-12), and every type
+# a refused attach taught us since (kv no_attach_types, learned by the job runner; vector charge 42B4755C, live 2026-10-29)
+NO_ATTACH_TYPES: set[str] = {"cargo_freighter"}
+
+
+def attachable(d: dict) -> bool:
+    return (d.get("device_type") or "") not in NO_ATTACH_TYPES
+
+
 def take_seat(free: dict, d: dict) -> str | None:
     """Pick 'stow' (hold first, keeps attach points for devices that can't stow) or 'attach'; mutates free."""
     if stowable(d) and free["hold"] > 0:
         free["hold"] -= 1
         return "stow"
-    if free["attach"] > 0:
+    if free["attach"] > 0 and attachable(d):
         free["attach"] -= 1
         return "attach"
     return None
