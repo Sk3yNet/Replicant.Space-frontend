@@ -11,8 +11,10 @@ The library (kv "chatter") holds approved messages, imported in bulk with a per-
 or a literal "#channel".
 
 Only replicants marked NPC on their profile post (the game's is_npc flag: readers can hide NPC chatter). Posting is off
-until switched on. Each NPC starts a post at most once every `every_hours` (default 24: once a day; a conversation's
-replies don't count), each trigger fires with a chance, and the same `every_hours` holds for answering one poster.
+until switched on. Each NPC starts a post at most once every `every_hours` per channel (default 24: once a day; the
+general and bots channels may set their own hours; a conversation's replies don't count), each trigger fires with a
+chance, and the same per-channel timer holds for answering one poster. A refused reply that any NPC may give is tried
+by another NPC (up to MAX_TRIES); an event line stays with the NPC that took part.
 A daily cap bounds it all.
 Replies wait a random delay in a queue (kv "chatter:state") that the engine stage chatter_pass sends."""
 from __future__ import annotations
@@ -38,7 +40,7 @@ TRIGGERS = {
     "contract_done": "a contract or civilization event was completed",
 }
 DEFAULTS = {"enabled": False, "general": "#general", "bots": "#bots", "chance": 0.5, "reply_chance": 0.85,
-            "npc_reply_chance": 0.5, "every_hours": 24, "daily_cap": 20, "delay_min": 1, "delay_max": 6,
+            "npc_reply_chance": 0.5, "every_hours": 24, "general_hours": None, "bots_hours": None, "daily_cap": 20, "delay_min": 1, "delay_max": 6,
             "max_depth": 4}
 UNSAFE = re.compile(r"[\"'&<>]")
 # placeholders a message may use: filled from the post it answers or the event it is about; a message whose
@@ -49,6 +51,7 @@ SLOTS = {"poster": "who posted (answers)", "from": "the system the post names, s
 SLOT_RE = re.compile(r"\{(\w+)\}")
 ARRIVAL_RE = re.compile(r"([\w-]+) (?:just |has )?(?:arrived|returned)\b", re.I)
 POSTED_KEEP = 200
+MAX_TRIES = 3   # NPCs that try a refused reply before it's dropped
 
 
 def normalize(c: dict | None) -> dict:
@@ -249,6 +252,20 @@ def fillable(options: list[dict], values: dict | None) -> list[dict]:
     return [o for o in options if all(values.get(k) for k in slots(o.get("text")))]
 
 
+def hours_for(cfg: dict, channel: str) -> float:
+    """How long an NPC waits between posts on a channel (each channel has its own timer): the general or bots
+    channel's own hours when set, else every_hours."""
+    for k in ("general", "bots"):
+        if channel == cfg.get(k) and cfg.get(f"{k}_hours") not in (None, ""):
+            return float(cfg[f"{k}_hours"])
+    return float(cfg["every_hours"])
+
+
+def ready(stamps: dict, key: str, channel: str, cfg: dict, now: float | None = None) -> bool:
+    """`key` (an NPC, or a poster we answer) is past its timer on `channel`."""
+    return (now or _now()) - _ts(stamps.get(f"{key} {channel}")) >= hours_for(cfg, channel) * 3600
+
+
 def post_values(payload: dict, stars: dict[str, dict]) -> dict:
     """Placeholder values from a BobNet post: the poster, the system they're in, and the first other known system the
     post names (Bill: "NOSOXA is in the rear-view mirror")."""
@@ -341,20 +358,21 @@ class ChatterMixin:
             if poster in reps:   # our own posts: conversations are chained when a line is sent, not from the feed
                 return
             pname = str(p.get("replicant_name") or "")
-            if _now() - _ts(state["answered"].get(pname.lower())) < float(cfg["every_hours"]) * 3600:
-                return
             cat = await self.db.kv_get("stars", {}) or {}
             stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
             values = post_values(p, stars)
-            opts = fillable(npc_replies(pname, str(p.get("message") or ""), cfg), values)
+            opts = [m for m in fillable(npc_replies(pname, str(p.get("message") or ""), cfg), values)
+                    if ready(state["answered"], pname.lower(), channel_of(m, cfg, p.get("channel")), cfg)]
             if not opts or random.random() >= float(cfg["npc_reply_chance"]):
                 return
             m = pick(opts, state)
             by = speaker_for(m, None, reps)
             if not by:
                 return
-            state["answered"][pname.lower()] = now_iso()
-            item = queue_item(m, by, channel_of(m, cfg, p.get("channel")), cfg, 1, f"answers {pname}", values=values)
+            chan = channel_of(m, cfg, p.get("channel"))
+            state["answered"][f"{pname.lower()} {chan}"] = now_iso()
+            item = queue_item(m, by, chan, cfg, 1, f"answers {pname}", values=values)
+            item["alt"] = m.get("by") == "any"   # refused: another NPC may say it instead
         else:
             from . import sites
             exhausted = None
@@ -366,19 +384,18 @@ class ChatterMixin:
             trig, who = hit
             if not reps[who].get("is_npc"):
                 return
-            if _now() - _ts(state["last"].get(who)) < float(cfg["every_hours"]) * 3600:
-                return
             star = str(ev.get("star") or ev.get("location") or "").split("-")[0] or None
             cat = await self.db.kv_get("stars", {}) or {}
             region = next((x.get("region") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("designation") == star), None)
             values = {"star": star, "region": region}
-            opts = fillable([m for m in cfg["lines"] if m.get("on") == trig and m.get("by") in (who, "any")], values)
+            opts = [m for m in fillable([m for m in cfg["lines"] if m.get("on") == trig and m.get("by") in (who, "any")], values)
+                    if ready(state["last"], who, channel_of(m, cfg), cfg)]
             if not opts or random.random() >= float(cfg["chance"]):
                 return
             m = pick(opts, state)
             item = queue_item(m, who, channel_of(m, cfg), cfg, 0, trig, values=values)
             item["due"] = now_iso()   # an event line goes out on the next tick; only replies wait
-            state["last"][who] = now_iso()
+            state["last"][f"{who} {item['channel']}"] = now_iso()
         state["queue"].append(item)
         await self.db.kv_set(STATE_KV, state)
 
@@ -393,6 +410,16 @@ class ChatterMixin:
         except Exception as e:
             rec["ok"], rec["error"] = False, str(getattr(e, "message", None) or e)[:200]
             await self.log("chatter", f"{item['by']} could not post on {item['channel']}: {rec['error']}", "warning")
+            # a reply anyone may give: another NPC tries on the next tick (an event line stays with the one who
+            # took part)
+            tried = [*(item.get("tried") or []), item["by"]]
+            if item.get("alt") and len(tried) < MAX_TRIES:
+                reps = await self.db.kv_get("replicants", {}) or {}
+                pool = [c for c in npcs(reps) if c not in tried and c != item.get("other_than")]
+                if pool:
+                    nxt = random.choice(pool)
+                    state["queue"].append({**item, "by": nxt, "tried": tried, "due": now_iso()})
+                    rec["retry"] = nxt
         state["posted"] = (state["posted"] + [rec])[-POSTED_KEEP:]
         if rec["ok"] and item.get("depth", 0) < int(cfg["max_depth"]):
             reps = await self.db.kv_get("replicants", {}) or {}
@@ -402,8 +429,10 @@ class ChatterMixin:
                 m = pick(opts, state)
                 by = speaker_for(m, item["by"], reps)
                 if by:
-                    state["queue"].append(queue_item(m, by, channel_of(m, cfg, item["channel"]), cfg,
-                                                     item.get("depth", 0) + 1, f"answers {item['by']}", values=values))
+                    nxt = queue_item(m, by, channel_of(m, cfg, item["channel"]), cfg, item.get("depth", 0) + 1,
+                                     f"answers {item['by']}", values=values)
+                    nxt.update(alt=m.get("by") == "any", other_than=item["by"])
+                    state["queue"].append(nxt)
         return rec
 
     async def chatter_pass(self) -> list[str]:
@@ -439,7 +468,7 @@ class ChatterMixin:
 def post_now(m: dict, by: str, cfg: dict) -> dict:
     """A queue item due now (the Chatter page's Post now)."""
     item = queue_item(m, by, channel_of(m, cfg), cfg, 0, "by hand")
-    item["due"] = now_iso()
+    item.update(due=now_iso(), alt=m.get("by") == "any")
     return item
 
 

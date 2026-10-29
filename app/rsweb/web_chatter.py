@@ -102,6 +102,19 @@ async def chatter_settings(request: Request, user: str = Depends(current_user)):
             bad.append(f"{k} (between {lo} and {hi})")
             continue
         cfg[k] = int(v) if k in ("daily_cap", "max_depth") else v
+    for k in ("general_hours", "bots_hours"):   # blank: the channel uses every_hours
+        if k not in form:
+            continue
+        v = str(form.get(k) or "").strip()
+        if not v:
+            cfg[k] = None
+            continue
+        try:
+            f = float(v)
+            assert 0 <= f <= 720
+            cfg[k] = f
+        except (ValueError, AssertionError):
+            bad.append(f"{k} (between 0 and 720)")
     await _save(request, cfg)
     msg = f"Saved. Posting is {'on' if cfg['enabled'] else 'off'}."
     if bad:

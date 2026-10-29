@@ -177,3 +177,36 @@ def test_arrival_placeholder_from_rikers_post():
                                     {"id": "b", "to": "Riker", "text": "Hi Riker."}]})
     opts = ch.fillable(ch.npc_replies("Riker", "Jim-1 just arrived back in SOL", cfg), v)
     assert [o["id"] for o in opts] == ["a"] and ch.fill(opts[0]["text"], v) == "Welcome back, Jim-1."
+
+
+def test_timer_per_channel_and_another_npc_tries_a_refused_reply(client, monkeypatch):  # noqa: F811
+    _reps(client)
+    third = "EF56AB78"
+    reps = _kv(client, "replicants")
+    reps[third] = {"name": "Pip_Parcelwick", "is_npc": True}
+    _set(client, "replicants", reps)
+    cfg = ch.normalize({"enabled": True, "chance": 1, "npc_reply_chance": 1, "reply_chance": 0, "delay_min": 0, "delay_max": 0,
+                        "bots_hours": 0.5,
+                        "lines": [{"id": "g", "by": REP, "on": "survey_done", "channel": "general", "text": "General line."},
+                                  {"id": "b", "by": REP, "on": "survey_done", "channel": "bots", "text": "Bots line."}],
+                        "replies": [{"id": "r", "to": "Riker", "by": "any", "channel": "general", "text": "Hi Riker."}]})
+    _set(client, ch.KV, cfg)
+    assert ch.hours_for(cfg, "#bots") == 0.5 and ch.hours_for(cfg, "#general") == 24
+    e = eng(client)
+    ev = {"event": "scan.completed", "device_code": "HOSTV001", "payload": {"scan_target": "SOL-BELT-1"}}
+    posts = _world(client).bobnet_posts
+    for _ in range(3):
+        client.portal.call(e.chatter_on_event, ev)
+        client.portal.call(e.chatter_pass)
+    assert sorted(p["text"] for p in posts) == ["Bots line.", "General line."]   # one per channel, then both wait
+    _world(client).bobnet_refuse.update({REP, OTHER, third})
+    _world(client).bobnet_refuse.discard(third)
+    monkeypatch.setattr(ch, "speaker_for", lambda m, other, reps, rnd=None: REP)   # the first try is refused
+    riker = {"event": "bobnet.new", "payload": {"replicant_name": "Riker", "channel": "#general", "message": "Hello"}}
+    for _ in range(4):
+        client.portal.call(e.chatter_on_event, riker)
+        client.portal.call(e.chatter_pass)
+    assert posts[-1] == {"code": third, "channel": "#general", "text": "Hi Riker."}
+    fails = [p for p in ch.norm_state(_kv(client, ch.STATE_KV))["posted"] if not p["ok"]]
+    assert fails and fails[0]["by"] == REP and all(p.get("retry") for p in fails)
+    assert len([p for p in posts if p["text"] == "Hi Riker."]) == 1   # Riker answered once on #general today

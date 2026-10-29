@@ -27,7 +27,9 @@
     <div style="margin-top:4px">General channel <input name="general" value="{{ cfg.general }}" size="10">
       Bots channel <input name="bots" value="{{ cfg.bots }}" size="10"></div>
     <div style="margin-top:4px">Each NPC posts at most every <input name="every_hours" value="{{ cfg.every_hours }}" size="4"> hours
-      <span class="muted">(24 = once a day; a conversation's replies don't count)</span></div>
+      on each channel <span class="muted">(24 = once a day; each channel has its own timer; a conversation's replies don't count)</span></div>
+    <div style="margin-top:4px">Own hours for the general channel <input name="general_hours" value="{{ cfg.general_hours if cfg.general_hours is not none else '' }}" size="4">
+      and the bots channel <input name="bots_hours" value="{{ cfg.bots_hours if cfg.bots_hours is not none else '' }}" size="4"> <span class="muted">(blank: as above)</span></div>
     <div style="margin-top:4px">Chance an event gets a line <input name="chance" value="{{ cfg.chance }}" size="4">,
       a line gets an answer <input name="reply_chance" value="{{ cfg.reply_chance }}" size="4">,
       another NPC's post gets an answer <input name="npc_reply_chance" value="{{ cfg.npc_reply_chance }}" size="4"> <span class="muted">(0 to 1)</span></div>
@@ -93,7 +95,7 @@
   <h2 style="margin-top:12px">Posted</h2>
   {% if state.posted %}<table class="small"><tr><th>When</th><th>Who</th><th>Message</th><th>Why</th></tr>
     {% for p in state.posted | reverse %}{% if loop.index <= 40 %}<tr><td>{{ p.at | ago }}</td><td>{{ names.get(p.by, p.by) }}</td>
-      <td>{{ p.text }}<div class="muted">{{ p.channel }}{% if not p.ok %} <span class="lv-alert">✖ {{ p.error }}</span>{% endif %}</div></td><td>{{ p.why }}</td></tr>{% endif %}{% endfor %}</table>
+      <td>{{ p.text }}<div class="muted">{{ p.channel }}{% if not p.ok %} <span class="lv-alert">✖ {{ p.error }}</span>{% if p.retry %} <span class="muted">{{ names.get(p.retry, p.retry) }} tries instead</span>{% endif %}{% endif %}</div></td><td>{{ p.why }}</td></tr>{% endif %}{% endfor %}</table>
   {% else %}<p class="muted small">Nothing yet.</p>{% endif %}
 </div>
 {% endblock %}
