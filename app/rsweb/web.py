@@ -2310,7 +2310,7 @@ async def relay_overlay(request: Request, st: dict, positions: dict) -> dict:
     from . import relayroll as rr
     long = bool(rr.state(await request.app.state.db.kv_get(rr.KV, {}))["long"])
     suggested = []
-    for b in relaynet.bridges(rn, positions, long=long):
+    for b in await relaynet.bridges_async(rn, positions, long=long):
         suggested.append({"stars": b["stars"], "from": ends(b["a"], b["stars"][0]), "to": ends(b["b"], b["stars"][-1]),
                           "n": b["n"], "long": b["long"]})
     orders = {**(await request.app.state.db.kv_get(wo.kv_key("station"), {}) or {}),
@@ -2348,7 +2348,7 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
     rstars = relaynet.replicant_stars(st["replicants"], st["devices"])
     relaynet.coverage(rn, pos, rstars)
     roll = rr.state(await request.app.state.db.kv_get(rr.KV, {}))
-    br = relaynet.bridges(rn, pos, long=roll["long"])
+    br = await relaynet.bridges_async(rn, pos, long=roll["long"])
     db = request.app.state.db
     relays, stations = await db.kv_get(wo.kv_key("relay"), {}) or {}, await db.kv_get(wo.kv_key("station"), {}) or {}
     orders = {**stations, **relays}

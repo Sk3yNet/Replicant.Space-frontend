@@ -271,6 +271,29 @@ def bridges(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE, long: boo
 
 
 _bridge_memo: dict = {}
+_bridge_running: dict = {}   # key → the thread computing it, so a second map refresh waits for it instead of starting over
+
+
+async def bridges_async(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE, long: bool = False) -> list[dict]:
+    """bridges() for pages, worked out in a thread: the search took 18-21 s of CPU per map refresh (live 2026-10-29,
+    swoop runs), and on the event loop that froze every page and the event stream meanwhile. In a thread the loop keeps
+    getting its turn (the GIL switches every few ms), so the map waits and nothing else does."""
+    import asyncio
+    ns, of = net["nodes"], net["of"]
+    if len(net["networks"]) < 2:
+        return []
+    key = (frozenset((n, of[n], ns[n]["range"]) for n in ns), net.get("hop"), net.get("long_hop"), long, max_new,
+           id(pos), len(pos))
+    out = _bridge_memo.get("out") if _bridge_memo.get("key") == key and _bridge_memo.get("pos") is pos else None
+    if out is None:
+        star_grid(pos)   # build (or reuse) the shared grid here, so the thread only reads it
+        task = _bridge_running.get(key)
+        if task is None:
+            task = _bridge_running[key] = asyncio.ensure_future(asyncio.to_thread(_bridges, net, pos, max_new, long))
+            task.add_done_callback(lambda _t: _bridge_running.pop(key, None))
+        out = await asyncio.shield(task)
+        _bridge_memo.update(key=key, pos=pos, out=out)
+    return [dict(b, stars=list(b["stars"]), long=list(b["long"])) for b in out]
 
 
 def _bridges(net: dict, pos: dict[str, Any], max_new: int, long: bool = False) -> list[dict]:

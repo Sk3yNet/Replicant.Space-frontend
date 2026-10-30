@@ -908,6 +908,33 @@ def test_relay_networks_links_and_bridges():
     assert not any(1 in (b["a"], b["b"]) and 2 in (b["a"], b["b"]) for b in br)   # FAR is beyond 10 relays
 
 
+def test_bridges_async_runs_in_a_thread_and_shares_one_search(monkeypatch):
+    """Live 2026-10-29: the map's bridge search took ~20 s of CPU on the event loop; pages now run it in a thread, and
+    two refreshes at once share one search."""
+    import asyncio
+    import threading
+    from rsweb import relaynet as rn
+    P = lambda x: {"x": x, "y": 0, "z": 0}  # noqa: E731
+    pos = {"A": P(0), "B": P(7), "C": P(28), "D": P(37), "E": P(14), "F": P(21)}
+    devs = [dev("R1", "ftl_relay", "A-4-L4", status="relaying"), dev("R2", "ftl_relay", "B-4-L4", status="relaying"),
+            dev("R3", "ftl_relay", "C-4-L4", status="relaying"), dev("R4", "ftl_relay", "D-4-L4", status="relaying")]
+    net = rn.networks(devs, pos)
+    want = rn._bridges(net, pos, rn.MAX_BRIDGE)
+    rn._bridge_memo.clear()
+    seen, real = [], rn._bridges
+
+    def spy(*a, **k):
+        seen.append(threading.current_thread() is threading.main_thread())
+        return real(*a, **k)
+    monkeypatch.setattr(rn, "_bridges", spy)
+
+    async def two():
+        return await asyncio.gather(rn.bridges_async(net, pos), rn.bridges_async(net, pos))
+    a, b = asyncio.run(two())
+    assert a == b == want and seen == [False]   # one search, off the main thread
+    assert asyncio.run(rn.bridges_async(net, pos)) == want and seen == [False]   # then kept
+
+
 def test_relay_station_bridges_wide_gaps():
     from rsweb import relaynet as rn
     P = lambda x: {"x": x, "y": 0, "z": 0}  # noqa: E731

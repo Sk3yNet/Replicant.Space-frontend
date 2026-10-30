@@ -159,7 +159,9 @@ def sample_once(main_ident: int, stage_of) -> None:
     if not ours:
         ours = ["(outside rsweb)"]
     leaf, entry = ours[0], ours[-1]
-    st = stage_of() if stage_of else None
+    page = entry == "pagecache.py:__call__"   # the outermost middleware: a page request, not the engine
+    _sampler["page"] = page
+    st = stage_of() if stage_of and not page else None
     if st:
         entry = f"{entry} [{st}]"
     for d, k in ((hot["entry"], entry), (hot["leaf"], leaf), (hot["pair"], f"{entry} → {leaf}")):
@@ -209,7 +211,9 @@ async def watch_loop(stage_of) -> None:
         if late >= 1000:
             lag["stalls"] += 1
             lag["stalled_ms"] += late
-            st = stage_of() or "(no engine stage)"
+            # a page request running while a stage waits isn't that stage's stall (live 2026-10-29: the map's relay
+            # bridges were blamed on rule_salvage)
+            st = "(page request)" if _sampler.get("page") else stage_of() or "(no engine stage)"
             b = lag["by_stage"].setdefault(st, {"n": 0, "max_ms": 0.0, "total_ms": 0.0})
             b["n"] += 1
             b["max_ms"] = round(max(b["max_ms"], late), 1)
