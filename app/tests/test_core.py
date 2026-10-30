@@ -7263,9 +7263,9 @@ def test_messages_page_auto_read_checkboxes(client):
     """Owner 2026-10-30: checkboxes on the Messages page mark salvage discoveries and civilizations' requests for help
     read as they arrive (salvage on by default, as before)."""
     from rsweb.ingest import auto_read, civ_help_message, AUTO_READ_DEFAULT
-    civ = {"id": 3, "title": "The Veyrani request your assistance", "body": "Famine grips AEMEROTH-2."}
+    civ = {"id": 3, "title": "Broadcast intercepted: the Veyrani need food", "body": "Famine grips AEMEROTH-2."}
     sal = {"id": 4, "title": "Salvage discovered: derelict hauler"}
-    assert civ_help_message(civ) and civ_help_message({"category": "civilization", "title": "x"})
+    assert civ_help_message(civ) and not civ_help_message({"title": "The Veyrani request your assistance"})
     assert not civ_help_message({"title": "Print completed: mining drone"}) and not civ_help_message(sal)
     assert auto_read(sal, AUTO_READ_DEFAULT) and not auto_read(civ, AUTO_READ_DEFAULT)
     assert auto_read(civ, {"salvage": False, "civ": True}) and not auto_read(sal, {"salvage": False, "civ": True})

@@ -117,18 +117,14 @@ def salvage_message(m: dict) -> bool:
     return bool(SALVAGE_MSG.search(" ".join(str(v) for v in m.values() if isinstance(v, str))))
 
 
-# A civilization asking for help (owner 2026-10-30: auto-read option). No live sample yet: any category field naming a
-# civilization, or text asking for help / assistance / aid.
-CIV_HELP_MSG = re.compile(r"civili[sz]ation|\b(request(s|ing)?|ask(s|ing)?|plea|call(s|ing)?|need(s|ing)?)\b[^.]{0,30}"
-                          r"\b(help|assistance|aid)\b|distress", re.I)
+# A civilization asking for help (owner 2026-10-30: auto-read option): the game titles them "Broadcast intercepted: …".
+CIV_HELP_MSG = re.compile(r"broadcast intercepted:", re.I)
 AUTO_READ_KV = "message_auto_read"
 AUTO_READ_DEFAULT = {"salvage": True, "civ": False}   # salvage was always marked read (since 1.100.0)
 
 
 def civ_help_message(m: dict) -> bool:
     """A game message from a civilization asking for help (a location event's request)."""
-    if any("civ" in str(m.get(k) or "").lower() for k in ("category", "subcategory", "message_type")):
-        return True
     return bool(CIV_HELP_MSG.search(" ".join(str(m.get(k) or "") for k in ("title", "body", "message", "text", "subject"))))
 
 
