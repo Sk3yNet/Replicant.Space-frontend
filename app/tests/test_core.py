@@ -3178,6 +3178,8 @@ def test_large_devices_learned_from_a_refused_attach_only_stow(client):
         assert fl.take_seat({"hold": 0, "attach": 2}, charge) is None
         assert fl.take_seat({"hold": 1, "attach": 2}, charge) == "stow"
         assert "vector_charge" in client.portal.call(client.app.state.db.kv_get, "no_attach_types", {})
+        platform = {"device_code": "P1", "device_type": "surge_platform", "attach_capacity": 2}
+        assert fl.cargo_carrier(platform, [platform, charge], False, fl.attachable(charge)) is None
     finally:
         fl.NO_ATTACH_TYPES.discard("vector_charge")
 

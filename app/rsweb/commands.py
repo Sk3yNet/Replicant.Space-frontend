@@ -353,9 +353,9 @@ def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
             continue
         how = ""
         if flt.get("carrier") == "board":   # stow into: a free hold slot, else free attach points, up the chain
-            from .fleets import cargo_carrier, stowable
+            from .fleets import attachable, cargo_carrier, stowable
             me = me or next((x for x in sugg["devices"] if x.get("device_code") == self_code), {})
-            cc = cargo_carrier(d, sugg["devices"], stowable(me))
+            cc = cargo_carrier(d, sugg["devices"], stowable(me), attachable(me))
             if not cc:
                 continue
             how = f" · {cc['mode']}" + (f" on {cc['carrier']['device_code']}" if cc["carrier"] is not d else "") + \

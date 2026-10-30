@@ -214,7 +214,7 @@ def tug(d: dict, devices: list[dict]) -> dict:
         d = by[up]
 
 
-def cargo_carrier(d: dict, devices: list[dict], stowable_: bool = True) -> dict | None:
+def cargo_carrier(d: dict, devices: list[dict], stowable_: bool = True, attachable_: bool = True) -> dict | None:
     """Where cargo handed to `d` really rides: its own free hold slots (when the cargo stows), else its own free attach
     points, else, for a device riding on another (a matrix container whose only slot is its cradle, attached to a surge
     platform), that one's, up the chain. {"carrier": device that takes the cargo, "mode": "stow" | "attach", "free": n,
@@ -226,7 +226,7 @@ def cargo_carrier(d: dict, devices: list[dict], stowable_: bool = True) -> dict 
         free = seats(c, devices)
         if stowable_ and free["hold"] > 0:
             return {"carrier": c, "mode": "stow", "free": free["hold"], "flies": tug(c, devices)}
-        if free["attach"] > 0:
+        if attachable_ and free["attach"] > 0:
             return {"carrier": c, "mode": "attach", "free": free["attach"], "flies": tug(c, devices)}
         c = by.get(c.get("attached_to_device_code") or c.get("stowed_in_device_code"))
     return None
@@ -234,6 +234,8 @@ def cargo_carrier(d: dict, devices: list[dict], stowable_: bool = True) -> dict 
 
 # device types the game won't attach ("Cannot attach a large device"): cargo freighters (live 2026-10-12), and every type
 # a refused attach taught us since (kv no_attach_types, learned by the job runner; vector charge 42B4755C, live 2026-10-29)
+# Game answer (owner 2026-10-30): anything with the stow feature can stow, and anything that can stow can attach; the
+# upper size limit for attaching is unknown. A refused attach is live evidence and still wins over that rule here.
 NO_ATTACH_TYPES: set[str] = {"cargo_freighter"}
 
 

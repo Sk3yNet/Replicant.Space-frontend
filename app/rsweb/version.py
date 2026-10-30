@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.315.1"
+VERSION = "1.315.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.315.2", "2026-10-30", "The device page's Stow into list and Console command suggestions no longer offer a carrier's attach points to a device the game refused to attach."),
     ("1.315.1", "2026-10-30", "Messages: civilizations' requests for help are recognized by their \"Broadcast intercepted:\" wording (Joe), instead of a guess at it."),
     ("1.315.0", "2026-10-30", "Errors are now only what no automation will fix and needs you: a trip waiting for your Confirm, a job you started by hand that stopped, a fleet mission out of automatic retries, an evacuation that can't be done, a stalled engine, a paused relay rollout or season, a shop that moved, nothing to mine in a system. Everything the engine plans again by itself (stopped automated jobs, failed stages, belt progress) is a warning. Refusals the engine sorts out (Nothing to activate after a move, Maximum active sites) are skipped quietly. A trip refused for cruising over the Fleets › settings limit now tags the device at:<destination> and lift, and a carrier takes it there and drops both tags (27925A12 at ISOLITHOR-1 was refused every pass, 639 AU from the belt). The Messages page has checkboxes to mark salvage site discoveries and civilizations' requests for help read as they arrive."),
     ("1.314.0", "2026-10-30", "The galaxy map and Map › Relays work out suggested relay bridges in a background thread, so the rest of the server keeps running meanwhile. The 23:27 swoop snapshot showed that search (18-21 s of CPU per map refresh from an open map tab) was what froze the server, not the salvage rule it was blamed on. Diagnostics › Performance now credits a stall that a page request causes to \"(page request)\" instead of the engine stage running then."),
