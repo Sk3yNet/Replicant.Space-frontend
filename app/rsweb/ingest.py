@@ -117,6 +117,30 @@ def salvage_message(m: dict) -> bool:
     return bool(SALVAGE_MSG.search(" ".join(str(v) for v in m.values() if isinstance(v, str))))
 
 
+# A civilization asking for help (owner 2026-10-30: auto-read option). No live sample yet: any category field naming a
+# civilization, or text asking for help / assistance / aid.
+CIV_HELP_MSG = re.compile(r"civili[sz]ation|\b(request(s|ing)?|ask(s|ing)?|plea|call(s|ing)?|need(s|ing)?)\b[^.]{0,30}"
+                          r"\b(help|assistance|aid)\b|distress", re.I)
+AUTO_READ_KV = "message_auto_read"
+AUTO_READ_DEFAULT = {"salvage": True, "civ": False}   # salvage was always marked read (since 1.100.0)
+
+
+def civ_help_message(m: dict) -> bool:
+    """A game message from a civilization asking for help (a location event's request)."""
+    if any("civ" in str(m.get(k) or "").lower() for k in ("category", "subcategory", "message_type")):
+        return True
+    return bool(CIV_HELP_MSG.search(" ".join(str(m.get(k) or "") for k in ("title", "body", "message", "text", "subject"))))
+
+
+async def auto_read_cfg(db) -> dict:
+    return {**AUTO_READ_DEFAULT, **(await db.kv_get(AUTO_READ_KV, {}) or {})}
+
+
+def auto_read(m: dict, cfg: dict) -> bool:
+    """Marked read as it arrives (Messages page checkboxes): salvage discoveries, civilizations' requests for help."""
+    return (cfg.get("salvage") and salvage_message(m)) or bool(cfg.get("civ") and civ_help_message(m))
+
+
 def message_id(m: dict):
     return m.get("id") if m.get("id") is not None else m.get("message_id")
 
@@ -927,9 +951,11 @@ class Worker:
         body = await self.api.get("/messages", background=True, limit=50, latest="true")
         msgs = (body or {}).get("messages") or []
         # owner, 2026-10-15: salvage discoveries mustn't raise the Messages badge — they're marked read (the Events
-        # feed and the system pages still have them)
+        # feed and the system pages still have them); since 1.315.0 a checkbox each on the Messages page, with
+        # civilizations' requests for help
+        cfg = await auto_read_cfg(self.db)
         quiet = [message_id(m) for m in msgs if isinstance(m, dict) and message_unread(m) and message_id(m) is not None
-                 and salvage_message(m)]
+                 and auto_read(m, cfg)]
         if quiet:
             try:
                 await self.api.request("POST", "/messages/read", json_body={"ids": quiet}, background=True)
@@ -937,7 +963,7 @@ class Worker:
                     if message_id(m) in quiet:
                         m["read"] = m["is_read"] = True
             except ApiError as e:
-                log.warning("marking salvage messages read failed: %s", e.message)
+                log.warning("marking messages read failed: %s", e.message)
         await self.db.kv_set("messages", msgs)
 
     async def on_prospect(self, ev: dict) -> None:
@@ -1001,7 +1027,7 @@ class Worker:
             await self.db.kv_set(season.HOLD_KV, {"since": now_iso(), "from": prev, "to": now, "by": "season change"})
             await self.automations.log("season", f"New season: {season.label(prev)} → {season.label(now)}. Automations "
                                                  "are paused until you resume them (Dashboard › Story); the copy from "
-                                                 "before the change is kept.", "alert", notify=True)
+                                                 "before the change is kept.", "error", notify=True)
         if prev != now:
             await self.db.kv_set(season.SEASON_KV, {k: now.get(k) for k in ("number", "title", "in_game_year")})
 

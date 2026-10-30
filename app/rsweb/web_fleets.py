@@ -762,7 +762,7 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         w = (f"no relay of yours in {', '.join(dark)} and no replicant rides with the fleet — devices there may be out of "
              "control range; add a vessel hosting a replicant to the fleet")
         eng._mlog(m, "warning: " + w)
-        await eng.log("fleets", f"{f['name']}: {w}", "alert", notify=True)
+        await eng.log("fleets", f"{f['name']}: {w}", "error", notify=True)
     elif aboard:
         eng._mlog(m, f"replicant aboard: {', '.join(aboard)}")
     f["mission"] = m

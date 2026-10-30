@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from .api import ApiError
 from .db import now_iso, row_event
-from .ingest import message_unread
+from .ingest import auto_read_cfg, message_unread
 from . import notify
 from .shapes import as_amounts, normalize_blueprints, normalize_inventory
 from . import commands as cmdspec
@@ -3181,7 +3181,7 @@ async def messages(request: Request, user: str = Depends(current_user)):
                       key=lambda c: (not c["subscribed"], -(_ts_num(c["last_active"])), c["name"]))
     return await page(request, user, "messages.html", "messages", msgs=msgs, err=err, bobnet=bobnet[:BOBNET_PAGE],
                       older=bobnet[BOBNET_PAGE - 1]["seq"] if len(bobnet) > BOBNET_PAGE else None, mentioned=mentioned,
-                      unread=sum(1 for m in msgs if m["unread"]),
+                      unread=sum(1 for m in msgs if m["unread"]), auto_read=await auto_read_cfg(db),
                       my_names=my,
                       replicants=st["replicants"], channels=channels, subscribed=subscribed, channel_cache=cache,
                       relay=bobnet_relay(st["devices"]))
@@ -3311,6 +3311,19 @@ async def mentions_ack(request: Request, event_id: str = Form(""), user: str = D
         await db.execute("UPDATE notifications SET read=1 WHERE level='mention' AND event_id=?", (event_id,))
     else:
         await db.execute("UPDATE notifications SET read=1 WHERE level='mention' AND read=0")
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/messages/auto-read", response_class=HTMLResponse)
+async def messages_auto_read(request: Request, salvage: str = Form(""), civ: str = Form(""), user: str = Depends(current_user)):
+    """Messages page checkboxes: which kinds of game message are marked read as they arrive. Unread ones already here
+    are marked read at once."""
+    from .ingest import AUTO_READ_KV
+    await request.app.state.db.kv_set(AUTO_READ_KV, {"salvage": bool(salvage), "civ": bool(civ)})
+    try:
+        await request.app.state.worker.sync_messages()
+    except ApiError as e:
+        return HTMLResponse(f'<div class="result err">Saved, but reading messages failed: {html.escape(e.message)}</div>')
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 

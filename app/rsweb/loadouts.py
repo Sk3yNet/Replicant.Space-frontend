@@ -33,6 +33,9 @@ from .shapes import as_amounts
 SPARE = "spare"
 STOCK = "stock"     # a keep-in-stock print (stock.py); dropped with `spare` once it's reserved for a system
 GATHER = "gather"   # on its way to the spare depot (stays spare on arrival)
+# with an `at:` pin: a carrier takes it to that spot, as it would cruise too far there itself (a trip refused over
+# Fleets › settings' max cruise, live 2026-10-30: 27925A12 ≈639 AU from ISOLITHOR-1 to the belt). Both go on arrival.
+LIFT = "lift"
 WORKING = ("mining", "searching", "tracking", "scanning", "collecting", "depositing", "printing", "repairing")
 DEFAULT_SETTINGS = {"print_missing": True, "need_stock": True, "carriers_return": True,
                     "every_minutes": 15,
@@ -134,6 +137,11 @@ def place_tag_fix(d: dict, stars, fleet_ids: set[str]) -> tuple[list[str], list[
 def pinned_at(d: dict) -> str | None:
     """The location a device is pinned to (`at:` tag), upper-case like the game's codes."""
     return next((t[3:].upper() for t in d.get("tags") or [] if t.startswith("at:") and len(t) > 3 and is_place(t[3:])), None)
+
+
+def lifted(d: dict) -> bool:
+    """Waiting for a carrier to take it to its `at:` pin (LIFT)."""
+    return LIFT in (d.get("tags") or []) and bool(pinned_at(d))
 
 
 def home_tag(star: str) -> str:
@@ -1084,7 +1092,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             arrived.append(d["device_code"])
     for d in pool:  # pinned to a spot in the system it is in, but elsewhere there, and it can't fly: a carrier takes it
         code, pin, here = d["device_code"], pinned_at(d), star_of(d.get("location"))
-        if (pin and here and star_of(pin) == here and d.get("location") != pin and not can_travel(d)
+        if (pin and here and star_of(pin) == here and d.get("location") != pin and (not can_travel(d) or lifted(d))
                 and code not in busy and code not in moves and code not in arrived and not bound_for(d, known_stars, fleet_homes)
                 and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code") and not d.get("location_stale")
                 and str(d.get("status") or "").startswith(("idle", "inactive", "monitoring"))):   # (a beacon at work)
@@ -1276,7 +1284,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         code, pin = d["device_code"], pinned_at(d)
         if (pin and star_of(pin) == star_of(d.get("location")) and d.get("location") != pin and code not in busy
                 and code not in moves and code not in arrived and not bound_for(d, known_stars, fleet_homes) and not working(d)
-                and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+                and not lifted(d) and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
                 and not d.get("location_stale") and (str(d.get("status") or "").startswith(("idle", "inactive"))
                                                      or relay_off_to_pin(d, devices))
                 and "travel" in (d.get("available_commands") or ["travel"])):
@@ -1475,6 +1483,8 @@ def rehome_step(code: str, d: dict, star: str, keep_spare: bool = False, join: s
         return tag_step(code, None, sorted(set(old) | {to_tag(star), GATHER}))
     old = [t for t in d.get("tags") or [] if t.startswith(("home:", "to:")) or t == SPARE
            or (t.startswith("at:") and star_of(t[3:].upper()) != star)]   # a pin for another system no longer applies
+    if lifted(d):   # carried to its spot: the lift and its pin are done
+        old += [LIFT] + [t for t in d.get("tags") or [] if t.startswith("at:")]
     return tag_step(code, [join] if join and join not in (d.get("tags") or []) else None, sorted(set(old) | {to_tag(star)}))
 
 
@@ -1536,7 +1546,8 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
             steps.append(tag_step(code, add, rem))
     first = len(steps)
     todo = [c for c in dl["devices"] if c not in aboard]
-    grounded = [c for c in todo if not can_travel(by_code.get(c, {}) or {}) and by_code.get(c, {}).get("location") != cloc]
+    grounded = [c for c in todo if (not can_travel(by_code.get(c, {}) or {}) or lifted(by_code.get(c, {}) or {}))
+                and by_code.get(c, {}).get("location") != cloc]
     far = [c for c in todo if c not in grounded and by_code.get(c, {}).get("location") != cloc
            and fl.far_apart(by_code.get(c, {}).get("location"), cloc, radii, max_cruise_au)]
     fly = [c for c in todo if by_code.get(c, {}).get("location") != cloc and c not in grounded and c not in far]

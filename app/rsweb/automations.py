@@ -259,23 +259,36 @@ BUSY_RE = re.compile(r"while (the )?(replicant|device|carrier|vessel)? ?is (stil
 # "No conductive remaining at any active site" (live 2026-10-23, Delta Force): the belt's open sites lack that resource.
 # Nothing to fix by hand: the step is skipped quietly and doesn't count toward stopping the job.
 NO_SITE_RE = re.compile(r"\bno \w+ remaining at any active site", re.I)
+# Refusals the engine sorts out by itself (live 2026-10-30): a belt surveyor re-activated after a move with no site left to
+# track ("Nothing to activate"), a search at a belt already holding the game's most sites (reopen_sites waits for them).
+# Skipped at info level, never counted toward the 3-in-a-row stop.
+QUIET_SKIP_RE = re.compile(NO_SITE_RE.pattern + r"|nothing to activate|maximum active sites", re.I)
 BUSY_RETRY_S, BUSY_TRIES = 300, 36   # retry such a refusal every 5 min, for up to 3 h
 SHORT_TIMEOUT = 120          # waiting for deploy/stow confirmation
 MAX_LOG = 300
 
 
+# An alert whose text says only Joe can move it on (a fleet mission out of automatic retries).
+NEEDS_YOU_RE = re.compile(r"no more automatic retries", re.I)
+
+
 def severity(entry: dict) -> str:
-    """error / warning / info for the Automations log toggles. Entries are logged as info or alert; an alert is an
-    error when something stopped or failed, otherwise a warning (skipped steps, warnings, nothing to do)."""
+    """error / warning / info for the Automations log toggles and notifications. An error is something no automation
+    will fix: it needs Joe (owner 2026-10-30), and the caller logs it as "error" (a Confirm, a hand-started job that
+    stopped, an evacuation that can't be done). Every other alert is a warning: a stopped automated job, a skipped step,
+    a stage that failed on odd data — the engine plans again, or it's for Claude to look into."""
     level = str(entry.get("level") or "info")
     if level in ("error", "warning"):
         return level
     if level != "alert":
         return "info"
-    t = str(entry.get("text") or "").lower()
-    if t.startswith("stopped:") or " failed" in t or t.startswith("failed"):
-        return "error"
-    return "warning"
+    return "error" if NEEDS_YOU_RE.search(str(entry.get("text") or "")) else "warning"
+
+
+def stop_level(job: dict) -> str:
+    """How a stopped job is logged: one you started by hand (a chain, a forced run) isn't tried again by anything, so you
+    hear about it as an error; an automated one is planned again by its rule on a later pass (a warning)."""
+    return "error" if job.get("rule") == "chain" or job.get("forced") else "alert"
 
 
 def _now() -> datetime:
@@ -668,7 +681,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 self._lock_alerted = True
                 await self.log("engine", f"automations stalled: the engine has been busy for {held / 60:.0f} min "
                                          f"(held by {self.lock.holder or '?'}, tick stage: {self.stage or '-'}) — "
-                                         "nothing runs until it's free; restart the app if this persists", "alert", notify=True)
+                                         "nothing runs until it's free; restart the app if this persists", "error", notify=True)
         elif self._lock_alerted and not self.lock.locked():
             self._lock_alerted = False
             await self.log("engine", "automations running again", notify=True)
@@ -881,9 +894,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     st["status"], st["hold"], job["status"] = "confirm", why, "waiting"
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: {st['desc']} — {why}; waits for your Confirm on the "
-                                                "Automations page", "alert", notify=True)
+                                                "Automations page", "error", notify=True)
                     return
-                far = await self._too_far(st) or await self._dark_destination(st, job)
+                far = await self._too_far(st)
+                if far:
+                    far += await self._lift(st)
+                far = far or await self._dark_destination(st, job)
                 if far:
                     ok, resp, err = False, None, far
                 else:
@@ -1102,7 +1118,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     st["status"] = "failed"
                     job["status"] = "failed"
                     await self._update(job)
-                    await self.log(job["rule"], f"stopped: {job['title']} — {st['desc']} failed: {err}{ownership_hint(err)}", "alert", notify=True)
+                    await self.log(job["rule"], f"stopped: {job['title']} — {st['desc']} failed: {err}{ownership_hint(err)}", stop_level(job), notify=True)
                     return
                 st["status"] = "skipped"
                 if st.get("extra_unit"):
@@ -1121,18 +1137,18 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         job["idx"] += 1
                     await self._update(job)
                     continue
-                quiet = bool(NO_SITE_RE.search(err or ""))
+                quiet = bool(QUIET_SKIP_RE.search(err or ""))
                 await self.log(job["rule"], f"{job['title']}: skipped '{st['desc']}' ({err}){ownership_hint(err)}",
                                "info" if quiet else "alert")
                 job["idx"] += 1
                 done_steps = [x for x in job["steps"][:job["idx"]] if x["method"] != "WAIT" and not x.get("extra_unit")
-                              and not NO_SITE_RE.search(str(x.get("error") or ""))]
+                              and not QUIET_SKIP_RE.search(str(x.get("error") or ""))]
                 last3, last6 = done_steps[-3:], done_steps[-6:]
                 if ((len(last3) == 3 and all(x["status"] == "skipped" and x.get("error") == err for x in last3))
                         or (len(last6) == 6 and all(x["status"] == "skipped" for x in last6))):
                     job["status"] = "failed"
                     await self._update(job)
-                    await self.log(job["rule"], f"stopped: {job['title']} — 3 steps in a row failed with: {err}{ownership_hint(err)}", "alert", notify=True)
+                    await self.log(job["rule"], f"stopped: {job['title']} — 3 steps in a row failed with: {err}{ownership_hint(err)}", stop_level(job), notify=True)
                     return
                 await self._update(job)
                 continue
@@ -1558,6 +1574,25 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         return (f"not sent: {code} would cruise ≈{au:.0f} AU from {here} to {dest} (over the {limit:g} AU limit in "
                 "Fleets › settings) — a carrier should fetch it")
 
+    async def _lift(self, st: dict) -> str:
+        """A trip refused by _too_far: the device is tagged `at:<destination>` + `lift`, so the loadouts pass sends a
+        carrier to take it there (loadouts.LIFT; owner 2026-10-30: before, the same refusal came back every pass and
+        nothing fetched it). A device already pinned somewhere else keeps its pin. Returns a note for the error."""
+        from . import loadouts as lo
+        code, dest = st["path"].split("/")[2], str((st.get("body") or {}).get("destination") or "")
+        d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
+        pin, tags = lo.pinned_at(d), d.get("tags") or []
+        if pin and pin != dest.upper():
+            return f" (pinned to {pin}: not tagged for a carrier)"
+        if lo.LIFT in tags and pin:
+            return " (already tagged for a carrier)"
+        add = [t for t in (lo.at_tag(dest), lo.LIFT) if t not in tags]
+        ok, _, err = await self.send("PATCH", f"/devices/{code}", {"configuration": {"add_tags": add}},
+                                     f"auto: tag {code} for a carrier to {dest}")
+        if not ok:
+            return f" (tagging it for a carrier failed: {err})"
+        return f"; tagged {' '.join(add)}: a carrier takes it there"
+
     async def _arrived_now(self, st: dict, job: dict) -> bool:
         """A wait for an arrival whose device is already standing at the destination (seen live 2026-10-11: Surveyors'
         assemble waited for its survey controller to land at SOLARES-BELT-1 when it already had, before the job began —
@@ -1742,7 +1777,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     # done back where it started (a fleet mission stalls; Retry flies again)
                     st["status"], job["status"] = "failed", "failed"
                     await self._update(job)
-                    await self.log(job["rule"], f"stopped: {job['title']} — {st['error']}", "alert", notify=True)
+                    await self.log(job["rule"], f"stopped: {job['title']} — {st['error']}", stop_level(job), notify=True)
             if name in ("site.depleted", "salvage.depleted") and not late:
                 try:
                     await self.rule_salvage()
@@ -1763,7 +1798,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     await self.evacuate_pass(True)
                 except Exception as e:
                     log.exception("evacuation failed")
-                    await self.log("evacuate", f"evacuation failed: {e}", "alert", notify=True)
+                    await self.log("evacuate", f"evacuation failed: {e}", "error", notify=True)
             # rules triggered by arrivals
             if name == "bobnet.new" and not late:
                 try:
@@ -1811,7 +1846,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     if off:   # turned back or went elsewhere: the retried step was meant for the destination
                         st["status"], st["error"], job["status"] = "failed", off, "failed"
                         await self._update(job)
-                        await self.log(job["rule"], f"stopped: {job['title']} — {off}", "alert", notify=True)
+                        await self.log(job["rule"], f"stopped: {job['title']} — {off}", stop_level(job), notify=True)
                         continue
                     if now >= (_ts(st.get("retry_at")) or now):
                         st["status"], job["status"] = "pending", "running"
@@ -1835,7 +1870,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     if miss:   # not where the job sent it: don't go on to deploy / unload somewhere else
                         st["status"], st["error"], job["status"] = "failed", miss, "failed"
                         await self._update(job)
-                        await self.log(job["rule"], f"stopped: {job['title']} — {miss}", "alert", notify=True)
+                        await self.log(job["rule"], f"stopped: {job['title']} — {miss}", stop_level(job), notify=True)
                         continue
                 if (now - started).total_seconds() > st.get("timeout", STEP_TIMEOUT):
                     st["status"] = "skipped"
@@ -3248,7 +3283,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             key = f"evac-stuck:{s_['code']}"
             if self.stage_errors.get(key) != s_["why"]:
                 self.stage_errors[key] = s_["why"]
-                await self.log("evacuate", f"{s_['code']} at {s_['location']} can't be evacuated: {s_['why']}", "alert", notify=True)
+                await self.log("evacuate", f"{s_['code']} at {s_['location']} can't be evacuated: {s_['why']}", "error", notify=True)
         for line in out:
             await self.log("evacuate", line, "alert", notify=True)
         return out
@@ -3726,7 +3761,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             if r["errors"] >= rp.MAX_ERRORS and r.get("enabled", True):
                 r["enabled"] = False
                 await self.log("repeats", f"{r['name']}: stopped after {r['errors']} failed sends in a row ({err})",
-                               "alert", notify=True)
+                               "error", notify=True)
         if changed:
             await self.db.kv_set(rp.KV, items)
 
@@ -4420,7 +4455,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 self.stage_errors[key] = "asked"
                 await self.log("logistics", f"{r['label']}: " + (f"about {r['trip_h']:.0f} h of travel" if r.get("trip_h") is not None
                                                                      else "trip of unknown length") + " — waits for your Confirm "
-                                            "on Fleets › Logistics", "alert", notify=True)
+                                            "on Fleets › Logistics", "error", notify=True)
         by_code = by_code0
         pickups = await self.db.kv_get(lg.KV_PICKUPS, {}) or {}
         # devices a deal paid out: once they're at the site (fleetless, going nowhere), they're sent to the gather point,
@@ -4730,7 +4765,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                        "and start the trade again there")
                 if m.get("watch_note") != why:
                     self._mlog(m, why)
-                    await self.log("fleets", f"{fleet['name']}: {why}", "alert", notify=True)
+                    await self.log("fleets", f"{fleet['name']}: {why}", "error", notify=True)
                 return "wait", why
         state, short = fl.deal_check(m, inv, devices)
         if state != "ok" and m.get("contract") and await self._contract_option_ready(m, inv, devices):
@@ -5551,8 +5586,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             have = len(sites.survey_at(devices, belt))
             if have >= per:
                 continue  # enough drones already opening/holding sites there
+            from .loadouts import lifted
             ctrls = [d for d in devices if "survey" in (d.get("device_type") or "") and "controller" in (d.get("device_type") or "")
-                     and star_of(d.get("location")) == star and d["device_code"] not in busy and d.get("in_control_range") is not False]
+                     and star_of(d.get("location")) == star and d["device_code"] not in busy and d.get("in_control_range") is not False
+                     and not lifted(d)]   # waiting for a carrier to its spot (its own trip was refused)
             # belt surveyors first (about 4x faster, owner 2026-10-24); a survey controller adopts them too
             idle = sites.surveyors_first([d for d in devices if sites.is_surveyor(d) and star_of(d.get("location")) == star
                                           and str(d.get("status") or "").startswith("idle") and d["device_code"] not in busy
@@ -5921,7 +5958,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 if not t or now - t > timedelta(hours=24):
                     nothing[star] = now.isoformat(timespec="seconds")
                     await self.log("salvage_when_depleted", f"nothing to mine in {star}: no asteroid belt and no salvage we know "
-                                   "of — move its miners, or survey the bodies for salvage", "alert", notify=True)
+                                   "of — move its miners, or survey the bodies for salvage", "error", notify=True)
                 continue
             if (not dry and not exhausted and not no_belt) or not sal:
                 continue

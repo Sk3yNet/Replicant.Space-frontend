@@ -499,7 +499,7 @@ def diagnose(snap: dict) -> dict:
             return "current"
         return "earlier run" if x.get("v") == cur_v else "older version"
     errors = [{"text": e.get("text"), "at": e.get("at"), "age": age(e), "v": e.get("v")}
-              for e in app.get("log") or [] if e.get("level") == "alert" and e.get("text")][-15:]
+              for e in app.get("log") or [] if e.get("level") in ("alert", "error") and e.get("text")][-15:]
     failed_jobs = [{"title": j.get("title"), "age": age(j), "v": j.get("v"),
                     "error": j.get("error") or next((s.get("error") for s in j.get("steps") or [] if s.get("error")), None)}
                    for j in app.get("jobs") or [] if j.get("status") in ("failed", "stalled")][-10:]

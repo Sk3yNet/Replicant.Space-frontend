@@ -379,7 +379,7 @@ class OpsRules:
             if st["streak"] >= rr.MAX_STREAK:   # nothing works anywhere (no spare, no factory): stop rather than skip all
                 st["on"] = False
                 await self.log("wards", f"relay rollout paused: the last {st['streak']} systems couldn't get a relay "
-                               f"(last: {msg})", "alert", notify=True)
+                               f"(last: {msg})", "error", notify=True)
             if len(out) >= rr.MAX_STREAK:
                 break
         await self.db.kv_set(rr.KV, st)

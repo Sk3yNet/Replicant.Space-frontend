@@ -100,7 +100,7 @@ class BootstrapMixin:
                 if b.get("decision") and b.get("decision_noted") != json.dumps(b["decision"], sort_keys=True, default=str):
                     b["decision_noted"] = json.dumps(b["decision"], sort_keys=True, default=str)
                     await self.log("fleets", f"{f['name']}: waiting for your OK — {b['decision']['kind']} (Fleets page)",
-                                   "alert", notify=True)
+                                   "error", notify=True)
                 changed = True
         if changed:
             await self.save_fleets(fleets)

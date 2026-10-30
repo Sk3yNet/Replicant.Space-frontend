@@ -3220,6 +3220,43 @@ def test_a_grounded_pinned_device_is_carried_to_its_spot():
     assert {"command": "travel", "destination": "TWAFFY-11-L4"} not in bodies2
 
 
+def test_a_trip_refused_for_distance_is_lifted_by_a_carrier(client):
+    """Live 2026-10-30: survey controller 27925A12 at ISOLITHOR-1, sent to ISOLITHOR-BELT-1 (≈639 AU, over the 30 AU
+    cruise limit), was refused every pass and nothing fetched it. The refusal tags it `at:` + `lift`; the loadouts pass
+    then sends a carrier, which drops it there and takes both tags off."""
+    from rsweb import loadouts as lo
+    eng = client.app.state.worker.automations
+    ctrl = {"device_code": "SC1", "device_type": "ami_survey_controller", "location": "SOL-OORT", "status": "idle",
+            "features": ["ami", "cruise", "stow"], "available_commands": ["travel", "stow", "deploy"], "tags": ["fleet:x"]}
+
+    async def devices():
+        return [ctrl]
+    sent = []
+
+    async def send(method, path, body, label):
+        sent.append((method, path, body))
+        return True, {}, None
+    eng.devices, eng.send = devices, send
+    st = {"path": "/devices/SC1", "body": {"command": "travel", "destination": "SOL-BELT-1"}}
+    note = client.portal.call(eng._lift, st)
+    assert sent == [("PATCH", "/devices/SC1", {"configuration": {"add_tags": ["at:sol-belt-1", "lift"]}})] and "carrier" in note
+    ctrl["tags"] += ["at:sol-belt-1", "lift"]
+    assert "already" in client.portal.call(eng._lift, st) and len(sent) == 1
+    cv = {"device_code": "CV1", "device_type": "cargo_vessel", "location": "SOL-3-L4", "status": "idle",
+          "features": ["surge", "transport"], "available_commands": ["travel", "stow"], "stow_capacity": 9, "tags": []}
+    stars = {"SOL": {"entry_point": "SOL-3-L4"}}
+    cfg = {"phases": [], "systems": {}, "fleets": [{"id": "x", "name": "X", "role": "explore", "home": "SOL", "station": True,
+                                                    "wants": {}}]}
+    p = lo.plan(cfg, [ctrl, cv], [], {}, stars, {}, set(), [], {})
+    dl = p["deliveries"]
+    assert len(dl) == 1 and dl[0]["devices"] == ["SC1"] and not p.get("pins")
+    bodies = [s["body"] for s in lo.delivery_steps(dl[0], p["by_code"], stars, False)]
+    assert {"command": "travel", "destination": "SOL-3-L4"} not in bodies   # the carrier picks it up, it doesn't fly over
+    assert {"command": "travel", "destination": "SOL-OORT"} in bodies and {"command": "travel", "destination": "SOL-BELT-1"} in bodies
+    removed = [t for b in bodies if b and "configuration" in b for t in b["configuration"].get("remove_tags") or []]
+    assert "lift" in removed and "at:sol-belt-1" in removed
+
+
 def test_a_working_beacon_pinned_to_a_civ_body_is_carried_there():
     """Live 2026-10-23: beacons left at relays' L4 points in a dozen civilization systems with no vessel there; the civ
     beacon pass pins them (`at:<body>`) and a carrier from elsewhere picks one up and drops it at the body."""
@@ -3349,7 +3386,7 @@ def test_engine_lock_is_reentrant_and_watchdog_alerts():
         e.stage = "run_fleets"
         await e.watchdog()
         await e.watchdog()                       # alerts once per stall
-        assert len(e.logged) == 1 and e.logged[0][0] == "alert" and "run_fleets" in e.logged[0][1]
+        assert len(e.logged) == 1 and e.logged[0][0] == "error" and "run_fleets" in e.logged[0][1]
         e.lock.release()
         await e.watchdog()
         assert "running again" in e.logged[-1][1]
@@ -5186,14 +5223,18 @@ def test_miners_in_a_system_without_a_belt_go_to_salvage(client):
 
 
 def test_automation_log_kinds_and_toggles(client):
-    from rsweb.automations import severity
-    assert severity({"level": "alert", "text": "stopped: loadouts: x — y failed: out of range"}) == "error"
-    assert severity({"level": "alert", "text": "scan of SOL failed: busy"}) == "error"
+    from rsweb.automations import severity, stop_level
+    # owner 2026-10-30: an error is only what no automation will fix; a stopped automated job is a warning
+    assert stop_level({"rule": "loadouts"}) == "alert" and stop_level({"rule": "loadouts", "forced": True}) == "error"
+    assert severity({"level": "alert", "text": "stopped: loadouts: x — y failed: out of range"}) == "warning"
+    assert severity({"level": "alert", "text": "scan of SOL failed: busy"}) == "warning"
+    assert severity({"level": "error", "text": "x: waits for your Confirm on the Automations page"}) == "error"
+    assert severity({"level": "alert", "text": "Miner 1: stalled in work — no more automatic retries (8 tried)"}) == "error"
     assert severity({"level": "alert", "text": "fleet: 1 change(s): skipped 'A joins b' (Tag appears in both)"}) == "warning"
     assert severity({"level": "alert", "text": "Miner 1: warning: no relay of yours in X"}) == "warning"
     assert severity({"level": "info", "text": "finished: loadouts: X"}) == "info"
     eng = client.app.state.worker.automations
-    client.portal.call(eng.log, "loadouts", "stopped: a — b failed: c", "alert")
+    client.portal.call(eng.log, "chain", "stopped: a — b failed: c", stop_level({"rule": "chain"}))
     client.portal.call(eng.log, "fleets", "skipped 'x' (y)", "alert")
     client.portal.call(eng.log, "fleets", "finished: z")
     page = client.get("/automations", headers=H).text
@@ -5503,8 +5544,8 @@ def test_notification_kinds_and_error_only_badge(client):
     db = client.app.state.db
     eng = client.app.state.worker.automations
     client.portal.call(db.execute, "UPDATE notifications SET read=1")
-    client.portal.call(eng.log, "loadouts", "stopped: x — y failed: z", "alert", True)
-    client.portal.call(eng.log, "fleets", "M: warning: no relay", "alert", True)
+    client.portal.call(eng.log, "loadouts", "x: waits for your Confirm", "error", True)
+    client.portal.call(eng.log, "loadouts", "stopped: x — y failed: z", "alert", True)   # the engine plans again
     client.portal.call(eng.log, "fleets", "M: mission complete", "info", True)
     levels = [r["level"] for r in client.portal.call(db.fetchall, "SELECT level FROM notifications WHERE read=0 ORDER BY id")]
     assert levels == ["error", "warning", "info"]
@@ -7216,6 +7257,23 @@ def test_snapshot_2026_10_15_errors_count_as_done_and_salvage_messages_are_read(
     from rsweb.ingest import salvage_message, message_unread, message_id
     m = {"message_id": 7, "is_read": False, "subject": "Salvage discovered: derelict hauler at KELHYRAS-6-SAL-2"}
     assert salvage_message(m) and message_unread(m) and message_id(m) == 7   # live wording, other field names
+
+
+def test_messages_page_auto_read_checkboxes(client):
+    """Owner 2026-10-30: checkboxes on the Messages page mark salvage discoveries and civilizations' requests for help
+    read as they arrive (salvage on by default, as before)."""
+    from rsweb.ingest import auto_read, civ_help_message, AUTO_READ_DEFAULT
+    civ = {"id": 3, "title": "The Veyrani request your assistance", "body": "Famine grips AEMEROTH-2."}
+    sal = {"id": 4, "title": "Salvage discovered: derelict hauler"}
+    assert civ_help_message(civ) and civ_help_message({"category": "civilization", "title": "x"})
+    assert not civ_help_message({"title": "Print completed: mining drone"}) and not civ_help_message(sal)
+    assert auto_read(sal, AUTO_READ_DEFAULT) and not auto_read(civ, AUTO_READ_DEFAULT)
+    assert auto_read(civ, {"salvage": False, "civ": True}) and not auto_read(sal, {"salvage": False, "civ": True})
+    page = client.get("/messages", headers=H).text
+    assert 'name="salvage" value="1" checked' in page and 'name="civ" value="1">' in page
+    client.post("/messages/auto-read", data={"civ": "1"}, headers=HX)
+    assert client.portal.call(client.app.state.db.kv_get, "message_auto_read") == {"salvage": False, "civ": True}
+    assert 'name="civ" value="1" checked' in client.get("/messages", headers=H).text
 
 
 def test_simulation_prep_run_and_discard(client):

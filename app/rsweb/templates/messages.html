@@ -17,6 +17,11 @@
     <div class="row between"><h2>Game messages {% if unread %}<span class="pill st-idle">{{ unread }} unread</span>{% else %}<span class="muted small">all read</span>{% endif %}</h2>
       <label class="small" style="text-transform:none"><input type="checkbox" id="msg-unread"
         onchange="document.querySelectorAll('#msg-list .msg').forEach(d => d.style.display = this.checked && !d.dataset.unread ? 'none' : '')"> unread only</label></div>
+    <form class="row small" id="msg-auto-read" hx-post="/messages/auto-read" hx-trigger="change" hx-target="#msg-result" style="gap:14px;margin:2px 0 6px">
+      <span class="muted">Mark read as they arrive:</span>
+      <label style="text-transform:none"><input type="checkbox" name="salvage" value="1"{% if auto_read.salvage %} checked{% endif %}> salvage site discoveries</label>
+      <label style="text-transform:none"><input type="checkbox" name="civ" value="1"{% if auto_read.civ %} checked{% endif %}> civilizations' requests for help</label>
+    </form>
     <div id="msg-list">
     {% for m in msgs %}
       {% if loop.index0 and not m.unread and loop.previtem.unread %}<div class="msg small muted" style="padding:10px 0 2px;text-transform:uppercase;letter-spacing:.05em">Read</div>{% endif %}
