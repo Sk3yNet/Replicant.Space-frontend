@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.313.0"
+VERSION = "1.313.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.313.1", "2026-10-30", "NPC chatter: posts you make by hand (Write a message, Post now) no longer count toward the daily cap."),
     ("1.313.0", "2026-10-29", "Device list: the tag filter folds pins (at:), trips (to:), contracts, home and bootstrap tags into one entry per kind that matches them all, lists fleets in their own group and shows a device count per tag. Delivered devices already lose their to: tag on arrival; the long list was the permanent beacon pins (31 places). A single pin is still found by typing it in the search box."),
     ("1.312.1", "2026-10-29", "During a swoop run the rules that game events set off wait too, in order, until the run ends. Live, a site.depleted event mid-run ran the salvage rule for 19 s and the event handling held the server for 56 s, so every round of the run came late and moves took 42 s to send. The wallpaper's map and panel also serve their last data during a run."),
     ("1.312.0", "2026-10-29", "Cockpit shows the automation engine: busy (the step it is on and about how long is left), held (time left), or idle (next pass in). Hold 5 min pauses automations, and pressing it again adds 5 minutes; Release lets them run. Start while a pass is running holds automations and starts the run as soon as the pass stops at its next step; press Start again to go at once."),

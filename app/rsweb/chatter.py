@@ -221,9 +221,13 @@ def _now() -> float:
     return datetime.now(timezone.utc).timestamp()
 
 
+BY_HAND = ("written by hand", "by hand")   # Write a message, and Post now on a library row
+
+
 def posted_today(state: dict, now: float | None = None) -> int:
+    """Automatic posts in the last 24 h (the daily cap): what you post by hand doesn't count."""
     now = now or _now()
-    return sum(1 for p in state["posted"] if p.get("ok") and now - _ts(p.get("at")) < 86400)
+    return sum(1 for p in state["posted"] if p.get("ok") and p.get("why") not in BY_HAND and now - _ts(p.get("at")) < 86400)
 
 
 def npcs(reps: dict[str, dict]) -> list[str]:

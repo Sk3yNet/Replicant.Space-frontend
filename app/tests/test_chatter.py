@@ -159,6 +159,7 @@ def test_write_a_message_by_hand(client):  # noqa: F811
     r = client.post("/chatter/write", data={"code": REP, "channel": "#general", "other": "sk3y-bots", "text": "Hello"}, headers=HX)
     assert r.headers.get("X-Sent") == "1" and _world(client).bobnet_posts[-1] == {"code": REP, "channel": "#sk3y-bots", "text": "Hello"}
     assert ch.norm_state(_kv(client, ch.STATE_KV))["posted"][-1]["why"] == "written by hand"
+    assert ch.posted_today(ch.norm_state(_kv(client, ch.STATE_KV))) == 0   # not counted toward the daily cap
     assert "Not one of your" in client.post("/chatter/write", data={"code": "NOPE", "channel": "#general", "text": "x"}, headers=HX).text
 
 
