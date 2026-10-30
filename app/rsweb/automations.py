@@ -1203,6 +1203,26 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         target = (st.get("body") or {}).get("device")   # detach / attach name the carried device
         return any(x and in_transit(x, by) for x in (d, by.get(target or "")))
 
+    async def _trip_device(self, st: dict) -> str | None:
+        """The device a travel step moves: /devices/X {command: travel} moves X; /replicants/R/travel moves R's host
+        vessel (live 2026-10-30: a repair patrol sent 5DF3161B by its replicant from ISOLITHOR-1-L4 to ISOLITHOR-BELT-1,
+        and with no surge hop planned for replicant trips it cruised 499 AU, 56 min). None for any other step."""
+        body, path = st.get("body") or {}, str(st.get("path") or "")
+        if path.startswith("/devices/") and body.get("command") == "travel":
+            return path.split("/")[2]
+        if not (path.startswith("/replicants/") and path.endswith("/travel")):
+            return None
+        if st.get("wait_device"):
+            return str(st["wait_device"])
+        r = path.split("/")[2]
+        return next((x.get("device_code") for x in await self.devices()
+                     if (x.get("hosting_replicant") or {}).get("replicant_code") == r), None)
+
+    @staticmethod
+    def _travel_body(path: str, dest: str) -> dict:
+        """A travel step's body for `path`: a replicant's /travel takes no command."""
+        return {"destination": dest} if path.startswith("/replicants/") else {"command": "travel", "destination": dest}
+
     async def plan_via(self, st: dict, job: dict) -> list[str]:
         """A device trip's waypoints, set once in the step's body `via`: the surge spots (_exit_via) first, then any hub
         waypoint (_hub_via), then the off-ramp. A spot in another system than the stop before it gets
@@ -1215,7 +1235,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         if exit_via:
             ramp = [x for x in exit_via if x == st.get("arrive_via")]
             hubs_ = [x for x in st["body"].get("via") or [] if x not in exit_via]
-            d = next((x for x in await self.devices() if x.get("device_code") == str(st.get("path")).split("/")[2]), None) or {}
+            code = await self._trip_device(st)
+            d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
             st["body"]["via"] = hubroute.waypoints(
                 hubroute.stars_between(d.get("location") or "", [x for x in exit_via if x not in ramp] + hubs_ + ramp),
                 str(st["body"].get("destination") or "").upper())
@@ -1246,10 +1267,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         True when steps were added ahead of this one (it runs after them)."""
         body, path = st.get("body") or {}, str(st.get("path") or "")
         via = [x for x in body.get("via") or [] if "-" in x]
-        rep = path.startswith("/replicants/") and path.endswith("/travel")
-        if not via or not (rep or (path.startswith("/devices/") and body.get("command") == "travel")):
+        rep = path.startswith("/replicants/")
+        code = await self._trip_device(st)
+        if not via or not code:
             return False
-        code = str(st.get("wait_device") or "") if rep else path.split("/")[2]
         dest = str(body.get("destination") or "").upper()
         d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
         if star_of(d.get("location")) != star_of(dest) or any(star_of(x) != star_of(dest) for x in via):
@@ -1293,22 +1314,22 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from . import hubroute
         body, path = st.get("body") or {}, str(st.get("path") or "")
         ramp = st.get("arrive_via")
-        if not ramp or ramp not in (body.get("via") or []) or body.get("command") != "travel" or not path.startswith("/devices/"):
+        code = await self._trip_device(st)
+        if not ramp or ramp not in (body.get("via") or []) or not code:
             return False
         ds = star_of(ramp)
         entry = await self._hub_entry(ds)
         if not entry or entry == ramp:
             return False
-        code = path.split("/")[2]
         via = list(body.get("via") or [])
         before = via[:via.index(ramp)]
         while before and star_of(before[-1]) == ds:   # the star stars_between put ahead of the off-ramp
             before.pop()
         flags = {"wait_device": code, "exit_checked": True, "hub_checked": True, "riders_checked": True, "sector_ok": True}
         first = step(f"{code} → {entry} (entry point, then a surge hop to {ramp})", path,
-                     {"command": "travel", "destination": entry} | ({"via": hubroute.waypoints(before, entry)} if before else {}),
+                     self._travel_body(path, entry) | ({"via": hubroute.waypoints(before, entry)} if before else {}),
                      wait=["travel.arrived"], match={"destination": entry})
-        hop = step(f"{code} → {ramp} (surge hop)", path, {"command": "travel", "destination": ramp},
+        hop = step(f"{code} → {ramp} (surge hop)", path, self._travel_body(path, ramp),
                    wait=["travel.arrived"], match={"destination": ramp})
         add = []
         for h in (first, hop):
@@ -1362,11 +1383,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from . import wardhub as wh
         body = st.get("body") or {}
         path = str(st.get("path") or "")
-        if (body.get("command") != "travel" or "via" in body or body.get("dry_run") or not path.startswith("/devices/")
-                or st.get("hub_checked") or (job.get("meta") or {}).get("sim")):
+        code = await self._trip_device(st)
+        if (not code or "via" in body or body.get("dry_run") or st.get("hub_checked") or (job.get("meta") or {}).get("sim")):
             return
         st["hub_checked"] = True
-        code, dest = path.split("/")[2], str(body.get("destination") or "")
+        dest = str(body.get("destination") or "")
         devs = await self.devices()
         d = next((x for x in devs if x.get("device_code") == code), None) or {}
         # a hub slows every ship arriving in its system, whoever owns it (owner 2026-10-22)
@@ -1436,11 +1457,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         Each needs to save at least 30 AU and a quarter of the cruise."""
         from .fleets import cruise_au
         body, path = st.get("body") or {}, str(st.get("path") or "")
-        if (body.get("command") != "travel" or st.get("exit_checked") or body.get("via") or body.get("dry_run")
-                or not path.startswith("/devices/") or (job.get("meta") or {}).get("sim")):
+        code = await self._trip_device(st)
+        if (not code or st.get("exit_checked") or body.get("via") or body.get("dry_run")
+                or (job.get("meta") or {}).get("sim")):
             return []
         st["exit_checked"] = True
-        code, dest = path.split("/")[2], str(body.get("destination") or "").upper()
+        dest = str(body.get("destination") or "").upper()
         d = next((x for x in await self.devices() if x.get("device_code") == code), None) or {}
         here = str(d.get("location") or "").upper()
         if "surge" not in (d.get("features") or []) or not here or here == dest:

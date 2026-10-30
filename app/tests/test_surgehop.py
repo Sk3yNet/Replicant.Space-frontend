@@ -7,7 +7,7 @@ SCAN = {"planets": [{"designation": "Z-1", "orbital_distance_au": 1.0}, {"design
         "outer_system": {"kuiper": {"designation": "Z-KUIPER", "distance_au": 505}}}
 
 
-def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1", hub=False, scanned=True):
+def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1", hub=False, scanned=True, path="/devices/V1"):
     from rsweb import automations as au
     from rsweb.db import now_iso
     e, db = eng(client), client.app.state.db
@@ -19,19 +19,21 @@ def _run(client, at="Z-1-L4", refuse_hop=False, dest="Z-BELT-1", hub=False, scan
         e.cruise_radii = lambda: _radii(radii)
         client.portal.call(db.execute, "DELETE FROM systems WHERE star=?", ("Z",))
     client.portal.call(db.kv_set, "devices", [{"device_code": "V1", "device_type": "heaven_vessel", "status": "idle",
-                                               "location": at, "features": ["surge", "cruise"]}]
+                                               "location": at, "features": ["surge", "cruise"],
+                                               "hosting_replicant": {"replicant_code": "R1"}}]
                        + ([{"device_code": "H1", "device_type": "system_hub", "status": "relaying", "location": "Z-1-L4"}]
                           if hub else []))
     sent = []
 
-    async def fake_send(method, path, body, label):
-        sent.append(dict(body or {}))
+    async def fake_send(method, p, body, label):
+        sent.append(dict(body or {}) if path == "/devices/V1" else (p, dict(body or {})))
         if refuse_hop and body.get("via"):
             return False, None, refuse_hop if isinstance(refuse_hop, str) else "Invalid destination"
         return True, {}, None
     e.send = fake_send
     job = client.portal.call(e.create_job, "fleets", "trip", "V1",
-                             [au.step(f"V1 → {dest}", "/devices/V1", {"command": "travel", "destination": dest})], {}, True)
+                             [au.step(f"V1 → {dest}", path, {"command": "travel", "destination": dest} if path == "/devices/V1"
+                                      else {"destination": dest})], {}, True)
     return sent, next(j for j in client.portal.call(e.jobs) if j["id"] == job["id"])
 
 
@@ -257,3 +259,15 @@ def test_a_replicant_trip_refused_as_a_loop_hops_first(client):
     assert sent[-1] == ("/replicants/R1/travel", {"destination": "Z-KUIPER"})
     _arrive(client, "Z-KUIPER")
     assert sent[-1] == ("/replicants/R1/travel", {"destination": "Z-BELT-1"})
+
+
+def test_a_trip_sent_by_its_replicant_surge_hops_too(client):
+    # live 2026-10-30: a repair patrol sent 5DF3161B by its replicant (/replicants/8EC42FBA/travel) from ISOLITHOR-1-L4 to
+    # ISOLITHOR-BELT-1 with no via: 499 AU of cruise, 56 min
+    sent, job = _run(client, path="/replicants/R1/travel", refuse_hop="Loop detected: already at Z")
+    assert sent == [("/replicants/R1/travel", {"destination": "Z-BELT-1", "via": ["Z-KUIPER"]}),
+                    ("/replicants/R1/travel", {"destination": "Z-KUIPER"})]
+    _arrive(client, "Z-KUIPER")
+    assert sent[-1] == ("/replicants/R1/travel", {"destination": "Z-BELT-1"})
+    sent, _ = _run(client, path="/replicants/R1/travel", at="Z-BELT-1", dest="Y-2-L4")
+    assert sent == [("/replicants/R1/travel", {"destination": "Y-2-L4", "via": ["Z-KUIPER", "Y"]})]
