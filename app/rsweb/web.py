@@ -3064,8 +3064,8 @@ async def ami(request: Request, user: str = Depends(current_user)):
         last_dir = await db.fetchone(
             "SELECT * FROM events WHERE device_code=? AND event LIKE 'directive.%' ORDER BY seq DESC LIMIT 1",
             (d["device_code"],))
-        candidates = [x for x in st["devices"] if x.get("location") == d.get("location")
-                      and "ami" not in (x.get("features") or [])]
+        candidates = [x for x in st["devices"] if x.get("controller_device_code") == d["device_code"]
+                      or (x.get("location") == d.get("location") and amis.can_adopt(d, x))]
         names = await device_directives(request, d)
         csugg = await suggestions(request, d.get("location"))
         ctrls.append({"d": d, "kind": kind, "digest": row_event(last) if last else None, "sugg": csugg,

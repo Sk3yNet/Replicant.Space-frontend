@@ -104,7 +104,7 @@ COMMANDS: dict[str, list[Field]] = {
     "repair": [F("target", "device", required=True, help="Device to repair (not while the drone runs a patrol directive)")],
     "replicate": [F("target", "device", required=True, label="empty matrix",
                     filter={"device_type": "empty_replicant_matrix"})],
-    "adopt": [F("devices", "devices", required=True, filter={"not_feature": "ami"})],
+    "adopt": [F("devices", "devices", required=True, filter={"adoptable_by_self": True})],
     "release": [F("devices", "devices", required=True, filter={"controlled_by_self": True})],
     "set_directive": [F("directive", "choice", required=True)],  # AMI page renders the directive's own fields
     "clear_directive": [],
@@ -346,6 +346,11 @@ def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
             continue
         if flt.get("controlled_by_self") and d.get("controller_device_code") != self_code:
             continue
+        if flt.get("adoptable_by_self"):
+            from .ami_schedule import can_adopt
+            me = me or next((x for x in sugg["devices"] if x.get("device_code") == self_code), {})
+            if not can_adopt(me, d):
+                continue
         if flt.get("stowed_in_self") and d.get("stowed_in_device_code") != self_code:
             continue
         if flt.get("here") and (not here or d.get("location") != here or d.get("stowed_in_device_code")

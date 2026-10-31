@@ -161,6 +161,25 @@ def reserved(d: dict) -> bool:
     return on_mission(d) or in_transit(d) or "spare" in (d.get("tags") or [])
 
 
+def can_adopt(ctrl: dict, d: dict) -> bool:
+    """Could this controller adopt this device: not a controller (a fleet controller also takes other fleet
+    controllers), not under another controller already, a type this kind of controller runs (survey: survey drones and
+    belt surveyors; mining: mining drones; transport: haulers, transport drones, freighters; fleet: surge-capable
+    devices), in the controller's system (commands reach only the system they're relayed to; a fleet controller needs
+    only reachability). Other kinds (maintenance, trade) have no known type rule, so only the first two checks apply."""
+    from .loadouts import can_surge
+    kind, t = kind_of(ctrl.get("device_type")), d.get("device_type") or ""
+    if d.get("device_code") == ctrl.get("device_code") or d.get("controller_device_code"):
+        return False
+    if kind == "fleet":
+        return can_surge(d) and (not is_controller(d) or kind_of(t) == "fleet")
+    if is_controller(d):
+        return False
+    if kind in DRONE_FOR_KIND and not runs(kind, t) and not (kind == "transport" and "freighter" in t):
+        return False
+    return kind not in DRONE_FOR_KIND or star_of(d.get("location")) == star_of(ctrl.get("location"))
+
+
 def adoptable(devices: list[dict], ctrl: dict, managed: dict[str, str]) -> list[str]:
     """Idle drones of the right kind at the controller's location that no controller manages
     (and that belong to the same fleet as the controller, or to none)."""

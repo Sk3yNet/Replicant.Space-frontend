@@ -9784,3 +9784,31 @@ def test_page_location_reads_stamp_for_the_engine(client):
     assert "SOL-BELT-1" in client.portal.call(db.kv_get, "belt_reads")
     assert client.portal.call(locread.fresh, db, "SOL-BELT-1", 600)["location"] == "SOL-BELT-1"
     assert client.portal.call(locread.fresh, db, "SOL-BELT-1", -1) is None
+
+
+def test_adopt_options_only_what_the_controller_can_adopt():
+    from rsweb import commands as c
+    ami = ["ami"]
+    devs = [
+        {"device_code": "MC", "device_type": "ami_mining_controller", "features": ami, "location": "X-BELT-1"},
+        {"device_code": "M1", "device_type": "mining_drone", "location": "X-BELT-1", "status": "idle"},
+        {"device_code": "M2", "device_type": "mining_drone", "location": "X-5-L4", "status": "idle"},
+        {"device_code": "M3", "device_type": "mining_drone", "location": "Y-BELT-1", "status": "idle"},
+        {"device_code": "M4", "device_type": "mining_drone", "location": "X-BELT-1", "controller_device_code": "OC"},
+        {"device_code": "M5", "device_type": "mining_drone", "location": "X-BELT-1", "controller_device_code": "MC"},
+        {"device_code": "S1", "device_type": "survey_drone", "location": "X-BELT-1"},
+        {"device_code": "OC", "device_type": "ami_mining_controller", "features": ami, "location": "X-BELT-1"},
+        {"device_code": "SC", "device_type": "ami_survey_controller", "features": ami, "location": "X-BELT-1"},
+        {"device_code": "BS", "device_type": "belt_surveyor", "location": "X-BELT-1"},
+        {"device_code": "TC", "device_type": "ami_transport_controller", "features": ami, "location": "X-BELT-1"},
+        {"device_code": "CF", "device_type": "cargo_freighter", "location": "X-BELT-1"},
+        {"device_code": "FC", "device_type": "fleet_controller", "features": ami, "location": "Y-OORT"},
+        {"device_code": "FC2", "device_type": "fleet_controller", "features": ami + ["surge"], "location": "X-OORT"},
+        {"device_code": "V1", "device_type": "racing_vessel", "features": ["surge"], "location": "X-OORT"},
+    ]
+    f = c.COMMANDS["adopt"][0]
+    pick = lambda me: sorted(o["value"] for o in c.device_options({"devices": devs, "here": "X-BELT-1"}, f, me))
+    assert pick("MC") == ["M1", "M2"]          # same system, mining drones, not under a controller
+    assert pick("SC") == ["BS", "S1"]
+    assert pick("TC") == ["CF"]
+    assert pick("FC") == ["FC2", "V1"]         # surge-capable, anywhere, fleet controllers too
