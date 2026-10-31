@@ -2922,44 +2922,50 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from . import pathing as pa
         from . import wards
         from .census import observatory_stars
-        cat = await self.db.kv_get("stars", {}) or {}
-        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+        shared = await self.star_lookup("pos")   # shared and read-only: copying the catalog per fleet was most of the pass
         found, _ = await observatory_stars(self.db)
-        for k, v in found.items():
-            pos.setdefault(k, v.get("position"))
-        xyz_of = {k: v for k, v in ((k, pa.xyz(p)) for k, p in pos.items()) if v}
+        extra = {k: v.get("position") for k, v in found.items() if k not in shared and v.get("position")}
+        pos = {**shared, **extra} if extra else shared
+        xyz_all = await self.star_lookup("xyz")
+        xyz_of = {**xyz_all, **{k: v for k, v in ((k, pa.xyz(p)) for k, p in extra.items()) if v}} if extra else xyz_all
         home = f.get("home") or ""
-        if home not in xyz_of:
+        if not xyz_of.get(home):
             return None, f"{home or 'its home'} has no position in the star catalog"
         scans = {r["star"]: r["data"] for r in await self.db.fetchall("SELECT star, data FROM systems")}
         surveyed = await self.db.kv_get("surveyed", {}) or {}
         busy = {star_of(t) for g in items if g.get("id") != f.get("id") and (g.get("mission") or {}).get("status") in ("running", "stalled")
                 for t in (g["mission"].get("targets") or [])}
-        skip = busy | (fl.worked_systems(items) - {home}) | wards.foreign(cat, devices) | set(exclude)
+        skip = busy | (fl.worked_systems(items) - {home}) | wards.foreign(await self.star_lookup("flagged"), devices) | set(exclude)
         riding = bool(fl.fleet_replicant(f, devices, await self.db.kv_get("replicants", {}) or {}))
-        reach = await self.commandable(devices, {k: {"position": v} for k, v in pos.items()}) if not riding else set()
+        reach = (await self.commandable(devices, {k: {"position": v} for k, v in pos.items()} if extra else None)
+                 if not riding else set())
+        radius = self.SCOUT_RADIUS_LY
 
-        def done(star: str) -> bool:
-            if star not in scans:
-                return False
-            try:
-                scan = json.loads(scans[star] or "{}")
-            except ValueError:
-                return False
-            return not survey_targets(scan, surveyed, False, False, 1)   # every body but the belts surveyed
-        here_xyz = xyz_of.get(here or home) or xyz_of[home]
-        cands = []
-        for s, p in xyz_of.items():
-            if s in skip or done(s) or (not riding and s not in reach):
-                continue
-            dh, dc = math.dist(p, xyz_of[home]), math.dist(p, here_xyz)
-            if dh > self.SCOUT_RADIUS_LY:
-                continue
-            cands.append((round(dh / 2.0), dc, s))   # 2-ly rings outward from home; within a ring, the nearest hop first
-        if not cands:
+        def pick() -> str | None:   # pure: every catalog star against local copies, so it runs in a thread
+            def done(star: str) -> bool:
+                if star not in scans:
+                    return False
+                try:
+                    scan = json.loads(scans[star] or "{}")
+                except ValueError:
+                    return False
+                return not survey_targets(scan, surveyed, False, False, 1)   # every body but the belts surveyed
+            home_xyz = xyz_of[home]
+            here_xyz = xyz_of.get(here or home) or home_xyz
+            cands = []
+            for s, p in xyz_of.items():
+                if p is None or s in skip or (not riding and s not in reach):
+                    continue
+                dh = math.dist(p, home_xyz)
+                if dh > radius or done(s):
+                    continue
+                cands.append((round(dh / 2.0), math.dist(p, here_xyz), s))   # 2-ly rings outward from home; within a ring, the nearest hop first
+            return min(cands)[2] if cands else None
+        best = await asyncio.to_thread(pick)
+        if best is None:
             return None, (f"every known system within {self.SCOUT_RADIUS_LY:g} ly of {home} "
                           + ("" if riding else "inside relay coverage ") + "is surveyed or taken")
-        return min(cands)[2], ""
+        return best, ""
 
     async def system_surveyed(self, star: str) -> bool:
         """Every body but the belts surveyed (scout_next's test), or an AMI survey_system reported nothing left."""

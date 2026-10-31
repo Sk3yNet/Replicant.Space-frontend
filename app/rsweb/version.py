@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.315.3"
+VERSION = "1.316.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.316.0", "2026-10-31", "Less waiting on the server (Joe). The relay rollout and auto scout passes, the two costliest engine stages in the 02:12 snapshot (about 1.2 s and 1.4 s of CPU every tick), stop copying the whole star catalog and run their star searches in a thread, so pages and the event stream keep their turn; auto scout also checks distance before reading a system's scan. Fleet pages' hourly plans are served from the old copy while one refresh runs in the background, and pages asking at the same time share one run. The diagnostics snapshot download is written out in a thread."),
     ("1.315.3", "2026-10-30", "Ships flown by their replicant surge hop now. Logistics, loadouts and fleets send a vessel that hosts a replicant through the replicant's travel order, and route planning (surge hops, hubs, the off-ramp) only looked at device travel orders, so those trips took the game's own route: a repair patrol sent 5DF3161B from ISOLITHOR-1-L4 to ISOLITHOR-BELT-1 on a 499 AU cruise (56 min) instead of a 30 s hop to the Kuiper belt."),
     ("1.315.2", "2026-10-30", "The device page's Stow into list and Console command suggestions no longer offer a carrier's attach points to a device the game refused to attach."),
     ("1.315.1", "2026-10-30", "Messages: civilizations' requests for help are recognized by their \"Broadcast intercepted:\" wording (Joe), instead of a guess at it."),

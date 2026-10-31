@@ -3497,7 +3497,9 @@ async def diagnostics_download(request: Request, user: str = Depends(current_use
     if not snap:
         return HTMLResponse("No snapshot yet.", status_code=404)
     name = f"replicant-snapshot-{(snap.get('captured_at') or 'x')[:19].replace(':', '')}.json"
-    return Response(json.dumps(snap, indent=1, default=str), media_type="application/json",
+    # indented, json.dumps runs the pure-Python encoder over several MB: in a thread the loop keeps its turn meanwhile
+    body = await asyncio.to_thread(json.dumps, snap, indent=1, default=str)
+    return Response(body, media_type="application/json",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 

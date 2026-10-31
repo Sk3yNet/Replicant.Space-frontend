@@ -40,15 +40,16 @@ def state(raw: dict | None) -> dict:
 
 def queue(seeds: list[str], pos: dict[str, Any], have: set[str], ordered: set[str], skipped: set[str],
           radius: float, chained: bool, limit: int | None = None, radii: dict[str, float] | None = None,
-          ranges: dict[str, float] | None = None, hop: float = RELAY_LY, long_hop: float = 0.0) -> list[dict]:
+          ranges: dict[str, float] | None = None, hop: float = RELAY_LY, long_hop: float = 0.0,
+          grid: tuple[dict, dict] | None = None) -> list[dict]:
     """Systems still without a relay, in rollout order: [{star, ly (to the nearest seed), seed, kind}], nearest first.
     A seed's reach is radii[seed], else radius; a system counts for the nearest seed whose reach it lies in.
     Chained: only those within a relay's hop of a system that has one, has one on order, or is a seed, growing outward
     as each is reached (the order the rollout would go in if every order succeeded). `ranges`: how far what's there (or
     on order) reaches, {star: ly}, else `hop` (a link needs either end in reach: relaynet.links). With `long_hop` (the
     long-range station's reach), a system no relay chain reaches but a station's hop does comes after every relay one:
-    kind "station"."""
-    xyz_all, cells = _grid(pos)
+    kind "station". `grid`: _grid(pos) worked out already (relaynet.star_grid), so a caller in a thread only reads."""
+    xyz_all, cells = grid or _grid(pos)
     seed_xyz = [(s, xyz_all[s]) for s in seeds if s in xyz_all]
     if not seed_xyz:
         return []

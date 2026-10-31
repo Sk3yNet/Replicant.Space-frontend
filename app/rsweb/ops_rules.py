@@ -4,6 +4,7 @@ Mixed into AutomationEngine (automations.py), so `self` has db, api, hub, worker
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -328,8 +329,8 @@ class OpsRules:
         if not st["on"] and not st["ordered"]:
             return []
         devices = await self.devices()
-        cat = await self.db.kv_get("stars", {}) or {}
-        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("position")}
+        pos = await relaynet.star_pos(self.db)   # shared and read-only: copying the catalog each tick was most of this pass
+        grid = relaynet.star_grid(pos)   # built here on the loop, so the queue's thread only reads it
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         ns = relaynet.nodes(devices, pos, bps)
         have = set(ns)
@@ -356,9 +357,11 @@ class OpsRules:
         st["capacity"] = cap
         while st["on"] and len(st["ordered"]) < max(1, cap):
             ranges = {**{x: n["range"] for x, n in ns.items()}, **{x: hops["long_hop"] for x in stations}}
-            nxt = rr.queue(st["seeds"], pos, have, set(orders) | set(st["ordered"]), set(st["skipped"]),
-                           float(st["radius"]), bool(st["chained"]), limit=1, radii=st["radii"], ranges=ranges,
-                           hop=hops["hop"], long_hop=hops["long_hop"] if st["long"] else 0.0)
+            # a pure search over every catalog star (~1 s CPU live, 2026-10-31): in a thread the loop keeps its turn
+            nxt = await asyncio.to_thread(
+                rr.queue, list(st["seeds"]), pos, set(have), set(orders) | set(st["ordered"]), set(st["skipped"]),
+                float(st["radius"]), bool(st["chained"]), limit=1, radii=dict(st["radii"] or {}), ranges=ranges,
+                hop=hops["hop"], long_hop=hops["long_hop"] if st["long"] else 0.0, grid=grid)
             if not nxt:
                 if not st["ordered"]:
                     st["on"] = False
@@ -395,8 +398,7 @@ class OpsRules:
         devices = await self.devices()
         if not any(d.get("device_type") == relaynet.STATION for d in devices):
             return []
-        cat = await self.db.kv_get("stars", {}) or {}
-        pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("position")}
+        pos = await relaynet.star_pos(self.db)   # shared and read-only
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         relays = await self.db.kv_get(wo.kv_key("relay"), {}) or {}
         busy = self.busy_devices(await self.jobs())
