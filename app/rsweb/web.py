@@ -4239,7 +4239,9 @@ async def game_events_ctx(request: Request) -> dict:
     evs = await gev.load(db)
     settings = await db.kv_get("event_settings", {}) or {}
     supply = await db.kv_get("contract_supply", {}) or {}
-    life, approvals = await gev.life_map(db), await db.kv_get(gev.APPROVALS_KV, {}) or {}
+    life = await gev.life_map(db)
+    approvals = await gev.approvals_of(db, life)
+    at_beacon = gev.beacon_bodies(st["devices"])
     bps = normalize_blueprints(await db.kv_get("blueprints", []))
     open_, closed = [], []
     for e in sorted(evs.values(), key=lambda e: e.get("discovered_at") or "", reverse=True):
@@ -4248,8 +4250,8 @@ async def game_events_ctx(request: Request) -> dict:
             e["plan"] = gev.delivery_plan(e, e["prog"], st["devices"])
             gev.option_costs(e["prog"], st["devices"], bps)
             e["supply"] = supply.get(e["designation"])
-            key, label = gev.species_key(e, life)
-            e["approval"] = {"key": key, "label": label, "on": key in approvals}
+            key, label = gev.place_key(e, life)
+            e["approval"] = {"key": key, "label": label, "on": key in approvals, "beacon": e["location"] in at_beacon}
             ck = gev.contract_key(e)
             e["approval_one"] = {"key": ck, "on": ck in approvals}
             open_.append(e)
@@ -4267,8 +4269,8 @@ async def game_events_ctx(request: Request) -> dict:
         if loc and loc not in asking:
             quiet.setdefault(loc, {"location": loc, "star": e.get("star"), "stage": "asked before"})
     for q in quiet.values():
-        key, label = gev.species_key(q, life)
-        q["approval"] = {"key": key, "label": label, "on": key in approvals}
+        key, label = gev.place_key(q, life)
+        q["approval"] = {"key": key, "label": label, "on": key in approvals, "beacon": q["location"] in at_beacon}
     quiet_rows = sorted(quiet.values(), key=lambda q: q["location"])   # fixed order: a row never jumps when approved
     # your deployed beacons at each civilization's body, and elsewhere in its system (traffic.coverage)
     from . import traffic as tr
@@ -4281,7 +4283,8 @@ async def game_events_ctx(request: Request) -> dict:
     return {"open": open_, "closed": closed[:30], "replicants": st["replicants"], "settings": settings, "quiet": quiet_rows,
             "traders": await sh.known_traders(db), "traders_last": await db.kv_get(sh.LAST_KV),
             "listing_wanted": await db.kv_get(sh.LISTING_KV, {}) or {}, "mine": set(st["replicants"]), "trade_side": sh.describe_side,
-            "trade_ok": await db.kv_get("trade_approvals", {}) or {}, "beacon": beacon}
+            "trade_ok": await db.kv_get("trade_approvals", {}) or {}, "beacon": beacon,
+            "beacon_auto": gev.BEACON_KEY in approvals, "beacon_key": gev.BEACON_KEY}
 
 
 @router.get("/game-events", response_class=HTMLResponse)
@@ -4353,10 +4356,10 @@ async def game_event_fulfil(request: Request, des: str, replicant: str = Form(""
 
 @router.post("/game-events/approve", response_class=HTMLResponse)
 async def game_event_approve(request: Request, key: str = Form(...), on: str = Form(""), user: str = Depends(current_user)):
-    """Approve (or withdraw approval for) one contract, or pre-approve a civilization's (its species'): auto-fulfil only
-    takes approved or pre-approved ones."""
+    """Approve (or withdraw approval for) one contract, pre-approve every contract from a location, or switch on
+    auto-approval at locations with your beacon: auto-fulfil only takes approved or pre-approved ones."""
     db = request.app.state.db
-    approvals = await db.kv_get(gev.APPROVALS_KV, {}) or {}
+    approvals = await gev.approvals_of(db)
     if on:
         approvals[key] = {"at": now_iso(), "by": user}
     else:

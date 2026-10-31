@@ -190,10 +190,12 @@ def delivery_plan(e: dict, prog: dict, devices: list[dict]) -> dict:
 
 
 # --- approval before anything fulfills a contract on its own ----------------------------------------------------------
-# Auto-fulfil (the Work on contracts rule, trade fleets' auto-fulfil contracts) only takes a contract whose species you
-# have approved on the Contracts page (off until you tick it). The species comes from the system scan of the contract's
-# body; without one, the body itself is what you approve.
+# Auto-fulfil (the Work on contracts rule, trade fleets' auto-fulfil contracts) only takes a contract you approved on the
+# Contracts page (off until you tick it): that one contract, or every contract from its location (Joe 2026-10-31: a
+# species with several colonies is approved place by place), or, with BEACON_KEY on, any location where a beacon of
+# yours is deployed. Approvals saved per species before 1.321.0 are spread over that species' known locations once.
 APPROVALS_KV = "contract_approvals"
+BEACON_KEY = "auto:beacon"
 CHOICE_KV = "contract_choice"   # {designation: option name}: the way a contract with several options is fulfilled
 
 
@@ -202,12 +204,11 @@ async def life_map(db) -> dict[str, dict]:
     return inhabited(*await life_sources(db))
 
 
-def species_key(e: dict, life: dict[str, dict]) -> tuple[str, str]:
-    """(approval key, label) for a contract: its species, else its body."""
-    sp = (life.get(e.get("location") or "") or {}).get("species") or e.get("species")
-    if sp:
-        return f"species:{str(sp).lower()}", str(sp)
-    return f"body:{e.get('location')}", f"the inhabitants of {e.get('location')}"
+def place_key(e: dict, life: dict[str, dict]) -> tuple[str, str]:
+    """(approval key, label) for every contract from one location: its species and body, else the body alone."""
+    loc = e.get("location")
+    sp = (life.get(loc or "") or {}).get("species") or e.get("species")
+    return f"body:{loc}", (f"{sp} at {loc}" if sp else f"the inhabitants of {loc}")
 
 
 def contract_key(e: dict) -> str:
@@ -215,8 +216,38 @@ def contract_key(e: dict) -> str:
     return f"contract:{e.get('designation')}"
 
 
-async def approved(db, e: dict, life: dict[str, dict] | None = None, approvals: dict | None = None) -> bool:
-    """Approved (this contract) or pre-approved (its civilization: the species, else the body)."""
+async def approvals_of(db, life: dict[str, dict] | None = None) -> dict:
+    """The saved approvals, with any old per-species approval turned into one per location of that species."""
+    approvals = await db.kv_get(APPROVALS_KV, {}) or {}
+    old = {k: v for k, v in approvals.items() if k.startswith("species:")}
+    if not old:
+        return approvals
     life = life if life is not None else await life_map(db)
-    approvals = approvals if approvals is not None else (await db.kv_get(APPROVALS_KV, {}) or {})
-    return contract_key(e) in approvals or species_key(e, life)[0] in approvals
+    places = [(loc, (info or {}).get("species")) for loc, info in life.items()]
+    places += [(e.get("location"), e.get("species")) for e in (await load(db)).values()]
+    for k, v in old.items():
+        for loc, sp in places:
+            if loc and sp and f"species:{str(sp).lower()}" == k:
+                approvals.setdefault(f"body:{loc}", v)
+        approvals.pop(k)
+    await db.kv_set(APPROVALS_KV, approvals)
+    return approvals
+
+
+def beacon_bodies(devices: list[dict]) -> set[str]:
+    """Locations where a beacon of yours is deployed."""
+    from .traffic import beacons
+    return {d["location"] for d in beacons(devices or [])}
+
+
+async def approved(db, e: dict, life: dict[str, dict] | None = None, approvals: dict | None = None,
+                   devices: list[dict] | None = None) -> bool:
+    """Approved: this contract, its location, or (auto-approve with a beacon on) a beacon of yours at its location."""
+    life = life if life is not None else await life_map(db)
+    approvals = approvals if approvals is not None else await approvals_of(db, life)
+    if contract_key(e) in approvals or place_key(e, life)[0] in approvals:
+        return True
+    if BEACON_KEY in approvals:
+        devices = devices if devices is not None else (await db.kv_get("devices", []) or [])
+        return e.get("location") in beacon_bodies(devices)
+    return False

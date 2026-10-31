@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.320.3"
+VERSION = "1.321.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.321.0", "2026-10-31", "Contracts are pre-approved per location, not per species (Joe: a species with several colonies ticked and unticked together down the list). Each civilization row and contract card approves only its own body; approvals saved per species are spread once over that species' known locations, so nothing already approved is lost. A new setting at the top of the Contracts page auto-approves contracts at every location where a beacon of yours is deployed; those contracts show it and their own box is locked on."),
     ("1.320.3", "2026-10-31", "Contracts approvals save in place, and no page puts back old ticks (Joe: ticks still moved, also on device pages). Ticking an approval no longer reloads the Contracts page: a civilization's pre-approval ticks and locks its contracts' own boxes right away, and unticking it gives them back their own approval. Every checkbox, radio button and dropdown on every page now opts out of the browser's restore after a reload, so each one shows what the app has saved."),
     ("1.320.2", "2026-10-31", "Automated steps the game server fails to answer (Service Unavailable, Bad Gateway, Gateway Timeout, no answer) are sent again every 2 minutes, up to 6 tries, instead of being skipped. In the 12:15 snapshot two logistics trips were skipped that way and their jobs then stopped waiting for carriers that had never left. A freighter its transport controller ferries between two places no longer counts as a stray from its fleet (Miner_5's B102EB12, shuttling MARKOB to SOLARES, was reported with nothing bringing it home)."),
     ("1.320.1", "2026-10-31", "Contracts page checkboxes stay on their own contract (Joe: ticks seemed to move, unapproved contracts showed checked). Approving a quiet civilization moved its row to the bottom and the page reloaded, so Firefox restored the ticks by position onto other rows; the boxes now opt out of that restore (also on Fleets, Automations, AMI schedules and system pages), quiet civilizations keep a fixed A–Z order, and live updates match each contract card by its designation instead of its title. Display only: each box saves only its own contract."),

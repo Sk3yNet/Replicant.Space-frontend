@@ -10,6 +10,10 @@
 <p class="muted small">Discovered events and what they ask for. A replicant must be at the event's location to fulfill one; the
   criteria are consumed from what's there. Progress counts stock at the location and across its system.</p>
 {% with ids="contracts" %}{% include "partials/rules_slot.html" %}{% endwith %}
+<label class="small" style="text-transform:none;display:block;margin-bottom:10px">
+  <input type="checkbox" name="on" value="1" {{ 'checked' if beacon_auto }} hx-post="/game-events/approve" hx-swap="none"
+         data-approve="{{ beacon_key }}" hx-vals='{{ {"key": beacon_key} | tojson }}' hx-trigger="change">
+  Auto-approve contracts at every location where a beacon of yours is deployed</label>
 
 {% for e in open %}{% set p = e.prog %}{% set b = p.best %}
 <div class="card" id="ev-{{ e.designation }}" style="margin-bottom:12px">
@@ -21,13 +25,14 @@
   <label class="small" style="text-transform:none;display:block;margin-top:4px">
     <input type="checkbox" autocomplete="off" name="on" value="1" {{ 'checked' if e.approval.on }} hx-post="/game-events/approve" hx-swap="none"
            data-approve="{{ e.approval.key }}" hx-vals='{{ {"key": e.approval.key} | tojson }}' hx-trigger="change">
-    Pre-approve contracts from <b>{{ e.approval.label }}</b> (fulfilled automatically, by the logistics service)</label>
+    Pre-approve every contract from <b>{{ e.approval.label }}</b> (fulfilled automatically, by the logistics service)</label>
   <label class="small" style="text-transform:none;display:block">
-    <input type="checkbox" autocomplete="off" name="on" value="1" {{ 'checked' if e.approval_one.on or e.approval.on }} {{ 'disabled' if e.approval.on }} hx-post="/game-events/approve" hx-swap="none"
-           data-approve="{{ e.approval_one.key }}" data-species="{{ e.approval.key }}" data-own="{{ 1 if e.approval_one.on else 0 }}"
+    <input type="checkbox" autocomplete="off" name="on" value="1" {% set by_beacon = beacon_auto and e.approval.beacon %}{{ 'checked' if e.approval_one.on or e.approval.on or by_beacon }} {{ 'disabled' if e.approval.on or by_beacon }} hx-post="/game-events/approve" hx-swap="none"
+           data-approve="{{ e.approval_one.key }}" data-species="{{ e.approval.key }}" data-own="{{ 1 if e.approval_one.on else 0 }}" data-beacon="{{ 1 if e.approval.beacon else 0 }}"
            hx-vals='{{ {"key": e.approval_one.key} | tojson }}' hx-trigger="change">
     Approve this contract
-    {% if not e.approval.on and not e.approval_one.on %}<span class="muted">— off: auto-fulfil leaves it to you (Fulfill still works)</span>{% endif %}</label>
+    {% if e.approval.beacon %}<span class="muted" data-beacon-note {{ 'hidden' if not beacon_auto }}>— your beacon is here: auto-approved</span>{% endif %}
+    {% if not e.approval.on and not e.approval_one.on and not by_beacon %}<span class="muted">— off: auto-fulfil leaves it to you (Fulfill still works)</span>{% endif %}</label>
   {% if e.description %}<p class="muted small">{{ e.description }}</p>{% endif %}
   <div class="grid g2">
     <div>
@@ -105,10 +110,11 @@
 
 {% if quiet %}<details class="card" id="quiet-civs" style="margin-bottom:12px">
   <summary><b>Civilizations not asking for anything</b> <span class="muted small">{{ quiet | length }} · approve them ahead of their next request</span></summary>
-  <table class="small" style="margin-top:6px"><tr><th>Location</th><th>Who</th><th>Life</th><th>Beacon</th><th>Auto-fulfill</th></tr>
+  <table class="small" style="margin-top:6px"><tr><th>Location</th><th>Who</th><th>Life</th><th>Beacon</th><th>Pre-approved</th></tr>
     {% for q in quiet %}<tr><td><a href="/systems/{{ q.star }}">{{ q.location }}</a></td><td>{{ q.approval.label }}</td><td class="muted">{{ q.stage }}</td><td>{{ beacon_mark(q.location, q.star) }}</td>
       <td><label style="text-transform:none"><input type="checkbox" autocomplete="off" name="on" value="1" {{ 'checked' if q.approval.on }} hx-post="/game-events/approve" hx-swap="none"
-          data-approve="{{ q.approval.key }}" hx-vals='{{ {"key": q.approval.key} | tojson }}' hx-trigger="change"> approved</label></td></tr>{% endfor %}
+          data-approve="{{ q.approval.key }}" hx-vals='{{ {"key": q.approval.key} | tojson }}' hx-trigger="change"> approved</label>
+        {% if q.approval.beacon %}<span class="muted" data-beacon-note {{ 'hidden' if not beacon_auto }}>· by beacon</span>{% endif %}</td></tr>{% endfor %}
   </table>
 </details>{% endif %}
 
@@ -140,16 +146,20 @@
 </div>
 {% endblock %}
 {% block scripts %}<script>
-// approvals save in place (no reload, Joe 2026-10-31): mirror a tick onto every box with the same key; a civilization's
-// pre-approval ticks and locks its contracts' own boxes, and withdrawing it gives them back their own approval
+// approvals save in place (no reload, Joe 2026-10-31): mirror a tick onto every box with the same key; a location's
+// pre-approval, or auto-approval with your beacon there, ticks and locks its contracts' own boxes, and taking it back
+// gives them back their own approval
 document.addEventListener("change", ev => {
   const t = ev.target, key = t.dataset && t.dataset.approve;
   if (!key) return;
-  if (t.dataset.species !== undefined) t.dataset.own = t.checked ? 1 : 0;
-  document.querySelectorAll("[data-approve]").forEach(b => {
-    if (b === t) return;
-    if (b.dataset.approve === key) { b.checked = t.checked; if (b.dataset.species !== undefined) b.dataset.own = t.checked ? 1 : 0; }
-    if (b.dataset.species === key) { b.disabled = t.checked; b.checked = t.checked || b.dataset.own === "1"; }
+  const boxes = [...document.querySelectorAll("[data-approve]")], on = k => boxes.some(b => b.dataset.approve === k && b.checked);
+  boxes.forEach(b => { if (b !== t && b.dataset.approve === key) b.checked = t.checked; });
+  boxes.forEach(b => { if (b.dataset.approve === key && b.dataset.species !== undefined) b.dataset.own = t.checked ? 1 : 0; });
+  const beacon = on("{{ beacon_key }}");
+  document.querySelectorAll("[data-beacon-note]").forEach(n => n.hidden = !beacon);
+  boxes.filter(b => b.dataset.species !== undefined).forEach(b => {
+    const locked = on(b.dataset.species) || (beacon && b.dataset.beacon === "1");
+    b.disabled = locked; b.checked = locked || b.dataset.own === "1";
   });
 });
 </script>{% endblock %}

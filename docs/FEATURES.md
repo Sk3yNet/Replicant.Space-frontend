@@ -576,7 +576,7 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
 0. **Evacuation**: stockpiles at an asteroid due to hit or be diverted.
 1. **Queued prints**: their cost minus what's stocked, waiting ones first.
 2. **Local delivery** and 3. **long-range transfer**:
-   - contracts you approved or whose civilization you pre-approved (Contracts);
+   - contracts you approved, whose location you pre-approved, or (with auto-approve by beacon on) at a location where your beacon is deployed (Contracts);
    - trades you approved (Shop: *Logistics buys* n, 0 = not approved: one delivery pays n prices and the trade runs n times, at most
      the stock; plain shop listings are never fulfilled);
    - a home system's piles consolidated at its drop point (its autofactory, else its biggest pile; systems the

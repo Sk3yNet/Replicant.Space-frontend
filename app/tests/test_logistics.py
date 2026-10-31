@@ -181,7 +181,7 @@ def test_a_contract_is_approved_alone_or_pre_approved_by_its_civilization():
     from rsweb import gameevents as gev
     e = {"designation": "EV9", "location": "Z-3", "species": "Glorp"}
     run = lambda ap: asyncio.run(gev.approved(None, e, {}, ap))  # noqa: E731
-    assert not run({}) and run({"contract:EV9": {}}) and run({"species:glorp": {}}) and not run({"contract:EV8": {}})
+    assert not run({}) and run({"contract:EV9": {}}) and run({"body:Z-3": {}}) and not run({"species:glorp": {}}) and not run({"contract:EV8": {}})
 
 
 def test_trade_fleets_retire_into_logistics_fleets_once_their_run_ends(client):  # noqa: F811

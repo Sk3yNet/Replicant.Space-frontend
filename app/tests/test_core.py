@@ -1809,7 +1809,7 @@ def test_contracts_rule_fulfils_when_ready(client):
     client.portal.call(client.app.state.db.kv_set, "replicants", {"77F75255": {"name": "bob-1", "location": "SOL-BELT-1"}})
     assert client.portal.call(eng.rule_contracts, True) == []                  # not approved yet: left to you
     page = client.get("/game-events", headers=H).text
-    assert "Pre-approve contracts from <b>the inhabitants of SOL-BELT-1</b>" in page
+    assert "Pre-approve every contract from <b>the inhabitants of SOL-BELT-1</b>" in page
     client.post("/game-events/approve", data={"key": "body:SOL-BELT-1", "on": "1"}, headers=HX)
     client.portal.call(client.app.state.db.kv_set, "contracts_state", {})
     done = client.portal.call(eng.rule_contracts, True)
@@ -6758,19 +6758,43 @@ def test_contracts_page_lists_quiet_civilizations_for_approval(client):
                        ("VETH", json.dumps(scan), "2026-10-09"))
     page = client.get("/game-events", headers=H).text
     assert "Civilizations not asking for anything" in page and "VETH-2" in page and "VETH-3" not in page
-    client.post("/game-events/approve", data={"key": "species:veth", "on": "1"}, headers=HX)
-    assert "species:veth" in client.portal.call(db.kv_get, "contract_approvals")
+    client.post("/game-events/approve", data={"key": "body:VETH-2", "on": "1"}, headers=HX)
+    assert "body:VETH-2" in client.portal.call(db.kv_get, "contract_approvals")
     # Joe 2026-10-31: approving moved the row and Firefox restored ticks by position onto other civilizations
     page = client.get("/game-events", headers=H).text
     box = page[page.index("VETH-2"):]
     assert 'autocomplete="off"' in box[:box.index("approved</label>")]
     # approving saves in place: no reload at all
-    r = client.post("/game-events/approve", data={"key": "species:veth", "on": ""}, headers=HX)
+    r = client.post("/game-events/approve", data={"key": "body:VETH-2", "on": ""}, headers=HX)
     assert "HX-Refresh" not in r.headers
     for path in ("/game-events", "/automations", "/fleets"):   # every full page: no box or select left to the browser's restore
         import re
         tags = re.findall(r'<(?:input[^>]*type="(?:checkbox|radio)"|select\b)[^>]*>', client.get(path, headers=H).text)
         assert tags and all('autocomplete="off"' in t for t in tags), path
+
+
+def test_contract_approvals_go_by_location_and_beacon(client):
+    """Joe 2026-10-31: one species at several bodies ticked and unticked together; approve per location instead, and
+    optionally every location with a beacon of yours deployed there."""
+    from rsweb import gameevents as gev
+    db = client.app.state.db
+    scan = {"planets": [{"designation": "VETH-2", "life_stage": "intelligent", "species": "Veth"},
+                        {"designation": "VETH-4", "life_stage": "intelligent", "species": "Veth"},
+                        {"designation": "VETH-5", "life_stage": "intelligent", "species": "Orn"}]}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("VETH", json.dumps(scan), "2026-10-09"))
+    client.portal.call(db.kv_set, "contract_approvals", {"species:veth": {"at": "x"}})   # saved before 1.321.0
+    ok = lambda loc: client.portal.call(gev.approved, db, {"location": loc, "designation": f"{loc}-EVT-001"})
+    assert ok("VETH-2") and ok("VETH-4") and not ok("VETH-5")
+    assert set(client.portal.call(db.kv_get, "contract_approvals")) == {"body:VETH-2", "body:VETH-4"}   # spread once
+    client.post("/game-events/approve", data={"key": "body:VETH-4", "on": ""}, headers=HX)
+    assert ok("VETH-2") and not ok("VETH-4")                                   # the other colony keeps its approval
+    client.portal.call(db.kv_set, "devices", [{"device_code": "BC1", "device_type": "communication_beacon",
+                                               "location": "VETH-5", "status": "monitoring"}])
+    client.post("/game-events/approve", data={"key": gev.BEACON_KEY, "on": "1"}, headers=HX)
+    assert ok("VETH-5") and not ok("VETH-4")
+    page = client.get("/game-events", headers=H).text
+    assert "Auto-approve contracts at every location where a beacon" in page and "Veth at VETH-4" in page
 
 
 def test_survey_scan_of_a_body_shows_its_civilization(client):

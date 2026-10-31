@@ -4380,11 +4380,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         locked = wards.foreign(cat, devices)
         contracts = []
         from .fleets import device_counts as fl_counts
-        life, approvals = await gev.life_map(self.db), await self.db.kv_get(gev.APPROVALS_KV, {}) or {}
+        life = await gev.life_map(self.db)
+        approvals = await gev.approvals_of(self.db, life)
         for des, e in (await gev.load(self.db)).items():
             if e.get("status") != "open" or not e.get("location") or des in taken or star_of(e["location"]) in locked:
                 continue
-            if not await gev.approved(self.db, e, life, approvals):
+            if not await gev.approved(self.db, e, life, approvals, devices):
                 continue
             best = gev.progress(e, inv, devices, reps).get("best") or {}
             price = {x["resource"]: x["need"] for x in best.get("resources") or []}
@@ -5541,7 +5542,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         done = []
         from . import wards
         locked = wards.foreign(await self.db.kv_get("stars", {}) or {}, devices)   # wards and hubs lock contracts
-        life, approvals = await gev.life_map(self.db), await self.db.kv_get(gev.APPROVALS_KV, {}) or {}
+        life = await gev.life_map(self.db)
+        approvals = await gev.approvals_of(self.db, life)
         for des, e in (await gev.load(self.db)).items():
             if e["status"] != "open" or not e.get("location"):
                 continue
@@ -5550,7 +5552,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             prog = gev.progress(e, inv, devices, reps)
             tried = state.get(des) or {}
             if prog["state"] == "ready" and cfg.get("auto_fulfil", True) \
-                    and await gev.approved(self.db, e, life, approvals):   # its species approved on the Contracts page
+                    and await gev.approved(self.db, e, life, approvals, devices):   # approved on the Contracts page
                 t = _ts(tried.get("fulfil"))
                 if t and (_now() - t).total_seconds() < 1800:
                     continue  # tried recently; let the event stream catch up (or the error be read)
