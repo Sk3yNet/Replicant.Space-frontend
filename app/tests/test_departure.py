@@ -1247,3 +1247,39 @@ def test_systems_checkboxes_save_in_background(client):
     assert "HX-Refresh" not in r.headers and r.json()["on"] is True and "RL1" in r.json()["msg"]
     r = client.post("/systems/ABOTEIN/ward", data={"action": "remove", "kind": "relay", "bg": "1"}, headers=HX)
     assert r.json() == {"msg": r.json()["msg"], "on": False} and "order canceled" in r.json()["msg"]
+
+
+def test_server_unavailable_step_is_retried_not_skipped(client):
+    """Snapshot 2026-10-31: a trip answered "Service Unavailable" was skipped and the job failed waiting for a carrier
+    that never left. The same step is sent again a little later."""
+    from rsweb import automations as au
+    e = eng(client)
+    calls = []
+
+    async def fake_send(method, path, body, label):
+        calls.append((body or {}).get("command"))
+        if len(calls) == 1:
+            return False, None, "Service Unavailable"
+        return True, {}, None
+    e.send = fake_send
+    job = client.portal.call(e.create_job, "logistics", "trip", "V1",
+                             [au.step("V1 → FAR", "/devices/V1", {"command": "travel", "destination": "FAR"})], {}, True)
+    j = next(x for x in client.portal.call(e.jobs) if x["id"] == job["id"])
+    assert j["steps"][0]["status"] == "retrying" and j["status"] == "waiting"
+    j["steps"][0]["retry_at"] = au._now().isoformat()
+    client.portal.call(e.save_jobs, [x if x["id"] != j["id"] else j for x in client.portal.call(e.jobs)])
+    client.portal.call(e.tick)
+    j = next(x for x in client.portal.call(e.jobs) if x["id"] == job["id"])
+    assert calls == ["travel", "travel"] and j["steps"][0]["status"] == "done"
+
+
+def test_ferry_freighter_is_no_stray():
+    devs = [{"device_code": "C1", "device_type": "ami_transport_controller", "location": "HOME-6-L4", "tags": ["fleet:m"],
+             "ami_directive": {"name": "ferry", "config": {"collect": "HOME-BELT-1", "deliver": "HUB-BELT-1"}}},
+            {"device_code": "F1", "device_type": "cargo_freighter", "location": "HUB-BELT-1", "status": "idle",
+             "controller_device_code": "C1", "tags": ["fleet:m"]},
+            {"device_code": "F2", "device_type": "cargo_freighter", "location": "ELSE-BELT-1", "status": "idle",
+             "tags": ["fleet:m"]}]
+    f = {"id": "m", "home": "HOME", "station": True}
+    out = fl.strays([f], devs, set())
+    assert [s["code"] for s in out] == ["F2"]

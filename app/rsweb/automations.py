@@ -264,6 +264,11 @@ NO_SITE_RE = re.compile(r"\bno \w+ remaining at any active site", re.I)
 # Skipped at info level, never counted toward the 3-in-a-row stop.
 QUIET_SKIP_RE = re.compile(NO_SITE_RE.pattern + r"|nothing to activate|maximum active sites", re.I)
 BUSY_RETRY_S, BUSY_TRIES = 300, 36   # retry such a refusal every 5 min, for up to 3 h
+# the game server itself failing (a 502/503/504 answer, or no answer): nothing was done, so send the same step again
+# (snapshot 2026-10-31: two logistics trips answered "Service Unavailable" were skipped and their jobs then failed waiting
+# for carriers that had never left)
+SERVER_RE = re.compile(r"service unavailable|bad gateway|gateway time-?out|network error", re.I)
+SERVER_RETRY_S, SERVER_TRIES = 120, 6
 SHORT_TIMEOUT = 120          # waiting for deploy/stow confirmation
 MAX_LOG = 300
 
@@ -1096,6 +1101,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 if st["tries"] < 2 and re.search(r"\brate.?limit|too many requests", (err or "").lower()):
                     await self._update(job)
                     return  # retry on next tick
+                if st["tries"] < SERVER_TRIES and SERVER_RE.search(err or ""):
+                    st["status"] = "retrying"
+                    st["retry_at"] = (_now() + timedelta(seconds=SERVER_RETRY_S)).isoformat(timespec="seconds")
+                    job["status"] = "waiting"
+                    await self._update(job)
+                    if st["tries"] == 1:
+                        await self.log(job["rule"], f"{job['title']}: '{st['desc']}' — {err}; the game server is "
+                                                    f"struggling, trying again every {SERVER_RETRY_S // 60} min")
+                    return
                 if BUSY_RE.search(err or "") and (st["tries"] < BUSY_TRIES or await self._still_moving(st)) \
                         and not await self._off_course(st, job):
                     # the game refuses while something is still on its way ("Cannot deploy while replicant is

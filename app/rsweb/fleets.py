@@ -1973,6 +1973,16 @@ def where_star(d: dict, by: dict[str, dict]) -> str:
     return star_of((c or {}).get("location"))
 
 
+def on_ferry(d: dict, by: dict[str, dict], star: str) -> bool:
+    """A device its transport controller ferries between two places, one of them in `star` (snapshot 2026-10-31:
+    Miner_5's freighter B102EB12 shuttles MARKOB-BELT-1 to SOLARES-BELT-1 for C5820434 and was reported as a stray at
+    SOLARES with nothing bringing it home)."""
+    ctl = by.get(d.get("controller_device_code") or "") or {}
+    ami = ctl.get("ami_directive") if isinstance(ctl.get("ami_directive"), dict) else {}
+    cfg = ami.get("config") if isinstance(ami.get("config"), dict) else {}
+    return bool(cfg) and star in {star_of(str(cfg.get(k) or "")) for k in ("collect", "deliver")}
+
+
 def strays(fleets: list[dict], devices: list[dict], busy: set[str]) -> list[dict]:
     """Members of a stationed fleet that aren't in its home system (owner 2026-10-21): a fleet's devices are carried off
     or left behind on a move. Leaves out spares, placed relays and beacons, replicants and their matrices (moved by
@@ -1991,7 +2001,7 @@ def strays(fleets: list[dict], devices: list[dict], busy: set[str]) -> list[dict
             if SPARE in tags or placed(d) or holds_replicant(d, devices):
                 continue
             star = where_star(d, by)
-            if not star or star == home:
+            if not star or star == home or on_ferry(d, by, star):
                 continue
             ride = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
             st = str(d.get("status") or "").lower()
