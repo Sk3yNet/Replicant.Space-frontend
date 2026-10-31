@@ -224,7 +224,21 @@ def f_duration(secs: Any) -> str:
     return f"{m}m {s % 60}s" if m else f"{s}s"
 
 
-templates.env.filters.update(local=f_local, ago=f_ago, pretty=f_pretty, human=f_human, num=f_num,
+_CONTROL_RE = re.compile(r'<(input|select)\b([^>]*)>', re.I)
+
+
+def f_no_restore(html: Any) -> Markup:
+    """Checkboxes, radios and selects on a full page show the server's state: a reload must not let the browser put back
+    ticks by position (Joe 2026-10-31: Contracts and device pages showed ticks on the wrong rows)."""
+    def mark(m: re.Match) -> str:
+        tag, attrs = m.group(1), m.group(2)
+        if "autocomplete" in attrs.lower() or (tag.lower() == "input" and not re.search(r'type="?(checkbox|radio)', attrs, re.I)):
+            return m.group(0)
+        return f'<{tag} autocomplete="off"{attrs}>'
+    return Markup(_CONTROL_RE.sub(mark, str(html)))
+
+
+templates.env.filters.update(no_restore=f_no_restore, local=f_local, ago=f_ago, pretty=f_pretty, human=f_human, num=f_num,
                              status_class=status_class, star_of=star_of, capacity=capacity, duration=f_duration)
 from .modular import modular_type as _modular_type
 
@@ -4348,7 +4362,7 @@ async def game_event_approve(request: Request, key: str = Form(...), on: str = F
     else:
         approvals.pop(key, None)
     await db.kv_set(gev.APPROVALS_KV, approvals)
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
+    return HTMLResponse("")   # saved in place: no reload (a reload let the browser restore ticks by position)
 
 
 @router.post("/game-events/{des}/option", response_class=HTMLResponse)

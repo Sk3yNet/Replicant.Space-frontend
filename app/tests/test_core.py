@@ -6764,6 +6764,13 @@ def test_contracts_page_lists_quiet_civilizations_for_approval(client):
     page = client.get("/game-events", headers=H).text
     box = page[page.index("VETH-2"):]
     assert 'autocomplete="off"' in box[:box.index("approved</label>")]
+    # approving saves in place: no reload at all
+    r = client.post("/game-events/approve", data={"key": "species:veth", "on": ""}, headers=HX)
+    assert "HX-Refresh" not in r.headers
+    for path in ("/game-events", "/automations", "/fleets"):   # every full page: no box or select left to the browser's restore
+        import re
+        tags = re.findall(r'<(?:input[^>]*type="(?:checkbox|radio)"|select\b)[^>]*>', client.get(path, headers=H).text)
+        assert tags and all('autocomplete="off"' in t for t in tags), path
 
 
 def test_survey_scan_of_a_body_shows_its_civilization(client):

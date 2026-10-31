@@ -19,11 +19,12 @@
   </div>
   <div class="small"><a href="/systems/{{ e.star }}">{{ e.location }}</a> · {{ beacon_mark(e.location, e.star) }} · discovered {{ e.discovered_at | ago }}</div>
   <label class="small" style="text-transform:none;display:block;margin-top:4px">
-    <input type="checkbox" autocomplete="off" name="on" value="1" {{ 'checked' if e.approval.on }} hx-post="/game-events/approve"
-           hx-vals='{{ {"key": e.approval.key} | tojson }}' hx-trigger="change">
+    <input type="checkbox" autocomplete="off" name="on" value="1" {{ 'checked' if e.approval.on }} hx-post="/game-events/approve" hx-swap="none"
+           data-approve="{{ e.approval.key }}" hx-vals='{{ {"key": e.approval.key} | tojson }}' hx-trigger="change">
     Pre-approve contracts from <b>{{ e.approval.label }}</b> (fulfilled automatically, by the logistics service)</label>
   <label class="small" style="text-transform:none;display:block">
-    <input type="checkbox" autocomplete="off" name="on" value="1" {{ 'checked' if e.approval_one.on or e.approval.on }} {{ 'disabled' if e.approval.on }} hx-post="/game-events/approve"
+    <input type="checkbox" autocomplete="off" name="on" value="1" {{ 'checked' if e.approval_one.on or e.approval.on }} {{ 'disabled' if e.approval.on }} hx-post="/game-events/approve" hx-swap="none"
+           data-approve="{{ e.approval_one.key }}" data-species="{{ e.approval.key }}" data-own="{{ 1 if e.approval_one.on else 0 }}"
            hx-vals='{{ {"key": e.approval_one.key} | tojson }}' hx-trigger="change">
     Approve this contract
     {% if not e.approval.on and not e.approval_one.on %}<span class="muted">— off: auto-fulfil leaves it to you (Fulfill still works)</span>{% endif %}</label>
@@ -106,8 +107,8 @@
   <summary><b>Civilizations not asking for anything</b> <span class="muted small">{{ quiet | length }} · approve them ahead of their next request</span></summary>
   <table class="small" style="margin-top:6px"><tr><th>Location</th><th>Who</th><th>Life</th><th>Beacon</th><th>Auto-fulfill</th></tr>
     {% for q in quiet %}<tr><td><a href="/systems/{{ q.star }}">{{ q.location }}</a></td><td>{{ q.approval.label }}</td><td class="muted">{{ q.stage }}</td><td>{{ beacon_mark(q.location, q.star) }}</td>
-      <td><label style="text-transform:none"><input type="checkbox" autocomplete="off" name="on" value="1" {{ 'checked' if q.approval.on }} hx-post="/game-events/approve"
-          hx-vals='{{ {"key": q.approval.key} | tojson }}' hx-trigger="change"> approved</label></td></tr>{% endfor %}
+      <td><label style="text-transform:none"><input type="checkbox" autocomplete="off" name="on" value="1" {{ 'checked' if q.approval.on }} hx-post="/game-events/approve" hx-swap="none"
+          data-approve="{{ q.approval.key }}" hx-vals='{{ {"key": q.approval.key} | tojson }}' hx-trigger="change"> approved</label></td></tr>{% endfor %}
   </table>
 </details>{% endif %}
 
@@ -138,3 +139,17 @@
   {% include "partials/traders_table.html" %}
 </div>
 {% endblock %}
+{% block scripts %}<script>
+// approvals save in place (no reload, Joe 2026-10-31): mirror a tick onto every box with the same key; a civilization's
+// pre-approval ticks and locks its contracts' own boxes, and withdrawing it gives them back their own approval
+document.addEventListener("change", ev => {
+  const t = ev.target, key = t.dataset && t.dataset.approve;
+  if (!key) return;
+  if (t.dataset.species !== undefined) t.dataset.own = t.checked ? 1 : 0;
+  document.querySelectorAll("[data-approve]").forEach(b => {
+    if (b === t) return;
+    if (b.dataset.approve === key) { b.checked = t.checked; if (b.dataset.species !== undefined) b.dataset.own = t.checked ? 1 : 0; }
+    if (b.dataset.species === key) { b.disabled = t.checked; b.checked = t.checked || b.dataset.own === "1"; }
+  });
+});
+</script>{% endblock %}

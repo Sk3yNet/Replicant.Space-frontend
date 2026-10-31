@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.320.2"
+VERSION = "1.320.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.320.3", "2026-10-31", "Contracts approvals save in place, and no page puts back old ticks (Joe: ticks still moved, also on device pages). Ticking an approval no longer reloads the Contracts page: a civilization's pre-approval ticks and locks its contracts' own boxes right away, and unticking it gives them back their own approval. Every checkbox, radio button and dropdown on every page now opts out of the browser's restore after a reload, so each one shows what the app has saved."),
     ("1.320.2", "2026-10-31", "Automated steps the game server fails to answer (Service Unavailable, Bad Gateway, Gateway Timeout, no answer) are sent again every 2 minutes, up to 6 tries, instead of being skipped. In the 12:15 snapshot two logistics trips were skipped that way and their jobs then stopped waiting for carriers that had never left. A freighter its transport controller ferries between two places no longer counts as a stray from its fleet (Miner_5's B102EB12, shuttling MARKOB to SOLARES, was reported with nothing bringing it home)."),
     ("1.320.1", "2026-10-31", "Contracts page checkboxes stay on their own contract (Joe: ticks seemed to move, unapproved contracts showed checked). Approving a quiet civilization moved its row to the bottom and the page reloaded, so Firefox restored the ticks by position onto other rows; the boxes now opt out of that restore (also on Fleets, Automations, AMI schedules and system pages), quiet civilizations keep a fixed A–Z order, and live updates match each contract card by its designation instead of its title. Display only: each box saves only its own contract."),
     ("1.320.0", "2026-10-31", "Adopt lists only devices the controller could adopt (Joe). On a controller's device page and the AMI page: no other controllers (a fleet controller still takes fleet controllers), nothing already under a controller, only the types that kind runs (mining drones; survey drones and belt surveyors; haulers, transport drones and freighters; surge-capable devices for a fleet controller), and only in the controller's own system (a fleet controller reaches anywhere). Maintenance and trade controllers have no known type rule, so only the controller checks apply there."),
