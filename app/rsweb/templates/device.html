@@ -22,6 +22,7 @@
   <div><button class="small" hx-post="/devices/{{ code }}/cancel-travel" hx-target="#cancel-result"
       hx-confirm="Cancel {{ code }}'s trip? It turns back to where it started (the return takes a while too){{ ' — and takes replicant ' ~ host_rep ~ ' with it' if host_rep }}.">Cancel travel</button></div>
 </div>{% endif %}</div>{% if trip %}<div id="cancel-result"></div>{% endif %}
+<div id="dev-timers" data-live>{% if timers %}<div class="card"><h2>Running</h2>{% include "partials/timers.html" %}</div>{% endif %}</div>
 {% if decom_queued %}<div class="card row between" style="align-items:center">
   <div class="small">Queued to be <b>decommissioned at autofactory {{ decom_queued.factory }}</b> ({{ decom_queued.at }})
     {% if decom_queued.sent_at %}— decommission sent {{ decom_queued.sent_at | ago }}{% else %}— on its way; it's decommissioned once it's there and idle{% endif %}.</div>

@@ -313,6 +313,57 @@ async def active_timers(request: Request) -> list[dict]:
     return out
 
 
+# A device's status blocks that carry a finish time: (key, timer kind, label from the block)
+_STATUS_TIMERS = (("printing", "print", lambda b: f"printing {(b.get('device_type') or '?').replace('_', ' ')}"),
+                  ("scan", "scan", lambda b: f"scanning {b.get('target') or ''}".strip()),
+                  ("prospect", "prospect", lambda b: f"prospecting {b.get('direction') or ''}".strip()),
+                  ("repair", "repair", lambda b: f"repairing {b.get('target_device_code') or ''}".strip()))
+
+
+def device_timers(dev: dict, rows: list[dict], now: datetime | None = None) -> list[dict]:
+    """Every running command of one device with its finish time, for the device page: the ETAs in the device's own
+    status (printing, scan, prospect, repair, the current leg of a multi-leg trip) and the app's timers for it
+    (compacting, unfurling, triangulation, or a command answer the status doesn't show yet). The whole trip has its
+    own card; a kind the status reports replaces the app's timer of that kind."""
+    now = now or datetime.now(timezone.utc)
+    out: dict[str, dict] = {}
+
+    def add(kind, label, end, start):
+        if not end:
+            return
+        start = start if start and start <= end else min(now, end)
+        total = max((end - start).total_seconds(), 1)
+        out[kind] = {"kind": kind, "label": label, "ends_at": end.isoformat(timespec="seconds"),
+                     "started_at": start.isoformat(timespec="seconds"), "done": end <= now,
+                     "pct": max(0, min(100, 100 * (now - start).total_seconds() / total))}
+
+    def finish(b, done_key="completes_at"):
+        end = parse_ts(b.get(done_key))
+        if not end and b.get("eta_seconds") is not None:
+            try:
+                end = now + timedelta(seconds=float(b["eta_seconds"]))
+            except (TypeError, ValueError):
+                pass
+        return end
+
+    for r in rows:
+        if r.get("device_code") == dev.get("device_code") and r.get("kind") != "travel":
+            add(r.get("kind") or "timer", r.get("label") or "", parse_ts(r.get("ends_at")), parse_ts(r.get("started_at")))
+    for key, kind, label in _STATUS_TIMERS:
+        b = dev.get(key)
+        if isinstance(b, dict) and b:
+            add(kind, label(b), finish(b), parse_ts(b.get("started_at")))
+    if "prospect" not in out and dev.get("is_prospecting"):
+        add("prospect", f"prospecting {dev.get('prospect_direction') or ''}".strip(),
+            parse_ts(dev.get("prospect_completes_at")), parse_ts(dev.get("prospect_started_at")))
+    tr = dev.get("travel") or {}
+    if isinstance(tr, dict) and tr.get("final_destination") and tr.get("destination") \
+            and tr["final_destination"] != tr["destination"]:
+        add("leg", f"{str(tr.get('stage') or tr.get('type') or 'leg').replace('_', ' ')} to {tr['destination']}",
+            finish(tr, "arrives_at"), parse_ts(tr.get("departed_at")))
+    return sorted(out.values(), key=lambda t: t["ends_at"])
+
+
 def fleet_summary(devices: list[dict]) -> dict:
     by_type = Counter(d.get("device_type") or "?" for d in devices)
     by_class = Counter(status_class(d.get("status")) for d in devices)
@@ -746,6 +797,8 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
     pq = await print_queue_ctx(request, code, dev) if dev and printqueue.has_queue(dev) else None
     from . import fleets as _fl
     trip = _fl.in_flight(dev) if dev else None
+    timers = device_timers(dev, await request.app.state.db.fetchall(
+        "SELECT * FROM timers WHERE device_code=?", (code,))) if dev else []
     host_rep = next((c for c, r in st["replicants"].items() if r.get("hosted_device_code") == code), None)
     eng = request.app.state.worker.automations
     doing = _fl.device_doing(code, dev, await eng.fleets(), await eng.jobs()) if dev else None
@@ -757,7 +810,7 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
                            dev.get("location") or (next((x for x in st["devices"] if x.get("device_code") in
                                                          (dev.get("stowed_in_device_code"), dev.get("attached_to_device_code"))), {})).get("location"))
     return await page(request, user, "device.html", "fleet", carrier=carrier, pq=pq, dev=dev, code=code, err=err, logs=logs, events=events,
-                      trip=trip, doing=doing, host_rep=host_rep, decom_queued=dq, decom_factories=dfac,
+                      trip=trip, timers=timers, doing=doing, host_rep=host_rep, decom_queued=dq, decom_factories=dfac,
                       repeats=[r for r in await request.app.state.db.kv_get("console_repeats", []) or []
                                if r.get("path", "").rstrip("/").upper() == f"/DEVICES/{code.upper()}"],
                       same_loc=same_loc, commands=order_commands(with_attach(dev, same_loc)),

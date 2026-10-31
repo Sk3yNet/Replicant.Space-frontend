@@ -72,6 +72,8 @@ System → device type → device, with stowed devices nested in their carrier; 
   device an automation job is working.
 - Live detail, every available command with its fields (destructive ones ask first), tags, history and game log,
   cancel travel, the game's event log.
+- **Running**: every command in progress with its finish time (printing, scans, prospecting, repairs, the current
+  leg of a multi-leg trip, compacting, unfurling, triangulation), with a live countdown and progress bar.
 - **Permissions**: other accounts allowed to use the device, with grant and revoke.
 - **Print queue** (autofactories): add (with an optional *deliver to*), remove, clear, and move a waiting print to the
   front, up or down. The game can't reorder a queue, so the waiting prints from that place down are taken off and

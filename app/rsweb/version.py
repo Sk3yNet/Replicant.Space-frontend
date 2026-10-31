@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.318.0"
+VERSION = "1.319.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.319.0", "2026-10-31", "Device pages show every running command's finish time (Joe). A Running card lists printing, scans, prospecting, repairs, the current leg of a multi-leg trip, and the app's own countdowns for the device (compacting, unfurling, triangulation), each with a live countdown, clock time and progress bar. The game's status ETAs win over the app's timer of the same kind; the whole trip keeps its own card."),
     ("1.318.0", "2026-10-31", "A survey drone's scan of a planet or moon now counts for civilizations (Joe: ETHIREL-2's spacefaring Drafel, found by a planet scan, showed nowhere). Contracts › Civilizations not asking for anything and the Traffic page's civilization list read the latest body scans as well as the stored system scans, so a civilization shows there (and can be approved ahead of its first request) as soon as a scan finds it."),
     ("1.317.0", "2026-10-31", "Fewer game reads (Joe). An order whose answer names the device and its status (most commands) puts that answer on the device list instead of re-reading the device now and 20 s later; it shows as unconfirmed on device lists until an event about it or the next device list. Other devices the order names are still re-read. Pages that read a belt or body (location page, system belt refresh, scans, Terraforming candidates) now stamp the read, so the engine's belt checks take that copy instead of asking again."),
     ("1.316.0", "2026-10-31", "Less waiting on the server (Joe). The relay rollout and auto scout passes, the two costliest engine stages in the 02:12 snapshot (about 1.2 s and 1.4 s of CPU every tick), stop copying the whole star catalog and run their star searches in a thread, so pages and the event stream keep their turn; auto scout also checks distance before reading a system's scan. Fleet pages' hourly plans are served from the old copy while one refresh runs in the background, and pages asking at the same time share one run. The diagnostics snapshot download is written out in a thread."),
