@@ -29,7 +29,7 @@
 {% if body.requirements %}<h3>Requirements</h3><table class="small">{% for t, rq in body.requirements.items() %}<tr><td>{{ t | human }}</td><td class="num">{{ rq.contributed }}/{{ rq.needed }}</td></tr>{% endfor %}</table>{% endif %}
 {% endif %}
 {% if devices %}<h3>Your devices here ({{ devices | length }})</h3>
-<table class="small">{% for d in devices %}<tr><td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a></td><td>{{ d.device_type | human }}</td><td><span class="pill {{ d.status | status_class }}">{{ d.status }}</span></td></tr>{% endfor %}</table>{% endif %}
+<table class="small">{% for d in devices %}<tr><td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a></td><td>{{ d.device_type | human }}</td><td><span class="pill {{ d.status | status_class }}">{{ d.status }}</span>{{ unconfirmed(d) }}</td></tr>{% endfor %}</table>{% endif %}
 {% if data.resource_sites %}<h3>Resource sites</h3><pre>{{ data.resource_sites | pretty }}</pre>{% endif %}
 {% if data.inventory %}<h3>Inventory</h3><pre>{{ data.inventory | pretty }}</pre>{% endif %}
 <details><summary>raw</summary><pre>{{ data | pretty }}</pre></details>

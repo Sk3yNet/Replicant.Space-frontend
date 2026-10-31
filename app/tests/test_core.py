@@ -9731,3 +9731,41 @@ def test_station_swapped_for_relay_once_a_relay_path_exists(client):
     devs.append(R("R5", "ftl_relay", "S"))      # the relay is up beside the station
     client.portal.call(eng.station_swap_pass)
     assert calls[-1] == ("remove", "station", "S")
+
+
+def test_order_answer_stands_in_for_a_reread_until_confirmed(client):
+    """1.317.0 (Joe): a command whose answer names the device and its status puts that on the cached list, marked
+    unconfirmed, instead of two GETs; a GET of the device (event or list) clears the mark."""
+    w, db = client.app.state.worker, client.app.state.db
+    code = client.portal.call(db.kv_get, "devices")[0]["device_code"]
+    asked: list[str] = []
+    real = w.api.get
+
+    async def counting(path, *a, **kw):
+        asked.append(path)
+        return await real(path, *a, **kw)
+    w.api.get = counting
+    try:
+        assert w.reply_codes(f"/devices/{code}/command", {code}, {"status": "preview", "device_code": code}) == {}
+        async def order():
+            w.after_order(f"/devices/{code}/command", {"command": "start_mining"},
+                          {"device_code": code, "status": "mining (carbon)", "collected": 5})
+            await asyncio.sleep(0.05)
+        client.portal.call(order)
+        d = next(x for x in client.portal.call(db.kv_get, "devices") if x["device_code"] == code)
+        assert d["status"] == "mining (carbon)" and d["_unconfirmed"]["what"] == "start_mining" and "collected" not in d
+        assert f"/devices/{code}" not in asked
+        client.portal.call(w.refresh_devices_now, {code})
+        assert "_unconfirmed" not in next(x for x in client.portal.call(db.kv_get, "devices") if x["device_code"] == code)
+    finally:
+        w.api.get = real
+
+
+def test_page_location_reads_stamp_for_the_engine(client):
+    """1.317.0: a page's belt read is stamped, so the engine's open-site count takes that copy instead of a GET."""
+    from rsweb import locread
+    db = client.app.state.db
+    client.portal.call(locread.save, db, "sol-belt-1", {"location": "SOL-BELT-1", "resource_sites": []})
+    assert "SOL-BELT-1" in client.portal.call(db.kv_get, "belt_reads")
+    assert client.portal.call(locread.fresh, db, "SOL-BELT-1", 600)["location"] == "SOL-BELT-1"
+    assert client.portal.call(locread.fresh, db, "SOL-BELT-1", -1) is None

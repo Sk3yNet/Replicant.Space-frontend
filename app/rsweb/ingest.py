@@ -617,10 +617,16 @@ class Worker:
             codes |= {v for v in body.values() if isinstance(v, str) and DEVICE_CODE_RE.fullmatch(v)}
         return codes
 
-    def after_order(self, path: str, body: Any) -> None:
-        """An order you gave (by hand, or a chain you started) went through: ask the game for those devices now and
-        again shortly, and for the next WATCH_MINUTES on any event about them, so pages show the result within
-        seconds instead of at the next device sync (up to a minute, or much longer while the engine runs)."""
+    # fields a command's answer carries that are the device's own (1.317.0: the answer stands in for a re-read)
+    REPLY_FIELDS = ("status", "cargo", "cargo_used", "cargo_capacity", "ami_directive", "ami_directive_status", "tags",
+                    "settings", "configuration")
+
+    def after_order(self, path: str, body: Any, resp: Any = None) -> None:
+        """An order you gave (by hand, or a chain you started) went through. The device the game's answer describes
+        (its device_code and status, or a trip note_trip already put on the list) takes that answer, marked
+        unconfirmed until an event about it or the next device list (1.317.0, Joe: it saved a GET now and one 20 s
+        later per order). Other devices the order names are asked for now and again shortly, as before. Every one is
+        watched for WATCH_MINUTES: an event about it re-reads it, so pages show the result within seconds."""
         parts = [x for x in str(path).strip("/").split("/") if x]
         if len(parts) > 1 and parts[0] == "replicants":
             self._rep_dirty.add(parts[1])
@@ -630,16 +636,55 @@ class Worker:
         until = datetime.now(timezone.utc) + timedelta(minutes=self.WATCH_MINUTES)
         for c in codes:
             self._watch[c] = until
+        answered = self.reply_codes(path, codes, resp)
+        what = (body or {}).get("command") if isinstance(body, dict) else None
+        what = what or (parts[-1] if len(parts) > 2 else "order")
+        read = codes - set(answered)
 
         async def go() -> None:
             t0 = time.time()
-            await self.refresh_devices_now(codes)
+            if answered:
+                await self.note_reply(answered, what)
+            if not read:
+                return
+            await self.refresh_devices_now(read)
             await asyncio.sleep(20)   # stowing / attaching / launching can take a moment in the game
             # once more, unless an event about the device already had it re-read meanwhile (1.293.0)
-            later = {c for c in codes if self._event_read.get(c, 0) < t0}
+            later = {c for c in read if self._event_read.get(c, 0) < t0}
             if later:
                 await self.refresh_devices_now(later)
         self._spawn(go())
+
+    def reply_codes(self, path: str, codes: set[str], resp: Any) -> dict[str, dict]:
+        """{device code: fields to put on it} for the devices the order's answer describes."""
+        if not isinstance(resp, dict) or not resp.get("status") or resp.get("status") == "preview":
+            return {}
+        parts = [x for x in str(path).strip("/").split("/") if x]
+        if "arrives_at" in resp and resp.get("departed_at"):   # a trip: note_trip put it on the device and its riders
+            riders = {x if isinstance(x, str) else (x or {}).get("device_code") for x in resp.get("attached_devices") or []}
+            code = resp.get("device_code") or (parts[1] if len(parts) > 1 else None)
+            return {c: {} for c in ({code} | riders) & codes if c}
+        code = resp.get("device_code")
+        if code in codes:
+            return {code: {k: resp[k] for k in self.REPLY_FIELDS if k in resp}}
+        return {}
+
+    async def note_reply(self, answered: dict[str, dict], what: str) -> None:
+        """Put the answers on the cached device list, marked _unconfirmed {at, what} (shown as "unconfirmed")."""
+        mark = {"at": now_iso(), "t": time.time(), "what": what}
+        async with self.devices_lock:
+            devices = await self.db.kv_get("devices", []) or []
+            hit = False
+            for d in devices:
+                f = answered.get(d.get("device_code"))
+                if f is not None:
+                    d.update(f)
+                    d["_unconfirmed"] = mark
+                    hit = True
+            if hit:
+                await self.db.kv_set("devices", devices)
+        if hit:
+            self.hub.publish("state", "devices")
 
     def _spawn(self, coro) -> None:
         t = asyncio.get_running_loop().create_task(coro)
@@ -695,6 +740,7 @@ class Worker:
                 f = fresh.pop(d.get("device_code"), None)
                 if f is not None:
                     d.update(f)
+                    d.pop("_unconfirmed", None)   # the game's own word now
             devices.extend(fresh.values())   # new to the list (printed, adopted)
             await self.db.kv_set("devices", devices)
         self.hub.publish("state", "devices")
@@ -802,6 +848,7 @@ class Worker:
         # page by hand: while the replicant travels the game returns an EMPTY first page that still has a
         # next_cursor — a partial snapshot, so anything missing from it is kept from the last good one
         devices, cursor, partial = [], None, False
+        t0 = time.time()
         for _ in range(40):
             body = await self.api.get("/devices", background=True, limit=50, cursor=cursor) or {}
             page = body.get("devices") or []
@@ -854,6 +901,12 @@ class Worker:
             return
         self._short_streak = (None, 0)
         devices = merged
+        # an order answered while this list was being paged: its pages may predate the order, so the answer stays
+        held = {d.get("device_code"): d for d in prev if (d.get("_unconfirmed") or {}).get("t", 0) > t0}
+        for d in devices if held else []:
+            h = held.get(d.get("device_code"))
+            if h:
+                d.update({k: h[k] for k in (*self.REPLY_FIELDS, "travel", "_unconfirmed") if k in h})
         # a renamed fleet: devices the game still lists under the old fleet: tag show the new one until retagged;
         # a rename nothing carries any more is done
         from . import fleets as fl

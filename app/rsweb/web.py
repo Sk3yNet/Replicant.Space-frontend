@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from markupsafe import Markup
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -22,6 +23,7 @@ from fastapi.templating import Jinja2Templates
 from .api import ApiError
 from .db import now_iso, row_event
 from .ingest import auto_read_cfg, message_unread
+from . import locread
 from . import notify
 from .shapes import as_amounts, normalize_blueprints, normalize_inventory
 from . import commands as cmdspec
@@ -225,6 +227,18 @@ def f_duration(secs: Any) -> str:
 templates.env.filters.update(local=f_local, ago=f_ago, pretty=f_pretty, human=f_human, num=f_num,
                              status_class=status_class, star_of=star_of, capacity=capacity, duration=f_duration)
 from .modular import modular_type as _modular_type
+
+
+def unconfirmed_mark(d: Any) -> Markup:
+    """A pill next to a device's status while it shows the game's answer to an order but no re-read yet (1.317.0)."""
+    u = (d or {}).get("_unconfirmed") if isinstance(d, dict) else None
+    if not isinstance(u, dict):
+        return Markup("")
+    return Markup(' <span class="pill muted small" title="{} sent {}: the game answered, waiting for its device list or an '
+                  'event to confirm">unconfirmed</span>').format(Markup.escape(u.get("what") or "order"), f_ago(u.get("at")))
+
+
+templates.env.globals.update(unconfirmed=unconfirmed_mark)
 templates.env.globals.update(is_large=lambda b: _modular_type((b or {}).get("device_type"), {(b or {}).get("device_type"): b or {}}))
 templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, level_of=notify.level_of,
                              device_options=cmdspec.device_options, field_applies=cmdspec.field_applies,
@@ -351,7 +365,7 @@ async def call_action(request: Request, user: str, method: str, path: str, body:
         st.hub.publish("state", "action")
         await record_evictions(st, path, resp)
         if method != "GET":
-            st.worker.after_order(path, body)
+            st.worker.after_order(path, body, resp)
     return {"label": label, "method": method, "path": path, "ok": err is None, "status": status,
             "error": err, "response": resp}
 
@@ -2196,7 +2210,7 @@ async def system_resources_refresh(request: Request, star: str, user: str = Depe
             failed.append(f"{code}: {e.message}")
             continue
         if isinstance(data, dict) and data:
-            await db.kv_set(f"loc:{code.upper()}", data)
+            await locread.save(db, code, data)   # stamped: the engine's belt counts take this copy
             if code in belts:
                 read_belts += 1
                 open_sites += len(data.get("resource_sites") or [])
@@ -2223,8 +2237,7 @@ async def location_detail(request: Request, code: str, user: str = Depends(curre
     try:
         data = await request.app.state.api.get(f"/locations/{code}")
         err = None
-        if isinstance(data, dict) and data:
-            await request.app.state.db.kv_set(f"loc:{code.upper()}", data)
+        await locread.save(request.app.state.db, code, data)   # stamped for the engine and Terraforming
     except ApiError as e:
         data, err = {}, e.message
     st = await load_state(request)
@@ -3025,7 +3038,7 @@ async def refresh_targets(request: Request, star: str) -> tuple[int, str | None]
             continue
         try:
             detail = await api.get(f"/locations/{code}")
-            await db.kv_set(f"loc:{code}", detail or {})
+            await locread.save(db, code, detail)
             n += 1
         except ApiError:
             pass

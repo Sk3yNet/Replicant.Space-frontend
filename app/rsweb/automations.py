@@ -929,7 +929,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
             st["response"] = resp if isinstance(resp, (dict, list)) else None
             if ok and job["rule"] == "chain" and self.worker:   # a chain you started: its devices refreshed right away
-                self.worker.after_order(st["path"], st["body"])
+                self.worker.after_order(st["path"], st["body"], resp)
             if ok and isinstance(resp, dict):
                 # long trips: wait at least until the game's own ETA (+30 min) before giving up — this step, and the
                 # job's later waits for the same device (travel answers: arrives_at, or a route's time_seconds)

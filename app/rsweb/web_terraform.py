@@ -399,7 +399,8 @@ async def terraforming_candidates_read(request: Request, user: str = Depends(cur
             failed.append(f"{b}: {e.message}")
             continue
         if isinstance(data, dict) and tc.body_of(data):
-            await db.kv_set(f"loc:{b}", data)
+            from . import locread
+            await locread.save(db, b, data)   # stamped for the engine's belt counts too
             n += 1
     await db.kv_set(tc.READS_KV, reads)
     left = max(0, len(due) - tc.READ_CAP)
