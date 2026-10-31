@@ -367,9 +367,9 @@ def _already_compact(err: str | None) -> bool:
 
 
 def _already_unfurled(err: str | None) -> bool:
-    """An unfurl refused because the device isn't folded up (already unfurled)."""
+    """An unfurl refused because the device isn't folded up (already unfurled, or unfolding: "Device is unfurling")."""
     e = (err or "").lower()
-    return ("unfurl" in e and "already" in e) or bool(re.search(r"\bnot compact", e))
+    return ("unfurl" in e and ("already" in e or "is unfurling" in e)) or bool(re.search(r"\bnot compact", e))
 
 
 def _ts(v: str | None) -> datetime | None:
@@ -1074,8 +1074,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     from .modular import remember   # so the next pass sends the carrier instead of compacting again
                     await remember(self.db, st["path"].split("/")[2], True, now_iso())
             if not ok and (st.get("body") or {}).get("command") == "unfurl" and _already_unfurled(err):
-                ok, st["note"] = True, err   # already unfolded: nothing to do
-                st["wait"] = []
+                ok, st["note"] = True, err   # already unfolded (or unfolding: then keep waiting for device.unfurled)
+                if "unfurling" not in (err or "").lower():
+                    st["wait"] = []
                 from .modular import remember
                 await remember(self.db, st["path"].split("/")[2], False, now_iso())
             if not ok and re.match(r"^/locations/[^/]+/events/[^/]+$", st.get("path") or "") \

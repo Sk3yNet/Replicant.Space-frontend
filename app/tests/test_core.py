@@ -4745,6 +4745,27 @@ def test_modular_devices_compact_before_moving_and_unfurl_after():
     assert [s["desc"] for s in with_compaction([st], [af], {})] == ["AF1: compact before moving", "AF1 → FAL-2", "AF1: unfurl"]
 
 
+def test_station_unfurls_fully_before_switch_on_at_the_drop():
+    """Live 2026-10-30: 'activate AC330D54' was refused (Device is unfurling) at KELAAXIX, the carrier left, and the
+    deep space relay station sat off out of reach until a rescue brought it home spare."""
+    from rsweb import loadouts as lo
+    from rsweb.automations import _already_unfurled
+    from rsweb.modular import with_compaction
+    stn = {"device_code": "ST1", "device_type": "deep_space_relay_station", "location": "FAL-BELT-1", "status": "inactive",
+           "features": ["cruise", "relay", "modular"], "available_commands": ["activate", "compact", "unfurl", "travel"], "tags": []}
+    plate = {"device_code": "MF", "device_type": "mobile_fleet", "location": "FAL-1-L4", "status": "idle",
+             "features": ["surge", "attach"], "attach_capacity": 36}
+    by = {d["device_code"]: d for d in (stn, plate)}
+    dl = {"carrier": "MF", "carrier_loc": "FAL-1-L4", "from": "FAL", "to": "KEL", "devices": ["ST1"], "mode": "attach"}
+    out = with_compaction(lo.delivery_steps(dl, by, {"KEL": {"entry_point": "KEL-4-L4"}}, False), [stn, plate],
+                          {"deep_space_relay_station": {"print_time": 3600}})
+    descs = [s["desc"] for s in out]
+    u = descs.index("ST1: unfurl before switching on")
+    assert descs.index("MF: detach ST1 in KEL") < u < descs.index("activate ST1")
+    assert out[u]["wait"] == ["device.unfurled"] and out[u]["wait_device"] == "ST1"
+    assert _already_unfurled("Device is unfurling")
+
+
 def test_tracking_drones_deactivate_right_before_they_move(client):
     """Live 2026-10-07: 'Cannot cruise while tracking a site - deactivate first' on every pass moving Miner 1 and 2."""
     from rsweb import loadouts as lo

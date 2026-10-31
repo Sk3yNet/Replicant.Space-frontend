@@ -105,8 +105,17 @@ def compact_step(code: str, bps: dict[str, dict], d: dict, why: str = "before mo
     return st
 
 
-def unfurl_step(code: str) -> dict:
-    return step(f"{code}: unfurl", f"/devices/{code}", {"command": "unfurl"})
+def unfurl_step(code: str, bps: dict[str, dict] | None = None, d: dict | None = None) -> dict:
+    """Unfold a landed device. With `d` (its device row), the step waits for device.unfurled, so a switch-on that
+    follows it in the job isn't refused: live 2026-10-30, 07B7A647's drop at KELAAXIX sent 'activate AC330D54' while
+    the deep space relay station was still unfurling ("Device is unfurling"), the carrier flew on, and the station
+    sat switched off out of reach until a rescue brought it home as a spare (all 10 stations ended up so)."""
+    st = step(f"{code}: unfurl", f"/devices/{code}", {"command": "unfurl"})
+    if d is not None:
+        st["desc"] = f"{code}: unfurl before switching on"
+        st["wait"], st["wait_device"] = ["device.unfurled"], code
+        st["timeout"] = int(max(STEP_TIMEOUT, compact_seconds(d, bps or {}) + 1800))
+    return st
 
 
 def tracking(d: dict) -> bool:
@@ -178,7 +187,11 @@ def with_compaction(steps: list[dict], devices: list[dict], bps: dict[str, dict]
     mods = {c for c, d in by.items() if c and is_modular(d)}
     if not mods or any((s.get("body") or {}).get("command") in ("compact", "unfurl") for s in steps):
         return steps   # nothing modular here, or the job already handles it
-    return _wrap(steps, mods, lambda code: None if compacted(by[code]) else compact_step(code, bps, by[code]), unfurl_step)
+    # switched on later in the job (relay stations at the drop): the unfurl waits until the device is unfolded
+    switched_on = {str(s.get("path") or "").split("/")[2] for s in steps
+                   if (s.get("body") or {}).get("command") == "activate" and str(s.get("path") or "").startswith("/devices/")}
+    return _wrap(steps, mods, lambda code: None if compacted(by[code]) else compact_step(code, bps, by[code]),
+                 lambda code: unfurl_step(code, bps, by[code]) if code in switched_on else unfurl_step(code))
 
 
 def _boarding(st: dict) -> tuple[str | None, str | None]:
