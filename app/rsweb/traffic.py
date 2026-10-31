@@ -143,8 +143,9 @@ def filtered(entries: list[dict], mine: set[str], star: str = "", others_only: b
 
 
 # --- civilization contact ---------------------------------------------------------------------------------------
-def inhabited(systems: dict[str, dict]) -> dict[str, dict]:
-    """Bodies with life, from stored system scans: {designation: {life_stage, species, star}}."""
+def inhabited(systems: dict[str, dict], bodies: list[dict] | None = None) -> dict[str, dict]:
+    """Bodies with life, from stored system scans and then survey scans of single bodies (`bodies`, oldest first, so
+    the latest word wins): {designation: {life_stage, species, star}}."""
     out: dict[str, dict] = {}
     for star, scan in (systems or {}).items():
         for p in (scan or {}).get("planets") or []:
@@ -157,15 +158,50 @@ def inhabited(systems: dict[str, dict]) -> dict[str, dict]:
                     if des:
                         out[des] = {"life_stage": stage, "species": body.get("species") or body.get("species_name"),
                                     "star": star, "name": body.get("name")}
+    for body in bodies or []:
+        des, stage = body.get("designation"), str(body.get("life_stage") or "").lower()
+        if not des or not stage:
+            continue
+        if stage == "none":
+            out.pop(des, None)
+        else:
+            out[des] = {"life_stage": stage, "species": body.get("species") or body.get("species_name"),
+                        "star": star_of(des), "name": body.get("name")}
     return out
 
 
-def coverage(events: dict[str, dict], devices: list[dict], systems: dict[str, dict]) -> list[dict]:
+def scanned_bodies(rows: list[Any]) -> list[dict]:
+    """The planet or moon each stored survey scan describes (scan.completed, its report's `planet` / `moon`; AMI
+    digests' scans are stored the same way). ETHIREL-2's spacefaring Drafel (2026-10-31) came only from such a scan:
+    the system scan stored before it said nothing of life there."""
+    out = []
+    for r in rows:
+        try:
+            p = json.loads(r["payload"] or "{}")
+        except (TypeError, ValueError, KeyError):
+            continue
+        rep = p.get("report") if isinstance(p.get("report"), dict) else p
+        for k in ("planet", "moon"):
+            if isinstance(rep.get(k), dict):
+                out.append(rep[k])
+    return out
+
+
+async def life_sources(db) -> tuple[dict[str, dict], list[dict]]:
+    """(stored system scans, scanned bodies) for inhabited()."""
+    systems = systems_from_rows(await db.fetchall("SELECT star, data FROM systems"))
+    rows = await db.fetchall("SELECT payload FROM events WHERE event='scan.completed' AND payload LIKE '%life_stage%' "
+                             "ORDER BY seq")
+    return systems, scanned_bodies(rows)
+
+
+def coverage(events: dict[str, dict], devices: list[dict], systems: dict[str, dict],
+             bodies: list[dict] | None = None) -> list[dict]:
     """One row per location that matters for civilization contact: event locations (open or completed) and bodies
     with intelligent / spacefaring life. `beacon` = your deployed beacon there; `needs_beacon` = an event was
     discovered or completed there and no beacon sits at that exact location — placing it as soon as a survey finds
     the event means it's already there when you complete it, so the follow-up requests reach you from day one."""
-    life = inhabited(systems)
+    life = inhabited(systems, bodies)
     beacons_at: dict[str, list[str]] = defaultdict(list)
     in_system: dict[str, list[dict]] = defaultdict(list)
     for d in beacons(devices):

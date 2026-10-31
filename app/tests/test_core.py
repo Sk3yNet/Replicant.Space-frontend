@@ -6762,6 +6762,21 @@ def test_contracts_page_lists_quiet_civilizations_for_approval(client):
     assert "species:veth" in client.portal.call(db.kv_get, "contract_approvals")
 
 
+def test_survey_scan_of_a_body_shows_its_civilization(client):
+    """ETHIREL-2 (2026-10-31): a drone's planet scan found spacefaring Drafel, the stored system scan knew no life."""
+    db = client.app.state.db
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("ETHIREL", json.dumps({"planets": [{"designation": "ETHIREL-2", "life_stage": None}]}), "2026-10-30"))
+    planet = {"designation": "ETHIREL-2", "life_stage": "spacefaring", "species_name": "Drafel"}
+    client.portal.call(db.insert_event, {"id": "dg1#scan0", "event": "scan.completed", "device_code": "AB62BAE2",
+                                         "location": "ETHIREL-2", "created_at": "2026-10-31T03:55:56+00:00",
+                                         "payload": {"scan_target": "ETHIREL-2", "scan_type": "planet",
+                                                     "report": {"planet": planet, "moons": [{"designation": "ETHIREL-2-1"}]}}})
+    page = client.get("/game-events", headers=H).text
+    assert "ETHIREL-2" in page and "Drafel" in page and "ETHIREL-2-1" not in page
+    assert "ETHIREL-2" in client.get("/traffic", headers=H).text
+
+
 def test_advancing_explorer_moves_home_to_farthest_star_ahead(client):
     eng, db = client.app.state.worker.automations, client.app.state.db
     stars = {"HOMEA": (0, 0, 0), "NEAR1": (5, 0, 0), "FAR1": (20, 1, 0), "TOOFAR": (60, 0, 0), "BEHIND": (-10, 0, 0)}

@@ -543,8 +543,8 @@ class OpsRules:
         from . import gameevents as ge
         from . import traffic as tr
         events = await ge.load(self.db)
-        systems = tr.systems_from_rows(await self.db.fetchall("SELECT star, data FROM systems"))
-        return tr.coverage(events, await self.devices(), systems)
+        systems, bodies = await tr.life_sources(self.db)
+        return tr.coverage(events, await self.devices(), systems, bodies)
 
     async def civ_beacon_pass(self, only_loc: str | None = None, manual: bool = False) -> list[str]:
         """Put a beacon at every event location (discovered or completed) that has none. One line per location."""

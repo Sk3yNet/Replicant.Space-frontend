@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.317.0"
+VERSION = "1.318.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.318.0", "2026-10-31", "A survey drone's scan of a planet or moon now counts for civilizations (Joe: ETHIREL-2's spacefaring Drafel, found by a planet scan, showed nowhere). Contracts › Civilizations not asking for anything and the Traffic page's civilization list read the latest body scans as well as the stored system scans, so a civilization shows there (and can be approved ahead of its first request) as soon as a scan finds it."),
     ("1.317.0", "2026-10-31", "Fewer game reads (Joe). An order whose answer names the device and its status (most commands) puts that answer on the device list instead of re-reading the device now and 20 s later; it shows as unconfirmed on device lists until an event about it or the next device list. Other devices the order names are still re-read. Pages that read a belt or body (location page, system belt refresh, scans, Terraforming candidates) now stamp the read, so the engine's belt checks take that copy instead of asking again."),
     ("1.316.0", "2026-10-31", "Less waiting on the server (Joe). The relay rollout and auto scout passes, the two costliest engine stages in the 02:12 snapshot (about 1.2 s and 1.4 s of CPU every tick), stop copying the whole star catalog and run their star searches in a thread, so pages and the event stream keep their turn; auto scout also checks distance before reading a system's scan. Fleet pages' hourly plans are served from the old copy while one refresh runs in the background, and pages asking at the same time share one run. The diagnostics snapshot download is written out in a thread."),
     ("1.315.3", "2026-10-30", "Ships flown by their replicant surge hop now. Logistics, loadouts and fleets send a vessel that hosts a replicant through the replicant's travel order, and route planning (surge hops, hubs, the off-ramp) only looked at device travel orders, so those trips took the game's own route: a repair patrol sent 5DF3161B from ISOLITHOR-1-L4 to ISOLITHOR-BELT-1 on a 499 AU cruise (56 min) instead of a 30 s hop to the Kuiper belt."),

@@ -198,14 +198,8 @@ CHOICE_KV = "contract_choice"   # {designation: option name}: the way a contract
 
 
 async def life_map(db) -> dict[str, dict]:
-    from .traffic import inhabited
-    systems = {}
-    for r in await db.fetchall("SELECT star, data FROM systems"):
-        try:
-            systems[r["star"]] = json.loads(r["data"] or "{}")
-        except ValueError:
-            continue
-    return inhabited(systems)
+    from .traffic import inhabited, life_sources
+    return inhabited(*await life_sources(db))
 
 
 def species_key(e: dict, life: dict[str, dict]) -> tuple[str, str]:
