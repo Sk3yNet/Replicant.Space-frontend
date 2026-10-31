@@ -76,11 +76,11 @@
       <div id="fp-{{ f.id }}"></div>
       <form class="row small" style="margin-top:8px;gap:6px" hx-post="/fleets/{{ f.id }}/owner" hx-target="#fo-{{ f.id }}">
         <label style="text-transform:none">Owner
-          <select name="owner" hx-post="/fleets/{{ f.id }}/owner" hx-trigger="change" hx-include="closest form" hx-swap="none">
+          <select name="owner" autocomplete="off" hx-post="/fleets/{{ f.id }}/owner" hx-trigger="change" hx-include="closest form" hx-swap="none">
             <option value="">— leave as they are —</option>
             {% for c, n in rep_names.items() %}<option value="{{ c }}" {{ 'selected' if f.owner == c }}>{{ n }} ({{ c }})</option>{% endfor %}</select></label>
         <label style="text-transform:none" title="Every few minutes, hand members another replicant owns to this one (new recruits and prints too)">
-          <input type="checkbox" name="keep_owner" {{ 'checked' if f.keep_owner }} hx-post="/fleets/{{ f.id }}/owner" hx-trigger="change"
+          <input type="checkbox" autocomplete="off" name="keep_owner" {{ 'checked' if f.keep_owner }} hx-post="/fleets/{{ f.id }}/owner" hx-trigger="change"
                  hx-include="closest form" hx-swap="none"> keep</label>
         {% if f.owner %}<button class="small" name="now" value="1" {{ 'disabled' if not f.owner_move }}
             hx-confirm="Hand {{ f.owner_move | length }} device(s) to {{ rep_names.get(f.owner, f.owner) }}?">Set owner now{% if f.owner_move %} ({{ f.owner_move | length }}){% endif %}</button>{% endif %}

@@ -6760,6 +6760,10 @@ def test_contracts_page_lists_quiet_civilizations_for_approval(client):
     assert "Civilizations not asking for anything" in page and "VETH-2" in page and "VETH-3" not in page
     client.post("/game-events/approve", data={"key": "species:veth", "on": "1"}, headers=HX)
     assert "species:veth" in client.portal.call(db.kv_get, "contract_approvals")
+    # Joe 2026-10-31: approving moved the row and Firefox restored ticks by position onto other civilizations
+    page = client.get("/game-events", headers=H).text
+    box = page[page.index("VETH-2"):]
+    assert 'autocomplete="off"' in box[:box.index("approved</label>")]
 
 
 def test_survey_scan_of_a_body_shows_its_civilization(client):

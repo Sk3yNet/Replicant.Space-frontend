@@ -2,7 +2,7 @@
 {% block title %}{{ star }}{% endblock %}
 {% block content %}
 {% macro survey_box(body, text='') -%}
-<label style="text-transform:none;white-space:nowrap"><input type="checkbox" name="on" value="1" {{ 'checked' if surveyed.get(body) }}
+<label style="text-transform:none;white-space:nowrap"><input type="checkbox" autocomplete="off" name="on" value="1" {{ 'checked' if surveyed.get(body) }}
   hx-post="/systems/{{ star }}/surveyed" hx-vals='{{ {"body": body} | tojson }}' hx-trigger="change" hx-target="next span"
   title="{{ 'surveyed ' ~ (surveyed[body] | ago) if surveyed.get(body) else 'not surveyed yet' }}"> {{ text }}<span></span></label>
 {%- endmacro %}

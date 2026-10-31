@@ -7,7 +7,7 @@
     <tr><th>On</th><th>Schedule</th><th>Controller(s)</th><th>Every</th><th>Last run</th><th></th></tr>
     {% for x in schedules %}
     <tr class="{{ 'muted' if not x.enabled }}">
-      <td><input type="checkbox" {{ 'checked' if x.enabled }} hx-post="/automations/schedules/{{ x.id }}/toggle" hx-swap="none"></td>
+      <td><input type="checkbox" autocomplete="off" {{ 'checked' if x.enabled }} hx-post="/automations/schedules/{{ x.id }}/toggle" hx-swap="none"></td>
       <td><b>{{ x.name or x.directive | human }}</b> <span class="muted">{{ x.directive }}{% if x.configuration %} · {{ x.configuration | tojson | truncate(60) }}{% endif %}</span>
         <div class="muted">{{ 'only when idle' if x.only_idle else 'always' }}{{ ' · adopts idle drones' if x.adopt }}{{ ' · launches' if x.launch }}</div></td>
       <td>{% if x.target.startswith('kind:') %}all {{ x.target[5:] }} controllers{% if x.star %} in {{ x.star }}{% endif %}{% else %}<a class="mono" href="/devices/{{ x.target }}">{{ x.target }}</a>{% endif %}</td>

@@ -4255,7 +4255,7 @@ async def game_events_ctx(request: Request) -> dict:
     for q in quiet.values():
         key, label = gev.species_key(q, life)
         q["approval"] = {"key": key, "label": label, "on": key in approvals}
-    quiet_rows = sorted(quiet.values(), key=lambda q: (q["approval"]["on"], q["location"]))
+    quiet_rows = sorted(quiet.values(), key=lambda q: q["location"])   # fixed order: a row never jumps when approved
     # your deployed beacons at each civilization's body, and elsewhere in its system (traffic.coverage)
     from . import traffic as tr
     beacon = {}

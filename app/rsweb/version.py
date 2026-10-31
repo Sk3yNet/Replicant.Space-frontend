@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.320.0"
+VERSION = "1.320.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.320.1", "2026-10-31", "Contracts page checkboxes stay on their own contract (Joe: ticks seemed to move, unapproved contracts showed checked). Approving a quiet civilization moved its row to the bottom and the page reloaded, so Firefox restored the ticks by position onto other rows; the boxes now opt out of that restore (also on Fleets, Automations, AMI schedules and system pages), quiet civilizations keep a fixed A–Z order, and live updates match each contract card by its designation instead of its title. Display only: each box saves only its own contract."),
     ("1.320.0", "2026-10-31", "Adopt lists only devices the controller could adopt (Joe). On a controller's device page and the AMI page: no other controllers (a fleet controller still takes fleet controllers), nothing already under a controller, only the types that kind runs (mining drones; survey drones and belt surveyors; haulers, transport drones and freighters; surge-capable devices for a fleet controller), and only in the controller's own system (a fleet controller reaches anywhere). Maintenance and trade controllers have no known type rule, so only the controller checks apply there."),
     ("1.319.0", "2026-10-31", "Device pages show every running command's finish time (Joe). A Running card lists printing, scans, prospecting, repairs, the current leg of a multi-leg trip, and the app's own countdowns for the device (compacting, unfurling, triangulation), each with a live countdown, clock time and progress bar. The game's status ETAs win over the app's timer of the same kind; the whole trip keeps its own card."),
     ("1.318.0", "2026-10-31", "A survey drone's scan of a planet or moon now counts for civilizations (Joe: ETHIREL-2's spacefaring Drafel, found by a planet scan, showed nowhere). Contracts › Civilizations not asking for anything and the Traffic page's civilization list read the latest body scans as well as the stored system scans, so a civilization shows there (and can be approved ahead of its first request) as soon as a scan finds it."),

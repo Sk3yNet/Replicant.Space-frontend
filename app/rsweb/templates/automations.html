@@ -18,7 +18,7 @@
     <tr><th>On</th><th>Rule</th><th>Settings</th></tr>
     {% for r in rules %}{% set cfg = s.rules[r.id] %}{% set home = rule_home[r.id] %}
     <tr class="{{ 'muted' if not cfg.enabled }}">
-      <td><input type="checkbox" {{ 'checked' if cfg.enabled }} hx-post="/automations/rules/{{ r.id }}/toggle" hx-target="#rt-{{ r.id }}"></td>
+      <td><input type="checkbox" autocomplete="off" {{ 'checked' if cfg.enabled }} hx-post="/automations/rules/{{ r.id }}/toggle" hx-target="#rt-{{ r.id }}"></td>
       <td><b>{{ r.title }}</b> <span id="rt-{{ r.id }}"></span></td>
       <td><a href="{{ home[1] }}">{{ home[0] }} →</a></td>
     </tr>{% endfor %}
