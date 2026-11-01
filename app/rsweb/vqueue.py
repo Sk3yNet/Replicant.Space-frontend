@@ -180,3 +180,34 @@ def plan(real: list[dict], kept: list[dict], keep: int = KEEP) -> tuple[int, lis
     resent = {id(it) for kind, it in send if kind == "real"}
     back = [it for it in real[k:] if id(it) not in resent]
     return k, back, send
+
+
+def cost(t: str | None, bps: dict[str, dict]) -> dict[str, float]:
+    from .shapes import as_amounts
+    return dict(as_amounts((bps.get(t or "") or {}).get("resources") or {}))
+
+
+def jump(cur: dict, real: list[dict], kept: list[dict], have: dict[str, float], bps: dict[str, dict]) -> tuple[str, dict] | None:
+    """A print that can start while the factory's current print waits (owner 2026-11-01): the best waiting one (real
+    queue item or kept order) that needs no components of its own and whose cost the stockpile covers with the waiting
+    print's own cost still set aside. A component the waiting print waits for may use that reserve (it can't start
+    without it). None when nothing fits."""
+    from .components import components
+    from .shapes import as_amounts
+    have = dict(as_amounts(have or {}))
+    reserve = cost(cur.get("device_type"), bps)
+    wants = set(components(bps.get(cur.get("device_type") or "")))
+    pool = [(priority(it), i, "real", it) for i, it in enumerate(real)] + \
+           [(o["prio"], len(real) + n, "kept", o) for n, o in enumerate(kept)]
+    for _, _, kind, x in sorted(pool, key=lambda p: (p[0], p[1])):
+        t = x.get("device_type") if kind == "real" else x["body"].get("device_type")
+        if components(bps.get(t or "")):
+            continue
+        need = cost(t, bps)
+        q = max(1, int((x.get("quantity") if kind == "real" else x["body"].get("quantity")) or 1))
+        if not need:
+            continue   # no blueprint cost known: can't tell
+        own = t in wants
+        if all(have.get(r, 0.0) - (0.0 if own else reserve.get(r, 0.0)) >= v * q for r, v in need.items()):
+            return kind, x
+    return None

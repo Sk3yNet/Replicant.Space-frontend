@@ -84,7 +84,11 @@ System → device type → device, with stowed devices nested in their carrier; 
   best waiting prints in the game's queue: prints you queue by hand (or untagged ones found in the game's queue) first,
   then components (a rig's drones always before the rig), relays, relay stations, beacons and wards, then loadouts and
   everything else, then stock. A better one takes a worse one's place, which goes back to the app's queue. The print
-  queue panel marks the waiting ones *app queue*. Turn it off with `RS_VIRTUAL_QUEUE=0`.
+  queue panel marks the waiting ones *app queue*. Turn it off with `RS_VIRTUAL_QUEUE=0`. While a factory's current
+  print waits for resources or components, a waiting print that fits goes ahead (at most every 10 minutes per factory):
+  the best one with no components of its own whose cost the stockpile covers with the waiting print's cost set aside
+  (a component the waiting print needs may use that reserve). The waiting print is canceled (Cancel current print) and
+  queued right behind it.
 - **Carrier** card (every carrier): launch / stow / recall for a hold, detach / attach for attach points. Devices too
   far to cruise over are picked up by the carrier, nearest first.
 - Stow, deploy, attach and detach work **from either side**: the carrier's page lists its hold / attachments, the

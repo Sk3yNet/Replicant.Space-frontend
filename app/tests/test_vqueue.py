@@ -87,3 +87,41 @@ def test_priorities():
     assert vqueue.priority({"device_type": "x", "tags": ["spare", "stock"]}) == 4
     assert vqueue.priority({"device_type": "mining_rig", "tags": ["fleet:m"]}) == 3
 
+
+
+def test_a_print_that_fits_goes_ahead_of_a_waiting_one(client):  # noqa: F811
+    """Owner 2026-11-01: while the current print waits, one that doesn't use what it needs goes ahead; it is canceled
+    and queued right behind."""
+    db, e, world = setup(client)
+    af = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    af.update(status="waiting_for_resources", printing={"device_type": "orbital_farm", "tags": ["fleet:m1"]})
+    world.queues["AF00BEEF"] = [{"device_type": "biosphere_cultivator", "notify": {"device": None}, "tags": ["fleet:m2"]},
+                                {"device_type": "hydroponic_bay", "notify": {"device": None}, "tags": ["fleet:m2"]}]
+    # the farm waits for structural; the cultivator needs components of its own; the bay uses carbon and volatiles
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-3-L4", "items": {"carbon": 12, "structural": 5,
+                                                                                     "volatiles": 5}}])
+    out = feed(client)
+    assert any("hydroponic_bay goes ahead of the waiting orbital_farm" in x for x in out), out
+    assert af["status"].startswith("printing (hydroponic_bay)")        # the bay started at once
+    assert [x["device_type"] for x in world.queues["AF00BEEF"]] == ["orbital_farm"]
+    assert world.queues["AF00BEEF"][0]["tags"] == ["fleet:m1"]
+    kept = client.portal.call(VirtualQueue(db).orders, "AF00BEEF")
+    assert [o["body"]["device_type"] for o in kept] == ["biosphere_cultivator"]
+    # nothing fits: the waiting print stays
+    af.update(status="waiting_for_resources", printing={"device_type": "orbital_farm", "tags": []})
+    world.queues["AF00BEEF"] = [{"device_type": "hydroponic_bay", "notify": {"device": None}, "tags": ["fleet:m2"]}]
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-3-L4", "items": {"carbon": 2}}])
+    e._vq_jumped = {}
+    out = feed(client)
+    assert not any("goes ahead" in x for x in out), out
+    assert af["printing"]["device_type"] == "orbital_farm"
+
+
+def test_jump_rules():
+    bps = {b["device_type"]: b for b in BPS}
+    cur = {"device_type": "biosphere_cultivator"}
+    bay = {"device_type": "hydroponic_bay", "tags": ["x"]}
+    # a component the waiting print needs may use its reserve
+    assert vqueue.jump(cur, [bay], [], {"carbon": 6, "volatiles": 2}, bps) == ("real", bay)
+    assert vqueue.jump({"device_type": "orbital_farm"}, [bay], [], {"carbon": 4, "volatiles": 2}, bps) is None
+    assert vqueue.jump(cur, [{"device_type": "biosphere_cultivator", "tags": ["x"]}], [], {"carbon": 99}, bps) is None

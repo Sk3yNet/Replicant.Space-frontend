@@ -3283,6 +3283,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         fed = getattr(self, "_vq_fed", None)
         if fed is None:
             fed = self._vq_fed = {}
+        jumped = getattr(self, "_vq_jumped", None)
+        if jumped is None:
+            jumped = self._vq_jumped = {}
         out = []
         now = time.monotonic()
         for d in await self.devices():
@@ -3292,7 +3295,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             kept = await vq.orders(code)
             real = [x for x in pq.items(d) if not x["extra"].get("virtual")]
             k, back, send = vqm.plan(real, kept)
-            if not send and not back and k == len(real):
+            stuck = str(d.get("status") or "").startswith("waiting_for_resources") and now - jumped.get(code, -1e9) >= 600
+            if not send and not back and k == len(real) and not stuck:
                 continue
             try:   # what the device list shows may be minutes old: the change is worked out on a fresh read
                 dev = await self.api.request("GET", f"/devices/{code}", background=True, raw=True) or {}
@@ -3300,6 +3304,13 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 continue
             fed[code] = now
             real = pq.items(dev)
+            if stuck and str(dev.get("status") or "").startswith("waiting_for_resources"):
+                jumped[code] = now
+                line = await self.vq_jump(vq, code, dev, real, kept)
+                if line:
+                    out.append(line)
+                    await self.log("print queue", line, "info")
+                    continue
             k, back, send = vqm.plan(real, kept)
             if not send and not back and k == len(real):
                 continue
@@ -3335,6 +3346,61 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             out.append(line)
             await self.log("print queue", line, "info")
         return out
+
+    async def vq_jump(self, vq: Any, code: str, dev: dict, real: list[dict], kept: list[dict]) -> str | None:
+        """The factory's current print waits for resources or components (owner 2026-11-01): a print that only uses
+        what that one doesn't need (vqueue.jump) goes ahead. The game's queue goes back to the app's queue, the waiting
+        print is canceled (`deactivate`, the panel's Cancel current print: a waiting print hasn't started), and the
+        one that fits is queued first with the canceled one right behind it."""
+        from . import printqueue as pq
+        from . import vqueue as vqm
+        from .shapes import normalize_blueprints, normalize_inventory
+        if "deactivate" not in (dev.get("available_commands") or []):
+            return None
+        cur = await pq.current(self.db, dev)
+        if not cur or cur.get("state") != "waiting" or not cur.get("device_type"):
+            return None   # what waits isn't known: it couldn't be put back
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        pick = vqm.jump(cur, real, kept, inv.get(dev.get("location")) or {}, bps)
+        if not pick:
+            return None
+        kind, x = pick
+        body = vqm.body_of(x) if kind == "real" else {"command": "enqueue_print", **x["body"]}
+        async with vq.lock:
+            st = await vq.state()
+            low = min([o["seq"] for o in st["orders"]] + [st.get("low", 0), 0])
+            st["low"] = low - len(real) - 2
+            for i in range(len(real)):
+                ok, _, _ = await self.send("POST", f"/devices/{code}", {"command": "dequeue_print", "index": 0},
+                                           f"print queue: {code} #1 back to the app's queue", raw=True)
+                if not ok:
+                    await self.db.kv_set(vqm.KV, st)
+                    return None
+                if real[i] is not x:
+                    await vq.add(code, vqm.body_of(real[i]), vqm.priority(real[i]), s=st, seq=low - len(real) + i - 1)
+            ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "deactivate"},
+                                         f"print queue: cancel {code}'s waiting {cur['device_type']} to let "
+                                         f"{body['device_type']} go ahead", raw=True)
+            again = {"command": "enqueue_print", "device_type": cur["device_type"], "quantity": 1,
+                     **({"tags": list(cur["tags"])} if cur.get("tags") else {})}
+            if ok:
+                ok2, _, _ = await self.send("POST", f"/devices/{code}", body, f"print queue: {code} gets {body['device_type']} first",
+                                            raw=True)
+                if ok2 and kind == "kept":
+                    st["orders"] = [o for o in st["orders"] if not (o["factory"] == code and o["seq"] == x["seq"])]
+                elif not ok2 and kind == "real":
+                    await vq.add(code, body, vqm.priority(x), s=st, seq=low - len(real) - 1)
+                okb, _, _ = await self.send("POST", f"/devices/{code}", again,
+                                            f"print queue: {code} gets the canceled {cur['device_type']} back", raw=True)
+                if not okb:
+                    await vq.add(code, again, 0, s=st, seq=low - len(real) - 2)
+            elif kind == "real":
+                await vq.add(code, body, vqm.priority(x), s=st, seq=low - len(real) - 1)
+            await self.db.kv_set(vqm.KV, st)
+        if not ok:
+            return f"{code}: couldn't cancel the waiting {cur['device_type']} ({err})"
+        return f"{code}: {body['device_type']} goes ahead of the waiting {cur['device_type']}, which is queued right behind it"
 
     async def components_ahead(self, g: dict, left: int) -> str:
         """A factory stuck on components that nothing else prints (every factory waiting, snapshot 2026-11-01 20:41:

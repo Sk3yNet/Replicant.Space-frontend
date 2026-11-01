@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.332.0"
+VERSION = "1.333.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.333.0", "2026-11-01", "A print that fits goes ahead of a waiting one (Joe asked): the print a factory works on now is not in the game's queue, so while it waits for resources or components nothing behind it could start. Now the best waiting print with no components of its own, whose cost the stockpile covers with the waiting print's cost set aside, goes first: the waiting print is canceled (as Cancel current print does) and queued right behind it. A component the waiting print needs (a rig's drones) may use that reserve. At most every 10 minutes per factory."),
     ("1.332.0", "2026-11-01", "Virtual print queue (Joe chose it after 44 mining rigs blocked all 5 factory queues): every print the app queues waits in the app's own queue, and each factory gets only its 2 best waiting prints in the game's queue. Prints you queue by hand go first, then components (a rig's drones always before the rig), then relays, relay stations, beacons and wards, then loadouts, then stock. A better print takes a worse one's place in the game's queue, and that one goes back to the app's queue. Long game queues are cut down to 2 the same way. Factory reads list the waiting prints after the game's, so every count of queued prints stays as before. The print queue panel marks them app queue. RS_VIRTUAL_QUEUE=0 turns it off."),
     ("1.331.0", "2026-11-01", "Dashboard: a Print queues card graphs the prints waiting in each printer's queue over 2, 7 or 30 days (sampled every 10 minutes with the logistics backlog)."),
     ("1.330.0", "2026-11-01", "Stuck component prints get unblocked (snapshot 20:41: 44 mining rigs at the head of all 5 factory queues waited for drones, only 18 drones exist, and no drone was printing). A factory waiting for components that no free factory can print queues them itself and moves its prints of that type to the front of its queue, ahead of the waiting item. A new print no longer counts fleet members, contract devices or devices pinned elsewhere at the factory as free components (the fleet drones mining at SOLARES-BELT-1 counted, so rigs were queued without drones). Re-queues no longer queue an item's components a second time."),

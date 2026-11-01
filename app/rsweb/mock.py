@@ -115,7 +115,7 @@ class World:
              "available_commands": ["adopt", "release", "set_directive", "clear_directive", "launch", "withdraw"]},
             {"device_code": "AF00BEEF", "device_type": "autofactory", "location": "SOL-3-L4", "status": "idle",
              "features": ["print", "modular"], "operational_capacity": 100.0,
-             "available_commands": ["enqueue_print", "dequeue_print", "clear_queue", "compact", "decommission"]},
+             "available_commands": ["enqueue_print", "dequeue_print", "clear_queue", "compact", "deactivate", "decommission"]},
             {"device_code": "BCN00001", "device_type": "ftl_relay", "location": "SOL-5-L4", "status": "relaying",
              "features": ["relay"], "operational_capacity": 100.0, "available_commands": ["activate"]},
             # carried in the heaven vessel
@@ -825,6 +825,14 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                      for _ in range(int(body.get("quantity") or 1)))
             world.af_next(d)
             return ok({"status": "enqueued", "queue": list(q), "queue_length": len(q)})
+        if cmd == "deactivate" and "autofactory" in d["device_type"]:   # cancels the current print
+            if str(d.get("status") or "").startswith(("printing", "waiting_for_resources")):
+                world.emit("print.cancelled", d)
+            d["status"] = "idle"
+            d.pop("waiting_for", None)
+            d.pop("printing", None)
+            world.af_next(d)
+            return ok({"status": "idle", "device_code": code})
         if cmd == "dequeue_print":
             q = world.queues.setdefault(code, [])
             i = int(body.get("index") or 0)       # 0-based, like the game (confirmed by the player)
