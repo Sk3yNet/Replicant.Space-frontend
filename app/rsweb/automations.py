@@ -4560,7 +4560,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         await self.db.kv_set("logistics_ami", sent)
         await self.db.kv_set(lg.KV_PICKUPS, pickups)
         await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": p["requests"], "runs": p["runs"], "unmet": p["unmet"],
-                                           "fleet_devices": p["fleet_devices"], "reserve": p["reserve"], "escorts": escorts,
+                                           "far": p.get("far") or [], "fleet_devices": p["fleet_devices"], "reserve": p["reserve"], "escorts": escorts,
                                            "lanes": p["lanes"]})
         await self.sample_backlog(items, devices, inv_raw, drop_raw, busy, p, bps, reps)
         await self.note_demand({f"req:{r['id']}": r.get("to") for r in p["requests"] if not r.get("skipped")})

@@ -157,6 +157,39 @@ def _dist(a: str, b: str, pos: dict[str, Any]) -> float:
     return math.dist([float(pa.get(k) or 0) for k in "xyz"], [float(pb.get(k) or 0) for k in "xyz"])
 
 
+def in_reach(a: str, b: str, pos: dict[str, Any], reach: float) -> bool:
+    """Within `reach` ly, or of unknown distance (a star missing from the catalog is left to the trip gate)."""
+    d = _dist(a, b, pos)
+    return d <= reach or d >= 1e9
+
+
+def beyond_sector(reqs: list[dict], pool: list[dict], fleets: list[dict], pos: dict[str, Any],
+                  reach: float) -> tuple[list[dict], list[dict]]:
+    """Deliveries beyond the sector range aren't considered at all (owner 2026-11-01): a request whose destination is
+    farther than `reach` from every logistics carrier and logistics fleet home, and a return whose pile is farther than
+    that from where it would go. Returns (kept, far); far = [{req, label, to, ly}] for the Logistics page."""
+    if not math.isfinite(reach):
+        return reqs, []
+    bases = {star_of(d.get("location")) for d in pool if d.get("location")} \
+        | {f["home"] for f in logistics_fleets(fleets) if f.get("home")}
+    bases.discard("")
+    kept, far = [], []
+    for r in reqs:
+        dstar = star_of(r.get("to"))
+        ly = None
+        if dstar and r.get("from") and not in_reach(star_of(r["from"]), dstar, pos, reach):
+            ly = _dist(star_of(r["from"]), dstar, pos)
+        elif dstar and bases:
+            near = min(_dist(b, dstar, pos) for b in bases)
+            if reach < near < 1e9:
+                ly = near
+        if ly is None:
+            kept.append(r)
+        else:
+            far.append({"req": r["id"], "label": r["label"], "to": r.get("to"), "ly": round(ly)})
+    return kept, far
+
+
 def _trip_hours(legs: list[tuple[str | None, str | None]], pos: dict[str, Any]) -> float:
     """Hours of surging for (from star, to star) legs at the game's pace. A star with no known position makes it
     infinite: that trip asks for your OK (live 2026-10-22: DELTA, about 28,900 ly from SOLARES, isn't in the catalog)."""
@@ -720,6 +753,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     ami_free = {c["device_code"]: c for c in ami or []}
     ami_level: dict[str, dict[str, float]] = {}   # per destination: what AMI deliveries this pass bring it up to
     pool = fleet_devices(fleets, devices)
+    reqs, far = beyond_sector(reqs, pool, fleets, pos, reach)
     bpl = list(bps.values())
     free = {d["device_code"]: d for d in pool if d["device_code"] not in busy and _free(d)}
     runs, unmet, used = [], [], set()
@@ -880,7 +914,9 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             if r["kind"] == "return":
                 return l == r.get("from")
             # piles beyond the network count while a replicant is free to go along
-            return l != dest and (star_of(l) in commandable or can_escort())
+            if l == dest or not in_reach(star_of(l), dstar, pos, reach):   # never a pile beyond the sector range
+                return False
+            return star_of(l) in commandable or can_escort()
         assigned = bool(r.get("_assigned"))
         while need:
             piles = [l for l, s in spare.items() if sources_ok(l) and any(s.get(x, 0) >= 1 for x in need)]
@@ -1388,7 +1424,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                      "point": d["location"], "to": to, "carry": {}, "back": None, "label": label})
     for run in runs:
         run["direct"] = {c: direct[c] for c in run_devices(run) if c in direct}
-    return {"requests": reqs, "runs": runs, "unmet": unmet, "reserve": reserve,
+    return {"requests": reqs, "runs": runs, "unmet": unmet, "reserve": reserve, "far": far,
             "fleet_devices": [{"code": d["device_code"], "type": d.get("device_type"), "fleet": d["_fleet"].get("name"),
                        "location": d.get("location"), "status": d.get("status"), "free": d["device_code"] in free,
                        "replicant": hosts.get(d["device_code"]), "covered": star_of(d.get("location")) in commandable,

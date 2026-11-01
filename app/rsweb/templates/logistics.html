@@ -30,6 +30,7 @@
         {% if r.confirm %}<button class="small" name="confirm" value="on" title="{{ ('about %d h of travel' % r.trip_h) if r.trip_h is not none else 'trip of unknown length' }}">Confirm</button>{% endif %}
         {% if not r.paused %}<button class="small" name="skip" value="{{ 'off' if r.skipped else 'on' }}">{{ 'Resume' if r.skipped else 'Skip' }}</button>{% endif %}</form>{% if on_way.get(r.id) %} {{ job_buttons(on_way[r.id]) }}{% endif %}<span class="tx-r"></span></td></tr>{% endfor %}
   </table>{% else %}<p class="muted">Nothing requested right now.</p>{% endif %}
+  {% if st.far %}<p class="muted small">Not considered, beyond the sector range: {% for f in st.far %}{{ f.label }} ({{ f.ly }} ly){{ ', ' if not loop.last }}{% endfor %}.</p>{% endif %}
   {% for u in st.unmet or [] %}{% if not u.req %}<p class="lv-alert small">{{ u.why }}</p>{% endif %}{% endfor %}
 </div>
 {% set durations = [('6', '6 h'), ('24', '1 day'), ('72', '3 days'), ('168', '1 week'), ('', 'until resumed')] %}

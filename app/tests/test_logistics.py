@@ -502,7 +502,7 @@ def test_hubs_share_reserves_to_stay_equally_busy():
 
     def sent(fal_q, sol_q, carbon, cap=500):
         p = lg.plan(fleets=fleets, devices=world_(fal_q, sol_q, cap), bps=bps, inventory={"FAL-1": {"carbon": carbon}}, pos=pos,
-                    commandable={"FAL", "SOL"}, hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[],
+                    commandable={"FAL", "SOL"}, hosts={"HV": "R1"}, busy=set(), reach=lg.SECTOR_RANGE_LY, contracts=[], trades=[],
                     incoming={}, replicants={}, drop=lambda s: f"{s}-1")
         return sum(r["carry"].get("carbon", 0) for r in p["runs"] if r["req"] == "print:SOL-2")
     assert sent(30, 5, 1000) == 240        # FAL keeps 19 prints' worth (3.2 h), more than SOL's whole queue (6 prints, 1 h)
@@ -512,7 +512,7 @@ def test_hubs_share_reserves_to_stay_equally_busy():
     assert sent(10, 30, 400, cap=2000) == 0
     assert sent(30, 5, 1000, cap=2000) == 240   # a small load that's all the queue wants still goes
     p = lg.plan(fleets=fleets, devices=world_(10, 30, 2000), bps=bps, inventory={"FAL-1": {"carbon": 400}}, pos=pos,
-                commandable={"FAL", "SOL"}, hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[],
+                commandable={"FAL", "SOL"}, hosts={"HV": "R1"}, busy=set(), reach=lg.SECTOR_RANGE_LY, contracts=[], trades=[],
                 incoming={}, replicants={}, drop=lambda s: f"{s}-1")
     assert any("waiting for a fuller load" in u["why"] for u in p["unmet"] if u["req"] == "print:SOL-2")
 
@@ -1351,3 +1351,21 @@ def test_contract_option_spares_and_cost():
     assert relays["cost"] == {"carbon": 50, "metals": 10} and relays["cost_unknown"] == []
     assert odd["cost"] == {} and odd["cost_unknown"] == ["mystery"]
     assert "cost" not in plain
+
+
+def test_deliveries_beyond_the_sector_range_are_not_considered():
+    pos = {**POS, "FAR": {"x": 5000, "y": 0, "z": 0}}
+    devs = world()
+    c = {"designation": "EVF", "location": "FAR-2", "title": "Far away", "price": {"carbon": 50}}
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 500}, "FAR-3": {"carbon": 400}},
+                pos=pos, commandable={"A", "B", "FAR"}, hosts={"HV": "R1"}, busy=set(), reach=lg.SECTOR_RANGE_LY,
+                contracts=[c], trades=[], incoming={}, replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1")
+    ids = {r["id"] for r in p["requests"]}
+    assert "contract:EVF" not in ids and "return:FAR-3" not in ids   # the far pile isn't sent for either
+    assert {f["req"] for f in p["far"]} == {"contract:EVF", "return:FAR-3"}
+    assert not [r for r in p["runs"] if r["req"] in ("contract:EVF", "return:FAR-3")]
+    # a far pile is never a source for a near delivery
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"FAR-3": {"carbon": 400}}, pos=pos,
+                commandable={"A", "B", "FAR"}, hosts={"HV": "R1"}, busy=set(), reach=lg.SECTOR_RANGE_LY, contracts=[],
+                trades=[], incoming={}, replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1")
+    assert not [r for r in p["runs"] if r["req"] == "print:B-2"]

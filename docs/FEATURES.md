@@ -600,7 +600,10 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
   logistics covers what it can't.
 - **Reach**: logistics reaches every logistics device however far (the supply range doesn't limit it), so one logistics
   fleet serves everywhere, but carriers only serve stars within the **sector range** (1728 ly): a far sector needs a
-  logistics fleet of its own.
+  logistics fleet of its own. Deliveries beyond it aren't considered at all (1.323.0): a request whose destination is
+  more than 1728 ly from every logistics carrier and the logistics fleet's home, or a return whose pile is that far from
+  where it would go, is left off the request list (a muted line names them), and no delivery loads at a pile that far
+  from its destination. Stars missing from the catalog are left to the trip Confirm.
 - **Ships** are picked nearest first (by relay hop), then the smallest that takes the rest in one go (else the
   biggest), and as many as the load needs go at once, as one convoy. Freighters and cargo vessels fly themselves (a
   freighter is too large to attach); haulers and drones stay in their system unless they ride (attached) on a free
