@@ -385,7 +385,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         dest = bound_for(d, known_stars, fleet_homes)
         if f and dest and dest != f["home"] and not d.get("location_stale"):
             retag[d["device_code"]] = (to_tag(dest), to_tag(f["home"]))
-            d = {**d, "tags": [t for t in d.get("tags") or [] if t != to_tag(dest)] + [to_tag(f["home"])]}
+            # `_was_to`: the game still has the old tag until a step drops it — a move or arrival step does (its tag
+            # step replaces the planner's; snapshot 2026-11-01: Miner_1's rigs kept to:anoaaieon at SOLFAMAR and got a
+            # new "arrived" job every pass)
+            d = {**d, "tags": [t for t in d.get("tags") or [] if t != to_tag(dest)] + [to_tag(f["home"])],
+                 "_was_to": to_tag(dest)}
         fixed.append(d)
     devices = fixed
     # a relay bound for a system that already has one relaying, or a second one bound for the same system, isn't sent:
@@ -760,7 +764,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             need = row["short"]
             if need <= 0:
                 continue
-            if row["type"] == "mining_drone" and open_sites.get(star) == 0:
+            if row["type"] in ("mining_drone", "mining_rig") and open_sites.get(star) == 0:
                 # its belts have no open sites right now: more miners would only sit idle
                 unmet.append({"star": star, "type": row["type"], "n": need,
                               "why": "waiting — no open mining sites in its belts right now (survey drones must open some first)"})
@@ -1461,7 +1465,7 @@ def self_move_steps(code: str, dest_star: str, stars: dict, d: dict, managed: di
     incoming from then on."""
     tags = set(d.get("tags") or [])
     steps = leave_steps(d, managed)
-    drop = sorted({SPARE, STOCK} & tags) if not gathering else []
+    drop = sorted(({SPARE, STOCK} & tags) | set(_other_fleets(d, join))) if not gathering else []
     add = ([to_tag(dest_star)] if to_tag(dest_star) not in tags else []) + ([GATHER] if gathering else []) \
         + ([join] if join and join not in tags else [])
     if add or drop:
@@ -1475,6 +1479,12 @@ def self_move_steps(code: str, dest_star: str, stars: dict, d: dict, managed: di
     return steps
 
 
+def _other_fleets(d: dict, join: str | None) -> list[str]:
+    """The fleet: tags a device joining `join` leaves (snapshot 2026-11-01: rigs handed from Miner_10 to Miner_2 and
+    Miner_7 kept fleet:miner-10, so two fleets counted them)."""
+    return [t for t in d.get("tags") or [] if join and t.startswith("fleet:") and t != join]
+
+
 def rehome_step(code: str, d: dict, star: str, keep_spare: bool = False, join: str | None = None) -> dict:
     """On arrival: drop the to: tag (and any spare / old home: tag); `join`: the fleet it now belongs to.
     keep_spare: a spare gathered at the depot — it stays spare and belongs to no fleet."""
@@ -1483,6 +1493,8 @@ def rehome_step(code: str, d: dict, star: str, keep_spare: bool = False, join: s
         return tag_step(code, None, sorted(set(old) | {to_tag(star), GATHER}))
     old = [t for t in d.get("tags") or [] if t.startswith(("home:", "to:")) or t == SPARE
            or (t.startswith("at:") and star_of(t[3:].upper()) != star)]   # a pin for another system no longer applies
+    old += [d["_was_to"]] if d.get("_was_to") else []
+    old += _other_fleets(d, join)
     if lifted(d):   # carried to its spot: the lift and its pin are done
         old += [LIFT] + [t for t in d.get("tags") or [] if t.startswith("at:")]
     return tag_step(code, [join] if join and join not in (d.get("tags") or []) else None, sorted(set(old) | {to_tag(star)}))
@@ -1541,7 +1553,8 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
         add = ([to] if to not in tags else []) + ([GATHER] if code in gathering else []) \
             + ([assign[code]] if assign.get(code) and assign[code] not in tags else [])
         add = add or None
-        rem = (sorted({SPARE, STOCK} & tags) or None) if code not in gathering else None
+        rem = (sorted(({SPARE, STOCK} & tags) | set(_other_fleets(by_code.get(code, {}), assign.get(code)))) or None) \
+            if code not in gathering else None
         if add or rem:
             steps.append(tag_step(code, add, rem))
     first = len(steps)

@@ -291,13 +291,25 @@ class SimMixin:
         spares = [d for d in devices if d.get("device_type") == ctype and d not in (skip or []) and at_tag(loc) not in (d.get("tags") or [])
                   and "spare" in (d.get("tags") or []) and d.get("device_code") not in busy
                   and not is_component(d) and not pinned_at(d)]
+        if len(spares) > n:
+            # the nearest first (snapshot 2026-11-01: the SOLARES and FALQUORYX factories each took the other's spare
+            # mining drones, so carriers crossed between the hubs both ways)
+            from .loadouts import _dist
+            pos = await self.star_lookup("pos")
+            home = star_of(loc)
+            spares.sort(key=lambda d: (d.get("location") != loc, _dist(star_of(d.get("location")) or "?", home, pos),
+                                       d.get("device_code") or ""))
         pinned: list[str] = []
         printed, note = 0, None
         for d in spares[:n]:
-            ok, _, err = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": retag(d, tags)},
+            cfg = retag(d, tags)
+            ok, _, err = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": cfg},
                                          f"{why}: {d['device_code']} to {loc}")
             if ok:
                 pinned.append(d["device_code"])
+                # pinned now: the next factory in this pass mustn't claim it too (snapshot 2026-11-01: three mining
+                # drones carried both at:isolithor-belt-1 and at:solares-belt-1)
+                d["tags"] = [t for t in d.get("tags") or [] if t not in cfg["remove_tags"] and t not in tags] + list(tags)
         left = n - len(pinned)
         if left > 0:
             from . import printqueue

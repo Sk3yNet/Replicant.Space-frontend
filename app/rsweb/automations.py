@@ -6102,7 +6102,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             t = _ts(cool.get(code))
             return bool(t and now - t < cooldown)
 
-        miners = [d for d in devices if (d.get("device_type") == "mining_drone" or
+        miners = [d for d in devices if (d.get("device_type") in ("mining_drone", "mining_rig") or
                   (is_controller(d) and kind_of(d.get("device_type")) == "mining"))
                   and not _reserved(d)]
         done: list[str] = []
@@ -6239,7 +6239,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 continue  # a fleet's drones are run by the fleet
             if star_of(d.get("location")) in warded:
                 continue  # another player's ward or hub: nothing of ours can mine here
-            if (d.get("device_type") != "mining_drone" or str(d.get("status")) != "idle"
+            if (d.get("device_type") not in ("mining_drone", "mining_rig") or str(d.get("status")) != "idle"
                     or "BELT" not in (d.get("location") or "") or code in busy or code in managed
                     or "start_mining" not in (d.get("available_commands") or ["start_mining"])):
                 continue

@@ -9868,3 +9868,37 @@ def test_adopt_options_only_what_the_controller_can_adopt():
     assert pick("SC") == ["BS", "S1"]
     assert pick("TC") == ["CF"]
     assert pick("FC") == ["FC2", "V1"]         # surge-capable, anywhere, fleet controllers too
+
+
+def test_arrival_at_a_new_home_drops_the_old_home_tag_and_another_fleets_tag():
+    """Snapshot 2026-11-01: Miner_1 moved home ANOAAIEON → SOLFAMAR; its rigs at SOLFAMAR kept to:anoaaieon (the arrival
+    step removed only the planner's to:solfamar), so every pass made a new "arrived" job. Rigs handed to another fleet
+    kept their old fleet: tag."""
+    from rsweb import loadouts as lo
+    rig = {"device_code": "RIG", "device_type": "mining_rig", "location": "LAR-7-L4", "status": "idle",
+           "replicant_code": "R1", "features": ["cruise", "mine", "fracture"], "tags": ["fleet:m1", "to:kel"]}
+    stars = {s: {"position": {"x": i, "y": 0, "z": 0}, "entry_point": f"{s}-1-L4"} for i, s in enumerate(("FAL", "KEL", "LAR"))}
+    fleets = [{"id": "m1", "name": "Miner 1", "home": "LAR", "station": True, "wants": {}}]
+    p = lo.plan({"phases": [], "fleets": fleets, "fleets_migrated": True}, [rig], [], {}, stars, {}, set(), [], {})
+    assert p["arrived"] == ["RIG"]
+    st = lo.arrived_steps("RIG", p["by_code"]["RIG"], {})[-1]
+    assert sorted(st["body"]["configuration"]["remove_tags"]) == ["to:kel", "to:lar"]
+    # joining another fleet: the old fleet tag goes
+    st = lo.rehome_step("RIG", {"tags": ["fleet:m10", "to:lar"]}, "LAR", join="fleet:m7")
+    assert st["body"]["configuration"] == {"add_tags": ["fleet:m7"], "remove_tags": ["fleet:m10", "to:lar"]}
+
+
+def test_mining_rigs_work_belts_like_mining_drones():
+    """2026-11-01: the Mining template wants 8 mining rigs and no drones; the 21 rigs sat idle at fleet homes because
+    only mining drones were handed to the mining controller."""
+    from rsweb import ami_schedule as am, fleets as fl
+    rig = {"device_code": "RIG", "device_type": "mining_rig", "location": "LAR-BELT-1", "status": "idle",
+           "features": ["cruise", "mine", "fracture"], "tags": ["fleet:m1"]}
+    assert am.drone_kind(rig) == "mining" and am.runs("mining", "mining_rig")
+    ctrl = {"device_code": "MC", "device_type": "ami_mining_controller", "location": "LAR-BELT-1", "status": "idle",
+            "tags": ["fleet:m1"]}
+    f = {"id": "m1", "name": "Miner 1", "home": "LAR", "station": True, "wants": {"mining_rig": 8}}
+    steps, problems = fl.mining_work_steps(f, [ctrl, rig], "LAR-BELT-1", None)
+    adopt = next(s for s in steps if (s.get("body") or {}).get("command") == "adopt")
+    assert adopt["body"]["devices"] == ["RIG"] and not problems
+    assert fl.has_miners(f, [])

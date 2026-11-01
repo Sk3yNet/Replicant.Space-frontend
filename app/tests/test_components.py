@@ -179,3 +179,20 @@ def test_components_are_tagged_and_not_traded_between_hubs(client):  # noqa: F81
                                             None, comp.component_tags([], "SOLARES-BELT-1"), {"AF1", "AF2"})
     assert pinned == ["X1"]
     assert set(next(d for d in world.devices if d["device_code"] == "X1")["tags"]) == {"component", "to:solares", "at:solares-belt-1"}
+
+
+def test_spares_pinned_once_per_pass_and_nearest_first(client):  # noqa: F811
+    """Snapshot 2026-11-01: two factories in one pass each pinned the same spare mining drones (both at: tags), and the
+    SOLARES and FALQUORYX factories took each other's spares instead of their own."""
+    db, e = client.app.state.db, client.app.state.worker.automations
+    S = lambda c, loc: {"device_code": c, "device_type": "orbital_farm", "location": loc, "status": "idle",  # noqa: E731
+                        "tags": ["spare"]}
+    world = client.app.state.api.http._transport.app.state.world
+    src = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    devs = [S("FA00FA01", "PROCYON-1-L4"), S("FA00FA02", "SOL-3-1")]
+    world.devices += [{**src, **d, "print_queue": []} for d in devs]
+    pinned, _, _ = client.portal.call(e.pin_or_print, "orbital_farm", 1, "SOL-3-L4", devs, set(), "t")
+    assert pinned == ["FA00FA02"]
+    assert "at:sol-3-l4" in devs[1]["tags"] and "spare" not in devs[1]["tags"]
+    pinned, _, _ = client.portal.call(e.pin_or_print, "orbital_farm", 1, "SOL-4-L4", devs, set(), "t")
+    assert pinned == ["FA00FA01"]                               # the near one is taken now

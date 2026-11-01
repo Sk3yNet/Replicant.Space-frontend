@@ -1085,7 +1085,8 @@ def mining_work_steps(fleet: dict, devices: list[dict], belt: str | None, delive
             for d in ms:
                 if d.get("device_type") == BELT_SURVEYOR and not str(d.get("status") or "").startswith(WORKING):
                     steps.append(step(f"{d['device_code']}: search {place}", f"/devices/{d['device_code']}", {"command": "search"}))
-        put_to_work(ctrl["mining_controller"], free("mining_drone", ctrl["mining_controller"]), "gather_evenly", {})
+        put_to_work(ctrl["mining_controller"], free("mining_drone", ctrl["mining_controller"])
+                    + free("mining_rig", ctrl["mining_controller"]), "gather_evenly", {})
     if deliver_to and ctrl["transport_controller"]:
         haulers = [d["device_code"] for d in ms if d.get("device_type") in ("cargo_freighter", "transport_drone", "transport_hauler")
                    and d.get("controller_device_code") != ctrl["transport_controller"]["device_code"]]
@@ -1498,8 +1499,9 @@ def worked_systems(fleets: list[dict], devices: list[dict] | None = None) -> set
 
 def has_miners(fleet: dict, devices: list[dict]) -> bool:
     """Mining drones in the fleet's loadout or among its members."""
-    return station_wants(fleet).get("mining_drone", 0) > 0 \
-        or any(d.get("device_type") == "mining_drone" for d in members(fleet, devices))
+    from .ami_schedule import MINER_TYPES
+    return any(station_wants(fleet).get(t, 0) > 0 for t in MINER_TYPES) \
+        or any(d.get("device_type") in MINER_TYPES for d in members(fleet, devices))
 
 
 def materials_target(fleet: dict, fleets: list[dict]) -> dict | None:

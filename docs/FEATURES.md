@@ -468,7 +468,7 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
 - **Auto-retry**: a stalled mission retries the stalled phase by itself after 15 min, doubling the wait each time up to
   6 h, eight tries in all (then it waits for *Retry*). One stalled out of comms range resumes once back in range
   instead. Only the first stall at a spot notifies.
-- **Mining** works the richest belt (or salvage). **Explore** surveys each target; it no longer leaves relays or beacons
+- **Mining** works the richest belt (or salvage); its mining controller runs the mining drones and mining rigs alike. **Explore** surveys each target; it no longer leaves relays or beacons
   (ask for those on the Systems list), skips an already-surveyed target, and the crew stays aboard at home.
 - **Trade fleets** are retired: the logistics service does their work, and each one becomes a logistics fleet (same
   members and loadout) once its last run ends.

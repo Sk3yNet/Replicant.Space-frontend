@@ -84,7 +84,7 @@ def _ts(v: Any) -> datetime | None:
 
 
 def is_miner(d: dict) -> bool:
-    return (d.get("device_type") or "") == "mining_drone"
+    return (d.get("device_type") or "") in ("mining_drone", "mining_rig")
 
 
 def is_mining_ctrl(d: dict) -> bool:

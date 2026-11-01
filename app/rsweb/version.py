@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.324.0"
+VERSION = "1.325.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.325.0", "2026-11-01", "Mining rig rollout fixes (snapshot 13:25). Rigs mine belts: a mining controller adopts rigs with its drones, fleets put them to work on gather_evenly, and the restart rule starts idle rigs at belts (the Mining template wants 8 rigs and no drones, so all 21 rigs sat idle and no belt was mined; unverified live that a controller adopts a rig). A device moved to its fleet's new home loses the old home's to: tag on arrival (Miner_1's rigs kept to:anoaaieon at SOLFAMAR and got a new arrived job every pass, and counted as in transit). A device handed to another fleet loses its old fleet tag (79B8E981 carried Miner_10 and Miner_2). Spare components go to the nearest factory first and are pinned once per pass (SOLARES and FALQUORYX swapped mining drones; three drones carried two at: pins)."),
     ("1.324.0", "2026-11-01", "Standard recall buttons on every fleet card, every role: Recall now cancels what the fleet is doing and brings it back at once; Recall after task lets the current task finish (a mission's work at its target, or a member's job), then brings it back. Back means its station, else the nearest receiving point (a stationed fleet's home or one that takes materials in), and cargo is unloaded there. Logistics, prospector, rock chaser and bootstrap fleets stay held after a recall until Resume. Replaces Recall & return home."),
     ("1.323.0", "2026-11-01", "Logistics no longer considers deliveries beyond the sector range (1728 ly): a contract, trade, print, upkeep or return whose destination is that far from every logistics carrier and the logistics home, or a return whose pile is that far from its gather point, is left off the request list (a muted line on the Logistics page names them) and holds no vessel, and no delivery loads at a pile that far from its destination."),
     ("1.322.0", "2026-11-01", "Clan tag on the Reputation page: type a tag (SK3Y) and preview it in front of every replicant name (SK3Y-Regina_Solforge), then apply like a bulk profile import. The game has no clan field and refuses brackets in names. Tagged names are skipped and the tag is remembered. BobNet mention watching also matches the name without the tag and splits names on hyphens."),

@@ -15,8 +15,10 @@ from .automations import step
 
 # which drones each kind of controller looks after
 DRONE_FOR_KIND = {"mining": "mining_drone", "survey": "survey_drone", "transport": "transport"}
-# other device types a controller of that kind adopts (live 2026-10-24: a survey controller adopted a belt surveyor)
-ALSO_ADOPTS = {"survey": ("belt_surveyor",)}
+# other device types a controller of that kind adopts (live 2026-10-24: a survey controller adopted a belt surveyor;
+# mining rigs since 1.325.0: the Mining template moved from drones to rigs on 2026-11-01; unverified live)
+ALSO_ADOPTS = {"survey": ("belt_surveyor",), "mining": ("mining_rig",)}
+MINER_TYPES = ("mining_drone", "mining_rig")   # devices that mine belts (rigs also mine asteroids)
 
 
 def runs(kind: str | None, device_type: str | None) -> bool:
