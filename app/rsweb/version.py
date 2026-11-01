@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.321.1"
+VERSION = "1.322.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.322.0", "2026-11-01", "Clan tag on the Reputation page: type a tag (SK3Y) and preview it in front of every replicant name (SK3Y-Regina_Solforge), then apply like a bulk profile import. The game has no clan field and refuses brackets in names. Tagged names are skipped and the tag is remembered. BobNet mention watching also matches the name without the tag and splits names on hyphens."),
     ("1.321.1", "2026-10-31", "Deep space relay stations get switched on at the drop. A station travels compacted, and the drop sent activate while it was still unfurling (Device is unfurling), so the carrier left it switched off out of reach; rescues then brought every station home as a spare (all 10 sat spare on 10-31). The unfurl now waits for device.unfurled before the switch-on, and an unfurl refused as already unfurling keeps waiting."),
     ("1.321.0", "2026-10-31", "Contracts are pre-approved per location, not per species (Joe: a species with several colonies ticked and unticked together down the list). Each civilization row and contract card approves only its own body; approvals saved per species are spread once over that species' known locations, so nothing already approved is lost. A new setting at the top of the Contracts page auto-approves contracts at every location where a beacon of yours is deployed; those contracts show it and their own box is locked on."),
     ("1.320.3", "2026-10-31", "Contracts approvals save in place, and no page puts back old ticks (Joe: ticks still moved, also on device pages). Ticking an approval no longer reloads the Contracts page: a civilization's pre-approval ticks and locks its contracts' own boxes right away, and unticking it gives them back their own approval. Every checkbox, radio button and dropdown on every page now opts out of the browser's restore after a reload, so each one shows what the app has saved."),

@@ -234,10 +234,17 @@ async def my_names(db: DB) -> list[str]:
 
 def name_parts(names: list[str]) -> list[str]:
     """The names, and each part of a name with underscores (Hester_Towline → also Hester and Towline; parts of 3
-    letters or more, Joe 2026-10-29)."""
+    letters or more, Joe 2026-10-29). Hyphens split too, so a clan tag (SK3Y-Regina_Solforge, 1.322.0) leaves Regina
+    and Solforge, and the name without the tag, matching."""
+    import re
     out = list(names)
     for n in names:
-        out += [x for x in str(n).split("_") if len(x) >= 3 and x not in out]
+        n = str(n)
+        if "-" in n:
+            bare = n.split("-", 1)[1]
+            if bare and bare not in out:
+                out.append(bare)
+        out += [x for x in re.split(r"[_-]", n) if len(x) >= 3 and x not in out]
     return out
 
 

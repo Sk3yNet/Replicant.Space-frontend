@@ -707,7 +707,7 @@ A factory already waiting for components first claims the ones of that type alre
 - A Trades section (as on Shop).
 
 ### Reputation
-Account and per-replicant reputation, known species. **Bulk profile import**: paste JSON `{code or current name: {name, description, plan, project, pronouns}}`, preview the changes and problems per replicant, then apply (one profile edit each, changed fields only).
+Account and per-replicant reputation, known species. **Bulk profile import**: paste JSON `{code or current name: {name, description, plan, project, pronouns}}`, preview the changes and problems per replicant, then apply (one profile edit each, changed fields only). **Clan tag**: a tag typed there (letters and digits) is previewed in front of every name as TAG-name and applied the same way; tagged names and a replicant named the tag are skipped (the game has no clan field and allows only letters, digits, hyphens and underscores in names).
 
 ### Shop
 - Your trade controllers, trades, other traders: every replicant's trader directory plus every shop a system scan lists,

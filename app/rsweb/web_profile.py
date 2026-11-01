@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -152,6 +153,41 @@ async def profiles_preview(request: Request, profiles: str = Form(""), user: str
     return partial(request, "partials/profile_import.html", rows=rows, err=err, done=False, text=profiles)
 
 
+TAG_RE = re.compile(r"[A-Za-z0-9]+")
+
+
+def clan_tag_names(tag: str, reps: dict) -> tuple[dict, str | None]:
+    """Profile import rows that put the clan tag in front of every replicant name ("SK3Y-Regina_Solforge", Joe
+    2026-11-01: the game has no clan field and refuses brackets in names; letters, digits, hyphens and underscores
+    only). Names already tagged, and a replicant named the tag itself (Sk3y), are left alone."""
+    tag = tag.strip().strip("-_")
+    if not TAG_RE.fullmatch(tag or ""):
+        return {}, "the tag may only hold letters and digits"
+    out = {}
+    for code, r in reps.items():
+        name = str(r.get("name") or "")
+        if not name or name.lower() == tag.lower() or name.lower().startswith(tag.lower() + "-"):
+            continue
+        out[code] = {"name": f"{tag}-{name}"[:PROFILE_FIELDS["name"]]}
+    return out, None
+
+
+@router.post("/profiles/clan_tag", response_class=HTMLResponse)
+async def profiles_clan_tag(request: Request, tag: str = Form(""), user: str = Depends(current_user)):
+    """Preview the clan tag renames; the preview's Apply button sends them like any profile import."""
+    st = await load_state(request)
+    data, err = clan_tag_names(tag, st["replicants"])
+    if err:
+        return partial(request, "partials/profile_import.html", rows=[], err=[err], done=False, text="")
+    await request.app.state.db.kv_set("clan_tag", tag.strip().strip("-_"))
+    if not data:
+        return partial(request, "partials/profile_import.html", rows=[], err=["every replicant already carries the tag"],
+                       done=False, text="")
+    text = json.dumps(data)
+    rows, err = parse_import(text, st["replicants"])
+    return partial(request, "partials/profile_import.html", rows=rows, err=err, done=False, text=text)
+
+
 @router.post("/profiles/import", response_class=HTMLResponse)
 async def profiles_import(request: Request, profiles: str = Form(""), user: str = Depends(current_user)):
     """Send one PATCH /replicants/{code} per valid row with changes; rows with errors are skipped."""
@@ -224,4 +260,5 @@ async def reputation_page(request: Request, refresh: int = 0, user: str = Depend
                  "species": _unwrap(species, "species"), "species_err": e2, "replicants": per}
         await db.kv_set("reputation", cache)
     names = {c: r.get("name") or c for c, r in st["replicants"].items()}
-    return await page(request, user, "reputation.html", "reputation", c=cache, names=names)
+    return await page(request, user, "reputation.html", "reputation", c=cache, names=names,
+                      clan_tag=await db.kv_get("clan_tag", "") or "")

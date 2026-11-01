@@ -29,6 +29,11 @@
         placeholder='{"ED399202": {"name": "Regina_Solforge", "description": "…", "plan": "…", "project": "…"}}'></textarea>
       <button class="small">Preview</button>
     </form>
+    <form hx-post="/profiles/clan_tag" hx-target="#profile-import-result" style="margin-top:8px">
+      <label class="small">Clan tag <input name="tag" value="{{ clan_tag }}" size="10" placeholder="SK3Y"></label>
+      <button class="small">Preview tag on every name</button>
+      <span class="muted small">Puts TAG- in front of each name (the game allows only letters, digits, hyphens and underscores). Tagged names are skipped.</span>
+    </form>
     <div id="profile-import-result"></div>
   </div>
 </div>

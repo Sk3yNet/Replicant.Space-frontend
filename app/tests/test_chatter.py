@@ -245,3 +245,19 @@ def test_pilot_and_score_placeholders_from_patch():
     assert ch.post_values({"message": "Quiet start from creme-1707 - barely a shimmer"}, {})["pilot"] == "creme-1707"
     assert ch.post_values({"message": "The Drafel are not impressed."}, {})["pilot"] is None
     assert ch.post_values({"message": "limps out. Score: 0"}, {})["score"] == "0"
+
+
+def test_clan_tag_names_and_mentions(client):  # noqa: F811
+    from rsweb import notify
+    from rsweb.web_profile import clan_tag_names
+    reps = {"A1": {"name": "Regina_Solforge"}, "B2": {"name": "SK3Y-Tamsin_Ledgerly"}, "C3": {"name": "Sk3y"}}
+    out, err = clan_tag_names(" SK3Y- ", reps)
+    assert not err and out == {"A1": {"name": "SK3Y-Regina_Solforge"}}
+    assert clan_tag_names("[sk3y]", reps)[1]
+    names = ["SK3Y-Regina_Solforge"]
+    assert notify.mentions("hi Regina_Solforge", names) and notify.mentions("solforge?", names)
+    assert notify.mentions("@SK3Y-Regina_Solforge", names)
+    r = client.post("/profiles/clan_tag", data={"tag": "SK3Y"}, headers=HX).text
+    assert "SK3Y-" in r and "Apply" in r
+    assert client.portal.call(client.app.state.db.kv_get, "clan_tag") == "SK3Y"
+    assert 'value="SK3Y"' in client.get("/reputation", headers=H).text
