@@ -123,6 +123,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   A diverted rock turns `off_target` (`system.object_off_target`) and stays minable until it's flung out at the ETA.
 - Seasons (`GET /overview`, Dashboard › Story) end in a time skip: devices may move, location events end, asteroids
   drift away, AMI directives pause. Season 3 (from v3.5.3) is Alteration Protocol.
+- An FTL beacon has no off switch: deployed it is always `monitoring`, and `deactivate` answers "Nothing to deactivate"
+  (live 2026-11-01). Only stow or decommission takes one out of service.
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Owner's plan (2026-10-19): relays go first (Relay rollout; any logistics vessel with a replicant may escort relays

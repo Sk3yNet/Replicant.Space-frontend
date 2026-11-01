@@ -282,14 +282,12 @@ def test_redundant_beacons():
             {"device_code": "W3", "device_type": "ftl_beacon", "location": "W-BELT-1", "status": "monitoring", "tags": ["at:w-2"]}]
     rs = {r["code"]: r for r in tr.redundant_beacons(devs, rows)}
     red = {c: r["why"] for c, r in rs.items()}
-    assert set(red) == {"K1", "Y2", "Y3"}                # Kuiper beacon next to a civ beacon; Y's extra beacons; Z keeps its only one
+    assert set(red) == {"K1", "Y2"}                      # Kuiper beacon next to a civ beacon; Y's second beacon; Z keeps its only one
     assert "civilization" in red["K1"]
-    assert rs["Y3"]["deactivate"] and not rs["Y3"]["tag"]   # already spare but still working: only switched off
-    assert rs["Y2"]["deactivate"] and rs["Y2"]["tag"]
 
 
 def test_duplicate_beacons_at_one_civ_body():
-    """Live 2026-11-01: 15 beacons at ANOAAIEON-3, each pinned at: the body: one stays, the rest go off and spare."""
+    """Live 2026-11-01: 15 beacons at ANOAAIEON-3, each pinned at: the body: one stays, the rest are tagged spare."""
     rows = [{"location": "A-3", "open": [{"designation": "E"}], "completed": [], "life": None},
             {"location": "A-5", "open": [], "completed": [{"designation": "F"}], "life": None}]
     b = lambda c, loc, tags, st="monitoring": {"device_code": c, "device_type": "ftl_beacon", "location": loc,
@@ -300,7 +298,6 @@ def test_duplicate_beacons_at_one_civ_body():
     rs = {r["code"]: r for r in tr.redundant_beacons(devs, rows)}
     assert set(rs) == {"A2", "A3", "A6"}
     assert "A-3 already has beacon A1" in rs["A2"]["why"]
-    assert all(r["deactivate"] and r["tag"] for r in rs.values())
 
 
 def test_monitoring_beacon_printed_for_an_order_is_bound():

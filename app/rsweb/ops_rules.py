@@ -38,7 +38,7 @@ def _born(o: dict):
 
 
 
-REDUNDANT_PER_PASS = 40   # redundant beacons retired per pass (each a deactivate + tag job)
+REDUNDANT_PER_PASS = 40   # redundant beacons tagged spare per pass
 
 class OpsRules:
     # --- ward, relay and beacon orders (Map › Prospects, Systems) --------------------------------------------------
@@ -533,13 +533,13 @@ class OpsRules:
         code = here["device_code"]
         tags = here.get("tags") or []
         rem = [t for t in tags if t.startswith(("home:", "at:", "to:"))]
-        job = await self.create_job("wards", f"deactivate {label} {code} in {star} and mark it spare", code,
-                                    [step(f"deactivate {label} {code}", f"/devices/{code}", {"command": "deactivate"}),
-                                     lo.tag_step(code, [lo.SPARE], rem or None)], {"devices": [code]}, force=True)
+        off = [] if dtype == "ftl_beacon" else [step(f"deactivate {label} {code}", f"/devices/{code}", {"command": "deactivate"})]
+        job = await self.create_job("wards", f"{'deactivate' if off else 'retire'} {label} {code} in {star} and mark it spare", code,
+                                    off + [lo.tag_step(code, [lo.SPARE], rem or None)], {"devices": [code]}, force=True)
         if job:
             await self.remember_tags(code, sorted((set(tags) - set(rem)) | {lo.SPARE}))
-        await self.log("wards", f"{star}: {label} {code} deactivated and marked spare" + (f" (by {user})" if user else ""))
-        return f"deactivating {code} in {star} and marking it spare (the loadout pass may send it where one is needed)"
+        await self.log("wards", f"{star}: {label} {code} {'deactivated and ' if off else ''}marked spare" + (f" (by {user})" if user else ""))
+        return f"{'deactivating' if off else 'retiring'} {code} in {star} and marking it spare (the loadout pass may send it where one is needed)"
 
     # --- civilization beacons -------------------------------------------------------------------------------------
     async def civ_coverage(self) -> list[dict]:
@@ -629,23 +629,16 @@ class OpsRules:
         devices = await self.devices()
         by = {d.get("device_code"): d for d in devices}
         lines = []
-        from .automations import step
         red = tr.redundant_beacons(devices, rows, self.busy_devices(await self.jobs()))
         if len(red) > REDUNDANT_PER_PASS:   # 163 at once on 2026-11-01: a few dozen jobs per pass, the rest next time
             lines.append(f"{len(red)} redundant beacons: {REDUNDANT_PER_PASS} now, the rest on the next passes")
             red = red[:REDUNDANT_PER_PASS]
-        for r in red:
+        for r in red:   # tag only: a beacon has no off switch ("Nothing to deactivate", live 2026-11-01)
             d = by.get(r["code"]) or {}
             homes = [t for t in d.get("tags") or [] if t.startswith(("home:", "at:"))]
-            off = r.get("deactivate") and "deactivate" in (d.get("available_commands") or ["deactivate"])
-            steps = ([step(f"deactivate beacon {r['code']}", f"/devices/{r['code']}", {"command": "deactivate"})] if off else [])
-            if r.get("tag", True) or homes:
-                steps.append(tag_step(r["code"], ["spare"] if r.get("tag", True) else None, homes or None))
-            if not steps:
-                continue
-            what = " and ".join(x for x in ("switched off" if off else "", "marked spare" if r.get("tag", True) else "") if x)
-            job = await self.create_job("civ_beacons", f"beacon {r['code']} ({r['location']}) is redundant: {what}", r["code"],
-                                        steps, {"devices": [r["code"]]}, force=manual)
+            what = "marked spare"
+            job = await self.create_job("civ_beacons", f"beacon {r['code']} ({r['location']}) is redundant: spare", r["code"],
+                                        [tag_step(r["code"], ["spare"], homes or None)], {"devices": [r["code"]]}, force=manual)
             if job:
                 await self.remember_tags(r["code"], sorted((set(d.get("tags") or []) - set(homes)) | {"spare"}))
             lines.append(f"{r['code']} at {r['location']} {what} — {r['why']}" + ("" if job else " (dry run)"))

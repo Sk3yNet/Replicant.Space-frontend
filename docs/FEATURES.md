@@ -273,8 +273,8 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
 
 ### Traffic
 Civilization contact (a beacon must sit at the body of the civilization's event), visitors, each beacon's audit log,
-redundant beacons (each civilization body keeps one; extras in its system and at the same spot are switched off and
-marked spare, 40 per pass). How often beacons are read is a setting (default 10 minutes).
+redundant beacons (each civilization body keeps one; extras in its system and at the same spot are marked spare,
+40 per pass; a beacon has no off switch). How often beacons are read is a setting (default 10 minutes).
 
 ### Trail
 - Follows a replicant through the audit logs of public FTL beacons: candidate systems with travel time and a travel

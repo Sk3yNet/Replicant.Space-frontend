@@ -243,9 +243,9 @@ def redundant_beacons(devices: list[dict], rows: list[dict], busy: set[str] | No
     more at the same spot are redundant too (live 2026-11-01: 15 at ANOAAIEON-3, 239 beacons in all, every one pinned
     `at:` its own body). Beacons with a job of their own are skipped: busy, in a fleet or a contract, on their way
     (`to:`) or pinned (`at:`) somewhere they haven't reached yet (live 2026-10-22: 17 printed beacons tagged to:<civ
-    star> flapped). A pin at the spot the beacon sits on is no job. Beacons already spare and switched off are done;
-    spare ones still working are switched off. Each row says whether the beacon is to be switched off (`deactivate`)
-    and tagged spare (`tag`)."""
+    star> flapped). A pin at the spot the beacon sits on is no job. Beacons already spare are done. A beacon has no off
+    switch: the game answers deactivate on a monitoring beacon "Nothing to deactivate" (live 2026-11-01, all 40), so
+    a redundant one is only tagged spare and the loadout pass may carry it off."""
     from .loadouts import pinned_at, to_tag
     from .wardhub import active
     busy = busy or set()
@@ -256,14 +256,14 @@ def redundant_beacons(devices: list[dict], rows: list[dict], busy: set[str] | No
         tags = d.get("tags") or []
         pin = pinned_at(d)
         here = pin == d["location"]   # a to: for its own system, pinned where it sits: it has arrived
-        if (d.get("device_code") in busy or ("spare" in tags and not active(d)) or (pin and not here)
+        if (d.get("device_code") in busy or "spare" in tags or (pin and not here)
                 or any(t.startswith(("fleet:", "contract:")) for t in tags)
                 or any(t.startswith("to:") and not (here and t == to_tag(star_of(pin))) for t in tags)):
             continue
         by_star[star_of(d["location"])].append(d)
 
-    def best(bs: list[dict]) -> dict:   # the one to keep: not spare, working, pinned there
-        return min(bs, key=lambda b: ("spare" in (b.get("tags") or []), not active(b),
+    def best(bs: list[dict]) -> dict:   # the one to keep: working, pinned there
+        return min(bs, key=lambda b: (not active(b),
                                       pinned_at(b) != b["location"], b["device_code"]))
     out = []
     for star, bs in sorted(by_star.items()):
@@ -282,8 +282,7 @@ def redundant_beacons(devices: list[dict], rows: list[dict], busy: set[str] | No
             keep = {best(bs)["device_code"]}
             civ_why = f"{star} already has beacon {next(iter(keep))}"
         out += [{"code": b["device_code"], "location": b["location"], "star": star,
-                 "why": why.get(b["device_code"], civ_why), "deactivate": active(b),
-                 "tag": "spare" not in (b.get("tags") or [])}
+                 "why": why.get(b["device_code"], civ_why)}
                 for b in bs if b["device_code"] not in keep]
     return out
 
