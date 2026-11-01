@@ -198,7 +198,7 @@ class StockMixin:
                 return False, f"dequeue failed: {err}"
         for it in order[k:]:
             ok, _, err = await self.send("POST", f"/devices/{code}", enqueue_body(it),
-                                         f"{code}: re-queue {it['device_type']} ({why})")
+                                         f"{code}: re-queue {it['device_type']} ({why})", components_done=True)
             if not ok:
                 return False, f"re-queue of {it['device_type']} failed: {err} — it's off the queue now"
         return True, f"queue re-ordered from #{k + 1}"

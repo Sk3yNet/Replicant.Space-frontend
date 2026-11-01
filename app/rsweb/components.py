@@ -147,9 +147,14 @@ def free_here(devices: list[dict], fac: dict, device_type: str, bps: dict[str, d
     """Components of a type the factory can use for a new print: deployed at its location, plus the ones its queue is
     printing, minus what the prints already in its queue will use up."""
     from . import printqueue as pq
+    from .loadouts import for_contract, pinned_at
     loc = fac.get("location")
+    # fleet members, contract devices and other places' pins working there aren't free (snapshot 2026-11-01 20:41: the
+    # fleet drones mining at SOLARES-BELT-1 counted, so 10 rigs each were queued there without a drone)
     n = sum(1 for d in devices if d.get("device_type") == device_type and d.get("location") == loc
-            and not d.get("stowed_in_device_code") and not str(d.get("status") or "").startswith(("stowed", "compact")))
+            and not d.get("stowed_in_device_code") and not str(d.get("status") or "").startswith(("stowed", "compact"))
+            and not any(str(g).startswith("fleet:") for g in d.get("tags") or []) and not for_contract(d)
+            and pinned_at(d) in (None, loc))
     queued = list(pq.items(fac)) if pq.has_queue(fac) else []
     if isinstance(fac.get("printing"), dict):
         queued.append(fac["printing"])
@@ -190,9 +195,9 @@ def coming(devices: list[dict], location: str, device_type: str) -> int:
     return n
 
 
-def shortfalls(devices: list[dict]) -> list[dict]:
+def shortfalls(devices: list[dict], every: bool = False) -> list[dict]:
     """Factories waiting for components: [{factory, location, type, short, tags}] — what's still missing beyond what's
-    there or already on its way."""
+    there or already on its way (`every`: also the ones with nothing missing any more)."""
     from . import printqueue as pq
     out = []
     for f in devices:
@@ -204,7 +209,7 @@ def shortfalls(devices: list[dict]) -> list[dict]:
             if not isinstance(x, dict):
                 continue
             short = int(x.get("need") or 0) - int(x.get("have") or 0) - coming(devices, f["location"], t)
-            if short > 0:
+            if short > 0 or every:
                 out.append({"factory": f["device_code"], "location": f["location"], "type": t, "short": short,
                             "tags": component_tags(head.get("tags"), f["location"])})
     return out

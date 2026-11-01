@@ -707,12 +707,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 "stage": self.stage}
 
     # --- sending commands -------------------------------------------------------------------
-    async def send(self, method: str, path: str, body: Any, label: str) -> tuple[bool, Any, str | None]:
+    async def send(self, method: str, path: str, body: Any, label: str,
+                   components_done: bool = False) -> tuple[bool, Any, str | None]:
+        """`components_done`: an enqueue_print that mustn't queue its components first (a re-queue: they're queued)."""
         from .fleets import RENAMES_KV, with_renamed_tags
         body = with_renamed_tags(method, path, body, await self.db.kv_get(RENAMES_KV, {}) or {})
         status, resp, err = 200, None, None
         try:
-            resp = await self.api.request(method, path, json_body=body, background=True)
+            kw = {"components_done": True} if components_done else {}
+            resp = await self.api.request(method, path, json_body=body, background=True, **kw)
             if self.worker:
                 await self.worker.timers_from_response(path, resp, label)
         except ApiError as e:
@@ -3244,6 +3247,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             out.append(f"{len(claim)} device(s) at factories waiting for them tagged as components")
             await self.log("components", out[-1])
         gaps = comp.shortfalls(devices)
+        for g in comp.shortfalls(devices, every=True):   # components queued there but behind the waiting item
+            if g["short"] <= 0:
+                ahead = await self.components_ahead(g, 0)
+                if ahead:
+                    out.append(f"{g['factory']} waits for {g['type'].replace('_', ' ')}: {ahead}")
+                    await self.log("components", out[-1])
         if not gaps:
             return out
         busy = self.busy_devices(await self.jobs())
@@ -3251,14 +3260,48 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         for g in gaps:
             pinned, printed, note = await self.pin_or_print(g["type"], g["short"], g["location"], devices, busy,
                                                             f"components for {g['factory']}", tags=g["tags"], not_at=blocked)
+            ahead = await self.components_ahead(g, g["short"] - len(pinned) - printed)
             what = ", ".join(x for x in [f"{len(pinned)} spare(s) sent" if pinned else "",
-                                         f"{printed} queued to print" if printed else ""] if x)
+                                         f"{printed} queued to print" if printed else "", ahead] if x)
             if what:
                 out.append(f"{g['factory']} needs {g['short']} {g['type'].replace('_', ' ')}: {what}")
                 await self.log("components", out[-1])
             elif note:
                 await self.log("components", f"{g['factory']} needs {g['short']} {g['type'].replace('_', ' ')}: {note}")
         return out
+
+    async def components_ahead(self, g: dict, left: int) -> str:
+        """A factory stuck on components that nothing else prints (every factory waiting, snapshot 2026-11-01 20:41:
+        44 rigs queued at the head of all 5 queues, no drone printed) prints them itself: the `left` ones are queued
+        on it, and its component prints of that type go to the front of its queue, ahead of the item that waits."""
+        from . import printqueue as pq
+        from .loadouts import at_tag
+        from .stock import enqueue_body
+        code, pin = g["factory"], at_tag(g["location"])
+        if left > 0:
+            ok, _, _ = await self.send("POST", f"/devices/{code}", {"command": "enqueue_print", "device_type": g["type"],
+                                       "quantity": left, "tags": g["tags"]}, f"components for {code}: print {left} {g['type']} itself")
+            if not ok:
+                return ""
+        try:
+            dev = await self.api.get(f"/devices/{code}") or {}
+        except ApiError:
+            return ""
+        q = pq.items(dev)
+        mine = [x for x in q if x.get("device_type") == g["type"] and pin in (x.get("tags") or [])]
+        if not mine or q[:len(mine)] == mine:
+            return f"{left} queued on it" if left > 0 else ""
+        order = mine + [x for x in q if x not in mine]
+        k = next(i for i, (a, b) in enumerate(zip(q, order)) if a is not b)
+        for _ in range(len(q) - k):
+            ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "dequeue_print", "index": k},
+                                         f"{code}: take #{k + 1} off the queue (components first)")
+            if not ok:
+                return f"couldn't move its {g['type'].replace('_', ' ')} prints up: {err}"
+        for it in order[k:]:
+            await self.send("POST", f"/devices/{code}", enqueue_body(it), f"{code}: re-queue {it['device_type']} (components first)",
+                            components_done=True)
+        return f"{len(mine)} {g['type'].replace('_', ' ')} print(s) moved to the front of its queue"
 
     async def commandable(self, devices: list[dict], stars: dict | None = None, without: set[str] | None = None,
                           networked: bool = False) -> set[str]:

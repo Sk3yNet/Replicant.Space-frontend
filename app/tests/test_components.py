@@ -230,3 +230,27 @@ def test_components_never_pinned_or_left_pinned_beyond_the_sector_range(client):
     assert any("beyond the sector range" in x for x in out), out
     assert next(j for j in client.portal.call(e.jobs) if j["id"] == "loadouts-x")["status"] == "cancelled"
     assert set(next(d for d in world.devices if d["device_code"] == "FA00FA13")["tags"]) == {"spare"}
+
+
+def test_a_stuck_factory_prints_its_components_first(client):  # noqa: F811
+    """Snapshot 2026-11-01 20:41: every factory's head was a mining rig waiting for drones; no factory was free to print
+    them, and the drone prints queued sat behind the rigs."""
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "blueprints", BPS)
+    world = client.app.state.api.http._transport.app.state.world
+    rig = lambda: {"device_type": "biosphere_cultivator", "notify": {"device": None}, "tags": ["fleet:m1"]}  # noqa: E731
+    farm = {"device_type": "orbital_farm", "notify": {"device": None}, "tags": comp.component_tags([], "SOL-3-L4")}
+    world.queues["AF00BEEF"] = [rig(), rig(), dict(farm)]
+    af = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    af.update(status="waiting_for_resources",
+              waiting_for={"components": {"hydroponic_bay": {"have": 2, "need": 2}, "orbital_farm": {"have": 0, "need": 1}}})
+    kv = {**af, "print_queue": [dict(x) for x in world.queues["AF00BEEF"]]}
+    client.portal.call(db.kv_set, "devices", [kv, {"device_code": "FA00FA21", "device_type": "orbital_farm",
+                                                   "location": "SOL-3-L4", "status": "mining", "tags": ["fleet:m1"]}])
+    assert comp.free_here([kv, {"device_code": "X", "device_type": "orbital_farm", "location": "SOL-3-L4",
+                                "status": "idle", "tags": ["fleet:m1"]}], kv, "orbital_farm", {}) == 1   # the queued one
+    client.portal.call(db.kv_set, "components_last", None)
+    out = client.portal.call(e.component_pass)
+    assert any("front of its queue" in x for x in out), out
+    q = world.queues["AF00BEEF"]
+    assert [x["device_type"] for x in q] == ["orbital_farm", "biosphere_cultivator", "biosphere_cultivator"], q
