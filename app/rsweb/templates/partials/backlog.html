@@ -13,4 +13,5 @@
 </div>
 {% endfor %}
 {% if card == 'backlog' %}<p class="muted small">Rising lines mean logistics is falling behind. <a href="/fleets/logistics">Fleets › Logistics</a></p>
+{% elif card == 'queues' %}<p class="muted small">Prints waiting in each printer's queue, the one printing now not counted.</p>
 {% else %}<p class="muted small">Mining output is what piles where something mines gained between stockpile polls: a delivery there adds to it, a pick-up there hides that poll's gain.</p>{% endif %}

@@ -4705,6 +4705,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 **metrics.ages(track, now), **metrics.carrier_use(carriers, busy), **metrics.missions(items),
                 "expired_24h": await metrics.noted(self.db, "expired", now), **metrics.roles(items, devices),
                 **await metrics.mining_rates(self.db, now),
+                **metrics.print_queues(devices),
                 "cmd_systems": len(cov["commandable"] - relaynet.dark_stars(devices)), "relay_systems": len(relay)})
         except Exception as e:   # a chart sample never stops logistics
             log.warning("backlog sample failed: %s", e)

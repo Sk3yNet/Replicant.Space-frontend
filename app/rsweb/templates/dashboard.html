@@ -62,6 +62,9 @@
   <div class="card" data-card="trends" id="trends" hx-get="/partials/backlog?card=trends" hx-trigger="load, every 600s" hx-swap="innerHTML">
     <h2>Trends</h2><p class="muted small">Loading…</p></div>
 
+  <div class="card" data-card="queues" id="queues" hx-get="/partials/backlog?card=queues" hx-trigger="load, every 600s" hx-swap="innerHTML">
+    <h2>Print queues</h2><p class="muted small">Loading…</p></div>
+
   <div class="card" data-card="stockpiles">
     <h2>Stockpiles</h2>
     {% if not totals %}<p class="muted">No inventory yet.</p>{% endif %}

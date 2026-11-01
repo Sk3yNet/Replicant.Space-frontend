@@ -592,7 +592,7 @@ async def p_news(request: Request, refresh: str = "", user: str = Depends(curren
 
 @router.get("/partials/backlog", response_class=HTMLResponse)
 async def p_backlog(request: Request, hours: int = 168, card: str = "backlog", user: str = Depends(current_user)):
-    """Dashboard › Logistics backlog and Trends: what's waiting on logistics, and the account's shape, over time
+    """Dashboard › Logistics backlog, Trends and Print queues: what's waiting on logistics, and the account's shape, over time
     (metrics.py, sampled every 10 minutes)."""
     from . import metrics
     hours = hours if hours in (48, 168, 720) else 168
@@ -604,6 +604,9 @@ async def p_backlog(request: Request, hours: int = 168, card: str = "backlog", u
                                                          and any(x for _, x in v)}),
                   ("Systems you can command", {"commandable": g("cmd_systems"), "relay network": g("relay_systems")})]
         title = "Trends"
+    elif card == "queues":
+        charts = [("Prints waiting per printer", {k[6:]: v for k, v in sorted(s.items()) if k.startswith("queue:") and v})]
+        title = "Print queues"
     else:
         charts = [("Resources not in a receiving stockpile", {"in other stockpiles": g("res_away"),
                    "set aside for contracts and trades": g("res_deals"), "in logistics holds": g("res_holds")}),

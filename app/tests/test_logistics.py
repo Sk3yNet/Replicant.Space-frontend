@@ -1073,6 +1073,9 @@ def test_logistics_pass_samples_the_backlog_for_the_dashboard(client):  # noqa: 
     client.portal.call(e.logistics_pass, True)   # within ten minutes: no second sample
     assert len(client.portal.call(db.fetchall, "SELECT * FROM metric_history")) == len(rows)
     assert "Devices by fleet role" in client.get("/partials/backlog?card=trends", headers=HX).text
+    assert any(m.startswith("queue:") for m in got)   # every printer's waiting prints
+    q = client.get("/partials/backlog?card=queues", headers=HX).text
+    assert "Prints waiting per printer" in q and "<polyline" in q
     assert 'hx-get="/partials/backlog"' in open(__import__("pathlib").Path(__file__).parents[1] / "rsweb/templates/dashboard.html").read()
     page = client.get("/partials/backlog?hours=48", headers=HX).text
     assert "Resources not in a receiving stockpile" in page and "Devices waiting to be moved" in page and "<polyline" in page

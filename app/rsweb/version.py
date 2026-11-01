@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.330.0"
+VERSION = "1.331.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.331.0", "2026-11-01", "Dashboard: a Print queues card graphs the prints waiting in each printer's queue over 2, 7 or 30 days (sampled every 10 minutes with the logistics backlog)."),
     ("1.330.0", "2026-11-01", "Stuck component prints get unblocked (snapshot 20:41: 44 mining rigs at the head of all 5 factory queues waited for drones, only 18 drones exist, and no drone was printing). A factory waiting for components that no free factory can print queues them itself and moves its prints of that type to the front of its queue, ahead of the waiting item. A new print no longer counts fleet members, contract devices or devices pinned elsewhere at the factory as free components (the fleet drones mining at SOLARES-BELT-1 counted, so rigs were queued without drones). Re-queues no longer queue an item's components a second time."),
     ("1.329.0", "2026-11-01", "Components stay within the sector range (snapshot 20:41): a factory waiting for components no longer pins spares, or prints at a factory, known to be beyond the sector range. Components already pinned that far (spare mining drones at ANLOREN pinned to the FALQUORYX and SOLARES factories, their surge plate trips held at the sector range) have their held trips canceled and are spares again where they are, so a factory in range (ISOLITHOR) can take them."),
     ("1.328.0", "2026-11-01", "Dashboard: a Stockpiles by location card lists what each stockpile holds now (one row per location, one column per resource, linked to the location page) in place of the by location link to the Systems page. The Stockpiles totals card says when the inventory was last synced (every 2 minutes)."),

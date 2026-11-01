@@ -230,3 +230,13 @@ def chart(lines: dict[str, list[tuple[str, float]]], hours: float, w: int = 300,
         out[name] = {"points": " ".join(xy), "last": _r(pts[-1][1]) if pts else None,
                      "first": _r(pts[0][1]) if pts else None}
     return {"w": w, "h": h, "top": _r(top), "lines": out, "empty": not any(lines.values())}
+
+
+def print_queues(devices: list[dict]) -> dict[str, float]:
+    """Dashboard › Print queues: the prints waiting in each printer's queue (quantities counted), the one printing now
+    left out, as `queue:<code> <location>`."""
+    from . import printqueue as pq
+    from .loadouts import is_factory
+    return {f"queue:{d['device_code']} {d.get('location') or '?'}": float(sum(max(1, int(x.get("quantity") or 1))
+                                                                         for x in pq.items(d)))
+            for d in devices if is_factory(d) and d.get("device_code") and pq.has_queue(d)}
