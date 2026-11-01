@@ -45,10 +45,18 @@ def ward_here(devices: list[dict], star: str, dtype: str = "system_ward") -> dic
 
 
 def bound_to(devices: list[dict], star: str, dtype: str = "system_ward") -> dict | None:
-    """One of yours of this type already tagged to:<star> and not working (e.g. printed for an order that expired, live
-    2026-10-21: MOLURNA re-ordered while its relay still waited at the factory): a new order sends that one."""
+    """One of yours of this type already tagged to:<star> (or pinned at: a spot there) and not working there yet (e.g.
+    printed for an order that expired, live 2026-10-21: MOLURNA re-ordered while its relay still waited at the factory):
+    a new order sends that one. One working elsewhere counts: a printed beacon comes out monitoring at the factory's
+    belt, and counting it as no one's got a beacon order printed again every 20 minutes until the first one arrived
+    (live 2026-10-25 and 10-30: up to 15 beacons at one civilization body)."""
     tag = lo.to_tag(star)
-    ds = [d for d in devices if d.get("device_type") == dtype and tag in (d.get("tags") or []) and not wh.active(d)]
+
+    def bound(d: dict) -> bool:
+        pin = lo.pinned_at(d)
+        return tag in (d.get("tags") or []) or bool(pin and star_of(pin) == star and d.get("location") != pin)
+    ds = [d for d in devices if d.get("device_type") == dtype and bound(d)
+          and not (wh.active(d) and star_of(d.get("location")) == star)]
     return sorted(ds, key=lambda d: d.get("device_code") or "")[0] if ds else None
 
 

@@ -239,28 +239,51 @@ def coverage(events: dict[str, dict], devices: list[dict], systems: dict[str, di
 def redundant_beacons(devices: list[dict], rows: list[dict], busy: set[str] | None = None) -> list[dict]:
     """Beacons a system doesn't need: any beacon logs the whole system's traffic, so once a system has a beacon at a
     civilization's body (an event location or a body with intelligent/spacefaring life), its other beacons are
-    redundant; without one, one beacon is kept and the rest are redundant. Beacons already spare are skipped, and so are
-    beacons with a job of their own (a `to:` / `at:` destination, a fleet or a contract): they aren't spare, and the
-    loadouts pass would take the tag off again (live 2026-10-22: 17 printed beacons tagged to:<civ star> flapped)."""
+    redundant; without one, one beacon is kept and the rest are redundant. Each civilization body keeps one beacon:
+    more at the same spot are redundant too (live 2026-11-01: 15 at ANOAAIEON-3, 239 beacons in all, every one pinned
+    `at:` its own body). Beacons with a job of their own are skipped: busy, in a fleet or a contract, on their way
+    (`to:`) or pinned (`at:`) somewhere they haven't reached yet (live 2026-10-22: 17 printed beacons tagged to:<civ
+    star> flapped). A pin at the spot the beacon sits on is no job. Beacons already spare and switched off are done;
+    spare ones still working are switched off. Each row says whether the beacon is to be switched off (`deactivate`)
+    and tagged spare (`tag`)."""
+    from .loadouts import pinned_at, to_tag
+    from .wardhub import active
     busy = busy or set()
     civ_locs = {r["location"] for r in rows if r.get("completed") or r.get("open")
                 or (r.get("life") or {}).get("life_stage") in CIV_STAGES}
     by_star: dict[str, list[dict]] = defaultdict(list)
     for d in beacons(devices):
         tags = d.get("tags") or []
-        if ("spare" not in tags and d.get("device_code") not in busy
-                and not any(t.startswith(("to:", "at:", "fleet:", "contract:")) for t in tags)):
-            by_star[star_of(d["location"])].append(d)
+        pin = pinned_at(d)
+        here = pin == d["location"]   # a to: for its own system, pinned where it sits: it has arrived
+        if (d.get("device_code") in busy or ("spare" in tags and not active(d)) or (pin and not here)
+                or any(t.startswith(("fleet:", "contract:")) for t in tags)
+                or any(t.startswith("to:") and not (here and t == to_tag(star_of(pin))) for t in tags)):
+            continue
+        by_star[star_of(d["location"])].append(d)
+
+    def best(bs: list[dict]) -> dict:   # the one to keep: not spare, working, pinned there
+        return min(bs, key=lambda b: ("spare" in (b.get("tags") or []), not active(b),
+                                      pinned_at(b) != b["location"], b["device_code"]))
     out = []
     for star, bs in sorted(by_star.items()):
-        civ = [b for b in bs if b["location"] in civ_locs]
-        if civ:
-            keep = {b["device_code"] for b in civ}
-            why = f"{star} has a beacon at a civilization's body ({', '.join(sorted(b['location'] for b in civ))})"
+        why: dict[str, str] = {}
+        at_civ: dict[str, list[dict]] = defaultdict(list)
+        for b in bs:
+            if b["location"] in civ_locs:
+                at_civ[b["location"]].append(b)
+        if at_civ:
+            keep = {best(x)["device_code"] for x in at_civ.values()}
+            for loc, x in at_civ.items():
+                k = best(x)["device_code"]
+                why.update({b["device_code"]: f"{loc} already has beacon {k}" for b in x if b["device_code"] != k})
+            civ_why = f"{star} has a beacon at a civilization's body ({', '.join(sorted(at_civ))})"
         else:
-            keep = {sorted(bs, key=lambda b: b["device_code"])[0]["device_code"]}
-            why = f"{star} already has beacon {next(iter(keep))}"
-        out += [{"code": b["device_code"], "location": b["location"], "star": star, "why": why}
+            keep = {best(bs)["device_code"]}
+            civ_why = f"{star} already has beacon {next(iter(keep))}"
+        out += [{"code": b["device_code"], "location": b["location"], "star": star,
+                 "why": why.get(b["device_code"], civ_why), "deactivate": active(b),
+                 "tag": "spare" not in (b.get("tags") or [])}
                 for b in bs if b["device_code"] not in keep]
     return out
 
