@@ -2717,7 +2717,7 @@ def test_fleet_end_mission_and_board(client):
     client.portal.call(client.app.state.db.kv_set, "devices", devices)
     client.portal.call(eng.save_fleets, [fleet])
     page = client.get("/fleets/details?all=1", headers=H).text
-    assert "End mission &amp; board" in page and "Recall &amp; return home" in page
+    assert "End mission &amp; board" in page and "Recall now" in page and "Recall after task" in page
     r = client.post(f"/fleets/{fleet['id']}/control", data={"action": "end"}, headers=HX)
     assert r.headers.get("HX-Refresh")
     f = client.portal.call(eng.fleets)[0]

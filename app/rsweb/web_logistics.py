@@ -35,7 +35,7 @@ async def logistics_page(request: Request, user: str = Depends(current_user)):
             if j.get("idx", 0) < len(j.get("steps") or []) and j["steps"][j.get("idx", 0)].get("status") == "confirm"}
     why = {u["req"]: u["why"] for u in st.get("unmet") or []}
     ok = await db.kv_get(lg.KV_TRADES, {}) or {}
-    fleets = lg.logistics_fleets(await eng.fleets())
+    fleets = lg.logistics_fleets(await eng.fleets(), held=True)
     transit = await cargo.in_transit(db, (await load_state(request))["devices"], await eng.jobs())
     return await page(request, user, "logistics.html", "logistics", st=st, jobs=list(reversed(jobs)), on_way=on_way, held=held, why=why,
                       tiers=lg.TIERS, categories=lg.CATEGORIES, fleets=fleets, approvals=ok, transit=transit,

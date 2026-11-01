@@ -11,6 +11,7 @@
     {% if f.pending_home %}<div class="small lv-alert">Moving to {{ f.pending_home }} once it can be commanded there — {{ f.path_note or '' }}</div>{% endif %}
     <span>{% if m.status %}<span class="pill {{ {'running': 'st-work', 'done': 'lv-done', 'stalled': 'lv-alert', 'ended': 'lv-done'}.get(m.status, '') }}">{{ m.status }}{% if m.status == 'running' %}: {{ m.phase }}{% endif %}</span>{% endif %}</span>
   </div>
+  {% include "partials/recall_buttons.html" %}
   {% if f.role == 'rock_chaser' %}{% include "partials/chase_card.html" %}{% endif %}
   <div class="grid g2">
     <div>
@@ -127,7 +128,7 @@
     <div>
       {% if m.status == 'running' or m.status == 'stalled' %}
         <h3>Mission → {{ (m.targets or []) | join(' → ') }}</h3>
-        <div class="small">{% set ph = phases[f.role] %}{% for p in ph %}<span class="pill small {{ 'st-work' if p == m.phase else ('lv-done' if m.phase in ph and loop.index0 < ph.index(m.phase) else '') }}">{{ p }}</span> {% endfor %}
+        <div class="small">{% set ph = phases.homing if m.homing else phases[f.role] %}{% for p in ph %}<span class="pill small {{ 'st-work' if p == m.phase else ('lv-done' if m.phase in ph and loop.index0 < ph.index(m.phase) else '') }}">{{ p }}</span> {% endfor %}
           {% if f.role == 'explore' %}<span class="muted">· target {{ (m.idx or 0) + 1 }}/{{ (m.targets or []) | length }}</span>{% endif %}</div>
         {% if m.watch_note and m.phase in ('watch', 'wait') %}<div class="small">watching: {{ m.watch_note }}</div>{% endif %}
         {% if m.status in ('running', 'stalled') and not m.departed and m.watch_note and m.watch_note.startswith('waiting to leave') %}<div class="small lv-alert">{{ m.watch_note }}
@@ -137,8 +138,6 @@
           <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "end"}' hx-swap="none"
                   hx-confirm="End the mission now? Controllers stop, every device returns to its place on a fleet carrier, and the fleet stays where it is."
                   title="Stop work, bring every device back aboard its carriers, stay in this system">End mission &amp; board</button>
-          <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "recall"}' hx-swap="none"
-                  title="Finish up: recall, fly home and unload">Recall &amp; return home</button>
           {% if m.status == 'stalled' %}<button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "resume"}' hx-swap="none">Retry</button>
             {% if m.auto_retry and m.auto_retry.at and not m.comms_wait %}<span class="small muted" title="A stalled mission tries again by itself, waiting longer each time">retries by itself at {{ m.auto_retry.at[11:16] }} UTC</span>{% endif %}{% endif %}
           <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "stop"}' hx-swap="none" hx-confirm="Stop the mission? Devices stay where they are.">Stop</button>
@@ -147,9 +146,7 @@
         <p class="small">Mission {{ m.status }}{% if m.log %}: {{ m.log[-1].text }}{% endif %}. The fleet stays where it is{% if f.station %}, not at its station,{% endif %} until you clear it.</p>
         <div class="row small" style="margin-bottom:6px">
           <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "station"}' hx-swap="none"
-                  title="Clear the mission{{ ': the loadout pass brings its devices home and keeps it at its loadout' if f.station }}">{{ 'Back to station' if f.station else 'Clear mission' }}</button>
-          <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "recall"}' hx-swap="none"
-                  title="Recall, fly home together and unload">Recall &amp; return home</button></div>
+                  title="Clear the mission{{ ': the loadout pass brings its devices home and keeps it at its loadout' if f.station }}">{{ 'Back to station' if f.station else 'Clear mission' }}</button></div>
       {% else %}
         {% if r.loose and not f.station %}
         <div class="row small" style="margin-bottom:6px">

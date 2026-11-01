@@ -457,8 +457,14 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
 <br clear="right">
 
 ### Missions
-- Run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*, *Stop*,
-  *End mission & board* and *Recall*.
+- Run phase by phase (assemble → gather → travel → deploy → work → … → return → unload) with a log, *Retry*, *Stop*
+  and *End mission & board*.
+- **Recall** (every fleet card, every role): *Recall now* cancels what the fleet is doing (its mission and any job a
+  member is on), boards everyone and flies back; *Recall after task* lets the current task finish first (a mission's
+  work at its current target, or the job a member is on), then does the same. Back means its station (a stationed
+  fleet's home), else the nearest receiving point (a stationed fleet's home or one that takes materials in), else its
+  home; cargo is unloaded there. Logistics, prospector, rock chaser and bootstrap fleets are then held (their own work
+  pauses) until *Resume*. *Cancel recall* calls it off.
 - **Auto-retry**: a stalled mission retries the stalled phase by itself after 15 min, doubling the wait each time up to
   6 h, eight tries in all (then it waits for *Retry*). One stalled out of comms range resumes once back in range
   instead. Only the first stall at a spot notifies.

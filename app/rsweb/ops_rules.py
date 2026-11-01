@@ -352,7 +352,7 @@ class OpsRules:
                 out.append(f"{star}: skipped (the relay order was dropped)")
         from . import fleets as fl
         from .loadouts import _free
-        ltags = {fl.fleet_tag(f["id"]) for f in await self.fleets() if f.get("role") == "logistics"}
+        ltags = {fl.fleet_tag(f["id"]) for f in await self.fleets() if f.get("role") == "logistics" and not f.get("recall_hold")}
         cap = rr.capacity(devices, ltags, lambda d: _free(d, bps, {}))
         st["capacity"] = cap
         while st["on"] and len(st["ordered"]) < max(1, cap):

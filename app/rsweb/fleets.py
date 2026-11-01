@@ -439,6 +439,11 @@ def left_behind(fleet: dict, devices: list[dict], star: str) -> list[dict]:
 
 
 RELOCATE_PHASES = ["assemble", "gather", "travel", "deploy"]
+# a recall (Recall now / Recall after task, any role): bring everyone aboard, fly to the station (else the nearest
+# receiving point) and unload there (owner 2026-11-01)
+HOMING_PHASES = ["recall", "return", "unload"]
+# roles with no missions of their own: a recall holds them (their pass gives them no new work) until Resume
+HOLD_ROLES = ("logistics", "prospector", "rock_chaser", "bootstrap")
 
 
 RETRY_FIRST_MIN = 15   # a stalled mission retries by itself after this, doubling each time (owner 2026-10-22)
@@ -453,7 +458,7 @@ def rewind(fleet: dict, m: dict) -> None:
     if m.get("end_here"):
         m.pop("end_started", None)   # re-run the recall & board
         return
-    ph = PHASES[fleet["role"]]
+    ph = HOMING_PHASES if m.get("homing") else PHASES[fleet["role"]]
     cur = m.get("phase")
     m["phase"] = ph[ph.index(cur) - 1] if cur in ph and ph.index(cur) > 0 else None
     if m["phase"] == "watch":
@@ -480,6 +485,10 @@ def next_phase(role: str, m: dict) -> str | None:
     cur = m.get("phase")
     if cur == "board":   # stragglers boarded before a later leg (automations.run_fleets): that leg comes next
         return m.pop("board_next", None) or "travel"
+    if m.get("homing"):   # a recall: board, fly to the station / receiving point, unload — then done
+        seq = HOMING_PHASES
+        i = seq.index(cur) if cur in seq else -1
+        return seq[i + 1] if i + 1 < len(seq) else None
     if m.get("relocate"):   # a stationed fleet moving home together: pack up, gather, travel, unload — then done
         seq = RELOCATE_PHASES
         i = seq.index(cur) if cur in seq else -1
@@ -501,6 +510,45 @@ def next_phase(role: str, m: dict) -> str | None:
         return seq[0]
     i = seq.index(cur) if cur in seq else len(seq)
     return seq[i + 1] if i + 1 < len(seq) else None
+
+
+def receiving_points(fleets: list[dict], skip: str | None = None) -> set[str]:
+    """Systems that receive a fleet home: stationed fleets' homes and fleets that take materials in (not logistics,
+    which roams)."""
+    return {f["home"] for f in fleets if f.get("home") and f.get("id") != skip and f.get("role") != "logistics"
+            and (f.get("station") or f.get("materials") == "self")}
+
+
+def where(fleet: dict, devices: list[dict]) -> str | None:
+    """The system most of the fleet is in (riders count where their carrier is)."""
+    by = {d["device_code"]: d for d in devices}
+    n: dict[str, int] = {}
+    for d in members(fleet, devices):
+        loc = d.get("location") or (by.get(d.get("attached_to_device_code") or d.get("stowed_in_device_code") or "")
+                                    or {}).get("location")
+        if star_of(loc):
+            n[star_of(loc)] = n.get(star_of(loc), 0) + 1
+    return max(sorted(n), key=lambda s: n[s]) if n else None
+
+
+def recall_target(fleet: dict, fleets: list[dict], devices: list[dict], dist) -> tuple[str | None, str]:
+    """Where a recall sends the fleet: (star, why). Its station (a stationed fleet's home), else the nearest receiving
+    point from where it is, else its home."""
+    if fleet.get("station") and fleet.get("home"):
+        return fleet["home"], "its station"
+    here = where(fleet, devices) or fleet.get("home")
+    pts = receiving_points(fleets, fleet.get("id"))
+    if here and pts:
+        best = min(sorted(pts), key=lambda s: dist(here, s))
+        if dist(here, best) < 1e9:
+            return best, "the nearest receiving point"
+    return fleet.get("home"), "its home (no receiving point in reach)"
+
+
+def held(fleet: dict) -> bool:
+    """A recalled fleet of a role without missions: its own pass gives it no work (waiting for its task, flying back, or
+    parked until Resume)."""
+    return bool(fleet.get("recall_hold"))
 
 
 def destination(star: str, stars: dict) -> str:

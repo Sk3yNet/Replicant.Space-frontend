@@ -139,8 +139,9 @@ def star_of(loc: str | None) -> str:
     return (loc or "").split("-")[0]
 
 
-def logistics_fleets(fleets: list[dict]) -> list[dict]:
-    return [f for f in fleets or [] if f.get("role") == ROLE]
+def logistics_fleets(fleets: list[dict], held: bool = False) -> list[dict]:
+    """Logistics fleets; a recalled one (recall_hold: flying back or parked until Resume) only with `held`."""
+    return [f for f in fleets or [] if f.get("role") == ROLE and (held or not f.get("recall_hold"))]
 
 
 def _within(reach: float, star: str) -> str:
@@ -171,7 +172,7 @@ def beyond_sector(reqs: list[dict], pool: list[dict], fleets: list[dict], pos: d
     if not math.isfinite(reach):
         return reqs, []
     bases = {star_of(d.get("location")) for d in pool if d.get("location")} \
-        | {f["home"] for f in logistics_fleets(fleets) if f.get("home")}
+        | {f["home"] for f in logistics_fleets(fleets, held=True) if f.get("home")}
     bases.discard("")
     kept, far = [], []
     for r in reqs:

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.323.0"
+VERSION = "1.324.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.324.0", "2026-11-01", "Standard recall buttons on every fleet card, every role: Recall now cancels what the fleet is doing and brings it back at once; Recall after task lets the current task finish (a mission's work at its target, or a member's job), then brings it back. Back means its station, else the nearest receiving point (a stationed fleet's home or one that takes materials in), and cargo is unloaded there. Logistics, prospector, rock chaser and bootstrap fleets stay held after a recall until Resume. Replaces Recall & return home."),
     ("1.323.0", "2026-11-01", "Logistics no longer considers deliveries beyond the sector range (1728 ly): a contract, trade, print, upkeep or return whose destination is that far from every logistics carrier and the logistics home, or a return whose pile is that far from its gather point, is left off the request list (a muted line on the Logistics page names them) and holds no vessel, and no delivery loads at a pile that far from its destination."),
     ("1.322.0", "2026-11-01", "Clan tag on the Reputation page: type a tag (SK3Y) and preview it in front of every replicant name (SK3Y-Regina_Solforge), then apply like a bulk profile import. The game has no clan field and refuses brackets in names. Tagged names are skipped and the tag is remembered. BobNet mention watching also matches the name without the tag and splits names on hyphens."),
     ("1.321.1", "2026-10-31", "Deep space relay stations get switched on at the drop. A station travels compacted, and the drop sent activate while it was still unfurling (Device is unfurling), so the carrier left it switched off out of reach; rescues then brought every station home as a spare (all 10 sat spare on 10-31). The unfurl now waits for device.unfurled before the switch-on, and an unfurl refused as already unfurling keeps waiting."),

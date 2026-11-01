@@ -73,12 +73,15 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
     from . import prospects as _pr
     ranks: dict[str, dict] = {}   # origin -> {star: prospect}
     dests: dict[str, list[dict]] = {}   # home -> destination list (fleets sharing a home share it)
+    from .loadouts import _dist as lo_dist
+    pos = await eng.star_lookup("pos")
     for f in shown:
         if f.get("home") not in dests:
             async def dl(h=f.get("home")) -> list[dict]:   # the catalog (~14 MB) is read only when the list is made
                 cat = await request.app.state.db.kv_get("stars", {}) or {}
                 return destination_systems(cat, scanned | yours, yours, h, limit=300)
             dests[f.get("home")] = await pagecache.get(request, f"dests:{f.get('home')}", dl)
+        f["recall_dest"] = fl.recall_target(f, items, st["devices"], lambda a, b: lo_dist(a, b, pos))
         f["blocked_homes"] = sorted(mine_homes) if f.get("role") == "mining" else homes
         f["target_options"] = [dict(o) for o in dests[f.get("home")] if o["value"] not in f["blocked_homes"]]
         if f.get("role") == "mining":   # mining targets: best prospects first, with their score and why
@@ -145,7 +148,7 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
     from . import bootstrap as _bt
     return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items, "shown_fleets": shown,
             "types": types,
-            "stars": stars_all, "roles": fl.ROLE_CHOICES, "phases": fl.PHASES, "traders": traders,
+            "stars": stars_all, "roles": fl.ROLE_CHOICES, "phases": {**fl.PHASES, "homing": fl.HOMING_PHASES}, "traders": traders,
             "boot_reps": [(c, r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")],
             "stages": _bt.STAGES, "labels": _bt.LABEL}
 
@@ -790,6 +793,32 @@ async def fleets_control(request: Request, fid: str, action: str = Form(...), us
         await eng.save_fleets(items)
         await eng.log("fleets", f"{f['name']}: sent short on purpose by {user}")
         return HTMLResponse("", headers={"HX-Refresh": "true"})
+    if f and action in ("recall", "recall_now", "recall_after"):
+        # the standard recall, every role (owner 2026-11-01): to its station, else the nearest receiving point
+        mode = "now" if action == "recall_now" else "after"
+        async with eng.lock:
+            what = await eng.recall_fleet(f, items, mode, user)
+            await eng.save_fleets(items)
+            await eng.log("fleets", f"{f['name']}: recall {'now' if mode == 'now' else 'after task'} by {user} — {what}")
+            await eng.run_fleets()
+        return HTMLResponse("", headers={"HX-Refresh": "true"})
+    if f and action == "resume_recall":   # a held fleet back to its own work; a recall still on its way stops
+        rh = f.pop("recall_hold", None) or {}
+        m = f.get("mission") or {}
+        async with eng.lock:
+            if m.get("homing") and m.get("status") in ("running", "stalled"):
+                if m.get("job"):
+                    await eng.cancel(m["job"])
+                m["status"], m["job"] = "stopped", None
+                eng._mlog(m, f"recall canceled by {user}")
+            elif m.get("recall") and m.get("status") in ("running", "stalled"):
+                m.pop("recall")
+                eng._mlog(m, f"recall after task canceled by {user}")
+            if rh.get("paused_boot") and f.get("boot"):
+                f["boot"]["paused"] = False
+            await eng.save_fleets(items)
+        await eng.log("fleets", f"{f['name']}: recall lifted by {user}")
+        return HTMLResponse("", headers={"HX-Refresh": "true"})
     if f and action == "end" and not f.get("mission"):
         f["mission"] = {"status": "ended", "targets": [], "log": []}   # no mission yet: just gather everyone aboard
     m = (f or {}).get("mission") or {}
@@ -802,11 +831,6 @@ async def fleets_control(request: Request, fid: str, action: str = Form(...), us
             m["status"], m["end_here"] = "running", True
             m.pop("end_started", None)
             eng._mlog(m, "end mission ordered: recall everything aboard the carriers and stay here")
-        elif action == "recall":
-            m["status"], m["phase"] = "running", ("work" if f["role"] != "trade" else "trade")
-            if f["role"] == "explore":
-                m["targets"] = (m.get("targets") or [])[:m.get("idx", 0) + 1]  # no further targets
-            eng._mlog(m, "recall ordered")
         elif action == "resume":
             fl.rewind(f, m)   # re-run the phase that stalled
             eng._mlog(m, "resumed (end mission & board)" if m.get("end_here") else "resumed")

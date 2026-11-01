@@ -58,7 +58,8 @@ class BootstrapMixin:
 
     async def bootstrap_pass(self, only: str | None = None) -> list[str]:
         fleets = await self.fleets()
-        boots = [f for f in fleets if f.get("role") == "bootstrap" and f.get("boot") and (not only or f["id"] == only)]
+        boots = [f for f in fleets if f.get("role") == "bootstrap" and f.get("boot") and (not only or f["id"] == only)
+                 and not f.get("recall_hold")]   # recalled: run_fleets flies it back, then it waits for Resume
         if not boots:
             return []
         devices = await self.devices()

@@ -2680,7 +2680,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from .modular import folded
         STALL_HOURS = 12
         fleet_list = await self.fleets()
-        mine = [f for f in fleet_list if f.get("role") == "prospector" and f.get("home")]
+        mine = [f for f in fleet_list if f.get("role") == "prospector" and f.get("home") and not f.get("recall_hold")]   # recalled: held
         if not mine:
             return []
         devices = await self.devices()
@@ -3417,7 +3417,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         if deals:
             from . import fleets as fl
             from .loadouts import can_surge
-            ltags = {fl.fleet_tag(f["id"]) for f in await self.fleets() if f.get("role") == "logistics"}
+            ltags = {fl.fleet_tag(f["id"]) for f in await self.fleets() if f.get("role") == "logistics" and not f.get("recall_hold")}
             by = {d.get("device_code"): d for d in devices}
             pos = {k: v.get("position") for k, v in stars.items() if v.get("position")}
             vessels = [c for c in lg.riding_hosts(devices, hosts) if c not in busy and can_surge(by.get(c) or {})
@@ -4314,7 +4314,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             await self._update(j)
             await self.log("logistics", f"canceled: {j['title']} — {why}", notify=True)
         items = await self.fleets()
-        if not lg.logistics_fleets(items):
+        if not lg.logistics_fleets(items, held=True):
             await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": [], "runs": [], "unmet": [], "fleet_devices": [],
                                                "note": "no logistics fleet yet (Fleets: a fleet with role logistics)"})
             return []
@@ -5009,6 +5009,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                               "(no fleet tag): it won't be recalled or taken home — add it under Add / remove devices")
             return fl.recall_steps(fleet, devices, inv, haul, radii, far_au), []
         if phase == "return":
+            rec = m.get("recall")
+            if rec and rec.get("mode") == "after":   # picked again from where the task ended
+                fleets = await self.fleets()
+                pos = await self.star_lookup("pos")
+                dest, why = fl.recall_target(fleet, fleets, devices, lambda a, b: lo._dist(a, b, pos))
+                if dest and dest != rec.get("dest"):
+                    rec.update(dest=dest, why=why)
+                    self._mlog(m, f"recall: heading for {dest} ({why})")
+                m["drop_star"] = rec.get("dest") or m.get("drop_star")
             return fl.travel_steps(fleet, devices, m.get("drop_star") or fleet["home"], stars), []
         if phase == "unload":
             # A stationed fleet's devices work its home system, so they come off the carriers. Any other fleet stays aboard,
@@ -5260,9 +5269,112 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             return f" — retries by itself at {at[11:16]} UTC (try {m['auto_retry']['n'] + 1} of {fl.RETRY_TRIES})", again
         return f" — no more automatic retries ({fl.RETRY_TRIES} tried): press Retry once it is sorted out", False
 
+    # --- recall (Recall now / Recall after task, every fleet role; owner 2026-11-01) ------------------------------
+    def fleet_jobs(self, fleet: dict, devices: list[dict], jobs: list[dict], skip: str | None = None) -> list[dict]:
+        """Running jobs that work this fleet or any of its members (`skip`: a job id left out)."""
+        from . import fleets as fl
+        codes = {d["device_code"] for d in fl.members(fleet, devices)}
+        out = []
+        for j in jobs:
+            meta = j.get("meta") or {}
+            if j.get("status") not in ("running", "waiting", "pending") or j.get("id") == skip:
+                continue
+            if meta.get("fleet") == fleet["id"] or meta.get("bootstrap") == fleet["id"] or j.get("device") in codes \
+                    or codes & set(meta.get("devices") or []):
+                out.append(j)
+        return out
+
+    async def recall_fleet(self, fleet: dict, items: list[dict], mode: str, user: str = "") -> str:
+        """`mode` "now": cancel what the fleet is doing and come back at once; "after": finish the current task (a
+        mission's work at its target, or the job a member is on), then come back. Back means its station, else the
+        nearest receiving point (fleets.recall_target). Roles without missions (fleets.HOLD_ROLES) are held: their own
+        pass gives them no new work until Resume. Changes `fleet` in place (the caller saves); returns what it did."""
+        from . import fleets as fl
+        from . import loadouts as lo
+        devices = await self.devices()
+        pos = await self.star_lookup("pos")
+        dest, why = fl.recall_target(fleet, items, devices, lambda a, b: lo._dist(a, b, pos))
+        if not dest:
+            return "nowhere to go: no station, receiving point or home"
+        role = fleet.get("role")
+        hold = role in fl.HOLD_ROLES
+        m = fleet.get("mission") or {}
+        live = m.get("status") in ("running", "stalled")
+        jobs = await self.jobs()
+        rec = {"mode": mode, "dest": dest, "why": why, "at": now_iso(), "by": user}
+        if hold:
+            prev = fleet.get("recall_hold") or {}
+            fleet["recall_hold"] = {**rec, "state": "waiting", "paused_boot": prev.get("paused_boot", False)}
+            b = fleet.get("boot")
+            if role == "bootstrap" and b and not b.get("paused"):
+                b["paused"] = True   # Resume un-pauses it
+                fleet["recall_hold"]["paused_boot"] = True
+        if mode == "after" and live and not m.get("homing") and not hold:
+            m["recall"] = rec
+            if role == "explore":
+                m["targets"] = (m.get("targets") or [])[:m.get("idx", 0) + 1]   # this target is the last
+                m["scout_ended"] = True
+            self._mlog(m, f"recall after task ordered{' by ' + user if user else ''}: the work at this target "
+                          f"finishes, then {dest} ({why})")
+            return f"finishes its current task, then returns to {dest} ({why})"
+        if mode == "now":
+            for j in self.fleet_jobs(fleet, devices, jobs):
+                await self.cancel(j["id"])
+        elif self.fleet_jobs(fleet, devices, jobs, skip=m.get("job") if m.get("homing") else None) and not live:
+            fleet["recall_hold"] = {**(fleet.get("recall_hold") or {}), **rec, "state": "waiting"}
+            return f"finishes its current task, then returns to {dest} ({why})"
+        if m.get("homing") and live:
+            m["recall"], m["drop_star"] = rec, dest
+            if mode == "now" and m.get("phase"):
+                fl.rewind(fleet, m)   # its job was canceled above: run that phase again
+            return f"already recalled: returning to {dest} ({why})"
+        ros = fl.roster(fleet, devices)
+        if not live and ros["stars"] in ([dest], []) and not ros["loose"]:
+            if hold:
+                fleet["recall_hold"]["state"] = "home"
+                return f"already at {dest}: held there until Resume"
+            fleet.pop("recall_hold", None)
+            return f"already at {dest} ({why}): nothing to recall"
+        self._start_homing(fleet, m, rec, live)
+        return f"returning to {dest} ({why})" + (" — held there until Resume" if hold else "")
+
+    def _start_homing(self, fleet: dict, m: dict, rec: dict, live: bool) -> None:
+        """Turn the fleet's mission (or none) into a recall: recall → return → unload (fleets.HOMING_PHASES)."""
+        new = {"status": "running", "homing": True, "phase": None, "targets": [], "idx": 0, "departed": True,
+               "started_at": now_iso(), "log": list((m.get("log") or [])[-40:]) if live else [], "drop_star": rec["dest"],
+               "recall": rec, "opts": dict(m.get("opts") or {}), "job": None}
+        if live and fleet.get("role") == "mining" and m.get("phase") in ("work", "watch"):
+            for k in ("belt", "deliver_to"):   # haul mode: freighters fill up at the belt on the way out
+                if m.get(k):
+                    new[k] = m[k]
+        if fleet.get("recall_hold"):
+            fleet["recall_hold"]["state"] = "returning"
+        self._mlog(new, f"recall {'now' if rec['mode'] == 'now' else 'after task'}"
+                        f"{' by ' + rec['by'] if rec.get('by') else ''}: everyone aboard, then {rec['dest']} ({rec['why']})")
+        fleet["mission"] = new
+
+    async def recall_pass(self, items: list[dict]) -> bool:
+        """A Recall after task that waited for a member's job: start the trip home once nothing works the fleet."""
+        waiting = [f for f in items if (f.get("recall_hold") or {}).get("state") == "waiting"
+                   and (f.get("mission") or {}).get("status") not in ("running", "stalled")]
+        if not waiting:
+            return False
+        devices, jobs = await self.devices(), await self.jobs()
+        changed = False
+        for f in waiting:
+            if self.fleet_jobs(f, devices, jobs):
+                continue
+            rec = {k: v for k, v in f["recall_hold"].items() if k in ("mode", "dest", "why", "at", "by")}
+            self._start_homing(f, f.get("mission") or {}, rec, False)
+            await self.log("fleets", f"{f['name']}: task done — returning to {rec['dest']}")
+            changed = True
+        return changed
+
     async def run_fleets(self) -> None:
         from . import fleets as fl
         items = await self.fleets()
+        if await self.recall_pass(items):
+            await self.save_fleets(items)
         if not any((f.get("mission") or {}).get("status") == "running"
                    or (f.get("mission") or {}).get("comms_wait") or self._retry_due(f.get("mission") or {})
                    for f in items):
@@ -5271,8 +5383,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         devices = await self.devices()
         changed = False
         for fleet in items:
-            if fleet.get("role") == "bootstrap":
-                continue   # no missions: bootstrap_pass drives it
+            if fleet.get("role") == "bootstrap" and not (fleet.get("mission") or {}).get("homing"):
+                continue   # no missions: bootstrap_pass drives it (a recall's trip home excepted)
             m = fleet.get("mission") or {}
             if m.get("status") == "stalled" and m.get("comms_wait"):
                 # stalled because members were out of comms range (live 2026-10-22: Surveyor 2's heaven vessel left
@@ -5405,7 +5517,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     changed = True
                 if not done and not m.pop("recall_now", False):
                     continue
-                nxt_sal = await self.next_salvage(m) if done and fleet["role"] == "mining" and m.get("salvage") else None
+                nxt_sal = await self.next_salvage(m) if done and fleet["role"] == "mining" and m.get("salvage") \
+                    and not m.get("recall") else None   # recalled after this task: no next salvage
                 if nxt_sal:   # salvage used up, more in the system: back to work on the next one before ending
                     m.setdefault("salvaged", []).append(m["salvage"])
                     self._mlog(m, f"salvage {m['salvage']} used up — moving on to {nxt_sal}")
@@ -5418,6 +5531,16 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 if not nxt:
                     m["status"], m["job"] = "done", None
                     m.pop("auto_retry", None)
+                    if m.get("homing"):
+                        rh = fleet.get("recall_hold")
+                        dest = (m.get("recall") or {}).get("dest") or m.get("drop_star")
+                        if rh and fleet.get("role") in fl.HOLD_ROLES:
+                            rh["state"] = "home"
+                        else:
+                            fleet.pop("recall_hold", None)
+                        self._mlog(m, f"recalled: back at {dest}" + (" — held until Resume" if rh and fleet.get("role") in fl.HOLD_ROLES else ""))
+                        await self.log("fleets", f"{fleet['name']}: recalled, back at {dest}", notify=True)
+                        break
                     self._mlog(m, "mission complete")
                     await self.log("fleets", f"{fleet['name']}: mission complete", notify=True)
                     break

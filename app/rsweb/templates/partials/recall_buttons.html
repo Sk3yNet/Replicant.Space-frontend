@@ -1,0 +1,27 @@
+{# The standard recall, every fleet role (owner 2026-11-01): Recall now / Recall after task, to the station, else the
+   nearest receiving point. A held fleet (no missions of its own) shows where it is and Resume. #}
+{% set m = f.mission or {} %}{% set rh = f.recall_hold or {} %}{% set rd = f.recall_dest or [None, ''] %}
+{% set rec = m.recall if m.status in ('running', 'stalled') and m.recall else None %}
+<div class="row small recall-bar" style="margin:6px 0;gap:6px;align-items:center">
+  {% if rh.state == 'home' %}
+    <span class="pill lv-done">recalled</span> <span>at <b>{{ rh.dest }}</b>, held: it takes no new work until you resume it.</span>
+    <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "resume_recall"}' hx-swap="none"
+            title="Back to its own work">Resume</button>
+  {% else %}
+    {% if rh.state == 'waiting' %}<span class="pill lv-warning">recall after task</span>
+      <span>finishing its current task, then to <b>{{ rh.dest }}</b> ({{ rh.why }})</span>
+    {% elif rec %}<span class="pill {{ 'lv-alert' if m.homing else 'lv-warning' }}">{{ 'recalling' if m.homing else 'recall after task' }}</span>
+      <span>{{ 'returning' if m.homing else 'finishing this task, then' }} to <b>{{ rec.dest }}</b> ({{ rec.why }})</span>{% endif %}
+    {% if not (m.homing and rec and rec.mode == 'now') %}
+    <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "recall_now"}' hx-swap="none"
+            hx-confirm="Recall {{ f.name }} now? What it is doing is canceled, everyone boards, and it flies to {{ rd[0] or 'its home' }} ({{ rd[1] }})."
+            title="Cancel the current task, board everyone and fly to {{ rd[0] or 'its home' }} ({{ rd[1] }})">Recall now</button>{% endif %}
+    {% if not rec and rh.state != 'waiting' %}
+    <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "recall_after"}' hx-swap="none"
+            title="Let the current task finish, then board everyone and fly to {{ rd[0] or 'its home' }} ({{ rd[1] }})">Recall after task</button>{% endif %}
+    {% if rec or rh.state %}
+    <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "resume_recall"}' hx-swap="none"
+            title="Call the recall off{{ ': it stops where it is' if m.homing }}">Cancel recall</button>{% endif %}
+    {% if rd[0] and not rec and not rh.state %}<span class="muted">→ {{ rd[0] }} ({{ rd[1] }})</span>{% endif %}
+  {% endif %}
+</div>

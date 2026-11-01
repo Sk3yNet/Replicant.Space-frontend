@@ -28,7 +28,7 @@ class ChaseMixin:
         from . import rockchase as rc
         from .shapes import normalize_inventory
         fleet_list = await self.fleets()
-        mine = [f for f in fleet_list if f.get("role") == rc.ROLE and f.get("home")]
+        mine = [f for f in fleet_list if f.get("role") == rc.ROLE and f.get("home") and not f.get("recall_hold")]   # recalled: held
         if not mine:
             return []
         devices = await self.devices()

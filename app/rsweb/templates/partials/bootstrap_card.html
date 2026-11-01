@@ -5,6 +5,7 @@
     <h2 style="margin:0">{{ f.name }} <span class="muted small">bootstrap · home {{ b.home }}{% if b.hub %} · hub {{ b.hub }}{% endif %} · vessel <a class="mono" href="/devices/{{ b.vessel }}">{{ b.vessel }}</a> · <code>boot:{{ f.id }}</code></span></h2>
     <span>{% if b.paused %}<span class="pill lv-alert">paused</span>{% elif v.blocked %}<span class="pill lv-alert">blocked</span>{% elif b.decision %}<span class="pill st-move">waiting for your OK</span>{% else %}<span class="pill st-work">{{ v.label }}</span>{% endif %}</span>
   </div>
+  {% include "partials/recall_buttons.html" %}
   <div class="small" style="margin:6px 0">{% for st in stages %}<span class="pill small {{ 'st-work' if st == b.stage else ('lv-done' if loop.index0 < stages.index(b.stage) else '') }}">{{ labels[st] }}</span> {% endfor %}</div>
   <div class="grid g2">
     <div>
