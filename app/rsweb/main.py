@@ -31,6 +31,9 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         api = RSClient(s, transport=transport)
         from . import components as comp
         api.before_post = lambda a, path, body: comp.before_print(a, db, path, body)
+        if s.virtual_queue:
+            from .vqueue import VirtualQueue
+            api.vq = VirtualQueue(db)
         hub = Hub()
         worker = Worker(s, db, api, hub)
         app.state.settings, app.state.db, app.state.api, app.state.hub, app.state.worker = s, db, api, hub, worker

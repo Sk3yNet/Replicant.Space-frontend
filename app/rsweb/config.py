@@ -51,6 +51,8 @@ class Settings:
     visit_gap_minutes: int = int(os.getenv("VISIT_GAP_MINUTES", "30"))
 
     disable_background: bool = os.getenv("DISABLE_BACKGROUND", "") == "1"
+    # the virtual print queue (vqueue.py): the app keeps print orders and feeds each factory a short queue
+    virtual_queue: bool = os.getenv("RS_VIRTUAL_QUEUE", "1") == "1"
 
 
 settings = Settings()

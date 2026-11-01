@@ -708,13 +708,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
 
     # --- sending commands -------------------------------------------------------------------
     async def send(self, method: str, path: str, body: Any, label: str,
-                   components_done: bool = False) -> tuple[bool, Any, str | None]:
-        """`components_done`: an enqueue_print that mustn't queue its components first (a re-queue: they're queued)."""
+                   components_done: bool = False, raw: bool = False) -> tuple[bool, Any, str | None]:
+        """`components_done`: an enqueue_print that mustn't queue its components first (a re-queue: they're queued).
+        `raw`: straight to the game's queue, past the virtual print queue (vqueue.py)."""
         from .fleets import RENAMES_KV, with_renamed_tags
         body = with_renamed_tags(method, path, body, await self.db.kv_get(RENAMES_KV, {}) or {})
         status, resp, err = 200, None, None
         try:
-            kw = {"components_done": True} if components_done else {}
+            kw = {**({"components_done": True} if components_done else {}), **({"raw": True} if raw else {})}
             resp = await self.api.request(method, path, json_body=body, background=True, **kw)
             if self.worker:
                 await self.worker.timers_from_response(path, resp, label)
@@ -1927,7 +1928,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_repeats", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "station_swap_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass", "chatter_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "station_swap_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass", "vqueue_pass", "chatter_pass"):
                 every, at = SPREAD.get(stage, (1, 0))
                 if self.tick_n and self.tick_n % every != at:
                     continue   # a heavy pass that runs every few ticks, on a tick of its own (all run on the first)
@@ -3270,6 +3271,71 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 await self.log("components", f"{g['factory']} needs {g['short']} {g['type'].replace('_', ' ')}: {note}")
         return out
 
+    async def vqueue_pass(self) -> list[str]:
+        """The virtual print queue's feeder (vqueue.py): each factory's game queue holds the KEEP best waiting prints;
+        a better one kept in the app takes a worse one's place, which is kept in the app again."""
+        from . import printqueue as pq
+        from . import vqueue as vqm
+        from .loadouts import is_factory
+        vq = getattr(self.api, "vq", None)
+        if vq is None:
+            return []
+        fed = getattr(self, "_vq_fed", None)
+        if fed is None:
+            fed = self._vq_fed = {}
+        out = []
+        now = time.monotonic()
+        for d in await self.devices():
+            code = d.get("device_code")
+            if not code or not is_factory(d) or not d.get("location") or now - fed.get(code, -1e9) < 150:
+                continue
+            kept = await vq.orders(code)
+            real = [x for x in pq.items(d) if not x["extra"].get("virtual")]
+            k, back, send = vqm.plan(real, kept)
+            if not send and not back and k == len(real):
+                continue
+            try:   # what the device list shows may be minutes old: the change is worked out on a fresh read
+                dev = await self.api.request("GET", f"/devices/{code}", background=True, raw=True) or {}
+            except ApiError:
+                continue
+            fed[code] = now
+            real = pq.items(dev)
+            k, back, send = vqm.plan(real, kept)
+            if not send and not back and k == len(real):
+                continue
+            async with vq.lock:
+                st = await vq.state()
+                low = min([o["seq"] for o in st["orders"]] + [st.get("low", 0), 0])   # back ones go ahead of the rest
+                st["low"] = low - len(back) - 2
+                removed = 0
+                for _ in range(len(real) - k):
+                    ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "dequeue_print", "index": k},
+                                                 f"print queue: {code} #{k + 1} back to the app's queue", raw=True)
+                    if not ok:
+                        break
+                    removed += 1
+                gone = {id(x) for x in real[k:k + removed]}
+                for i, it in enumerate(x for x in back if id(x) in gone):
+                    await vq.add(code, vqm.body_of(it), vqm.priority(it), s=st, seq=low - len(back) + i - 1)
+                sent = 0
+                for kind, x in send:
+                    if kind == "real" and id(x) not in gone:
+                        continue   # still in the game's queue (its dequeue failed)
+                    body = vqm.body_of(x) if kind == "real" else {"command": "enqueue_print", **x["body"]}
+                    ok, _, err = await self.send("POST", f"/devices/{code}", body,
+                                                 f"print queue: {code} gets {body.get('device_type')}", raw=True)
+                    if ok:
+                        sent += 1
+                        if kind == "kept":
+                            st["orders"] = [o for o in st["orders"] if not (o["factory"] == code and o["seq"] == x["seq"])]
+                    elif kind == "real":
+                        await vq.add(code, body, vqm.priority(x), s=st, seq=low - len(back) - 1)
+                await self.db.kv_set(vqm.KV, st)
+            line = f"{code}: {sent} print(s) into the game's queue" + (f", {len(back)} back to the app's queue" if back else "")
+            out.append(line)
+            await self.log("print queue", line, "info")
+        return out
+
     async def components_ahead(self, g: dict, left: int) -> str:
         """A factory stuck on components that nothing else prints (every factory waiting, snapshot 2026-11-01 20:41:
         44 rigs queued at the head of all 5 queues, no drone printed) prints them itself: the `left` ones are queued
@@ -3283,6 +3349,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                                        "quantity": left, "tags": g["tags"]}, f"components for {code}: print {left} {g['type']} itself")
             if not ok:
                 return ""
+        if getattr(self.api, "vq", None) is not None:   # the virtual queue's feeder puts components first
+            return f"{left} queued on it" if left > 0 else ""
         try:
             dev = await self.api.get(f"/devices/{code}") or {}
         except ApiError:

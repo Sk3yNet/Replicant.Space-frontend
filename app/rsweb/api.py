@@ -98,6 +98,7 @@ class RSClient:
         self.last_ok: float | None = None
         # called before each POST (main.py: components.before_print — a print's components are queued first)
         self.before_post: Any = None
+        self.vq: Any = None   # vqueue.VirtualQueue when the virtual print queue is on
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -146,13 +147,23 @@ class RSClient:
                 raise ApiError(403, f"{m} {blocked} is blocked by this client for safety")
 
     async def request(self, method: str, path: str, *, params: dict | None = None, json_body: Any = None,
-                      background: bool = False, retries: int = 2, components_done: bool = False) -> Any:
+                      background: bool = False, retries: int = 2, components_done: bool = False,
+                      raw: bool = False) -> Any:
+        """`raw`: straight to the game, past the virtual print queue (vqueue.py, `self.vq`)."""
         method = method.upper()
         self.check_allowed(method, path)
         if not self.configured:
             raise ApiError(0, "No API token configured (set RS_API_TOKEN)")
-        if method == "POST" and self.before_post and not components_done:
+        if method == "POST" and self.before_post and not components_done and not raw:
             await self.before_post(self, path, json_body)
+        vq = None if raw else getattr(self, "vq", None)
+        if vq is not None and method == "POST":
+            kept = await vq.intercept(path, json_body)
+            if kept is not None:
+                return kept
+        if vq is not None and method == "GET":
+            return await vq.merge(path, await self.request(method, path, params=params, background=background,
+                                                           retries=retries, raw=True))
         path = "/" + path.lstrip("/")
         if path.startswith("/v1/"):
             path = path[3:]

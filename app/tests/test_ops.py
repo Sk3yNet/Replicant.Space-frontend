@@ -19,7 +19,7 @@ REP = "77F75255"
 def client(tmp_path):
     mock = create_mock()
     s = Settings(api_token="dev", api_base="http://mock/v1", db_path=str(tmp_path / "app.sqlite"),
-                 allowed_emails=["joe@example.com"], disable_background=True)
+                 allowed_emails=["joe@example.com"], disable_background=True, virtual_queue=False)
     app = create_app(s, transport=httpx.ASGITransport(app=mock))
     with TestClient(app) as c:
         w = app.state.worker

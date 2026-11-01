@@ -415,11 +415,15 @@ async def call_action(request: Request, user: str, method: str, path: str, body:
     st = request.app.state
     body = fl.with_renamed_tags(method, path, body, await st.db.kv_get(fl.RENAMES_KV, {}) or {})
     status, resp, err = 200, None, None
+    from .vqueue import HAND
+    hand = HAND.set(isinstance(body, dict) and body.get("command") == "enqueue_print")   # your prints go first
     try:
         resp = await st.api.request(method, path, json_body=body if method != "GET" else None)
         await st.worker.timers_from_response(path, resp, label)
     except ApiError as e:
         status, err, resp = e.status, e.message, e.body
+    finally:
+        HAND.reset(hand)
     await st.db.execute(
         "INSERT INTO actions(at, user, method, path, body, status, response) VALUES(?,?,?,?,?,?,?)",
         (now_iso(), user, method, path, json.dumps(body) if body is not None else None, status,

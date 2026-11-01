@@ -80,6 +80,11 @@ System → device type → device, with stowed devices nested in their carrier; 
 - **Print queue** (autofactories): add (with an optional *deliver to*), remove, clear, and move a waiting print to the
   front, up or down. The game can't reorder a queue, so the waiting prints from that place down are taken off and
   queued again in the new order, tags and destinations kept. The print running now can't be moved.
+- **Virtual print queue**: every print the app queues waits in the app's own queue, and each factory gets only its 2
+  best waiting prints in the game's queue: prints you queue by hand (or untagged ones found in the game's queue) first,
+  then components (a rig's drones always before the rig), relays, relay stations, beacons and wards, then loadouts and
+  everything else, then stock. A better one takes a worse one's place, which goes back to the app's queue. The print
+  queue panel marks the waiting ones *app queue*. Turn it off with `RS_VIRTUAL_QUEUE=0`.
 - **Carrier** card (every carrier): launch / stow / recall for a hold, detach / attach for attach points. Devices too
   far to cruise over are picked up by the carrier, nearest first.
 - Stow, deploy, attach and detach work **from either side**: the carrier's page lists its hold / attachments, the

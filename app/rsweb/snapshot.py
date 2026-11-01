@@ -39,7 +39,7 @@ SECTIONS = [
     ("changes", "Version history", "the app's change list (the version itself is always in)", False),
 ]
 SECTION_KEYS = [k for k, *_ in SECTIONS]
-APP_KEYS = {"fleets": ["fleets"], "logistics": ["logistics", "loadouts_last", "loadouts", "loadout_orders", "stowed_map"],
+APP_KEYS = {"fleets": ["fleets"], "logistics": ["logistics", "loadouts_last", "loadouts", "loadout_orders", "stowed_map", "vqueue"],
             "relays": ["ward_orders", "relay_requests", "relay_rollout"], "asteroids": ["objects", "asteroid_events"],
             "actions": ["actions"]}
 
@@ -203,6 +203,7 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "loadouts_last": await db.kv_get("loadouts_last", {}) or {},
         "loadouts": await db.kv_get("loadouts", {}) or {},              # templates, settings, ignore tags — to replay a pass
         "loadout_orders": await db.kv_get("loadout_orders", []) or [],
+        "vqueue": await db.kv_get("vqueue", {}) or {},
         # the last logistics pass (trades, contracts, rescues): what it asked for, what it sent, what it couldn't do
         "logistics": {k: v for k, v in (await db.kv_get("logistics_state", {}) or {}).items() if k != "fleet_devices"},
         "stowed_map": await db.kv_get("stowed_map", {}) or {},
