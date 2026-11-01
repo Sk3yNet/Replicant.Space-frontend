@@ -9902,3 +9902,14 @@ def test_mining_rigs_work_belts_like_mining_drones():
     adopt = next(s for s in steps if (s.get("body") or {}).get("command") == "adopt")
     assert adopt["body"]["devices"] == ["RIG"] and not problems
     assert fl.has_miners(f, [])
+
+
+def test_dashboard_stockpiles_by_location(client):
+    """1.328.0: the Dashboard lists every stockpile's current amounts (per location, per resource)."""
+    inv = client.portal.call(lambda: client.app.state.db.kv_get("inventory", []))
+    piles = [i for i in inv if any(float(v or 0) > 0 for v in (i.get("items") or {}).values())]
+    assert piles
+    r = client.get("/", headers=H)
+    assert r.status_code == 200 and "Stockpiles by location" in r.text and 'data-card="stock-locations"' in r.text
+    for p in piles:
+        assert f'href="/locations/{p["location"]}"' in r.text

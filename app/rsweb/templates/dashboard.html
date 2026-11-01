@@ -72,7 +72,23 @@
       {% endif %}{% endfor %}
       {% for r, v in totals.items() if r not in RESOURCES %}<tr><td>{{ r }}</td><td class="num mono">{{ v | num }}</td><td></td></tr>{% endfor %}
     </table>
-    <p class="muted small">Totals across all locations · 48h trend · <a href="/systems">by location</a></p>
+    <p class="muted small">Totals across all locations{% if sync.inventory %} as of {{ sync.inventory.at | ago }}{% endif %} · 48h trend</p>
+  </div>
+
+  <div class="card wide" data-card="stock-locations">
+    <h2>Stockpiles by location</h2>
+    {% set cols = (RESOURCES | select("in", totals) | list) + (totals.keys() | reject("in", RESOURCES) | sort) %}
+    {% set piles = inventory | selectattr("items") | sort(attribute="location") | list %}
+    {% if not piles %}<p class="muted">No inventory yet.</p>{% else %}
+    <div class="sticky-grid" style="max-height:480px"><table>
+      <tr><th>Location</th>{% for r in cols %}<th class="num">{{ r }}</th>{% endfor %}</tr>
+      {% for loc in piles %}{% if loc["items"].values() | select(">", 0) | list %}
+      <tr><td><a href="/locations/{{ loc.location }}">{{ loc.location }}</a></td>
+        {% for r in cols %}{% set v = loc["items"].get(r, 0) %}<td class="num mono{% if not v %} muted{% endif %}">{{ v | num if v else "·" }}</td>{% endfor %}</tr>
+      {% endif %}{% endfor %}
+    </table></div>
+    {% endif %}
+    <p class="muted small">What each stockpile holds now{% if sync.inventory %} (synced {{ sync.inventory.at | ago }}){% endif %}; holds on the way are not counted.</p>
   </div>
 
   <div class="card wide" data-card="events">

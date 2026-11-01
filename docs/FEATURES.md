@@ -30,6 +30,7 @@ Cards can be dragged (⠿) or moved (▲ ▼) and folded (▾); the layout is re
 | Logistics backlog | is logistics keeping up? (see below) |
 | Trends | devices by fleet role, mining output per hour, systems you can command and those your relay network covers |
 | Stockpiles | with a 48 h trend, and "+ N in transit" |
+| Stockpiles by location | what each stockpile holds now, per location and resource |
 | Game API health | API, database, Redis, checked every 5 minutes |
 | Live events | the event feed |
 
