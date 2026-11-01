@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.326.1"
+VERSION = "1.327.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.327.0", "2026-11-01", "Spare beacons are reused where they sit (Joe chose this for the retired duplicates): a beacon order takes the nearest spare beacon in reach, even one still monitoring, before printing one, and a print still queued gives way to it. A beacon has no off switch, so before only a new print could fill an order."),
     ("1.326.1", "2026-11-01", "Redundant beacons are only tagged spare: the game has no off switch for a beacon and answered every deactivate on a monitoring one with Nothing to deactivate (40 of 40 on 14:11). Removing a beacon on the Systems page no longer sends deactivate either."),
     ("1.326.0", "2026-11-01", "Duplicate FTL beacons retired, and no more printed (Joe: many at ANOAAIEON). A beacon order printed another beacon every 20 minutes while the first one waited at the factory, since a printed beacon comes out monitoring and a working one never counted as on its way (live 10-25 and 10-30: 194 extra beacons at 32 civilization bodies, 15 at ANOAAIEON-3). A beacon tagged for a system, or pinned to a spot there, now counts until it works in that system. Redundant beacons: each civilization body keeps one beacon, and the extras at the same spot are switched off and marked spare (their at: pin goes), as are spare beacons still working beside another; 40 per pass, Traffic page button for the rest."),
     ("1.325.0", "2026-11-01", "Mining rig rollout fixes (snapshot 13:25). Rigs mine belts: a mining controller adopts rigs with its drones, fleets put them to work on gather_evenly, and the restart rule starts idle rigs at belts (the Mining template wants 8 rigs and no drones, so all 21 rigs sat idle and no belt was mined; unverified live that a controller adopts a rig). A device moved to its fleet's new home loses the old home's to: tag on arrival (Miner_1's rigs kept to:anoaaieon at SOLFAMAR and got a new arrived job every pass, and counted as in transit). A device handed to another fleet loses its old fleet tag (79B8E981 carried Miner_10 and Miner_2). Spare components go to the nearest factory first and are pinned once per pass (SOLARES and FALQUORYX swapped mining drones; three drones carried two at: pins)."),

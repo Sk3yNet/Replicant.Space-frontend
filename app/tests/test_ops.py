@@ -524,3 +524,14 @@ def test_mock_demo_galaxy(monkeypatch):
     assert next(d for d in world.devices if d["device_code"] == m.HOST)["location"] == world.location
     trips = [d["travel"]["arrives_at"] for d in world.devices if (d.get("travel") or {}).get("arrives_at")]
     assert trips and max(datetime.fromisoformat(t) for t in trips) > datetime.now(timezone.utc) - timedelta(hours=1)
+
+
+def test_spare_monitoring_beacon_is_sent_instead_of_a_print():
+    """Beacons can't be switched off: a spare one still monitoring is the spare a new beacon order takes."""
+    from rsweb import ward_orders as wo
+    pos = {"A": {"x": 0, "y": 0, "z": 0}, "B": {"x": 1, "y": 0, "z": 0}}
+    b = {"device_code": "S1", "device_type": "ftl_beacon", "location": "B-3", "status": "monitoring", "tags": ["spare"]}
+    assert wo.spare_ward([b], "A", set(), pos, 100, "ftl_beacon")["device_code"] == "S1"
+    assert wo.spare_ward([dict(b, tags=[])], "A", set(), pos, 100, "ftl_beacon") is None   # a working one stays
+    relay = dict(b, device_type="ftl_relay", status="relaying")
+    assert wo.spare_ward([relay], "A", set(), pos, 100, "ftl_relay") is None

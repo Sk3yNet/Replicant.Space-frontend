@@ -77,11 +77,12 @@ def spare_ward(devices: list[dict], star: str, busy: set[str], pos: dict, reach:
                dtype: str = "system_ward", kept: set[str] | frozenset = frozenset()) -> dict | None:
     """A device of this type that isn't working and belongs to no fleet or contract, nearest first, within reach.
     `kept` (a printing hub's own keep-in-stock spares) go last: taking one only gets it printed again there, while
-    another hub's extras wait unused (owner 2026-10-28: use up the spare relays at FALQUORYX)."""
+    another hub's extras wait unused (owner 2026-10-28: use up the spare relays at FALQUORYX). A beacon has no off
+    switch, so one tagged spare counts even while it monitors (owner 2026-11-01: reuse the duplicates where they sit)."""
     out = []
     for d in devices:
         tags = d.get("tags") or []
-        if (d.get("device_type") != dtype or wh.active(d) or d.get("device_code") in busy or d.get("location_stale")
+        if (d.get("device_type") != dtype or (wh.active(d) and not (dtype == "ftl_beacon" and lo.SPARE in tags)) or d.get("device_code") in busy or d.get("location_stale")
                 or any(t.startswith(("fleet:", "contract:", "to:", "boot:")) for t in tags)):
             continue
         here = star_of(d.get("location"))
