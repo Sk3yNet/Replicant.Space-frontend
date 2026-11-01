@@ -196,3 +196,37 @@ def test_spares_pinned_once_per_pass_and_nearest_first(client):  # noqa: F811
     assert "at:sol-3-l4" in devs[1]["tags"] and "spare" not in devs[1]["tags"]
     pinned, _, _ = client.portal.call(e.pin_or_print, "orbital_farm", 1, "SOL-4-L4", devs, set(), "t")
     assert pinned == ["FA00FA01"]                               # the near one is taken now
+
+
+def test_components_never_pinned_or_left_pinned_beyond_the_sector_range(client):  # noqa: F811
+    """Snapshot 2026-11-01 20:41: spare mining drones at ANLOREN (Delta sector) were pinned to the FALQUORYX factory, and
+    their carriers' trips sat held at the sector range."""
+    db, e = client.app.state.db, client.app.state.worker.automations
+    cat = client.portal.call(db.kv_get, "stars", {})
+    cat["stars"] = (cat.get("stars") or []) + [{"designation": "FARSTAR", "position": {"x": 9000, "y": 0, "z": 0}},
+                                                {"designation": "NEARSTAR", "position": {"x": 0, "y": 0, "z": 1}},
+                                                {"designation": "HOMESTAR", "position": {"x": 0, "y": 0, "z": 0}}]
+    client.portal.call(db.kv_set, "stars", cat)
+    S = lambda c, loc, tags=("spare",): {"device_code": c, "device_type": "orbital_farm", "location": loc,  # noqa: E731
+                                         "status": "idle", "tags": list(tags)}
+    world = client.app.state.api.http._transport.app.state.world
+    src = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    devs = [S("FA00FA11", "FARSTAR-1"), S("FA00FA12", "NEARSTAR-1")]
+    world.devices += [{**src, **d, "print_queue": []} for d in devs]
+    pinned, _, _ = client.portal.call(e.pin_or_print, "orbital_farm", 2, "HOMESTAR-BELT-1", devs, set(), "t", None, None,
+                                      {"AF00BEEF"})
+    assert pinned == ["FA00FA12"]                          # the far spare stays where it is
+    # a component already pinned beyond the range: its held trip is dropped and it is a spare again
+    stuck = S("FA00FA13", "FARSTAR-1", ["component", "to:homestar", "at:homestar-belt-1"])
+    world.devices.append({**src, **stuck, "print_queue": []})
+    devs = client.portal.call(db.kv_get, "devices") + [stuck]
+    client.portal.call(db.kv_set, "devices", devs)
+    job = {"id": "loadouts-x", "rule": "loadouts", "title": "loadouts: carry 1", "status": "waiting", "device": "CA00CA00",
+           "created_at": "2026-11-01T13:39:57+00:00", "meta": {"devices": ["FA00FA13"], "star": "HOMESTAR"},
+           "steps": [{"desc": "fly", "status": "confirm"}]}
+    client.portal.call(e.save_jobs, client.portal.call(e.jobs) + [job])
+    client.portal.call(db.kv_set, "components_last", None)
+    out = client.portal.call(e.component_pass)
+    assert any("beyond the sector range" in x for x in out), out
+    assert next(j for j in client.portal.call(e.jobs) if j["id"] == "loadouts-x")["status"] == "cancelled"
+    assert set(next(d for d in world.devices if d["device_code"] == "FA00FA13")["tags"]) == {"spare"}

@@ -3208,6 +3208,31 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         await self.db.kv_set("components_last", now_iso())
         devices = await self.devices()
         out = []
+        far = comp.far_pins(devices, await self.star_lookup("pos"))
+        if far:   # pinned beyond the sector range: their held trips are dropped and they're spares again where they are
+            codes = {d["device_code"] for d in far}
+            for job in await self.jobs():
+                held = any(st.get("status") == "confirm" for st in job.get("steps") or [])
+                cargo = set((job.get("meta") or {}).get("devices") or []) | {job.get("device")}
+                if job.get("status") in ("running", "waiting") and held and cargo & codes:
+                    job["status"] = "cancelled"
+                    job["finished_at"] = now_iso()
+                    await self._update(job)
+                    await self.log(job["rule"], f"canceled: {job['title']} (its components' factory is beyond the sector range)")
+            busy = self.busy_devices(await self.jobs())
+            n = 0
+            for d in far:
+                if d["device_code"] in busy:
+                    continue
+                cfg = comp.release(d)
+                ok, _, _ = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": cfg},
+                                           f"components: {d['device_code']} released (factory beyond the sector range)")
+                if ok:
+                    n += 1
+                    d["tags"] = [t for t in d.get("tags") or [] if t not in cfg["remove_tags"]] + ["spare"]
+            if n:
+                out.append(f"{n} component(s) pinned to a factory beyond the sector range are spares again")
+                await self.log("components", out[-1])
         claim = comp.claimable(devices)
         for d, tags in claim:   # already there but not tagged as its components (spare, stock, untagged): claimed
             cfg = comp.retag(d, tags)

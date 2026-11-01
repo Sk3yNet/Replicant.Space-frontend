@@ -291,12 +291,20 @@ class SimMixin:
         spares = [d for d in devices if d.get("device_type") == ctype and d not in (skip or []) and at_tag(loc) not in (d.get("tags") or [])
                   and "spare" in (d.get("tags") or []) and d.get("device_code") not in busy
                   and not is_component(d) and not pinned_at(d)]
+        from .loadouts import _dist
+        from .logistics import SECTOR_RANGE_LY
+        pos = await self.star_lookup("pos")
+        home = star_of(loc)
+
+        def far(where: str | None) -> bool:   # known to be beyond the sector range (unknown positions: the trip gate asks)
+            x = _dist(star_of(where) or "?", home, pos)
+            return SECTOR_RANGE_LY < x < 1e9
+        # never from beyond the sector range (snapshot 2026-11-01 20:41: spare mining drones at ANLOREN, in the Delta
+        # sector, were pinned to the FALQUORYX and SOLARES factories and their trips held at the sector range)
+        spares = [d for d in spares if not far(d.get("location"))]
         if len(spares) > n:
             # the nearest first (snapshot 2026-11-01: the SOLARES and FALQUORYX factories each took the other's spare
             # mining drones, so carriers crossed between the hubs both ways)
-            from .loadouts import _dist
-            pos = await self.star_lookup("pos")
-            home = star_of(loc)
             spares.sort(key=lambda d: (d.get("location") != loc, _dist(star_of(d.get("location")) or "?", home, pos),
                                        d.get("device_code") or ""))
         pinned: list[str] = []
@@ -316,7 +324,7 @@ class SimMixin:
             from .shapes import normalize_blueprints
             bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
             facs = [d for d in devices if is_factory(d) and d.get("location") and d.get("device_code") not in busy
-                    and d.get("device_code") not in not_at]
+                    and d.get("device_code") not in not_at and not far(d.get("location"))]
             if ctype in bps and facs:
                 # one at the location itself first, then in its system (live 2026-10-18: components for SOLARES-BELT-1
                 # printed at FALQUORYX, 425 ly away, with an idle autofactory at SOLARES-BELT-1), then the least busy

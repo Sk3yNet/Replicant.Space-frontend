@@ -208,3 +208,29 @@ def shortfalls(devices: list[dict]) -> list[dict]:
                 out.append({"factory": f["device_code"], "location": f["location"], "type": t, "short": short,
                             "tags": component_tags(head.get("tags"), f["location"])})
     return out
+
+
+def far_pins(devices: list[dict], pos: dict) -> list[dict]:
+    """Components pinned to a factory known to be beyond the sector range from where they are (their carrier's place
+    while aboard): no trip there is ever sent without a Confirm, so they go back to being spares where they are
+    (snapshot 2026-11-01 20:41: mining drones at ANLOREN, in the Delta sector, pinned to FALQUORYX and SOLARES)."""
+    from .automations import star_of
+    from .loadouts import _dist, is_component
+    from .logistics import SECTOR_RANGE_LY
+    by = {d.get("device_code"): d for d in devices}
+    out = []
+    for d in devices:
+        if not is_component(d):
+            continue
+        host = by.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code")) or {}
+        here = star_of(d.get("location") or host.get("location") or "")
+        pins = {star_of(t[3:].upper()) for t in d.get("tags") or [] if t.startswith("at:") and len(t) > 3}
+        if here and pins and any(SECTOR_RANGE_LY < _dist(here, p, pos) < 1e9 for p in pins):
+            out.append(d)
+    return out
+
+
+def release(d: dict) -> dict:
+    """The PATCH configuration that makes a component a plain spare again: its component tag and pins go."""
+    return {"add_tags": ["spare"], "remove_tags": [t for t in d.get("tags") or [] if t == COMPONENT
+                                                   or t.startswith(("to:", "at:"))]}
