@@ -1048,7 +1048,13 @@ def test_backlog_counts_piles_holds_and_devices_waiting():
                         carriers=[devs[0]], devices=devs, strays=[{"code": "S1"}], fleet_homes={"home": "A", "cab": "A"},
                         requests=[{"id": "rescue:R9", "kind": "rescue", "device": "R9"}, {"id": "x", "skipped": True}],
                         unmet=[{"req": "x"}])
-    assert b == {"res_away": 25.5, "res_deals": 0, "res_holds": 30, "dev_waiting": 4, "req_open": 1, "req_unmet": 1}
+    assert b == {"res_away": 25.5, "res_deals": 0, "res_holds": 30, "dev_waiting": 4, "dev_waiting_rep": 1, "req_open": 1,
+                 "req_unmet": 1}
+    # only A can be commanded: D1 sits at B (and the rescue), so a replicant has to go along; the stray at A going to A doesn't
+    b = metrics.backlog(inventory={}, receiving=set(), carriers=[], devices=devs, strays=[{"code": "S1", "star": "B", "home": "A"},
+                        {"code": "S2", "star": "A", "home": "A"}], fleet_homes={"home": "A"},
+                        requests=[{"id": "rescue:R9", "kind": "rescue", "device": "R9"}], unmet=[], commandable={"A"})
+    assert (b["dev_waiting"], b["dev_waiting_rep"]) == (5, 3)
 
 
 def test_backlog_splits_what_open_deals_still_pay():
@@ -1068,7 +1074,7 @@ def test_logistics_pass_samples_the_backlog_for_the_dashboard(client):  # noqa: 
     test_logistics_pass_sends_a_job_for_a_waiting_print(client)
     rows = client.portal.call(db.fetchall, "SELECT metric, value FROM metric_history")
     got = {r["metric"] for r in rows}
-    assert {"res_away", "res_holds", "dev_waiting", "req_open", "req_unmet", "req_age_max_h", "lead_med_h",
+    assert {"res_away", "res_holds", "dev_waiting", "dev_waiting_rep", "req_open", "req_unmet", "req_age_max_h", "lead_med_h",
             "carriers_busy_pct", "missions_stalled", "expired_24h", "role:logistics", "cmd_systems", "relay_systems"} <= got
     client.portal.call(e.logistics_pass, True)   # within ten minutes: no second sample
     assert len(client.portal.call(db.fetchall, "SELECT * FROM metric_history")) == len(rows)

@@ -42,7 +42,7 @@ stars or datacenters involved, the Ark's stop, opportunities, NPCs. *Pause for t
 - resources in stockpiles other than a receiving stockpile (a stationed or materials-taking fleet home's drop point),
   set aside at a contract's or trade's location (up to what the open deals there still pay; a trade's payout and
   leftovers count as waiting to move), and aboard logistics devices;
-- devices waiting to be moved: fleet strays, `to:` / `at:` devices not there yet, rescues;
+- devices waiting to be moved: fleet strays, `to:` / `at:` devices not there yet, rescues; and of those, the ones only a replicant can move (rescues, and devices in or bound for a system out of command range);
 - open and unmet logistics requests, request age and lead time;
 - carrier use and hold fill;
 - stalled and auto-retrying missions, expired orders.

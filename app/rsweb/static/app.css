@@ -219,9 +219,20 @@ svg.system .scan-beam { fill: #8fd8ff; opacity: .35; animation: scan-pulse 1.6s 
 .bl-svg { width: 100%; height: 70px; display: block; margin: 2px 0; background: var(--panel2); border-radius: 4px; }
 .bl-svg polyline { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .bl-svg .bl-base { stroke: var(--line); vector-effect: non-scaling-stroke; }
-.bl-svg .bl-1 { stroke: var(--accent); } .bl-svg .bl-2 { stroke: var(--warn); }
-.bl-key::before { content: ""; display: inline-block; width: 10px; height: 2px; margin-right: 4px; vertical-align: middle; background: var(--accent); }
-.bl-key.bl-2::before { background: var(--warn); }
+/* chart lines: ten distinct hues (owner 2026-11-02: similar colors could not be told apart); past ten, lines repeat dashed */
+.bl-1 { --bl: #6cb6ff; }
+.bl-2 { --bl: #f0b64f; }
+.bl-3 { --bl: #4fd18b; }
+.bl-4 { --bl: #ff6b6b; }
+.bl-5 { --bl: #b48cff; }
+.bl-6 { --bl: #4fe3e0; }
+.bl-7 { --bl: #ff9a3c; }
+.bl-8 { --bl: #ff7ad9; }
+.bl-9 { --bl: #d7e36b; }
+.bl-10 { --bl: #e6ecf5; }
+.bl-svg polyline[class^="bl-"] { stroke: var(--bl); } .bl-svg polyline.bl-dash { stroke-dasharray: 5 3; }
+.bl-key::before { content: ""; display: inline-block; width: 12px; height: 3px; margin-right: 4px; vertical-align: middle; background: var(--bl, var(--accent)); }
+.bl-key.bl-dash::before { background: repeating-linear-gradient(90deg, var(--bl) 0 4px, transparent 4px 6px); }
 .tf-spark { width: 100%; height: 38px; display: block; margin: 2px 0; }
 .tf-spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .tf-spark circle { fill: var(--accent); }

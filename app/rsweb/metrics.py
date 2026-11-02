@@ -6,6 +6,8 @@ The logistics pass samples, at most every SAMPLE_S, from what it already has in 
   res_holds    resources aboard logistics-fleet devices (loaded, not yet unloaded)
   dev_waiting  devices waiting to be moved: fleet members away from their stationed fleet's home (Fleets › Strays),
                devices tagged to: / at: that aren't there yet, and devices logistics is asked to rescue
+  dev_waiting_rep   of those, the ones only a replicant can move (owner 2026-11-02): rescues, and devices sitting in
+               or bound for a system outside command range (the move needs a logistics device hosting a replicant)
   req_open     open logistics requests (skipped ones left out)
   req_unmet    requests the last pass couldn't serve (Fleets › Logistics, unmet)
   req_age_max_h, req_age_med_h   how long the open requests have been open (a request counts as open until no
@@ -35,10 +37,10 @@ KEEP_DAYS = 30
 
 def backlog(*, inventory: dict[str, dict], receiving: set[str], carriers: list[dict], devices: list[dict],
             strays: list[dict], fleet_homes: dict[str, str], requests: list[dict],
-            unmet: list[dict]) -> dict[str, float]:
-    """One sample. `inventory`: {location: {resource: qty}}; `receiving`: receiving stockpile locations; `carriers`:
+            unmet: list[dict], commandable: set[str] | None = None) -> dict[str, float]:
+    """One sample. `commandable`: systems you can command (None: all of them, so only rescues need a replicant). `inventory`: {location: {resource: qty}}; `receiving`: receiving stockpile locations; `carriers`:
     logistics-fleet devices; `strays`: fleets.strays(...); `fleet_homes`: fleet id → home, for to:<fleet id> tags."""
-    from .fleets import where_star
+    from .fleets import star_of, where_star
     from .loadouts import pinned_at, to_tag
     # piles at a contract's or trade's location, up to what the open deals there still pay: set aside, not backlog;
     # anything beyond that (a trade's payout, leftovers) waits to move to a stockpile like any other pile
@@ -60,6 +62,9 @@ def backlog(*, inventory: dict[str, dict], receiving: set[str], carriers: list[d
     holds = sum(q for d in carriers for q in as_amounts(d.get("cargo")).values() if q > 0)
     by = {d.get("device_code"): d for d in devices}
     waiting = {s["code"] for s in strays}
+    cmd = None if commandable is None else {to_tag(x) for x in commandable}
+    far = lambda *slugs: cmd is not None and any(x and x not in ("to:", "to:?") and x not in cmd for x in slugs)  # noqa: E731
+    rep = {s["code"] for s in strays if far(to_tag(s.get("star") or ""), to_tag(s.get("home") or ""))}
     for d in devices:
         tags = d.get("tags") or []
         if not any(str(t).startswith(("to:", "at:")) for t in tags):
@@ -71,8 +76,13 @@ def backlog(*, inventory: dict[str, dict], receiving: set[str], carriers: list[d
         off = any(w != here for w in want if w != "to:")
         if off or (pin and d.get("location") != pin):
             waiting.add(d["device_code"])
-    waiting |= {r["device"] for r in requests if r.get("kind") == "rescue" and r.get("device")}
+            if far(here, *want, to_tag(star_of(pin)) if pin else ""):
+                rep.add(d["device_code"])
+    rescues = {r["device"] for r in requests if r.get("kind") == "rescue" and r.get("device")}
+    waiting |= rescues
+    rep |= rescues
     return {"res_away": round(away, 1), "res_deals": round(deal, 1), "res_holds": round(holds, 1), "dev_waiting": len(waiting),
+            "dev_waiting_rep": len(rep & waiting),
             "req_open": sum(1 for r in requests if not r.get("skipped")), "req_unmet": len(unmet)}
 
 
