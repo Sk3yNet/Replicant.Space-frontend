@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.336.0"
+VERSION = "1.336.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.336.1", "2026-11-02", "Delta deliveries unstuck (Joe): an approved trade held the nearest logistics vessel with a replicant for itself, even while it still waited for the devices it pays with. In Delta that was the only one (5DF3161B), so the 10 compute cores for the Crystal Synthesis Lab and 5 relays waited at ISOLITHOR for an escort that was never released. A trade waiting for its devices now holds nothing. The Logistics line says tagged devices sit elsewhere for Loadouts to carry, instead of on their way."),
     ("1.336.0", "2026-11-02", "Approved shop trades paid in devices print what no spare covers (Joe: the Crystal Synthesis Lab at DELTA-OBJ-2 was never bought). Its 10 compute cores had no spare within the sector range (the 11 spares sit at SOLARES, 29,000 ly away) and only Contracts had an Authorize printing button, so it waited forever. Approving the trade (Logistics buys) now counts as that OK: the nearest autofactory in range prints them and they are delivered to the shop. The Logistics page waiting line says what is there, coming, printing or short."),
     ("1.335.0", "2026-11-02", "Fill from spares stays within the sector range (Joe): a fleet without a carrier took self-surging spares from anywhere, and a supply range of 0 (any) or past 1728 ly let fills and gathers go farther. The supply range now tops out at the sector range everywhere, and a star with no catalog position (Delta) counts as out of range from a charted one."),
     ("1.334.2", "2026-11-02", "Prints waiting in the app's queue take none of a factory's queue slots: contracts showed no autofactory with queue room within 1728 ly of DRAEUMON and AELMERARN (25 ly from FALQUORYX), and loadouts and ward orders counted the same way."),

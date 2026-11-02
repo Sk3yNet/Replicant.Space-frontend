@@ -1372,3 +1372,22 @@ def test_deliveries_beyond_the_sector_range_are_not_considered():
                 commandable={"A", "B", "FAR"}, hosts={"HV": "R1"}, busy=set(), reach=lg.SECTOR_RANGE_LY, contracts=[],
                 trades=[], incoming={}, replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1")
     assert not [r for r in p["runs"] if r["req"] == "print:B-2"]
+
+
+def test_a_trade_waiting_for_its_devices_holds_no_escort(client, monkeypatch):
+    """Live 2026-11-02: Delta's only replicant vessel was held for the Crystal Synthesis Lab trade while the 10 compute
+    cores it pays with (and 5 relays) waited at ISOLITHOR for exactly that escort."""
+    from rsweb import loadouts as lo
+    e = client.app.state.worker.automations
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "devices", [{"device_code": "HV1", "device_type": "heaven_vessel", "location": "SOL-BELT-1",
+                                               "status": "idle", "features": ["surge"], "tags": ["fleet:lg"]}])
+    client.portal.call(db.kv_set, "replicants", {"R1": {"hosted_device_code": "HV1"}})
+    client.portal.call(e.save_fleets, [{"id": "lg", "name": "Lg", "role": "logistics", "home": "SOL", "wants": {}}])
+    seen = []
+    monkeypatch.setattr(lo, "plan", lambda *a, **k: seen.append(set(a[6])) or {"unmet": []})
+    for short, held in ((True, False), (False, True)):
+        client.portal.call(db.kv_set, lg.KV_STATE, {"requests": [{"id": "trade:C:T", "kind": "trade", "to": "SOL-OORT",
+                                                                  "skipped": False, "devices_short": short}]})
+        client.portal.call(e.loadout_plan)
+        assert ("HV1" in seen[-1]) is held

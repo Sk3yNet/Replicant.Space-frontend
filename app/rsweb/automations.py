@@ -3631,7 +3631,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         # Contracts don't: a pre-approved civilization's are open nearly all the time.
         from . import logistics as lg
         deals = [r for r in ((await self.db.kv_get(lg.KV_STATE, {}) or {}).get("requests") or [])
-                 if r.get("kind") == "trade" and not r.get("skipped")]
+                 if r.get("kind") == "trade" and not r.get("skipped") and not r.get("devices_short")]
+        # (a trade still waiting for the devices it pays with holds nothing: those devices come by this pass, which may
+        # need that very vessel as escort; live 2026-11-02: Delta's only one, 5DF3161B, sat at ISOLITHOR held for the
+        # Crystal Synthesis Lab while its 10 compute cores and 5 relays waited there for an escort)
         if deals:
             from . import fleets as fl
             from .loadouts import can_surge

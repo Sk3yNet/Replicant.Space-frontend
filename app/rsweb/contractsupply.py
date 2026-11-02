@@ -181,7 +181,7 @@ def status_note(entry: dict | None) -> str:
         name = str(r.get("type") or "").replace("_", " ")
         bits = [f"{r.get('here', 0)}/{r.get('need', 0)} {name} there"]
         if r.get("coming") or r.get("sending"):
-            bits.append(f"{len(r.get('coming') or []) + len(r.get('sending') or [])} on their way")
+            bits.append(f"{len(r.get('coming') or []) + len(r.get('sending') or [])} tagged for it elsewhere (Loadouts carries them)")
         if r.get("printing") or r.get("print"):
             bits.append(f"{int(r.get('printing') or 0) + int(r.get('print') or 0)} printing")
         if r.get("short"):
