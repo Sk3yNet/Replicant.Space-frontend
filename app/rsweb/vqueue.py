@@ -27,6 +27,8 @@ from typing import Any
 
 KV = "vqueue"
 KEEP = 2   # waiting prints each factory holds in the game's queue
+CHUNK = 3  # the most of one order sent at a time (live 2026-11-02: "Not enough queue space (10 available, 28
+           # requested)": a print's quantity takes that many of the queue's slots)
 HAND = contextvars.ContextVar("vqueue_hand", default=False)   # set around prints the owner queues by hand
 PATH = re.compile(r"^/(?:v1/)?devices/([0-9A-Fa-f]{8})/?$")
 LIST = re.compile(r"^/(?:v1/)?devices/?$")
@@ -205,9 +207,29 @@ def jump(cur: dict, real: list[dict], kept: list[dict], have: dict[str, float], 
             continue
         need = cost(t, bps)
         q = max(1, int((x.get("quantity") if kind == "real" else x["body"].get("quantity")) or 1))
+        if kind == "kept":
+            q = min(q, CHUNK)
         if not need:
             continue   # no blueprint cost known: can't tell
         own = t in wants
         if all(have.get(r, 0.0) - (0.0 if own else reserve.get(r, 0.0)) >= v * q for r, v in need.items()):
             return kind, x
     return None
+
+
+def send_body(o: dict) -> dict:
+    """The enqueue_print for a kept order: at most CHUNK of it."""
+    return {"command": "enqueue_print", **o["body"], "quantity": min(CHUNK, max(1, int(o["body"].get("quantity") or 1)))}
+
+
+def take(orders: list[dict], code: str, o: dict, n: int) -> list[dict]:
+    """The orders with `n` of order `o` sent to the game: what's left of it stays."""
+    out = []
+    for x in orders:
+        if x["factory"] == code and x["seq"] == o["seq"]:
+            left = max(1, int(x["body"].get("quantity") or 1)) - n
+            if left > 0:
+                out.append({**x, "body": {**x["body"], "quantity": left}})
+            continue
+        out.append(x)
+    return out

@@ -820,6 +820,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             world.emit("mining.started", d, location=d["location"], resource_type=body.get("resource_type"), site="SOL-BELT-1-SITE-1")
         if cmd == "enqueue_print":
             q = world.queues.setdefault(code, [])
+            n = int(body.get("quantity") or 1)
+            if len(q) + n > 10:   # live 2026-11-02: a quantity takes that many of the queue's 10 slots
+                return ok({"error": f"Not enough queue space ({10 - len(q)} available, {n} requested)"}, 400)
             q.extend({"device_type": body.get("device_type"), "notify": {"device": None}, "tags": list(body.get("tags") or []),
                       **({"oncomplete": body["oncomplete"]} if body.get("oncomplete") else {})}
                      for _ in range(int(body.get("quantity") or 1)))

@@ -3348,13 +3348,13 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 for kind, x in send:
                     if kind == "real" and id(x) not in gone:
                         continue   # still in the game's queue (its dequeue failed)
-                    body = vqm.body_of(x) if kind == "real" else {"command": "enqueue_print", **x["body"]}
+                    body = vqm.body_of(x) if kind == "real" else vqm.send_body(x)
                     ok, _, err = await self.send("POST", f"/devices/{code}", body,
                                                  f"print queue: {code} gets {body.get('device_type')}", raw=True)
                     if ok or (kind == "kept" and "not yet unlocked" in str(err).lower()):
                         sent += ok
                         if kind == "kept":
-                            st["orders"] = [o for o in st["orders"] if not (o["factory"] == code and o["seq"] == x["seq"])]
+                            st["orders"] = vqm.take(st["orders"], code, x, int(body.get("quantity") or 1) if ok else 10 ** 9)
                         if not ok:   # the game won't print it: dropped, not offered again every pass
                             lk = await self.db.kv_get("locked_prints", {}) or {}
                             lk[str(body.get("device_type"))] = now_iso()
@@ -3384,7 +3384,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         if not pick:
             return None
         kind, x = pick
-        body = vqm.body_of(x) if kind == "real" else {"command": "enqueue_print", **x["body"]}
+        body = vqm.body_of(x) if kind == "real" else vqm.send_body(x)
         again = vqm.body_of(head)
         async with vq.lock:
             st = await vq.state()
@@ -3406,7 +3406,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             ok, _, err = await self.send("POST", f"/devices/{code}", body, f"print queue: {code} gets {body['device_type']} "
                                          f"ahead of the waiting {head['device_type']}", raw=True)
             if ok and kind == "kept":
-                st["orders"] = [o for o in st["orders"] if not (o["factory"] == code and o["seq"] == x["seq"])]
+                st["orders"] = vqm.take(st["orders"], code, x, int(body.get("quantity") or 1))
             elif not ok and kind == "real" and any(g is x for g in gone):
                 await vq.add(code, body, vqm.priority(x), s=st, seq=low - len(real) - 2)
             okb, _, _ = await self.send("POST", f"/devices/{code}", again,

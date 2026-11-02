@@ -144,3 +144,17 @@ def test_jump_rules():
     assert vqueue.jump(cur, [bay], [], {"carbon": 6, "volatiles": 2}, bps) == ("real", bay)
     assert vqueue.jump({"device_type": "orbital_farm"}, [bay], [], {"carbon": 4, "volatiles": 2}, bps) is None
     assert vqueue.jump(cur, [{"device_type": "biosphere_cultivator", "tags": ["x"]}], [], {"carbon": 99}, bps) is None
+
+
+def test_a_big_order_goes_to_the_game_a_few_at_a_time(client):  # noqa: F811
+    """Live 2026-11-02: 28 drones in one enqueue_print got "Not enough queue space (10 available, 28 requested)"."""
+    db, e, world = setup(client)
+    world.queues["AF00BEEF"] = [{"device_type": "biosphere_cultivator", "notify": {"device": None}, "tags": ["fleet:m1"]}]
+    ok, _, _ = client.portal.call(e.send, "POST", "/devices/AF00BEEF",
+                                  {"command": "enqueue_print", "device_type": "orbital_farm", "quantity": 28,
+                                   "tags": ["component", "to:sol", "at:sol-3-l4"]}, "t")
+    assert ok
+    feed(client)
+    assert [x["device_type"] for x in world.queues["AF00BEEF"]] == ["orbital_farm"] * 3 + ["biosphere_cultivator"]
+    kept = client.portal.call(VirtualQueue(db).orders, "AF00BEEF")
+    assert [(o["body"]["device_type"], o["body"]["quantity"]) for o in kept] == [("orbital_farm", 25)]
