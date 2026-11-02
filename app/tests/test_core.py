@@ -7330,6 +7330,24 @@ def test_materials_in_transit_on_logistics_and_dashboard(client):
     assert "In transit" in client.get("/fleets/logistics", headers=H).text
 
 
+def test_dashboard_stockpiles_card_charts_each_resource(client):
+    """1.338.0: the Stockpiles card draws like the other charts: a chart per resource, its own color, 2d / 7d / 30d."""
+    from datetime import datetime, timedelta, timezone
+    db = client.app.state.db
+    now = datetime.now(timezone.utc)
+    for i, (c, r) in enumerate([(100, 5), (140, 7)]):
+        ts = (now - timedelta(hours=2 - i)).isoformat(timespec="seconds")
+        for res, q in (("carbon", c), ("rares", r)):
+            client.portal.call(db.execute, "INSERT INTO inventory_history(ts, resource, qty) VALUES(?,?,?)", (ts, res, q))
+    assert 'hx-get="/partials/backlog?card=stock&amp;hours=48"' in client.get("/", headers=H).text \
+        or 'hx-get="/partials/backlog?card=stock&hours=48"' in client.get("/", headers=H).text
+    page = client.get("/partials/backlog?card=stock&hours=48", headers=HX).text
+    assert "<h2>Stockpiles</h2>" in page and "card=stock&amp;hours=168" in page.replace("card=stock&hours", "card=stock&amp;hours")
+    import re
+    keys = re.findall(r'<div class="small">([a-z]+)[^<]*</div>\s*<div class="small"><span class="bl-key (bl-\d+)', page)
+    assert ("carbon", "bl-4") in keys and ("rares", "bl-6") in keys
+
+
 def test_console_presets_relay_links_matrix_moves_and_megastructures(client):
     """Console presets with fill-in blanks; a relay's live links; transfer / teleport into an empty matrix;
     megastructure contribution and leaderboard; attach_used counts (v3.5.1)."""

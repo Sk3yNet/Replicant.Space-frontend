@@ -65,20 +65,10 @@
   <div class="card" data-card="queues" id="queues" hx-get="/partials/backlog?card=queues" hx-trigger="load, every 600s" hx-swap="innerHTML">
     <h2>Print queues</h2><p class="muted small">Loading…</p></div>
 
-  <div class="card" data-card="stockpiles">
-    <h2>Stockpiles</h2>
-    {% if not totals %}<p class="muted">No inventory yet.</p>{% endif %}
-    <table>
-      {% for r in RESOURCES %}{% if r in totals %}
-      <tr><td>{{ r }}</td><td class="num mono">{{ totals[r] | num }}{% if transit.totals.get(r) %}<div class="muted small" title="in holds, on the way (Logistics › In transit)">+ {{ transit.totals[r] | num }} in transit</div>{% endif %}</td>
-        <td>{% if spark.get(r) %}<svg class="spark" width="120" height="28"><polyline fill="none" stroke="#6cb6ff" stroke-width="1.5" points="{{ spark[r] }}"/></svg>{% endif %}</td></tr>
-      {% endif %}{% endfor %}
-      {% for r, v in totals.items() if r not in RESOURCES %}<tr><td>{{ r }}</td><td class="num mono">{{ v | num }}</td><td></td></tr>{% endfor %}
-    </table>
-    <p class="muted small">Totals across all locations{% if sync.inventory %} as of {{ sync.inventory.at | ago }}{% endif %} · 48h trend</p>
-  </div>
+  <div class="card" data-card="stockpiles" id="stock" hx-get="/partials/backlog?card=stock&hours=48" hx-trigger="load, every 600s" hx-swap="innerHTML">
+    <h2>Stockpiles</h2><p class="muted small">Loading…</p></div>
 
-  <div class="card wide" data-card="stock-locations">
+  <div class="card wide" data-card="stock-locations" id="stock-locations">
     <h2>Stockpiles by location</h2>
     {% set cols = (RESOURCES | select("in", totals) | list) + (totals.keys() | reject("in", RESOURCES) | sort) %}
     {% set piles = inventory | selectattr("items") | sort(attribute="location") | list %}

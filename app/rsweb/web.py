@@ -494,13 +494,10 @@ async def dashboard(request: Request, user: str = Depends(current_user)):
         "SELECT * FROM notifications WHERE read=0 AND level IN ('error','warning','alert','mention') ORDER BY id DESC LIMIT 10")
     recent = [row_event(r) for r in await request.app.state.db.fetchall(
         "SELECT * FROM events WHERE event NOT LIKE 'ami.%.digest' AND event != 'bobnet.new' ORDER BY seq DESC LIMIT 25")]
-    series = await resource_series(request)
     sync = {k: await request.app.state.db.kv_get(f"sync:{k}") for k in ("account", "devices", "inventory")}
     ctx = await base_ctx(request, user, "dashboard", visit=visit, digest=digest, alerts=alerts, recent=recent,
                          fleet=fleet_summary(st["devices"]), timers=await active_timers(request),
-                         spark={k: sparkline(v) for k, v in series.items()}, sync=sync,
-                         transit=await cargo_mod.in_transit(request.app.state.db, st["devices"],
-                                                            await request.app.state.worker.automations.jobs()), **st)
+                         sync=sync, **st)
     return templates.TemplateResponse(request, "dashboard.html", ctx)
 
 
@@ -600,6 +597,8 @@ async def p_backlog(request: Request, hours: int = 168, card: str = "backlog", u
     (metrics.py, sampled every 10 minutes)."""
     from . import metrics
     hours = hours if hours in (48, 168, 720) else 168
+    if card == "stock":
+        return await _stock_card(request, hours)
     s = await metrics.series(request.app.state.db, hours)
     g = lambda k: s.get(k) or []  # noqa: E731
     if card == "trends":
@@ -623,7 +622,32 @@ async def p_backlog(request: Request, hours: int = 168, card: str = "backlog", u
                                            "orders expired (24 h)": g("expired_24h")})]
         title = "Logistics backlog"
     return partial(request, "partials/backlog.html", hours=hours, card=card, title=title,
-                   charts=[(t, metrics.chart(lines, hours)) for t, lines in charts])
+                   charts=[(t, metrics.chart(lines, hours), 0) for t, lines in charts])
+
+
+async def _stock_card(request: Request, hours: int) -> HTMLResponse:
+    """Dashboard › Stockpiles in the charts' style (owner 2026-11-02): one chart per resource, its own color, totals across
+    every location from inventory_history (a row per resource each inventory poll), thinned to about 300 points."""
+    from . import metrics
+    db = request.app.state.db
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    raw: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    for r in await db.fetchall("SELECT ts, resource, qty FROM inventory_history WHERE ts >= ? ORDER BY ts", (since,)):
+        raw[r["resource"]].append((r["ts"], r["qty"]))
+    totals = await db.kv_get("inventory_totals", {}) or {}
+    st = await load_state(request)
+    transit = (await cargo_mod.in_transit(db, st["devices"], await request.app.state.worker.automations.jobs())).get("totals") or {}
+    names = [r for r in RESOURCES if r in totals or r in raw] + sorted((set(totals) | set(raw)) - set(RESOURCES))
+    charts = []
+    for i, r in enumerate(names):
+        pts = raw.get(r) or []
+        step = max(1, len(pts) // 300)
+        pts = pts[::step] + ([pts[-1]] if pts and (len(pts) - 1) % step else [])
+        title = r + (f" · + {f_num(transit[r])} in transit" if transit.get(r) else "")
+        # a resource keeps its color whichever others are shown: the RESOURCES order, then the rest
+        charts.append((title, metrics.chart({"in stockpiles": pts}, hours), RESOURCES.index(r) if r in RESOURCES else i))
+    return partial(request, "partials/backlog.html", hours=hours, card="stock", title="Stockpiles", charts=charts,
+                   synced=(await db.kv_get("sync:inventory") or {}).get("at"))
 
 
 @router.get("/partials/story", response_class=HTMLResponse)
