@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.334.1"
+VERSION = "1.334.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.334.2", "2026-11-02", "Prints waiting in the app's queue take none of a factory's queue slots: contracts showed no autofactory with queue room within 1728 ly of DRAEUMON and AELMERARN (25 ly from FALQUORYX), and loadouts and ward orders counted the same way."),
     ("1.334.1", "2026-11-02", "Big print orders go to the game 3 at a time (snapshot 00:51): the game refused 28 drones in one print (Not enough queue space, 10 available, 28 requested), so the SOLARES rigs went back in front of their drones. The rest of an order waits in the app's queue."),
     ("1.334.0", "2026-11-02", "Mining rig prints unstuck (snapshot 00:33). A waiting print is still first in the game's queue: deactivate answered Nothing to deactivate, so 1.333.0 never let anything go ahead, and Cancel current print failed the same way. Now the print that fits goes ahead by sending the queue again (it first, the waiting one right behind), and Cancel current print on a waiting factory takes the waiting print off the queue. Components are ordered for every queued print, split over the factories at that location (only the first rig of each factory had drones ordered: about 120 drones were missing for 38 rigs). Prints the game refuses as not unlocked are dropped from the app's queue and not ordered again for 6 hours (a fleet tender's cargo lifter)."),
     ("1.333.0", "2026-11-01", "A print that fits goes ahead of a waiting one (Joe asked): the print a factory works on now is not in the game's queue, so while it waits for resources or components nothing behind it could start. Now the best waiting print with no components of its own, whose cost the stockpile covers with the waiting print's cost set aside, goes first: the waiting print is canceled (as Cancel current print does) and queued right behind it. A component the waiting print needs (a rig's drones) may use that reserve. At most every 10 minutes per factory."),

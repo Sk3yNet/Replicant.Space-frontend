@@ -685,7 +685,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     queue_free: dict[str, int] = {}
     for f in factories:
         cap = int(qcap_default.get(f.get("device_type")) or f.get("queue_capacity") or 10)
-        used_q = len(f.get("print_queue") or []) + (1 if f.get("printing") or str(f.get("status") or "").startswith("printing") else 0)
+        used_q = pq.slots_used(f) + (1 if f.get("printing") or str(f.get("status") or "").startswith("printing") else 0)
         queue_free[f["device_code"]] = max(0, cap - used_q)
     load = {f["device_code"]: pq.load_seconds(f, bps) for f in factories}   # seconds of printing queued, per factory
     # Prints this app ordered that the device list doesn't show yet count too: with stock for one print a pass, each pass

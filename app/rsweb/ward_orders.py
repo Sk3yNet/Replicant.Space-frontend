@@ -128,7 +128,8 @@ def load(f: dict) -> int:
 
 def room(f: dict, pending: int = 0) -> int:
     """Free print queue slots on a factory, less `pending` prints ordered on it that it doesn't list yet."""
-    return int(f.get("queue_size") or QUEUE_CAP) - len(f.get("print_queue") or []) - pending
+    from . import printqueue as pq
+    return int(f.get("queue_size") or QUEUE_CAP) - pq.slots_used(f) - pending
 
 
 def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reach: float,

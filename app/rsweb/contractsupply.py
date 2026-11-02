@@ -141,6 +141,7 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
 def factory_for(t: str, n: int, devices: list[dict], star: str, busy: set[str], bps: dict, inventory: dict,
                 pos: dict, reach: float, reserved: dict[str, Counter]) -> tuple[dict | None, str]:
     """The nearest autofactory in range with queue room (one whose stockpile covers the cost first)."""
+    from . import printqueue as pq
     cost = as_amounts((bps.get(t) or {}).get("resources"))
     cands = []
     for f in devices:
@@ -148,7 +149,7 @@ def factory_for(t: str, n: int, devices: list[dict], star: str, busy: set[str], 
                 or f.get("in_control_range") is False:
             continue
         cap = int((bps.get(f.get("device_type")) or {}).get("queue_size") or f.get("queue_capacity") or 10)
-        used = len(f.get("print_queue") or []) + (1 if f.get("printing") or str(f.get("status") or "").startswith("printing") else 0)
+        used = pq.slots_used(f) + (1 if f.get("printing") or str(f.get("status") or "").startswith("printing") else 0)
         if cap - used < 1:
             continue
         dist = lo._dist(lo.star_of(f.get("location")), star, pos)

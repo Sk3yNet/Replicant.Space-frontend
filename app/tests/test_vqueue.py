@@ -158,3 +158,9 @@ def test_a_big_order_goes_to_the_game_a_few_at_a_time(client):  # noqa: F811
     assert [x["device_type"] for x in world.queues["AF00BEEF"]] == ["orbital_farm"] * 3 + ["biosphere_cultivator"]
     kept = client.portal.call(VirtualQueue(db).orders, "AF00BEEF")
     assert [(o["body"]["device_type"], o["body"]["quantity"]) for o in kept] == [("orbital_farm", 25)]
+
+
+def test_prints_kept_in_the_app_take_no_queue_slots():
+    from rsweb import printqueue as pq, ward_orders
+    f = {"print_queue": [{"device_type": "a"}] + [{"device_type": "b", "virtual": True}] * 20}
+    assert pq.slots_used(f) == 1 and ward_orders.room(f) == 9

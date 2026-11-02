@@ -20,6 +20,15 @@ def has_queue(dev: dict) -> bool:
     return "print_queue" in dev or "enqueue_print" in cmds or "autofactory" in (dev.get("device_type") or "")
 
 
+def slots_used(dev: dict) -> int:
+    """The game's queue slots a factory's waiting prints take: the virtual print queue's (vqueue.py) take none, so a
+    factory always has room for more there (live 2026-11-02: contracts saw no autofactory with queue room)."""
+    raw = dev.get("print_queue")
+    if raw is None:
+        raw = dev.get("queue")
+    return sum(1 for it in raw or [] if not (isinstance(it, dict) and it.get("virtual")))
+
+
 def items(dev: dict) -> list[dict]:
     """Normalize the waiting items. `index` is the 1-based position shown to the player; `api_index` is the 0-based
     position `dequeue_print` expects (confirmed live: sending 1 removed the second item)."""
