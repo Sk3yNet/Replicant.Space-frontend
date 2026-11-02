@@ -174,6 +174,22 @@ def send_steps(d: dict, e: dict) -> list[dict]:
     return [lo.tag_step(d["device_code"], [lo.to_tag(e["star"]), lo.at_tag(e["location"]), contract_tag(e["designation"])], rem)]
 
 
+def status_note(entry: dict | None) -> str:
+    """One line on the device supply's last check, for the Logistics page: what is there, coming, printing, short."""
+    parts = []
+    for r in (entry or {}).get("rows") or []:
+        name = str(r.get("type") or "").replace("_", " ")
+        bits = [f"{r.get('here', 0)}/{r.get('need', 0)} {name} there"]
+        if r.get("coming") or r.get("sending"):
+            bits.append(f"{len(r.get('coming') or []) + len(r.get('sending') or [])} on their way")
+        if r.get("printing") or r.get("print"):
+            bits.append(f"{int(r.get('printing') or 0) + int(r.get('print') or 0)} printing")
+        if r.get("short"):
+            bits.append(f"{r['short']} short" + (f" ({r['why']})" if r.get("why") else ""))
+        parts.append(", ".join(bits))
+    return "; ".join(parts)
+
+
 def release_steps(d: dict, des: str) -> list[dict]:
     """The contract is over (or delivery stopped): its leftover device loses the contract's tags and becomes spare."""
     rem = [x for x in d.get("tags") or [] if x == contract_tag(des) or x.startswith(("to:", "at:"))]

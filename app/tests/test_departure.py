@@ -580,6 +580,36 @@ def test_trade_paid_in_devices_gets_them_delivered(client):
     assert client.portal.call(e._deal_devices_short, m, [{**spare, "location": "SOL-OORT"}]) == ""
 
 
+def test_approved_trade_paid_in_devices_prints_them_when_no_spare(client):
+    """Live 2026-11-02: Patch's Crystal Synthesis Lab (10 compute cores at DELTA-OBJ-2) was approved but never bought:
+    the only spares were 29,000 ly away and a shop trade had no way to authorize prints. The approval now is that OK."""
+    import json
+    from rsweb import logistics as lg
+    from rsweb.db import now_iso
+    e = eng(client)
+    db = client.app.state.db
+    scan = {"shops": [{"controller_code": "AF933769", "location": "SOL-OORT", "owner_name": "Patch", "shop_name": "Crystal Lab",
+                       "trades": [{"trade_code": "TRD-255C6B", "name": "Crystal Synthesis Lab", "current_stock": 3,
+                                   "criteria": {"devices": {"compute_core": 2}},
+                                   "rewards": {"devices": {"crystal_synthesis_lab": 1}}}]}]}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("SOL", json.dumps(scan), now_iso()))
+    client.portal.call(db.kv_set, lg.KV_TRADES, {"trades": {"AF933769:TRD-255C6B": now_iso()}})
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": [{"resource_type": "carbon", "quantity": 900}]}])
+    client.portal.call(db.kv_set, "blueprints", [{"device_type": "compute_core", "resources": {"carbon": 40}, "print_time": 600}])
+    client.portal.call(db.kv_set, "devices", [dev("AF9", "autofactory", "SOL-BELT-1", available_commands=["enqueue_print"])])
+    client.portal.call(e.contract_supply_pass, True)
+    pj = [j for j in client.portal.call(e.jobs) if j["rule"] == "contracts" and "print" in j["title"]]
+    assert len(pj) == 1 and pj[0]["device"] == "AF9"
+    body = pj[0]["steps"][0]["body"]
+    assert body["command"] == "enqueue_print" and body["device_type"] == "compute_core" and body["quantity"] == 2
+    assert "contract:trade:af933769:trd-255c" in body["tags"]
+    sup = client.portal.call(db.kv_get, "contract_supply")["trade:AF933769:TRD-255C6B"]
+    assert sup["print_ok"] == {"compute_core": 2}
+    from rsweb.contractsupply import status_note
+    assert status_note(sup) == "0/2 compute core there, 2 printing"
+
+
 def test_bills_trail_can_be_picked_up_at_sol(client):
     """Bill always passes through SOL: with nothing to follow (or on request) the trail starts there."""
     from rsweb import trail as tl

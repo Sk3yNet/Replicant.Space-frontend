@@ -474,7 +474,7 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
                     "on_way": _short(t["price"], stock.get(t["location"]) or {}),
                     "controller": t["controller"], "trade_code": t["trade_code"], "once": t.get("once", False),
                     "times": t.get("times", 1),
-                    "devices_short": t.get("devices_short", False),
+                    "devices_short": t.get("devices_short", False), "supply_note": t.get("supply_note") or "",
                     "rewards": as_amounts(t.get("rewards") or {}), "reward_devices": t.get("reward_devices") or {}})
     for u in upkeep:
         need = _short(u["target"], have(u["location"]))
@@ -885,8 +885,9 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 head = next((h for h in reqs if h["id"] == r["with"]), None)
                 unmet.append({"req": r["id"], "why": f"delivered together with {head['label'] if head else r['with']}"})
             elif r["kind"] in ("contract", "trade") and r.get("devices_short"):
+                note = f": {r['supply_note']}" if r.get("supply_note") else ""
                 unmet.append({"req": r["id"], "why": f"materials are there; waiting for the devices it asks for at {dest} "
-                                                     "(delivered by the contract's device supply)"})
+                                                     f"(delivered by the contract's device supply){note}"})
             elif r["kind"] in ("contract", "trade") and {x: q for x, q in (r.get("on_way") or {}).items() if q >= 1}:
                 # covered only with deliveries still on their way: fulfilling now fails "Event criteria not met"
                 # (live 2026-10-20, Construction Boom at PERHALIEL-4 retried every pass with 0 of 400 there)

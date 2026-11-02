@@ -746,7 +746,8 @@ Account and per-replicant reputation, known species. **Bulk profile import**: pa
   yours is there, else logistics brings one at the lowest priority (tier 6). Bill's too, once his shop is seen again
   after a move; his trail is followed only when you start it on the Trail page.
 - Bill is the exception: his BobNet post that he moved closes his shop until it's seen again.
-- A trade run paid in devices gets spare ones delivered and deployed at the shop.
+- A trade run paid in devices gets spare ones (within the sector range) delivered and deployed at the shop. When no spare covers
+  it, the approval (or the trade fleet's run) is the OK to print the rest on the nearest autofactory in range.
 - Each trade has a quantity: *Buy* buys that many one after another (the game sells one unit per call) and stops at
   the first refusal; *Logistics buys* n (0 = not approved) has logistics deliver n prices and execute it n times. The number
   is the outstanding balance: it counts down as units are bought, so units a trip couldn't buy are delivered and bought later.

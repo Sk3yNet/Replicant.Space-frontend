@@ -4621,6 +4621,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             await self.db.kv_set(lg.KV_TRADES, ok)
         trades = []
         from .shop import known_traders
+        from .contractsupply import status_note as cs_note
+        supply_now = await self.db.kv_get("contract_supply", {}) or {}
         for ctrl, t in (await known_traders(self.db)).items():
             for tr in t.get("trades") or []:
                 key = f"{ctrl}:{tr.get('trade_code')}"
@@ -4640,6 +4642,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     trades.append({"key": key, "controller": ctrl, "trade_code": tr.get("trade_code"), "name": tr.get("name"),
                                    "location": t["location"], "price": price, "once": once, "times": n_,
                                    "devices_short": any(there[k] < n for k, n in dneed.items()),
+                                   "supply_note": cs_note((supply_now.get(f"trade:{key}") if dneed else None)),
                                    "rewards": lg.times(as_amounts((tr.get("rewards") or {}).get("resources") or {}), n_),
                                    "reward_devices": lg.times(fl_counts((tr.get("rewards") or {}).get("devices")), n_)})
         # a replicant about to leave doesn't cover its system for a delivery planned now (seen live 2026-10-17: two
@@ -4945,6 +4948,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 continue
             entry = supply.get(des) or {}
             active = bool(entry.get("active")) or des in running or des in trade_runs
+            if "_need" in e:   # a trade you approved (or a trade fleet runs): that is the OK to print what no spare covers
+                ok_ = entry.setdefault("print_ok", {})   # (live 2026-11-02: 10 compute cores for the Crystal Synthesis
+                for t_, n_ in e["_need"].items():        # Lab at DELTA-OBJ-2 waited forever, spares only 29,000 ly away)
+                    ok_[t_] = max(int(ok_.get(t_) or 0), int(n_))
             if not active and des not in supply:
                 continue
             p = cs.plan(e, prog, entry, devices, hosts=hosts, busy=busy, protect=protect, ignore=ignore,
