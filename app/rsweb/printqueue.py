@@ -5,6 +5,8 @@ The game's `print_queue` on GET /devices/{code} lists only the *waiting* items, 
 The item being printed is not in it, so "now printing" comes from the device status
 (`printing (<type>)` / `waiting_for_resources`) plus the latest `print.started` event, which
 carries `completes_at`. Heaven vessels have no queue (one print at a time).
+A print waiting for resources or components (`waiting_for_resources`) is still the first item of `print_queue`:
+deactivate answers "Nothing to deactivate" then (live 2026-11-02), and dequeue_print 0 takes it off.
 """
 from __future__ import annotations
 

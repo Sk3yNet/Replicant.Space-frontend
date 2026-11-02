@@ -90,31 +90,50 @@ def test_priorities():
 
 
 def test_a_print_that_fits_goes_ahead_of_a_waiting_one(client):  # noqa: F811
-    """Owner 2026-11-01: while the current print waits, one that doesn't use what it needs goes ahead; it is canceled
-    and queued right behind."""
+    """Owner 2026-11-01: while the first print waits, one that doesn't use what it needs goes ahead of it. Live
+    2026-11-02: the waiting print is still first in the game's queue (deactivate: "Nothing to deactivate")."""
     db, e, world = setup(client)
     af = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
-    af.update(status="waiting_for_resources", printing={"device_type": "orbital_farm", "tags": ["fleet:m1"]})
-    world.queues["AF00BEEF"] = [{"device_type": "biosphere_cultivator", "notify": {"device": None}, "tags": ["fleet:m2"]},
-                                {"device_type": "hydroponic_bay", "notify": {"device": None}, "tags": ["fleet:m2"]}]
+    af.update(status="waiting_for_resources")
+    item = lambda t, tags: {"device_type": t, "notify": {"device": None}, "tags": tags}  # noqa: E731
+    world.queues["AF00BEEF"] = [item("orbital_farm", ["fleet:m1"]), item("biosphere_cultivator", ["fleet:m2"]),
+                                item("hydroponic_bay", ["fleet:m2"])]
     # the farm waits for structural; the cultivator needs components of its own; the bay uses carbon and volatiles
     client.portal.call(db.kv_set, "inventory", [{"location": "SOL-3-L4", "items": {"carbon": 12, "structural": 5,
                                                                                      "volatiles": 5}}])
     out = feed(client)
     assert any("hydroponic_bay goes ahead of the waiting orbital_farm" in x for x in out), out
-    assert af["status"].startswith("printing (hydroponic_bay)")        # the bay started at once
-    assert [x["device_type"] for x in world.queues["AF00BEEF"]] == ["orbital_farm"]
-    assert world.queues["AF00BEEF"][0]["tags"] == ["fleet:m1"]
+    assert [x["device_type"] for x in world.queues["AF00BEEF"]] == ["hydroponic_bay", "orbital_farm"]
+    assert world.queues["AF00BEEF"][1]["tags"] == ["fleet:m1"]
     kept = client.portal.call(VirtualQueue(db).orders, "AF00BEEF")
     assert [o["body"]["device_type"] for o in kept] == ["biosphere_cultivator"]
-    # nothing fits: the waiting print stays
-    af.update(status="waiting_for_resources", printing={"device_type": "orbital_farm", "tags": []})
-    world.queues["AF00BEEF"] = [{"device_type": "hydroponic_bay", "notify": {"device": None}, "tags": ["fleet:m2"]}]
+    # nothing fits: the queue stays
+    world.queues["AF00BEEF"] = [item("orbital_farm", ["fleet:m1"]), item("hydroponic_bay", ["fleet:m2"])]
     client.portal.call(db.kv_set, "inventory", [{"location": "SOL-3-L4", "items": {"carbon": 2}}])
     e._vq_jumped = {}
     out = feed(client)
     assert not any("goes ahead" in x for x in out), out
-    assert af["printing"]["device_type"] == "orbital_farm"
+    assert [x["device_type"] for x in world.queues["AF00BEEF"]] == ["orbital_farm", "hydroponic_bay"]
+    # Cancel current print takes a waiting print off the queue
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "cancel"}, headers=HX)
+    assert r.status_code == 200 and [x["device_type"] for x in world.queues["AF00BEEF"]] == ["hydroponic_bay"]
+
+
+def test_components_for_every_queued_print_are_ordered(client):  # noqa: F811
+    db, e, world = setup(client)
+    item = lambda t: {"device_type": t, "notify": {"device": None}, "tags": ["fleet:m1"]}  # noqa: E731
+    world.queues["AF00BEEF"] = [item("biosphere_cultivator") for _ in range(2)]
+    client.portal.call(client.app.state.worker.sync_devices)
+    sync_queue(client)
+    client.portal.call(db.kv_set, "components_last", None)
+    out = client.portal.call(e.component_pass)
+    assert any("4 hydroponic bay queued" in x for x in out) and any("2 orbital farm queued" in x for x in out), out
+    kept = client.portal.call(VirtualQueue(db).orders, "AF00BEEF")
+    assert sorted((o["body"]["device_type"], o["body"]["quantity"]) for o in kept) == [("hydroponic_bay", 4), ("orbital_farm", 2)]
+    sync_queue(client)
+    client.portal.call(db.kv_set, "components_last", None)
+    out = client.portal.call(e.component_pass)
+    assert not any("queued for the prints" in x for x in out), out   # counted as coming now
 
 
 def test_jump_rules():

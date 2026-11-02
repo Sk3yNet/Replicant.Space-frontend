@@ -826,8 +826,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             world.af_next(d)
             return ok({"status": "enqueued", "queue": list(q), "queue_length": len(q)})
         if cmd == "deactivate" and "autofactory" in d["device_type"]:   # cancels the current print
-            if str(d.get("status") or "").startswith(("printing", "waiting_for_resources")):
-                world.emit("print.cancelled", d)
+            if not str(d.get("status") or "").startswith("printing"):   # a waiting print is still in the queue
+                return ok({"error": "Nothing to deactivate"}, 400)
             d["status"] = "idle"
             d.pop("waiting_for", None)
             d.pop("printing", None)

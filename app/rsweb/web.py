@@ -956,6 +956,9 @@ async def print_queue_action(request: Request, code: str, action: str = Form(...
     elif action == "cancel":
         cmd = next((c for c in ("deactivate", "cancel_print", "cancel") if c in cmds), "deactivate")
         body, label = {"command": cmd}, f"cancel {code}'s current print"
+        if str(dev.get("status") or "").startswith("waiting_for_resources") and printqueue.items(dev):
+            # a waiting print is still first in the queue: deactivate answers "Nothing to deactivate" (live 2026-11-02)
+            body, label = {"command": "dequeue_print", "index": 0}, f"remove {code}'s waiting print (#1)"
     elif action == "add" and device_type:
         q = max(1, quantity)
         body, label = {"command": "enqueue_print", "device_type": device_type, "quantity": q}, f"enqueue {q}× {device_type} on {code}"

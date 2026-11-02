@@ -3247,6 +3247,19 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         if claim:
             out.append(f"{len(claim)} device(s) at factories waiting for them tagged as components")
             await self.log("components", out[-1])
+        if getattr(self.api, "vq", None) is not None:   # every queued print's components, not just the first one's
+            from .shapes import normalize_blueprints
+            bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+            lk = await self.db.kv_get("locked_prints", {}) or {}
+            locked = {t for t, at in lk.items() if _ts(at) and (_now() - _ts(at)).total_seconds() < 6 * 3600}
+            for g in comp.backfill(devices, {t: b for t, b in bps.items() if t not in locked}):
+                ok, _, err = await self.send("POST", f"/devices/{g['factory']}",
+                                             {"command": "enqueue_print", "device_type": g["type"], "quantity": g["short"],
+                                              "tags": g["tags"]}, f"components: {g['short']} {g['type']} for {g['location']}")
+                if ok:
+                    out.append(f"{g['location']}: {g['short']} {g['type'].replace('_', ' ')} queued for the prints waiting there")
+                    await self.log("components", out[-1])
+            devices = await self.devices()
         gaps = comp.shortfalls(devices)
         for g in comp.shortfalls(devices, every=True):   # components queued there but behind the waiting item
             if g["short"] <= 0:
@@ -3295,7 +3308,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             kept = await vq.orders(code)
             real = [x for x in pq.items(d) if not x["extra"].get("virtual")]
             k, back, send = vqm.plan(real, kept)
-            stuck = str(d.get("status") or "").startswith("waiting_for_resources") and now - jumped.get(code, -1e9) >= 600
+            waiting = str(d.get("status") or "").startswith("waiting_for_resources")
+            if waiting and now - jumped.get(code, -1e9) < 600:
+                continue   # a print just went ahead of the waiting one: the order by priority would undo it
+            stuck = waiting
             if not send and not back and k == len(real) and not stuck:
                 continue
             try:   # what the device list shows may be minutes old: the change is worked out on a fresh read
@@ -3305,9 +3321,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             fed[code] = now
             real = pq.items(dev)
             if stuck and str(dev.get("status") or "").startswith("waiting_for_resources"):
-                jumped[code] = now
                 line = await self.vq_jump(vq, code, dev, real, kept)
                 if line:
+                    jumped[code] = now
                     out.append(line)
                     await self.log("print queue", line, "info")
                     continue
@@ -3335,10 +3351,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     body = vqm.body_of(x) if kind == "real" else {"command": "enqueue_print", **x["body"]}
                     ok, _, err = await self.send("POST", f"/devices/{code}", body,
                                                  f"print queue: {code} gets {body.get('device_type')}", raw=True)
-                    if ok:
-                        sent += 1
+                    if ok or (kind == "kept" and "not yet unlocked" in str(err).lower()):
+                        sent += ok
                         if kind == "kept":
                             st["orders"] = [o for o in st["orders"] if not (o["factory"] == code and o["seq"] == x["seq"])]
+                        if not ok:   # the game won't print it: dropped, not offered again every pass
+                            lk = await self.db.kv_get("locked_prints", {}) or {}
+                            lk[str(body.get("device_type"))] = now_iso()
+                            await self.db.kv_set("locked_prints", lk)
+                            await self.log("print queue", f"{code}: dropped the {body.get('device_type')} print: {err}", "warning")
                     elif kind == "real":
                         await vq.add(code, body, vqm.priority(x), s=st, seq=low - len(back) - 1)
                 await self.db.kv_set(vqm.KV, st)
@@ -3348,59 +3369,54 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         return out
 
     async def vq_jump(self, vq: Any, code: str, dev: dict, real: list[dict], kept: list[dict]) -> str | None:
-        """The factory's current print waits for resources or components (owner 2026-11-01): a print that only uses
-        what that one doesn't need (vqueue.jump) goes ahead. The game's queue goes back to the app's queue, the waiting
-        print is canceled (`deactivate`, the panel's Cancel current print: a waiting print hasn't started), and the
-        one that fits is queued first with the canceled one right behind it."""
-        from . import printqueue as pq
+        """The factory waits for resources or components for the first print in its queue (owner 2026-11-01): a print
+        that only uses what that one doesn't need (vqueue.jump) goes ahead of it. The waiting print stays first in the
+        game's queue (live 2026-11-02: deactivate answered "Nothing to deactivate" on a waiting factory), so the game's
+        queue goes back to the app's queue and is sent again: the one that fits first, the waiting one right behind."""
         from . import vqueue as vqm
         from .shapes import normalize_blueprints, normalize_inventory
-        if "deactivate" not in (dev.get("available_commands") or []):
+        if not real:
             return None
-        cur = await pq.current(self.db, dev)
-        if not cur or cur.get("state") != "waiting" or not cur.get("device_type"):
-            return None   # what waits isn't known: it couldn't be put back
+        head = real[0]
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
-        pick = vqm.jump(cur, real, kept, inv.get(dev.get("location")) or {}, bps)
+        pick = vqm.jump(head, real[1:], kept, inv.get(dev.get("location")) or {}, bps)
         if not pick:
             return None
         kind, x = pick
         body = vqm.body_of(x) if kind == "real" else {"command": "enqueue_print", **x["body"]}
+        again = vqm.body_of(head)
         async with vq.lock:
             st = await vq.state()
             low = min([o["seq"] for o in st["orders"]] + [st.get("low", 0), 0])
-            st["low"] = low - len(real) - 2
-            for i in range(len(real)):
+            st["low"] = low - len(real) - 3
+            gone = []
+            for _ in range(len(real)):
                 ok, _, _ = await self.send("POST", f"/devices/{code}", {"command": "dequeue_print", "index": 0},
                                            f"print queue: {code} #1 back to the app's queue", raw=True)
                 if not ok:
-                    await self.db.kv_set(vqm.KV, st)
-                    return None
-                if real[i] is not x:
-                    await vq.add(code, vqm.body_of(real[i]), vqm.priority(real[i]), s=st, seq=low - len(real) + i - 1)
-            ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "deactivate"},
-                                         f"print queue: cancel {code}'s waiting {cur['device_type']} to let "
-                                         f"{body['device_type']} go ahead", raw=True)
-            again = {"command": "enqueue_print", "device_type": cur["device_type"], "quantity": 1,
-                     **({"tags": list(cur["tags"])} if cur.get("tags") else {})}
-            if ok:
-                ok2, _, _ = await self.send("POST", f"/devices/{code}", body, f"print queue: {code} gets {body['device_type']} first",
-                                            raw=True)
-                if ok2 and kind == "kept":
-                    st["orders"] = [o for o in st["orders"] if not (o["factory"] == code and o["seq"] == x["seq"])]
-                elif not ok2 and kind == "real":
-                    await vq.add(code, body, vqm.priority(x), s=st, seq=low - len(real) - 1)
-                okb, _, _ = await self.send("POST", f"/devices/{code}", again,
-                                            f"print queue: {code} gets the canceled {cur['device_type']} back", raw=True)
-                if not okb:
-                    await vq.add(code, again, 0, s=st, seq=low - len(real) - 2)
-            elif kind == "real":
-                await vq.add(code, body, vqm.priority(x), s=st, seq=low - len(real) - 1)
+                    break
+                gone.append(real[len(gone)])
+            for i, it in enumerate(gone):
+                if it is not x and it is not head:
+                    await vq.add(code, vqm.body_of(it), vqm.priority(it), s=st, seq=low - len(real) + i - 1)
+            if not any(g is head for g in gone):   # couldn't take the waiting one off: leave the rest to the feeder
+                await self.db.kv_set(vqm.KV, st)
+                return None
+            ok, _, err = await self.send("POST", f"/devices/{code}", body, f"print queue: {code} gets {body['device_type']} "
+                                         f"ahead of the waiting {head['device_type']}", raw=True)
+            if ok and kind == "kept":
+                st["orders"] = [o for o in st["orders"] if not (o["factory"] == code and o["seq"] == x["seq"])]
+            elif not ok and kind == "real" and any(g is x for g in gone):
+                await vq.add(code, body, vqm.priority(x), s=st, seq=low - len(real) - 2)
+            okb, _, _ = await self.send("POST", f"/devices/{code}", again,
+                                        f"print queue: {code} gets the waiting {head['device_type']} back", raw=True)
+            if not okb:
+                await vq.add(code, again, vqm.priority(head), s=st, seq=low - len(real) - 3)
             await self.db.kv_set(vqm.KV, st)
         if not ok:
-            return f"{code}: couldn't cancel the waiting {cur['device_type']} ({err})"
-        return f"{code}: {body['device_type']} goes ahead of the waiting {cur['device_type']}, which is queued right behind it"
+            return f"{code}: couldn't queue {body['device_type']} ahead of the waiting {head['device_type']} ({err})"
+        return f"{code}: {body['device_type']} goes ahead of the waiting {head['device_type']}, which is queued right behind it"
 
     async def components_ahead(self, g: dict, left: int) -> str:
         """A factory stuck on components that nothing else prints (every factory waiting, snapshot 2026-11-01 20:41:

@@ -188,7 +188,7 @@ def coming(devices: list[dict], location: str, device_type: str) -> int:
     for f in devices:
         for it in pq.items(f) if pq.has_queue(f) else []:
             if it.get("device_type") == device_type and pin in (it.get("tags") or []):
-                n += 1
+                n += max(1, int(it.get("quantity") or 1))
         pr = f.get("printing") or {}
         if isinstance(pr, dict) and pr.get("device_type") == device_type and pin in (pr.get("tags") or []):
             n += 1
@@ -239,3 +239,34 @@ def release(d: dict) -> dict:
     """The PATCH configuration that makes a component a plain spare again: its component tag and pins go."""
     return {"add_tags": ["spare"], "remove_tags": [t for t in d.get("tags") or [] if t == COMPONENT
                                                    or t.startswith(("to:", "at:"))]}
+
+
+def backfill(devices: list[dict], bps: dict[str, dict]) -> list[dict]:
+    """Components every queued print at a location still needs (snapshot 2026-11-02 00:33: 38 mining rigs queued, drones
+    ordered only for the first rig of each factory, 3 at a time): [{factory, location, type, short, tags}], split over
+    the factories there by what their queues need. Counted against the free ones deployed there and the ones on their
+    way or queued for there (coming)."""
+    from . import printqueue as pq
+    from .loadouts import is_factory
+    need: dict[tuple[str, str], dict[str, int]] = {}
+    for f in devices:
+        loc = f.get("location")
+        if not loc or not is_factory(f) or not f.get("device_code"):
+            continue
+        for it in pq.items(f):
+            for t, n in components(bps.get(it.get("device_type"))).items():
+                per = need.setdefault((loc, t), {})
+                per[f["device_code"]] = per.get(f["device_code"], 0) + n * max(1, int(it.get("quantity") or 1))
+    out = []
+    for (loc, t), per in sorted(need.items()):
+        total = sum(per.values())
+        short = total - free_here(devices, {"location": loc}, t, {}) - coming(devices, loc, t)
+        if short <= 0 or t not in bps:
+            continue
+        left = short
+        for i, (code, n) in enumerate(sorted(per.items(), key=lambda x: (-x[1], x[0]))):
+            k = left if i == len(per) - 1 else min(left, round(short * n / total))
+            left -= k
+            if k > 0:
+                out.append({"factory": code, "location": loc, "type": t, "short": k, "tags": component_tags([], loc)})
+    return out
