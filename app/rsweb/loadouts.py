@@ -697,7 +697,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     for code in load:
         load[code] = max(load[code], ordered.get(code, 0.0))
 
-    reach = float(s.get("max_supply_ly") or 0)
+    from .fleets import sector_reach
+    reach = sector_reach(s.get("max_supply_ly"))   # never past the sector range (owner 2026-11-02)
 
     def near(d: dict, star: str) -> bool:
         """Close enough to supply `star`: within max_supply_ly (seen live 2026-10-08: a fleet in SOL was given prints on

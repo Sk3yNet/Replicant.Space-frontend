@@ -772,6 +772,28 @@ def assemble_steps(fleet: dict, devices: list[dict], radii: dict[str, float] | N
     return steps, problems
 
 
+def sector_reach(reach: float | None) -> float:
+    """The supply range for fills and gathers: the Fleets setting, never more than the sector range (owner 2026-11-02:
+    Fill from spares took spares from beyond it; 0, "any", means the sector range too)."""
+    from .logistics import SECTOR_RANGE_LY
+    try:
+        r = float(reach or 0)
+    except (TypeError, ValueError):
+        r = 0.0
+    return min(r, SECTOR_RANGE_LY) if r > 0 else SECTOR_RANGE_LY
+
+
+def beyond_reach(a: str, b: str, pos: dict, reach: float) -> bool:
+    """`b` is too far from `a` to fetch from. Two charted stars: by distance. A charted star and an uncharted one (the
+    catalog lacks the Delta sector, ~28,900 ly out) are taken as far apart; two uncharted ones can't be told, so not."""
+    if not a or not b or a == b:
+        return False
+    pa, pb = pos.get(a) or {}, pos.get(b) or {}
+    if pa and pb:
+        return _dist(a, b, pos) > reach
+    return bool(pa) != bool(pb)
+
+
 def _dist(a: str, b: str, pos: dict) -> float:
     import math
     if a == b:
@@ -810,9 +832,10 @@ def gather_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str], r
     #    that isn't one of the fleet's carriers, counted where that vessel is
     by = {x.get("device_code"): x for x in devices}
     ccodes = {c["device_code"] for c in carriers}
+    reach = sector_reach(reach)
+
     def too_far(star: str) -> bool:
-        dist = _dist(base, star, pos)
-        return bool(reach) and reach < dist < 1e9
+        return beyond_reach(base or fleet.get("home") or "", star, pos, reach)   # a carrier in flight: judged from home
 
     for d in (unhosted(x, ccodes, by) for x in r["passengers"]):
         here = star_of(d.get("location"))
@@ -926,15 +949,23 @@ def fill_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str], rad
         base = destination(here, stars)
         short = {row["type"]: row["short"] for row in r["rows"] if row["short"]}
         recruits = []
-        for d in sorted(devices, key=lambda d: d["device_code"]):
+        reach = sector_reach(reach)
+        pos = {k: (v or {}).get("position") or {} for k, v in stars.items()}
+        far = 0
+        for d in sorted(devices, key=lambda d: (_dist(here, star_of(d.get("location")), pos), d["device_code"])):
             t = d.get("device_type")
             if (short.get(t, 0) > 0 and "spare" in (d.get("tags") or []) and not fleet_of(d) and d["device_code"] not in busy
                     and not d.get("controller_device_code") and str(d.get("status") or "").startswith(("idle", "stowed"))
                     and (star_of(d.get("location")) == here or flies_itself(d))):
+                if beyond_reach(here, star_of(d.get("location")), pos, reach):
+                    far += 1
+                    continue
                 short[t] -= 1
                 recruits.append(d)
         steps = gather_steps(fleet, {"recruit": recruits, "carrier": None, "tour": []}, stars) if recruits else []
         notes = ["no carrier in the fleet: only spares that surge themselves or are already here can join"] if short and any(short.values()) else []
+        if far and any(short.values()):
+            notes.append(f"{far} spare(s) beyond the {reach:g} ly supply range left where they are")
     # recruits that fly themselves come to where the fleet is
     for d in recruits:
         if flies_itself(d) and star_of(d.get("location")) != star_of(base):

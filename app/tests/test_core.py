@@ -3759,6 +3759,34 @@ def test_fleet_fill_takes_nearest_spares_and_comes_back():
     assert travels == ["FAL-4-L4", "AEM-5-L4"]                             # picks up (and the stranded LOST0001), comes back
 
 
+def test_fleet_fill_stays_in_sector_range():
+    from rsweb import fleets as fl
+    from rsweb.logistics import SECTOR_RANGE_LY
+    fleet, devices = _fleet_world()
+    S = lambda code, loc: {"device_code": code, "device_type": "mining_drone", "location": loc, "status": "idle",  # noqa: E731
+                           "tags": ["spare"], "available_commands": ["travel"]}
+    stars = {"AEM": {"position": {"x": 0, "y": 0, "z": 0}, "entry_point": "AEM-5-L4"},
+             "FAR": {"position": {"x": SECTOR_RANGE_LY + 50, "y": 0, "z": 0}, "entry_point": "FAR-4-L4"},
+             "FAL": {"position": {"x": 600, "y": 0, "z": 0}, "entry_point": "FAL-4-L4"}}
+    # 0 (any) and a setting past the sector range both stop at the sector range; an uncharted star counts as far
+    for reach in (0, 5000):
+        _, recruits, _ = fl.fill_plan(fleet, devices + [S("SPAREFAR", "FAR-BELT-1"), S("SPAREDLT", "DELTA-BELT-1")],
+                                      stars, set(), reach=reach)
+        assert recruits == []
+    _, recruits, _ = fl.fill_plan(fleet, devices + [S("SPAREFAR", "FAR-BELT-1"), S("SPAREFAL", "FAL-BELT-1")], stars, set())
+    assert [d["device_code"] for d in recruits] == ["SPAREFAL"]
+    # no carrier: self-surging spares only from within range, nearest first
+    solo = {**fleet, "id": "solo", "name": "Solo", "wants": {"propulsor": 1}}
+    P = lambda code, loc: {"device_code": code, "device_type": "propulsor", "location": loc, "status": "idle",  # noqa: E731
+                           "tags": ["spare"], "features": ["surge"], "available_commands": ["travel"]}
+    mine = [{"device_code": "SOLO0001", "device_type": "survey_drone", "location": "AEM-5-L4", "status": "idle", "tags": ["fleet:solo"]}]
+    _, recruits, notes = fl.fill_plan(solo, mine + [P("PROPFAR1", "FAR-BELT-1")], stars, set())
+    assert recruits == [] and any("supply range" in n for n in notes)
+    _, recruits, _ = fl.fill_plan(solo, mine + [P("PROPFAR1", "FAR-BELT-1"), P("PROPFAL1", "FAL-BELT-1")], stars, set())
+    assert [d["device_code"] for d in recruits] == ["PROPFAL1"]
+    assert fl.beyond_reach("DELTA", "ISOLITHOR", {}, 100) is False        # both uncharted: can't tell
+
+
 def test_reform_rebuilds_assignments_from_where_devices_are():
     from rsweb import reform
     D = lambda code, t, loc, tags=(), **kw: {"device_code": code, "device_type": t, "location": loc, "status": "idle",  # noqa: E731

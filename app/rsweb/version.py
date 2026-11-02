@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.334.2"
+VERSION = "1.335.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.335.0", "2026-11-02", "Fill from spares stays within the sector range (Joe): a fleet without a carrier took self-surging spares from anywhere, and a supply range of 0 (any) or past 1728 ly let fills and gathers go farther. The supply range now tops out at the sector range everywhere, and a star with no catalog position (Delta) counts as out of range from a charted one."),
     ("1.334.2", "2026-11-02", "Prints waiting in the app's queue take none of a factory's queue slots: contracts showed no autofactory with queue room within 1728 ly of DRAEUMON and AELMERARN (25 ly from FALQUORYX), and loadouts and ward orders counted the same way."),
     ("1.334.1", "2026-11-02", "Big print orders go to the game 3 at a time (snapshot 00:51): the game refused 28 drones in one print (Not enough queue space, 10 available, 28 requested), so the SOLARES rigs went back in front of their drones. The rest of an order waits in the app's queue."),
     ("1.334.0", "2026-11-02", "Mining rig prints unstuck (snapshot 00:33). A waiting print is still first in the game's queue: deactivate answered Nothing to deactivate, so 1.333.0 never let anything go ahead, and Cancel current print failed the same way. Now the print that fits goes ahead by sending the queue again (it first, the waiting one right behind), and Cancel current print on a waiting factory takes the waiting print off the queue. Components are ordered for every queued print, split over the factories at that location (only the first rig of each factory had drones ordered: about 120 drones were missing for 38 rigs). Prints the game refuses as not unlocked are dropped from the app's queue and not ordered again for 6 hours (a fleet tender's cargo lifter)."),

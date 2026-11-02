@@ -412,7 +412,8 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
   Members on their way home that haven't left yet are let go as spares where they wait once the fleet has its count.
   An unstationed fleet (survey, logistics, prospector) drops members beyond its loadout as spares the next time they're
   idle in a system with one of your hubs (home for repairs, say); *Fill from spares* (rule *Sort out unstationed fleets*)
-  does it. A type left blank in the loadout is "don't care" and never dropped; set it to 0 to drop it. Never dropped:
+  does it, taking spares only within the supply range (never past the sector range, 1.335.0; a star the catalog has no
+  position for, like Delta's, counts as out of range from a charted one). A type left blank in the loadout is "don't care" and never dropped; set it to 0 to drop it. Never dropped:
   replicants' vessels, matrices, matrix containers, anything with a matrix or other devices aboard, a fleet's relays,
   beacons and wards, and reserved devices (`contract:`, `to:`, `at:`, ignored tags).
 - **Belt surveyors** (said to search belts about 4x faster) are adopted by survey controllers (or search on their own without one), ahead of survey drones, wherever belts
