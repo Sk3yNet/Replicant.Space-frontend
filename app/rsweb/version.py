@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.340.0"
+VERSION = "1.340.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.340.1", "2026-11-03", "Trips across ISOLITHOR no longer cruise the long way after their surge hop. A trip split into a hop to the Kuiper belt and the rest sent the rest the moment the hop's arrival came in, while the game still had the device at ISOLITHOR-1-L4: it routed from there and cruised 499 AU (57 min) instead of 29 AU (F7E30727 and 5DF3161B, snapshot 02:23). Now the trip after a hop (and the hop after landing at the entry point) reads the device first and waits up to 2 min until the game shows it at the spot."),
     ("1.340.0", "2026-11-03", "Blueprints › Print queues: autofactories of one type at the same location share one card (Joe). It lists each factory's current print and game queue, the shared app queue once, and the time until everything is printed with all of them working on it. Before, each card counted only its own queue, and the times went wrong once the factories shared the app queue."),
     ("1.339.0", "2026-11-03", "Print queues even out at one spot (Joe): autofactories of one type at the same location share the app's queue of waiting prints, so each one is fed the best of all of them. An idle factory no longer sits empty while its neighbor's prints wait behind it."),
     ("1.338.0", "2026-11-02", "Dashboard › Stockpiles drawn like the other charts (Joe): a chart per resource with its own color, the current total and the change over the period, 2d / 7d / 30d (48 h by default), materials in transit beside the name, and a link to Stockpiles by location. It loads on its own, so the dashboard opens faster."),

@@ -217,6 +217,9 @@ def _loop_api(client):
     async def fake_request(method, path, json_body=None, **kw):
         if method == "POST":
             sent.append((path, dict(json_body or {})))
+        if method == "GET" and path.startswith("/devices/"):   # the device as the list has it (where it landed)
+            devs = await client.app.state.db.kv_get("devices", [])
+            return next((x for x in devs if x["device_code"] == path.split("/")[2]), {})
         if (json_body or {}).get("via"):
             raise ApiError(400, "Loop detected: already at Z")
         return {"status": "preview" if (json_body or {}).get("dry_run") else "travelling", "total_time_seconds": 3000.0}
@@ -271,3 +274,29 @@ def test_a_trip_sent_by_its_replicant_surge_hops_too(client):
     assert sent[-1] == ("/replicants/R1/travel", {"destination": "Z-BELT-1"})
     sent, _ = _run(client, path="/replicants/R1/travel", at="Z-BELT-1", dest="Y-2-L4")
     assert sent == [("/replicants/R1/travel", {"destination": "Y-2-L4", "via": ["Z-KUIPER", "Y"]})]
+
+
+def test_the_trip_after_a_surge_hop_waits_until_the_device_shows_at_the_spot(client):
+    # live 2026-11-03: F7E30727 hopped ISOLITHOR-1-L4 → ISOLITHOR-KUIPER; the trip on, sent as the hop's arrival came in,
+    # was routed from ISOLITHOR-1-L4 and cruised 499 AU (57 min) instead of 29 AU from the Kuiper belt
+    from datetime import timedelta
+    from rsweb import automations as au
+    sent, job = _run(client, at="Y-2-L4", dest="Z-BELT-1", hub=True, scanned=False)
+    e, api = eng(client), client.app.state.api
+    shown = {"location": "Z-1-L4", "status": "idle"}
+
+    async def fake_request(method, path, json_body=None, **kw):
+        assert method == "GET" and path == "/devices/V1"
+        return {"device_code": "V1", **shown}
+    api.request = fake_request
+    job = _arrive(client, "Z-1-L4")
+    assert sent[1:] == [{"command": "travel", "destination": "Z-KUIPER"}]
+    shown["status"] = "travelling"   # the hop's arrival is in, but the game still has it moving at the entry point
+    job = _arrive(client, "Z-KUIPER")
+    assert sent[2:] == [] and job["steps"][2]["status"] == "retrying", job["steps"][2]
+    shown.update(location="Z-KUIPER", status="idle")
+    job = next(j for j in client.portal.call(e.jobs) if j["id"] == job["id"])
+    job["steps"][2]["retry_at"] = (au._now() - timedelta(seconds=1)).isoformat()
+    client.portal.call(e._update, job)
+    client.portal.call(e.tick)
+    assert sent[2:] == [{"command": "travel", "destination": "Z-BELT-1"}]

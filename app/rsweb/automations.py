@@ -269,6 +269,7 @@ BUSY_RETRY_S, BUSY_TRIES = 300, 36   # retry such a refusal every 5 min, for up 
 # for carriers that had never left)
 SERVER_RE = re.compile(r"service unavailable|bad gateway|gateway time-?out|network error", re.I)
 SERVER_RETRY_S, SERVER_TRIES = 120, 6
+HOP_SETTLE_S, HOP_SETTLE_TRIES = 15, 8   # a trip after a surge hop waits for the device to show at the spot (2 min at most)
 SHORT_TIMEOUT = 120          # waiting for deploy/stow confirmation
 MAX_LOG = 300
 
@@ -915,6 +916,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     exit_via = await self.plan_via(st, job)
                     if await self._ramp_legs(st, job):
                         continue   # to the entry point where it lands, the hop to the off-ramp, then the rest
+                    if await self._hop_unsettled(st, job):
+                        return   # the surge hop before it hasn't landed in the game's eyes yet: next tick
                     ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
                     if not ok and "loop detected" in (err or "").lower() and await self._hop_legs(st, job):
                         await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via or st['body'].get('via') or [])} refused ({err}); "
@@ -1300,15 +1303,50 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                      wait=["travel.arrived"],
                      match={"destination": x})
             h.update(wait_device=code, exit_checked=True, hub_checked=True, riders_checked=True)
+            if add:
+                h["from_spot"] = add[-1]["body"]["destination"]
             add.append(h)
         body.pop("via", None)
         st["exit_via"] = None
+        st["from_spot"] = via[-1]
         i = job["idx"]
         for s2 in job["steps"][i:]:
             if isinstance(s2.get("seq0_from"), int) and s2["seq0_from"] >= i:
                 s2["seq0_from"] += len(add)
         job["steps"][i:i] = add
         st["tries"] -= 1
+        await self._update(job)
+        return True
+
+    async def _hop_unsettled(self, st: dict, job: dict) -> bool:
+        """A trip that starts where the trip before it ended (`from_spot`: a surge hop's spot, or the entry point before
+        the hop) goes only once the game shows the device standing there (live 2026-11-03: F7E30727 and 5DF3161B hopped
+        ISOLITHOR-1-L4 → ISOLITHOR-KUIPER, and the trip on to ISOLITHOR-BELT-1, sent the moment the hop's arrival came
+        in, was routed from ISOLITHOR-1-L4 and cruised 499 AU, 57 min, instead of 29 AU from the Kuiper belt). The
+        device is read fresh; while it isn't there yet the step waits a tick (up to HOP_SETTLE_TRIES), then goes anyway.
+        True when the step waits."""
+        from . import fleets as fl
+        spot = str(st.get("from_spot") or "").upper()
+        code = await self._trip_device(st) if spot else None
+        if not code:
+            return False
+        try:
+            d = await self.api.request("GET", f"/devices/{code}", background=True) or {}
+        except ApiError:
+            d = {}
+        moving = bool(d) and (bool(fl.in_flight(d)) or str(d.get("status") or "").lower().startswith(fl.MOVING))
+        here = str(d.get("location") or "").upper()
+        n = int(st.get("settle_waits") or 0)
+        if not d or (here == spot and not moving) or n >= HOP_SETTLE_TRIES:
+            if d and here != spot and n >= HOP_SETTLE_TRIES:
+                await self.log(job["rule"], f"{job['title']}: {code} still not shown at {spot} ({here or 'no location'}); "
+                                            f"{st['desc']} goes anyway", "warning")
+            st.pop("from_spot", None)
+            return False
+        st["settle_waits"] = n + 1
+        st["tries"] -= 1
+        st["status"], job["status"] = "retrying", "waiting"
+        st["retry_at"] = (_now() + timedelta(seconds=HOP_SETTLE_S)).isoformat(timespec="seconds")
         await self._update(job)
         return True
 
@@ -1354,6 +1392,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         for h in (first, hop):
             h.update(flags)
             add.append(h)
+        hop["from_spot"], st["from_spot"] = entry, ramp
         body.pop("via", None)
         st["exit_via"], st["arrive_via"] = None, None
         i = job["idx"]
@@ -1883,7 +1922,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 if st.get("status") == "confirm":
                     continue   # beyond the sector range: waits for your Confirm
                 if st.get("status") == "retrying":
-                    off = await self._off_course(st, job)
+                    # a trip waiting for its surge hop to land reads the device fresh itself (the list may be minutes old)
+                    off = None if st.get("from_spot") else await self._off_course(st, job)
                     if off:   # turned back or went elsewhere: the retried step was meant for the destination
                         st["status"], st["error"], job["status"] = "failed", off, "failed"
                         await self._update(job)
