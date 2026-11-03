@@ -48,8 +48,9 @@
 {% set factories = printers | selectattr('autofactory') | list %}
 {% if factories %}<div class="card" style="margin-top:14px">
   <h2>Print queues <span class="muted small">live from the game · refreshes every minute</span></h2>
-  <div class="grid g2">{% for p in factories %}
-    <div class="pq-box"><div hx-get="/devices/{{ p.code }}/print-queue?compact=1" hx-trigger="load" hx-swap="outerHTML"><span class="muted small">Loading {{ p.name }}…</span></div></div>
+  <div class="grid g2">{% for g in factories | groupby('group') %}{% set p = g.list[0] %}
+    {% if g.list | length > 1 %}<div class="pq-box"><div hx-get="/print-queue/group?codes={{ g.list | map(attribute='code') | join(',') }}" hx-trigger="load" hx-swap="outerHTML"><span class="muted small">Loading {{ g.list | length }} factories at {{ p.location }}…</span></div></div>
+    {% else %}<div class="pq-box"><div hx-get="/devices/{{ p.code }}/print-queue?compact=1" hx-trigger="load" hx-swap="outerHTML"><span class="muted small">Loading {{ p.name }}…</span></div></div>{% endif %}
   {% endfor %}</div>
 </div>{% endif %}
 <div class="card" style="margin-top:14px">

@@ -1,0 +1,30 @@
+{# Blueprints › Print queues: the autofactories of one type at one spot in one card. Context: facs [{code, dev, cur, queue}], shared, remaining, exact, codes, location, dtype, waiting, printing #}
+<div id="pqg-{{ codes | replace(',', '-') }}" class="pq" hx-get="/print-queue/group?codes={{ codes }}" hx-trigger="every 60s, pq-refresh from:body" hx-swap="outerHTML">
+  <div class="row between"><strong>{{ dtype | human }} ×{{ facs | length }}</strong><span class="muted small">{{ location }}</span></div>
+  <table class="small" style="margin-top:6px">
+    <tr><th>Factory</th><th>Now</th><th>In the game's queue</th></tr>
+    {% for f in facs %}{% set cur = f.cur %}
+    <tr><td class="mono"><a href="/devices/{{ f.code }}">{{ f.code }}</a></td>
+      <td>{% if cur and cur.state == 'printing' %}<div class="timer" {% if cur.completes_at %}data-ends="{{ cur.completes_at }}" data-start="{{ cur.started_at or cur.completes_at }}"{% endif %}>
+          <span class="pill st-work">printing</span> {{ (cur.device_type or 'unknown') | human }}
+          {% if cur.completes_at %}<span class="mono left"></span>{% endif %}</div>
+        {% elif cur and cur.state == 'waiting' %}<span class="pill lv-alert">waiting for resources</span>{% if cur.device_type %} {{ cur.device_type | human }}{% endif %}
+        {% else %}<span class="muted">not printing</span>{% endif %}</td>
+      <td>{% for it in f.queue %}{{ it.device_type | human }}{% if it.quantity and it.quantity > 1 %} ×{{ it.quantity }}{% endif %}{{ ', ' if not loop.last }}{% else %}<span class="muted">—</span>{% endfor %}</td></tr>
+    {% endfor %}
+  </table>
+  {% if shared %}
+    <table class="small" style="margin-top:8px">
+      <tr><th class="num">#</th><th title="Waiting in the app's print queue: each of these factories takes the best of them as its game queue empties">Shared app queue</th><th>Queued for</th></tr>
+      {% for it in shared %}
+      <tr><td class="num mono">{{ loop.index }}</td>
+        <td>{{ it.device_type | human }}{% if it.quantity and it.quantity > 1 %} ×{{ it.quantity }}{% endif %}
+          <span class="pill small">{{ it.extra.priority }}</span>{% if it.tags %}<span class="muted"> · {{ it.tags | join(', ') }}</span>{% endif %}</td>
+        <td class="mono"><a href="/devices/{{ it.factory }}">{{ it.factory }}</a></td></tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+  {% if remaining %}<div class="muted small" style="margin-top:6px">{{ waiting }} waiting{% if printing %} + {{ printing }} printing{% endif %} · all done in {{ '' if exact else '~' }}{{ remaining | duration }} with all {{ facs | length }} factories{% if not exact %} (estimate){% endif %}</div>
+  {% elif not facs %}<p class="muted small">No factories found.</p>
+  {% else %}<p class="muted small" style="margin-top:6px">All queues are empty.</p>{% endif %}
+</div>

@@ -945,6 +945,33 @@ async def fetch_device(request: Request, code: str) -> dict:
         return next((d for d in (await load_state(request))["devices"] if d.get("device_code") == code), {})
 
 
+@router.get("/print-queue/group", response_class=HTMLResponse)
+async def print_queue_group(request: Request, codes: str = "", user: str = Depends(current_user)):
+    """Blueprints › Print queues: one card for the autofactories of one type at one spot (owner 2026-11-03). They share
+    the app's queue (vqueue.py), so it's listed once, and the time is for all of them printing it."""
+    from . import vqueue as vqm
+    db = request.app.state.db
+    bps = {b["device_type"]: b for b in normalize_blueprints(await db.kv_get("blueprints", []))}
+    facs, own, shared = [], [], []
+    for code in [c.strip().upper() for c in codes.split(",") if c.strip()][:20]:
+        dev = await fetch_device(request, code)
+        if not dev:
+            continue
+        q = printqueue.items(dev)
+        real = [x for x in q if not x["extra"].get("virtual")]
+        cur = await printqueue.current(db, dev)
+        facs.append({"code": code, "dev": dev, "cur": cur, "queue": real})
+        own.append((cur, real))
+        shared += [{**x, "factory": code} for x in q if x["extra"].get("virtual")]
+    rank = {v: k for k, v in vqm.LABELS.items()}
+    shared.sort(key=lambda x: rank.get(x["extra"].get("priority"), 9))
+    remaining, exact = printqueue.group_seconds(own, shared, bps)
+    first = (facs[0]["dev"] if facs else {})
+    return partial(request, "partials/print_queue_group.html", facs=facs, shared=shared, remaining=remaining, exact=exact,
+                   codes=",".join(f["code"] for f in facs), location=first.get("location"), dtype=first.get("device_type"),
+                   waiting=sum(len(f["queue"]) for f in facs) + len(shared), printing=sum(1 for f in facs if f["cur"]))
+
+
 @router.get("/devices/{code}/print-queue", response_class=HTMLResponse)
 async def print_queue_panel(request: Request, code: str, compact: int = 0, user: str = Depends(current_user)):
     dev = await fetch_device(request, code)
@@ -2841,6 +2868,7 @@ def printers(state: dict) -> list[dict]:
             out.append({"kind": "device", "code": d["device_code"], "device": d["device_code"],
                         "name": f"{f_human(d.get('device_type'))} {d['device_code']}", "location": d.get("location"),
                         "autofactory": "autofactory" in (d.get("device_type") or ""),
+                        "group": f"{d.get('location')}|{d.get('device_type')}",
                         "vessel": (d.get("device_type") or "").endswith("vessel")})
     out.sort(key=lambda p: (not p["autofactory"], p["name"]))
     for code, r in state["replicants"].items():

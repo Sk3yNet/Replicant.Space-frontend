@@ -171,3 +171,26 @@ def split(factories: list[dict], device_type: str, n: int, bps: dict[str, dict],
         if room is not None:
             room[code] = room.get(code, 1) - 1
     return [(f, got[f["device_code"]]) for f in factories if got.get(f["device_code"])]
+
+
+def group_seconds(own: list[tuple[dict | None, list[dict]]], shared: list[dict], bps: dict[str, dict]) -> tuple[float | None, bool]:
+    """(seconds until a spot's factories have printed everything, exact?) when they all work the queue (owner
+    2026-11-03): each factory first finishes its current print and its own game queue (`own`: (current, game queue
+    items) per factory), then every print of the shared app queue goes to the factory free first."""
+    loads, exact, busy = [], True, False
+    for cur, q in own:
+        s, ex = remaining_seconds(cur, q, bps)
+        loads.append(s or 0.0)
+        exact &= ex
+        busy |= s is not None
+    if not loads:
+        return None, True
+    for it in shared:
+        t = float((bps.get(it["device_type"]) or {}).get("print_time") or 0)
+        if not t:
+            exact = False
+            continue
+        for _ in range(int(it.get("quantity") or 1)):
+            i = loads.index(min(loads))
+            loads[i] += t
+    return (max(loads) if (busy or shared) else None), exact

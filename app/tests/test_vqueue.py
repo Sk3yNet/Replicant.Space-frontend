@@ -180,3 +180,29 @@ def test_factories_at_one_spot_share_their_kept_prints(client):  # noqa: F811
     feed(client)
     assert len(world.queues["AF00BEEF"]) == 2 and len(world.queues["AF00CAFE"]) == 2, world.queues
     assert client.portal.call(VirtualQueue(db).orders, "AF00BEEF") == []
+
+
+def test_group_time_counts_every_factory():
+    from rsweb import printqueue as pq
+    bps = {"a": {"print_time": 100}}
+    it = lambda n: {"device_type": "a", "quantity": n}  # noqa: E731
+    # one factory busy with 3 of its own, one idle; 4 shared prints go 3 to the idle one, 1 to the busy one
+    secs, exact = pq.group_seconds([(None, [it(3)]), (None, [])], [it(4)], bps)
+    assert secs == 400 and exact
+    assert pq.group_seconds([(None, []), (None, [])], [], bps) == (None, True)
+
+
+def test_blueprints_page_merges_factories_at_one_spot(client):  # noqa: F811
+    db, e, world = setup(client)
+    af = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    world.devices.append({**af, "device_code": "AF00CAFE"})
+    world.queues["AF00CAFE"] = []
+    client.portal.call(client.app.state.worker.sync_devices)
+    ok, _, _ = client.portal.call(e.send, "POST", "/devices/AF00BEEF",
+                                  {"command": "enqueue_print", "device_type": "orbital_farm", "quantity": 4,
+                                   "tags": ["fleet:m1"]}, "t")
+    assert ok
+    r = client.get("/blueprints", headers={"X-Auth-Request-Email": "joe@example.com"})
+    assert "/print-queue/group?codes=AF00BEEF,AF00CAFE" in r.text or "/print-queue/group?codes=AF00CAFE,AF00BEEF" in r.text
+    r = client.get("/print-queue/group?codes=AF00BEEF,AF00CAFE", headers=HX)
+    assert r.status_code == 200 and "Shared app queue" in r.text and "with all 2 factories" in r.text, r.text
