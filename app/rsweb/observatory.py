@@ -10,6 +10,17 @@ Positions are the star catalog's (light-years from Sol). A `prospect.completed` 
 """
 from __future__ import annotations
 
+# Device types that prospect (Joe 2026-11-03: the parallax array is an upgraded galactic observatory). Every behavior
+# that uses an observatory also accepts a parallax array. A loadout's want stays per type: one never stands in for the other.
+OBSERVATORY_TYPES = ("galactic_observatory", "parallax_array")
+
+
+def is_observatory(d: dict | str | None) -> bool:
+    """A galactic observatory or a parallax array (a device dict or a device type)."""
+    t = d if isinstance(d, str) else (d or {}).get("device_type")
+    return t in OBSERVATORY_TYPES
+
+
 AIMS = {"outward": "Outward (away from Sol — default)", "sol": "Toward Sol", "sideways": "Sideways (along y)",
         "star": "Toward a star", "custom": "Custom vector"}
 

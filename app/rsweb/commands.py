@@ -149,7 +149,7 @@ DESCRIPTIONS: dict[str, str] = {
               "deactivating it closes the site).",
     "stellar_census": "List the stars around this vessel: positions, entry points and whether they're explored. Adds "
                       "them to the star catalog (Map › Stars).",
-    "prospect": "A galactic observatory discovers new stars beyond the catalog, in a direction (optional).",
+    "prospect": "A galactic observatory (or parallax array) discovers new stars beyond the catalog, in a direction (optional).",
     "enqueue_print": "Add a print to this autofactory's queue. It waits for materials at the factory's location; tags "
                      "and an on-complete command apply to the new device.",
     "dequeue_print": "Remove one waiting print from the queue (0 = first waiting item).",

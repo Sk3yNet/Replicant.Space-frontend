@@ -26,7 +26,7 @@ KV = "others"
 KEEP_DAYS = 7
 RAW_MAX = 500
 ARROW_HOURS = 1.0
-FIXED = ("beacon", "relay", "ward", "hub", "factory", "observatory", "controller", "slingshot", "locker")
+FIXED = ("beacon", "relay", "ward", "hub", "factory", "observatory", "parallax", "controller", "slingshot", "locker")
 MOVING = ("vessel", "drone", "plate", "propulsor")
 
 

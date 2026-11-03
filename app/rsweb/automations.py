@@ -2569,7 +2569,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from .modular import compact_step, compacted, folded, unfurl_step
         from .shapes import normalize_blueprints
         devices = await self.devices()
-        obs = [d for d in devices if d.get("device_type") == "galactic_observatory" and fl.fleet_of(d)]
+        from .observatory import is_observatory
+        obs = [d for d in devices if is_observatory(d) and fl.fleet_of(d)]
         if not obs:
             return []
         fleet_list = await self.fleets()
@@ -2742,10 +2743,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 changed = True
             tour = f.setdefault("tour", {"since": now_iso()})
             ms = fl.members(f, devices)
-            obs = next((d for d in ms if d.get("device_type") == "galactic_observatory"), None)
+            from .observatory import is_observatory
+            obs = next((d for d in ms if is_observatory(d)), None)
             car = next((d for d in ms if fl.is_carrier(d) and fl.capacity(d) > 0), None)
             if not obs or not car:
-                tour["note"] = "needs a galactic observatory and a carrier with an attach point"
+                tour["note"] = "needs a galactic observatory (or parallax array) and a carrier with an attach point"
                 continue
             j = jobs.get(tour.get("job"))
             if j and j["status"] in ("running", "waiting"):

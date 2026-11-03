@@ -2702,7 +2702,7 @@ async def map_payload(request: Request, part: str = "all") -> dict:
         reach: dict[str, dict] = {}   # star -> the working relay / hub reaching furthest there (the map's range sphere)
         for d in st["devices"]:
             t = d.get("device_type") or ""
-            if any(k in t for k in ("relay", "hub", "beacon", "ward", "slingshot", "observatory")):
+            if any(k in t for k in ("relay", "hub", "beacon", "ward", "slingshot", "observatory", "parallax")):
                 infra[star_of(d.get("location"))].append(t)
             r = _rn.reach(d, bpm)
             s_ = star_of(d.get("location"))
@@ -2790,11 +2790,11 @@ async def map_payload(request: Request, part: str = "all") -> dict:
         items = await request.app.state.worker.automations.fleets()
         fleets = [fl.activity(f, st["devices"], status_class) for f in items]
         # observatories prospecting now: a cone from the system along the direction (reach / width learned from finds)
-        from .observatory import live_prospect, reach_estimate
+        from .observatory import is_observatory, live_prospect, reach_estimate
         runs = await db.kv_get("observatory_runs", {}) or {}
         prospects = []
         for d in st["devices"]:
-            if d.get("device_type") != "galactic_observatory" or not str(d.get("status") or "").startswith("prospecting"):
+            if not is_observatory(d) or not str(d.get("status") or "").startswith("prospecting"):
                 continue
             live = live_prospect(d) or (runs.get(d["device_code"]) or {}).get("live")
             t0, t1 = transit._ts((live or {}).get("started_at")), transit._ts((live or {}).get("completes_at"))

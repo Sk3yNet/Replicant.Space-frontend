@@ -6714,10 +6714,11 @@ def test_prospect_directions():
     assert pr.base_heading(None, (3, 4, 0)) == [0.6, 0.8, 0.0]               # no heading: outward from Sol
 
 
-def test_observatory_prospects_each_direction_then_compacts(client):
+@pytest.mark.parametrize("obs_type", ["galactic_observatory", "parallax_array"])   # a parallax array is an upgraded observatory
+def test_observatory_prospects_each_direction_then_compacts(client, obs_type):
     eng, db = client.app.state.worker.automations, client.app.state.db
     client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "HOMEA", "position": {"x": 0, "y": 5, "z": 0}}]})
-    obs = {"device_code": "OBS00001", "device_type": "galactic_observatory", "location": "HOMEA-5-L4", "status": "idle",
+    obs = {"device_code": "OBS00001", "device_type": obs_type, "location": "HOMEA-5-L4", "status": "idle",
            "tags": ["fleet:ex"], "available_commands": ["prospect", "compact", "unfurl"]}
     client.portal.call(db.kv_set, "devices", [obs])
     client.portal.call(eng.save_fleets, [{"id": "ex", "name": "Explorers", "role": "explore", "home": "HOMEA", "wants": {}}])
@@ -7470,7 +7471,8 @@ def test_hubs_link_by_distance_and_hub_links_are_marked(client):
 
 
 
-def test_prospector_fleet_tours_one_prospect_per_star(client, monkeypatch):
+@pytest.mark.parametrize("obs_type", ["galactic_observatory", "parallax_array"])
+def test_prospector_fleet_tours_one_prospect_per_star(client, monkeypatch, obs_type):
     """A prospector fleet (observatory + carrier) moves its folded observatory to the emptiest un-prospected star within
     30 ly of home; the next prospect aims at the emptiest hemisphere."""
     from rsweb import prospecting as pr
@@ -7482,7 +7484,7 @@ def test_prospector_fleet_tours_one_prospect_per_star(client, monkeypatch):
     client.portal.call(db.kv_set, "stars", {"stars": stars})
     assert pr.rank_directions([[1, 0, 0], [-1, 0, 0]], [0, 0, 0],
                               {s["designation"]: [s["position"][k] for k in "xyz"] for s in stars})[0] == [1, 0, 0]
-    obs = {"device_code": "OBS1", "device_type": "galactic_observatory", "location": "HOME-3-L4", "status": "compacted",
+    obs = {"device_code": "OBS1", "device_type": obs_type, "location": "HOME-3-L4", "status": "compacted",
            "tags": ["fleet:pro"], "available_commands": ["prospect", "unfurl"]}
     car = {"device_code": "CAR1", "device_type": "surge_carrier", "location": "HOME-3-L4", "status": "idle",
            "features": ["surge"], "attach_capacity": 4, "tags": ["fleet:pro"]}

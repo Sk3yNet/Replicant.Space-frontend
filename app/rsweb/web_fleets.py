@@ -136,15 +136,16 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
                           "rewards": (e.get("rewards") or {}).get("resources") or {} if isinstance(e.get("rewards"), dict) else {},
                           "short": fl.site_short(price, inv.get(e["location"]) or {}), "devices_short": dev_short})
     from . import prospecting as _pr
+    from .observatory import OBSERVATORY_TYPES, is_observatory
     runs = await request.app.state.db.kv_get("observatory_runs", {}) or {}
     obs_status: dict[str, list[str]] = {}
     for d in st["devices"]:
-        if d.get("device_type") == "galactic_observatory" and fl.fleet_of(d) and runs.get(d["device_code"]):
+        if is_observatory(d) and fl.fleet_of(d) and runs.get(d["device_code"]):
             r = runs[d["device_code"]]
             obs_status.setdefault(fl.fleet_of(d), []).append(
                 f"{d['device_code']}: {_pr.summary(r)}" + (f" — {r['note']}" if r.get("note") else ""))
-    obs_fleets = {fl.fleet_of(d) for d in st["devices"] if d.get("device_type") == "galactic_observatory" and fl.fleet_of(d)}
-    obs_fleets |= {f["id"] for f in items if (fl.station_wants(f) or {}).get("galactic_observatory")}   # or its loadout wants one
+    obs_fleets = {fl.fleet_of(d) for d in st["devices"] if is_observatory(d) and fl.fleet_of(d)}
+    obs_fleets |= {f["id"] for f in items if any((fl.station_wants(f) or {}).get(t) for t in OBSERVATORY_TYPES)}   # or its loadout wants one
     from . import bootstrap as _bt
     return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items, "shown_fleets": shown,
             "types": types,
