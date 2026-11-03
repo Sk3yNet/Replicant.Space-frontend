@@ -9961,3 +9961,35 @@ def test_dashboard_stockpiles_by_location(client):
     assert r.status_code == 200 and "Stockpiles by location" in r.text and 'data-card="stock-locations"' in r.text
     for p in piles:
         assert f'href="/locations/{p["location"]}"' in r.text
+
+
+def test_outpost_orders_with_virtual_queue_never_fill_a_factory(client, monkeypatch):
+    """Live 2026-11-03: rollout prints ordered lately counted against the game's queue slots even though they wait in
+    the virtual print queue, so after a few dozen every factory looked full and the relay rollout paused (VORWYRYR)."""
+    from rsweb import ward_orders as wo
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    stars = [{"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in {"F": 0, "A": 5, "B": 9, "C": 12}.items()]
+    client.portal.call(db.kv_set, "stars", {"stars": stars})
+    devs = [{"device_code": "FA000001", "device_type": "autofactory", "location": "F-BELT-1", "status": "idle",
+             "queue_size": 10, "print_queue": [{"device_type": "x"}] * 8, "available_commands": ["enqueue_print"],
+             "in_control_range": True}]
+
+    async def devices():
+        return devs
+    eng.devices = devices
+    assert "printing" in client.portal.call(eng.order_outpost, "relay", "A")
+    assert "printing" in client.portal.call(eng.order_outpost, "relay", "B")
+    assert "no autofactory" in client.portal.call(eng.order_outpost, "relay", "C")   # no virtual queue: 8 + 2 = full
+    class VQ:   # the virtual print queue keeps every print
+        async def intercept(self, path, body):
+            return {"kept": True}
+
+        async def merge(self, path, resp):
+            return resp
+    monkeypatch.setattr(eng.api, "vq", VQ(), raising=False)
+    assert "printing" in client.portal.call(eng.order_outpost, "relay", "C")
+    assert {o.get("factory") for o in client.portal.call(db.kv_get, wo.kv_key("relay"), {}).values()} == {"FA000001"}
+    print_job = {"status": "running", "device": "X", "steps": [{"path": "/devices/X", "body": {"command": "enqueue_print"}}]}
+    travel = {"status": "running", "device": "X", "steps": [{"path": "/devices/X", "body": {"command": "travel"}}]}
+    assert wo.print_only([print_job], "X") == {"X"} and not wo.print_only([print_job, travel], "X")

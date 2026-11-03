@@ -146,7 +146,11 @@ class OpsRules:
         from .shapes import as_amounts, normalize_blueprints, normalize_inventory
         bp = next((b for b in normalize_blueprints(await self.db.kv_get("blueprints", [])) if b.get("device_type") == dtype), {})
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
-        f = wo.factory_near(devices, star, busy, pos, reach, ordered, wo.stocked(devices, as_amounts(bp.get("resources")), inv))
+        # a factory with only print jobs open isn't busy for another print
+        jobs = await self.jobs()
+        fbusy = {c for c in busy if not wo.print_only(jobs, c)}
+        f = wo.factory_near(devices, star, fbusy, pos, reach, ordered, wo.stocked(devices, as_amounts(bp.get("resources")), inv),
+                            virtual=getattr(self.api, "vq", None) is not None)
         if not f:
             return None, f"no spare {label} and no autofactory with a free print slot within {reach:g} ly of {star}"
         await self.create_job("wards", f"print a {label} on {f['device_code']} for {star}", f["device_code"],

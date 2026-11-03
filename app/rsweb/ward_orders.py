@@ -133,12 +133,15 @@ def room(f: dict, pending: int = 0) -> int:
 
 
 def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reach: float,
-                 ordered: dict[str, int] | None = None, stocked: set[str] | None = None) -> dict | None:
+                 ordered: dict[str, int] | None = None, stocked: set[str] | None = None,
+                 virtual: bool = False) -> dict | None:
     """The autofactory to print a ward on, within reach of `star`: one whose stockpile covers the print (`stocked`, when
     given: owner 2026-10-26, SOLARES relays sat waiting for conductive while FALQUORYX had plenty), then the shortest
     queue (counting wards already ordered on it, `ordered`), then the nearest; one with a full queue is skipped.
     Compacted or carried ones can't print (seen live 2026-10-11: four orders went to 1131B50B while 3E95BD59, idle
-    beside it, lost every tie on its code)."""
+    beside it, lost every tie on its code). `virtual`: the virtual print queue (vqueue.py) is on, so prints ordered
+    lately wait there and take none of the game's slots: they count toward the load only, never against the room
+    (live 2026-11-03: the relay rollout ordered ~30 station prints in a pass, every factory looked full, and it paused)."""
     out = []
     for f in devices:
         st = str(f.get("status") or "")
@@ -148,11 +151,20 @@ def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reac
                 or f.get("attached_to_device_code"):
             continue
         dist = lo._dist(star_of(f["location"]), star, pos)
-        if (reach and reach < dist < 1e9) or room(f, (ordered or {}).get(f["device_code"], 0)) <= 0:
+        if (reach and reach < dist < 1e9) or room(f, 0 if virtual else (ordered or {}).get(f["device_code"], 0)) <= 0:
             continue
         out.append((stocked is not None and f["device_code"] not in stocked,
                     load(f) + (ordered or {}).get(f["device_code"], 0), dist, f["device_code"], f))
     return min(out, key=lambda x: x[:4])[4] if out else None
+
+
+def print_only(jobs: list[dict], code: str) -> set[str]:
+    """{code} when every open job on device `code` only sends it enqueue_print commands (a print job), else empty."""
+    mine = [j for j in jobs if j.get("status") in ("running", "waiting")
+            and (j.get("device") == code or code in ((j.get("meta") or {}).get("devices") or []))]
+    ok = mine and all(s.get("path") == f"/devices/{code}" and (s.get("body") or {}).get("command") == "enqueue_print"
+                      for j in mine for s in j.get("steps") or [])
+    return {code} if ok else set()
 
 
 def stocked(devices: list[dict], cost: dict[str, float], inventory: dict[str, dict]) -> set[str]:
