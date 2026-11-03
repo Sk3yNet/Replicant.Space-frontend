@@ -1267,18 +1267,27 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
     async def trip_via(self, device: str, dest: str) -> list[str]:
         """The waypoints the job runner would give `device`'s trip to `dest` (surge hops, a hub, the off-ramp), for a
         trip sent by hand (a replicant's travel form). Nothing is logged."""
+        return (await self.trip_plan(device, dest))[0]
+
+    async def trip_plan(self, device: str, dest: str) -> tuple[list[str], str | None]:
+        """trip_via's waypoints, and the off-ramp one trip can't take: in a system whose surges land at its entry point
+        the job runner splits the trip there (_ramp_legs: to the entry point, a hop to the off-ramp, the rest). A hand-sent
+        trip with such an off-ramp goes as a job too (live 2026-11-03: 5DF3161B and 2D6BFDF1, sent from DELTA to
+        ISOLITHOR-BELT-1 by their travel forms, landed at ISOLITHOR-1-L4 and cruised 499 AU, 57 min)."""
         st = {"path": f"/devices/{device}", "body": {"command": "travel", "destination": dest}, "desc": ""}
         await self.plan_via(st, {"rule": None, "title": ""})
         via = list(st["body"].get("via") or [])
         ramp = st.get("arrive_via")
+        split = None
         if ramp in via and await self._hub_entry(star_of(ramp)):
+            split = ramp
             # one trip can't take the off-ramp where surges land at the entry point (it cruises from there): leave it out
             via = via[:via.index(ramp)]
             while via and star_of(via[-1]) == star_of(ramp):
                 via.pop()
             from . import hubroute
             via = hubroute.waypoints(via, dest.upper()) if via else []
-        return via
+        return via, split
 
     async def _hop_legs(self, st: dict, job: dict) -> bool:
         """A trip inside one system whose surge spots the game refused as a `via` (live 2026-10-27: F7E30727

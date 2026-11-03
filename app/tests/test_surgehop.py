@@ -122,14 +122,14 @@ def test_replicant_route_preview_takes_the_planned_waypoints_and_shows_the_savin
     sent = []
 
     async def fake_via(device, dest):
-        return ["Z-KUIPER"]
+        return ["Z-KUIPER"], None
 
     async def fake_request(method, path, json_body=None, **kw):
         sent.append((path, dict(json_body or {})))
         secs = 700.0 if (json_body or {}).get("via") else 1000.0
         return {"status": "preview" if (json_body or {}).get("dry_run") else "travelling", "total_time_seconds": secs,
                 "route": [{"leg": 1, "from": "Y-2-L4", "to": "Z-BELT-1", "type": "surge", "time_seconds": secs}]}
-    e.trip_via, api.request = fake_via, fake_request
+    e.trip_plan, api.request = fake_via, fake_request
     HX = {"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}
     r = client.post("/replicants/77F75255/travel", data={"destination": "Z-BELT-1", "dry_run": "1"}, headers=HX)
     assert "Re-routed via Z-KUIPER" in r.text and "saves <strong>5 min</strong> (30 %)" in r.text
@@ -155,13 +155,13 @@ def test_device_travel_form_takes_the_planned_route_and_shows_the_saving(client)
     sent = []
 
     async def fake_via(device, dest):
-        return ["Z", "Z-KUIPER"]
+        return ["Z", "Z-KUIPER"], None
 
     async def fake_request(method, path, json_body=None, **kw):
         sent.append(dict(json_body or {}))
         secs = 700.0 if (json_body or {}).get("via") else 1000.0
         return {"status": "preview", "total_time_seconds": secs}
-    e.trip_via, api.request = fake_via, fake_request
+    e.trip_plan, api.request = fake_via, fake_request
     HX = {"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}
     r = client.post("/devices/2AC61212/command", data={"command": "travel", "f.destination": "Z-BELT-1", "f.dry_run": "on"},
                     headers=HX)
@@ -300,3 +300,21 @@ def test_the_trip_after_a_surge_hop_waits_until_the_device_shows_at_the_spot(cli
     client.portal.call(e._update, job)
     client.portal.call(e.tick)
     assert sent[2:] == [{"command": "travel", "destination": "Z-BELT-1"}]
+
+
+def test_a_hand_sent_trip_landing_at_the_entry_point_hops_to_the_off_ramp(client):
+    # live 2026-11-03: 5DF3161B and 2D6BFDF1, sent by hand from DELTA to ISOLITHOR-BELT-1, landed at ISOLITHOR-1-L4 and
+    # cruised 499 AU (57 min)
+    _run(client, at="Y-2-L4", dest="Z-2-L4", hub=True, scanned=False)   # sets up system Z and V1 at Y-2-L4
+    sent = _loop_api(client)
+    HX = {"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}
+    r = client.post("/devices/V1/command", data={"command": "travel", "f.destination": "Z-BELT-1", "f.dry_run": "on"},
+                    headers=HX)
+    assert "hops to Z-KUIPER" in r.text, r.text[:2000]
+    sent.clear()
+    client.post("/devices/V1/command", data={"command": "travel", "f.destination": "Z-BELT-1"}, headers=HX)
+    assert [b for p, b in sent if p == "/devices/V1"] == [{"command": "travel", "destination": "Z-1-L4"}], sent
+    _arrive(client, "Z-1-L4")
+    assert [b for p, b in sent if p == "/devices/V1"][-1] == {"command": "travel", "destination": "Z-KUIPER"}
+    _arrive(client, "Z-KUIPER")
+    assert [b for p, b in sent if p == "/devices/V1"][-1] == {"command": "travel", "destination": "Z-BELT-1"}

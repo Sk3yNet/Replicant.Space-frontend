@@ -1379,14 +1379,38 @@ async def hop_first_chain(request: Request, user: str, path: str, body: dict, de
     return await start_chain(request, user, f"{device} → {dest} (surge hop to {', '.join(via)} first)", first, [], device)
 
 
+RAMP_NOTE = ("Go lands at {entry}, hops to {ramp} (a 30 s surge hop), then cruises the rest: surges into {star} land "
+             "at its entry point, and one trip from there would cruise the whole way.")
+
+
+async def ramp_note(request: Request, ramp: str) -> str:
+    eng = request.app.state.worker.automations
+    return RAMP_NOTE.format(entry=await eng._hub_entry(star_of(ramp)) or "the entry point", ramp=ramp, star=star_of(ramp))
+
+
+def ramp_step(path: str, body: dict, device: str) -> dict:
+    """A hand-sent trip into a system whose surges land at its entry point, with an off-ramp there (trip_plan): the job
+    runner plans it like its own trips and splits it (Automations._ramp_legs: the entry point, the hop, the rest)."""
+    dest = str(body.get("destination") or "").upper()
+    first = auto.step(f"{device} → {dest}", path, {k: v for k, v in body.items() if k != "via"}, wait=["travel.arrived"],
+                      match={"destination": dest}, critical=True)
+    first.update(wait_device=device, sector_ok=True)
+    return first
+
+
 async def planned_device_trip(request: Request, user: str, code: str, body: dict) -> HTMLResponse:
     """A device's trip from its command form, planned like automated trips (surge hops, a hub, the off-ramp: the game's
     own route takes none of them). A preview says what the plan saves; a refused plan goes the game's way, except a
     surge spot refused as a loop, which the device hops to first."""
     path, label = f"/devices/{code}", f"travel on {code}"
-    via = await request.app.state.worker.automations.trip_via(code, str(body["destination"]).upper())
+    via, ramp = await request.app.state.worker.automations.trip_plan(code, str(body["destination"]).upper())
+    if ramp and not body.get("dry_run"):
+        dest = str(body["destination"]).upper()
+        return await start_chain(request, user, f"{code} → {dest} (hops to {ramp} at arrival)", ramp_step(path, body, code),
+                                 [], code)
     if not via:
-        return await run_action(request, user, "POST", path, body, label)
+        out = await call_action(request, user, "POST", path, body, label)
+        return render_action(request, out, note=await ramp_note(request, ramp) if ramp else None)
     out = await call_action(request, user, "POST", path, {**body, "via": via}, f"{label} via {', '.join(via)}")
     if not out["ok"] and loop_refused(out["error"]):
         if not body.get("dry_run"):
@@ -1397,7 +1421,9 @@ async def planned_device_trip(request: Request, user: str, code: str, body: dict
         return render_action(request, await call_action(request, user, "POST", path, body, label),
                              note=f"The planned waypoints ({', '.join(via)}) were refused ({out['error']}): the game's own route.")
     note = f"Planned route via {', '.join(via)}."
-    if body.get("dry_run"):
+    if ramp:
+        note += " " + await ramp_note(request, ramp)
+    elif body.get("dry_run"):
         try:
             note = saving_note(via, await request.app.state.api.request("POST", path, json_body=body), out["response"])
         except ApiError:
@@ -1563,10 +1589,9 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
         return HTMLResponse('<div class="result err">Pick a system (and a spot in it), or type a destination.</div>')
     host = ((await load_state(request))["replicants"].get(code) or {}).get("hosted_device_code")
     # the job runner's route planning (surge hops, a hub, the off-ramp): the game's own route takes none of them
+    via, ramp = (await request.app.state.worker.automations.trip_plan(host, destination)) if host else ([], None)
     if "via" in form0:
         via = [x for x in str(form0.get("via") or "").upper().split(",") if x.strip()]
-    else:
-        via = await request.app.state.worker.automations.trip_via(host, destination) if host else []
     if dry_run:
         api, path = request.app.state.api, f"/replicants/{code}/travel"
         try:
@@ -1574,7 +1599,7 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
         except ApiError as e:
             return partial(request, "partials/action_result.html", ok=False, status=e.status, error=e.message,
                            label="route preview", method="POST", path=path, response=e.body)
-        resp, saved, refused, hop_first = direct, None, None, None
+        resp, saved, refused, hop_first = direct, None, None, (await ramp_note(request, ramp) if ramp else None)
         if via:
             try:
                 resp = await api.post(path, {"destination": destination, "via": via, "dry_run": True})
@@ -1598,6 +1623,10 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
     except ValueError as e:
         return partial(request, "partials/action_result.html", ok=False, status=400, error=str(e),
                        label="travel", method="POST", path=f"/replicants/{code}/travel", response=None)
+    if ramp:   # lands at the entry point: the job runner hops to the off-ramp there (trip_plan)
+        return await start_chain(request, user, f"{code} → {destination} (hops to {ramp} at arrival)"
+                                 + (f", then {len(followups)} step(s)" if followups else ""),
+                                 ramp_step(f"/replicants/{code}/travel", {"destination": destination}, host), followups, host)
     if followups:
         first = auto.step(f"{code} → {destination}", f"/replicants/{code}/travel", body,
                           wait=["travel.arrived"], match={"destination": destination}, critical=True)
