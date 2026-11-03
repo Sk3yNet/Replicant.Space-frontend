@@ -223,7 +223,9 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
                                        ("phase", "phase_at", "idx", "targets", "job", "watch_note", "stall", "departed",
                                         "relocate", "from", "opts")}
                                       | {"log": ((f.get("mission") or {}).get("log") or [])[-20:]} if f.get("mission") else None,
-                    "pending_home": f.get("pending_home"), "path_note": f.get("path_note")}
+                    "pending_home": f.get("pending_home"), "path_note": f.get("path_note"),
+                    **({"chase": f.get("chase") or {}, "chase_run": f.get("chase_run") or {}}
+                       if f.get("role") == "rock_chaser" else {})}   # why a rock chaser sits idle (its run note)
                    for f in await eng.fleets()],
         # the last commands sent (by you or the automations) and what the game answered — e.g. "did my cancel work?"
         "actions": [{"at": r["at"], "by": "automation" if r["user"] == "automation" else "you", "method": r["method"],

@@ -139,8 +139,14 @@ class ChaseMixin:
                 continue
             return {**c, "trip_s": secs}
         if not cands:
-            run["note"] = (f"no rock meets the criteria in {len(area)} system(s)"
-                           + (" (home only)" if cfg["mode"] == "hub" else f" within {cfg['radius']:g} ly of {f['home']}"))
+            where = " (home only)" if cfg["mode"] == "hub" else f" within {cfg['radius']:g} ly of {f['home']}"
+            from . import rockmining as rm
+            if not any(rm.star_of(r) in area for r in rm.open_rocks(ctx["objs"])):
+                # the app hears of a rock only from a detection (a hub in its system) or the one-hour impact warning
+                run["note"] = (f"no asteroid in flight is known in {len(area)} system(s){where}: rocks are seen only when a "
+                               "hub in their system detects them")
+            else:
+                run["note"] = f"no rock meets the criteria in {len(area)} system(s){where}"
         return None
 
     def _passengers(self, k: dict, car: dict | None, devices: list[dict], busy: set[str]) -> tuple[dict, list, list[str]]:

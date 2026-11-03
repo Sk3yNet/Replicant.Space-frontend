@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.343.1"
+VERSION = "1.343.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.343.2", "2026-11-03", "Rock chaser: when no asteroid in flight is known anywhere in its area, the fleet card says so (rocks are seen only when a hub in their system detects them) instead of no rock meets the criteria. Snapshots include each rock chaser's settings and run (target, phase, note). Chaser_1 sat idle at SOLARES-BELT-1 (snapshot 23:43): the last rock the app heard of in time was SOLARES-OBJ-4 (10-25), and no asteroid event at all came after 10-27."),
     ("1.343.1", "2026-11-03", "Trips you send by hand into ISOLITHOR hop at arrival too. Surges into ISOLITHOR land at its entry point (ISOLITHOR-1-L4), and one trip from there to the belt cruises 499 AU (57 min): 5DF3161B and 2D6BFDF1, sent from DELTA by their travel forms, did that (snapshot 13:24). Automated trips already split there; now Go on the device and replicant travel forms starts a short job that does the same (to the entry point, a 30 s hop to the Kuiper belt, then 29 AU), and the route preview says so."),
     ("1.343.0", "2026-11-03", "Devices a trade or contract pays out are picked up even when it pays no resources (Joe: the crystal synthesis lab bought at DELTA-OBJ-2 was left there). They are tagged for the nearest gather point within the sector range, else the run's wait point, and carriers with room bring them in. A payout of resources no longer goes to a gather point beyond the sector range."),
     ("1.342.0", "2026-11-03", "Class-limited printers are no factory (snapshot 12:33): the crystal synthesis lab at DELTA-OBJ-2 got 4 beacon and 10 relay prints the game refuses (This printer can only fabricate epitaxy-class devices), and logistics hauled materials to DELTA for them. Printers with the epitaxy feature, or of a type the game refused that way, no longer take automated prints; the virtual queue drops the ones it kept for them (prints queued there by hand stay), so those relay orders print elsewhere. A logistics device waits after a trip outside the network at its fleet home only within the sector range, else at the nearest covered system in range: freighter 2D6BFDF1 and Percival were set to fly from DELTA to FALQUORYX-BELT-1."),
