@@ -820,12 +820,16 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
 
     def wait_point(d: dict, near: str) -> str | None:
         """Where a logistics device waits after a trip that ended outside the network: its fleet's home if covered, else the
-        nearest covered system."""
+        nearest covered system. A home beyond the sector range is no wait point (live 2026-11-03: freighter 2D6BFDF1 and
+        Delta's only replicant were sent from DELTA to FALQUORYX-BELT-1, ~29,000 ly, after a print run)."""
         home = (d.get("_fleet") or {}).get("home")
-        if home and home in commandable:
+        near_ok = not reach or not pos.get(star_of(near) if near else "")
+        if home and home in commandable and (near_ok or _dist(star_of(near), home, pos) <= reach):
             return drop(home)
-        cands = [s for s in commandable if pos.get(s)]
-        return drop(min(cands, key=lambda s: (_dist(near, s, pos), s))) if cands else None
+        cands = [s for s in commandable if pos.get(s) and (not reach or _dist(star_of(near), s, pos) <= reach)]
+        if cands:
+            return drop(min(cands, key=lambda s: (_dist(star_of(near), s, pos), s)))
+        return drop(home) if home and home in commandable and near_ok else None
 
     def escort_for(stops: list[str], exclude: set[str]) -> dict | None:
         first = star_of(stops[0])

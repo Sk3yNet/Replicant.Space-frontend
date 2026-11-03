@@ -3344,15 +3344,32 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         out = []
         now = time.monotonic()
         devs = await self.devices()
+        from . import loadouts as lom
+        lom.CLASS_PRINTERS.update(await self.db.kv_get("class_printers", {}) or {})
+        # the app's own prints kept for a class-limited printer (no general factory) are dropped: the ward / relay /
+        # beacon orders then find them lost and print elsewhere; prints queued there by hand stay and are fed
+        printers = {d["device_code"] for d in devs if d.get("device_code") and lom.is_printer(d)}
+        not_fab = {d["device_code"] for d in devs if d.get("device_code") in printers and not is_factory(d)}
+        async with vq.lock:
+            st = await vq.state()
+            drop = [o for o in st["orders"] if o.get("factory") in not_fab and o.get("prio") != 0]
+            if drop:
+                st["orders"] = [o for o in st["orders"] if not any(o is x for x in drop)]
+                await self.db.kv_set(vqm.KV, st)
+        for code in sorted({o["factory"] for o in drop}):
+            n = sum(o["factory"] == code for o in drop)
+            line = f"{code}: dropped {n} kept print(s): it is no general factory"
+            out.append(line)
+            await self.log("print queue", line, "warning")
         # factories of one type at one spot share their kept prints (owner 2026-11-03): each one's game queue is fed
         # from all of theirs, best first, so an idle factory takes over what waits behind a busy neighbor
         group: dict[tuple, list[str]] = {}
         for d in devs:
-            if d.get("device_code") and is_factory(d) and d.get("location"):
+            if d.get("device_code") in printers and d.get("location"):
                 group.setdefault((d["location"], d.get("device_type")), []).append(d["device_code"])
         for d in devs:
             code = d.get("device_code")
-            if not code or not is_factory(d) or not d.get("location") or now - fed.get(code, -1e9) < 150:
+            if not code or code not in printers or not d.get("location") or now - fed.get(code, -1e9) < 150:
                 continue
             kept = await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code])
             real = [x for x in pq.items(d) if not x["extra"].get("virtual")]
@@ -3400,6 +3417,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     body = vqm.body_of(x) if kind == "real" else vqm.send_body(x)
                     ok, _, err = await self.send("POST", f"/devices/{code}", body,
                                                  f"print queue: {code} gets {body.get('device_type')}", raw=True)
+                    if not ok and lom.CLASS_RE.search(str(err)) and d.get("device_type"):
+                        cp = await self.db.kv_get("class_printers", {}) or {}
+                        cp.setdefault(str(d["device_type"]), str(err)[:200])
+                        await self.db.kv_set("class_printers", cp)
+                        lom.CLASS_PRINTERS.add(str(d["device_type"]))   # next pass drops what it still keeps
+                        if kind == "kept":   # a type this printer can't make: dropped, never sent again
+                            st["orders"] = vqm.take(st["orders"], x["factory"], x, 10 ** 9)
+                            await self.log("print queue", f"{code}: dropped the {body.get('device_type')} print: {err}", "warning")
+                            continue
                     if ok or (kind == "kept" and "not yet unlocked" in str(err).lower()):
                         sent += ok
                         if kind == "kept":

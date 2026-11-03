@@ -206,3 +206,23 @@ def test_blueprints_page_merges_factories_at_one_spot(client):  # noqa: F811
     assert "/print-queue/group?codes=AF00BEEF,AF00CAFE" in r.text or "/print-queue/group?codes=AF00CAFE,AF00BEEF" in r.text
     r = client.get("/print-queue/group?codes=AF00BEEF,AF00CAFE", headers=HX)
     assert r.status_code == 200 and "Shared app queue" in r.text and "with all 2 factories" in r.text, r.text
+
+
+def test_class_limited_printers_are_no_factory_and_lose_the_apps_prints(client):  # noqa: F811
+    """Live 2026-11-03: a crystal synthesis lab (features print + epitaxy) got relay and beacon prints, which the game
+    refused ("This printer can only fabricate epitaxy-class devices"), and logistics hauled materials to it."""
+    from rsweb import loadouts as lo
+    lab = {"device_code": "CC00CAFE", "device_type": "crystal_synthesis_lab", "features": ["cruise", "print", "epitaxy"],
+           "available_commands": ["enqueue_print", "dequeue_print"], "location": "DELTA-OBJ-2", "status": "idle"}
+    assert not lo.is_factory(lab) and lo.is_printer(lab)
+    assert lo.is_factory({"device_type": "autofactory"})
+    db, e, world = setup(client)
+    world.devices.append(lab)
+    world.queues["CC00CAFE"] = []
+    vq = client.app.state.api.vq
+    client.portal.call(vq.add, "CC00CAFE", {"device_type": "ftl_relay", "quantity": 1, "tags": ["to:x"]}, 2)
+    client.portal.call(vq.add, "CC00CAFE", {"device_type": "some_crystal", "quantity": 1}, 0)
+    out = feed(client)
+    assert client.portal.call(VirtualQueue(db).orders, "CC00CAFE") == []
+    assert out == ["CC00CAFE: dropped 1 kept print(s): it is no general factory",
+                   "CC00CAFE: 1 print(s) into the game's queue"]   # the relay dropped, the print by hand sent

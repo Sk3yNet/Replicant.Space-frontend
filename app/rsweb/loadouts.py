@@ -302,12 +302,29 @@ def for_contract(d: dict) -> bool:
     return any(str(t).startswith("contract:") for t in d.get("tags") or [])
 
 
+# printers that only make one class of device (live 2026-11-03: a crystal synthesis lab, features print + epitaxy,
+# answered "This printer can only fabricate epitaxy-class devices" to relay and beacon prints): never a general factory
+CLASS_FEATURES = {"epitaxy"}
+CLASS_PRINTERS: set[str] = set()   # device types the game refused a print on that way (kv class_printers)
+CLASS_RE = re.compile(r"can only fabricate", re.I)
+
+
 def is_factory(d: dict) -> bool:
     """An autofactory, or another printer that works a queue. Not a vessel: it lists enqueue_print but only prints through
     its replicant, one at a time (seen live 2026-10-09: a fleet's replenishment print queued on a heaven vessel instead
-    of the system's autofactories, and never printed)."""
+    of the system's autofactories, and never printed). Not a printer limited to one class of device either."""
     t = d.get("device_type") or ""
-    return "vessel" not in t and ("enqueue_print" in (d.get("available_commands") or []) or "autofactory" in t)
+    if "autofactory" in t:
+        return True
+    if "vessel" in t or t in CLASS_PRINTERS or CLASS_FEATURES & set(d.get("features") or []):
+        return False
+    return "enqueue_print" in (d.get("available_commands") or [])
+
+
+def is_printer(d: dict) -> bool:
+    """Any printer working a queue, class-limited ones included (is_factory leaves those out)."""
+    t = d.get("device_type") or ""
+    return "autofactory" in t or ("vessel" not in t and "enqueue_print" in (d.get("available_commands") or []))
 
 
 def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict[str, dict], stars: dict[str, dict],
