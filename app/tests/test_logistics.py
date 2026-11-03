@@ -583,6 +583,20 @@ def test_a_replicant_about_to_leave_does_not_cover_its_system(client):  # noqa: 
     assert "Z" not in client.portal.call(e.commandable, devs, None, {"R1"})
 
 
+def test_a_trade_paying_only_devices_still_picks_them_up():
+    """Owner 2026-11-03: a crystal synthesis lab bought at DELTA-OBJ-2 was left there: without resources paid out the run
+    had no home, so no pickup was recorded."""
+    devs = world()
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    t = {"key": "C1:T1", "controller": "C1", "trade_code": "T1", "name": "Lab", "location": "Z-3", "price": {"carbon": 50},
+         "rewards": {}, "reward_devices": {"crystal_synthesis_lab": 1}}
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 500}}, pos=POS, commandable={"A", "B"},
+                hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[t], incoming={}, replicants={},
+                drop=lambda s: f"{s}-1")
+    run = next(r for r in p["runs"] if r["req"] == "trade:C1:T1")
+    assert run["home"] == "A-1" and run["reward_devices"] == {"crystal_synthesis_lab": 1} and not run["rewards"]
+
+
 def test_a_deals_payout_is_loaded_and_brought_to_the_gather_point():
     devs = world()
     devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None

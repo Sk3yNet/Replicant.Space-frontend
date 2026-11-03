@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.342.0"
+VERSION = "1.343.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.343.0", "2026-11-03", "Devices a trade or contract pays out are picked up even when it pays no resources (Joe: the crystal synthesis lab bought at DELTA-OBJ-2 was left there). They are tagged for the nearest gather point within the sector range, else the run's wait point, and carriers with room bring them in. A payout of resources no longer goes to a gather point beyond the sector range."),
     ("1.342.0", "2026-11-03", "Class-limited printers are no factory (snapshot 12:33): the crystal synthesis lab at DELTA-OBJ-2 got 4 beacon and 10 relay prints the game refuses (This printer can only fabricate epitaxy-class devices), and logistics hauled materials to DELTA for them. Printers with the epitaxy feature, or of a type the game refused that way, no longer take automated prints; the virtual queue drops the ones it kept for them (prints queued there by hand stay), so those relay orders print elsewhere. A logistics device waits after a trip outside the network at its fleet home only within the sector range, else at the nearest covered system in range: freighter 2D6BFDF1 and Percival were set to fly from DELTA to FALQUORYX-BELT-1."),
     ("1.341.1", "2026-11-03", "Relay rollout no longer pauses for want of print slots (VORWYRYR): relay and station prints ordered in the last 20 minutes counted against a factory's 10 game queue slots although they wait in the virtual print queue and take none, so after a few dozen orders in one pass every factory looked full, 5 systems were skipped and the rollout paused. They now count only toward which factory is least loaded. A factory with only print jobs open is no longer treated as busy for another print."),
     ("1.341.0", "2026-11-03", "Parallax arrays count as galactic observatories (Joe): fleets prospect with them, prospector fleets "

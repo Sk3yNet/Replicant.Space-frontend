@@ -1083,10 +1083,16 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             back = wait_point(ride or group[0]["dev"], dstar) if dstar not in commandable else None
             # what the deal pays out: the convoy loads it there and then and takes it to the nearest gather point
             rewards = {x: q for x, q in (r.get("rewards") or {}).items() if q >= 1} if rep else {}
+            # devices it pays out are picked up too (owner 2026-11-03: the crystal synthesis lab bought at DELTA-OBJ-2
+            # was left there): taken to the same gather point by carriers with room (KV_PICKUPS, the loadout pass)
+            rdev = (r.get("reward_devices") or {}) if rep else {}
             home = None
-            if rewards and gather:
-                gstar = min(gather, key=lambda g_: (_dist(dstar, g_, pos), g_))
+            near_g = [g_ for g_ in gather if _dist(dstar, g_, pos) <= reach]   # never a hub beyond the sector range
+            if (rewards or rdev) and near_g:
+                gstar = min(near_g, key=lambda g_: (_dist(dstar, g_, pos), g_))
                 home = gather[gstar] if gather[gstar] != dest else None
+            elif rdev and back:
+                home = back
             runs.append({"req": r["id"], "kind": r["kind"],
                          "cargos": [{k: g[k] for k in ("code", "legs", "carry", "rides", "room")} for g in group],
                          "ride": ride and ride["device_code"], "escort": esc and esc["device_code"], "to": dest,
@@ -1094,7 +1100,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                          "replicant": rep, "back": back, "label": r["label"],
                          "escort_pickup": any(star_of(x) not in commandable for x in stops[:-1]),
                          "rewards": rewards if home else {}, "home": home,
-                         "reward_devices": (r.get("reward_devices") or {}) if rep else {}})
+                         "reward_devices": rdev})
         r["_left"], r["_assigned"] = need, assigned
     # rescues: your devices out of command range (beyond an active relay network, no replicant with them), last tier.
     # A device that can surge home is reached by a replicant (in its system, or anywhere its own dark relay network
