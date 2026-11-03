@@ -254,3 +254,39 @@ def test_a_stuck_factory_prints_its_components_first(client):  # noqa: F811
     assert any("front of its queue" in x for x in out), out
     q = world.queues["AF00BEEF"]
     assert [x["device_type"] for x in q] == ["orbital_farm", "biosphere_cultivator", "biosphere_cultivator"], q
+
+
+def test_a_component_pinned_elsewhere_without_its_trip_is_sent_on():
+    """Snapshot 2026-11-03 23:43: relays for FALQUORYX's relay stations sat at SOLARES pinned at:falquoryx-belt-1 with no
+    to: tag (the relay unbinding made them spare), counted as coming, so both FALQUORYX queues waited."""
+    R = lambda c, loc, tags: {"device_code": c, "device_type": "ftl_relay", "location": loc, "status": "inactive",  # noqa: E731
+                              "tags": tags}
+    devs = [R("R1", "SOLARES-BELT-1", ["at:falquoryx-belt-1", "component", "contract:k-3-evt-010", "gather", "spare"]),
+            R("R2", "SOLARES-BELT-1", ["at:falquoryx-belt-1", "component", "to:falquoryx"]),   # still on its way
+            R("R3", "FALQUORYX-BELT-1", ["at:falquoryx-belt-1", "component"])]                  # there already
+    out = comp.unbound(devs)
+    assert [(d["device_code"], cfg) for d, cfg in out] == [
+        ("R1", {"add_tags": ["to:falquoryx"], "remove_tags": ["gather", "spare"]})]
+
+
+def test_relay_components_bound_for_a_relayed_system_keep_their_trip():
+    """The loadout pass makes a relay bound for a system that already has one relaying spare; a print's component or a
+    contract's relay keeps its to: tag (the snapshot 2026-11-03 relays for FALQUORYX's stations lost theirs)."""
+    from rsweb import loadouts as lo
+
+    def dev(code, t, loc, **kw):
+        return {"device_code": code, "device_type": t, "location": loc, "status": kw.pop("status", "inactive"),
+                "operational_capacity": 100.0, "features": kw.pop("features", ["cruise", "stow"]),
+                "available_commands": ["travel", "stow", "deploy"], **kw}
+    devices = [dev("W1", "ftl_relay", "AAA-1-L4", status="relaying"),
+               dev("R1", "ftl_relay", "HUB-1", tags=["to:aaa"]),
+               dev("C1", "ftl_relay", "HUB-1", tags=["to:aaa", "at:aaa-belt-1", "component"]),
+               dev("K1", "ftl_relay", "HUB-1", tags=["to:aaa", "at:aaa-3", "contract:aaa-3-evt-1"]),
+               dev("HV", "heaven_vessel", "HUB-1", features=["surge", "cruise"], stow_capacity=5,
+                   hosting_replicant={"replicant_code": "X"}, tags=["fleet:logistics"])]
+    stars = {s: {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in (("HUB", 0), ("AAA", 5))}
+    cfg = {"phases": [], "systems": {}, "fleets": [{"id": "logistics", "name": "Logistics", "role": "logistics",
+                                                    "home": "HUB", "wants": {}}]}
+    p = lo.plan(cfg, devices, [], {}, stars, {"HV": "X"}, set(), [], {}, commandable={"HUB", "AAA"})
+    assert "to:aaa" in p["tag_remove"].get("R1", [])
+    assert "to:aaa" not in p["tag_remove"].get("C1", []) and "to:aaa" not in p["tag_remove"].get("K1", [])

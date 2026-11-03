@@ -417,8 +417,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     bound_relays: dict[str, list[dict]] = defaultdict(list)
     for d in devices:
         dest = bound_for(d, known_stars, fleet_homes)
+        # a print's component or a contract's relay isn't for the network: it goes where it's pinned (snapshot
+        # 2026-11-03 23:43: relays for FALQUORYX's relay stations were unbound at SOLARES and both queues waited)
         if (dest and (d.get("device_type") or "") == "ftl_relay" and not fleet_tag_of(d) and to_tag(dest) in (d.get("tags") or [])
-                and not str(d.get("status") or "").startswith("relaying")):
+                and not str(d.get("status") or "").startswith("relaying") and not is_component(d) and not for_contract(d)):
             bound_relays[dest].append(d)
     for dest, ds in bound_relays.items():
         moving_ = lambda x: x["device_code"] in busy or bool(x.get("stowed_in_device_code") or x.get("attached_to_device_code"))  # noqa: E731

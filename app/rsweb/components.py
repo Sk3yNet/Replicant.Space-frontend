@@ -235,6 +235,30 @@ def far_pins(devices: list[dict], pos: dict) -> list[dict]:
     return out
 
 
+def unbound(devices: list[dict]) -> list[tuple[dict, dict]]:
+    """Components pinned to a factory in another system that lost their to: tag (snapshot 2026-11-03 23:43: three relays
+    for FALQUORYX's relay stations sat at SOLARES pinned at:falquoryx-belt-1 with no to:, made spare by the loadout
+    pass's relay unbinding; `coming` counted them, so no relay was printed and both FALQUORYX queues waited):
+    [(device, PATCH configuration)] that puts the trip back."""
+    from .automations import star_of
+    from .loadouts import GATHER, SPARE, is_component, pinned_at, to_tag
+    by = {d.get("device_code"): d for d in devices}
+    out = []
+    for d in devices:
+        pin = pinned_at(d)
+        if not is_component(d) or not pin:
+            continue
+        host = by.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code")) or {}
+        here = star_of(d.get("location") or host.get("location") or "")
+        want = to_tag(star_of(pin))
+        tags = d.get("tags") or []
+        if not here or here == star_of(pin) or want in tags:
+            continue
+        out.append((d, {"add_tags": [want], "remove_tags": [t for t in tags if t in (SPARE, GATHER, "stock")
+                                                            or (t.startswith("to:") and t != want)]}))
+    return out
+
+
 def release(d: dict) -> dict:
     """The PATCH configuration that makes a component a plain spare again: its component tag and pins go."""
     return {"add_tags": ["spare"], "remove_tags": [t for t in d.get("tags") or [] if t == COMPONENT

@@ -3257,6 +3257,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         """Factories waiting for component devices (components.py): spares are pinned to the factory's location, the
         rest printed at another autofactory, with the waiting item's tags. Every 5 minutes."""
         from . import components as comp
+        from .loadouts import pinned_at as pinned_at_
         last = _ts(await self.db.kv_get("components_last", None))
         if last and (_now() - last).total_seconds() < 300:
             return []
@@ -3288,6 +3289,16 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             if n:
                 out.append(f"{n} component(s) pinned to a factory beyond the sector range are spares again")
                 await self.log("components", out[-1])
+        far_codes = {d["device_code"] for d in far}
+        lost = [(d, cfg) for d, cfg in comp.unbound(devices) if d["device_code"] not in far_codes]
+        for d, cfg in lost:   # pinned to a factory in another system but no longer bound there: sent again
+            ok, _, _ = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": cfg},
+                                       f"components: {d['device_code']} sent on to {pinned_at_(d)}")
+            if ok:
+                d["tags"] = [t for t in d.get("tags") or [] if t not in cfg["remove_tags"]] + cfg["add_tags"]
+        if lost:
+            out.append(f"{len(lost)} component(s) pinned to a factory in another system were sent on again")
+            await self.log("components", out[-1])
         claim = comp.claimable(devices)
         for d, tags in claim:   # already there but not tagged as its components (spare, stock, untagged): claimed
             cfg = comp.retag(d, tags)
@@ -3464,11 +3475,21 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         head = real[0]
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
-        pick = vqm.jump(head, real[1:], kept, inv.get(dev.get("location")) or {}, bps)
+        from . import components as comp
+        devs = await self.devices()
+        kinds = {t for it in real[1:] + [o["body"] for o in kept] for t in comp.components(bps.get(it.get("device_type") or ""))}
+        # deployed there now (queued prints of that type don't count: they aren't made yet), less the queue's own use
+        free = {t: comp.free_here(devs, {"location": dev.get("location")}, t, {})
+                - sum(comp.components(bps.get(it.get("device_type") or "")).get(t, 0) * max(1, int(it.get("quantity") or 1))
+                      for it in real) for t in kinds}
+        pick = vqm.jump(head, real[1:], kept, inv.get(dev.get("location")) or {}, bps, free=free)
         if not pick:
             return None
         kind, x = pick
         body = vqm.body_of(x) if kind == "real" else vqm.send_body(x)
+        uses = comp.components(bps.get(body.get("device_type") or ""))
+        if kind == "kept" and uses:   # no more of it than the free components cover
+            body["quantity"] = max(1, min(int(body.get("quantity") or 1), min(free.get(c, 0) // n for c, n in uses.items())))
         again = vqm.body_of(head)
         async with vq.lock:
             st = await vq.state()

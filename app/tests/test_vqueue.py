@@ -226,3 +226,17 @@ def test_class_limited_printers_are_no_factory_and_lose_the_apps_prints(client):
     assert client.portal.call(VirtualQueue(db).orders, "CC00CAFE") == []
     assert out == ["CC00CAFE: dropped 1 kept print(s): it is no general factory",
                    "CC00CAFE: 1 print(s) into the game's queue"]   # the relay dropped, the print by hand sent
+
+
+def test_a_print_with_its_components_free_there_jumps_a_waiting_one():
+    """Snapshot 2026-11-03 23:43: mining rigs waited behind relay stations (waiting for a relay) with 18 drones idle there."""
+    bps = {"relay_station": {"device_type": "relay_station", "resources": {"metals": 5}, "components": {"ftl_relay": 1}},
+           "rig": {"device_type": "rig", "resources": {"metals": 2}, "components": {"drone": 3}},
+           "ftl_relay": {"device_type": "ftl_relay", "resources": {"metals": 1}}}
+    cur = {"device_type": "relay_station"}
+    rig = {"factory": "F", "body": {"device_type": "rig", "quantity": 1}, "prio": 3, "seq": 1}
+    assert vqueue.jump(cur, [], [rig], {"metals": 99}, bps) is None                      # nothing known free
+    assert vqueue.jump(cur, [], [rig], {"metals": 99}, bps, free={"drone": 2}) is None   # too few drones
+    assert vqueue.jump(cur, [], [rig], {"metals": 99}, bps, free={"drone": 3}) == ("kept", rig)
+    other = {"factory": "F", "body": {"device_type": "relay_station", "quantity": 1}, "prio": 3, "seq": 2}
+    assert vqueue.jump(cur, [], [other], {"metals": 99}, bps, free={"ftl_relay": 5}) is None   # it wants the same kind
