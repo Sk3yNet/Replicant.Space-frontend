@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.338.0"
+VERSION = "1.339.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.339.0", "2026-11-03", "Print queues even out at one spot (Joe): autofactories of one type at the same location share the app's queue of waiting prints, so each one is fed the best of all of them. An idle factory no longer sits empty while its neighbor's prints wait behind it."),
     ("1.338.0", "2026-11-02", "Dashboard › Stockpiles drawn like the other charts (Joe): a chart per resource with its own color, the current total and the change over the period, 2d / 7d / 30d (48 h by default), materials in transit beside the name, and a link to Stockpiles by location. It loads on its own, so the dashboard opens faster."),
     ("1.337.0", "2026-11-02", "Dashboard › Logistics backlog: Devices waiting to be moved has a second line, by a replicant (rescues, and devices sitting in or bound for a system out of command range, which need a logistics device hosting a replicant along). Chart lines get ten distinct colors (lines past the second all looked alike or did not show); past ten they repeat dashed."),
     ("1.336.1", "2026-11-02", "Delta deliveries unstuck (Joe): an approved trade held the nearest logistics vessel with a replicant for itself, even while it still waited for the devices it pays with. In Delta that was the only one (5DF3161B), so the 10 compute cores for the Crystal Synthesis Lab and 5 relays waited at ISOLITHOR for an escort that was never released. A trade waiting for its devices now holds nothing. The Logistics line says tagged devices sit elsewhere for Loadouts to carry, instead of on their way."),

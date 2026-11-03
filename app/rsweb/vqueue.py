@@ -10,7 +10,8 @@ factory in the game's queue, best first:
   3 loadout   everything else (fleet loadouts, contracts, lockers …)
   4 stock   keep-in-stock prints (`stock` tag)
 
-then in the order they were queued. A better print waiting here takes the place of a worse one in the game's queue
+then in the order they were queued. Factories of one type at one spot share what's kept here (owner 2026-11-03): each
+is fed the best of all their kept orders, so their game queues stay even and none sits idle while a neighbor's backs up. A better print waiting here takes the place of a worse one in the game's queue
 (that one comes back here). Why: on 2026-11-01 44 mining rigs sat at the head of all 5 factory queues waiting for drones
 that nothing could print, because every factory's queue was blocked by a rig.
 
@@ -84,9 +85,11 @@ class VirtualQueue:
         s.setdefault("orders", [])
         return s
 
-    async def orders(self, code: str | None = None) -> list[dict]:
+    async def orders(self, code: str | None = None, codes: list[str] | None = None) -> list[dict]:
+        """Kept orders of one factory (`code`), of several (`codes`: a spot's factories pooled), or all; best first."""
         s = await self.state()
-        out = [o for o in s["orders"] if code is None or o["factory"] == code]
+        want = set(codes) if codes else ({code} if code else None)
+        out = [o for o in s["orders"] if want is None or o["factory"] in want]
         return sorted(out, key=lambda o: (o["prio"], o["seq"]))
 
     async def add(self, code: str, body: dict, prio: int, s: dict | None = None, seq: int | None = None) -> dict:

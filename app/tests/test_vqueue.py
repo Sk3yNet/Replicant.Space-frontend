@@ -164,3 +164,19 @@ def test_prints_kept_in_the_app_take_no_queue_slots():
     from rsweb import printqueue as pq, ward_orders
     f = {"print_queue": [{"device_type": "a"}] + [{"device_type": "b", "virtual": True}] * 20}
     assert pq.slots_used(f) == 1 and ward_orders.room(f) == 9
+
+
+def test_factories_at_one_spot_share_their_kept_prints(client):  # noqa: F811
+    """Owner 2026-11-03: a second factory at the spot takes prints kept for its busy neighbor."""
+    db, e, world = setup(client)
+    af = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    world.devices.append({**af, "device_code": "AF00CAFE"})
+    world.queues["AF00CAFE"] = []
+    for _ in range(4):
+        ok, _, _ = client.portal.call(e.send, "POST", "/devices/AF00BEEF",
+                                      {"command": "enqueue_print", "device_type": "orbital_farm", "quantity": 1,
+                                       "tags": ["fleet:m1"]}, "t")
+        assert ok
+    feed(client)
+    assert len(world.queues["AF00BEEF"]) == 2 and len(world.queues["AF00CAFE"]) == 2, world.queues
+    assert client.portal.call(VirtualQueue(db).orders, "AF00BEEF") == []

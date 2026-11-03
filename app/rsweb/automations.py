@@ -3301,11 +3301,18 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             jumped = self._vq_jumped = {}
         out = []
         now = time.monotonic()
-        for d in await self.devices():
+        devs = await self.devices()
+        # factories of one type at one spot share their kept prints (owner 2026-11-03): each one's game queue is fed
+        # from all of theirs, best first, so an idle factory takes over what waits behind a busy neighbor
+        group: dict[tuple, list[str]] = {}
+        for d in devs:
+            if d.get("device_code") and is_factory(d) and d.get("location"):
+                group.setdefault((d["location"], d.get("device_type")), []).append(d["device_code"])
+        for d in devs:
             code = d.get("device_code")
             if not code or not is_factory(d) or not d.get("location") or now - fed.get(code, -1e9) < 150:
                 continue
-            kept = await vq.orders(code)
+            kept = await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code])
             real = [x for x in pq.items(d) if not x["extra"].get("virtual")]
             k, back, send = vqm.plan(real, kept)
             waiting = str(d.get("status") or "").startswith("waiting_for_resources")
@@ -3354,7 +3361,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     if ok or (kind == "kept" and "not yet unlocked" in str(err).lower()):
                         sent += ok
                         if kind == "kept":
-                            st["orders"] = vqm.take(st["orders"], code, x, int(body.get("quantity") or 1) if ok else 10 ** 9)
+                            st["orders"] = vqm.take(st["orders"], x["factory"], x, int(body.get("quantity") or 1) if ok else 10 ** 9)
                         if not ok:   # the game won't print it: dropped, not offered again every pass
                             lk = await self.db.kv_get("locked_prints", {}) or {}
                             lk[str(body.get("device_type"))] = now_iso()
@@ -3406,7 +3413,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             ok, _, err = await self.send("POST", f"/devices/{code}", body, f"print queue: {code} gets {body['device_type']} "
                                          f"ahead of the waiting {head['device_type']}", raw=True)
             if ok and kind == "kept":
-                st["orders"] = vqm.take(st["orders"], code, x, int(body.get("quantity") or 1))
+                st["orders"] = vqm.take(st["orders"], x["factory"], x, int(body.get("quantity") or 1))
             elif not ok and kind == "real" and any(g is x for g in gone):
                 await vq.add(code, body, vqm.priority(x), s=st, seq=low - len(real) - 2)
             okb, _, _ = await self.send("POST", f"/devices/{code}", again,

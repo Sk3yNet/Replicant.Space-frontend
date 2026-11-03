@@ -83,7 +83,8 @@ System → device type → device, with stowed devices nested in their carrier; 
 - **Virtual print queue**: every print the app queues waits in the app's own queue, and each factory gets only its 2
   best waiting prints in the game's queue: prints you queue by hand (or untagged ones found in the game's queue) first,
   then components (a rig's drones always before the rig), relays, relay stations, beacons and wards, then loadouts and
-  everything else, then stock. A better one takes a worse one's place, which goes back to the app's queue. The print
+  everything else, then stock. Factories of one type at one spot share the app's queue, so each is fed the best of
+  all their waiting prints and their game queues stay even. A better one takes a worse one's place, which goes back to the app's queue. The print
   queue panel marks the waiting ones *app queue*. Turn it off with `RS_VIRTUAL_QUEUE=0`. While a factory's current
   print waits for resources or components, a waiting print that fits goes ahead (at most every 10 minutes per factory):
   the best one with no components of its own whose cost the stockpile covers with the waiting print's cost set aside
