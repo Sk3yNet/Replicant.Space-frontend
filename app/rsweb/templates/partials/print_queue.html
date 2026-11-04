@@ -23,8 +23,8 @@
         {% if cur.overdue %}<div class="muted small">Past its finish time; waiting for the game to report it done.</div>{% endif %}
       </div>
     {% elif cur and cur.state == 'waiting' %}
-      <div><span class="pill lv-alert">waiting for resources</span>{% if cur.device_type %} <strong>{{ cur.device_type | human }}</strong>{% endif %}
-        <span class="muted small">— starts when the materials are at {{ dev.location }}</span></div>
+      <div><span class="pill lv-alert">waiting for {{ (cur.waits_for | map(attribute='kind') | unique | join(' and ')) or 'resources' }}</span>{% if cur.device_type %} <strong>{{ cur.device_type | human }}</strong>{% endif %}
+        {% if cur.waits_for %}<span class="small">— needs {% for w in cur.waits_for %}{{ w.type | human }}{% if w.kind != 'components' and w.kind != 'resources' %} ({{ w.kind | human }}){% endif %} {% if w.have is not none %}{{ w.have }} of {% endif %}{{ w.need }}{{ ', ' if not loop.last }}{% endfor %}</span>{% else %}<span class="muted small">— starts when the materials are at {{ dev.location }}</span>{% endif %}</div>
     {% else %}
       <div class="muted">Not printing{% if queue %} (status: {{ dev.status }}){% endif %}.</div>
     {% endif %}

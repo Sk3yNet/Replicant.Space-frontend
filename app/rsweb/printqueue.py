@@ -75,7 +75,31 @@ def _ts(v: Any) -> datetime | None:
     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
 
 
+def waits_for(dev: dict) -> list[dict]:
+    """What a waiting factory's first print still lacks, from the game's `waiting_for` ({kind: {type: {have, need}}},
+    live 2026-11-03: {"components": {"ftl_relay": {"have": 0, "need": 1}}}): [{kind, type, have, need}]."""
+    out = []
+    for kind, per in sorted(((dev or {}).get("waiting_for") or {}).items()):
+        if not isinstance(per, dict):
+            continue
+        for t, x in sorted(per.items()):
+            if isinstance(x, dict):
+                out.append({"kind": kind, "type": t, "have": x.get("have"), "need": x.get("need")})
+            elif isinstance(x, (int, float)):   # a bare amount, just in case
+                out.append({"kind": kind, "type": t, "have": None, "need": x})
+    return out
+
+
 async def current(db, dev: dict) -> dict | None:
+    """What the printer is doing now, or None when it's idle."""
+    cur = await _current(db, dev)
+    if cur and cur.get("state") == "waiting":   # the waiting print is the queue's first item (live 2026-11-02)
+        head = (items(dev) or [{}])[0]
+        cur = {**cur, "device_type": head.get("device_type") or cur.get("device_type"), "waits_for": waits_for(dev)}
+    return cur
+
+
+async def _current(db, dev: dict) -> dict | None:
     """What the printer is doing now, or None when it's idle."""
     status = str(dev.get("status") or "")
     pr = dev.get("printing")

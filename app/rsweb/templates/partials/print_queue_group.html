@@ -8,7 +8,8 @@
       <td>{% if cur and cur.state == 'printing' %}<div class="timer" {% if cur.completes_at %}data-ends="{{ cur.completes_at }}" data-start="{{ cur.started_at or cur.completes_at }}"{% endif %}>
           <span class="pill st-work">printing</span> {{ (cur.device_type or 'unknown') | human }}
           {% if cur.completes_at %}<span class="mono left"></span>{% endif %}</div>
-        {% elif cur and cur.state == 'waiting' %}<span class="pill lv-alert">waiting for resources</span>{% if cur.device_type %} {{ cur.device_type | human }}{% endif %}
+        {% elif cur and cur.state == 'waiting' %}<span class="pill lv-alert">waiting for {{ (cur.waits_for | map(attribute='kind') | unique | join(' and ')) or 'resources' }}</span>{% if cur.device_type %} {{ cur.device_type | human }}{% endif %}
+          {% if cur.waits_for %}<div>{% if cur.waits_for %}<span class="small">— needs {% for w in cur.waits_for %}{{ w.type | human }}{% if w.kind != 'components' and w.kind != 'resources' %} ({{ w.kind | human }}){% endif %} {% if w.have is not none %}{{ w.have }} of {% endif %}{{ w.need }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}</div>{% endif %}
         {% else %}<span class="muted">not printing</span>{% endif %}</td>
       <td>{% for it in f.queue %}{{ it.device_type | human }}{% if it.quantity and it.quantity > 1 %} ×{{ it.quantity }}{% endif %}{{ ', ' if not loop.last }}{% else %}<span class="muted">—</span>{% endfor %}</td></tr>
     {% endfor %}

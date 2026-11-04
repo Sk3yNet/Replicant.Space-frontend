@@ -9993,3 +9993,14 @@ def test_outpost_orders_with_virtual_queue_never_fill_a_factory(client, monkeypa
     print_job = {"status": "running", "device": "X", "steps": [{"path": "/devices/X", "body": {"command": "enqueue_print"}}]}
     travel = {"status": "running", "device": "X", "steps": [{"path": "/devices/X", "body": {"command": "travel"}}]}
     assert wo.print_only([print_job], "X") == {"X"} and not wo.print_only([print_job, travel], "X")
+
+
+def test_a_waiting_factory_says_what_it_waits_for(client):
+    """Joe 2026-11-03: the panel names the game's waiting_for (live: {"components": {"ftl_relay": {"have": 0, "need": 1}}})."""
+    world = client.app.state.api.http._transport.app.state.world
+    af = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    world.queues["AF00BEEF"] = [{"device_type": "deep_space_relay_station", "notify": {"device": None}, "tags": []}]
+    af.update(status="waiting_for_resources", waiting_for={"components": {"ftl_relay": {"have": 0, "need": 1}}})
+    panel = client.get("/devices/AF00BEEF/print-queue", headers=HX).text
+    assert "waiting for components" in panel and "needs ftl relay 0 of 1" in panel.lower()
+    assert "deep space relay station" in panel.lower()
