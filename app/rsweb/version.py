@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.345.0"
+VERSION = "1.346.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.346.0", "2026-11-04", "Devices that arrived aboard a replicant's vessel are unloaded. The loadout pass looked up the carrier of a stowed device only among the devices it plans for, which leaves out the replicants' vessels, so a device that rode one to its destination had no known place and stayed aboard (the third drone for the SOLARES rig sat in an idle logistics vessel at SOLARES-BELT-1 while the rig waited at 2 of 3 drones)."),
     ("1.345.0", "2026-11-04", "A waiting autofactory says what it waits for. The print queue panel and the Print queues cards show the waiting print (the first in the queue) and what the game says it still lacks, e.g. waiting for components: needs FTL relay 0 of 1, instead of a plain waiting for resources."),
     ("1.344.0", "2026-11-03", "FALQUORYX autofactories unstuck. Relays printed at SOLARES as components for the FALQUORYX relay stations lost their trip: the loadout pass made relays bound for a system that already relays spare, components and contract relays included, so they sat at SOLARES counted as on their way and no relay was printed. Components and contract relays now keep their trip, and the component pass sends on any component pinned to a factory in another system without one. A print that uses components also goes ahead of a waiting print when its components lie free at the factory (mining rigs waited behind the stations with 18 drones idle there)."),
     ("1.343.2", "2026-11-03", "Rock chaser: when no asteroid in flight is known anywhere in its area, the fleet card says so (rocks are seen only when a hub in their system detects them) instead of no rock meets the criteria. Snapshots include each rock chaser's settings and run (target, phase, note). Chaser_1 sat idle at SOLARES-BELT-1 (snapshot 23:43): the last rock the app heard of in time was SOLARES-OBJ-4 (10-25), and no asteroid event at all came after 10-27."),

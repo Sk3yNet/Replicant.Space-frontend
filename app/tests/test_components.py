@@ -290,3 +290,26 @@ def test_relay_components_bound_for_a_relayed_system_keep_their_trip():
     p = lo.plan(cfg, devices, [], {}, stars, {"HV": "X"}, set(), [], {}, commandable={"HUB", "AAA"})
     assert "to:aaa" in p["tag_remove"].get("R1", [])
     assert "to:aaa" not in p["tag_remove"].get("C1", []) and "to:aaa" not in p["tag_remove"].get("K1", [])
+
+
+def test_a_component_aboard_a_replicant_vessel_at_its_pin_is_unloaded():
+    """Snapshot 2026-11-03 23:43: the third drone for a SOLARES rig stayed stowed in Wendell's idle vessel at
+    SOLARES-BELT-1 (the vessel isn't in the planner's pool, so the drone had no known place); the rig waited at 2 of 3."""
+    from rsweb import loadouts as lo
+
+    def dev(code, t, loc, **kw):
+        return {"device_code": code, "device_type": t, "location": loc, "status": kw.pop("status", "idle"),
+                "operational_capacity": 100.0, "features": kw.pop("features", ["cruise", "stow"]),
+                "available_commands": ["travel", "stow", "deploy"], **kw}
+    hv = dev("HV", "heaven_vessel", "SOLARES-BELT-1", features=["surge", "cruise"], stow_capacity=5,
+             hosting_replicant={"replicant_code": "X"}, tags=["fleet:logistics"])
+    d1 = dev("D1", "mining_drone", None, status="stowed", stowed_in_device_code="HV",
+             tags=["at:solares-belt-1", "component", "to:solares"])
+    stars = {s: {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in (("SOLARES", 0), ("FALQUORYX", 500))}
+    cfg = {"phases": [], "systems": {}, "fleets": [{"id": "logistics", "name": "Logistics", "role": "logistics",
+                                                    "home": "SOLARES", "wants": {}}]}
+    p = lo.plan(cfg, [hv, d1], [], {}, stars, {"HV": "X"}, set(), [], {"HV": ["D1"]}, commandable={"SOLARES"})
+    assert p["arrived"] == ["D1"]
+    p = lo.plan(cfg, [{**hv, "status": "surging"}, d1], [], {}, stars, {"HV": "X"}, set(), [], {"HV": ["D1"]},
+                commandable={"SOLARES"})
+    assert p["arrived"] == []   # still on the way

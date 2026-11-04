@@ -1096,12 +1096,14 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         here = star_of(d.get("location"))
         host = stowed_in.get(code)
         if not here and host:   # aboard a carrier (seen live 2026-10-13: a beacon stowed in E1029CB0 at SOLARES reported
-            if in_transit(d, by_code, stowed_in):   # no location, and the carrier was sent to fly in from "")
+            # the carrier may be a replicant's vessel, left out of the pool (snapshot 2026-11-03 23:43: a drone for the
+            # SOLARES rig stayed aboard Wendell's idle vessel at SOLARES-BELT-1, so the rig waited at 2 of 3 drones)
+            if in_transit(d, by_code_all, stowed_in):   # no location, and the carrier was sent to fly in from "")
                 continue
-            here = star_of((by_code.get(host) or {}).get("location"))
+            here = star_of((by_code_all.get(host) or {}).get("location"))
         if not here:
             continue   # nowhere known to fetch it from
-        if here == dest and in_transit(d, by_code, stowed_in):
+        if here == dest and in_transit(d, by_code_all, stowed_in):
             continue   # its carrier is still on the way (seen live 2026-10-11: "arrived" mid-surge, detach refused for 3 h)
         if here == dest:
             arrived.append(code)
@@ -1112,7 +1114,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     for d in pool:  # tagged earlier and already there
         dest = bound_for(d, known_stars, fleet_homes)
         if dest and star_of(d.get("location")) == dest and d["device_code"] not in busy and d["device_code"] not in arrived \
-                and not in_transit(d, by_code, stowed_in):
+                and not in_transit(d, by_code_all, stowed_in):
             arrived.append(d["device_code"])
     for d in pool:  # pinned to a spot in the system it is in, but elsewhere there, and it can't fly: a carrier takes it
         code, pin, here = d["device_code"], pinned_at(d), star_of(d.get("location"))
