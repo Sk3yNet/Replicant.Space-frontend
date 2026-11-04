@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.346.1"
+VERSION = "1.347.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.347.0", "2026-11-04", "Every unread message behind the Messages badge is listed. The badge is the game's own unread count, but the page read only the latest 50 messages, so unread ones older than that counted without showing (8 on the badge, none to be found). The sync now also reads the unread messages (unread_only) when the game counts more than the latest page holds, and the card says so if the game still counts more than it lists."),
     ("1.346.1", "2026-11-04", "Held logistics trips stay in sight. A trip held for Confirm whose request had already left the queue (the DELTA print run, delivered, then held on its 29,000 ly way back) showed only far down in Recent trips, so its carriers looked dedicated to a missing task. The Requests card now lists such Held trips first with Confirm trip and Cancel job, and Recent trips marks held jobs."),
     ("1.346.0", "2026-11-04", "Devices that arrived aboard a replicant's vessel are unloaded. The loadout pass looked up the carrier of a stowed device only among the devices it plans for, which leaves out the replicants' vessels, so a device that rode one to its destination had no known place and stayed aboard (the third drone for the SOLARES rig sat in an idle logistics vessel at SOLARES-BELT-1 while the rig waited at 2 of 3 drones)."),
     ("1.345.0", "2026-11-04", "A waiting autofactory says what it waits for. The print queue panel and the Print queues cards show the waiting print (the first in the queue) and what the game says it still lacks, e.g. waiting for components: needs FTL relay 0 of 1, instead of a plain waiting for resources."),

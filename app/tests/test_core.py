@@ -10004,3 +10004,15 @@ def test_a_waiting_factory_says_what_it_waits_for(client):
     panel = client.get("/devices/AF00BEEF/print-queue", headers=HX).text
     assert "waiting for components" in panel and "needs ftl relay 0 of 1" in panel.lower()
     assert "deep space relay station" in panel.lower()
+
+
+def test_older_unread_messages_behind_the_badge_are_listed(client):
+    """The badge counts every unread message; ones older than the latest page are fetched with unread_only."""
+    client.app.state.api.http._transport.app.state.world.older_unread = [
+        {"id": 90, "title": "Old unread news", "body": "x", "created_at": "2026-10-01T00:00:00Z", "is_read": False}]
+    client.portal.call(client.app.state.worker.sync_messages)
+    msgs = client.portal.call(client.app.state.db.kv_get, "messages")
+    assert [m["id"] for m in msgs] == [1, 90]
+    client.app.state.worker.sync_messages = lambda: asyncio.sleep(0)
+    page = client.get("/messages", headers=H).text
+    assert "Old unread news" in page and "2 unread" in page

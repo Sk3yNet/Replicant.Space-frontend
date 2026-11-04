@@ -998,7 +998,33 @@ class Worker:
 
     async def sync_messages(self) -> None:
         body = await self.api.get("/messages", background=True, limit=50, latest="true")
-        msgs = (body or {}).get("messages") or []
+        msgs = [m for m in (body or {}).get("messages") or [] if isinstance(m, dict)]
+        # the badge is the game's unread count, which also counts unread messages older than the latest 50: fetch
+        # those too (unread_only), so every message behind the badge is listed (Joe 2026-11-04: 8 on the badge, none
+        # to be found)
+        want = (body or {}).get("unread_message_count")
+        if not isinstance(want, int):
+            want = self.api.unread_count
+        if isinstance(want, int) and want > sum(1 for m in msgs if message_unread(m)):
+            seen = {message_id(m) for m in msgs}
+            cursor = None
+            for _ in range(4):
+                params = {"limit": 50, "unread_only": "true"}
+                if cursor:
+                    params["cursor"] = cursor
+                try:
+                    more = await self.api.get("/messages", background=True, **params) or {}
+                except ApiError as e:
+                    log.warning("reading older unread messages failed: %s", e.message)
+                    break
+                for m in more.get("messages") or []:
+                    if isinstance(m, dict) and message_unread(m) and message_id(m) not in seen:
+                        seen.add(message_id(m))
+                        msgs.append(m)
+                cursor = more.get("next_cursor")
+                if not cursor:
+                    break
+            msgs.sort(key=lambda m: str(m.get("created_at") or m.get("sent_at") or ""), reverse=True)
         # owner, 2026-10-15: salvage discoveries mustn't raise the Messages badge — they're marked read (the Events
         # feed and the system pages still have them); since 1.315.0 a checkbox each on the Messages page, with
         # civilizations' requests for help

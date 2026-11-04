@@ -1124,9 +1124,13 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                      "category": "exploration", "xp_reward": 100, "achieved_at": iso()}]})
 
     @app.get("/v1/messages")
-    async def messages():
+    async def messages(unread_only: bool = False):
+        older = getattr(world, "older_unread", [])   # unread messages past the latest page (tests set them)
+        if unread_only:
+            return ok({"messages": older, "next_cursor": None})
         return ok({"messages": [{"id": 1, "message_type": "alert", "title": "Welcome to the galaxy", "body": "Your matrix is online.",
-                                 "created_at": iso(), "read": False}], "next_cursor": None})
+                                 "created_at": iso(), "read": False}], "next_cursor": None,
+                   "unread_message_count": 1 + len(older)})
 
     @app.post("/v1/messages/read")
     async def messages_read():
