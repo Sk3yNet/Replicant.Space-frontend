@@ -611,7 +611,7 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
    way back, instead of flying home empty (*on the way back …* in the job row).
 5. **Rescues**, 6. **shop listings** (*Get listing*), 7. **repair patrols**.
 
-Bump or skip a request on the Logistics page. Every logistics job still going has *Cancel job* there (and *Confirm trip* when a long trip waits for your Confirm), on its request row and under Recent trips.
+Bump or skip a request on the Logistics page. Every logistics job still going has *Cancel job* there (and *Confirm trip* when a long trip waits for your Confirm), on its request row and under Recent trips. A held trip whose request has already left the queue is listed under *Held trips* at the top of the Requests card.
 
 ### How a delivery is planned
 - A print delivery to another system leaves with its hold at least a quarter full (or carrying all that's wanted); a

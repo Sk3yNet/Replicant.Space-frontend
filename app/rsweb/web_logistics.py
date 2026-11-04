@@ -34,10 +34,13 @@ async def logistics_page(request: Request, user: str = Depends(current_user)):
     held = {j["id"]: j["steps"][j["idx"]].get("hold") or "long trip" for j in active
             if j.get("idx", 0) < len(j.get("steps") or []) and j["steps"][j.get("idx", 0)].get("status") == "confirm"}
     why = {u["req"]: u["why"] for u in st.get("unmet") or []}
+    # held trips whose request has left the queue: their carriers stay on the job, so show them atop Requests (2026-11-04)
+    listed = {r.get("id") for r in st.get("requests") or []}
+    held_out = [j for j in reversed(jobs) if j["id"] in held and ((j.get("meta") or {}).get("logistics") or {}).get("req") not in listed]
     ok = await db.kv_get(lg.KV_TRADES, {}) or {}
     fleets = lg.logistics_fleets(await eng.fleets(), held=True)
     transit = await cargo.in_transit(db, (await load_state(request))["devices"], await eng.jobs())
-    return await page(request, user, "logistics.html", "logistics", st=st, jobs=list(reversed(jobs)), on_way=on_way, held=held, why=why,
+    return await page(request, user, "logistics.html", "logistics", st=st, jobs=list(reversed(jobs)), on_way=on_way, held=held, held_out=held_out, why=why,
                       tiers=lg.TIERS, categories=lg.CATEGORIES, fleets=fleets, approvals=ok, transit=transit,
                       hub_balance=await db.kv_get("hub_balance", {}) or {}, carrier_classes=bal.CLASSES,
                       hub_leeway=await db.kv_get(bal.KV_LEEWAY, bal.LEEWAY_PCT), slack=bal.slack,

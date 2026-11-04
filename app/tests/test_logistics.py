@@ -1244,6 +1244,23 @@ def test_logistics_page_cancels_old_and_held_jobs(client):  # noqa: F811
     assert "/automations/jobs/lg-old/cancel" not in page
 
 
+def test_logistics_page_lists_held_trips_whose_request_is_done(client):  # noqa: F811
+    """Joe 2026-11-04: a print run to DELTA delivered, then held its 29,000 ly way back for Confirm; the request had left
+    the queue, so the carriers looked dedicated to a task the page no longer showed. Held trips sit atop Requests."""
+    db = client.app.state.db
+    job = {"id": "lg-held", "rule": "logistics", "title": "logistics: prints at DELTA: F1 carries 5 rares", "status": "waiting",
+           "created_at": "2026-11-03T04:39:00+00:00", "idx": 1, "meta": {"logistics": {"req": "print:DELTA"}},
+           "steps": [{"desc": "F1: deposit at DELTA", "status": "done"},
+                     {"desc": "F1 → FALQUORYX-BELT-1", "status": "confirm", "hold": "about 400 h of travel"}]}
+    client.portal.call(db.kv_set, "automation_jobs", [job])
+    client.portal.call(db.kv_set, "logistics_state", {"requests": []})
+    page = client.get("/fleets/logistics", headers=H).text
+    assert "Held trips" in page and "about 400 h of travel" in page
+    assert page.count("/automations/jobs/lg-held/cancel") == 2 and "/automations/jobs/lg-held/confirm" in page
+    client.post("/automations/jobs/lg-held/cancel", headers=HX)
+    assert "Held trips" not in client.get("/fleets/logistics", headers=H).text
+
+
 def test_a_system_that_can_spare_it_all_goes_before_a_nearer_sliver():
     # live 2026-10-28: three freighters for one contract, two for 19 and 10 units from a nearer belt
     devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=500, **SURGE),

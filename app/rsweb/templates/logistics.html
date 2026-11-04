@@ -18,6 +18,8 @@
   <h2>Requests <button class="small" hx-post="/fleets/logistics/run" hx-target="#tx-run">Run now</button><span id="tx-run"></span></h2>
   {% if st.note %}<p class="muted">{{ st.note }}</p>{% endif %}
   <p class="muted small">Last pass {{ st.at | ago if st.at else 'not yet' }}.</p>
+  {% if held_out %}<p class="small"><b>Held trips</b> <span class="muted">(their request is done, but the carriers stay on the job until you confirm or cancel it)</span></p>
+  <table class="small held-trips">{% for j in held_out %}<tr><td>{{ job_state(j) }}</td><td>{{ job_buttons(j) }}</td></tr>{% endfor %}</table>{% endif %}
   {% if st.requests %}
   <table class="small"><tr><th>Priority</th><th>Request</th><th>To</th><th>Still needed</th><th>Status</th><th></th></tr>
     {% for r in st.requests %}<tr{% if r.skipped %} class="muted"{% endif %}>
@@ -88,6 +90,6 @@
   {% else %}<p class="muted small">Nothing in any hold right now.</p>{% endif %}
 </div>
 <div class="card"><h2>Recent trips</h2>
-  {% if jobs %}<table class="small">{% for j in jobs %}<tr><td>{{ j.created_at | ago }}</td><td>{{ j.status }}</td><td>{{ j.title }}</td><td>{% if j.status in ('running', 'waiting') %}{{ job_buttons(j) }}{% endif %}</td></tr>{% endfor %}</table>
+  {% if jobs %}<table class="small">{% for j in jobs %}<tr><td>{{ j.created_at | ago }}</td><td>{% if j.id in held %}<span class="lv-alert">held</span>{% else %}{{ j.status }}{% endif %}</td><td>{{ j.title }}</td><td>{% if j.status in ('running', 'waiting') %}{{ job_buttons(j) }}{% endif %}</td></tr>{% endfor %}</table>
   {% else %}<p class="muted">None yet.</p>{% endif %}</div>
 {% endblock %}
