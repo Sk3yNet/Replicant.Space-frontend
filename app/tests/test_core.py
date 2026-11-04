@@ -10016,3 +10016,17 @@ def test_older_unread_messages_behind_the_badge_are_listed(client):
     client.app.state.worker.sync_messages = lambda: asyncio.sleep(0)
     page = client.get("/messages", headers=H).text
     assert "Old unread news" in page and "2 unread" in page
+
+
+def test_bobnet_novel_messages_first_and_repeats_grayed(client):
+    from rsweb.web import bobnet_key
+    assert bobnet_key("NOSOXA is in the rear-view mirror") == bobnet_key("ALGENIBUS-OORT is in the rear-view mirror!")
+    assert bobnet_key("3 drones at SOL") == bobnet_key("12 drones at TWAFFY") != bobnet_key("hello there")
+    w = client.app.state.worker
+    for i, msg in enumerate(["NOSOXA is in the rear-view mirror", "fresh line one", "SOL is in the rear-view mirror"]):
+        client.portal.call(w.handle_event, _ev(9950 + i, "bobnet.new", replicant_name="Bill", replicant_code="B1",
+                                               channel="#general", message=msg))
+    page = client.get("/messages", headers=H).text
+    feed = page.split('id="bn-feed"')[1]
+    assert feed.index("fresh line one") < feed.index("Repeats") < feed.index("SOL is in the rear-view")
+    assert 'id="bn-repeats"' in page and feed.count('class="bn-repeat"') == 1

@@ -36,8 +36,21 @@
   </div>
   <div class="card">
     <div class="row between"><h2>BobNet (seen on the event stream)</h2>
-      <label class="small" style="text-transform:none"><input type="checkbox" id="bn-mentions"
-        onchange="document.querySelectorAll('#bn-feed li').forEach(li => li.style.display = this.checked && !li.dataset.mention ? 'none' : '')"> mentions only</label></div>
+      <span class="row small" style="gap:12px">
+      <label style="text-transform:none" title="Messages that say what an earlier one said (place names, codes and numbers aside)"><input type="checkbox" id="bn-repeats" onchange="bnFilter()"> hide repeats</label>
+      <label style="text-transform:none"><input type="checkbox" id="bn-mentions" onchange="bnFilter()"> mentions only</label></span></div>
+    <p class="muted small" style="margin:2px 0">New lines come first, marked blue; lines BobNet has carried before follow, grayed.</p>
+    <script>
+      function bnFilter() {
+        const rep = document.getElementById('bn-repeats').checked, men = document.getElementById('bn-mentions').checked;
+        try { localStorage.setItem('bn-repeats', rep ? '1' : ''); } catch (e) {}
+        document.querySelectorAll('#bn-feed li').forEach(li => li.style.display =
+          (men && !li.dataset.mention && !li.classList.contains('bn-older')) || (rep && li.dataset.repeat) ? 'none' : '');
+      }
+      try { if (localStorage.getItem('bn-repeats')) { document.getElementById('bn-repeats').checked = true; } } catch (e) {}
+      document.addEventListener('DOMContentLoaded', bnFilter);
+      document.body.addEventListener('htmx:afterSettle', () => { if (document.getElementById('bn-repeats')) bnFilter(); });
+    </script>
     <input type="search" name="q" placeholder="Search all saved BobNet messages (text, poster, channel, system)" style="width:100%;margin:4px 0"
            hx-get="/bobnet/older" hx-trigger="input changed delay:400ms, search" hx-target="#bn-feed">
     <ul class="feed" id="bn-feed">{% include "partials/bobnet_rows.html" %}</ul>

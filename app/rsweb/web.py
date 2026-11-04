@@ -3350,7 +3350,7 @@ async def messages(request: Request, user: str = Depends(current_user)):
     channels = sorted(({"name": n, "last_active": (names.get(n) or {}).get("last_active"), "subscribed": n in subscribed,
                         "listed": n in names} for n in set(names) | set(subscribed)),
                       key=lambda c: (not c["subscribed"], -(_ts_num(c["last_active"])), c["name"]))
-    return await page(request, user, "messages.html", "messages", msgs=msgs, err=err, bobnet=bobnet[:BOBNET_PAGE],
+    return await page(request, user, "messages.html", "messages", msgs=msgs, err=err, bobnet=bobnet_novel_first(bobnet[:BOBNET_PAGE]),
                       older=bobnet[BOBNET_PAGE - 1]["seq"] if len(bobnet) > BOBNET_PAGE else None, mentioned=mentioned,
                       unread=sum(1 for m in msgs if m["unread"]), auto_read=await auto_read_cfg(db),
                       my_names=my,
@@ -3381,9 +3381,45 @@ async def _bobnet_events(db, my, codes: set, limit: int, before: int | None = No
         args += [like] * 4
     out = [row_event(r) for r in await db.fetchall(
         f"SELECT * FROM events WHERE event='bobnet.new' {where} ORDER BY seq DESC LIMIT ?", (*args, limit))]
+    first = await _bobnet_first_seen(db)
     for e in out:
         e["mention"] = bool(my) and not notify.is_mine(e, my, codes) and notify.mentions((e.get("payload") or {}).get("message"), my)
+        k = bobnet_key((e.get("payload") or {}).get("message"))
+        e["repeat"] = bool(k) and first.get(k, e["seq"]) < e["seq"]
     return out
+
+
+_BN_NAME = re.compile(r"\b(?=[A-Z0-9-]*[A-Z])[A-Z0-9][A-Z0-9-]{2,}\b")   # star / location / code: SOL, NOSOXA-OORT, A8F48B26
+
+
+def bobnet_key(text) -> str:
+    """What a BobNet message says with its particulars left out (place names, codes and numbers), so that the same
+    line about another star or with another count reads as a repeat (Joe 2026-11-04: novel ones on top, repeats grayed)."""
+    t = _BN_NAME.sub("*", str(text or ""))
+    t = re.sub(r"\d+(?:[.,]\d+)*", "#", t.lower())
+    return " ".join(re.sub(r"[^\w#*]+", " ", t).split())
+
+
+async def _bobnet_first_seen(db) -> dict:
+    """{key: seq of the first saved message saying it}, kept in kv bobnet_first and brought up to date from the
+    events saved since the last call (the history is never pruned, so it is read once, then only the new rows)."""
+    cur = await db.kv_get("bobnet_first", {}) or {}
+    keys, last = cur.get("keys") or {}, int(cur.get("seq") or 0)
+    rows = await db.fetchall("SELECT seq, json_extract(payload, '$.message') AS m FROM events "
+                             "WHERE event='bobnet.new' AND seq > ? ORDER BY seq", (last,))
+    if rows:
+        for r in rows:
+            k = bobnet_key(r["m"])
+            if k and k not in keys:
+                keys[k] = r["seq"]
+        last = rows[-1]["seq"]
+        await db.kv_set("bobnet_first", {"seq": last, "keys": keys})
+    return keys
+
+
+def bobnet_novel_first(rows: list[dict]) -> list[dict]:
+    """A feed page with its novel messages first (newest first), then the repeats."""
+    return [e for e in rows if not e.get("repeat")] + [e for e in rows if e.get("repeat")]
 
 
 @router.get("/bobnet/older", response_class=HTMLResponse)
@@ -3393,7 +3429,7 @@ async def bobnet_older(request: Request, before: int | None = None, q: str = "",
     db = request.app.state.db
     rows = await _bobnet_events(db, await notify.my_names(db), set((await load_state(request))["replicants"]),
                                 BOBNET_PAGE + 1, before, q)
-    return partial(request, "partials/bobnet_rows.html", bobnet=rows[:BOBNET_PAGE], before=before, q=q.strip(),
+    return partial(request, "partials/bobnet_rows.html", bobnet=bobnet_novel_first(rows[:BOBNET_PAGE]), before=before, q=q.strip(),
                    older=rows[BOBNET_PAGE - 1]["seq"] if len(rows) > BOBNET_PAGE else None)
 
 
