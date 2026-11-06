@@ -125,7 +125,10 @@ def plan(objs: dict[str, dict], devices: list[dict], cfg: dict, busy: set[str], 
     now = now if now is not None else datetime.now(timezone.utc).timestamp()
     rocks, flying = minable(objs, cfg, now), open_rocks(objs, now)
     out: dict = {"start": [], "retarget": [], "stop": [], "send": [], "scan": [], "notes": []}
-    free = lambda d: d["device_code"] not in busy and d["device_code"] not in hosts and not reserved(d)   # noqa: E731
+    # a rock chaser plans for its own members (cfg own_fleet): they are always "away from station", which reserved()
+    # keeps from the in-system rules — that left Chaser_1's rigs and drone idle at SOLARES-OBJ-5 (snapshot 2026-11-06)
+    own = bool(cfg.get("own_fleet"))
+    free = lambda d: d["device_code"] not in busy and d["device_code"] not in hosts and (own or not reserved(d))   # noqa: E731
     rigs = [d for d in devices if is_rig(d) and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")]
     there: dict[str, int] = {}
     for d in rigs:

@@ -126,3 +126,16 @@ def test_engine_marks_kuiper_objects_and_launches_one(client):  # noqa: F811
     out = client.portal.call(e.rock_chase_pass)
     assert "Chaser: marked for launch: SOL-KUIPER-001" in out
     assert any("SOL-KUIPER-001 at SOL-3" in x for x in out)   # auto launch: the charge is already there
+
+
+def test_engine_starts_its_own_rigs_and_scan_at_the_rock(client):  # noqa: F811
+    # snapshot 2026-11-06: the fleet is never stationed, so reserved() hid its own rigs and drone from the plan
+    drone = {"device_code": "SURV", "device_type": "belt_surveyor", "location": "SOL-OBJ-1", "status": "idle",
+             "tags": ["fleet:rc"], "features": ["cruise", "survey"], "available_commands": ["scan", "travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-OBJ-1"), carrier("PLAT", "SOL-OBJ-1"), drone], {"SOL-OBJ-1": rock()})
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"target": "SOL-OBJ-1", "phase": "mining", "resource": "rares", "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert any(x.startswith("Chaser: RIG1 at SOL-OBJ-1: start rares") for x in out)   # the mock has no RIG1
+    assert "Chaser: SURV scans SOL-OBJ-1" in out

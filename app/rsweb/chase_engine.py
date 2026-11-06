@@ -280,7 +280,7 @@ class ChaseMixin:
         codes = {d["device_code"] for d in k["rigs"] + k["surveyors"]}
         mine_state = {c: s for c, s in ctx["state"].items() if c in codes}
         hours = rm.hours_left(o, _now()) or 0
-        rcfg = {**cfg, "send_idle": False, "scan_rocks": hours - rc.leave_h(cfg) > 1.0, "scan_minutes": 30}
+        rcfg = {**cfg, "own_fleet": True, "send_idle": False, "scan_rocks": hours - rc.leave_h(cfg) > 1.0, "scan_minutes": 30}
         objs = {rock: o}   # only its own target
         p = rm.plan(objs, k["rigs"] + k["surveyors"], rcfg, ctx["busy"], mine_state, ctx["hosts"], set(ctx["full"]),
                     ctx["scanned"])
@@ -439,7 +439,8 @@ class ChaseMixin:
                 try:
                     body = await self.api.request("GET", f"/locations/{star}-KUIPER", background=True) or {}
                 except Exception as e:  # noqa: BLE001
-                    run["note"] = f"reading {star}-KUIPER failed: {e}"
+                    read[star] = now_iso()   # once per search, not every tick (live 2026-11-06: SOLARES has no Kuiper belt, 404)
+                    out.append(f"reading {star}-KUIPER failed: {e}")
                     continue
                 read[star] = now_iso()
                 new = {d: m for d, m in rc.marked(body.get("kuiper_objects") or [], cfg, star, now_iso()).items() if d not in marks}
