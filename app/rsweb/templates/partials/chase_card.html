@@ -8,23 +8,58 @@
     {% if run.target %}<form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out" hx-confirm="Drop {{ run.target }}? The fleet picks another rock (it skips this one for 6 h).">
       <input type="hidden" name="action" value="drop"><button class="small">Drop target</button></form>{% endif %}<span class="chase-out"></span></div>
   <details style="margin-top:4px"><summary>Target criteria</summary>
-    <form hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out" class="row small" style="flex-wrap:wrap;gap:8px;margin-top:4px">
+    <style>
+      .chase-form fieldset{border:1px solid var(--line);border-radius:6px;margin:6px 0;padding:4px 8px}
+      .chase-form legend{font-weight:600;padding:0 4px}
+      .chase-form .f{display:grid;grid-template-columns:minmax(9em,auto) 1fr;gap:2px 10px;align-items:baseline;justify-items:start;margin:3px 0}
+      .chase-form .f .muted{grid-column:2}
+      @media (max-width:600px){.chase-form .f{grid-template-columns:1fr}.chase-form .f .muted{grid-column:1}}
+    </style>
+    <p class="muted" style="margin:4px 0">How a target is picked: of the asteroids in flight that the app knows of (a hub or the
+      fleet's own launch found them) in the search area, the fleet keeps those at least <i>min size</i>, with a resource still to
+      mine, and with at least <i>min hours</i> of mining left once it has flown there and before it must leave. It prefers a rock
+      in the system it is in, then the first resource on the <i>priority</i> list, then the most mining hours. A rock another
+      chaser fleet already works is never taken; a dropped rock or a failed trip is skipped for 6 h.</p>
+    <form hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out" class="small chase-form">
       <input type="hidden" name="action" value="settings">
-      <label title="hub: the home system only; roam: any system the relay network covers within the radius">mode
-        <select name="mode">{% for m in ['roam', 'hub'] %}<option {{ 'selected' if c.mode == m }}>{{ m }}</option>{% endfor %}</select></label>
-      <label>radius <input name="radius" type="number" min="0" step="1" value="{{ c.radius | int }}" style="width:5em"> ly</label>
-      <label title="smallest mass class worth chasing">min size <select name="min_size">{% for s in ['small', 'medium', 'large'] %}<option {{ 'selected' if c.min_size == s }}>{{ s }}</option>{% endfor %}</select></label>
-      <label title="resources in the order to mine them; the rest follow">priority <input name="priority" value="{{ c.priority }}" placeholder="rares, conductive" size="18"></label>
-      <label title="hours of mining that must be left after the trip, before the fleet leaves">min hours <input name="min_hours" type="number" min="0" step="0.5" value="{{ c.min_hours }}" style="width:4em"></label>
-      <label title="the fleet boards and leaves this long before the ETA (at least 60)">leave <input name="leave_minutes" type="number" min="60" step="5" value="{{ c.leave_minutes | int }}" style="width:4em"> min before</label>
-      <label title="a hauler takes the pile out once it holds this much">ship at <input name="ship_min" type="number" min="0" step="10" value="{{ c.ship_min | int }}" style="width:5em"></label>
-      <label title="where shipped materials go (same system); empty: the system's safe spot (entry point)">drop <input name="drop" value="{{ c.drop }}" size="14"></label>
-      <label title="on rocks you launched, leave this much of each resource for the terraform effect">keep <input name="keep_pct" type="number" min="0" max="100" step="1" value="{{ c.keep_pct }}" style="width:4em"> %</label>
-      <label title="mine only these on rocks you launched (empty: the priority list)">on launched rocks <input name="launched_resources" value="{{ c.launched_resources }}" size="12"></label>
-      <label title="the fleet's sensor array sweeps the Kuiper belt this often">search every <input name="search_hours" type="number" min="1" step="1" value="{{ c.search_hours | int }}" style="width:4em"> h</label>
-      <label title="Kuiper objects at least this big are marked for launch">mark from <select name="launch_size">{% for s in ['small', 'medium', 'large'] %}<option {{ 'selected' if c.launch_size == s }}>{{ s }}</option>{% endfor %}</select></label>
-      <label title="planet or moon marked objects are launched at">launch at <input name="launch_at" value="{{ c.launch_at }}" size="12"></label>
-      <label title="launch marked objects at the launch-at body without asking (uses up a vector charge each)"><input type="checkbox" name="auto_launch" {{ 'checked' if c.auto_launch }}> auto launch</label>
+      <fieldset><legend>Where it looks</legend>
+        <label class="f">mode <select name="mode">{% for m in ['roam', 'hub'] %}<option {{ 'selected' if c.mode == m }}>{{ m }}</option>{% endfor %}</select>
+          <span class="muted"><b>hub</b>: only the home system ({{ f.home }}). <b>roam</b>: any system the relay network can command within the radius below. Default roam.</span></label>
+        <label class="f">radius <span><input name="radius" type="number" min="0" step="1" value="{{ c.radius | int }}" style="width:5em"> ly</span>
+          <span class="muted">How far from {{ f.home }} a roaming fleet goes (never past the sector range, 1728 ly). Ignored in hub mode. Default 100.</span></label>
+      </fieldset>
+      <fieldset><legend>Which rocks</legend>
+        <label class="f">min size <select name="min_size">{% for s in ['small', 'medium', 'large'] %}<option {{ 'selected' if c.min_size == s }}>{{ s }}</option>{% endfor %}</select>
+          <span class="muted">Smallest mass class worth the trip. Size sets the mining slots, shared by every player: small 1, medium 2, large 5 rigs. Natural rocks are mostly small. Default small.</span></label>
+        <label class="f">priority <input name="priority" value="{{ c.priority }}" placeholder="rares, conductive" size="22">
+          <span class="muted">Resources to mine first, in order, separated by commas (structural, conductive, silicates, carbon, volatiles, rares). Rocks holding the first one rank higher; the rest are mined after the list, to dust. Empty: the standard order.</span></label>
+        <label class="f">min hours <span><input name="min_hours" type="number" min="0" step="0.5" value="{{ c.min_hours }}" style="width:4em"> h</span>
+          <span class="muted">Mining time that must remain after the trip and before the fleet leaves. A rock that hits sooner is passed over. Default 2.</span></label>
+      </fieldset>
+      <fieldset><legend>At the rock</legend>
+        <label class="f">leave <span><input name="leave_minutes" type="number" min="60" step="5" value="{{ c.leave_minutes | int }}" style="width:4em"> min before impact</span>
+          <span class="muted">Everything boards the carrier and flies to the next target (or the safe spot) this long before the ETA. Anything left at a rock is destroyed at the ETA, so 60 is the least. Default 80.</span></label>
+        <label class="f">ship at <input name="ship_min" type="number" min="0" step="10" value="{{ c.ship_min | int }}" style="width:5em">
+          <span class="muted">A fleet hauler or freighter takes the rock's pile away once it holds this many units. Default 50.</span></label>
+        <label class="f">drop <input name="drop" value="{{ c.drop }}" placeholder="e.g. {{ f.home }}-4-L4" size="16">
+          <span class="muted">Where shipped materials go, in the rock's system. Empty: that system's safe spot (its entry point).</span></label>
+      </fieldset>
+      <fieldset><legend>Rocks you launched</legend>
+        <label class="f">keep <span><input name="keep_pct" type="number" min="0" max="100" step="1" value="{{ c.keep_pct }}" style="width:4em"> %</span>
+          <span class="muted">Leave this much of each resource so the impact still terraforms (a mined-out rock has no effect). Only for rocks you launched. Default 5.</span></label>
+        <label class="f">mine only <input name="launched_resources" value="{{ c.launched_resources }}" placeholder="volatiles" size="16">
+          <span class="muted">Resources to take from rocks you launched. Empty: the priority list.</span></label>
+      </fieldset>
+      <fieldset><legend>Kuiper search and launch</legend>
+        <label class="f">search every <span><input name="search_hours" type="number" min="1" step="1" value="{{ c.search_hours | int }}" style="width:4em"> h</span>
+          <span class="muted">How often the fleet's sensor array sweeps the Kuiper belt of the system it is in (needs a sensor array in the fleet, and a system with a Kuiper belt). Default 24.</span></label>
+        <label class="f">mark from <select name="launch_size">{% for s in ['small', 'medium', 'large'] %}<option {{ 'selected' if c.launch_size == s }}>{{ s }}</option>{% endfor %}</select>
+          <span class="muted">Kuiper objects at least this big are listed below as marked for launch. Launched rocks arrive in 6 to 24 h, smaller ones slower. Default medium.</span></label>
+        <label class="f">launch at <input name="launch_at" value="{{ c.launch_at }}" placeholder="planet or moon, e.g. {{ f.home }}-3" size="16">
+          <span class="muted">The body a marked object is launched at: it hits there, with its terraform effect, unless mined out.</span></label>
+        <label class="f">auto launch <input type="checkbox" name="auto_launch" {{ 'checked' if c.auto_launch }}>
+          <span class="muted">Launch marked objects at the launch-at body without asking. Each launch uses up a vector charge. Off: you press Launch.</span></label>
+      </fieldset>
       <button class="small">Save</button>
     </form></details>
   {% set marks = run.marked or {} %}
