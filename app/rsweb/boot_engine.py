@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Any
 
 from . import bootstrap as bt
@@ -238,8 +239,16 @@ class BootstrapMixin:
         p = b.get("printing")
         if not p:
             return
-        v = next((d for d in devices if d.get("device_code") == b["vessel"]), {})
         known = set(p.get("known") or [])
+        if p.get("factory"):   # printed on an autofactory, tagged as the bootstrap's own already
+            from .automations import _ts
+            at = _ts(p.get("at"))
+            if any(d.get("device_type") == p["type"] and d.get("device_code") not in known
+                   and bt.family_tag(f["id"]) in (d.get("tags") or []) for d in devices) \
+                    or not at or (datetime.now(timezone.utc) - at).total_seconds() > 6 * 3600:
+                b.pop("printing", None)
+            return
+        v = next((d for d in devices if d.get("device_code") == b["vessel"]), {})
         new = [d for d in devices if d.get("device_type") == p["type"] and d.get("device_code") not in known
                and (d.get("stowed_in_device_code") == b["vessel"] or (v.get("location") and d.get("location") == v.get("location")))
                and bt.family_tag(f["id"]) not in (d.get("tags") or [])]
@@ -353,14 +362,35 @@ class BootstrapMixin:
                 steps.append(step(f"{rep}: stop onboard mining", f"/replicants/{rep}/mine", None, method="DELETE"))
             elif k == "print":
                 # no wait: while it prints the vessel says so (status printing) and nothing else is ordered
-                steps.append(step(f"{rep}: print {a['device_type']} on the vessel", f"/replicants/{rep}/print",
-                                  {"device_type": a["device_type"]}, critical=True))
-                b["printing"] = {"type": a["device_type"], "at": now_iso(),
-                                 "known": [d["device_code"] for d in devices if d.get("device_type") == a["device_type"]]}
+                known = [d["device_code"] for d in devices if d.get("device_type") == a["device_type"]]
+                fac = None if f.get("sim") else bt.factory_here(devices, next((d for d in devices if d.get("device_code") == vessel), {}))
+                if fac:   # never on the vessel while an autofactory is there (owner 2026-11-07)
+                    steps.append(step(f"{fac['device_code']}: print {a['device_type']} for {f['name']}",
+                                      f"/devices/{fac['device_code']}",
+                                      {"command": "enqueue_print", "device_type": a["device_type"], "quantity": 1,
+                                       "tags": [bt.family_tag(f["id"])]}, critical=True))
+                    b["printing"] = {"type": a["device_type"], "at": now_iso(), "known": known,
+                                     "factory": fac["device_code"]}
+                    continue
+                if f.get("sim"):   # a simulation run's virtual vessel prints its build order itself
+                    steps.append(step(f"{rep}: print {a['device_type']} on the vessel", f"/replicants/{rep}/print",
+                                      {"device_type": a["device_type"]}, critical=True))
+                    b["printing"] = {"type": a["device_type"], "at": now_iso(), "known": known}
+                    continue
+                # no autofactory: automations never print on a vessel (owner 2026-11-07) — you print it by hand
+                if b.get("hand_print") != a["device_type"]:
+                    b["hand_print"] = a["device_type"]
+                    self._boot_log(b, f"waiting for you: print {a['device_type'].replace('_', ' ')} on vessel {vessel} "
+                                      "by hand (automations don't print on vessels)")
+                    await self.log("fleets", f"{f['name']}: print {a['device_type'].replace('_', ' ')} on vessel {vessel} "
+                                             "by hand — automations don't print on vessels", "warning")
+                if (b.get("printing") or {}).get("type") != a["device_type"]:   # adopted when it comes out
+                    b["printing"] = {"type": a["device_type"], "at": now_iso(), "known": known}
         if not steps:
             return None
         title = f"{f['name']}: {ev.get('next') or 'bootstrap'}"
-        await self.create_job("fleets", title, vessel, steps, {"devices": touched, "bootstrap": f["id"]})
+        await self.create_job("fleets", title, vessel, steps, {"devices": touched, "bootstrap": f["id"],
+                                                               **({"sim": f["sim"]} if f.get("sim") else {})})
         self._boot_log(b, ev.get("next") or title)
         return title
 

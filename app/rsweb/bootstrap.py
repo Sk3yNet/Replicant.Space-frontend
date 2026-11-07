@@ -100,6 +100,25 @@ def in_transit(d: dict) -> bool:
     return str(d.get("status") or "").startswith(("travel", "cruis", "surg"))
 
 
+def factory_here(devices: list[dict], v: dict) -> dict | None:
+    """A working autofactory in the vessel's system (any owner fleet): bootstrap prints go there, never on the vessel,
+    while one is present (owner 2026-11-07: no automation prints on a vessel when an autofactory is present)."""
+    from .loadouts import is_factory
+    star = (v.get("location") or "").split("-")[0]
+    if not star:
+        return None
+    facs = [d for d in devices if is_factory(d) and d.get("location") and d["location"].split("-")[0] == star
+            and not d.get("location_stale") and d.get("in_control_range") is not False
+            and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+            and not str(d.get("status") or "").startswith(("compact", "stowed", "attach"))]
+    return min(facs, key=lambda d: (d["location"] != v.get("location"), d.get("device_code") or "")) if facs else None
+
+
+def printing(b: dict, v: dict) -> bool:
+    """The vessel prints, or a print this bootstrap ordered on an autofactory hasn't come out yet."""
+    return str(v.get("status") or "").startswith("printing") or bool((b.get("printing") or {}).get("factory"))
+
+
 def cost_of(t: str, bps: dict) -> dict[str, float]:
     return amounts((bps.get(t) or {}).get("resources"))
 
@@ -236,9 +255,10 @@ def compound(f: dict, w: dict, star: str, cap: int, autofactory: bool) -> dict:
     if not need:
         if vst.startswith("mining"):
             acts.append({"kind": "vessel_stop_mining"})
-        if not vst.startswith("printing"):
+        if not printing(b, v):
             acts.append({"kind": "print", "device_type": target})
-        return {"actions": acts, "gate": gate, "next": f"print {target.replace('_', ' ')} on the vessel", "stock": stock}
+        where = "on the autofactory" if factory_here(w["devices"], v) else "on the vessel, by hand"
+        return {"actions": acts, "gate": gate, "next": f"print {target.replace('_', ' ')} {where}", "stock": stock}
     pick = vessel_choice(need, cost_of(target, w["bps"]), belt)
     if pick and not vst.startswith(("mining", "printing")):
         acts.append({"kind": "vessel_mine", "resource": pick})
@@ -421,7 +441,7 @@ def supply_step(f: dict, w: dict) -> dict | None:
         if v.get("location") != hub_belt:
             return {"gate": gate, "next": f"vessel → {hub_belt} to print the supply kit",
                     "actions": [{"kind": "travel", "device": v.get("device_code"), "to": hub_belt}]}
-        if vst.startswith("printing"):
+        if printing(b, v):
             return {"gate": gate, "next": f"the vessel prints the supply kit ({len(lack)} to go)", "actions": []}
         cost = cost_of(t, w["bps"])
         if not cost:
@@ -434,7 +454,8 @@ def supply_step(f: dict, w: dict) -> dict | None:
                     "next": f"{t.replace('_', ' ')} for the supply kit: short {left}"
                             + (f" — the hub belt can't give {', '.join(dry)}" if dry else "")}
         acts = [{"kind": "vessel_stop_mining"}] if vst.startswith("mining") else []
-        return {"gate": gate, "next": f"print {t.replace('_', ' ')} on the vessel (supply kit)",
+        where = "on the autofactory" if factory_here(w["devices"], v) else "on the vessel, by hand"
+        return {"gate": gate, "next": f"print {t.replace('_', ' ')} {where} (supply kit)",
                 "actions": acts + [{"kind": "print", "device_type": t}]}
     for r in hub_relays:   # the loadout pass takes a deployed relay to L4/L5 and switches it on
         if r.get("stowed_in_device_code") == v.get("device_code"):

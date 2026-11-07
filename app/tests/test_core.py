@@ -2007,8 +2007,12 @@ def test_fleet_pages_and_mission_launch(client):
 def test_fleet_print_shortfall_tags_prints(client):
     eng = client.app.state.worker.automations
     client.portal.call(client.app.state.worker.sync_devices)
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices.append({"device_code": "0000AAAA", "device_type": "heaven_vessel", "location": "SOL-BELT-1",
+                          "status": "stationary", "available_commands": ["enqueue_print", "travel"]})
+    client.portal.call(client.app.state.worker.sync_devices)
     client.portal.call(eng.save_fleets, [{"id": "p1", "name": "P1", "role": "mining", "home": "SOL", "wants": {"mining_drone": 2}}])
-    r = client.post("/fleets/p1/print", headers=HX)
+    r = client.post("/fleets/p1/print", headers=HX)   # never on the vessel (owner 2026-11-07)
     assert "print 2× mining drone" in r.text
     job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "chain"][-1]
     assert job["steps"][0]["path"] == "/devices/AF00BEEF"
@@ -10030,3 +10034,23 @@ def test_bobnet_novel_messages_first_and_repeats_grayed(client):
     feed = page.split('id="bn-feed"')[1]
     assert feed.index("fresh line one") < feed.index("Repeats") < feed.index("SOL is in the rear-view")
     assert 'id="bn-repeats"' in page and feed.count('class="bn-repeat"') == 1
+
+
+def test_automations_never_print_on_vessels_but_your_jobs_may(client):
+    """Owner 2026-11-07: automations don't print on vessels; a job you start yourself still does."""
+    from rsweb import automations as auto
+    from rsweb.mock import HOST
+    eng = client.app.state.worker.automations
+    client.portal.call(client.app.state.worker.sync_devices)
+    body = {"command": "enqueue_print", "device_type": "mining_drone", "quantity": 1}
+    ok, _, err = client.portal.call(eng.send, "POST", f"/devices/{HOST}", body, "test")
+    assert not ok and "don't print on vessels" in err
+    ok, _, err = client.portal.call(eng.send, "POST", "/replicants/R1/print", {"device_type": "mining_drone"}, "test")
+    assert not ok and "don't print on vessels" in err
+    assert client.portal.call(eng.vessel_print, "POST", "/devices/AF00BEEF", body) is False
+    job = client.portal.call(eng.create_job, "stock", "t", HOST, [auto.step("p", f"/devices/{HOST}", body)])
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
+    assert "don't print on vessels" in str(job["steps"][0])
+    job = client.portal.call(eng.create_job, "chain", "t", HOST, [auto.step("p", f"/devices/{HOST}", body)], {}, True)
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
+    assert "don't print on vessels" not in str(job["steps"][0])

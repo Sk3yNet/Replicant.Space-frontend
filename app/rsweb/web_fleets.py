@@ -1045,7 +1045,12 @@ async def fleets_print(request: Request, fid: str, user: str = Depends(current_u
     short = fl.short_list(f, st["devices"]) if f else {}
     if not short:
         return HTMLResponse('<div class="result ok">Nothing missing.</div>')
-    facs = [d for d in st["devices"] if "enqueue_print" in (d.get("available_commands") or [])]
+    # autofactories only: vessels take enqueue_print too, but a fleet's shortfall never goes on one (owner 2026-11-07:
+    # a heaven vessel was printing on another heaven vessel)
+    from .loadouts import is_factory
+    facs = [d for d in st["devices"] if is_factory(d) and d.get("location") and d.get("in_control_range") is not False
+            and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+            and not str(d.get("status") or "").startswith(("compact", "stowed", "attach"))]
     facs.sort(key=lambda d: (star_of(d.get("location")) != f["home"], d.get("device_code")))
     if not facs:
         return HTMLResponse('<div class="result err">No autofactory to print on.</div>')

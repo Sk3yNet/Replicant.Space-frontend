@@ -529,7 +529,7 @@ class SimMixin:
         if not acts:
             await self.sim_save(s)
             return []
-        title = await self._boot_act({**f, "boot": f["boot"]}, {**ev, "actions": acts}, [], devs)
+        title = await self._boot_act({**f, "boot": f["boot"], "sim": a.get("id") or True}, {**ev, "actions": acts}, [], devs)
         if title:   # the job belongs to the run: tagged so it's found (and dropped) with it
             jobs = await self.jobs()
             for j in reversed(jobs):

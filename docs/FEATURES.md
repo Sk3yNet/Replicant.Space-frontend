@@ -104,6 +104,8 @@ System → device type → device, with stowed devices nested in their carrier; 
   cargo's page lists carriers here (only the side the device fits).
 - *Decommission at an autofactory* takes a device there so the autofactory learns its blueprint.
 - `enqueue_print` on a replicant's vessel is sent as the replicant's own print (one at a time).
+- Automations never print on a vessel (since 1.353.0): only the prints you order yourself do. A bootstrap with no
+  autofactory in its system asks you to print its next device on the vessel by hand.
 
 ### Replicant page
 - Route preview and travel (planned like automated trips: surge hops, a hub on the way, the off-ramp; the preview shows the time saved; device travel commands too) (with *then, on arrival…* follow-ups), nearest stars, scan, mining, vessel printing, profile

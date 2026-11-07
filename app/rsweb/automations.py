@@ -10,6 +10,7 @@ Dry run: every rule plans its job as usual but no command is sent; the plan is l
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import math
 from collections import defaultdict
@@ -373,6 +374,10 @@ def _already_unfurled(err: str | None) -> bool:
     return ("unfurl" in e and ("already" in e or "is unfurling" in e)) or bool(re.search(r"\bnot compact", e))
 
 
+VESSEL_PRINT_RE = re.compile(r"^/replicants/[^/]+/print$")
+HAND_JOB = contextvars.ContextVar("hand_job", default=False)   # set while a job you started yourself sends its steps
+
+
 def _ts(v: str | None) -> datetime | None:
     if not v or not isinstance(v, str):
         return None
@@ -708,11 +713,29 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 "stage": self.stage}
 
     # --- sending commands -------------------------------------------------------------------
+    async def vessel_print(self, method: str, path: str, body: Any) -> bool:
+        """A print order aimed at a vessel: a replicant's print, or enqueue_print on a device whose type is a vessel."""
+        if method != "POST":
+            return False
+        p = (path or "").rstrip("/")
+        if VESSEL_PRINT_RE.match(p):
+            return True
+        if not isinstance(body, dict) or body.get("command") != "enqueue_print" or not p.startswith("/devices/"):
+            return False
+        code = p.split("/")[-1].upper()
+        d = next((x for x in await self.devices() if (x.get("device_code") or "").upper() == code), None)
+        return d is not None and "vessel" in (d.get("device_type") or "")
+
     async def send(self, method: str, path: str, body: Any, label: str,
-                   components_done: bool = False, raw: bool = False) -> tuple[bool, Any, str | None]:
+                   components_done: bool = False, raw: bool = False, hand: bool = False) -> tuple[bool, Any, str | None]:
         """`components_done`: an enqueue_print that mustn't queue its components first (a re-queue: they're queued).
-        `raw`: straight to the game's queue, past the virtual print queue (vqueue.py)."""
+        `raw`: straight to the game's queue, past the virtual print queue (vqueue.py). `hand`: a job you started
+        yourself; only those may print on a vessel (owner 2026-11-07: automations never print on vessels)."""
         from .fleets import RENAMES_KV, with_renamed_tags
+        if not (hand or HAND_JOB.get()) and await self.vessel_print(method, path, body):
+            err = "automations don't print on vessels (print on it by hand when you want to)"
+            await self.log("engine", f"refused: {label} — {err}", "warning")
+            return False, None, err
         body = with_renamed_tags(method, path, body, await self.db.kv_get(RENAMES_KV, {}) or {})
         status, resp, err = 200, None, None
         try:
@@ -863,6 +886,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         job = await self._get(job_id)
         if job and not job.get("forced") and await self.held():
             return   # paused for a season change: picks up again when you resume
+        # only jobs you started print on vessels (and a simulation run's, in its virtual galaxy)
+        tok = HAND_JOB.set(bool(job and (job.get("forced") or (job.get("meta") or {}).get("sim"))))
+        try:
+            await self._advance_job(job)
+        finally:
+            HAND_JOB.reset(tok)
+
+    async def _advance_job(self, job: dict | None) -> None:
         while job and job["status"] in ("running", "waiting"):
             if job["idx"] >= len(job["steps"]):
                 job["status"] = "done"
@@ -1189,7 +1220,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 job["idx"] += 1
             job["status"] = "running"
             await self._update(job)
-            job = await self._get(job_id)
+            job = await self._get(job["id"])
 
     async def _moving_eta(self, st: dict) -> datetime | None:
         """When the device a refused step names (or the carrier it rides in, or the device a detach / stow names) is due

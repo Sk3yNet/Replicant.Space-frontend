@@ -605,3 +605,31 @@ def test_old_hub_wants_a_surge_plate_not_a_carrier(client):
     client.portal.call(e.bootstrap_pass)
     hub = next(x for x in client.portal.call(e.fleets) if x["id"] == "p-hub")
     assert "surge_carrier" not in hub["wants"] and hub["wants"]["surge_plate"] == 1 and hub["wants"]["mining_drone"] == 8
+
+
+def test_prints_go_to_an_autofactory_in_the_system_never_the_vessel():
+    """Owner 2026-11-07: no automation prints on a vessel when an autofactory is present."""
+    scans = {"HOME": scan_for("HOME", STRUCT)}
+    f = fleet()
+    inv = {"HOME-BELT-1": {"carbon": 50, "conductive": 50, "rares": 6, "silicates": 50, "structural": 100}}
+    af = {"device_code": "AF1", "device_type": "autofactory", "location": "HOME-2-L4", "status": "idle",
+          "available_commands": ["enqueue_print"], "tags": ["fleet:other"]}
+    other_v = {"device_code": "HV2", "device_type": "heaven_vessel", "location": "HOME-BELT-1", "status": "stationary",
+               "available_commands": ["enqueue_print"]}
+    devs = [vessel("HOME-BELT-1"), other_v] + [drone(f"M{i}", "mining_drone", "HOME-BELT-1") for i in range(3)]
+    assert bt.factory_here(devs, devs[0]) is None   # another heaven vessel is no factory
+    ev = bt.evaluate(f, world(devs + [af], scans, inv))
+    assert {"kind": "print", "device_type": "survey_drone"} in ev["actions"] and "on the autofactory" in ev["next"]
+    assert bt.factory_here(devs + [af], devs[0])["device_code"] == "AF1"
+    # stowed or out of reach: not used
+    assert bt.factory_here(devs + [{**af, "in_control_range": False}], devs[0]) is None
+    # an order on the factory counts as printing: no second one
+    f["boot"]["printing"] = {"type": "survey_drone", "at": "2026-11-07T00:00:00+00:00", "known": [], "factory": "AF1"}
+    ev = bt.evaluate(f, world(devs + [af], scans, inv))
+    assert not any(a["kind"] == "print" for a in ev["actions"])
+
+
+def test_consolidate_never_counts_a_vessel_as_a_factory():
+    from rsweb import consolidate as co
+    assert not co.is_factory({"device_type": "heaven_vessel", "available_commands": ["enqueue_print"]})
+    assert co.is_factory({"device_type": "autofactory", "available_commands": ["enqueue_print"]})

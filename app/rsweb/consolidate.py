@@ -23,7 +23,8 @@ def star_of(loc: str | None) -> str:
 
 
 def is_factory(d: dict) -> bool:
-    return "enqueue_print" in (d.get("available_commands") or []) or "autofactory" in (d.get("device_type") or "")
+    t = d.get("device_type") or ""   # vessels take enqueue_print too, but are no factory
+    return "autofactory" in t or ("vessel" not in t and "enqueue_print" in (d.get("available_commands") or []))
 
 
 def _fleet(d: dict) -> bool:
