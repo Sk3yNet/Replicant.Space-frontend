@@ -240,3 +240,27 @@ def test_a_print_with_its_components_free_there_jumps_a_waiting_one():
     assert vqueue.jump(cur, [], [rig], {"metals": 99}, bps, free={"drone": 3}) == ("kept", rig)
     other = {"factory": "F", "body": {"device_type": "relay_station", "quantity": 1}, "prio": 3, "seq": 2}
     assert vqueue.jump(cur, [], [other], {"metals": 99}, bps, free={"ftl_relay": 5}) is None   # it wants the same kind
+
+
+def test_remove_takes_a_kept_print_off_by_its_order(client):  # noqa: F811
+    """Joe 2026-11-07: Remove works on the app's queue too, even when the saved device list is out of date."""
+    db, e, world = setup(client)
+    for t in ("orbital_farm", "hydroponic_bay", "orbital_farm"):
+        client.portal.call(e.send, "POST", "/devices/AF00BEEF", {"command": "enqueue_print", "device_type": t, "quantity": 1}, "t")
+    world.queues["AF00BEEF"] = [{"device_type": "nutrient_synthesizer", "quantity": 1}]   # the saved list doesn't know it
+    dev = client.portal.call(client.app.state.api.get, "/devices/AF00BEEF")
+    q = dev["print_queue"]
+    assert not q[0].get("virtual") and q[2]["virtual"]
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "remove", "index": 2, "order": q[2]["order"]}, headers=HX)
+    assert r.status_code == 200
+    left = client.portal.call(VirtualQueue(db).orders, "AF00BEEF")
+    assert [o["seq"] for o in left] == [x["order"] for x in q[1:] if x["order"] != q[2]["order"]]
+    assert len(world.queues["AF00BEEF"]) == 1                     # the game's print stays
+    # the shared app queue on the Blueprints page has its own Remove
+    r = client.get("/print-queue/group?codes=AF00BEEF", headers=HX)
+    assert "/print-queue/group/remove" in r.text
+    r = client.post("/print-queue/group/remove", data={"codes": "AF00BEEF", "factory": "AF00BEEF", "order": left[0]["seq"]},
+                    headers=HX)
+    assert r.status_code == 200 and len(client.portal.call(VirtualQueue(db).orders, "AF00BEEF")) == 1
+    r = client.post("/print-queue/group/remove", data={"codes": "AF00BEEF", "factory": "AF00BEEF", "order": 999}, headers=HX)
+    assert "any more" in r.text

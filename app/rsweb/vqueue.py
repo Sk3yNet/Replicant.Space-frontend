@@ -55,7 +55,8 @@ def as_item(o: dict) -> dict:
     """A kept order as the game lists a queue item, marked virtual."""
     b = o["body"]
     it = {"device_type": b.get("device_type"), "quantity": max(1, int(b.get("quantity") or 1)),
-          "tags": list(b.get("tags") or []), "virtual": True, "priority": LABELS.get(o["prio"], "")}
+          "tags": list(b.get("tags") or []), "virtual": True, "priority": LABELS.get(o["prio"], ""),
+          "order": o["seq"]}
     if b.get("oncomplete"):
         it["oncomplete"] = b["oncomplete"]
     if b.get("controller"):
@@ -123,6 +124,18 @@ class VirtualQueue:
                 o = await self.add(code, body, priority(body, HAND.get()))
                 q = await self.orders(code)
             return {"status": "enqueued", "virtual": True, "queue_length": len(q), "order": o["seq"]}
+        if cmd == "dequeue_print" and body.get("order") is not None:
+            # a print the panel showed as kept here, named by its order: the index may have moved since the device
+            # list was saved (the feeder hands kept prints to the game), so it's never used for these
+            async with self.lock:
+                s = await self.state()
+                gone = next((o for o in s["orders"] if o["factory"] == code and o["seq"] == body["order"]), None)
+                if gone is None:
+                    from .api import ApiError
+                    raise ApiError(404, "That print isn't in the app's queue any more (it may have gone to the game's queue).")
+                s["orders"] = [o for o in s["orders"] if o is not gone]
+                await self.db.kv_set(KV, s)
+            return {"status": "dequeued", "virtual": True, "removed": as_item(gone)}
         if cmd == "dequeue_print":
             dev = await self._device(code) or {}
             real = len(dev.get("print_queue") and [x for x in dev["print_queue"] if not (isinstance(x, dict) and x.get("virtual"))] or [])

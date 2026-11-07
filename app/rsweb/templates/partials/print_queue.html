@@ -53,7 +53,7 @@
               title="Move up one place">↑</button>{% endif %}{% if not loop.last %}<button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
               hx-vals='{{ {"action": "down", "index": it.api_index} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
               title="Move down one place">↓</button>{% endif %}<button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
-              hx-vals='{{ {"action": "remove", "index": it.api_index} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
+              hx-vals='{{ {"action": "remove", "index": it.api_index, "order": it.extra.get("order")} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
               hx-confirm="Remove #{{ it.index }} {{ it.device_type | human }} from the queue?" title="dequeue_print index {{ it.api_index }} (0-based)">Remove</button></td>{% endif %}
       </tr>
       {% endfor %}

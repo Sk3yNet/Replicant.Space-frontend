@@ -949,6 +949,10 @@ async def fetch_device(request: Request, code: str) -> dict:
 async def print_queue_group(request: Request, codes: str = "", user: str = Depends(current_user)):
     """Blueprints › Print queues: one card for the autofactories of one type at one spot (owner 2026-11-03). They share
     the app's queue (vqueue.py), so it's listed once, and the time is for all of them printing it."""
+    return await render_print_queue_group(request, codes)
+
+
+async def render_print_queue_group(request: Request, codes: str, error: str | None = None) -> HTMLResponse:
     from . import vqueue as vqm
     db = request.app.state.db
     bps = {b["device_type"]: b for b in normalize_blueprints(await db.kv_get("blueprints", []))}
@@ -969,7 +973,26 @@ async def print_queue_group(request: Request, codes: str = "", user: str = Depen
     first = (facs[0]["dev"] if facs else {})
     return partial(request, "partials/print_queue_group.html", facs=facs, shared=shared, remaining=remaining, exact=exact,
                    codes=",".join(f["code"] for f in facs), location=first.get("location"), dtype=first.get("device_type"),
-                   waiting=sum(len(f["queue"]) for f in facs) + len(shared), printing=sum(1 for f in facs if f["cur"]))
+                   waiting=sum(len(f["queue"]) for f in facs) + len(shared), printing=sum(1 for f in facs if f["cur"]),
+                   error=error)
+
+
+@router.post("/print-queue/group/remove", response_class=HTMLResponse)
+async def print_queue_group_remove(request: Request, codes: str = Form(""), factory: str = Form(...),
+                                   order: int = Form(...), user: str = Depends(current_user)):
+    """Blueprints › Print queues: take a print off the shared app queue (vqueue.py), the panel's Remove for kept prints."""
+    code = factory.strip().upper()
+    dev = await fetch_device(request, code)
+    it = next((x for x in printqueue.items(dev) if x["extra"].get("virtual") and x["extra"].get("order") == order), None)
+    outcome = await call_action(request, user, "POST", f"/devices/{code}", {"command": "dequeue_print", "order": order},
+                                f"remove {it['device_type'] if it else 'a print'} from {code}'s app queue")
+    if outcome.get("ok") and it:
+        db = request.app.state.db
+        orders = await db.kv_get("loadout_orders", []) or []
+        left = lo.forget_queued(orders, code, it["device_type"], max(1, int(it.get("quantity") or 1)))
+        if len(left) != len(orders):
+            await db.kv_set("loadout_orders", left)
+    return await render_print_queue_group(request, codes, None if outcome.get("ok") else outcome.get("error"))
 
 
 @router.get("/devices/{code}/print-queue", response_class=HTMLResponse)
@@ -982,7 +1005,7 @@ async def print_queue_panel(request: Request, code: str, compact: int = 0, user:
 async def print_queue_action(request: Request, code: str, action: str = Form(...), index: int = Form(0),
                              device_type: str = Form(""), quantity: int = Form(1), dest_star: str = Form(""),
                              dest_loc: str = Form(""), dest_text: str = Form(""), flatpack: str = Form(""),
-                             user: str = Depends(current_user)):
+                             order: int | None = Form(None), user: str = Depends(current_user)):
     dev = await fetch_device(request, code)
     cmds = dev.get("available_commands") or []
     if action in ("top", "up", "down"):
@@ -1002,6 +1025,14 @@ async def print_queue_action(request: Request, code: str, action: str = Form(...
     if action == "remove":
         # `index` is the game's 0-based queue position (the panel shows #1 for index 0)
         body, label = {"command": "dequeue_print", "index": index}, f"remove #{index + 1} from {code}'s queue"
+        it = next((x for x in printqueue.items(dev) if x["api_index"] == index), None)
+        if order is not None and not (it and it["extra"].get("order") == order):
+            it = next((x for x in printqueue.items(dev) if x["extra"].get("virtual") and x["extra"].get("order") == order), None)
+        if it and it["extra"].get("virtual") and it["extra"].get("order") is not None:
+            # kept in the app's queue (vqueue.py): taken off there by its order, not by a position that may have moved
+            body = {"command": "dequeue_print", "order": it["extra"]["order"]}
+            label = f"remove #{it['index']} {it['device_type']} from {code}'s app queue"
+            index = it["api_index"]
     elif action == "clear":
         body, label = {"command": "clear_queue"}, f"clear {code}'s print queue"
     elif action == "cancel":

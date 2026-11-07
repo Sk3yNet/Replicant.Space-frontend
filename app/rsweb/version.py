@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.349.0"
+VERSION = "1.350.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.350.0", "2026-11-07", "Remove works on prints waiting in the app's print queue (Joe): the panel's Remove now takes a kept print off by its order instead of a queue position worked out from the saved device list, which could be minutes old once the feeder had handed prints to the game, so the click hit the wrong print or the game answered Invalid queue index. The shared app queue on Blueprints › Print queues has a Remove button too."),
     ("1.349.0", "2026-11-06", "Rock chaser Target criteria explained (Joe): the fleet card says how a target is picked, and every setting is grouped (Where it looks, Which rocks, At the rock, Rocks you launched, Kuiper search and launch) with a line on what it does and its default, instead of hover-only hints."),
     ("1.348.1", "2026-11-06", "Rock chasers start their own rigs and scans at the rock. The fleet is never stationed, so the asteroid mining plan treated every member as reserved and did nothing: Chaser_1 sat idle at SOLARES-OBJ-5 until you started a scan by hand (snapshot 04:28), and its rigs stayed idle with carbon still at 100 %. A failed Kuiper belt read (SOLARES has none: 404) is logged once per search instead of retried every tick and covering the fleet note."),
     ("1.348.0", "2026-11-04", "Novel BobNet lines stand out. The Messages page feed lists each page's new lines first, marked blue, then the repeats grayed under a Repeats divider. A repeat says what an earlier saved message said, with place names, codes and numbers left out (NOSOXA is in the rear-view mirror repeats for any star). A hide repeats box (remembered per browser) drops them."),

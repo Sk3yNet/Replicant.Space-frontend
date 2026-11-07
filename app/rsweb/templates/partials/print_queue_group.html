@@ -1,6 +1,7 @@
-{# Blueprints › Print queues: the autofactories of one type at one spot in one card. Context: facs [{code, dev, cur, queue}], shared, remaining, exact, codes, location, dtype, waiting, printing #}
+{# Blueprints › Print queues: the autofactories of one type at one spot in one card. Context: facs [{code, dev, cur, queue}], shared, error, remaining, exact, codes, location, dtype, waiting, printing #}
 <div id="pqg-{{ codes | replace(',', '-') }}" class="pq" hx-get="/print-queue/group?codes={{ codes }}" hx-trigger="every 60s, pq-refresh from:body" hx-swap="outerHTML">
   <div class="row between"><strong>{{ dtype | human }} ×{{ facs | length }}</strong><span class="muted small">{{ location }}</span></div>
+  {% if error %}<div class="result err">{{ error }}</div>{% endif %}
   <table class="small" style="margin-top:6px">
     <tr><th>Factory</th><th>Now</th><th>In the game's queue</th></tr>
     {% for f in facs %}{% set cur = f.cur %}
@@ -16,12 +17,16 @@
   </table>
   {% if shared %}
     <table class="small" style="margin-top:8px">
-      <tr><th class="num">#</th><th title="Waiting in the app's print queue: each of these factories takes the best of them as its game queue empties">Shared app queue</th><th>Queued for</th></tr>
+      <tr><th class="num">#</th><th title="Waiting in the app's print queue: each of these factories takes the best of them as its game queue empties">Shared app queue</th><th>Queued for</th><th></th></tr>
       {% for it in shared %}
       <tr><td class="num mono">{{ loop.index }}</td>
         <td>{{ it.device_type | human }}{% if it.quantity and it.quantity > 1 %} ×{{ it.quantity }}{% endif %}
           <span class="pill small">{{ it.extra.priority }}</span>{% if it.tags %}<span class="muted"> · {{ it.tags | join(', ') }}</span>{% endif %}</td>
-        <td class="mono"><a href="/devices/{{ it.factory }}">{{ it.factory }}</a></td></tr>
+        <td class="mono"><a href="/devices/{{ it.factory }}">{{ it.factory }}</a></td>
+        <td class="num">{% if it.extra.order is not none %}<button class="small ghost" hx-post="/print-queue/group/remove"
+              hx-vals='{{ {"codes": codes, "factory": it.factory, "order": it.extra.order} | tojson }}'
+              hx-target="#pqg-{{ codes | replace(',', '-') }}" hx-swap="outerHTML"
+              hx-confirm="Remove {{ it.device_type | human }} from the app's queue?" title="Take it off the app's print queue">Remove</button>{% endif %}</td></tr>
       {% endfor %}
     </table>
   {% endif %}
