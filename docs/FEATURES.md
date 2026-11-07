@@ -86,7 +86,7 @@ System → device type → device, with stowed devices nested in their carrier; 
   everything else, then stock. Factories of one type at one spot share the app's queue, so each is fed the best of
   all their waiting prints and their game queues stay even. Blueprints › Print queues shows them as one card: each
   factory's current print and game queue, the shared app queue once, and the time until all of them have printed it. A better one takes a worse one's place, which goes back to the app's queue. The print
-  queue panel marks the waiting ones *app queue*; Remove takes them off it (also on the shared app queue). Turn it off with `RS_VIRTUAL_QUEUE=0`. While a factory's current
+  queue panel marks the waiting ones *app queue*; Remove takes them off it (also on the shared app queue), and the move arrows reorder the game and app queues as one (a moved print keeps its place: it takes the priority of the print it now stands before). Turn it off with `RS_VIRTUAL_QUEUE=0`. While a factory's current
   print waits for resources or components, a waiting print that fits goes ahead (at most every 10 minutes per factory):
   the best one with no components of its own whose cost the stockpile covers with the waiting print's cost set aside
   (a component the waiting print needs may use that reserve). A waiting print stays first in the game's queue, so the

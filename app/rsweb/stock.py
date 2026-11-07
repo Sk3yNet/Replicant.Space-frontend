@@ -191,6 +191,9 @@ class StockMixin:
         k = next((i for i, (a, b) in enumerate(zip(now, order)) if a["api_index"] != b["api_index"]), None)
         if k is None:
             return True, "already in that order"
+        vq = getattr(self.api, "vq", None)
+        if vq is not None:
+            return await self.requeue_virtual(vq, code, now, order, why)
         for _ in range(len(now) - k):
             ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "dequeue_print", "index": k},
                                          f"{code}: take #{k + 1} off the queue to re-queue ({why})")
@@ -201,6 +204,80 @@ class StockMixin:
                                          f"{code}: re-queue {it['device_type']} ({why})", components_done=True)
             if not ok:
                 return False, f"re-queue of {it['device_type']} failed: {err} — it's off the queue now"
+        return True, f"queue re-ordered from #{k + 1}"
+
+    async def requeue_virtual(self, vq: Any, code: str, now: list[dict], order: list[dict], why: str) -> tuple[bool, str]:
+        """`requeue` with the virtual print queue on (vqueue.py): the panel lists the game's queue, then the prints
+        kept in the app. The game's queue gets the first prints of the new order (as many as it holds now: the ones
+        pushed off it are kept in the app); the kept ones are re-ranked. Every print takes the priority that keeps
+        the order (vqueue.hand_prios), so the feeder doesn't move them back. Sent raw: the app's queue is changed
+        here, never through an index worked out from the saved device list (owner 2026-11-07: "Invalid index: 0")."""
+        from . import vqueue as vqm
+        real = [x for x in now if not x["extra"].get("virtual")]
+        n = len(real)
+        async with vq.lock:
+            st = await vq.state()
+            rp = vqm.real_prios(st, code, real)
+            mine = {o["seq"]: o for o in st["orders"] if o["factory"] == code}
+            orig = []
+            for it in order:
+                if it["extra"].get("virtual"):
+                    o = mine.get(it["extra"].get("order"))
+                    if o is None:
+                        return False, "the queue changed meanwhile: look again and retry"
+                    orig.append(o["prio"])
+                else:
+                    orig.append(rp[it["api_index"]])
+            p = vqm.hand_prios(orig)
+            k = next((i for i in range(n) if order[i]["api_index"] != i), n)
+            removed = 0
+            err = None
+            for _ in range(n - k):
+                ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "dequeue_print", "index": k},
+                                             f"{code}: take #{k + 1} off the queue to re-queue ({why})", raw=True)
+                if not ok:
+                    break
+                removed += 1
+            placed: dict[int, dict] = {}   # place in the new order -> the kept order standing for it
+            if removed < n - k:   # put back what came off; nothing else changes
+                for it in real[k:k + removed]:
+                    await vq.add(code, vqm.body_of(it), rp[it["api_index"]], s=st)
+                await self.db.kv_set(vqm.KV, st)
+                return False, f"dequeue failed: {err} (the prints taken off wait in the app's queue)"
+            final = [(it, p[i]) for i, it in enumerate(order[:k])]
+            failed = []
+            for i in range(k, len(order)):
+                it = order[i]
+                o = mine.get(it["extra"].get("order")) if it["extra"].get("virtual") else None
+                if i >= n:
+                    if o is not None:
+                        placed[i] = o
+                    else:   # a game print pushed off the game's queue: kept in the app now
+                        placed[i] = await vq.add(code, vqm.body_of(it), p[i], s=st)
+                    continue
+                body = vqm.send_body(o) if o is not None else vqm.body_of(it)
+                ok, _, err = await self.send("POST", f"/devices/{code}", body,
+                                             f"{code}: re-queue {it['device_type']} ({why})", raw=True)
+                if ok:
+                    final.append((body, p[i]))
+                    if o is not None:
+                        st["orders"] = vqm.take(st["orders"], code, o, int(body.get("quantity") or 1))
+                        rest = next((x for x in st["orders"] if x["factory"] == code and x["seq"] == o["seq"]), None)
+                        if rest is not None:
+                            placed[i] = rest
+                    continue
+                failed.append(f"{it['device_type']}: {err}")
+                placed[i] = o if o is not None else await vq.add(code, vqm.body_of(it), p[i], s=st)
+            # the kept prints in the new order: each with its priority, their seqs handed out again in that order
+            live = {id(x) for x in st["orders"]}
+            ranked = [(i, x) for i, x in sorted(placed.items()) if id(x) in live]
+            seqs = sorted(x["seq"] for _, x in ranked)
+            for (i, x), q in zip(ranked, seqs):
+                x["prio"], x["seq"] = p[i], q
+            vqm.note_real(st, code, [a for a, _ in final], [b for _, b in final])
+            await self.db.kv_set(vqm.KV, st)
+        if failed:
+            return False, "re-queue failed (kept in the app's queue): " + "; ".join(failed)
         return True, f"queue re-ordered from #{k + 1}"
 
     async def stock_pass(self) -> list[str]:

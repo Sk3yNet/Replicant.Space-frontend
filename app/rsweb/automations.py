@@ -3393,7 +3393,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 continue
             kept = await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code])
             real = [x for x in pq.items(d) if not x["extra"].get("virtual")]
-            k, back, send = vqm.plan(real, kept)
+            k, back, send = vqm.plan(real, kept, prios=vqm.real_prios(await vq.state(), code, real))
             waiting = str(d.get("status") or "").startswith("waiting_for_resources")
             if waiting and now - jumped.get(code, -1e9) < 600:
                 continue   # a print just went ahead of the waiting one: the order by priority would undo it
@@ -3413,11 +3413,20 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     out.append(line)
                     await self.log("print queue", line, "info")
                     continue
-            k, back, send = vqm.plan(real, kept)
-            if not send and not back and k == len(real):
-                continue
             async with vq.lock:
                 st = await vq.state()
+                prios = vqm.real_prios(st, code, real)
+                had = (st.get("real") or {}).get(code)
+                vqm.note_real(st, code, real, prios)   # forget hand moves that left the queue
+                if (st.get("real") or {}).get(code) != had:
+                    await self.db.kv_set(vqm.KV, st)
+            k, back, send = vqm.plan(real, kept, prios=prios)
+            if not send and not back and k == len(real):
+                continue
+            pr = {id(it): p for it, p in zip(real, prios)}
+            async with vq.lock:
+                st = await vq.state()
+                final = [(it, pr[id(it)]) for it in real[:k]]
                 low = min([o["seq"] for o in st["orders"]] + [st.get("low", 0), 0])   # back ones go ahead of the rest
                 st["low"] = low - len(back) - 2
                 removed = 0
@@ -3429,7 +3438,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     removed += 1
                 gone = {id(x) for x in real[k:k + removed]}
                 for i, it in enumerate(x for x in back if id(x) in gone):
-                    await vq.add(code, vqm.body_of(it), vqm.priority(it), s=st, seq=low - len(back) + i - 1)
+                    await vq.add(code, vqm.body_of(it), pr.get(id(it), vqm.priority(it)), s=st, seq=low - len(back) + i - 1)
                 sent = 0
                 for kind, x in send:
                     if kind == "real" and id(x) not in gone:
@@ -3446,6 +3455,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                             st["orders"] = vqm.take(st["orders"], x["factory"], x, 10 ** 9)
                             await self.log("print queue", f"{code}: dropped the {body.get('device_type')} print: {err}", "warning")
                             continue
+                    if ok:
+                        final.append((body, pr.get(id(x), vqm.priority(x)) if kind == "real" else x["prio"]))
                     if ok or (kind == "kept" and "not yet unlocked" in str(err).lower()):
                         sent += ok
                         if kind == "kept":
@@ -3456,7 +3467,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                             await self.db.kv_set("locked_prints", lk)
                             await self.log("print queue", f"{code}: dropped the {body.get('device_type')} print: {err}", "warning")
                     elif kind == "real":
-                        await vq.add(code, body, vqm.priority(x), s=st, seq=low - len(back) - 1)
+                        await vq.add(code, body, pr.get(id(x), vqm.priority(x)), s=st, seq=low - len(back) - 1)
+                vqm.note_real(st, code, [a for a, _ in final], [b for _, b in final])
                 await self.db.kv_set(vqm.KV, st)
             line = f"{code}: {sent} print(s) into the game's queue" + (f", {len(back)} back to the app's queue" if back else "")
             out.append(line)

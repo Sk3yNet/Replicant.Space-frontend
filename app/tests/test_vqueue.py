@@ -264,3 +264,33 @@ def test_remove_takes_a_kept_print_off_by_its_order(client):  # noqa: F811
     assert r.status_code == 200 and len(client.portal.call(VirtualQueue(db).orders, "AF00BEEF")) == 1
     r = client.post("/print-queue/group/remove", data={"codes": "AF00BEEF", "factory": "AF00BEEF", "order": 999}, headers=HX)
     assert "any more" in r.text
+
+
+def test_moving_a_kept_print_to_the_front_puts_it_in_the_games_queue(client):  # noqa: F811
+    """Joe 2026-11-07: "move #3 autofactory to #1 … dequeue failed: Invalid index: 0" (the saved device list was stale)."""
+    db, e, world = setup(client)
+    world.queues["AF00BEEF"] = [{"device_type": "orbital_farm", "quantity": 1, "tags": ["fleet:m1"]}]
+    for t, tags in (("hydroponic_bay", ["stock"]), ("nutrient_synthesizer", ["fleet:m1"])):
+        client.portal.call(e.send, "POST", "/devices/AF00BEEF", {"command": "enqueue_print", "device_type": t, "quantity": 1,
+                                                                 "tags": tags}, "t")
+    client.portal.call(db.kv_set, "devices", [])   # stale: knows nothing of the game's queue
+    dev = client.portal.call(client.app.state.api.get, "/devices/AF00BEEF")
+    assert [x["device_type"] for x in dev["print_queue"]] == ["orbital_farm", "nutrient_synthesizer", "hydroponic_bay"]
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "top", "index": 2}, headers=HX)
+    assert r.status_code == 200 and "Invalid" not in r.text, r.text
+    assert [x["device_type"] for x in world.queues["AF00BEEF"]] == ["hydroponic_bay"]
+    dev = client.portal.call(client.app.state.api.get, "/devices/AF00BEEF")
+    assert [x["device_type"] for x in dev["print_queue"]] == ["hydroponic_bay", "orbital_farm", "nutrient_synthesizer"]
+    # the feeder fills the game's queue in that order and doesn't move the stock print back
+    feed(client)
+    assert [x["device_type"] for x in world.queues["AF00BEEF"]] == ["hydroponic_bay", "orbital_farm"]
+    # and moving a kept print up among the kept ones re-ranks it
+    client.portal.call(e.send, "POST", "/devices/AF00BEEF", {"command": "enqueue_print", "device_type": "orbital_farm",
+                                                             "quantity": 1, "tags": ["stock"]}, "t")
+    dev = client.portal.call(client.app.state.api.get, "/devices/AF00BEEF")
+    q = [x["device_type"] for x in dev["print_queue"]]
+    assert q == ["hydroponic_bay", "orbital_farm", "nutrient_synthesizer", "orbital_farm"], q
+    r = client.post("/devices/AF00BEEF/print-queue", data={"action": "up", "index": 3}, headers=HX)
+    assert r.status_code == 200
+    dev = client.portal.call(client.app.state.api.get, "/devices/AF00BEEF")
+    assert [x.get("tags") for x in dev["print_queue"]][2:] == [["stock"], ["fleet:m1"]]

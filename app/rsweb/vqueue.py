@@ -183,12 +183,50 @@ class VirtualQueue:
         return body
 
 
-def plan(real: list[dict], kept: list[dict], keep: int = KEEP) -> tuple[int, list[dict], list[tuple[str, dict]]]:
+def real_prios(st: dict, code: str, real: list[dict]) -> list[int]:
+    """The priority of each print in a factory's game queue: the one it was given when moved there by hand
+    (`note_real`), else the one its tags give."""
+    left = list((st.get("real") or {}).get(code) or [])
+    out = []
+    for it in real:
+        m = next((e for e in left if e.get("device_type") == it.get("device_type")
+                  and list(e.get("tags") or []) == list(it.get("tags") or [])), None)
+        if m is not None:
+            left.remove(m)
+            out.append(int(m.get("prio", 3)))
+        else:
+            out.append(priority(it))
+    return out
+
+
+def note_real(st: dict, code: str, real: list[dict], prios: list[int]) -> None:
+    """Remember the game queue's prints whose priority isn't the one their tags give (a hand move), so the feeder
+    doesn't undo the move."""
+    own = [{"device_type": it.get("device_type"), "tags": list(it.get("tags") or []), "prio": p}
+           for it, p in zip(real, prios) if p != priority(it)]
+    st.setdefault("real", {})
+    if own:
+        st["real"][code] = own
+    else:
+        st["real"].pop(code, None)
+
+
+def hand_prios(orig: list[int]) -> list[int]:
+    """Priorities for a queue the owner put in this order: each print's own, raised to the best of those behind it,
+    so sorting by (priority, place) keeps the order (a print moved up takes the priority of what it now stands before)."""
+    p = list(orig)
+    for i in range(len(p) - 2, -1, -1):
+        p[i] = min(p[i], p[i + 1])
+    return p
+
+
+def plan(real: list[dict], kept: list[dict], keep: int = KEEP,
+         prios: list[int] | None = None) -> tuple[int, list[dict], list[tuple[str, dict]]]:
     """What the feeder changes in one factory's game queue: (k, back, send). Dequeue the game's waiting prints from
     position k down; `back` are the ones of them kept here again; then send `send` in order (("real", queue item) put
     back, or ("kept", order) taken from here). `real` is printqueue.items of the game's queue (no virtual ones),
     `kept` the orders kept here, best first. The game's queue ends up as the `keep` best prints of both."""
-    pool = [(priority(it), i, "real", it) for i, it in enumerate(real)] + \
+    pool = [(prios[i] if prios else priority(it), i, "real", it) for i, it in enumerate(real)] + \
            [(o["prio"], len(real) + n, "kept", o) for n, o in enumerate(kept)]
     want = sorted(pool, key=lambda x: (x[0], x[1]))[:max(keep, 0)]
     k = 0
