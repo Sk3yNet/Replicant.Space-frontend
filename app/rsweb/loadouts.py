@@ -134,6 +134,36 @@ def place_tag_fix(d: dict, stars, fleet_ids: set[str]) -> tuple[list[str], list[
     return None
 
 
+def delivery_tags(d: dict, dest: str, fleet_homes: dict[str, str] | None = None) -> tuple[list[str], list[str], str | None]:
+    """Hand delivery (Joe 2026-11-07): the tags that make logistics take device `d` to `dest`, a star (`SOL`) or a spot
+    in a system (`SOL-3`, `SOLARES-BELT-1`). Another system gets `to:<star>` (the loadout pass carries it there), a spot
+    gets `at:<spot>` too (sent or carried to it in that system, as print pins are). Earlier to:/at:/lift tags, spare,
+    stock and gather go; so does its fleet: tag unless `dest` is in the fleet's home (a stationed fleet would retag it to
+    its home). Returns (add, remove, why not) — `why not` set when it can't or needn't go."""
+    dest = (dest or "").strip().upper()
+    if not dest or not is_place(dest):
+        return [], [], f"{dest or 'nothing'} isn't a star or location code (e.g. SOL, SOL-3, FALQUORYX-BELT-1)"
+    tags = d.get("tags") or []
+    if is_component(d) or for_contract(d):
+        return [], [], "reserved for a print or a contract (remove its component / contract: tag first)"
+    star, loc, here = star_of(dest), (dest if "-" in dest else None), d.get("location")
+    if (loc and here == loc) or (not loc and here and star_of(here) == star and not pinned_at(d)):
+        return [], [], f"already at {dest}"
+    want = ([to_tag(star)] if not here or star_of(here) != star else []) + ([at_tag(loc)] if loc else [])
+    fleet = next((t for t in tags if t.startswith("fleet:")), None)
+    drop = {t for t in tags if t.startswith(("to:", "at:")) or t in (LIFT, SPARE, STOCK, GATHER)}
+    if fleet and star_of((fleet_homes or {}).get(fleet) or "") != star:   # fleet_homes: fleet: tag -> home
+        drop.add(fleet)
+    add = [t for t in want if t not in tags]
+    remove = sorted(drop - set(want))
+    return add, remove, None if add or remove else f"already tagged for {dest}"
+
+
+def delivery_clear_tags(d: dict) -> list[str]:
+    """Cancel a hand delivery: the to: / at: / lift tags to take off."""
+    return sorted(t for t in d.get("tags") or [] if t.startswith(("to:", "at:")) or t == LIFT)
+
+
 def pinned_at(d: dict) -> str | None:
     """The location a device is pinned to (`at:` tag), upper-case like the game's codes."""
     return next((t[3:].upper() for t in d.get("tags") or [] if t.startswith("at:") and len(t) > 3 and is_place(t[3:])), None)
@@ -420,7 +450,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         # a print's component or a contract's relay isn't for the network: it goes where it's pinned (snapshot
         # 2026-11-03 23:43: relays for FALQUORYX's relay stations were unbound at SOLARES and both queues waited)
         if (dest and (d.get("device_type") or "") == "ftl_relay" and not fleet_tag_of(d) and to_tag(dest) in (d.get("tags") or [])
-                and not str(d.get("status") or "").startswith("relaying") and not is_component(d) and not for_contract(d)):
+                and not str(d.get("status") or "").startswith("relaying") and not is_component(d) and not for_contract(d)
+                and not (pinned_at(d) and star_of(pinned_at(d)) == dest)):   # pinned to a spot there (a hand delivery): it goes
             bound_relays[dest].append(d)
     for dest, ds in bound_relays.items():
         moving_ = lambda x: x["device_code"] in busy or bool(x.get("stowed_in_device_code") or x.get("attached_to_device_code"))  # noqa: E731

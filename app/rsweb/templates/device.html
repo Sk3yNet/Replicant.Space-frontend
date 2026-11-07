@@ -54,6 +54,15 @@
       <input name="add" placeholder="add tags (comma)"><input name="remove" placeholder="remove tags"><button class="small">Update</button>
     </form>
     <div id="tag-result"></div>
+    {% if 'surge' not in (dev.features or []) %}<h3>Deliver</h3>
+    {% set ns = namespace(d=[]) %}{% for t in dev.tags or [] if t.startswith(('to:', 'at:')) or t == 'lift' %}{% set ns.d = ns.d + [t] %}{% endfor %}{% set dtags = ns.d %}
+    <p class="muted small">Logistics carries it to a star, or on to a spot there (SOL-3, FALQUORYX-BELT-1).{% if dtags %} Now tagged: <span class="mono">{{ dtags | join(' ') }}</span>{% endif %}</p>
+    <form class="inline" hx-post="/devices/{{ code }}/deliver" hx-target="#deliver-result">
+      <span hx-get="/devices/{{ code }}/deliver-form" hx-trigger="load" hx-swap="outerHTML"><input name="destination" placeholder="SOL or SOL-3" required></span>
+      <button class="small">Deliver</button>
+      {% if dtags %}<button class="small" name="clear" value="1" formnovalidate>Cancel delivery</button>{% endif %}
+    </form>
+    <div id="deliver-result"></div>{% endif %}
   </div>
 
   {% if pq %}<div class="card">

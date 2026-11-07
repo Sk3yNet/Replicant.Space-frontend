@@ -14,6 +14,8 @@ from fastapi.responses import HTMLResponse
 
 from . import commands as cmdspec
 from . import fleets as fl
+from . import loadouts as lo
+from .logistics import holds_replicant
 from .web import (DANGEROUS, add_repeats, call_action, current_user, load_state, order_commands, parse_json_field, partial,
                   suggestions)
 
@@ -21,6 +23,9 @@ router = APIRouter()
 
 MAX_DEVICES = 100
 TAG_CMDS = {"add_tags": "add tags", "remove_tags": "remove tags"}   # not game commands: a PATCH of the device's tags
+# also tag PATCHes: to:/at: tags for logistics to carry the device somewhere (loadouts.delivery_tags), or taking them off
+DELIVERY_CMDS = {"deliver": "deliver to", "cancel_delivery": "cancel delivery"}
+PSEUDO_CMDS = {**TAG_CMDS, **DELIVERY_CMDS}
 NOT_BULK = {"set_directive": "pick the directive per device on its page",
             "prospect": "aim each observatory on its page",
             "message": "send BobNet messages from one relay on its page"}
@@ -32,7 +37,7 @@ def bulk_commands(devices: list[dict]) -> list[tuple[str, int]]:
     for d in devices:
         for c in d.get("available_commands") or []:
             n[c] = n.get(c, 0) + 1
-    return [(c, len(devices)) for c in TAG_CMDS] + \
+    return [(c, len(devices)) for c in PSEUDO_CMDS] + \
         [(c, n[c]) for c in order_commands(sorted(n, key=lambda c: (-n[c], c))) if c not in NOT_BULK]
 
 
@@ -59,7 +64,10 @@ def bulk_check(codes: list[str], command: str, devices: list[dict], busy: set[st
             skip.append((code, "no longer in the device list"))
             continue
         cmds = d.get("available_commands")
-        if command in TAG_CMDS:
+        if command == "deliver" and holds_replicant(d, devices):
+            skip.append((code, "it carries a replicant: move it with its own travel command"))
+            continue
+        if command in PSEUDO_CMDS:
             if code in busy and not include_busy:
                 skip.append((code, "an automation job is using it (tick 'include devices automations are using' to send anyway)"))
             else:
@@ -117,6 +125,12 @@ def _warnings(ctx: dict) -> str:
 async def bulk_form(request: Request, command: str = "", user: str = Depends(current_user)):
     if not command:
         return HTMLResponse("")
+    if command == "deliver":
+        return HTMLResponse(await deliver_field(request) + ' <span class="muted small">a star (another system: logistics '
+                            'carries it there) or a spot (SOL-3, FALQUORYX-BELT-1: it goes on to that spot). Replaces earlier '
+                            'to:/at: tags; spare and gather go, and so does its fleet unless the spot is in the fleet&#39;s home.</span>')
+    if command == "cancel_delivery":
+        return HTMLResponse('<span class="muted small">Takes the to:, at: and lift tags off the ticked devices.</span>')
     if command in TAG_CMDS:
         st = await load_state(request)
         known = sorted({t for d in st["devices"] for t in d.get("tags") or []})
@@ -144,6 +158,9 @@ async def bulk_run(request: Request, user: str = Depends(current_user)):
         return HTMLResponse('<div class="result err">Tick at least one device and pick a command.</div>')
     if len(ctx["ok"]) > MAX_DEVICES:
         return HTMLResponse(f'<div class="result err">At most {MAX_DEVICES} devices at a time.</div>')
+    if ctx["command"] in DELIVERY_CMDS:
+        return await deliver_devices(request, user, ctx["ok"], form.get("destination") or "",
+                                     ctx["command"] == "cancel_delivery", ctx["skip"], len(ctx["codes"]))
     if ctx["command"] in TAG_CMDS:
         return await _bulk_tags(request, user, ctx, clean_tags(form.get("tags") or ""))
     body, extra = {}, {}
@@ -239,6 +256,98 @@ async def _bulk_tags(request: Request, user: str, ctx: dict, tags: list[str]) ->
     return HTMLResponse(f'<div class="result {"ok" if sent else ""}"><strong>{", ".join(tags)} {verb}: {sent} of '
                         f'{len(ctx["codes"])} device(s)</strong><ul class="small">{"".join(rows)}</ul></div>',
                         headers={"HX-Trigger": "fleet-refreshed"} if sent else {})
+
+
+async def deliver_field(request: Request, value: str = "") -> str:
+    """The destination box with known stars and device spots to pick from."""
+    db = request.app.state.db
+    st = await load_state(request)
+    opts = {r["star"] for r in await db.fetchall("SELECT star FROM systems") if r["star"]}
+    opts |= {d.get("location") for d in st["devices"] if d.get("location")}
+    opts |= {lo.star_of(x) for x in list(opts)}
+    dl = "".join(f'<option value="{html.escape(o)}">' for o in sorted(opts))
+    return (f'<label class="small" style="text-transform:none">Destination <input name="destination" list="deliver-dests" '
+            f'size="22" placeholder="SOL or SOL-3" value="{html.escape(value)}" required></label>'
+            f'<datalist id="deliver-dests">{dl}</datalist>')
+
+
+async def _known_star(request: Request, star: str, devices: list[dict]) -> bool:
+    if any(lo.star_of(d.get("location")) == star for d in devices):
+        return True
+    if await request.app.state.db.fetchall("SELECT star FROM systems WHERE star = ?", (star,)):
+        return True
+    cat = await request.app.state.db.kv_get("stars", {}) or {}
+    return any(isinstance(s, dict) and s.get("designation") == star for s in cat.get("stars") or [])
+
+
+async def deliver_devices(request: Request, user: str, codes: list[str], dest: str, clear: bool = False,
+                          skip: list[tuple[str, str]] | None = None, ticked: int | None = None) -> HTMLResponse:
+    """Hand delivery (Joe 2026-11-07): tag each device for logistics to carry it to `dest` (loadouts.delivery_tags), or
+    with `clear` take its delivery tags off. One PATCH per device; the cached device list shows the change at once."""
+    db = request.app.state.db
+    dest = (dest or "").strip().upper()
+    devices = await db.kv_get("devices", []) or []
+    by = {d.get("device_code"): d for d in devices}
+    if not clear:
+        if not dest or not lo.is_place(dest):
+            return HTMLResponse(f'<div class="result err">{html.escape(dest or "No destination")} isn&#39;t a star or location '
+                                'code (e.g. SOL, SOL-3, FALQUORYX-BELT-1).</div>')
+        if not await _known_star(request, lo.star_of(dest), devices):
+            return HTMLResponse(f'<div class="result err">{html.escape(lo.star_of(dest))} isn&#39;t a known star.</div>')
+    homes = {fl.fleet_tag(f["id"]): f.get("home") or "" for f in await db.kv_get("fleets", []) or [] if f.get("id")}
+    rows, done, sent = [], {}, 0
+    for code in codes:
+        d = by.get(code) or {}
+        if clear:
+            add, remove, why = [], lo.delivery_clear_tags(d), None if lo.delivery_clear_tags(d) else "no delivery tags"
+        else:
+            add, remove, why = lo.delivery_tags(d, dest, homes)
+        if why:
+            rows.append(f'<li><span class="mono">{html.escape(code)}</span> <span class="muted">{html.escape(why)}</span></li>')
+            continue
+        cfg = {k: v for k, v in (("add_tags", add), ("remove_tags", remove)) if v}
+        out = await call_action(request, user, "PATCH", f"/devices/{code}", {"configuration": cfg},
+                                f"{'cancel delivery of' if clear else 'deliver'} {code}{'' if clear else ' to ' + dest}"
+                                f" ({' '.join(['+' + t for t in add] + ['-' + t for t in remove])})")
+        if out["ok"]:
+            sent += 1
+            done[code] = (add, remove)
+        rows.append(f'<li><a class="mono" href="/devices/{code}">{code}</a> '
+                    + (f'<span class="lv-done">✓</span> <span class="muted small">{html.escape(" ".join(add) or "—")}'
+                       f'{" (off: " + html.escape(" ".join(remove)) + ")" if remove else ""}</span>' if out["ok"] else
+                       f'<span class="lv-alert">✗ {out["status"]}: {html.escape(str(out["error"] or ""))}</span>') + "</li>")
+    if sent:   # on a fresh read, as _bulk_tags does
+        async with request.app.state.worker.devices_lock:
+            devices = await db.kv_get("devices", []) or []
+            for d in devices:
+                ch = done.get(d.get("device_code"))
+                if ch:
+                    d["tags"] = sorted((set(d.get("tags") or []) - set(ch[1])) | set(ch[0]))
+            await db.kv_set("devices", devices)
+    rows += [f'<li><span class="mono">{html.escape(c)}</span> <span class="muted">skipped: {html.escape(w)}</span></li>'
+             for c, w in skip or []]
+    head = (f"delivery canceled: {sent}" if clear else f"tagged for delivery to {html.escape(dest)}: {sent}") + \
+        f" of {ticked if ticked is not None else len(codes)} device(s)"
+    note = "" if clear or not sent else ('<div class="muted small">The loadouts pass (Fleets) picks it up: a carrier takes it '
+                                         'to the system, and it goes on to its spot there. The tags go on arrival.</div>')
+    return HTMLResponse(f'<div class="result {"ok" if sent else ""}"><strong>{head}</strong><ul class="small">{"".join(rows)}'
+                        f'</ul>{note}</div>', headers={"HX-Trigger": "fleet-refreshed"} if sent else {})
+
+
+@router.get("/devices/{code}/deliver-form", response_class=HTMLResponse)
+async def device_deliver_form(request: Request, code: str, user: str = Depends(current_user)):
+    return HTMLResponse(await deliver_field(request))
+
+
+@router.post("/devices/{code}/deliver", response_class=HTMLResponse)
+async def device_deliver(request: Request, code: str, user: str = Depends(current_user)):
+    form = await request.form()
+    st = await load_state(request)
+    d = next((x for x in st["devices"] if x.get("device_code") == code), None)
+    clear = form.get("clear") == "1"
+    if not clear and d and holds_replicant(d, st["devices"]):
+        return HTMLResponse('<div class="result err">It carries a replicant: move it with its own travel command.</div>')
+    return await deliver_devices(request, user, [code], form.get("destination") or "", clear)
 
 
 __all__ = ["router", "bulk_check", "bulk_commands", "DANGEROUS"]

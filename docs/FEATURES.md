@@ -66,10 +66,15 @@ System → device type → device, with stowed devices nested in their carrier; 
 - The tag filter has one entry per kind for pins (`at:`), trips (`to:`), contracts, home and bootstrap tags, matching
   every tag of that kind; fleets have their own group. Type a single pin (`at:sol-3`) in the search box.
 - Tick devices (or all listed) to send them **one command**, or to **add tags** / **remove tags**.
+- **Deliver** tags the ticked devices for logistics: a star (another system: `to:<star>`, a carrier takes it there) or a
+  spot (`SOL-3`: `at:<spot>` too, it goes on to that spot). Earlier to:/at:/lift tags, spare and gather go, and its
+  fleet tag unless the spot is in the fleet's home. Devices carrying a replicant, or reserved for a print component or a
+  contract, are skipped. **Cancel delivery** takes the to:/at:/lift tags off. The tags go on arrival.
 - Devices that can't take it are listed and skipped: command not available, in use by an automation, a deploy/detach
   while the carrier is between systems.
 
 ### Device page
+- **Deliver** (devices that don't surge themselves): the same delivery tagging for this one device, with Cancel delivery while it has to:/at: tags.
 - **What it's doing**: its fleet's status for a fleet member; the current task and step for a logistics vessel or any
   device an automation job is working.
 - Live detail, every available command with its fields (destructive ones ask first), tags, history and game log,

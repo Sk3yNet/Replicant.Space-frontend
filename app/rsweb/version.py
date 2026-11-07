@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.351.0"
+VERSION = "1.352.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.352.0", "2026-11-07", "Deliver a device by hand (Joe): the Device list and the page of every device that doesn't surge itself (tick devices, command Deliver) take a destination, a star or a spot such as SOL-3, and the app writes the tags logistics already follows: to:<star> for another system and at:<spot> for the exact spot. Old to:/at:/lift tags, spare and gather come off, and the fleet tag too unless the spot is in the fleet's home. Cancel delivery takes the tags off again. A relay delivered to a spot in a system that already has a relay is no longer turned spare on the way."),
     ("1.351.0", "2026-11-07", "Moving prints works across the app's print queue (Joe: move #3 autofactory to #1 answered dequeue failed: Invalid index: 0). The move worked the game's queue positions out from the saved device list, which can be minutes old, and sent kept prints back through the app's queue by priority, so the new order was lost. Now the game's queue gets the first prints of the new order straight away (a print pushed off it waits in the app), the kept ones are re-ranked, and every moved print takes the priority that keeps your order, so the feeder no longer moves it back."),
     ("1.350.0", "2026-11-07", "Remove works on prints waiting in the app's print queue (Joe): the panel's Remove now takes a kept print off by its order instead of a queue position worked out from the saved device list, which could be minutes old once the feeder had handed prints to the game, so the click hit the wrong print or the game answered Invalid queue index. The shared app queue on Blueprints › Print queues has a Remove button too."),
     ("1.349.0", "2026-11-06", "Rock chaser Target criteria explained (Joe): the fleet card says how a target is picked, and every setting is grouped (Where it looks, Which rocks, At the rock, Rocks you launched, Kuiper search and launch) with a line on what it does and its default, instead of hover-only hints."),
