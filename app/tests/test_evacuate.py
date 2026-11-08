@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from rsweb import evacuate as ev
 from rsweb import logistics as lg
 from test_logistics import BPS, FLEETS, POS, SURGE, dev, world  # noqa: F401
-from test_ops import client  # noqa: F401  (fixture)
+from test_ops import HX, client  # noqa: F401  (fixture)
 
 
 def iso(minutes):
@@ -144,3 +144,35 @@ def test_a_rock_past_its_eta_is_overdue_until_the_game_reports_it(client):  # no
     assert client.portal.call(e.safe_piles, {"SOL-OBJ-6": {"carbon": 5}, "SOL-1": {"carbon": 1}}) == {"SOL-1": {"carbon": 1}}
     a = dfn.assess(objs["SOL-OBJ-6"], [], [])
     assert a["verdict"] == dfn.OVERDUE and not a["threat"]
+
+
+def test_outage_announcement_and_schedule():
+    from rsweb import season
+    start, mins = season.parse_announcement("Monday, 9th November 2026 Start Time: 20:00 UTC Expected duration: Up to 1 hour")
+    assert start.isoformat() == "2026-11-09T20:00:00+00:00" and mins == 60
+    assert season.parse_announcement("November 9, 2026 at 20:00 EST for 90 minutes") is None   # never a guessed zone
+    assert season.parse_announcement("2026-11-09 20:00 for 90 minutes")[1] == 90
+    w = {"id": "o1", "start": start.isoformat(), "minutes": 60, "lead": 30, "after": 15, "state": "pending"}
+    at = lambda h, m: datetime(2026, 11, 9, h, m, tzinfo=timezone.utc)  # noqa: E731
+    assert season.outage_step([w], None, at(19, 0))[1] is None
+    wins, act, _ = season.outage_step([w], None, at(19, 31))
+    assert act == "pause" and wins[0]["state"] == "holding"
+    assert season.outage_step(wins, {"window": "o1"}, at(21, 0))[1] is None
+    wins2, act, _ = season.outage_step(wins, {"window": "o1"}, at(21, 16))
+    assert act == "resume" and wins2[0]["state"] == "done"
+    assert season.outage_step(wins, {"by": "season change"}, at(21, 16))[1] is None   # a new season stays paused
+    assert season.outage_step([w], {"by": "you"}, at(19, 31))[1] is None   # paused by hand: left alone
+
+
+def test_outage_page_and_engine(client):  # noqa: F811
+    from rsweb import season
+    db, e = client.app.state.db, client.app.state.worker.automations
+    r = client.post("/outage/add", data={"text": "Monday, 9th November 2026 Start Time: 20:00 UTC Expected duration: Up to 1 hour"}, headers=HX)
+    assert r.status_code == 200
+    wins = client.portal.call(db.kv_get, season.OUTAGE_KV)
+    assert wins[0]["start"] == "2026-11-09T20:00:00+00:00"
+    assert "Scheduled game outages" in client.get("/partials/story", headers=HX).text
+    soon = datetime.now(timezone.utc) + timedelta(minutes=10)
+    client.portal.call(db.kv_set, season.OUTAGE_KV, [{"id": "x", "start": soon.isoformat(), "minutes": 60, "lead": 30, "after": 15}])
+    client.portal.call(e.outage_pass)
+    assert client.portal.call(db.kv_get, season.HOLD_KV)["window"] == "x"

@@ -660,7 +660,9 @@ async def p_story(request: Request, refresh: str = "", user: str = Depends(curre
     ov = await db.kv_get("overview", {}) or {}
     return partial(request, "partials/story.html", ov=ov, season_end=season.likely_end(ov),
                    hold=await db.kv_get(season.HOLD_KV, None), snap=await db.kv_get(season.SNAP_KV, None),
-                   snap_summary=season.summary(await db.kv_get(season.SNAP_KV, None)))
+                   snap_summary=season.summary(await db.kv_get(season.SNAP_KV, None)),
+                   outages=[{**w, "times": season.window_times(w)} for w in await db.kv_get(season.OUTAGE_KV, []) or []
+                            if w.get("state") in (None, "pending", "holding")])
 
 
 @router.post("/season/hold", response_class=HTMLResponse)
@@ -675,6 +677,43 @@ async def season_hold(request: Request, action: str = Form("pause"), user: str =
         await db.kv_set(season.SNAP_KV, await season.snapshot(db))   # a fresh copy of the galaxy as it is now
         await db.kv_set(season.HOLD_KV, {"since": now_iso(), "by": user})
         await eng.log("season", f"automations paused for the season change ({user})")
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/outage/add", response_class=HTMLResponse)
+async def outage_add(request: Request, text: str = Form(""), day: str = Form(""), time: str = Form(""),
+                     minutes: str = Form(""), lead: str = Form(""), after: str = Form(""), user: str = Depends(current_user)):
+    """Schedule a game outage (season.py): from the announcement's text, or a UTC date and time."""
+    from datetime import datetime as _dt
+    from . import season
+    from .db import now_iso as _now_iso
+    got = season.parse_announcement(text) if text.strip() else None
+    if not got and day and time:
+        try:
+            got = (_dt.fromisoformat(f"{day}T{time}").replace(tzinfo=timezone.utc), int(minutes or 60))
+        except ValueError:
+            got = None
+    if not got:
+        return HTMLResponse('<span class="err">Could not read a date and a UTC time from that.</span>')
+    start, mins = got
+    if minutes.strip().isdigit() and not text.strip():
+        mins = int(minutes)
+    def num(v: str, d: int) -> int:
+        return int(v) if v.strip().isdigit() else d
+    w = {"id": f"o{int(start.timestamp())}", "start": start.isoformat(), "minutes": mins,
+         "lead": num(lead, season.LEAD_MIN), "after": num(after, season.AFTER_MIN), "state": "pending",
+         "note": " ".join(text.split())[:200], "by": user, "at": _now_iso()}
+    db = request.app.state.db
+    wins = [x for x in await db.kv_get(season.OUTAGE_KV, []) or [] if x["id"] != w["id"]]
+    await db.kv_set(season.OUTAGE_KV, sorted(wins + [w], key=lambda x: x["start"]))
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/outage/remove", response_class=HTMLResponse)
+async def outage_remove(request: Request, id: str = Form(""), user: str = Depends(current_user)):
+    from . import season
+    db = request.app.state.db
+    await db.kv_set(season.OUTAGE_KV, [x for x in await db.kv_get(season.OUTAGE_KV, []) or [] if x["id"] != id])
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 

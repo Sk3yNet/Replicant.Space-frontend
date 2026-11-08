@@ -907,6 +907,12 @@ A season ends in a time skip (devices may move, events end, AMI directives pause
 - When `/overview` reports a new season number, automations pause: no engine passes, no new automated jobs, and
   running jobs wait (ones you start yourself still run). A banner says so; only **Resume automations** lifts it.
 - **Pause for the season change** (Dashboard › Story) does the same by hand.
+- **Scheduled game outages** (Dashboard › Story): paste the game's announcement (e.g. "Monday, 9th November 2026 Start
+  Time: 20:00 UTC Expected duration: Up to 1 hour") or enter a UTC date, time and length. Automations pause 30 minutes
+  before (a fresh copy of the galaxy is kept) and resume by themselves 15 minutes after the end (both settings). Times
+  are shown in UTC and in your time zone. A text naming another zone than UTC is refused rather than guessed. A pause
+  you set yourself is left alone, and a new season found during the window keeps automations paused until you resume.
+- Asteroid evacuations run through any pause.
 - Every 6 hours a copy of device places and states, fleets, loadouts, ward / relay / beacon orders, contract
   deliveries, replicant places and star positions is kept; it's frozen while paused.
 

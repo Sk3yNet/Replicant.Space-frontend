@@ -139,7 +139,7 @@ Rules run in the app container, so they keep going with the browser closed. The 
   ([Logistics](docs/FEATURES.md#logistics)).
 - **Travel** waits on the game's ETA, routes via hubs and surge hops when that's faster, and asks for **Confirm** on
   trips over a day ([Sector range](docs/FEATURES.md#activity-and-tools)).
-- **Season changes** pause every automation until you resume; the engine watchdog flags a stalled engine, and late
+- **Season changes** pause every automation until you resume, and scheduled game outages pause and resume them by themselves; the engine watchdog flags a stalled engine, and late
   replayed events trigger nothing.
 
 ## Setup (about 20 minutes)

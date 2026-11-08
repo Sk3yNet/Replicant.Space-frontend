@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.355.0"
+VERSION = "1.356.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.356.0", "2026-11-08", "Scheduled game outages (Dashboard › Story, Joe): paste the announcement or enter a UTC date and time; automations pause 30 min before with a fresh galaxy copy and resume by themselves 15 min after the end. Times show in UTC and your time zone; a non-UTC announcement is refused, not guessed. A new season found meanwhile keeps the pause until you resume. Asteroid evacuations now run through any pause."),
     ("1.355.0", "2026-11-08", "Asteroids: a rock past its impact time is now overdue, not over (SOLARES-OBJ-6 struck 18.5 h after its ETA on 11-08 and destroyed 46 devices). An overdue rock is still read; whatever is at it leaves, no carrier or AMI drone collects its pile, and no propulsors are sent, until the game reports it struck or diverted, its location is gone, or 48 h pass. A mined-out (depleted) rock is evacuated before its ETA too; before, depleted rocks were skipped. Snapshots list which devices asteroid events name."),
     ("1.354.3", "2026-11-08", "Bulk profile import finds a replicant by its name from before the clan prefix (Ordwin_Sparelens finds SK3Y-Ordwin_Sparelens), like the chatter import."),
     ("1.354.2", "2026-11-08", "Bulk profile import: Preview no longer fails silently when a profile sets is_npc (the preview table could not show a true/false value, so nothing appeared)."),

@@ -1098,7 +1098,9 @@ class Worker:
         if not isinstance(now, dict) or now.get("number") is None:
             return
         prev = await self.db.kv_get(season.SEASON_KV, None)
-        if season.changed(prev, now) and not await self.db.kv_get(season.HOLD_KV, None):
+        hold = await self.db.kv_get(season.HOLD_KV, None)
+        # a scheduled outage's hold lifts itself: a new season turns it into one only you lift
+        if season.changed(prev, now) and (not hold or hold.get("window")):
             await self.db.kv_set(season.HOLD_KV, {"since": now_iso(), "from": prev, "to": now, "by": "season change"})
             await self.automations.log("season", f"New season: {season.label(prev)} → {season.label(now)}. Automations "
                                                  "are paused until you resume them (Dashboard › Story); the copy from "

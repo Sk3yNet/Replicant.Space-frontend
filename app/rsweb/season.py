@@ -77,3 +77,79 @@ def summary(snap: dict | None) -> str:
         return "none yet"
     return (f"{len(snap.get('devices') or {})} devices, {len(snap.get('stars') or {})} stars, "
             f"{len(snap.get('fleets') or [])} fleets")
+
+
+# --- scheduled outages (Joe 2026-11-08: game maintenance announced as "Monday, 9th November 2026 Start Time: 20:00 UTC
+# Expected duration: Up to 1 hour") --------------------------------------------------------------------------------------
+# A window pauses automations `lead` minutes before its start (the same hold as the season pause, with a fresh copy of the
+# galaxy) and lifts that hold `after` minutes past its end. A hold you set yourself, or one a new season set, is never
+# lifted by a window: only you resume those. Evacuations from asteroids run through any hold.
+OUTAGE_KV = "outage_windows"
+LEAD_MIN, AFTER_MIN = 30, 15
+MONTHS = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))}
+
+
+def parse_announcement(text: str) -> tuple[datetime, int] | None:
+    """(start in UTC, minutes) from an announcement's text, or None. Takes "9th November 2026" / "November 9, 2026" /
+    "2026-11-09", a time "20:00" (UTC unless it says otherwise: then None, never a guess) and "1 hour" / "90 minutes"."""
+    import re
+    t = " ".join(str(text or "").split())
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", t)
+    if m:
+        y, mo, d = int(m[1]), int(m[2]), int(m[3])
+    else:
+        m = re.search(r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,})\.?,?\s+(\d{4})", t) \
+            or re.search(r"([A-Za-z]{3,})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})", t)
+        if not m:
+            return None
+        a, b, y = m[1], m[2], int(m[3])
+        day, mon = (a, b) if a.isdigit() else (b, a)
+        mo = MONTHS.get(mon[:3].lower())
+        if not mo:
+            return None
+        d = int(day)
+    tm = re.search(r"(\d{1,2}):(\d{2})(?:\s*([A-Z]{1,5})\b)?", t[m.end():]) or re.search(r"(\d{1,2}):(\d{2})(?:\s*([A-Z]{1,5})\b)?", t)
+    if not tm:
+        return None
+    zone = (tm[3] or "UTC").upper()
+    if zone not in ("UTC", "GMT", "Z"):
+        return None
+    try:
+        start = datetime(y, mo, d, int(tm[1]), int(tm[2]), tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    du = re.search(r"(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?)\b", t[tm.end():] if tm else t, re.I)
+    minutes = 60
+    if du:
+        n = float(du[1])
+        minutes = int(round(n * 60)) if du[2].lower().startswith("h") else int(round(n))
+    return start, max(1, minutes)
+
+
+def window_times(w: dict) -> tuple[datetime, datetime, datetime, datetime]:
+    """(pause at, start, end, resume at) of an outage window."""
+    from datetime import timedelta
+    start = datetime.fromisoformat(w["start"])
+    end = start + timedelta(minutes=int(w.get("minutes") or 60))
+    return (start - timedelta(minutes=int(w.get("lead", LEAD_MIN))), start, end,
+            end + timedelta(minutes=int(w.get("after", AFTER_MIN))))
+
+
+def outage_step(windows: list[dict], hold: dict | None, now: datetime) -> tuple[list[dict], str | None, str | None]:
+    """What the schedule does now: (windows updated, "pause" | "resume" | None, the window's id). One action per call."""
+    out = [dict(w) for w in windows]
+    for w in out:
+        pause_at, _, _, resume_at = window_times(w)
+        st = w.get("state") or "pending"
+        if st == "pending" and now >= resume_at:
+            w["state"] = "missed"
+        elif st == "pending" and now >= pause_at:
+            w["state"] = "holding"
+            if not hold:
+                w["paused_by_us"] = True
+                return out, "pause", w["id"]
+        elif st == "holding" and now >= resume_at:
+            w["state"] = "done"
+            if w.get("paused_by_us") and (hold or {}).get("window") == w["id"]:
+                return out, "resume", w["id"]
+    return out, None, None

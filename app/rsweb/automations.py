@@ -788,7 +788,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             plan = "; ".join(st["desc"] for st in steps)
             await self.log(rule, f"[dry run] {title}: {plan}")
             return None
-        if not force and await self.held():
+        if not force and not (meta or {}).get("through_hold") and await self.held():
             await self.log(rule, f"[paused for the season change] not started: {title}")
             return None
         from .modular import prepare_moves
@@ -845,6 +845,32 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from .season import HOLD_KV
         return bool(await self.db.kv_get(HOLD_KV, None))
 
+    async def outage_pass(self) -> list[str]:
+        """Scheduled game outages (season.py): pause before, resume after. Runs every tick, held or not."""
+        from . import season
+        wins = await self.db.kv_get(season.OUTAGE_KV, []) or []
+        if not wins:
+            return []
+        hold = await self.db.kv_get(season.HOLD_KV, None)
+        new, act, wid = season.outage_step(wins, hold, _now())
+        if new != wins:
+            await self.db.kv_set(season.OUTAGE_KV, new)
+        w = next((x for x in new if x["id"] == wid), {})
+        if act == "pause":
+            _, start, end, back = season.window_times(w)
+            await self.db.kv_set(season.SNAP_KV, await season.snapshot(self.db))
+            await self.db.kv_set(season.HOLD_KV, {"since": now_iso(), "by": "outage schedule", "window": wid,
+                                                  "until": back.isoformat(timespec="minutes")})
+            await self.log("season", f"Automations paused for the game outage {start:%Y-%m-%d %H:%M}–{end:%H:%M} UTC; they "
+                                     f"resume by themselves at {back:%H:%M} UTC (evacuations keep running).", "warning", notify=True)
+            return ["paused for the outage"]
+        if act == "resume":
+            await self.db.kv_set(season.HOLD_KV, None)
+            await self.log("season", "Automations resumed after the scheduled game outage. Check Dashboard › Story for news.",
+                           "warning", notify=True)
+            return ["resumed after the outage"]
+        return []
+
     async def season_snapshot_pass(self) -> list[str]:
         """The pre-change copy (season.py), every few hours; never while held, so it keeps the galaxy as it was."""
         from . import season
@@ -884,7 +910,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
 
     async def _advance(self, job_id: str) -> None:
         job = await self._get(job_id)
-        if job and not job.get("forced") and await self.held():
+        if job and not job.get("forced") and not (job.get("meta") or {}).get("through_hold") and await self.held():
             return   # paused for a season change: picks up again when you resume
         # only jobs you started print on vessels (and a simulation run's, in its virtual galaxy)
         tok = HAND_JOB.set(bool(job and (job.get("forced") or (job.get("meta") or {}).get("sim"))))
@@ -1949,9 +1975,13 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             now = _now()
             self.stage = "jobs"
             await self.note_tick(started=now_iso())
+            try:
+                await self.outage_pass()
+            except Exception:
+                log.exception("outage schedule failed")
             held = await self.held()
             for job in await self.jobs():
-                if held and not job.get("forced"):
+                if held and not job.get("forced") and not (job.get("meta") or {}).get("through_hold"):
                     continue
                 if job["status"] == "running":
                     await self._advance(job["id"])  # e.g. a rate-limited retry
@@ -3688,7 +3718,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 pin = lo.at_tag(m["from"])
                 if pin in ((by.get(c) or {}).get("tags") or []):
                     steps.append(lo.tag_step(c, remove=[pin]))
-            if await self.create_job("evacuate", f"evacuate {code} from {m['from']} → {m['to']}", code, steps, {"devices": codes}):
+            if await self.create_job("evacuate", f"evacuate {code} from {m['from']} → {m['to']}", code, steps,
+                                     {"devices": codes, "through_hold": True}):   # an asteroid doesn't wait for a resume
                 out.append(f"{code}: leaving {m['from']} for {m['to']} ({m['why']})")
         for s_ in p["stuck"]:
             key = f"evac-stuck:{s_['code']}"

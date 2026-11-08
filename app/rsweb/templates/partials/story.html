@@ -24,3 +24,18 @@
   {% else %}<button class="small ghost" hx-post="/season/hold" hx-vals='{"action": "pause"}' hx-confirm="Pause all automations for the season change? A fresh copy of the galaxy is kept, and only you can resume."
     title="Pauses automations now (when the season ends soon) with a fresh copy of the galaxy; a new season pauses them by itself">Pause for the season change</button>{% endif %}
 </div>
+<div class="small" style="margin-top:8px">
+  <b>Scheduled game outages</b>
+  <span class="muted">Automations pause before and resume by themselves after (evacuations keep running; a new season keeps them paused until you resume).</span>
+  {% for w in outages %}{% set t = w.times %}
+  <div style="margin:3px 0">{{ t[1].strftime('%a %Y-%m-%d %H:%M') }} UTC ({{ t[1].isoformat() | local('%a %b %d %H:%M') }} your time), {{ w.minutes }} min ·
+    pause {{ t[0].strftime('%H:%M') }} UTC, resume {{ t[3].strftime('%H:%M') }} UTC{% if w.state == 'holding' %} · <b>paused now</b>{% endif %}
+    <button class="small ghost" hx-post="/outage/remove" hx-vals='{"id": "{{ w.id }}"}' hx-confirm="Remove this outage from the schedule?">Remove</button></div>
+  {% endfor %}
+  <form hx-post="/outage/add" hx-target="next .out" style="margin-top:4px">
+    <input name="text" placeholder="Paste the announcement, e.g. Monday, 9th November 2026 Start Time: 20:00 UTC Expected duration: Up to 1 hour" style="width:100%">
+    <div style="margin-top:3px">or UTC <input type="date" name="day"> <input type="time" name="time"> for <input name="minutes" size="3" placeholder="60"> min ·
+      pause <input name="lead" size="3" placeholder="30"> min before, resume <input name="after" size="3" placeholder="15"> min after
+      <button class="small">Schedule</button></div>
+  </form><span class="out"></span>
+</div>
