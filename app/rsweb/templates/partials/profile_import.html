@@ -6,7 +6,7 @@
   {% for r in rows %}
   <tr>
     <td><a href="/replicants/{{ r.code }}">{{ r.current }}</a> <span class="muted mono">{{ r.code }}</span></td>
-    <td>{% for f, v in r.body.items() %}<div><b>{{ f }}</b>: {{ v | truncate(90) }}</div>{% endfor %}
+    <td>{% for f, v in r.body.items() %}<div><b>{{ f }}</b>: {{ (v | string) | truncate(90) }}</div>{% endfor %}
       {% if r.same %}<div class="muted">unchanged: {{ r.same | join(', ') }}</div>{% endif %}</td>
     <td>{% if r.errors %}<span class="lv-alert">{{ r.errors | join('; ') }}</span>
       {% elif not r.body %}<span class="muted">nothing to change</span>

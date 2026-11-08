@@ -285,3 +285,12 @@ def test_profile_import_key_ignores_case():
     reps = {"AB12CD34": {"name": "SK3Y-23"}}
     rows, _ = parse_import(json.dumps({"Sk3y-23": {"plan": "x"}, "ab12cd34": {"pronouns": "she/her"}}), reps)
     assert [r["code"] for r in rows] == ["AB12CD34", "AB12CD34"] and not rows[0]["errors"]
+
+
+def test_profile_import_preview_with_is_npc(client):
+    import json
+    client.portal.call(client.app.state.worker.sync_devices)
+    code = next(iter(client.portal.call(client.app.state.db.kv_get, "replicants", {})))
+    r = client.post("/profiles/preview", data={"profiles": json.dumps({code: {"plan": "Haul", "is_npc": True}})},
+                    headers=HX)
+    assert r.status_code == 200 and "is_npc" in r.text and "True" in r.text
