@@ -209,11 +209,13 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "stowed_map": await db.kv_get("stowed_map", {}) or {},
         # asteroids: the tracked objects (key = where the warning or detection was) and their raw events
         "objects": await db.kv_get("objects", {}) or {},
-        "asteroid_events": [{"event": r["event"], "location": r["location"], "at": r["created_at"], "payload": r["payload"]}
+        "asteroid_events": [{"event": r["event"], "location": r["location"], "at": r["created_at"], "payload": r["payload"],
+                             "device": r["device_code"], "type": r["device_type"]}
                             for r in await db.fetchall(
-                                "SELECT event, location, created_at, payload FROM events WHERE event LIKE 'system.%' "
+                                "SELECT event, location, created_at, payload, device_code, device_type FROM events "
+                                "WHERE event LIKE 'system.%' "
                                 "OR event LIKE 'diversion.%' OR event IN ('device.lost', 'device.destroyed') "
-                                "ORDER BY seq DESC LIMIT 60")],
+                                "ORDER BY seq DESC LIMIT 150")],
         "engine": {**eng.engine_status(), **(await db.kv_get("engine_tick", {}) or {})},   # is the tick loop alive?
         "fleets": [{"id": f.get("id"), "name": f.get("name"), "role": f.get("role"), "home": f.get("home"),
                     "station": bool(f.get("station")), "template": f.get("template"), "wants": f.get("wants") or {},

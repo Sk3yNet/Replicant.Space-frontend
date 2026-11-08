@@ -26,6 +26,11 @@ CLOSED_EVENTS = ("diversion.diverted", "diversion.impacted", "system.object_dive
 # v3.5.0 (2026-10-13): diversion.diverted / .impacted are deprecated for system.object_diverted / .object_impacted
 
 
+CONCLUDED = "concluded (impact time passed)"
+# past its ETA and not reported impacted or diverted: keep away for this long (SOLARES-OBJ-6 struck 18.5 h late, 2026-11-08)
+OVERDUE_H = 48
+OVERDUE = "overdue (past its impact time, not reported down yet)"
+
 OFF_TARGET = "off_target"   # v3.6.0 (2026-10-21): diverted, still navigable and minable until the ETA (system.object_off_target)
 
 
@@ -130,6 +135,8 @@ def assess(obj: dict, devices: list[dict], bps: dict[str, dict], now: datetime |
     done_in = (100 - progress) / rate if rate else None
     if obj.get("closed"):
         verdict = obj.get("closed")
+    elif obj.get("overdue"):   # the game's ETA has passed but it hasn't struck: no propulsors, devices kept away
+        verdict = OVERDUE
     elif str(obj.get("status") or "") == OFF_TARGET:   # v3.6.0: swings past, flung out of the system at the ETA
         verdict = "diverted"
     elif str(obj.get("status") or "active") != "active":
@@ -164,7 +171,9 @@ def assess(obj: dict, devices: list[dict], bps: dict[str, dict], now: datetime |
             "verdict": verdict, "diverter_types": types, "mass_class": obj.get("mass_class"),
             "composition": obj.get("composition"), "status": obj.get("status") or "active",
             "resources_left": resources_left(obj),
-            "threat": verdict not in ("diverted", "diverted enough", "too late", "launched by you") and not obj.get("closed") and likelihood > 0}
+            "overdue": bool(obj.get("overdue")),
+            "threat": verdict not in ("diverted", "diverted enough", "too late", "launched by you", OVERDUE)
+            and not obj.get("closed") and likelihood > 0}
 
 
 def plan(a: dict, devices: list[dict], bps: dict[str, dict], busy: set[str], cfg: dict,

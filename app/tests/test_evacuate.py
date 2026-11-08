@@ -114,3 +114,33 @@ def test_off_target_objects_v360_are_evacuated_not_pushed_and_show_resources_lef
     assert "Fast steep rock impact" in t and "no terraform effect" in t
     assert "off target" in notify.describe({"event": "system.object_off_target", "location": "A-OBJ-1",
                                             "payload": {"object_designation": "A-OBJ-1", "impact_target": "A-3"}})
+
+
+def test_mined_out_and_overdue_rocks_are_still_evacuated():
+    # 2026-11-08: SOLARES-OBJ-6 (status depleted) struck 18.5 h after its ETA with 46 devices there
+    devs = [dev("MD", "mining_rig", "A-OBJ-1", available_commands=["travel"], features=["cruise"])]
+    objs = {"A-OBJ-1": {"impact_eta": iso(50), "impact_target": "A-3", "status": "depleted"}}
+    assert [m["code"] for m in ev.plan(objs, devs, STARS, set())["moves"]] == ["MD"]
+    objs = {"A-OBJ-1": {"impact_eta": iso(-600), "impact_target": "A-3", "status": "depleted", "overdue": True}}
+    m = ev.plan(objs, devs, STARS, set())["moves"]
+    assert m and m[0]["why"] == "past its impact time and still incoming"
+    objs["A-OBJ-1"]["closed"] = "impacted"
+    assert not ev.plan(objs, devs, STARS, set())["moves"]
+
+
+def test_a_rock_past_its_eta_is_overdue_until_the_game_reports_it(client):  # noqa: F811
+    from rsweb import defence as dfn
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "objects", {
+        "SOL-OBJ-6": {"designation": "SOL-OBJ-6", "impact_eta": iso(-120), "impact_target": "SOL-3", "status": "depleted",
+                      "closed": dfn.CONCLUDED, "closed_at": iso(-120)},
+        "SOL-OBJ-1": {"designation": "SOL-OBJ-1", "impact_eta": iso(-60 * 50), "status": "active"},
+        "SOL-3-L4": {"designation": "SOL-3-L4", "impact_eta": iso(-60), "source": "impact_warning"}})
+    objs = client.portal.call(e.defence_objects)
+    assert objs["SOL-OBJ-6"].get("overdue") and not objs["SOL-OBJ-6"].get("closed")
+    assert objs["SOL-OBJ-1"]["closed"] == dfn.CONCLUDED          # past OVERDUE_H
+    assert objs["SOL-3-L4"]["closed"] == dfn.CONCLUDED           # a warned place, not a rock
+    assert client.portal.call(e.overdue_rocks) == {"SOL-OBJ-6"}
+    assert client.portal.call(e.safe_piles, {"SOL-OBJ-6": {"carbon": 5}, "SOL-1": {"carbon": 1}}) == {"SOL-1": {"carbon": 1}}
+    a = dfn.assess(objs["SOL-OBJ-6"], [], [])
+    assert a["verdict"] == dfn.OVERDUE and not a["threat"]

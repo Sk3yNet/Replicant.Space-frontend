@@ -29,7 +29,7 @@
   </div>
   <div class="df-out"></div>
   <table class="small">
-    <tr><th>Impact</th><td>{% if a.eta %}{{ a.eta | local }} ({% if a.hours_left is not none %}{{ '%.1f' | format(a.hours_left) }} h{% endif %}){% else %}?{% endif %} · likelihood {{ a.likelihood | num }} %</td></tr>
+    <tr><th>Impact</th><td>{% if a.eta %}{{ a.eta | local }} ({% if a.overdue %}overdue {{ '%.1f' | format(-a.hours_left) }} h: devices kept away{% elif a.hours_left is not none %}{{ '%.1f' | format(a.hours_left) }} h{% endif %}){% else %}?{% endif %} · likelihood {{ a.likelihood | num }} %</td></tr>
     <tr><th>Strength</th><td>required {{ a.required | num }} · progress {{ a.progress | num }} % · still needed {{ (a.remaining | round | int) if a.remaining is not none else "?" }}</td></tr>
     <tr><th>Propulsors</th><td>{{ a.active }} running (game) · yours there: {% for c in a.ours_here %}<a class="mono" href="/devices/{{ c }}">{{ c }}</a>{% if c in a.ours_idle %} <span class="lv-alert">idle</span>{% endif %} {% else %}none{% endfor %}
       {% if a.enroute %}· {{ a.enroute }} on the way / on order{% endif %}</td></tr>

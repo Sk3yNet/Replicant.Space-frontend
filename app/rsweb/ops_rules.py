@@ -778,13 +778,34 @@ class OpsRules:
         for k, o in objs.items():   # saved before 1.99 without a designation (v3.5.0 detections): its location is its name
             if not o.get("designation"):
                 o["designation"] = k
-        # owner, 2026-10-15: an event is over once its impact time has passed — no more reads, alerts or evacuations
-        for o in objs.values():
+        # owner, 2026-10-15: an event is over once its impact time has passed. Live 2026-11-08: SOLARES-OBJ-6 (ETA
+        # 11-07 20:46 UTC, still 5 AU out at its last read) struck 18.5 h late and destroyed 46 devices that went there
+        # after the app had closed it. Now a rock past its ETA is "overdue": still read, nothing goes there, and whatever
+        # is there leaves, until the game says impacted/diverted or the location is gone (404), or OVERDUE_H passes.
+        for des, o in objs.items():
+            if o.get("closed") == dfn.CONCLUDED:
+                o.pop("closed")
+                o.pop("closed_at", None)
             eta = _ts(o.get("impact_eta"))
-            if not o.get("closed") and eta and eta <= _now():
-                o["closed"] = "concluded (impact time passed)"
+            o.pop("overdue", None)
+            if o.get("closed") or not eta or eta > _now():
+                continue
+            if dfn.is_object(des) and not o.get("launched_by_you") and (_now() - eta).total_seconds() < dfn.OVERDUE_H * 3600:
+                o["overdue"] = True
+            else:
+                o["closed"] = dfn.CONCLUDED
                 o["closed_at"] = o.get("impact_eta")
         return objs
+
+    async def overdue_rocks(self) -> set[str]:
+        """Rocks past their ETA that haven't struck (defence_objects): nothing is sent there, their piles are left."""
+        return {d for d, o in (await self.defence_objects()).items() if o.get("overdue") and not o.get("closed")}
+
+    async def safe_piles(self, inv: dict[str, dict]) -> dict[str, dict]:
+        """`inv` ({location: items}) without the piles at overdue rocks: no carrier or AMI drone goes to collect them
+        (2026-11-08: two transport drones collecting SOLARES-OBJ-6's pile were lost with it)."""
+        bad = await self.overdue_rocks()
+        return {loc: items for loc, items in inv.items() if loc not in bad} if bad else inv
 
     async def defence_report(self) -> list[dict]:
         from . import defence as dfn
@@ -844,6 +865,10 @@ class OpsRules:
                     o["read_error"] = e.message
                 continue
             reading = body.get("object") if isinstance(body.get("object"), dict) else None
+            if o.get("overdue") and (not reading or str(reading.get("status") or "") in ("impacted", "diverted", "destroyed")):
+                o["closed"] = str((reading or {}).get("status") or "gone")   # past its ETA and no longer incoming
+                o["closed_at"] = now_iso()
+                continue
             if reading:
                 objs[des] = dfn.merge_reading(o, reading, now_iso())
                 objs[des].pop("read_error", None)
@@ -864,7 +889,7 @@ class OpsRules:
             key = a["verdict"].split(" —")[0]
             if (cfg.get("enabled") or manual) and alerted.get(des) != key:
                 alerted[des] = key
-                if a["threat"] or key in ("diverted", "diverted enough", "too late", "impacted"):
+                if a["threat"] or key in ("diverted", "diverted enough", "too late", "impacted", dfn.OVERDUE):
                     from .traffic import notify
                     eta = f", impact in {a['hours_left']:.1f} h" if (a["hours_left"] or 0) > 0 and "impact in" not in a["verdict"] else ""
                     need = f", needs ~{a['needed']} propulsor(s), have {a['active']}" if a["needed"] is not None and a["threat"] else ""

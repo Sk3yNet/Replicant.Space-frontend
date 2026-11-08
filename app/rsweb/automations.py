@@ -3643,6 +3643,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from .rockmining import open_rocks   # v3.6.0: a rock being mined has its pile hauled out while the rigs work
         worked = {s.get("rock") for s in (await self.db.kv_get("rock_mining", {}) or {}).values()} & set(open_rocks(objs))
         hot = {**{r: 0.0 for r in worked}, **hot}
+        for r in await self.overdue_rocks():   # it may strike any time: its pile is left there, no carrier goes in
+            hot.pop(r, None)
         return {loc: ev.safe_spot(star_of(loc), (obj_at.get(loc) or {}).get("impact_target"), stars, scans.get(star_of(loc)),
                                   here=loc, avoid=set(hot))
                 for loc in hot}
@@ -3751,6 +3753,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         devices = await self.devices()
         bps = normalize_blueprints(await self.db.kv_get("blueprints", []))
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        inv = await self.safe_piles(inv)   # piles at overdue rocks are left (2026-11-08)
         cat = await self.db.kv_get("stars", {}) or {}
         stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
         reps = await self.db.kv_get("replicants", {}) or {}
@@ -4690,6 +4693,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         devices = await self.devices()
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        inv = await self.safe_piles(inv)   # piles at overdue rocks are left (2026-11-08)
         inv_raw = {k: dict(v) for k, v in inv.items()}   # before what jobs will pick up is taken out (backlog sample)
         cat = await self.db.kv_get("stars", {}) or {}
         stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
@@ -5085,6 +5089,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         reps = await self.db.kv_get("replicants", {}) or {}
         hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        inv = await self.safe_piles(inv)   # piles at overdue rocks are left (2026-11-08)
         bps = normalize_blueprints(await self.db.kv_get("blueprints", []))
         cat = await self.db.kv_get("stars", {}) or {}
         pos = {x.get("designation"): x.get("position") or {} for x in cat.get("stars") or [] if isinstance(x, dict)}
@@ -6259,6 +6264,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         cfg = cfg or (await self.settings())["rules"].get("consolidate") or {}
         devices = await self.devices()
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        inv = await self.safe_piles(inv)   # piles at overdue rocks are left (2026-11-08)
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         protected = {e.get("location") for e in (await gev.load(self.db)).values() if e.get("status") == "open" and e.get("location")}
         protected |= {d.get("location") for d in devices if d.get("device_type") == "system_hub" and d.get("location")}   # its upkeep

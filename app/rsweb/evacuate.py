@@ -5,7 +5,7 @@ Devices and resources left at an incoming object's location (its designation, e.
 planet's orbit by themselves. The game warns an hour ahead (`system.impact_warning`, to accounts with a device there).
 
 Each pass (engine stage evacuate_pass, every minute, and at once on the warning), for every tracked object that isn't
-closed and is due within EVAC_MINUTES:
+closed and is due within EVAC_MINUTES, or overdue (its ETA passed and the game hasn't reported it down; 2026-11-08):
   • devices at its location leave for a safe spot in the system (its entry point, else a body that isn't the impact
     target); propulsors still pushing it stay until DIVERTER_MINUTES (a rule setting, 45) before the ETA, then go too. Once it's diverted
     enough (or off_target, v3.6.0) the propulsors leave at once, the rest (mining rigs) still at the hour
@@ -20,6 +20,7 @@ from typing import Any
 EVAC_MINUTES = 60       # the game's warning comes an hour ahead
 DIVERTER_MINUTES = 45   # propulsors keep pushing until then (asteroid defense rule setting; owner 2026-10-22: 30 lost one)
 MOVING = ("travel", "cruis", "surg", "moving", "recall")
+GONE = ("impacted", "diverted", "destroyed", "gone")   # object statuses that are no threat any more
 
 
 def star_of(loc: str | None) -> str:
@@ -57,12 +58,16 @@ def due(objects: dict[str, dict], now: float | None = None, minutes: float = EVA
     now = now if now is not None else datetime.now(timezone.utc).timestamp()
     out = {}
     for des, o in (objects or {}).items():
-        if o.get("closed") or str(o.get("status") or "active") not in ("active", "", "off_target"):
+        # a mined-out rock (status depleted) still strikes: SOLARES-OBJ-6 did on 2026-11-08 with 46 devices there
+        if o.get("closed") or str(o.get("status") or "active") in GONE:
+            continue
+        if o.get("overdue"):   # past the game's ETA and not down yet: it may strike any time (ops_rules.defence_objects)
+            out[des] = 0.0
             continue
         eta = _ts(o.get("impact_eta"))
         left = (eta - now) / 60 if eta else None
         if left is not None and left <= 0:
-            continue   # the impact time has passed: the event is over (owner, 2026-10-15: no alerts with negative times)
+            continue   # the impact time has passed and nothing marked it overdue (owner, 2026-10-15)
         if des in warned or (left is not None and left <= minutes) or diverted_enough(o, pct):
             for loc in [des] + list(o.get("also_at") or []):   # also_at: where the game warned devices of yours are
                 out[loc] = left if left is not None else 0.0
@@ -135,6 +140,7 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
                 continue   # still pushing it off course
             if "travel" in (d.get("available_commands") or ["travel"]) and "cruise" in (d.get("features") or ["cruise"]):
                 why = ("diverted enough — recalled before the swing-past" if enough
+                       else "past its impact time and still incoming" if (obj_at.get(loc) or {}).get("overdue")
                        else f"impact in {left:.0f} min" if left is not None else "impact warning")
                 # a pushing propulsor is switched off first: it won't travel while active (owner, 2026-10-18)
                 out["moves"].append({"code": code, "from": loc, "to": to, "why": why,

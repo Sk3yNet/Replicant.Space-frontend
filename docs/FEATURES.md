@@ -332,8 +332,11 @@ Incoming asteroids with a propulsor estimate and **Defend now**.
 - Game v3.6.0: an asteroid the game reports `off_target` (it will miss) counts as diverted, since it's flung out of the
   system at the ETA; the card lists the resources left on the rock (mining rigs only).
 - Nothing more is sent or printed for an asteroid due within the hour.
-- An event is over once its impact time passes: it's no longer read, alerted or evacuated, and moves to the Concluded
-  list. The card title shows the warning's destination.
+- A mined-out (`depleted`) asteroid still strikes and is evacuated like any other.
+- An asteroid past its impact time is **overdue**, not over (since 1.355.0: SOLARES-OBJ-6 struck 18.5 h after its ETA).
+  It is still read; whatever is at it leaves, its pile is left (no carrier or AMI drone collects it) and no propulsors
+  are sent, until the game reports it struck or diverted, its location is gone, or 48 h pass. Then it moves to the
+  Concluded list. The card title shows the warning's destination.
 - **Naming**: an asteroid is named by its location designation (STAR-OBJ-n). The game's impact warning names none and
   comes from where your devices are, so it's filed under the asteroid tracked in that system (else the system's scan
   names it at the next read), and the warned place is evacuated too. An asteroid whose designation a former rock used
