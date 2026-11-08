@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.354.0"
+VERSION = "1.354.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.354.1", "2026-11-08", "Bulk profile import: a replicant named by its current name or code is found whatever the capitals (Sk3y-23 finds SK3Y-23)."),
     ("1.354.0", "2026-11-08", "NPC chatter: a message that has been posted comes up less often than ones that have not (Joe). Each message keeps a count of its posts; a never-posted one weighs 1, one posted n times 1/(n+1) squared, and the latest one posted never repeats right away. Before, only the last 200 posts were remembered, so older lines counted as new again. Imported messages also find a replicant whose name has since gained a clan prefix (Regina_Solforge finds SK3Y-Regina_Solforge)."),
     ("1.353.0", "2026-11-07", "No automation prints on a vessel while an autofactory is present (Joe: a heaven vessel was printing on another heaven vessel). The Fleets page Print what's missing button took any device that lists enqueue_print, so a vessel whose code sorted first got the fleet's shortfall (a vector charge on a racing vessel on 11-04); it now uses autofactories only. A bootstrap's prints go to an autofactory in its vessel's system when there is one (tagged as the bootstrap's own) instead of the vessel,, and stockpile consolidation no longer counts vessels as factories. Then, in general (Joe): automations never print on a vessel. Every print order the engine sends to a vessel (enqueue_print on a vessel, a replicant's print) is refused with a warning unless it belongs to a job you started yourself (device page, Production, command chains) or a simulation run; a bootstrap with no autofactory in its system now waits and asks you to print its next device on the vessel by hand, then adopts it."),
     ("1.352.0", "2026-11-07", "Deliver a device by hand (Joe): the Device list and the page of every device that doesn't surge itself (tick devices, command Deliver) take a destination, a star or a spot such as SOL-3, and the app writes the tags logistics already follows: to:<star> for another system and at:<spot> for the exact spot. Old to:/at:/lift tags, spare and gather come off, and the fleet tag too unless the spot is in the fleet's home. Cancel delivery takes the tags off again. A relay delivered to a spot in a system that already has a relay is no longer turned spare on the way."),

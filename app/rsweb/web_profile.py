@@ -94,9 +94,12 @@ def parse_import(text: str, reps: dict[str, dict]) -> tuple[list[dict], list[str
     if not isinstance(data, dict) or not data:
         return [], ["expected an object of replicant code → profile fields"]
     by_name = {str(r.get("name") or ""): c for c, r in reps.items()}
+    by_lower = {k.lower(): c for k, c in by_name.items()}
+    by_code = {c.lower(): c for c in reps}
     rows, seen = [], {}
     for key, fields in data.items():
-        code = key if key in reps else by_name.get(key, key)
+        key = str(key).strip()
+        code = key if key in reps else by_name.get(key) or by_code.get(key.lower()) or by_lower.get(key.lower(), key)
         cur = reps.get(code) or {}
         row = {"code": code, "current": cur.get("name") or code, "body": {}, "errors": [], "same": []}
         if not cur:

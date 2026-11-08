@@ -277,3 +277,11 @@ def test_resolve_matches_a_clan_prefixed_name():
     assert ch._resolve("Regina_Solforge", reps) == "ED399202"
     assert ch._resolve("sk3y-regina_solforge", reps) == "ED399202"
     assert ch._resolve("Pip", reps) is None   # two matches: ambiguous
+
+
+def test_profile_import_key_ignores_case():
+    import json
+    from rsweb.web_profile import parse_import
+    reps = {"AB12CD34": {"name": "SK3Y-23"}}
+    rows, _ = parse_import(json.dumps({"Sk3y-23": {"plan": "x"}, "ab12cd34": {"pronouns": "she/her"}}), reps)
+    assert [r["code"] for r in rows] == ["AB12CD34", "AB12CD34"] and not rows[0]["errors"]
