@@ -294,3 +294,10 @@ def test_profile_import_preview_with_is_npc(client):
     r = client.post("/profiles/preview", data={"profiles": json.dumps({code: {"plan": "Haul", "is_npc": True}})},
                     headers=HX)
     assert r.status_code == 200 and "is_npc" in r.text and "True" in r.text
+
+
+def test_profile_import_finds_a_clan_prefixed_name():
+    import json
+    from rsweb.web_profile import parse_import
+    rows, _ = parse_import(json.dumps({"Ordwin_Sparelens": {"plan": "x"}}), {"2E0895BE": {"name": "SK3Y-Ordwin_Sparelens"}})
+    assert rows[0]["code"] == "2E0895BE" and not rows[0]["errors"]

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.354.2"
+VERSION = "1.354.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.354.3", "2026-11-08", "Bulk profile import finds a replicant by its name from before the clan prefix (Ordwin_Sparelens finds SK3Y-Ordwin_Sparelens), like the chatter import."),
     ("1.354.2", "2026-11-08", "Bulk profile import: Preview no longer fails silently when a profile sets is_npc (the preview table could not show a true/false value, so nothing appeared)."),
     ("1.354.1", "2026-11-08", "Bulk profile import: a replicant named by its current name or code is found whatever the capitals (Sk3y-23 finds SK3Y-23)."),
     ("1.354.0", "2026-11-08", "NPC chatter: a message that has been posted comes up less often than ones that have not (Joe). Each message keeps a count of its posts; a never-posted one weighs 1, one posted n times 1/(n+1) squared, and the latest one posted never repeats right away. Before, only the last 200 posts were remembered, so older lines counted as new again. Imported messages also find a replicant whose name has since gained a clan prefix (Regina_Solforge finds SK3Y-Regina_Solforge)."),

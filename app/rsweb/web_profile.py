@@ -99,7 +99,10 @@ def parse_import(text: str, reps: dict[str, dict]) -> tuple[list[dict], list[str
     rows, seen = [], {}
     for key, fields in data.items():
         key = str(key).strip()
-        code = key if key in reps else by_name.get(key) or by_code.get(key.lower()) or by_lower.get(key.lower(), key)
+        code = key if key in reps else by_name.get(key) or by_code.get(key.lower()) or by_lower.get(key.lower())
+        if not code:   # a name from before the clan prefix (Ordwin_Sparelens is now SK3Y-Ordwin_Sparelens)
+            tail = [c for k, c in by_lower.items() if k.endswith("-" + key.lower())]
+            code = tail[0] if len(tail) == 1 else key
         cur = reps.get(code) or {}
         row = {"code": code, "current": cur.get("name") or code, "body": {}, "errors": [], "same": []}
         if not cur:
