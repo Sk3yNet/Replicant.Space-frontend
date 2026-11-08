@@ -93,6 +93,12 @@ def norm_state(s: dict | None) -> dict:
     s["answered"] = dict(s.get("answered") or {})
     s["no_relay"] = dict(s.get("no_relay") or {})   # system -> when the game said it has no active relay
     s["chan"] = dict(s.get("chan") or {})           # channel -> when an NPC last started a post there
+    if "uses" not in s:   # message id -> times posted; older states count from the kept posts
+        s["uses"] = {}
+        for p in s["posted"]:
+            if p.get("ok") and p.get("id"):
+                s["uses"][p["id"]] = s["uses"].get(p["id"], 0) + 1
+    s["uses"] = dict(s["uses"] or {})
     return s
 
 
@@ -122,7 +128,9 @@ def _resolve(who: str, reps: dict[str, dict]) -> str | None:
     for c, r in reps.items():
         if str(r.get("name") or "").lower() == who.lower():
             return c
-    return None
+    # a name that has since gained a clan prefix (Regina_Solforge is now SK3Y-Regina_Solforge): when only one matches
+    tail = [c for c, r in reps.items() if str(r.get("name") or "").lower().endswith("-" + who.lower())]
+    return tail[0] if len(tail) == 1 else None
 
 
 def parse_import(text: str, reps: dict[str, dict], cfg: dict) -> tuple[list[dict], list[str]]:
@@ -313,19 +321,20 @@ def post_values(payload: dict, stars: dict[str, dict]) -> dict:
 
 
 def pick(options: list[dict], state: dict, rnd: random.Random | None = None) -> dict | None:
-    """A random option among those never posted, else among the least recently posted third: a poster answered
-    every day cycles through the whole set before anything repeats."""
+    """A weighted random option: a message never posted weighs 1, one posted n times 1/(n+1)^2, so used lines keep
+    coming up, only less often the more they've been used. The latest one posted from this set never repeats right
+    away (unless it's the only option)."""
     rnd = rnd or random
     if not options:
         return None
+    uses = state.get("uses") or {}
     last = {}
     for i, p in enumerate(state["posted"]):
         last[p.get("id")] = i
-    fresh = [o for o in options if o["id"] not in last]
-    if fresh:
-        return rnd.choice(fresh)
-    old = sorted(options, key=lambda o: last[o["id"]])
-    return rnd.choice(old[:max(1, len(old) // 3)])
+    latest = max((o for o in options if o["id"] in last), key=lambda o: last[o["id"]], default=None)
+    pool = [o for o in options if o is not latest] or options
+    weights = [1.0 / (int(uses.get(o["id"], 0)) + 1) ** 2 for o in pool]
+    return rnd.choices(pool, weights=weights)[0]
 
 
 def replies_to(post_id: str, cfg: dict) -> list[dict]:
@@ -497,6 +506,8 @@ class ChatterMixin:
                     state["queue"].append({**item, "by": nxt, "tried": tried, "due": now_iso()})
                     rec["retry"] = nxt
         state["posted"] = (state["posted"] + [rec])[-POSTED_KEEP:]
+        if rec["ok"] and item.get("id"):
+            state["uses"][item["id"]] = int(state["uses"].get(item["id"], 0)) + 1
         if rec["ok"] and item.get("depth", 0) < int(cfg["max_depth"]):
             reps = await self.db.kv_get("replicants", {}) or {}
             values = {**(item.get("values") or {}), "poster": (reps.get(item["by"]) or {}).get("name") or item["by"]}

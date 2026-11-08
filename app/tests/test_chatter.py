@@ -143,8 +143,16 @@ def test_placeholders_from_bills_post_and_no_quick_repeats(client):  # noqa: F81
     assert _world(client).bobnet_posts[-1]["text"] in ("The girls of NOSOXA are sad to see you go, Bill.", "Bye from NOSOXA.")
     st = {"posted": [{"id": "a"}, {"id": "b"}, {"id": "c"}]}
     opts = [{"id": x} for x in "abcd"]
-    assert ch.pick(opts, ch.norm_state(st))["id"] == "d"   # never posted first
-    assert ch.pick(opts[:3], ch.norm_state(st))["id"] == "a"   # then the longest ago
+    import random as _r
+    st = ch.norm_state({"posted": [{"id": "a", "ok": True}] * 3 + [{"id": "b", "ok": True}, {"id": "c", "ok": True}]})
+    assert st["uses"] == {"a": 3, "b": 1, "c": 1}   # counted from the kept posts
+    rnd, seen = _r.Random(1), {}
+    for _ in range(4000):
+        k = ch.pick(opts, st, rnd)["id"]
+        seen[k] = seen.get(k, 0) + 1
+    assert "c" not in seen                            # the latest posted never comes right back
+    assert seen["d"] > 2 * seen["b"] > 2 * seen["a"] > 0   # unused most, then less the more used
+    assert ch.pick([{"id": "c"}], st)["id"] == "c"     # the only option still goes
     assert ch.post_values({"current_star": "SOL", "message": "SOL and NOSOXA"}, {"SOL": {}, "NOSOXA": {"region": "outer"}}) \
         == {"poster": None, "star": "SOL", "from": "NOSOXA", "region": "outer", "arrival": None, "pilot": "SOL", "score": None}
 
@@ -261,3 +269,11 @@ def test_clan_tag_names_and_mentions(client):  # noqa: F811
     assert "SK3Y-" in r and "Apply" in r
     assert client.portal.call(client.app.state.db.kv_get, "clan_tag") == "SK3Y"
     assert 'value="SK3Y"' in client.get("/reputation", headers=H).text
+
+
+def test_resolve_matches_a_clan_prefixed_name():
+    from rsweb import chatter as ch
+    reps = {"ED399202": {"name": "SK3Y-Regina_Solforge"}, "A1": {"name": "X-Pip"}, "A2": {"name": "Y-Pip"}}
+    assert ch._resolve("Regina_Solforge", reps) == "ED399202"
+    assert ch._resolve("sk3y-regina_solforge", reps) == "ED399202"
+    assert ch._resolve("Pip", reps) is None   # two matches: ambiguous
