@@ -36,7 +36,8 @@ def test_deliver_bulk_and_device_page(client):
     by = {x["device_code"]: x for x in client.portal.call(db.kv_get, "devices")}
     assert {lo.to_tag(other), lo.at_tag(f"{other}-3")} <= set(by[code]["tags"])
     assert "isn&#39;t a known star" in client.post(f"/devices/{code}/deliver", data={"destination": "NOWHEREX"}, headers=HX).text
-    assert "Cancel delivery" in client.get(f"/devices/{code}", headers=H).text
+    page = client.get(f"/devices/{code}", headers=H).text
+    assert "Cancel delivery" in page and 'hx-target="this"' in page
     r = client.post(f"/devices/{code}/deliver", data={"clear": "1"}, headers=HX).text
     assert "delivery canceled: 1 of 1" in r
     by = {x["device_code"]: x for x in client.portal.call(db.kv_get, "devices")}
