@@ -479,11 +479,12 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
     for u in upkeep:
         need = _short(u["target"], have(u["location"]))
         if need:
-            out.append({"id": f"upkeep:{u['code']}", "kind": "upkeep", "to": u["location"], "need": need, "price": u["target"],
+            kind = u.get("kind") or "upkeep"   # "job": a station job's resources (stations.logistics_rows)
+            out.append({"id": f"{kind}:{u['code']}", "kind": kind, "to": u["location"], "need": need, "price": u["target"],
                         "tier": 1 if u.get("urgent") else 2, "hub": u["code"],
-                        "label": f"hub upkeep for {u['code']} at {u['location']}"})
+                        "label": u.get("label") or f"hub upkeep for {u['code']} at {u['location']}"})
     for r in out:
-        if r["kind"] not in ("print", "upkeep"):   # local when the system itself can spare a needed resource
+        if r["kind"] not in ("print", "upkeep", "job"):   # local when the system itself can spare a needed resource
             here = star_of(r["to"])
             local = any(spare.get(l, {}).get(x, 0) >= 1 for l in spare if star_of(l) == here and l != r["to"] for x in r["need"])
             r["tier"] = 2 if local else 3
@@ -588,7 +589,7 @@ def category(r: dict) -> str:
     if r.get("tier") == 0:
         return "urgent"
     return {"print": "prints", "contract": "deals", "trade": "deals", "rescue": "rescues", "listing": "shop",
-            "repair": "repairs", "upkeep": "upkeep"}.get(r["kind"], "returns")
+            "repair": "repairs", "upkeep": "upkeep", "job": "deals"}.get(r["kind"], "returns")
 
 
 def _free(d: dict) -> bool:
@@ -868,7 +869,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         if left is not None and not need:
             return
         dest, dstar = r["to"], star_of(r["to"])
-        if r["kind"] in ("print", "upkeep") and dest:
+        if r["kind"] in ("print", "upkeep", "job") and dest:
             for l, h in kept.items():
                 if star_of(l) == dstar and l != dest:
                     for x, q in h.items():
@@ -1272,7 +1273,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     # pass after pass until that category runs dry; a category with work and no carrier takes one from the biggest.
     # First evacuations (priority 0) with every free carrier, then each category with its own carriers, then whatever
     # is left over with every carrier still free (categories in turn, stockpile returns last).
-    tasks = [(r, lambda r=r: deliver(r)) for r in reqs if r["kind"] in ("print", "contract", "trade", "return", "upkeep")]
+    tasks = [(r, lambda r=r: deliver(r)) for r in reqs if r["kind"] in ("print", "contract", "trade", "return", "upkeep", "job")]
     tasks += [(r, lambda r=r, d=d, h=h: rescue(r, d, h)) for r, d, h in sorted(rescue_reqs, key=lambda x: (x[0]["tier"], x[0]["id"]))]
     tasks += [(r, lambda r=r, li=li: shop(r, li)) for r, li in listing_tasks]
     tasks += repair_tasks
@@ -1444,7 +1445,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                       for d in pool], "lanes": worked}
 
 
-BACKHAUL_KINDS = ("print", "contract", "trade", "upkeep")
+BACKHAUL_KINDS = ("print", "contract", "trade", "upkeep", "job")
 
 
 def backhaul(runs: list[dict], spare: dict[str, dict[str, float]], gather: dict[str, str], reqs: list[dict],

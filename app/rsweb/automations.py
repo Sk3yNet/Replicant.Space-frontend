@@ -871,6 +871,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             return ["resumed after the outage"]
         return []
 
+    async def station_jobs_pass(self) -> list[str]:
+        """Station jobs (stations.py): read the boards and your jobs when due, then work the job handed to the runner."""
+        from . import stations
+        return await stations.run_pass(self)
+
     async def season_snapshot_pass(self) -> list[str]:
         """The pre-change copy (season.py), every few hours; never while held, so it keeps the galaxy as it was."""
         from . import season
@@ -2038,7 +2043,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_repeats", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "station_swap_pass", "news_pass", "sim_pass", "prospector_pass", "stock_pass", "vqueue_pass", "chatter_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "station_swap_pass", "news_pass", "station_jobs_pass", "sim_pass", "prospector_pass", "stock_pass", "vqueue_pass", "chatter_pass"):
                 every, at = SPREAD.get(stage, (1, 0))
                 if self.tick_n and self.tick_n % every != at:
                     continue   # a heavy pass that runs every few ticks, on a tick of its own (all run on the first)
@@ -4886,6 +4891,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         mcfg = await self.rule_cfg("maintenance") or {}   # hub upkeep is stocked at the hub's own spot (owner 2026-10-25)
         upkeep = (wh.upkeep_rows(devices, {l: as_amounts(i) for l, i in inv.items()})
                   if mcfg.get("hub_upkeep", True) and mcfg else [])
+        from . import stations as stj   # station jobs the runner works: their resources, stocked like hub upkeep
+        upkeep = upkeep + stj.logistics_rows(await self.db.kv_get(stj.KV_MINE, {}), await stj.runner_cfg(self.db),
+                                             ((await self.db.kv_get(stj.KV_STATIONS, {})) or {}).get("stations") or [])
         p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
                     busy=busy, reach=lg.SECTOR_RANGE_LY, contracts=contracts, trades=trades, incoming=incoming,
                     replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),

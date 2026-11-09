@@ -1029,6 +1029,34 @@ Settled by the docs:
   and in the diagnostics belt rows).
 - Fixed: Kuiper objects being launched into other systems.
 
+## v4.0.0 "resonance" (2026-11-09), live spec diff 2026-11-09
+Season 4, Resonance Accord (in-game year 2170, runs to the end of January). `openapi.json` in the repo root is now
+this copy (`info.version` still v1). Docs: /docs/stations/, /factions/, /influence/, /jobs/.
+- New `GET /v1/stations` (`{stations: [{slug, name, location, available_jobs, factions}]}`; the docs show `factions`
+  as a mapping keyed crew / leaders / traders, the spec as a list with `type`), `GET /v1/stations/{slug}` (adds
+  `reputation` {crew, leader, trader} and `contributors` [{replicant_code, replicant_name, favoured_faction,
+  jobs_completed}]), `GET /v1/stations/{slug}/jobs` (`{station, jobs: [{id, faction, tier, title, description,
+  objectives_summary, rewards_summary, reputation_reward, deadline_hours, can_accept}]}`; the docs say it needs a
+  replicant at the station, Joe says it lists from anywhere).
+- New `GET /v1/jobs` (`{jobs, stats: {jobs_completed, jobs_failed, jobs_in_window, window_days, next_cooldown_hours,
+  next_available_at}, reputation: {slug: {station_name, station_location, factions: {role: {name, reputation,
+  jobs_completed, jobs_failed}}}}}`), `GET /v1/jobs/{id}`, `POST /v1/jobs/{id}/accept` (answers the job with
+  `objectives` {type, station_location, resource, quantity, …}, `accepted_at`, `expires_at`; a courier job's device is
+  under `provided`), `POST /v1/jobs/{id}/complete` (answers `consumed`), `DELETE /v1/jobs/{id}` (abandon). The spec
+  documents none of the /jobs responses.
+- Rules (docs): one accepted job per account; tier 1 open to all (+10 / -5 reputation, 24 h), tier 2 needs 50 with the
+  posting faction (+20 / -15, 48 h); 10 % of earned reputation repairs negative standing with the other two factions;
+  the first 3 jobs have no cooldown, then 2 / 4 / 8 / 14 / 24 h over a rolling 5-day window. A board has 3 to 10 slots
+  (one more per 3 completions, shrinking after 48 h idle), split by faction influence. Job types: gather resources,
+  deploy devices, scan body, deliver resources, courier. Completing needs a replicant at the station; deliveries and
+  couriers to another station complete at either end.
+- `SystemScanResponseSchema` gains `stations` [{id, name, slug, location, jobs_available}].
+- Removed: `belt` and `designation` from mining responses and events (`ReplicantMineResponseSchema`), the `configure`
+  device command (use PATCH), the `diversion.*` events (use `system.object_*`), BobNet `page` / `per_page` (cursor
+  paging), the taxi flag on surge plate blueprints. `SwoopSchema` ({command, action: boost / dodge / dive / roll /
+  brake}) is now in the spec.
+- New admin-only `POST /v1/admin/storyline/advance`.
+
 ## Live spec diff, 2026-10-20
 The live spec (https://api.replicant.space/swagger/openapi.json, still `info.version` v1) against the 2026-10-16 copy:
 one new endpoint, nothing removed, no existing endpoint changed. `openapi.json` in the repo root is now this copy.

@@ -261,7 +261,7 @@ NAV = [
     ("Map", "/map", [("map", "/map", "Galaxy"), ("stars", "/stars", "Stars"), ("systems", "/systems", "Systems"), ("prospects", "/systems/prospects", "Prospects"), ("relays", "/map/relays", "Relays"), ("traffic", "/traffic", "Traffic"), ("trail", "/trail", "Trail"), ("wards", "/wards", "Wards & hubs"),
            ("defence", "/defence", "Defense"), ("terraforming", "/terraforming", "Terraforming"), ("tfcandidates", "/terraforming/candidates", "Terraforming candidates"), ("maintenance", "/maintenance", "Upkeep")]),
     ("Fleets", "/fleets", [("fleets", "/fleets", "Fleets"), ("fleet_details", "/fleets/details", "Fleet details"), ("logistics", "/fleets/logistics", "Logistics"), ("reform", "/fleets/reform", "Reset & reform")]),
-    ("Economy", "/blueprints", [("blueprints", "/blueprints", "Blueprints"), ("gameevents", "/game-events", "Contracts"), ("reputation", "/reputation", "Reputation"), ("shop", "/shop", "Shop"), ("simulations", "/simulations", "Simulations"), ("lockers", "/lockers", "Lockers")]),
+    ("Economy", "/blueprints", [("blueprints", "/blueprints", "Blueprints"), ("gameevents", "/game-events", "Contracts"), ("jobs", "/jobs", "Jobs"), ("reputation", "/reputation", "Reputation"), ("shop", "/shop", "Shop"), ("simulations", "/simulations", "Simulations"), ("lockers", "/lockers", "Lockers")]),
     ("Activity", "/automations", [("automations", "/automations", "Automations"), ("events", "/events", "Events"),
                         ("messages", "/messages", "Messages"), ("chatter", "/chatter", "Chatter"), ("notifications", "/notifications", "Notifications"),
                         ("leaderboards", "/leaderboards", "Leaderboards"), ("blog", "/blog", "Blog")]),
@@ -716,6 +716,18 @@ async def season_hold(request: Request, action: str = Form("pause"), user: str =
         await db.kv_set(season.HOLD_KV, {"since": now_iso(), "by": user})
         await eng.log("season", f"automations paused for the season change ({user})")
     return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.get("/season/report", response_class=HTMLResponse)
+async def season_report(request: Request, user: str = Depends(current_user)):
+    """What the time skip changed: the copy kept before the season change against the galaxy now."""
+    from . import season
+    db = request.app.state.db
+    st = await load_state(request)
+    rep = season.compare(await db.kv_get(season.SNAP_KV, None), st["devices"], st["replicants"],
+                         await db.kv_get("stars", {}) or {})
+    return await page(request, user, "season_report.html", "dashboard", rep=rep,
+                      season_now=await db.kv_get(season.SEASON_KV, None))
 
 
 @router.post("/outage/add", response_class=HTMLResponse)
@@ -3880,6 +3892,13 @@ CONSOLE_PRESETS = [
     ("Devices", "POST", "/devices/{interface}/research/{topic}", "", "Do one research topic (grants its achievement, unlocks blueprints)"),
     ("Devices", "POST", "/devices/{interface}/upload", '{"device_code": ""}', "Upload a data-feature device deployed at the interface for analysis (consumes it)"),
     ("Lockers", "GET", "/replicants/{replicant}/scan/devices?device_type=equipment_locker", "", "Find equipment lockers at the replicant's location"),
+    ("Stations", "GET", "/stations", "", "The colony stations: factions, influence, open jobs"),
+    ("Stations", "GET", "/stations/{slug}", "", "A station: your reputation and the contributors"),
+    ("Stations", "GET", "/stations/{slug}/jobs", "", "A station's job board"),
+    ("Stations", "GET", "/jobs", "", "Your accepted jobs, stats, cooldown and reputation"),
+    ("Stations", "POST", "/jobs/{job_id}/accept", "", "Accept a job (one at a time)"),
+    ("Stations", "POST", "/jobs/{job_id}/complete", "", "Complete your job (a replicant at the station)"),
+    ("Stations", "DELETE", "/jobs/{job_id}", "", "Abandon your job (costs reputation)"),
     ("Lockers", "POST", "/devices/{locker}/retrieve", "", "Open an equipment locker and take its contents (its price must be on site)"),
     ("Places", "GET", "/locations", "", "Locations where you have devices"),
     ("Places", "GET", "/locations/{location}", "", "One location: bodies, resource sites, status"),

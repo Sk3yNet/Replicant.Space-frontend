@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Time skip{% endblock %}
+{% block content %}
+{% macro dev_link(code) %}<a class="mono" href="/devices/{{ code }}">{{ code }}</a>{% endmacro %}
+<h1>What changed <span class="muted small">since the copy of {{ rep.at | local if rep.at else 'never' }}{% if rep.season %} ({{ rep.season.title or rep.season.number }}){% endif %}{% if season_now %} → {{ season_now.title or season_now.number }}{% endif %}</span></h1>
+{% if rep.empty %}<p class="muted">No copy of the galaxy from before the season change was kept.</p>{% else %}
+<p class="muted small">The copy from before the season change against the device list now. A season's time skip can move
+  devices, end events, drift asteroids away and pause AMI directives. The copy stays frozen while automations are paused.</p>
+<div class="card" id="ts-moved"><h2>Moved <span class="muted small">{{ rep.moved | length }}</span></h2>
+  {% if rep.moved %}<table class="small"><tr><th>Device</th><th>Type</th><th>Was at</th><th>Now at</th></tr>
+  {% for d in rep.moved %}<tr><td>{{ dev_link(d.code) }}</td><td>{{ (d.type or '') | human }}</td><td class="mono">{{ d.was or '?' }}</td><td class="mono">{{ d.now or '?' }}</td></tr>{% endfor %}</table>
+  {% else %}<p class="muted small">Nothing moved.</p>{% endif %}</div>
+<div class="card" id="ts-gone"><h2>Gone <span class="muted small">{{ rep.gone | length }}</span></h2>
+  {% if rep.gone %}<table class="small"><tr><th>Device</th><th>Type</th><th>Last at</th></tr>
+  {% for d in rep.gone %}<tr><td class="mono">{{ d.code }}</td><td>{{ (d.type or '') | human }}</td><td class="mono">{{ d.location or '?' }}</td></tr>{% endfor %}</table>
+  {% else %}<p class="muted small">No device is missing.</p>{% endif %}</div>
+<div class="card" id="ts-changed"><h2>Status or directive changed <span class="muted small">{{ rep.changed | length }}</span></h2>
+  {% if rep.changed %}<table class="small"><tr><th>Device</th><th>Type</th><th>Where</th><th>Was</th><th>Now</th></tr>
+  {% for d in rep.changed %}<tr><td>{{ dev_link(d.code) }}</td><td>{{ (d.type or '') | human }}</td><td class="mono">{{ d.location or '?' }}</td><td>{{ d.was }}</td><td>{{ d.now }}</td></tr>{% endfor %}</table>
+  {% else %}<p class="muted small">No status changed.</p>{% endif %}</div>
+<div class="card" id="ts-reps"><h2>Replicants moved <span class="muted small">{{ rep.replicants | length }}</span></h2>
+  {% for r in rep.replicants %}<div class="small">{{ r.name }}: <span class="mono">{{ r.was or '?' }}</span> → <span class="mono">{{ r.now or '?' }}</span></div>
+  {% else %}<p class="muted small">No replicant moved.</p>{% endfor %}</div>
+<div class="card" id="ts-new"><h2>New <span class="muted small">{{ rep.new | length }} device(s), {{ rep.stars_new | length }} star(s){% if rep.stars_gone %}, {{ rep.stars_gone | length }} star(s) gone{% endif %}</span></h2>
+  {% for d in rep.new %}<div class="small">{{ dev_link(d.code) }} {{ (d.type or '') | human }} at <span class="mono">{{ d.location or '?' }}</span></div>{% endfor %}
+  {% if rep.stars_new %}<div class="small">New stars: {% for s in rep.stars_new %}<a href="/systems/{{ s }}">{{ s }}</a>{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+  {% if rep.stars_gone %}<div class="small">Stars no longer in the catalog: {{ rep.stars_gone | join(', ') }}</div>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -233,10 +233,10 @@
             "items": {
               "type": "string",
               "enum": [
-                "alert",
+                "social",
                 "simulation",
-                "progression",
-                "social"
+                "alert",
+                "progression"
               ]
             },
             "nullable": true
@@ -1621,6 +1621,27 @@
         },
         "additionalProperties": false
       },
+      "app_schemas_scanning_StationSummarySchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "jobs_available": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
       "app_schemas_scanning_SystemScanResponseSchema": {
         "type": "object",
         "properties": {
@@ -1674,6 +1695,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/app_schemas_scanning_ShopSummarySchema"
+            }
+          },
+          "stations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/app_schemas_scanning_StationSummarySchema"
             }
           },
           "replicants": {
@@ -3859,14 +3886,6 @@
           "site": {
             "type": "string"
           },
-          "designation": {
-            "type": "string",
-            "description": "DEPRECATED: use `site`"
-          },
-          "belt": {
-            "type": "string",
-            "description": "DEPRECATED: use `location`"
-          },
           "resource_type": {
             "type": "string"
           },
@@ -4961,6 +4980,167 @@
         },
         "additionalProperties": false
       },
+      "app_schemas_stations_FactionSchema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "influence": {
+            "type": "number"
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_stations_StationSummarySchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "available_jobs": {
+            "type": "integer"
+          },
+          "factions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/app_schemas_stations_FactionSchema"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_stations_StationListResponseSchema": {
+        "type": "object",
+        "properties": {
+          "stations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/app_schemas_stations_StationSummarySchema"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_stations_ContributorSchema": {
+        "type": "object",
+        "properties": {
+          "replicant_code": {
+            "type": "string"
+          },
+          "replicant_name": {
+            "type": "string"
+          },
+          "favoured_faction": {
+            "type": "string",
+            "nullable": true
+          },
+          "jobs_completed": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_stations_StationDetailResponseSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "available_jobs": {
+            "type": "integer"
+          },
+          "factions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/app_schemas_stations_FactionSchema"
+            }
+          },
+          "reputation": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "contributors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/app_schemas_stations_ContributorSchema"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_stations_StationJobSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "faction": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "objectives_summary": {
+            "type": "string"
+          },
+          "rewards_summary": {
+            "type": "string"
+          },
+          "reputation_reward": {
+            "type": "number"
+          },
+          "deadline_hours": {
+            "type": "integer"
+          },
+          "can_accept": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_stations_StationJobListResponseSchema": {
+        "type": "object",
+        "properties": {
+          "station": {
+            "type": "string"
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/app_schemas_stations_StationJobSchema"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "app_schemas_admin_AdminMessageRequestSchema": {
         "type": "object",
         "properties": {
@@ -5039,6 +5219,55 @@
           },
           "season": {
             "type": "integer"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "phase_started_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "app_schemas_admin_StorylineAdvanceRequestSchema": {
+        "type": "object",
+        "properties": {
+          "storyline_key": {
+            "type": "string",
+            "description": "Storyline key"
+          },
+          "target_phase": {
+            "type": "string",
+            "description": "Target phase key"
+          },
+          "phase_data": {
+            "type": "object",
+            "default": null,
+            "description": "Optional phase metadata",
+            "additionalProperties": {},
+            "nullable": true
+          },
+          "triggered_by": {
+            "type": "string",
+            "default": "admin_api",
+            "description": "Who triggered the advance"
+          }
+        },
+        "required": [
+          "storyline_key",
+          "target_phase"
+        ],
+        "additionalProperties": false
+      },
+      "app_schemas_admin_StorylineAdvanceResponseSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "storyline_key": {
+            "type": "string"
           },
           "phase": {
             "type": "string"
@@ -5183,24 +5412,6 @@
             "type": "string",
             "default": null,
             "description": "Carrier device code",
-            "nullable": true
-          }
-        },
-        "required": [
-          "command"
-        ],
-        "additionalProperties": false
-      },
-      "app_schemas_device_commands_ConfigureSchema": {
-        "type": "object",
-        "properties": {
-          "command": {
-            "type": "string"
-          },
-          "mode": {
-            "type": "string",
-            "default": null,
-            "description": "'taxi' or 'manual'",
             "nullable": true
           }
         },
@@ -5673,6 +5884,31 @@
           "device": {
             "type": "string",
             "default": null,
+            "nullable": true
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "additionalProperties": false
+      },
+      "app_schemas_device_commands_SwoopSchema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "default": null,
+            "enum": [
+              "boost",
+              "dodge",
+              "dive",
+              "roll",
+              "brake",
+              null
+            ],
             "nullable": true
           }
         },
@@ -7253,9 +7489,6 @@
                     "$ref": "#/components/schemas/app_schemas_device_commands_CollectResourcesSchema"
                   },
                   {
-                    "$ref": "#/components/schemas/app_schemas_device_commands_ConfigureSchema"
-                  },
-                  {
                     "$ref": "#/components/schemas/app_schemas_device_commands_DepositResourcesSchema"
                   },
                   {
@@ -7307,6 +7540,9 @@
                     "$ref": "#/components/schemas/app_schemas_device_commands_StowSchema"
                   },
                   {
+                    "$ref": "#/components/schemas/app_schemas_device_commands_SwoopSchema"
+                  },
+                  {
                     "$ref": "#/components/schemas/app_schemas_device_commands_TravelSchema"
                   },
                   {
@@ -7325,7 +7561,6 @@
                     "clear_queue": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
                     "collect_resources": "#/components/schemas/app_schemas_device_commands_CollectResourcesSchema",
                     "compact": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
-                    "configure": "#/components/schemas/app_schemas_device_commands_ConfigureSchema",
                     "deactivate": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
                     "decommission": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
                     "deploy": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
@@ -7352,6 +7587,7 @@
                     "start_mining": "#/components/schemas/app_schemas_device_commands_StartMiningSchema",
                     "stellar_census": "#/components/schemas/app_schemas_device_commands_StellarCensusSchema",
                     "stow": "#/components/schemas/app_schemas_device_commands_StowSchema",
+                    "swoop": "#/components/schemas/app_schemas_device_commands_SwoopSchema",
                     "system_scan": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
                     "travel": "#/components/schemas/app_schemas_device_commands_TravelSchema",
                     "triangulate": "#/components/schemas/app_schemas_device_commands_TriangulateSchema",
@@ -10772,6 +11008,193 @@
         "security": []
       }
     },
+    "/v1/stations": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_stations_StationListResponseSchema"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "summary": "List all stations.",
+        "tags": [
+          "stations"
+        ]
+      }
+    },
+    "/v1/stations/{slug}": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_stations_StationDetailResponseSchema"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "summary": "Get station detail including player reputation and contributors.",
+        "tags": [
+          "stations"
+        ]
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "slug",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ]
+    },
+    "/v1/stations/{slug}/jobs": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_stations_StationJobListResponseSchema"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "summary": "Browse available jobs at a station. Requires a replicant at the station location.",
+        "tags": [
+          "stations"
+        ]
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "slug",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ]
+    },
+    "/v1/jobs/{job_id}/accept": {
+      "post": {
+        "responses": {
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "summary": "Accept a job from a station's board.",
+        "tags": [
+          "stations"
+        ]
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "job_id",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ]
+    },
+    "/v1/jobs/{job_id}/complete": {
+      "post": {
+        "responses": {
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "summary": "Complete an accepted station job.",
+        "tags": [
+          "stations"
+        ]
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "job_id",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ]
+    },
+    "/v1/jobs/{job_id}": {
+      "delete": {
+        "responses": {
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "summary": "Abandon an accepted station job.",
+        "tags": [
+          "stations"
+        ]
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "job_id",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ],
+      "get": {
+        "responses": {
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "summary": "Get job detail. Available jobs visible to all; accepted jobs only to the acceptor.",
+        "tags": [
+          "stations"
+        ]
+      }
+    },
+    "/v1/jobs": {
+      "get": {
+        "responses": {
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "summary": "List active jobs and station work stats for the current player.",
+        "tags": [
+          "stations"
+        ]
+      }
+    },
     "/v1/admin/message": {
       "post": {
         "responses": {
@@ -10883,6 +11306,61 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/app_schemas_admin_StoryAdvanceRequestSchema"
+              }
+            }
+          }
+        },
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/storyline/advance": {
+      "post": {
+        "responses": {
+          "422": {
+            "$ref": "#/components/responses/UNPROCESSABLE_ENTITY"
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_common_ErrorSchema"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_common_ErrorSchema"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app_schemas_admin_StorylineAdvanceResponseSchema"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app_schemas_admin_StorylineAdvanceRequestSchema"
               }
             }
           }
@@ -11051,6 +11529,10 @@
     {
       "name": "overview",
       "description": "Game overview"
+    },
+    {
+      "name": "stations",
+      "description": "Station Politics"
     },
     {
       "name": "admin",

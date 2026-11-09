@@ -1,0 +1,5 @@
+{% set rep = d.reputation or {} %}
+<div class="small">{% if rep %}Your reputation here: {% for r, v in rep.items() %}{{ r }} {{ v | num }}{{ ', ' if not loop.last }}{% endfor %}{% else %}<span class="muted">No work done here yet.</span>{% endif %}</div>
+{% if d.contributors %}<table class="small"><tr><th>Contributor</th><th>Jobs</th><th>Favors</th></tr>
+  {% for c in d.contributors %}<tr><td>{{ c.replicant_name or c.replicant_code }}</td><td>{{ c.jobs_completed }}</td><td>{{ c.favoured_faction or '' }}</td></tr>{% endfor %}</table>
+{% else %}<div class="small muted">No contributors yet.</div>{% endif %}

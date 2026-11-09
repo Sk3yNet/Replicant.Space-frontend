@@ -7,7 +7,8 @@ From the game (docs + GET /locations/<STAR-OBJ-n>):
   plate accumulates thrust over time" — once impact likelihood reaches 0 % it's diverted (a permanent mining bonus in
   the system). Required strength grows the closer the impact, so early is cheaper.
   Events: system.object_detected {object_designation, size_class, impact_target, impact_eta, discovery_source},
-          diversion.activated / .diverted / .partial / .impacted.
+          system.object_diverted / .object_impacted / .object_off_target (the old diversion.* events were removed in
+          game v4.0.0).
 
 The estimate (labeled as such on the page): thrust per propulsor = current_thrust_per_hour ÷ active_propulsors when
 the game says so, else the blueprint's figure, else 4/h (the docs' example). Still needed = required_strength ×
@@ -22,8 +23,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 DEFAULT_THRUST = 4.0
-CLOSED_EVENTS = ("diversion.diverted", "diversion.impacted", "system.object_diverted", "system.object_impacted")
-# v3.5.0 (2026-10-13): diversion.diverted / .impacted are deprecated for system.object_diverted / .object_impacted
+CLOSED_EVENTS = ("system.object_diverted", "system.object_impacted")
+# v3.5.0 deprecated diversion.diverted / .impacted for these; v4.0.0 (2026-11-09) removed them
 
 
 CONCLUDED = "concluded (impact time passed)"

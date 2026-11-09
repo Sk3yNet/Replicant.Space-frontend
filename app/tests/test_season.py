@@ -37,3 +37,17 @@ def test_pause_by_hand_takes_a_fresh_copy(client):
     assert client.portal.call(db.kv_get, season.SNAP_KV)["devices"]
     page = client.get("/partials/story", headers=H).text
     assert "Resume automations" in page and "Copy of the galaxy" in page
+
+
+def test_time_skip_report_lists_what_moved(client):
+    db = client.app.state.db
+    client.post("/season/hold", data={"action": "pause"}, headers=HX)   # takes the copy
+    devs = client.portal.call(db.kv_get, "devices")
+    code = devs[0]["device_code"]
+    devs[0] = {**devs[0], "location": "ELSEWHERE-OORT"}
+    gone = devs.pop()["device_code"]
+    client.portal.call(db.kv_set, "devices", devs)
+    page = client.get("/season/report", headers=H).text
+    assert "ELSEWHERE-OORT" in page and code in page and gone in page
+    rep = season.compare(None, devs, {}, {})
+    assert rep["empty"]

@@ -11,13 +11,13 @@ from .shapes import as_amounts
 # Event feed level: alert = needs attention, done = something was accomplished, info = everything else.
 ALERT_EVENTS = {
     "hub.warning", "hub.destroyed", "system.object_detected", "system.devices_halted",
-    "diversion.impacted", "system.impact_warning", "system.object_impacted", "device.destroyed", "device.lost",
+    "system.impact_warning", "system.object_impacted", "device.destroyed", "device.lost",
     "teleport.failed", "triangulation.failed", "directive.paused", "simulation.expired",
     "terraform.device_deactivated", "terraform.deactivated",   # v3.2.0: capacity under 20 % switches them off
 }
 # Notification level: error (needs you — the only kind the bell's badge counts), warning, info (incl. accomplishments).
 # An asteroid that has hit is past acting on (owner 2026-10-24): a warning, not an error. The impact warning stays an error.
-IMPACTED_EVENTS = {"diversion.impacted", "system.object_impacted"}
+IMPACTED_EVENTS = {"system.object_impacted"}
 WARNING_EVENTS = {"hub.warning"} | IMPACTED_EVENTS
 ERROR_EVENTS = ALERT_EVENTS - WARNING_EVENTS
 # Expected and frequent (a belt's sites close, salvage runs out): the feed and the digest have them, no notification.
@@ -26,7 +26,7 @@ DONE_EVENTS = {
     "print.completed", "travel.arrived", "scan.completed", "search.completed", "directive.completed",
     "event.completed", "trade.completed", "prospect.completed", "teleport.completed",
     "story.awakened", "megastructure.contributed", "relay.activated", "hub.activated",
-    "diversion.diverted", "system.object_diverted", "system.object_off_target", "salvage.discovered", "event.discovered", "triangulation.complete",
+    "system.object_diverted", "system.object_off_target", "salvage.discovered", "event.discovered", "triangulation.complete",
     "simulation.completed", "device.decommissioned", "ward.activated", "blueprint.unlocked", "device.discovered",
 }
 # Done-events that also raise a notification (the rest just go in the digest/feed).
@@ -161,7 +161,7 @@ def describe(ev: dict) -> str:
             return f"Trade {p.get('name') or p.get('trade_code')} listed (stock {p.get('stock')})"
         case "trade.deleted":
             return f"Trade {p.get('name') or p.get('trade_code')} removed ({p.get('remaining_stock')} left, escrow released)"
-        case "diversion.activated":
+        case "diversion.activated":   # diversion.* left the game in v4.0.0: kept for older log entries
             return f"{who} started diverting {p.get('object_designation')}"
         case "diversion.diverted":
             return f"Asteroid {p.get('object_designation')} diverted ({p.get('outcome')})"

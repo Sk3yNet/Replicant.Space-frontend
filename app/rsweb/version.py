@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.359.0"
+VERSION = "1.360.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.360.0", "2026-11-09", "Season 4 (game v4.0.0, Joe): Economy › Jobs lists every colony station's job board from anywhere, with filters, reputation per faction, station influence and contributors; accept, complete or abandon a job, and Scan and return for scan jobs. The job runner works a job you hand it (Accept and run): logistics stocks the resources at the station or destination like a contract, devices are sent or printed for deploy jobs, a courier device is pinned to its destination, and it completes the job once a replicant of yours is there; it warns an hour before a deadline. Auto accept (off by default) takes the best open job at the stations and factions you tick. What changed (Dashboard › Story and the pause banner) compares the copy kept before the season change with the galaxy now. The repo's API spec and API_REFERENCE are updated to v4.0.0, and the removed diversion.* events are no longer watched."),
     ("1.359.0", "2026-11-09", "Command screen (Joe, opt-in per browser on Account or /bridge; the classic tabs stay the default, saved as branch classic-ui-1.358.0): the galaxy map fills the screen, an icon rail with a fly-out per group replaces the tabs, an outliner lists what needs you, fleets, replicants and running automations, and every page opens as a window over the map without reloading the screen (fetched as the pointer goes down; the address bar, reload and back work as before). Black with steel window frames and a customizable accent color (red by default). On phones the rail is a bottom bar and the outliner a pull-up sheet. Request meters show only when something is wrong."),
     ("1.358.0", "2026-11-09", "Map › Systems lists each system's galactic region (the star catalog's region, Joe): a Region column, a Region filter and a Sort by region, then distance (both remembered per browser). The system page shows the region next to the star type."),
     ("1.357.0", "2026-11-09", "Simulations finds every datacenter, not only MIRFAKA (Joe could not research at the Delta datacenter): Scan interfaces now, and the 6-hourly read, run a replicant interface scan in each system where a replicant of yours is. The Research card lists the topics of every interface found, each with its own Research buttons."),

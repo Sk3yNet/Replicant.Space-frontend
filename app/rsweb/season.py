@@ -79,6 +79,41 @@ def summary(snap: dict | None) -> str:
             f"{len(snap.get('fleets') or [])} fleets")
 
 
+def compare(snap: dict | None, devices: list[dict], replicants: dict, stars: dict) -> dict:
+    """What the time skip changed, against the copy from before (Dashboard › Story › What changed):
+    moved / gone / new devices, changed status or AMI directive, replicants that moved, stars added or gone."""
+    snap = snap or {}
+    before = snap.get("devices") or {}
+    now = {d["device_code"]: d for d in devices or [] if isinstance(d, dict) and d.get("device_code")}
+    moved, changed, gone, new = [], [], [], []
+    for code, b in sorted(before.items()):
+        d = now.get(code)
+        if not d:
+            gone.append({"code": code, "type": b.get("device_type"), "location": b.get("location")})
+            continue
+        if b.get("location") != d.get("location"):
+            moved.append({"code": code, "type": d.get("device_type"), "was": b.get("location"), "now": d.get("location")})
+        dir_b = (b.get("ami_directive") or {}).get("name") if isinstance(b.get("ami_directive"), dict) else b.get("ami_directive")
+        dir_n = (d.get("ami_directive") or {}).get("name") if isinstance(d.get("ami_directive"), dict) else d.get("ami_directive")
+        if b.get("status") != d.get("status") or dir_b != dir_n:
+            changed.append({"code": code, "type": d.get("device_type"), "location": d.get("location"),
+                            "was": " ".join(x for x in (b.get("status"), dir_b and f"({dir_b})") if x),
+                            "now": " ".join(x for x in (d.get("status"), dir_n and f"({dir_n})") if x)})
+    for code, d in sorted(now.items()):
+        if code not in before:
+            new.append({"code": code, "type": d.get("device_type"), "location": d.get("location")})
+    reps_b = snap.get("replicants") or {}
+    reps = [{"code": c, "name": (r or {}).get("name") or c, "was": reps_b.get(c),
+             "now": (r or {}).get("location") or (r or {}).get("current_location")}
+            for c, r in sorted((replicants or {}).items()) if isinstance(r, dict) and c in reps_b
+            and reps_b.get(c) != (r.get("location") or r.get("current_location"))]
+    sb = set(snap.get("stars") or {})
+    sn = {x["designation"] for x in (stars or {}).get("stars") or [] if isinstance(x, dict) and x.get("designation")}
+    return {"at": snap.get("at"), "season": snap.get("season"), "moved": moved, "changed": changed, "gone": gone,
+            "new": new, "replicants": reps, "stars_new": sorted(sn - sb) if sb else [], "stars_gone": sorted(sb - sn) if sn else [],
+            "empty": not snap}
+
+
 # --- scheduled outages (Joe 2026-11-08: game maintenance announced as "Monday, 9th November 2026 Start Time: 20:00 UTC
 # Expected duration: Up to 1 hour") --------------------------------------------------------------------------------------
 # A window pauses automations `lead` minutes before its start (the same hold as the season pause, with a fresh copy of the

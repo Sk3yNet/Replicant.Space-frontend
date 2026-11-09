@@ -766,6 +766,22 @@ Account and per-replicant reputation, known species. **Bulk profile import**: pa
   the first refusal; *Logistics buys* n (0 = not approved) has logistics deliver n prices and execute it n times. The number
   is the outstanding balance: it counts down as units are bought, so units a trip couldn't buy are delivered and bought later.
 
+### Jobs
+Station jobs (Season 4, game v4.0.0): the twelve colony stations post jobs for their crew, leaders and traders.
+- **Boards** lists every open job on every station (no replicant or beacon needed to list them), with filters by
+  station, faction and kind, and why you can't take one (you hold a job, a cooldown, too little reputation for tier 2).
+  **Accept**, or **Accept and run** to hand it to the runner. Boards are read every 15 minutes, your jobs every 5
+  (**Refresh now** reads them at once).
+- **Your job**: the objective and how far along it is, the deadline, which replicant is there, **Complete**,
+  **Abandon** (costs reputation), stats and the cooldown. A scan job offers **Scan and return**: the replicant you pick
+  flies to the body, scans, flies back to the station and completes the job.
+- **Stations**: each station's factions with their influence and your reputation; opening one reads its contributors.
+- **Runner**: for a job handed to it, logistics brings the resources to the station's pile (gather) or the destination
+  (deliver) like a contract, spare devices are sent or printed to the location (deploy), and a courier device is pinned to
+  its destination. Once the objective is met and a replicant of yours is where the job completes, it completes it
+  (otherwise it tells you to send one). It warns an hour before a deadline. **Auto accept** (off by default) takes the
+  best open job at the stations, factions and kinds you tick whenever you hold none and no cooldown runs.
+
 ### Lockers
 Equipment lockers are NPC devices that hand out a set loadout once per account (e.g. SOL-OORT, TWAFFY-OORT).
 - Once its price is all there, a locker's row offers **Retrieve** (it scans from your replicant at the locker and
@@ -919,6 +935,9 @@ A season ends in a time skip (devices may move, events end, AMI directives pause
 - Asteroid evacuations run through any pause.
 - Every 6 hours a copy of device places and states, fleets, loadouts, ward / relay / beacon orders, contract
   deliveries, replicant places and star positions is kept; it's frozen while paused.
+- **What changed** (`/season/report`, linked from the pause banner and the Story card) compares that copy with the galaxy
+  now: devices that moved, vanished or changed status or AMI directive, new devices, replicants that moved, and stars
+  added to or gone from the catalog.
 
 ### Long trips
 E.g. ~500 ly from the home sector to the Sol zone.

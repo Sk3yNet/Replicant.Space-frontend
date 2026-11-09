@@ -9360,7 +9360,7 @@ def test_idle_survey_drones_search_a_belt_under_the_site_cap(client):
 
 def test_asteroid_impacts_are_warnings_and_unread_messages_stand_out(client):
     from rsweb import notify
-    for e in ("system.object_impacted", "diversion.impacted"):
+    for e in ("system.object_impacted",):
         assert notify.notification_for({"event": e, "payload": {}})["level"] == "warning"
     assert notify.notification_for({"event": "system.impact_warning", "payload": {}})["level"] == "error"
     db = client.app.state.db

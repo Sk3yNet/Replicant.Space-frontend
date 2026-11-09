@@ -71,6 +71,7 @@ seconds, and a trip's countdown reaching zero loads the new location.
 | **Economy** | [Blueprints](docs/FEATURES.md#blueprints) | travel, cargo, costs, production planner, [component prints](docs/FEATURES.md#component-prints) |
 | | [Contracts](docs/FEATURES.md#contracts) · [Reputation](docs/FEATURES.md#reputation) · [Shop](docs/FEATURES.md#shop) | contracts and trades, deliveries, shops and traders; bulk replicant profile import (with the NPC flag) |
 | | [Simulations](docs/FEATURES.md#simulations) | scenario runs with build orders, terraforming training, research and data uploads |
+| | [Jobs](docs/FEATURES.md#jobs) | colony station job boards, reputation, the job runner |
 | | [Lockers](docs/FEATURES.md#lockers) | equipment lockers: deliver the price, retrieve |
 | **Activity** | [Automations, Events, Messages, Chatter, Notifications, Leaderboards, Blog](docs/FEATURES.md#activity-and-tools) | rules, jobs and log; history; BobNet; NPC chatter; alerts; boards; the game's blog |
 | **Menu** | Account · [Diagnostics · Console](docs/FEATURES.md#activity-and-tools) | server runs, [desktop wallpaper](docs/FEATURES.md#desktop-wallpaper-optional); snapshots and performance; any API call |

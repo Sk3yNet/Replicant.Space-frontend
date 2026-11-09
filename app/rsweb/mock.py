@@ -1085,6 +1085,91 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                                    "scanned": True, "tags": ["rocky"]}, "devices": [], "inventory": [], "resource_sites": []})
         return ok({"error": "No scan data for this system; you need presence or a relay"}, 403)
 
+    # --- station jobs (game v4.0.0, docs /docs/stations/) ---
+    stations_m = [
+        {"name": "New Havana Station", "slug": "new_havana", "location": "ALKALAROPS-OBJ-2",
+         "factions": {"crew": {"name": "The Mechanics", "summary": "Fix anything with anything", "influence": 1.5},
+                      "leaders": {"name": "The Junta", "summary": "A strong civilian council", "influence": 1.0},
+                      "traders": {"name": "Los Coyotes", "summary": "Once a smuggling network", "influence": 1.0}}},
+        {"name": "Tianjin Station", "slug": "tianjin", "location": "BALEL-OBJ-2",
+         "factions": {"crew": {"name": "The Ministry", "summary": "State-run engineering", "influence": 1.0},
+                      "leaders": {"name": "The Presidium", "summary": "Five-year plans", "influence": 1.0},
+                      "traders": {"name": "The Keiretsu", "summary": "Corporate families", "influence": 1.0}}}]
+    board = {"new_havana": [
+        {"id": 42, "faction": "crew", "tier": 1, "title": "Structural Supply Run",
+         "description": "The Mechanics need 120 structural resources delivered to the station stores.",
+         "objectives_summary": "Gather 120 structural", "rewards_summary": "85 XP, 150 volatiles", "reputation_reward": 10.0,
+         "deadline_hours": 24, "objectives": {"type": "gather_resources", "station_location": "ALKALAROPS-OBJ-2",
+                                              "resource": "structural", "quantity": 120}},
+        {"id": 43, "faction": "leader", "tier": 1, "title": "Survey ALKALAROPS-4",
+         "description": "The Junta wants a full scan of the fourth planet.", "objectives_summary": "Scan ALKALAROPS-4 and return to station",
+         "rewards_summary": "110 XP, 100 compute_cores", "reputation_reward": 10.0, "deadline_hours": 24,
+         "objectives": {"type": "scan_body", "station_location": "ALKALAROPS-OBJ-2", "target": "ALKALAROPS-4"}},
+        {"id": 44, "faction": "trader", "tier": 2, "title": "Freight Run to Tianjin",
+         "description": "Los Coyotes have a cargo shuttle that needs delivering to Tianjin Station.",
+         "objectives_summary": "Transport colony_shuttle to Tianjin Station", "rewards_summary": "280 XP, 200 structural",
+         "reputation_reward": 20.0, "deadline_hours": 48}], "tianjin": []}
+    my_jobs: list[dict] = []
+    job_stats = {"jobs_completed": 0, "jobs_failed": 0, "jobs_in_window": 0, "window_days": 5, "next_cooldown_hours": 0,
+                 "next_available_at": None}
+
+    def _public(j):
+        return {k: v for k, v in j.items() if k != "objectives"}
+
+    @app.get("/v1/stations")
+    async def stations_list():
+        return ok({"stations": [{**s, "available_jobs": len(board.get(s["slug"], []))} for s in stations_m]})
+
+    @app.get("/v1/stations/{slug}")
+    async def station_detail(slug: str):
+        s = next((x for x in stations_m if x["slug"] == slug), None)
+        if not s:
+            return ok({"error": "Station not found"}, 404)
+        return ok({**s, "available_jobs": len(board.get(slug, [])), "reputation": {},
+                   "contributors": [{"favoured_faction": "crew", "jobs_completed": 3, "replicant_code": "FF760576",
+                                     "replicant_name": "mercutio"}]})
+
+    @app.get("/v1/stations/{slug}/jobs")
+    async def station_board(slug: str):
+        return ok({"station": slug, "jobs": [_public(j) for j in board.get(slug, [])]})
+
+    @app.get("/v1/jobs")
+    async def jobs_mine():
+        return ok({"jobs": my_jobs, "stats": job_stats, "reputation": {}})
+
+    @app.post("/v1/jobs/{jid}/accept")
+    async def job_accept(jid: int):
+        if my_jobs:
+            return ok({"error": "You already have an active job"}, 400)
+        for slug, js in board.items():
+            j = next((x for x in js if x["id"] == jid), None)
+            if j:
+                js.remove(j)
+                s = next(x for x in stations_m if x["slug"] == slug)
+                my_jobs.append({**j, "station_slug": slug, "station_name": s["name"], "status": "accepted",
+                                "accepted_at": iso(), "expires_at": iso(datetime.now(timezone.utc) + timedelta(hours=j["deadline_hours"])),
+                                "completed_at": None})
+                return ok(my_jobs[-1])
+        return ok({"error": "Job not found"}, 404)
+
+    @app.post("/v1/jobs/{jid}/complete")
+    async def job_complete(jid: int):
+        j = next((x for x in my_jobs if x["id"] == jid), None)
+        if not j:
+            return ok({"error": "Job not found"}, 404)
+        my_jobs.remove(j)
+        job_stats["jobs_completed"] += 1
+        return ok({**j, "status": "completed", "completed_at": iso(), "consumed": {}})
+
+    @app.delete("/v1/jobs/{jid}")
+    async def job_abandon(jid: int):
+        j = next((x for x in my_jobs if x["id"] == jid), None)
+        if not j:
+            return ok({"error": "Job not found"}, 404)
+        my_jobs.remove(j)
+        job_stats["jobs_failed"] += 1
+        return ok({**j, "status": "abandoned"})
+
     @app.get("/v1/overview")
     async def overview():   # the docs' example (2026-10-19)
         return ok({"server_time": iso(), "season": {"number": 3, "title": "Alteration Protocol",
