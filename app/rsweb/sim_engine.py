@@ -44,8 +44,9 @@ class SimMixin:
         if not s.get("active"):
             out += await self.sim_adopt(s)
             if not s.get("active"):
+                swept = s.get("swept_at")
                 found = await self.sim_catalog(s)
-                if found and not (await self.db.kv_get(sim.KV, {}) or {}).get("active"):   # not over a run just started
+                if (found or s.get("swept_at") != swept) and not (await self.db.kv_get(sim.KV, {}) or {}).get("active"):   # not over a run just started
                     out += found
                     await self.sim_save(s)
         if s.get("active"):
@@ -211,9 +212,10 @@ class SimMixin:
         "others": each scan's raw answer)."""
         from . import others as oth
         out: dict[str, dict] = {}
-        for x in (sim.KNOWN_INTERFACE, s.get("interface") or {}):
+        for x in (sim.KNOWN_INTERFACE, s.get("interface") or {}, *(s.get("found") or {}).values()):
             if x.get("code"):
-                out[x["code"]] = {"code": x["code"], "location": x.get("location") or sim.DATACENTER}
+                out[x["code"]] = {"code": x["code"], "location": x.get("location") or sim.DATACENTER,
+                                  **({"owner_name": x["owner_name"]} if x.get("owner_name") else {})}
         snap = oth.normalize(await self.db.kv_get(oth.KV, {}))
         seen = [d for st in snap["stars"].values() for d in st.get("raw") or []]
         for d in seen + list(await self.db.kv_get("devices", []) or []):
@@ -222,11 +224,48 @@ class SimMixin:
                                          "owner_name": d.get("owner_name")}
         return out
 
+    async def sim_sweep(self, s: dict, force: bool = False) -> list[str]:
+        """Look for replicant interfaces wherever a replicant of yours is (GET /replicants/{code}/scan/devices with
+        device_type, one replicant per system), every CATALOG_EVERY_H hours or when asked. A device scan sees only the
+        replicant's own system, so a datacenter other than MIRFAKA's (the Delta datacenter, 2026-11-09) was never found
+        unless an arrival scan there happened to list it. Found ones are kept in s["found"]."""
+        now = datetime.now(timezone.utc)
+        try:
+            age = (now - datetime.fromisoformat(s["swept_at"])).total_seconds() / 3600 if s.get("swept_at") else None
+        except ValueError:
+            age = None
+        if not force and age is not None and age < sim.CATALOG_EVERY_H:
+            return []
+        s["swept_at"] = now_iso()
+        reps = await self.db.kv_get("replicants", {}) or {}
+        by_star: dict[str, str] = {}
+        for c, r in sorted(reps.items()):
+            loc = r.get("location") or r.get("current_location")
+            star = star_of(loc) if loc else None
+            if star and not sim.is_virtual(star) and star not in by_star:
+                by_star[star] = c
+        found = s.setdefault("found", {})
+        out = []
+        for star, rep in sorted(by_star.items()):
+            try:
+                body = await self.api.get(f"/replicants/{rep}/scan/devices", background=True, device_type=sim.INTERFACE) or {}
+            except ApiError:
+                continue
+            for d in body.get("devices") or []:
+                code = d.get("device_code")
+                if not (code and sim.is_interface(d)) or sim.is_virtual(d.get("location")):
+                    continue
+                if code not in found:
+                    out.append(f"simulation: replicant interface {code} found at {d.get('location') or star}")
+                found[code] = {"code": code, "location": d.get("location") or star, "owner_name": d.get("owner_name"),
+                               "at": now_iso()}
+        return out
+
     async def sim_catalog(self, s: dict, force: bool = False) -> list[str]:
         """Each known interface's scenarios (GET /devices/{code}/simulate), every CATALOG_EVERY_H hours or when asked."""
         cat = s.setdefault("catalog", {})
         now = datetime.now(timezone.utc)
-        out = []
+        out = await self.sim_sweep(s, force)
         for code, x in (await self.sim_interfaces(s)).items():
             e = cat.get(code) or {}
             try:

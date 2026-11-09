@@ -10054,3 +10054,34 @@ def test_automations_never_print_on_vessels_but_your_jobs_may(client):
     job = client.portal.call(eng.create_job, "chain", "t", HOST, [auto.step("p", f"/devices/{HOST}", body)], {}, True)
     job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
     assert "don't print on vessels" not in str(job["steps"][0])
+
+
+def test_research_at_every_datacenter_found(client):
+    """A second datacenter (Delta, 2026-11-09) never showed: interfaces were found only by a scan from a replicant
+    already there. Scan interfaces now scans every system a replicant of ours is in, and Research lists each
+    interface's topics, researching at the one chosen."""
+    w, db = client.app.state.worker, client.app.state.db
+    reps = client.portal.call(db.kv_get, "replicants") or {}
+    code = sorted(reps)[0]
+    client.portal.call(db.kv_set, "replicants", {**reps, code: {**reps[code], "location": "ISOLITHOR-OBJ-3"}})
+    real, seen = w.api.get, []
+
+    async def fake(path, *a, **kw):
+        if path.endswith("/scan/devices"):
+            seen.append(path)
+            if path == f"/replicants/{code}/scan/devices":
+                return {"devices": [{"device_code": "DC000002", "device_type": "replicant_interface",
+                                     "location": "ISOLITHOR-OBJ-3", "owner_name": "Bill"}]}
+            return {"devices": []}
+        return await real(path, *a, **kw)
+    w.api.get = fake
+    try:
+        t = client.post("/simulations/scan", headers=HX).text
+    finally:
+        w.api.get = real
+    assert f"/replicants/{code}/scan/devices" in seen and "DC000002 found at ISOLITHOR-OBJ-3" in t
+    r = client.get("/simulations/research", headers=HX).text
+    assert "ISOLITHOR-OBJ-3" in r and "MIRFAKA-OBJ-1" in r and "/simulations/research/precursor_signal?interface=DC000002" in r
+    t = client.post("/simulations/research/precursor_signal?interface=DC000002", headers=HX).text
+    row = client.portal.call(db.fetchall, "SELECT path FROM actions ORDER BY id DESC LIMIT 1")
+    assert row[0]["path"] == "/devices/DC000002/research/precursor_signal", t

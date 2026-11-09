@@ -170,34 +170,43 @@ def _iface(s: dict) -> str | None:
 
 @router.get("/simulations/research", response_class=HTMLResponse)
 async def simulations_research(request: Request, user: str = Depends(current_user)):
-    """Research topics at the datacenter's interface (GET /devices/{interface}/research): each unlocks blueprints."""
+    """Research topics at every known replicant interface (GET /devices/{interface}/research lists the topics at the
+    device's location, so each datacenter has its own): each unlocks blueprints."""
     from .api import ApiError
-    s = await request.app.state.worker.automations.sim_state()
-    iface = _iface(s)
-    if not iface:
-        return HTMLResponse('<p class="muted small">The interface is not known yet: a replicant at the datacenter finds it.</p>')
-    try:
-        topics = (await request.app.state.api.get(f"/devices/{iface}/research") or {}).get("research") or []
-    except ApiError as e:
-        return HTMLResponse(f'<p class="result err">{html.escape(e.message)}</p>')
-    if not topics:
-        return HTMLResponse('<p class="muted small">No topics: all done, or none released at this datacenter yet.</p>')
-    out = ['<table class="small">']
-    for t in topics:
-        code = html.escape(str(t.get("topic") or ""))
-        btn = ('<span class="lv-done">✓ done</span>' if t.get("completed") else
-               f'<button class="small" hx-post="/simulations/research/{code}" hx-target="next .rs-out" '
-               f'hx-confirm="Research {html.escape(str(t.get("title") or code))}? Your replicant must be at the interface.">Research</button>'
-               f'<span class="rs-out"></span>')
-        out.append(f'<tr><td><b>{html.escape(str(t.get("title") or code))}</b> <span class="muted mono">{code}</span>'
-                   f'<div class="muted">{html.escape(str(t.get("description") or ""))}</div></td><td>{btn}</td></tr>')
-    return HTMLResponse("".join(out) + "</table>")
+    eng = request.app.state.worker.automations
+    s = await eng.sim_state()
+    ifaces = sorted((await eng.sim_interfaces(s)).values(), key=lambda x: (x.get("location") or "", x.get("code") or ""))
+    if not ifaces:
+        return HTMLResponse('<p class="muted small">No interface known yet: a replicant at a datacenter finds it.</p>')
+    out = []
+    for x in ifaces:
+        iface, where = x["code"], html.escape(str(x.get("location") or ""))
+        out.append(f'<h3 style="margin-top:10px">{where} <span class="muted small mono">{html.escape(iface)}</span></h3>')
+        try:
+            topics = (await request.app.state.api.get(f"/devices/{iface}/research") or {}).get("research") or []
+        except ApiError as e:
+            out.append(f'<p class="result err">{html.escape(e.message)}</p>')
+            continue
+        if not topics:
+            out.append('<p class="muted small">No topics: all done, or none released at this datacenter yet.</p>')
+            continue
+        out.append('<table class="small">')
+        for t in topics:
+            code = html.escape(str(t.get("topic") or ""))
+            btn = ('<span class="lv-done">✓ done</span>' if t.get("completed") else
+                   f'<button class="small" hx-post="/simulations/research/{code}?interface={html.escape(iface)}" '
+                   f'hx-target="next .rs-out" hx-confirm="Research {html.escape(str(t.get("title") or code))} at {where}? '
+                   f'Your replicant must be at the interface.">Research</button><span class="rs-out"></span>')
+            out.append(f'<tr><td><b>{html.escape(str(t.get("title") or code))}</b> <span class="muted mono">{code}</span>'
+                       f'<div class="muted">{html.escape(str(t.get("description") or ""))}</div></td><td>{btn}</td></tr>')
+        out.append("</table>")
+    return HTMLResponse("".join(out))
 
 
 @router.post("/simulations/research/{topic}", response_class=HTMLResponse)
-async def simulations_research_do(request: Request, topic: str, user: str = Depends(current_user)):
+async def simulations_research_do(request: Request, topic: str, interface: str = "", user: str = Depends(current_user)):
     s = await request.app.state.worker.automations.sim_state()
-    iface = _iface(s)
+    iface = interface.strip().upper() or _iface(s)
     if not iface:
         return _msg("The interface is not known yet.", ok=False)
     return await run_action(request, user, "POST", f"/devices/{iface}/research/{topic}", None, f"research {topic}")
