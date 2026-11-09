@@ -232,6 +232,8 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
 ### Systems list
 - Nearest first, by **distance** from the system picked under *distances from* (the same choices as Mining prospects;
   default: where most of your devices are).
+- The **Region** of each system (the star catalog's galactic region), with a Region filter and a *Sort* by region,
+  then distance (remembered per browser, 1.358.0). The system page shows it next to the star type.
 - Per system, the **Fleets** homed there (⌂) or on a mission there (→).
 - Your ward, FTL relay and FTL beacon, each with a checkbox (ticked: one works
   there or is on order) that saves at once without reloading the page, so several can be ticked in a row:

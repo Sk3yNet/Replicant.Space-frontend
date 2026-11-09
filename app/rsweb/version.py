@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.357.0"
+VERSION = "1.358.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.358.0", "2026-11-09", "Map › Systems lists each system's galactic region (the star catalog's region, Joe): a Region column, a Region filter and a Sort by region, then distance (both remembered per browser). The system page shows the region next to the star type."),
     ("1.357.0", "2026-11-09", "Simulations finds every datacenter, not only MIRFAKA (Joe could not research at the Delta datacenter): Scan interfaces now, and the 6-hourly read, run a replicant interface scan in each system where a replicant of yours is. The Research card lists the topics of every interface found, each with its own Research buttons."),
     ("1.356.1", "2026-11-09", "Device pages show one Deliver box again (Joe saw two): the box with the destination list loaded into the result area below the form instead of replacing the plain box."),
     ("1.356.0", "2026-11-08", "Scheduled game outages (Dashboard › Story, Joe): paste the announcement or enter a UTC date and time; automations pause 30 min before with a fresh galaxy copy and resume by themselves 15 min after the end. Times show in UTC and your time zone; a non-UTC announcement is refused, not guessed. A new season found meanwhile keeps the pause until you resume. Asteroid evacuations now run through any pause."),

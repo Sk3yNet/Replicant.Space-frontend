@@ -1993,9 +1993,11 @@ async def systems(request: Request, origin: str = "", user: str = Depends(curren
     db = request.app.state.db
     cat = await db.kv_get("stars", {}) or {}
     pos = {x.get("designation"): x.get("position") for x in cat.get("stars") or [] if isinstance(x, dict)}
+    region = {x.get("designation"): x.get("region") for x in cat.get("stars") or [] if isinstance(x, dict)}
     for s, p in presence.items():
         dist = _dist(pos.get(origin), pos.get(s))
         p["distance"] = None if dist is None else round(dist, 1)
+        p["region"] = region.get(s) or ""
     rows = sorted(presence.items(), key=lambda kv: (kv[1]["distance"] is None, kv[1]["distance"] or 0,
                                                     -kv[1]["devices"], kv[0]))
     for s, p in rows:
@@ -2020,7 +2022,7 @@ async def systems(request: Request, origin: str = "", user: str = Depends(curren
         p["working"] = {k: any(wh.active(d) for d in p["outposts"][k]) for k in wo.KINDS}
         p["civ_gap"] = [c["location"] for c in p["civ"] if not c["beacon"]] if p["civ"] else []
     return await page(request, user, "systems.html", "systems", rows=out_rows, known=known, outpost_kinds=outposts.LABELS, origin=origin, origins=origins,
-                      system_tags=system_tags)
+                      system_tags=system_tags, regions=sorted({p["region"] for _, p in out_rows if p["region"]}))
 
 
 def scan_tags(rows) -> list[tuple[str, list[str]]]:
@@ -2321,7 +2323,9 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     from . import others as oth
     osnap = oth.normalize(await db.kv_get(oth.KV, {}))["stars"].get(star)
     from .web_lockers import in_system as lockers_in
-    return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err,
+    region = next((x.get("region") for x in (await db.kv_get("stars", {}) or {}).get("stars") or []
+                   if isinstance(x, dict) and x.get("designation") == star), None)
+    return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err, region=region,
                       others=oth.summary(osnap, await db.kv_get("replicant_profiles", {}) or {}), others_snap=osnap,
                       other_drones=oth.drone_totals(osnap, await db.kv_get("replicant_profiles", {}) or {}),
                       others_warded=star in oth.warded_by_others(await db.kv_get("stars", {}) or {}, st["devices"]),

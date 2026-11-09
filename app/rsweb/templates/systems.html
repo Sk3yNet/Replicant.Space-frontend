@@ -16,17 +16,21 @@
         <select data-kind="{{ k }}" onchange="opFilter()"><option value="">any</option><option value="1">checked</option><option value="0">unchecked</option></select></label>{% endfor %}
       <label style="text-transform:none" title="local civilizations (✦) in the system">Civilization
         <select data-kind="civ" onchange="opFilter()"><option value="">any</option><option value="yes">has one</option><option value="gap">missing a beacon</option><option value="ok">all have beacons</option><option value="none">none</option></select></label>
+      <label style="text-transform:none" title="galactic region from the star catalog">Region
+        <select data-kind="region" onchange="opFilter()"><option value="">any</option>{% for r in regions %}<option>{{ r }}</option>{% endfor %}<option value="-">unknown</option></select></label>
+      <label style="text-transform:none">Sort
+        <select id="sys-sort" onchange="opSort()"><option value="">distance</option><option value="region">region, then distance</option></select></label>
       <span class="muted" id="op-shown"></span></span>
     <span class="muted">Ticking a box activates an idle one of yours there, else sends a spare, else prints one in range;
       unticking deactivates yours and marks it spare (or cancels its order). Saved at once, no reload. Wards keep other players from mining there.</span>
   </form>
   <table>
-    <tr><th>System</th><th class="num">Devices</th><th title="⌂ homed here · → on a mission here">Fleets</th>
+    <tr><th>System</th><th title="galactic region (star catalog)">Region</th><th class="num">Devices</th><th title="⌂ homed here · → on a mission here">Fleets</th>
       {% for k, label in outpost_kinds.items() %}<th title="your {{ label }}s in the system">{{ {'relay': 'Relay', 'station': 'Station', 'beacon': 'Beacon', 'ward': 'Ward'}[k] }}</th>{% endfor %}
       <th class="num">Locations with presence</th><th class="num">Stockpiled</th><th class="num">Mineable</th><th class="num">Salvage</th><th>Most available</th><th>Scan cached</th><th class="num" title="from {{ origin }}; nearest first">Distance</th></tr>
     {% for s, p in rows %}
-    <tr class="sys-row" data-civ="{{ ('gap' if p.civ_gap else 'ok') if p.civ else 'none' }}"{% for k in outpost_kinds %} data-{{ k }}="{{ 1 if p.working[k] or p.orders[k] else 0 }}"{% endfor %}><td><a href="/systems/{{ s }}">{{ s }}</a>{% for c in p.civ %} <a href="/traffic" class="{{ 'lv-done' if c.beacon else 'lv-alert' }}"
-        title="local civilization at {{ c.location }} · {{ 'your beacon is there' if c.beacon else 'no beacon of yours there yet (Add a beacon puts one at each civilization in the system)' }}">✦</a>{% endfor %}</td><td class="num">{{ p.devices }}</td><td class="small">{% for n in p.homes %}<span title="home of {{ n }}">⌂ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}{% if p.homes and p.targets %} · {% endif %}{% for n in p.targets %}<span title="{{ n }} is on a mission here">→ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}</td>
+    <tr class="sys-row" data-i="{{ loop.index0 }}" data-region="{{ p.region or '-' }}" data-civ="{{ ('gap' if p.civ_gap else 'ok') if p.civ else 'none' }}"{% for k in outpost_kinds %} data-{{ k }}="{{ 1 if p.working[k] or p.orders[k] else 0 }}"{% endfor %}><td><a href="/systems/{{ s }}">{{ s }}</a>{% for c in p.civ %} <a href="/traffic" class="{{ 'lv-done' if c.beacon else 'lv-alert' }}"
+        title="local civilization at {{ c.location }} · {{ 'your beacon is there' if c.beacon else 'no beacon of yours there yet (Add a beacon puts one at each civilization in the system)' }}">✦</a>{% endfor %}</td><td class="small">{{ p.region or '—' }}</td><td class="num">{{ p.devices }}</td><td class="small">{% for n in p.homes %}<span title="home of {{ n }}">⌂ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}{% if p.homes and p.targets %} · {% endif %}{% for n in p.targets %}<span title="{{ n }} is on a mission here">→ {{ n }}</span>{{ ', ' if not loop.last }}{% endfor %}</td>
       {% for k in outpost_kinds %}{% set ds = p.outposts[k] %}{% set o = p.orders[k] %}<td class="small {{ '' if ds else 'lv-alert' }}">
         {% for d in ds %}<a class="mono" href="/devices/{{ d.device_code }}" title="{{ d.location }} · {{ d.status }}">✓ {{ d.device_code }}</a>{{ ' ' if not loop.last }}{% else %}— none{% endfor %}
         <span style="white-space:nowrap"><label style="text-transform:none" title="{{ 'your ' ~ outpost_kinds[k] ~ ' works here: untick to deactivate it and mark it spare' if p.working[k] else ('on order: untick to cancel' if o else 'tick to add one') }}"><input type="checkbox" class="op-chk"
@@ -41,7 +45,7 @@
       <td class="small">{% for r, q in p.top %}{{ r }} {{ q | num }}{{ ', ' if not loop.last }}{% endfor %}</td>
       <td class="small muted">{{ known[s].updated_at | ago if s in known else '—' }}</td>
       <td class="num">{{ (p.distance ~ ' ly') if p.distance is not none else '' }}</td></tr>
-    {% else %}<tr><td colspan="13" class="muted">No presence yet — waiting for sync.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="14" class="muted">No presence yet — waiting for sync.</td></tr>{% endfor %}
   </table>
 </div>
 <script>
@@ -66,7 +70,7 @@ function opToggle(box) {
 function opAdd(btn, star) { btn.disabled = true; opPost(star, "beacon", "add").then(res => { btn.disabled = false; opShow(btn, res.msg); }); }
 function opFilter(save) {
   const want = {}; let n = 0, all = 0;
-  document.querySelectorAll("#op-filters select").forEach(s => { if (s.value) want[s.dataset.kind] = s.value; });
+  document.querySelectorAll("#op-filters select[data-kind]").forEach(s => { if (s.value) want[s.dataset.kind] = s.value; });
   document.querySelectorAll("tr.sys-row").forEach(tr => {
     const ok = Object.entries(want).every(([k, v]) => k === "civ" && v === "yes" ? tr.dataset.civ !== "none" : tr.dataset[k] === v);
     tr.style.display = ok ? "" : "none"; all++; if (ok) n++;
@@ -74,11 +78,20 @@ function opFilter(save) {
   document.getElementById("op-shown").textContent = Object.keys(want).length ? n + " of " + all + " shown" : "";
   if (save !== false) try { localStorage.setItem("sys-op-filter", JSON.stringify(want)); } catch (e) {}
 }
+function opSort(save) {   // client-side: distance is the page's own order (data-i)
+  const by = document.getElementById("sys-sort").value, rows = [...document.querySelectorAll("tr.sys-row")];
+  if (!rows.length) return;
+  const key = tr => (by === "region" ? (tr.dataset.region === "-" ? "\uffff" : tr.dataset.region) : "");
+  rows.sort((a, b) => key(a).localeCompare(key(b)) || a.dataset.i - b.dataset.i);
+  const parent = rows[0].parentNode; rows.forEach(tr => parent.appendChild(tr));
+  if (save !== false) try { localStorage.setItem("sys-sort", by); } catch (e) {}
+}
 function opRestore() {   // on load and after a live redraw
   let want = {};
   try { want = JSON.parse(localStorage.getItem("sys-op-filter") || "{}") || {}; } catch (e) {}
-  document.querySelectorAll("#op-filters select").forEach(s => { if (want[s.dataset.kind]) s.value = want[s.dataset.kind]; });
-  opFilter(false);
+  document.querySelectorAll("#op-filters select[data-kind]").forEach(s => { if (want[s.dataset.kind]) s.value = want[s.dataset.kind]; });
+  try { document.getElementById("sys-sort").value = localStorage.getItem("sys-sort") || ""; } catch (e) {}
+  opFilter(false); opSort(false);
 }
 opRestore();
 document.addEventListener("live:swapped", opRestore);
