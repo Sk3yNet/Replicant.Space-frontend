@@ -768,9 +768,11 @@ Account and per-replicant reputation, known species. **Bulk profile import**: pa
 
 ### Jobs
 Station jobs (Season 4, game v4.0.0): the twelve colony stations post jobs for their crew, leaders and traders.
-- **Boards** lists every open job on every station (no replicant or beacon needed to list them), with filters by
+- **Boards** lists the open jobs of every station board read so far, with filters by
   station, faction and kind, and why you can't take one (you hold a job, a cooldown, too little reputation for tier 2).
-  **Accept**, or **Accept and run** to hand it to the runner. Boards are read every 15 minutes, your jobs every 5
+  **Accept**, or **Accept and run** to hand it to the runner. The game shows a board only to a replicant at the
+  station, so a board is read (every 15 minutes) only while one of yours is there; elsewhere the last board read stays,
+  marked with its age. Stations, their factions and details read from anywhere; your jobs every 5 minutes
   (**Refresh now** reads them at once).
 - **Your job**: the objective and how far along it is, the deadline, which replicant is there, **Complete**,
   **Abandon** (costs reputation), stats and the cooldown. A scan job offers **Scan and return**: the replicant you pick

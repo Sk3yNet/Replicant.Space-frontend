@@ -5,7 +5,8 @@
 <h1>Station jobs <span class="muted small">{{ rows | length }} open on {{ stations | length }} boards</span></h1>
 <p class="muted small">The twelve colony stations post jobs for their crew, leaders and traders. You hold one job at a time;
   tier 1 is open to all (24 h), tier 2 needs 50 reputation with that faction (48 h). Completing a job needs a replicant at
-  the station (deliveries and couriers: at either end). Abandoning costs reputation.
+  the station (deliveries and couriers: at either end). Abandoning costs reputation. A board can only be read by a
+  replicant at the station, so boards elsewhere show as last read.
   Boards read {{ boards_at | ago if boards_at else 'never' }}, your jobs {{ mine_at | ago if mine_at else 'never' }}
   <button class="small ghost" hx-post="/jobs/refresh" hx-target="next .jb-r">Refresh now</button><span class="jb-r"></span></p>
 
@@ -45,7 +46,7 @@
     <label style="text-transform:none"><input type="checkbox" id="jb-open" onchange="jbFilter()"> only ones I can take</label></div>
   <table class="small" id="jb-table"><tr><th>Station</th><th>Faction</th><th>Job</th><th>Tier</th><th>Rewards</th><th>Time</th><th></th></tr>
   {% for r in rows %}<tr data-station="{{ r.station_slug }}" data-role="{{ r.role }}" data-kind="{{ r.kind }}" data-open="{{ '0' if r.blocked else '1' }}">
-    <td><a href="/systems/{{ (r.location or '').split('-')[0] }}">{{ r.station_name }}</a></td>
+    <td><a href="/systems/{{ (r.location or '').split('-')[0] }}">{{ r.station_name }}</a>{% if r.away %}<div class="muted" title="no replicant there now: the game shows a board only to a replicant at the station">read {{ r.read_at | ago }}</div>{% endif %}</td>
     <td title="{{ r.role }}">{{ r.faction_name }}</td>
     <td><b>{{ r.title }}</b><div class="muted">{{ r.objectives_summary or r.description }}</div></td>
     <td>{{ r.tier }}</td><td>{{ r.rewards_summary }}{% if r.reputation_reward %}<div class="muted">+{{ r.reputation_reward | num }} rep</div>{% endif %}</td>
@@ -54,14 +55,15 @@
       <button class="small" hx-post="/jobs/{{ r.id }}/accept" hx-target="next .jb-a" hx-confirm="Accept {{ r.title }} at {{ r.station_name }}? You hold one job at a time.">Accept</button>
       {% if r.kind in runnable %}<button class="small ghost" hx-post="/jobs/{{ r.id }}/accept" hx-vals='{"run": "1"}' hx-target="next .jb-a"
         hx-confirm="Accept {{ r.title }} and let the runner work it?">Accept and run</button>{% endif %}<span class="jb-a"></span>{% endif %}</td></tr>
-  {% else %}<tr><td colspan="7" class="muted">No jobs read yet: press Refresh now.</td></tr>{% endfor %}</table>
+  {% else %}<tr><td colspan="7" class="muted">No board read yet. The game shows a station's board only to a replicant at the station: send one there (see Stations below).</td></tr>{% endfor %}</table>
 </div>
 
 <div class="card" id="jobs-stations"><h2>Stations</h2>
   {% for s in stations %}<details class="small" style="margin-bottom:4px">
     <summary hx-get="/jobs/station/{{ s.slug }}" hx-target="next .jb-d" hx-trigger="click once"><b>{{ s.name }}</b>
       <a class="mono" href="/systems/{{ (s.location or '').split('-')[0] }}">{{ s.location }}</a> · {{ s.open }} open job(s)
-      {% if s.board.error %}<span class="lv-warning">board: {{ s.board.error }}</span>{% endif %}</summary>
+      {% if s.board.error %}<span class="lv-warning">board: {{ s.board.error }}</span>
+      {% elif s.board.away %}<span class="muted">· {{ s.available_jobs or 0 }} posted; board {{ 'read ' ~ (s.board.at | ago) if s.board.at else 'never read' }}, a replicant at {{ s.location }} reads it</span>{% endif %}</summary>
     <table class="small"><tr><th>Faction</th><th>Influence</th><th>Your reputation</th></tr>
       {% for f in s.facs %}<tr><td title="{{ f.summary }}">{{ f.name }} <span class="muted">{{ f.role }}</span></td>
         <td>{{ f.influence | num }} <span class="muted">({{ (f.share * 100) | round | int }} %)</span></td><td>{{ f.rep | num }}</td></tr>{% endfor %}</table>

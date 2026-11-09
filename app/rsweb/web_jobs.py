@@ -1,5 +1,6 @@
-"""Economy › Jobs: the colony stations' job boards (game v4.0.0; stations.py). Every board is listed from anywhere (Joe
-2026-11-09: no replicant or beacon needed to list them); accept, complete and abandon by hand, or hand a job to the runner."""
+"""Economy › Jobs: the colony stations' job boards (game v4.0.0; stations.py). Stations and their details read from
+anywhere; a board only with a replicant at the station (live 2026-11-09), so other boards show as last read. Accept,
+complete and abandon by hand, or hand a job to the runner."""
 from __future__ import annotations
 
 import html

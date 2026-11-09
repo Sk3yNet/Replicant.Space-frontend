@@ -9,8 +9,9 @@ a replicant at the station (deliveries and couriers to another station: at eithe
 
 What the app keeps (kv):
   stations         {"at", "stations": [...]}               GET /stations, every BOARD_MIN
-  station_boards   {slug: {"at", "jobs": [...], "error"}}  GET /stations/{slug}/jobs (Joe 2026-11-09: listed without a
-                                                           replicant or beacon there)
+  station_boards   {slug: {"at", "jobs": [...], "error", "away"}}  GET /stations/{slug}/jobs, read only where a
+                                                           replicant of yours is (live 2026-11-09: 400 "No replicant at
+                                                           New Havana Station"); elsewhere the last board read is kept
   station_mine     GET /jobs body + "at"                   your jobs, stats, reputation; every MINE_MIN
   station_detail   {slug: {..., "at"}}                     GET /stations/{slug} (contributors), on demand
   job_runner       settings and state, see DEFAULT_RUNNER
@@ -226,7 +227,7 @@ def board_rows(stations: list[dict], boards: dict, mine: dict | None) -> list[di
             why = ("you hold a job already" if busy else f"cooldown until {cool:%H:%M} UTC" if cool else
                    f"needs {need} reputation (you have {int(have)})" if have < need else
                    "the game says you can't take it" if j.get("can_accept") is False else "")
-            out.append({**j, "station_slug": slug, "station_name": s.get("name") or slug, "location": s.get("location"),
+            out.append({**j, "station_slug": slug, "read_at": b.get("at"), "away": bool(b.get("away")), "station_name": s.get("name") or slug, "location": s.get("location"),
                         "role": r, "faction_name": (fs.get(r) or fs.get(r + "s") or {}).get("name") or r,
                         "kind": kind_of(j), "tier": tier, "blocked": why})
     return out
@@ -292,9 +293,14 @@ async def refresh(api, db, boards: bool = True, background: bool = True) -> list
         errs.append(f"stations: {e.message}")
         sts = ((await db.kv_get(KV_STATIONS, {})) or {}).get("stations") or []
     old = await db.kv_get(KV_BOARDS, {}) or {}
+    reps = await db.kv_get("replicants", {}) or {}
+    devices = await db.kv_get("devices", []) or []
     new = {}
     for s in sts:
         slug = s["slug"]
+        if not reps_at(reps, devices, s.get("location")):   # the game shows a board only to a replicant at the station
+            new[slug] = {**(old.get(slug) or {}), "error": None, "away": True}
+            continue
         try:
             b = await api.get(f"/stations/{slug}/jobs", background=background) or {}
             new[slug] = {"at": now, "jobs": [j for j in (b.get("jobs") if isinstance(b, dict) else b) or [] if isinstance(j, dict)]}

@@ -1037,7 +1037,8 @@ this copy (`info.version` still v1). Docs: /docs/stations/, /factions/, /influen
   `reputation` {crew, leader, trader} and `contributors` [{replicant_code, replicant_name, favoured_faction,
   jobs_completed}]), `GET /v1/stations/{slug}/jobs` (`{station, jobs: [{id, faction, tier, title, description,
   objectives_summary, rewards_summary, reputation_reward, deadline_hours, can_accept}]}`; the docs say it needs a
-  replicant at the station, Joe says it lists from anywhere).
+  replicant at the station: live 2026-11-09, 400 "No replicant at New Havana Station. Head to ALKALAROPS-OBJ-2 to view
+  current job details". The station list and detail read from anywhere).
 - New `GET /v1/jobs` (`{jobs, stats: {jobs_completed, jobs_failed, jobs_in_window, window_days, next_cooldown_hours,
   next_available_at}, reputation: {slug: {station_name, station_location, factions: {role: {name, reputation,
   jobs_completed, jobs_failed}}}}}`), `GET /v1/jobs/{id}`, `POST /v1/jobs/{id}/accept` (answers the job with

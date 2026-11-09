@@ -49,8 +49,33 @@ def test_job_rows_go_to_logistics_as_a_deal():
     assert next(x for x in p["runs"] if x["req"] == "job:job7")["to"] == "A-OBJ-2"
 
 
+def _at_station(client, loc="ALKALAROPS-OBJ-2"):
+    db = client.app.state.db
+    reps = client.portal.call(db.kv_get, "replicants") or {}
+    code = next(iter(reps))
+    reps[code] = {**reps[code], "location": loc}
+    client.portal.call(db.kv_set, "replicants", reps)
+
+
+def test_boards_read_only_where_a_replicant_is(client):  # noqa: F811
+    db = client.app.state.db
+    client.post("/jobs/refresh", headers=HX)   # nobody at a station: no board read
+    boards = client.portal.call(db.kv_get, sj.KV_BOARDS)
+    assert boards["new_havana"]["away"] and not boards["new_havana"].get("jobs")
+    assert "a replicant at ALKALAROPS-OBJ-2 reads it" in client.get("/jobs", headers=H).text
+    _at_station(client)
+    client.post("/jobs/refresh", headers=HX)
+    assert client.portal.call(db.kv_get, sj.KV_BOARDS)["new_havana"]["jobs"]
+    _at_station(client, "SOL-3")                # gone again: the last board read is kept, marked as such
+    client.post("/jobs/refresh", headers=HX)
+    b = client.portal.call(db.kv_get, sj.KV_BOARDS)["new_havana"]
+    assert b["away"] and b["jobs"]
+    assert "read " in client.get("/jobs", headers=H).text
+
+
 def test_jobs_page_accept_run_and_complete(client):  # noqa: F811
     e, db = eng(client), client.app.state.db
+    _at_station(client)
     client.post("/jobs/refresh", headers=HX)
     page = client.get("/jobs", headers=H).text
     assert "Structural Supply Run" in page and "New Havana Station" in page and "The Mechanics" in page
@@ -64,10 +89,6 @@ def test_jobs_page_accept_run_and_complete(client):  # noqa: F811
     assert "you hold a job already" in page
     # stocked and a replicant there: the runner completes it
     client.portal.call(db.kv_set, "inventory", [{"location": "ALKALAROPS-OBJ-2", "items": {"structural": 150}}])
-    reps = client.portal.call(db.kv_get, "replicants") or {}
-    code = next(iter(reps))
-    reps[code] = {**reps[code], "location": "ALKALAROPS-OBJ-2"}
-    client.portal.call(db.kv_set, "replicants", reps)
     out = client.portal.call(e.station_jobs_pass)
     assert out == ["completed job 42"]
     assert not sj.accepted(client.portal.call(db.kv_get, sj.KV_MINE))
@@ -76,6 +97,7 @@ def test_jobs_page_accept_run_and_complete(client):  # noqa: F811
 
 def test_abandon_and_auto_accept(client):  # noqa: F811
     e, db = eng(client), client.app.state.db
+    _at_station(client)
     client.post("/jobs/refresh", headers=HX)
     client.post("/jobs/43/accept", headers=HX)
     client.post("/jobs/43/abandon", headers=HX)

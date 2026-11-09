@@ -1131,6 +1131,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
 
     @app.get("/v1/stations/{slug}/jobs")
     async def station_board(slug: str):
+        # the game answers 400 "No replicant at New Havana Station. Head to ALKALAROPS-OBJ-2 ..." without a replicant
+        # there (live 2026-11-09); the app only asks where one is, so the mock always answers
         return ok({"station": slug, "jobs": [_public(j) for j in board.get(slug, [])]})
 
     @app.get("/v1/jobs")
