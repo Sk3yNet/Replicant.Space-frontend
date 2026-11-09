@@ -253,6 +253,44 @@ def unconfirmed_mark(d: Any) -> Markup:
 
 
 templates.env.globals.update(unconfirmed=unconfirmed_mark)
+# The menu: (group, landing URL, [(page key, URL, label)]); the classic header shows it as tabs, the command screen as its
+# icon rail with a fly-out per group.
+NAV = [
+    ("Dashboard", "/", [("dashboard", "/", "Dashboard")]),
+    ("Devices", "/tree", [("tree", "/tree", "Tree"), ("fleet", "/fleet", "Device list"), ("ami", "/ami", "AMI"), ("lost", "/lost", "Lost"), ("cockpit", "/cockpit", "Cockpit")]),
+    ("Map", "/map", [("map", "/map", "Galaxy"), ("stars", "/stars", "Stars"), ("systems", "/systems", "Systems"), ("prospects", "/systems/prospects", "Prospects"), ("relays", "/map/relays", "Relays"), ("traffic", "/traffic", "Traffic"), ("trail", "/trail", "Trail"), ("wards", "/wards", "Wards & hubs"),
+           ("defence", "/defence", "Defense"), ("terraforming", "/terraforming", "Terraforming"), ("tfcandidates", "/terraforming/candidates", "Terraforming candidates"), ("maintenance", "/maintenance", "Upkeep")]),
+    ("Fleets", "/fleets", [("fleets", "/fleets", "Fleets"), ("fleet_details", "/fleets/details", "Fleet details"), ("logistics", "/fleets/logistics", "Logistics"), ("reform", "/fleets/reform", "Reset & reform")]),
+    ("Economy", "/blueprints", [("blueprints", "/blueprints", "Blueprints"), ("gameevents", "/game-events", "Contracts"), ("reputation", "/reputation", "Reputation"), ("shop", "/shop", "Shop"), ("simulations", "/simulations", "Simulations"), ("lockers", "/lockers", "Lockers")]),
+    ("Activity", "/automations", [("automations", "/automations", "Automations"), ("events", "/events", "Events"),
+                        ("messages", "/messages", "Messages"), ("chatter", "/chatter", "Chatter"), ("notifications", "/notifications", "Notifications"),
+                        ("leaderboards", "/leaderboards", "Leaderboards"), ("blog", "/blog", "Blog")]),
+  ]
+
+UI_COOKIE, ACCENT_COOKIE = "ui", "ui_accent"
+_HEX = __import__("re").compile(r"#[0-9a-fA-F]{6}")
+
+
+def ui_mode(request: Request | None) -> str:
+    """How a page is drawn: "win" (only its content, for a window of the command screen: header X-Window), "bridge" (the
+    command screen around it: cookie ui=bridge) or "classic" (the tabbed header). The simulation's galaxy map stays classic."""
+    if request is None:
+        return "classic"
+    if request.headers.get("x-window"):
+        return "win"
+    if request.cookies.get(UI_COOKIE) == "bridge" and not (request.url.path == "/map" and sim_view(request)):
+        return "bridge"
+    return "classic"
+
+
+def ui_accent(request: Request | None) -> str:
+    """The command screen's accent color (cookie ui_accent, set on the Account page); red by default."""
+    v = (request.cookies.get(ACCENT_COOKIE) or "") if request is not None else ""
+    v = v.replace("%23", "#")
+    return v if _HEX.fullmatch(v) else "#e0332f"
+
+
+templates.env.globals.update(NAV=NAV, ui_mode=ui_mode, ui_accent=ui_accent)
 templates.env.globals.update(is_large=lambda b: _modular_type((b or {}).get("device_type"), {(b or {}).get("device_type"): b or {}}))
 templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, level_of=notify.level_of,
                              device_options=cmdspec.device_options, field_applies=cmdspec.field_applies,

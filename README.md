@@ -37,7 +37,11 @@ and codes).
 
 ## Pages
 
-Six tabs, each with sub-tabs; every page keeps its own URL. Account, Diagnostics and Console are in the menu under your
+Six tabs, each with sub-tabs; every page keeps its own URL. Or the **command screen** (Account › Command screen, or
+`/bridge`; chosen per browser): the galaxy map fills the screen, an icon rail replaces the tabs, an outliner lists what
+needs you, your fleets, replicants and running automations, and each page opens as a window over the map without
+reloading the screen. It is black with steel window frames and an accent color you pick; on a phone the rail is a bottom
+bar and the outliner a pull-up sheet. Account, Diagnostics and Console are in the menu under your
 name. Each rule's settings are on the page it works on, in a collapsed *Rules* panel. Everything below is described in
 full in the **[feature guide](docs/FEATURES.md)**.
 Most pages update live: when devices, jobs or game events change, their cards redraw from the app's cache (no game
@@ -366,7 +370,9 @@ What's still open, from comparing the app with the game's API reference and docs
 
 **Next**
 1. **Fleet controller** (once unlocked, see below): one travel command per fleet.
-2. **GUPPI theming**: an optional theme for the web client in the style of GUPPI (the Bobiverse replicant's interface).
+2. **Command screen, next steps**: pages draw from the app's cache without waiting on the game (device, replicant, system,
+   AMI, Fleet details), countdowns and fleets moving smoothly on the map between updates, commands shown done at once
+   (rolled back with a notice if the game refuses), and the phone keeping the last view to open instantly.
 
 <details><summary><b>Fleet controller: how the app would use it</b></summary>
 

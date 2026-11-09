@@ -1,5 +1,5 @@
-<!doctype html>
-<html lang="en">
+{% set UI = ui_mode(request) %}{% if UI != "win" %}<!doctype html>
+<html lang="en"{% if UI == "bridge" %} class="bridge" style="--accent: {{ ui_accent(request) }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,23 +9,22 @@
   <script src="/static/vendor/htmx.min.js"></script>
   <script src="/static/vendor/htmx-sse.js"></script>
   <script src="/static/app.js?v={{ APP_VERSION }}" defer></script>
+  {% if UI == "bridge" %}<link rel="stylesheet" href="/static/bridge.css?v={{ APP_VERSION }}">
+  <script type="importmap">{"imports": {"three": "/static/vendor/three.module.min.js?v={{ APP_VERSION }}", "three/addons/OrbitControls.js": "/static/vendor/OrbitControls.js?v={{ APP_VERSION }}"}}</script>
+  <script src="/static/bridge.js?v={{ APP_VERSION }}" defer></script>{% endif %}
   {% block head %}{% endblock %}
 </head>
 <body hx-ext="sse" sse-connect="/live/stream">
+{% if UI == "bridge" %}{% include "partials/bridge_chrome.html" %}
+<section id="win" class="win metal{{ ' closed' if active == 'map' }}" aria-label="Window">
+  <div class="win-bar plate"><span id="win-title">{{ self.title() }}</span><span class="spacer"></span>
+    <button type="button" class="ghost small" id="win-max" title="Full size">⤢</button><a class="win-x" id="win-close" href="/map" title="Close: back to the galaxy">✕</a></div>
+  <div id="win-body">
+{% else %}
 <header class="top">
   <a class="brand" href="/">◉ REPLICANT</a>
   {# 6 groups; each page keeps its URL and shows up as a sub-tab of its group #}
-  {% set groups = [
-    ("Dashboard", "/", [("dashboard", "/", "Dashboard")]),
-    ("Devices", "/tree", [("tree", "/tree", "Tree"), ("fleet", "/fleet", "Device list"), ("ami", "/ami", "AMI"), ("lost", "/lost", "Lost"), ("cockpit", "/cockpit", "Cockpit")]),
-    ("Map", "/map", [("map", "/map", "Galaxy"), ("stars", "/stars", "Stars"), ("systems", "/systems", "Systems"), ("prospects", "/systems/prospects", "Prospects"), ("relays", "/map/relays", "Relays"), ("traffic", "/traffic", "Traffic"), ("trail", "/trail", "Trail"), ("wards", "/wards", "Wards & hubs"),
-                     ("defence", "/defence", "Defense"), ("terraforming", "/terraforming", "Terraforming"), ("tfcandidates", "/terraforming/candidates", "Terraforming candidates"), ("maintenance", "/maintenance", "Upkeep")]),
-    ("Fleets", "/fleets", [("fleets", "/fleets", "Fleets"), ("fleet_details", "/fleets/details", "Fleet details"), ("logistics", "/fleets/logistics", "Logistics"), ("reform", "/fleets/reform", "Reset & reform")]),
-    ("Economy", "/blueprints", [("blueprints", "/blueprints", "Blueprints"), ("gameevents", "/game-events", "Contracts"), ("reputation", "/reputation", "Reputation"), ("shop", "/shop", "Shop"), ("simulations", "/simulations", "Simulations"), ("lockers", "/lockers", "Lockers")]),
-    ("Activity", "/automations", [("automations", "/automations", "Automations"), ("events", "/events", "Events"),
-                                  ("messages", "/messages", "Messages"), ("chatter", "/chatter", "Chatter"), ("notifications", "/notifications", "Notifications"),
-                                  ("leaderboards", "/leaderboards", "Leaderboards"), ("blog", "/blog", "Blog")]),
-  ] %}
+  {% set groups = NAV %}
   {% set ns = namespace(cur=None) %}
   {% for g in groups %}{% if active in g[2] | map(attribute=0) | list %}{% set ns.cur = g %}{% endif %}{% endfor %}
   <nav class="main">
@@ -52,7 +51,8 @@
 {% if ns.cur and ns.cur[2] | length > 1 %}
 <nav class="sub">{% for key, href, label in ns.cur[2] %}<a href="{{ href }}" class="{{ 'on' if active == key }}">{{ label }}{% if key == 'messages' and rate.unread %}<span class="badge">{{ rate.unread }}</span>{% endif %}</a>{% endfor %}</nav>
 {% endif %}
-<main{% block live %}{% endblock %}>
+{% endif %}{% endif %}
+<main data-src="{{ request.url.path }}{{ '?' ~ request.url.query if request.url.query }}" data-title="{{ self.title() }}" data-active="{{ active }}"{% block live %}{% endblock %}>
   {% if not configured %}
     <div class="banner">No Replicant Space API token configured. {% if TENANT_MODE %}Add yours on <a href="/_tenant/">Your server</a>.{% else %}Set <code>RS_API_TOKEN</code> in the Portainer stack and redeploy.{% endif %}</div>
   {% endif %}
@@ -63,8 +63,10 @@
     <a href="?sim={{ sim_id }}&refresh=1">refresh</a> · <a href="/simulations">back to Simulations</a></div>{% endif %}
   {% filter no_restore %}{% block content %}{% endblock %}{% endfilter %}
 </main>
+{% block scripts %}{% endblock %}
+{% if UI != "win" %}{% if UI == "bridge" %}  </div>
+</section>{% endif %}
 <div id="toasts" sse-swap="notify" hx-swap="afterbegin"></div>
 <span id="live-signal" hx-trigger="sse:state" hidden></span>
-{% block scripts %}{% endblock %}
 </body>
-</html>
+</html>{% endif %}

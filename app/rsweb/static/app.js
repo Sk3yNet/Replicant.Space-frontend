@@ -177,6 +177,7 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
     if (reset) reset.addEventListener("click", e => { e.preventDefault(); put(KO, []); put(KC, []); location.reload(); });
   }
   document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("win:loaded", init);   // the command screen opened the Dashboard in its window
 })();
 
 // Live sections: parts of a page are redrawn from the app's own cached state (never a game call) when the server reports a
@@ -238,9 +239,12 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
         htmx.ajax("GET", el.getAttribute("hx-get"), { source: el, target: el, swap: el.getAttribute("hx-swap") || "innerHTML" }));
       const diff = mine.filter(([, el]) => !fills(el));
       if (!diff.length) return;
-      const u = new URL(location.href);
+      const win = document.documentElement.classList.contains("bridge");   // the command screen: only the window's page
+      const src = win && document.querySelector("main[data-src]");
+      if (win && !src) return;
+      const u = new URL(src ? src.dataset.src : location.href, location.href);
       u.searchParams.delete("refresh");
-      const r = await fetch(u, { headers: { "X-Live": "1" }, credentials: "same-origin" });
+      const r = await fetch(u, { headers: win ? { "X-Live": "1", "X-Window": "1" } : { "X-Live": "1" }, credentials: "same-origin" });
       if (!r.ok || r.redirected) return;
       const fresh = new Map(sections(new DOMParser().parseFromString(await r.text(), "text/html")));
       diff.forEach(([k, el]) => {

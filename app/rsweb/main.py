@@ -94,6 +94,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     from . import web_chatter
     app.include_router(web_chatter.router)
     app.include_router(web_extras.router)
+    from . import web_bridge
+    app.include_router(web_bridge.router)
     app.add_exception_handler(web.AuthError, web.auth_error_handler)
     from . import perf
     app.add_middleware(perf.Middleware)

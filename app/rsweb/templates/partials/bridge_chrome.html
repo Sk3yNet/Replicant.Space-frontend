@@ -1,0 +1,45 @@
+{# The command screen around every page (cookie ui=bridge): top bar, icon rail, outliner and the galaxy map behind. #}
+{% set ICONS = {
+  "Dashboard": '<rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="5"/><rect x="13" y="10" width="8" height="11"/><rect x="3" y="13" width="8" height="8"/>',
+  "Devices": '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/>',
+  "Map": '<circle cx="12" cy="12" r="3"/><ellipse cx="12" cy="12" rx="10" ry="4"/>',
+  "Fleets": '<path d="M3 17l9-12 9 12-9-4z"/>',
+  "Economy": '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  "Activity": '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+} %}
+{% set cur = namespace(g=None) %}{% for g in NAV %}{% if active in g[2] | map(attribute=0) | list %}{% set cur.g = g[0] %}{% endif %}{% endfor %}
+<header class="bar plate">
+  <a class="brand" href="/">◉ REPLICANT</a>
+  <span class="spacer"></span>
+  <div id="rate" sse-swap="rate">{% include "partials/rate.html" %}</div>
+  <a class="needs" href="/notifications" title="Errors and mentions waiting for you">Needs you<span id="notif-badge" sse-swap="badge">{% include "partials/badge.html" with context %}</span></a>
+  <button type="button" class="ghost" id="outliner-toggle" aria-label="Show or hide the outliner" aria-controls="outliner">☰</button>
+  <details class="acct-menu">
+    <summary class="small muted" title="Signed in via Google">{{ user }} ▾</summary>
+    <div class="acct-list">
+      <a href="/account">Account</a>
+      <a href="/diagnostics">Diagnostics</a>
+      <a href="/console">Console</a>
+      <a href="/account#server" class="mono">v{{ APP_VERSION }}</a>
+      {% if TENANT_MODE %}<a href="/_tenant/" data-full>Your server &amp; API key</a>{% endif %}
+      <a href="/bridge/off" data-full>Classic interface</a>
+      <a href="/oauth2/sign_out?rd=/" data-full>Sign out</a>
+    </div>
+  </details>
+</header>
+<nav class="rail plate" aria-label="Main">
+  {% for label, href, subs in NAV %}
+  <div class="rail-item">
+    <a class="rail-btn{{ ' on' if cur.g == label }}" href="{{ href }}" data-group="{{ label }}"{% if subs | length > 1 %} data-fly="1"{% else %} data-key="{{ subs[0][0] }}"{% endif %} aria-label="{{ label }}">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">{{ ICONS[label] | safe }}</svg><span>{{ label }}</span></a>
+    {% if subs | length > 1 %}<div class="fly metal" hidden><div class="in"><b>{{ label }}</b>
+      {% for key, h, l in subs %}<a href="{{ h }}" data-key="{{ key }}" class="{{ 'on' if active == key }}">{{ l }}{% if key == 'messages' and rate.unread %}<span class="badge">{{ rate.unread }}</span>{% endif %}</a>{% endfor %}
+    </div></div>{% endif %}
+  </div>
+  {% endfor %}
+</nav>
+<aside id="outliner" class="metal" aria-label="Outliner" hx-get="/bridge/outliner" hx-trigger="load, sse:state throttle:20s" hx-swap="innerHTML">
+  <div class="in"><p class="muted small">…</p></div>
+</aside>
+<div id="backdrop">{% include "partials/map_body.html" %}</div>
+<script type="module" src="/static/map.js?v={{ APP_VERSION }}"></script>

@@ -1,0 +1,18 @@
+{# The command screen's outliner: what needs you, fleets, replicants (GET /bridge/outliner, redrawn on live changes). #}
+<div class="in">
+  <div class="ol-head plate">OUTLINER <span class="muted small">{{ replicants | length }} replicants · {{ n_devices }} devices</span></div>
+  <details class="ol-group" data-key="needs" open><summary class="{{ 'hot' if needs }}">Needs you{% if needs %} ({{ needs_total }}){% endif %}</summary>
+    {% for n in needs %}<a class="ol-row" href="{{ n.link or '/notifications' }}" title="{{ n.body or '' }}"><span class="clip">{{ n.title }}</span><span class="muted small">{{ n.created_at | ago }}</span></a>{% endfor %}
+    {% if not needs %}<p class="ol-row muted small">Nothing waiting.</p>{% endif %}
+    {% if needs_total > needs | length %}<a class="ol-row small" href="/notifications">All {{ needs_total }} …</a>{% endif %}
+  </details>
+  <details class="ol-group" data-key="fleets" open><summary>Fleets ({{ fleets | length }})</summary>
+    {% for f in fleets %}<a class="ol-row" href="/fleets/details?fleet={{ f.id }}"><span class="clip">{{ f.name or f.id }}</span><span class="muted small clip">{{ f.role or '' }}{% if f.home %} · {{ f.home }}{% endif %}</span></a>{% endfor %}
+  </details>
+  <details class="ol-group" data-key="replicants"><summary>Replicants ({{ replicants | length }})</summary>
+    {% for code, r in replicants %}<a class="ol-row" href="/replicants/{{ code }}"><span class="clip">{{ r.name or code }}</span><span class="muted small clip">{{ (r.location or r.current_location or '') | star_of }}</span></a>{% endfor %}
+  </details>
+  <details class="ol-group" data-key="jobs"><summary>Automations ({{ jobs | length }} running)</summary>
+    {% for j in jobs %}<a class="ol-row" href="/automations"><span class="clip">{{ j.title or j.id }}</span><span class="muted small">{{ j.status }}</span></a>{% endfor %}
+  </details>
+</div>
