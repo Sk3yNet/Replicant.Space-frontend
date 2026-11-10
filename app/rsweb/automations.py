@@ -602,20 +602,38 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         done = [j for j in jobs if j["status"] not in ("running", "waiting")][-50:]
         await self.db.kv_set("automation_jobs", done + active)
 
-    async def log(self, rule: str, text: str, level: str = "info", notify: bool = False) -> None:
+    async def notify_link(self, rule: str, text: str, job: dict | None = None) -> str:
+        """The page where you act on a notification (the outliner's Needs you rows and the Notifications page link there)."""
+        if job:
+            return "/fleets/logistics" if job.get("rule") == "logistics" else f"/automations#job-{job.get('id')}"
+        if rule == "fleets":
+            if text.startswith("away from their fleet"):
+                return "/fleets"
+            for f in await self.fleets():
+                if f.get("name") and text.startswith(f"{f['name']}: "):
+                    return f"/fleets/details?fleet={f.get('id')}"
+            return "/fleets"
+        if rule == "wards":
+            return "/map/relays" if "relay rollout" in text else "/wards"
+        if rule == "season":
+            return "/fleets" if "fleet homes" in text else "/"
+        return {"evacuate": "/defence", "station_jobs": "/jobs", "simulation": "/simulations", "trail": "/trail",
+                "repeats": "/console", "logistics": "/fleets/logistics", "belt_viability": "/systems"}.get(rule, "/automations")
+
+    async def log(self, rule: str, text: str, level: str = "info", notify: bool = False, job: dict | None = None) -> None:
         entries = await self.db.kv_get("automation_log", []) or []
         from .version import RUN_ID, VERSION
         entries.append({"at": now_iso(), "rule": rule, "level": level, "text": text, "v": VERSION, "run": RUN_ID})
         await self.db.kv_set("automation_log", entries[-MAX_LOG:])
         log.info("[%s] %s", rule, text)
         if notify:
+            link = await self.notify_link(rule, text, job)
             title = f"Automation: {text}"
             nlevel = severity({"level": level, "text": text})   # error / warning / info, like the log
             cur = await self.db.execute(
                 "INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
-                (None, nlevel, title, None, "/automations", now_iso()))
-            self.hub.publish("notify", {"id": cur.lastrowid, "level": nlevel,
-                                        "title": title, "link": "/automations"})
+                (None, nlevel, title, None, link, now_iso()))
+            self.hub.publish("notify", {"id": cur.lastrowid, "level": nlevel, "title": title, "link": link})
 
     # --- lifecycle ------------------------------------------------------------------------
     def start(self) -> None:
@@ -974,7 +992,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     st["status"], st["hold"], job["status"] = "confirm", why, "waiting"
                     await self._update(job)
                     await self.log(job["rule"], f"{job['title']}: {st['desc']} — {why}; waits for your Confirm on the "
-                                                "Automations page", "error", notify=True)
+                                                "Automations page", "error", notify=True, job=job)
                     return
                 far = no_spot or await self._too_far(st)
                 if far and not no_spot:
@@ -1215,7 +1233,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     st["status"] = "failed"
                     job["status"] = "failed"
                     await self._update(job)
-                    await self.log(job["rule"], f"stopped: {job['title']} — {st['desc']} failed: {err}{ownership_hint(err)}", stop_level(job), notify=True)
+                    await self.log(job["rule"], f"stopped: {job['title']} — {st['desc']} failed: {err}{ownership_hint(err)}", stop_level(job), notify=True, job=job)
                     return
                 st["status"] = "skipped"
                 if st.get("extra_unit"):
@@ -1253,7 +1271,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         or (len(last6) == 6 and all(x["status"] == "skipped" for x in last6))):
                     job["status"] = "failed"
                     await self._update(job)
-                    await self.log(job["rule"], f"stopped: {job['title']} — 3 steps in a row failed with: {err}{ownership_hint(err)}", stop_level(job), notify=True)
+                    await self.log(job["rule"], f"stopped: {job['title']} — 3 steps in a row failed with: {err}{ownership_hint(err)}", stop_level(job), notify=True, job=job)
                     return
                 await self._update(job)
                 continue
@@ -2033,7 +2051,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     # done back where it started (a fleet mission stalls; Retry flies again)
                     st["status"], job["status"] = "failed", "failed"
                     await self._update(job)
-                    await self.log(job["rule"], f"stopped: {job['title']} — {st['error']}", stop_level(job), notify=True)
+                    await self.log(job["rule"], f"stopped: {job['title']} — {st['error']}", stop_level(job), notify=True, job=job)
             if name in ("site.depleted", "salvage.depleted") and not late:
                 try:
                     await self.rule_salvage()
@@ -2107,7 +2125,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     if off:   # turned back or went elsewhere: the retried step was meant for the destination
                         st["status"], st["error"], job["status"] = "failed", off, "failed"
                         await self._update(job)
-                        await self.log(job["rule"], f"stopped: {job['title']} — {off}", stop_level(job), notify=True)
+                        await self.log(job["rule"], f"stopped: {job['title']} — {off}", stop_level(job), notify=True, job=job)
                         continue
                     if now >= (_ts(st.get("retry_at")) or now):
                         st["status"], job["status"] = "pending", "running"
@@ -2131,7 +2149,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     if miss:   # not where the job sent it: don't go on to deploy / unload somewhere else
                         st["status"], st["error"], job["status"] = "failed", miss, "failed"
                         await self._update(job)
-                        await self.log(job["rule"], f"stopped: {job['title']} — {miss}", stop_level(job), notify=True)
+                        await self.log(job["rule"], f"stopped: {job['title']} — {miss}", stop_level(job), notify=True, job=job)
                         continue
                 if (now - started).total_seconds() > st.get("timeout", STEP_TIMEOUT):
                     st["status"] = "skipped"

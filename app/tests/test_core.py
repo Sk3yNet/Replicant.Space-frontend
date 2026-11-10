@@ -10119,3 +10119,27 @@ def test_explore_watch_ends_when_the_game_paused_the_survey_controller():
     assert done and "paused" in why
     devices[1]["status"] = "scanning"
     assert not fl.watch_done(f, m, devices, "2026-11-10T12:00:00+00:00")[0]
+def test_automation_notifications_link_to_the_fixing_page(tmp_path):
+    async def go():
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        s = Settings(api_token="t", api_base="http://x/v1", db_path=str(tmp_path / "t.sqlite"))
+        w = Worker(s, db, RSClient(s, transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))), Hub())
+        a = w.automations
+
+        async def fleets():
+            return [{"id": "f1", "name": "Miner 5"}]
+        a.fleets = fleets
+        await a.log("fleets", "Miner 5: no room aboard", "error", notify=True)
+        await a.log("fleets", "away from their fleet for an hour or more: X", "alert", notify=True)
+        await a.log("evacuate", "evacuation failed: boom", "error", notify=True)
+        await a.log("wards", "relay rollout paused: the last 3 systems", "error", notify=True)
+        await a.log("logistics", "canceled: trip", notify=True)
+        await a.log("chain", "stopped: Do it — failed", "error", notify=True, job={"id": "j7", "rule": "chain"})
+        await a.log("logistics", "trip — far; waits for your Confirm", "error", notify=True, job={"id": "j8", "rule": "logistics"})
+        await a.log("whatever", "something", "error", notify=True)
+        links = [r["link"] for r in await db.fetchall("SELECT link FROM notifications ORDER BY id")]
+        assert links == ["/fleets/details?fleet=f1", "/fleets", "/defence", "/map/relays", "/fleets/logistics",
+                         "/automations#job-j7", "/fleets/logistics", "/automations"]
+        await db.close()
+    asyncio.run(go())

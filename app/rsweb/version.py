@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.368.0"
+VERSION = "1.369.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.369.0", "2026-11-10", "Automation notifications (the outliner's Needs you rows) link to the page where you act on them, not all to Automations: a fleet's own notes open its Fleet details, strays the Fleets page, stopped jobs and Confirm waits their row on Automations (logistics trips the Logistics page), evacuation Defence, relay rollout Map › Relays, wards and hubs Wards, station jobs Jobs, simulations Simulations, Console repeats Console."),
     ("1.368.0", "2026-11-10", "Survey fleets: a mission watching a survey controller the game paused (Season 4 time skip) moves on instead of waiting forever (Surveyor 1 at MUSPELION, 18 h). Auto-scout picks only systems inside relay coverage, also with a replicant aboard (Joe: survey within the relay network)."),
     ("1.367.0", "2026-11-10", "Survey controllers the game paused at the Season 4 time skip are launched again when their belt has room for a site. Before, the app took a paused belt_search for one still running, so FENIRON, SOLARES, ANLOREN and ISOLITHOR kept their surveyors idle on belts with no open site."),
     ("1.366.0", "2026-11-10", "Command screen (Joe): the outliner collapses with the › button in its head and leaves a slim OUTLINER tab on the right edge that brings it back; remembered per browser, like the ☰ button in the top bar."),

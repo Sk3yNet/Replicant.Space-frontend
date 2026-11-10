@@ -1,5 +1,5 @@
 {% for j in active %}
-  <div style="border-bottom:1px solid var(--line);padding:8px 0">
+  <div id="job-{{ j.id }}" style="border-bottom:1px solid var(--line);padding:8px 0">
     <div class="row between">
       <span><span class="pill st-move">{{ j.status }}</span> <b>{{ j.title }}</b>
         {% if j.device %}<a class="mono small" href="/devices/{{ j.device }}">{{ j.device }}</a>{% endif %}</span>
