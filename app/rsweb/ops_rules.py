@@ -40,6 +40,9 @@ def _born(o: dict):
 
 REDUNDANT_PER_PASS = 40   # redundant beacons tagged spare per pass
 
+WAKE_STOPS = 10   # dark relays: systems one trip visits
+
+
 class OpsRules:
     # --- ward, relay and beacon orders (Map › Prospects, Systems) --------------------------------------------------
     async def order_ward(self, star: str, user: str = "") -> str:
@@ -271,6 +274,81 @@ class OpsRules:
             if changed:
                 await self.db.kv_set(wo.kv_key(kind), orders)
         return out
+
+    async def dark_relay_pass(self) -> list[str]:
+        """Dark relays (game v4.0.0, live 2026-11-09): a relay of yours deployed out of everyone's reach (`out_of_range`)
+        in a system where none of your relays is switched on, e.g. dropped at an Oort cloud where the game refused to
+        switch it on. A free logistics vessel hosting a replicant visits them, nearest first (up to WAKE_STOPS systems per
+        trip): beside each it stows the relay, flies to an L4/L5 point (_to_entry), deploys it there and switches it on,
+        then flies back. One such trip at a time."""
+        from . import fleets as fl
+        from . import loadouts as lo
+        from . import relaynet
+        from .automations import STEP_TIMEOUT, step
+        from .shapes import normalize_blueprints
+        jobs = await self.jobs()
+        if any((j.get("meta") or {}).get("wake") for j in jobs if j["status"] in ("running", "waiting")):
+            return []
+        devices = await self.devices()
+        busy = self.busy_devices(jobs)
+        lit = lo.relaying_stars(devices)
+        dark: dict[str, list[str]] = {}
+        for d in devices:
+            loc = d.get("location")
+            if ((d.get("device_type") or "") in relaynet.RELAY_TYPES and loc and d.get("status") == "out_of_range"
+                    and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+                    and d.get("device_code") not in busy and lo.star_of(loc) not in lit):
+                dark.setdefault(lo.star_of(loc), []).append(d["device_code"])
+        if not dark:
+            return []
+        pos = await relaynet.star_pos(self.db)
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        ltags = {fl.fleet_tag(f["id"]) for f in await self.fleets() if f.get("role") == "logistics" and not f.get("recall_hold")}
+        cands = [c for c in devices if c.get("hosting_replicant") and lo.can_surge(c) and c.get("location")
+                 and set(c.get("tags") or []) & ltags and c["device_code"] not in busy
+                 and lo._idle(c) and not c.get("stowed_in_device_code") and not c.get("attached_to_device_code")
+                 and lo._free(c, bps, {}) >= 1]
+        if not cands:
+            return []
+        c = min(cands, key=lambda x: (min(lo._dist(lo.star_of(x.get("location")), s_, pos) for s_ in dark), x["device_code"]))
+        carrier, rep, home = c["device_code"], (c.get("hosting_replicant") or {}).get("replicant_code"), c["location"]
+        path = f"/replicants/{rep}/travel" if rep else f"/devices/{carrier}"
+        body = (lambda to: {"destination": to}) if rep else (lambda to: {"command": "travel", "destination": to})
+        route, cur, left = [], lo.star_of(home), dict(dark)
+        while left and len(route) < WAKE_STOPS:
+            nxt = min(left, key=lambda x: (lo._dist(cur, x, pos), x))
+            route.append((nxt, left.pop(nxt)[:max(1, int(lo._free(c, bps, {})))]))
+            cur = nxt
+        steps: list[dict] = []
+
+        def trip(to: str, why: str, **extra) -> dict:
+            st = step(f"{carrier} → {to} ({why})", path, body(to), wait=["travel.arrived"], match={"destination": to},
+                      critical=True)
+            st["wait_device"] = carrier
+            st.update(extra)
+            return st
+        for star, codes in route:
+            steps.append(trip(star, f"dark relay{'s' if len(codes) > 1 else ''} {', '.join(codes)}"))
+            for code in codes:   # known only by its star: once there, the carrier goes to its own spot
+                st = step(f"{carrier} → {code} in {star}", path, body(star))
+                w = step(f"wait for {carrier} at {code}", "", None, method="WAIT", wait=["travel.arrived"],
+                         match={"destination": star}, timeout=STEP_TIMEOUT)
+                st["meet"] = w["meet"] = code
+                w["wait_device"], w["seq0_from"] = carrier, len(steps)
+                steps += [st, w, fl.board_step(carrier, code, "stow")]
+            steps.append(trip(star, "to an L4/L5 point: relays switch on only there", to_entry=star))
+            for code in codes:
+                st = step(f"deploy {code} in {star}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
+                          timeout=lo.SHORT_TIMEOUT, critical=True)
+                st["wait_device"] = code
+                steps += [st, lo.activate_step(code, critical=True)]
+        steps.append(trip(home, "back"))
+        title = f"wake dark relays: {carrier} → {' → '.join(s for s, _ in route)}"
+        if await self.create_job("wards", title, carrier, steps,
+                                 {"devices": [x for _, cs in route for x in cs], "wake": True}):
+            await self.log("wards", f"{title} (each moved to an L4/L5 point and switched on)", notify=True)
+            return [title]
+        return []
 
     async def relay_prints_paused(self) -> bool:
         from . import relayroll as rr

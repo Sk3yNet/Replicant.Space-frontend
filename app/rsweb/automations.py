@@ -250,7 +250,7 @@ RULES_BY_ID = {r.id: r for r in RULES}
 
 # heavy passes run every n-th tick, each on its own tick (stage: (n, offset)): each held the server 3–7 s of CPU every
 # minute (snapshot 2026-10-26, 1.271.1); their own cooldowns are in minutes, so a pass every 3 min loses nothing
-SPREAD = {"station_swap_pass": (5, 3), "rule_salvage": (3, 0), "rule_restart_idle_miners": (3, 1), "rule_reopen_sites": (3, 2)}
+SPREAD = {"station_swap_pass": (5, 3), "dark_relay_pass": (5, 4), "rule_salvage": (3, 0), "rule_restart_idle_miners": (3, 1), "rule_reopen_sites": (3, 2)}
 STEP_TIMEOUT = 3600          # waiting for travel/scan to finish
 TRIP_GRACE_S = 1800          # past a trip's ETA, a wait (or a refused step) keeps going this long before giving up
 NO_ETA_EXTRA_S = 3600        # still moving and no ETA known: this much longer, once
@@ -259,6 +259,7 @@ BUSY_RE = re.compile(r"while (the )?(replicant|device|carrier|vessel)? ?is (stil
                      r"not in a star system|in transit", re.I)   # mid-trip between systems (seen live 2026-10-11, Surveyor 3's gather)
 # "No conductive remaining at any active site" (live 2026-10-23, Delta Force): the belt's open sites lack that resource.
 # Nothing to fix by hand: the step is skipped quietly and doesn't count toward stopping the job.
+GONE_OBJECT_RE = re.compile(r"no system object at this location", re.I)   # a pin to a STAR-OBJ-n that is gone
 NO_SITE_RE = re.compile(r"\bno \w+ remaining at any active site", re.I)
 # Refusals the engine sorts out by itself (live 2026-10-30): a belt surveyor re-activated after a move with no site left to
 # track ("Nothing to activate"), a search at a belt already holding the game's most sites (reopen_sites waits for them).
@@ -957,8 +958,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     st["timeout"] = max(st.get("timeout", STEP_TIMEOUT), (eta - _now()).total_seconds() + 1800)
                 ok, resp, err = True, None, None
             else:
+                if await self._relay_drop_spot(st, job):
+                    continue   # the carrier flies to an L4/L5 point first
                 if st.get("meet") and await self._meet(st, job):
                     continue   # already beside it (or it can't be found): no trip
+                no_spot = None
+                if st.get("to_entry") or st.get("entry_of"):
+                    no_spot = await self._to_entry(st, job)
+                    if no_spot is True:
+                        continue   # already there: no trip
                 if await self._let_off_riders(st, job):
                     continue   # other fleets' members get off first; this trip goes out after them
                 why = await self._beyond_sector(st, job)
@@ -968,8 +976,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     await self.log(job["rule"], f"{job['title']}: {st['desc']} — {why}; waits for your Confirm on the "
                                                 "Automations page", "error", notify=True)
                     return
-                far = await self._too_far(st)
-                if far:
+                far = no_spot or await self._too_far(st)
+                if far and not no_spot:
                     far += await self._lift(st)
                 far = far or await self._dark_destination(st, job)
                 if far:
@@ -1222,6 +1230,14 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     await self._update(job)
                     continue
                 quiet = bool(QUIET_SKIP_RE.search(err or ""))
+                gone = str((st.get("body") or {}).get("destination") or "")
+                if GONE_OBJECT_RE.search(err or "") and str(st.get("desc") or "").endswith("(its at: pin)") and gone:
+                    # the object it was pinned to is gone (live 2026-11-10, after the Season 4 time skip: 3 propulsors
+                    # pinned to SOLARES-OBJ-6, refused every pass): the pin goes, so it's never sent there again
+                    code = str(st.get("path") or "").split("/")[2]
+                    await self.send("PATCH", f"/devices/{code}", {"configuration": {"remove_tags": [f"at:{gone.lower()}"]}},
+                                    f"auto: unpin {code} from {gone} (gone)")
+                    err = f"{err}; {gone} is gone, so its at: pin is removed"
                 await self.log(job["rule"], f"{job['title']}: skipped '{st['desc']}' ({err}){ownership_hint(err)}",
                                "info" if quiet else "alert")
                 job["idx"] += 1
@@ -1478,13 +1494,97 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                                         f"{body.get('destination')} (surges into {ds} land at its entry point)")
         return True
 
+    async def _to_entry(self, st: dict, job: dict) -> bool | str | None:
+        """Since game v4.0.0 an FTL relay switches on only at an L4/L5 point (live 2026-11-09: 18 relays dropped at the
+        Oort cloud or Kuiper belt of new systems by two relay runs, "FTL relay can only be deployed at L4 or L5 Lagrange
+        points", left dark out of everyone's reach). A carrier's trip marked `to_entry: STAR` goes to the system's entry
+        point when it's an L4/L5 point, else another one known there; the catalog knows no entry point before a system is
+        explored, so the carrier's replicant scans it first. The spot is kept in the job (meta entries) for steps marked
+        `entry_of: STAR` (a relay's trip there). True: already there (the step is skipped); a text: no L4/L5 known."""
+        from .placement import geography, is_lagrange
+        star = str(st.get("to_entry") or st.get("entry_of") or "").upper()
+        entries = job.setdefault("meta", {}).setdefault("entries", {})
+        target = entries.get(star) if st.get("entry_of") else None
+        code = await self._trip_device(st)
+        devices = await self.devices()
+        if not target:
+            cat = await self.db.kv_get("stars", {}) or {}
+            entry = next((str(x.get("entry_point") or "").upper() for x in cat.get("stars") or []
+                          if isinstance(x, dict) and x.get("designation") == star), "")
+            scan = None
+            if not is_lagrange(entry):
+                path = str(st.get("path") or "")
+                rep = path.split("/")[2] if path.startswith("/replicants/") else next(
+                    ((x.get("hosting_replicant") or {}).get("replicant_code") for x in devices
+                     if x.get("device_code") == code and x.get("hosting_replicant")), None)
+                if rep:
+                    ok, resp, _err = await self.send("POST", f"/replicants/{rep}/scan", {}, f"auto: scan {star} for an L4/L5 point")
+                    scan = resp if ok and isinstance(resp, dict) else None
+            lp = geography(star, devices, scan, entry if is_lagrange(entry) else None)["lagrange"]
+            target = lp[0] if lp else ""
+        if not target:
+            return f"no L4/L5 point known in {star} (an FTL relay switches on only there)"
+        entries[star] = target
+        try:   # where it is now (the cached list can still show where it was before this trip)
+            here = str((await self.api.request("GET", f"/devices/{code}", background=True) or {}).get("location") or "").upper()
+        except ApiError:
+            here = next((str(x.get("location") or "").upper() for x in devices if x.get("device_code") == code), "")
+        if here == target:
+            st["status"] = "skipped"
+            await self._update(job)
+            return True
+        st["body"]["destination"] = target
+        st["match"] = {**(st.get("match") or {}), "destination": target}
+        st["desc"] = f"{code} → {target} (an L4/L5 point: relays switch on only there)"
+        return None
+
+    async def _relay_drop_spot(self, st: dict, job: dict) -> bool:
+        """A relay deployed out of a carrier's hold and switched on later in the job is dropped at an L4/L5 point only
+        (game v4.0.0): a carrier anywhere else flies to one first (a trip marked to_entry, inserted before this step).
+        This also covers jobs planned before that rule. True when the trip was inserted."""
+        from .placement import is_lagrange
+        from .relaynet import RELAY_TYPES
+        body, path = st.get("body") or {}, str(st.get("path") or "")
+        if body.get("command") != "deploy" or not path.startswith("/devices/") or st.get("spot_checked"):
+            return False
+        st["spot_checked"] = True
+        code = path.split("/")[2]
+        later = job["steps"][job["idx"] + 1:]
+        if not any(x.get("path") == path and (x.get("body") or {}).get("command") == "activate" for x in later):
+            return False
+        devices = await self.devices()
+        d = next((x for x in devices if x.get("device_code") == code), None) or {}
+        carrier = d.get("stowed_in_device_code")
+        if (d.get("device_type") or "") not in RELAY_TYPES or not carrier:
+            return False
+        c = next((x for x in devices if x.get("device_code") == carrier), None) or {}
+        trips = [x for x in job["steps"][:job["idx"]] if x.get("status") == "done" and (x.get("body") or {}).get("destination")
+                 and x.get("wait_device") == carrier]
+        loc = str((trips[-1]["body"]["destination"] if trips else c.get("location")) or "").upper()
+        if not loc or is_lagrange(loc):
+            return False
+        rep = (c.get("hosting_replicant") or {}).get("replicant_code")
+        tpath = f"/replicants/{rep}/travel" if rep else f"/devices/{carrier}"
+        star = star_of(loc)
+        go = step(f"{carrier} → {star} (an L4/L5 point: relays switch on only there)", tpath, self._travel_body(tpath, star),
+                  wait=["travel.arrived"], match={"destination": star}, critical=True)
+        go.update(wait_device=carrier, to_entry=star)
+        i = job["idx"]
+        for s2 in job["steps"][i:]:
+            if isinstance(s2.get("seq0_from"), int) and s2["seq0_from"] >= i:
+                s2["seq0_from"] += 1
+        job["steps"][i:i] = [go]
+        st["tries"] -= 1
+        await self._update(job)
+        return True
+
     async def _meet(self, st: dict, job: dict) -> bool:
         """A carrier's trip to a device known only by its star (the game names only the star of a device out of command
         range: live 2026-10-28, a rescue's carrier sent to ALKALAROPS for a device at ALKALAROPS-OORT): with the replicant
         in the system now, the device's own spot is read and the trip (and its wait) goes there. True when there's no trip
         to make (already beside it, or still no spot): the step and its wait are skipped."""
         code = st["meet"]
-        carrier = str(st.get("path") or "").split("/")[2]
+        carrier = await self._trip_device(st) or str(st.get("path") or "").split("/")[2]
         try:
             d = await self.api.request("GET", f"/devices/{code}", background=True) or {}
         except ApiError:
@@ -2043,7 +2143,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_repeats", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "station_swap_pass", "news_pass", "station_jobs_pass", "sim_pass", "prospector_pass", "stock_pass", "vqueue_pass", "chatter_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "dark_relay_pass", "station_swap_pass", "news_pass", "station_jobs_pass", "sim_pass", "prospector_pass", "stock_pass", "vqueue_pass", "chatter_pass"):
                 every, at = SPREAD.get(stage, (1, 0))
                 if self.tick_n and self.tick_n % every != at:
                     continue   # a heavy pass that runs every few ticks, on a tick of its own (all run on the first)

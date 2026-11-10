@@ -8770,7 +8770,7 @@ def test_a_relay_run_drops_relays_system_by_system():
     dl = {"carrier": "HV", "carrier_loc": "HUB-1", "from": "HUB", "to": "AAA", "devices": ["R1", "R2", "R3"],
           "mode": "stow", "dest_of": {"R2": "BBB", "R3": "BBB"}, "stops": ["BBB"], "stay": True}
     descs = [s["desc"] for s in lo.delivery_steps(dl, by, {}, False)]
-    moves = [d for d in descs if d.startswith("HV → ")]
+    moves = [d for d in descs if d.startswith("HV → ") and "L4/L5" not in d]   # (+ a trip to an L4/L5 point at each)
     assert moves == ["HV → AAA (deliver 1 to AAA)", "HV → BBB (deliver 2 to BBB)"]
     assert descs.index("deploy R1 in AAA") < descs.index("HV → BBB (deliver 2 to BBB)") < descs.index("deploy R3 in BBB")
 

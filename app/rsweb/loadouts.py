@@ -27,6 +27,7 @@ from typing import Any
 from . import fleets as fl
 from . import printqueue as pq
 from .automations import SHORT_TIMEOUT, STEP_TIMEOUT, step
+from .placement import is_lagrange
 from .relaynet import RELAY_TYPES
 from .shapes import as_amounts
 
@@ -1657,7 +1658,7 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
             if (by_code.get(code) or {}).get("device_type") in RELAY_TYPES and code not in gathering:
                 # switched on while the carrier is still there: left off out of everyone's reach it can't be commanded
                 # any more (live 2026-10-15: F6A3A357 dropped at KAMUYIS, "out_of_range"); placement takes it to L4/L5 after
-                out.append(activate_step(code))
+                out.append(activate_step(code, critical=True))   # refused: the job stops with the carrier still there
             out.append(rehome_step(code, by_code.get(code, {}), stop, keep_spare=code in gathering, join=assign.get(code)))
         return out
 
@@ -1674,6 +1675,15 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
                 steps.append(move(spot, f"deliver {len(spots[spot])} to {spot}", spot))
             else:
                 steps.append(move(destination(stop, stars), f"deliver {len(spots[spot])} to {stop}", stop))
+                if (not is_lagrange(destination(stop, stars))
+                        and any((by_code.get(c) or {}).get("device_type") in RELAY_TYPES and c not in gathering
+                                for c in spots[spot])):
+                    # game v4.0.0: a relay switches on only at an L4/L5 point, and a new system's entry point is unknown
+                    # until it's explored (live 2026-11-09: 18 relays dropped at Oort clouds and Kuiper belts, left dark):
+                    # the job runner picks the spot once the carrier is there (_to_entry)
+                    st = move(stop, "to an L4/L5 point: relays switch on only there", stop)
+                    st["to_entry"] = stop
+                    steps.append(st)
             steps += drop_steps(spots[spot], stop)
     back = destination(dl["back_to"], stars) if dl.get("back_to") else dl.get("fetch_from") or cloc
     if (carriers_return or dl.get("back_to")) and back and not dl.get("stay"):
@@ -1753,8 +1763,8 @@ def deactivate_step(code: str) -> dict:
     return step(f"deactivate {code}", f"/devices/{code}", {"command": "deactivate"})
 
 
-def activate_step(code: str) -> dict:
-    return step(f"activate {code}", f"/devices/{code}", {"command": "activate"})
+def activate_step(code: str, critical: bool = False) -> dict:
+    return step(f"activate {code}", f"/devices/{code}", {"command": "activate"}, critical=critical)
 
 
 def pin_step(code: str, loc: str, why: str = "its at: pin") -> dict:
