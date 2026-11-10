@@ -2223,10 +2223,8 @@ def _off_limits(d: dict, ignore: set[str] | frozenset) -> bool:
 
 
 def spare_matrices(devices: list[dict], busy: set[str], ignore: set[str] | frozenset = frozenset()) -> list[dict]:
-    """Filled replicant matrices a fleet may take: in no fleet, not reserved / contract: / to: / at: / ignored, not in
-    a job, not in motion, in comms range. Loose, or in a fleetless matrix container, counts as spare; one riding a vessel
-    or hub (where the replicant may be at work) only when the matrix or that host is tagged `spare`. Matrices in a fleet's
-    device count only with the `spare` tag on the matrix. Each gets `_at` (the location to fetch it from) and
+    """Filled replicant matrices a fleet may take: only ones tagged `spare` (Joe 2026-11-10), in no fleet themselves,
+    not reserved / contract: / to: / at: / ignored (nor their host), not in a job, not in motion, in comms range. Each gets `_at` (the location to fetch it from) and
     `_from_host` when it has to be deployed out of something first."""
     by = {d.get("device_code"): d for d in devices}
     out = []
@@ -2238,13 +2236,8 @@ def spare_matrices(devices: list[dict], busy: set[str], ignore: set[str] | froze
             continue
         if x.get("in_control_range") is False or any(c.get("in_control_range") is False for c in ups):
             continue
-        marked = "spare" in (x.get("tags") or [])
-        if ups and not marked:
-            host = ups[0]
-            if any(fleet_of(c) for c in ups) or len(ups) > 1:
-                continue   # a fleet's replicant (untagged): not spare
-            if (host.get("device_type") or "") not in CRADLE_TYPES and "spare" not in (host.get("tags") or []):
-                continue   # in a vessel or hub of its own: leave it unless marked spare
+        if "spare" not in (x.get("tags") or []):
+            continue   # only a matrix you tagged spare (Joe 2026-11-10: never take an active replicant)
         loc = (ups[-1] if ups else x).get("location")
         if not loc or (ups[-1] if ups else x).get("location_stale"):
             continue

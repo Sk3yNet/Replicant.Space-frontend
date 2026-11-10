@@ -16,12 +16,13 @@ def _vessel(**kw):
 def _devices():
     return [
         _vessel(),
-        {"device_code": "MX000001", "device_type": "replicant_matrix", "status": "idle", "location": "FALQUORYX-BELT-1", "tags": []},
-        # in a fleetless matrix container: spare
+        {"device_code": "MX000001", "device_type": "replicant_matrix", "status": "idle", "location": "FALQUORYX-BELT-1", "tags": ["spare"]},
+        {"device_code": "MX000007", "device_type": "replicant_matrix", "status": "idle", "location": "SOLARES-BELT-1", "tags": []},  # untagged: never
+        # in a fleetless matrix container, tagged spare
         {"device_code": "MC000001", "device_type": "matrix_container", "status": "idle", "location": "SOLARES-BELT-1", "tags": [],
          "hosting_replicant": {"name": "Clone"}},
-        {"device_code": "MX000002", "device_type": "replicant_matrix", "status": "stowed", "stowed_in_device_code": "MC000001", "tags": []},
-        # in a fleetless vessel of its own: not spare unless tagged
+        {"device_code": "MX000002", "device_type": "replicant_matrix", "status": "stowed", "stowed_in_device_code": "MC000001", "tags": ["spare"]},
+        # in a fleetless vessel of its own, untagged: not spare
         {"device_code": "HV000099", "device_type": "heaven_vessel", "status": "idle", "location": "SOLARES-3-L4", "tags": [],
          "hosting_replicant": {"name": "Rufus"}},
         {"device_code": "MX000003", "device_type": "replicant_matrix", "status": "stowed", "stowed_in_device_code": "HV000099", "tags": []},
@@ -59,7 +60,7 @@ def test_pickup_nearest_in_range_then_back():
     steps, m, v, note = fl.matrix_pickup(FLEET, ds, fl.spare_matrices(ds, set()), STARS, set(), 1728)
     assert m["device_code"] == "MX000002" and v["device_code"] == "HV000006"   # same system first
     body = [(s["method"], s["path"], s["body"]) for s in steps]
-    assert body[0] == ("PATCH", "/devices/MX000002", {"configuration": {"add_tags": ["fleet:surveyor-6"]}})
+    assert body[0] == ("PATCH", "/devices/MX000002", {"configuration": {"add_tags": ["fleet:surveyor-6"], "remove_tags": ["spare"]}})
     assert body[1] == ("POST", "/devices/HV000006", {"command": "travel", "destination": "SOLARES-BELT-1"})
     assert body[2] == ("POST", "/devices/MX000002", {"command": "deploy"})
     assert body[3] == ("POST", "/devices/MX000002", {"command": "stow", "target": "HV000006"})

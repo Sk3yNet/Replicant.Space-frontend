@@ -64,7 +64,7 @@
           <span class="muted">order</span> <input type="number" name="order:{{ ph.id }}" value="{{ ph.order }}" style="width:46px">
           <button type="button" class="small ghost" hx-post="/loadouts/phases/{{ ph.id }}/delete" hx-confirm="Delete template {{ ph.name }}? Fleets that follow it keep its loadout as their own." title="delete">✕</button>
         </th>{% endfor %}</tr>
-        <tr><td title="A fleet on this template with no replicant aboard, at home between missions, sends its vessel for the nearest spare filled replicant matrix">Pick up a spare replicant matrix</td>
+        <tr><td title="A fleet on this template with no replicant aboard, at home between missions, sends its vessel for the nearest filled replicant matrix tagged spare">Pick up a spare replicant matrix</td>
           {% for ph in cfg.phases %}<td class="num"><input type="checkbox" name="pick_matrix:{{ ph.id }}" {{ 'checked' if ph.pick_matrix }}></td>{% endfor %}</tr>
         {% for t in types %}<tr><td>{{ t | human }}</td>
           {% for ph in cfg.phases %}<td class="num" style="white-space:nowrap"><input type="number" min="0" name="want:{{ ph.id }}:{{ t }}" value="{{ ph.wants.get(t, '') }}" style="width:56px"

@@ -22,7 +22,7 @@
             {% for ph in templates %}<option value="{{ ph.id }}" {{ 'selected' if f.template == ph.id }}>{{ ph.name }}</option>{% endfor %}</select></label>
         {% if f.template %}<span class="muted">the loadout follows this template (edit it under <a href="#templates">Templates</a>)</span>{% endif %}
         <input type="hidden" name="pick_matrix_set" value="1">
-        <label style="text-transform:none" title="With no replicant aboard, at home between missions, the fleet's vessel fetches the nearest spare filled replicant matrix (loose, in a fleetless matrix container, or tagged spare){{ ' — set by the template' if f.template }}">
+        <label style="text-transform:none" title="With no replicant aboard, at home between missions, the fleet's vessel fetches the nearest filled replicant matrix you tagged spare{{ ' — set by the template' if f.template }}">
           <input type="checkbox" name="pick_matrix" {{ 'checked' if f.pick_matrix }} {{ 'disabled' if f.template }}> Pick up a spare replicant matrix</label>
         {% if f.pick_matrix and f.matrix_note %}<span class="muted">{{ f.matrix_note.note }} ({{ f.matrix_note.at | ago }})</span>{% endif %}
       </form>
