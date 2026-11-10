@@ -173,7 +173,9 @@ of the catalog after). What each marker and line means is in the [map legend](..
 - **Other players** (coral): their fixed devices from the latest device scans, a shield where someone else's ward or
   hub is, and an arrow for each arrival or departure your beacons logged in the last hour (with the likely other end of
   the trip), all fading with distance from the point the view is centered on. A replicant's vessel scans the devices
-  of each system it arrives in (*Device scan on arrival*), which also adds any trade controller found to the shops list.
+  of each system it arrives in (*Device scan on arrival*), which also adds any trade controller found to the shops list, any equipment
+  locker to Lockers and any replicant interface to Simulations. Snapshots from before the last season reset are dropped,
+  and a replicant that has sat in a system since then rescans it once.
 - **Trail**: the replicant you follow is drawn in gold.
 - **Simulations**: on a run's galaxy map the star markers shrink to fit its tighter star spacing.
 

@@ -101,3 +101,32 @@ def test_map_ignores_scans_from_before_the_season_reset(client):
     client.portal.call(db.execute, "UPDATE systems SET updated_at=? WHERE star='SOL'", ("2026-11-10T10:00:00+00:00",))
     stars = client.get("/api/map.json", headers=H).json()["stars"]
     assert next(s for s in stars if s["designation"] == "SOL")["scanned"]
+
+
+def test_device_scans_from_before_the_season_reset_are_redone(client):
+    from rsweb import season
+    w = world(client)
+    w.foreign_devices = [{"device_code": "B1", "device_type": "ftl_beacon", "location": "SOL-3",
+                          "owner_replicant_code": "F00D0001", "owner_name": "helga"}]
+    client.portal.call(client.app.state.worker.sync_catalogue)
+    db = client.app.state.db
+    assert "SOL" in client.portal.call(eng(client).sync_traffic)["others"]["scanned"]
+    assert client.portal.call(eng(client).sync_traffic)["others"]["scanned"] == []
+    s = client.portal.call(db.kv_get, oth.KV)                       # that scan was before a reset an hour ago
+    old = iso(datetime.now(timezone.utc) - timedelta(hours=2))
+    s["stars"]["SOL"]["scanned_at"] = old
+    s["rep_scanned"] = {k: old for k in s["rep_scanned"]}
+    client.portal.call(db.kv_set, oth.KV, s)
+    client.portal.call(db.kv_set, season.RESET_KV, {"at": iso(datetime.now(timezone.utc) - timedelta(hours=1))})
+    assert client.portal.call(eng(client).sync_traffic)["others"]["scanned"] == ["SOL"]   # once, one replicant
+    assert client.portal.call(eng(client).sync_traffic)["others"]["scanned"] == []
+
+
+def test_prune_drops_snapshots_from_before_the_reset():
+    s = oth.normalize({})
+    t0 = datetime(2026, 11, 9, 12, tzinfo=timezone.utc)
+    oth.record_scan(s, "SOL", [], set(), now=t0)
+    oth.prune(s, now=t0 + timedelta(days=1))
+    assert "SOL" in s["stars"]
+    oth.prune(s, now=t0 + timedelta(days=1), reset=iso(t0 + timedelta(hours=8)))
+    assert "SOL" not in s["stars"]

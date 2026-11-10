@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.372.0"
+VERSION = "1.373.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.373.0", "2026-11-10", "Arrival scans after the season reset (Joe): the stellar census on arrival ran only once per system ever, so systems censused before Season 4 never got one again; a census from before the reset now counts as stale and runs again. The device scan (other players' devices, shops, equipment lockers, replicant interfaces) ran on every arrival, but the traffic poll never rescanned a system where a replicant had sat since before the reset; it now does once, one replicant per system. Other players' device snapshots from before the reset are dropped, and the Lockers page marks lockers last seen before it. The system scan on arrival already redid stale systems (1.362.0)."),
     ("1.372.0", "2026-11-10", "The galaxy map (and the wallpaper's system list) counts a system as scanned only when its stored scan is newer than the last season reset. Before, every system scanned last season still showed the scanned ring after Season 4 made them all unexplored again."),
     ("1.371.1", "2026-11-10", "Loadout prints ordered on one autofactory and fed to a neighbor at the same spot by the shared print queue keep counting as incoming for their fleet. Before, the order was dropped as removed by hand, so the next pass ordered another: Delta Printing Hub (wants one system hub) got 5 queued at ISOLITHOR-BELT-1."),
     ("1.371.0", "2026-11-10", "The loadout option is now Needs an active replicant aboard. Fleets › Overview and each fleet card show whether a fleet with it has one (✓ replicant aboard / no replicant aboard, with the latest pickup note). A fleet without one still picks up the nearest matrix tagged spare within the supply range, never beyond the sector range."),

@@ -4082,6 +4082,14 @@ def test_census_on_arrival_runs_once_per_system(client):
     arrival["id"] = "7777777777777-1"
     client.portal.call(client.app.state.worker.handle_event, arrival)
     assert count() == 1                                           # SOL has had its census
+    from rsweb import season                                      # a census from before a season reset is redone
+    done = client.portal.call(client.app.state.db.kv_get, "census")
+    done["SOL"]["at"] = iso(datetime.now(timezone.utc) - timedelta(hours=2))
+    client.portal.call(client.app.state.db.kv_set, "census", done)
+    client.portal.call(client.app.state.db.kv_set, season.RESET_KV, {"at": iso(datetime.now(timezone.utc) - timedelta(hours=1))})
+    arrival["id"] = "7777777777777-2"
+    client.portal.call(client.app.state.worker.handle_event, arrival)
+    assert count() == 2
     # the catalog refresh keeps census stars
     client.portal.call(client.app.state.worker.sync_catalogue)
     assert any(s["designation"] == "ZALDANAL" for s in client.portal.call(client.app.state.db.kv_get, "stars")["stars"])
@@ -4090,7 +4098,7 @@ def test_census_on_arrival_runs_once_per_system(client):
     assert ">Stars</a>" in page                                   # Map › Stars sub-tab
     assert page.count('id="route-from"') == 1 and "route-from').value" in page   # one replicant dropdown for the list
     r = client.post("/stars/census", data={"device": "11ADA230"}, headers=HX)
-    assert "unexplored: ZALDANAL" in r.text and count() == 2
+    assert "unexplored: ZALDANAL" in r.text and count() == 3
 
 
 def test_device_scan_on_arrival_finds_shops(client):

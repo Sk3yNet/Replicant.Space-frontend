@@ -64,18 +64,21 @@ class Rule:
 
 RULES: list[Rule] = [
     Rule("scan_on_arrival", "System scan on arrival",
-         "When a replicant's vessel arrives in a system we have no scan for, run a system scan so the "
-         "planets and belts are known (other rules and the Systems page use it)."),
+         "When a replicant's vessel arrives in a system we have no scan for (or only one from before the last "
+         "season reset), run a system scan so the planets, belts and stations are known (other rules, the Systems "
+         "page and the Galaxy map use it)."),
     Rule("devices_on_arrival", "Device scan on arrival",
          "When a replicant's vessel arrives in another system, it scans the other devices there at once (GET "
          "/scan/devices; every arrival, since devices come and go). Other players' fixed devices and drones go to the "
          "System page and the Galaxy map, any AMI trade controller to the shops list and any equipment locker to the Lockers page: system scans don't list "
-         "shops. Read-only. Without it the traffic poll does the same scan, minutes later.", default_on=True),
+         "shops. Replicant interfaces it sees go to Simulations. Read-only. Without it the traffic poll does the same "
+         "scan, minutes later; the poll also rescans once where a replicant has sat since before the last season reset.",
+         default_on=True),
     Rule("census_on_arrival", "Stellar census on arrival",
          "When a vessel that can run a stellar census (heaven and cargo vessels) arrives in a system that hasn't had one, "
          "it runs `stellar_census`: the stars around it, explored or not, with positions and entry points. They're added "
          "to the star catalog, which only covers ~70 ly around Sol, so the map, routes and the Unexplored stars list know "
-         "them. One action per new system.", default_on=True),
+         "them. One action per new system (again after a season reset).", default_on=True),
     Rule("ami_schedules", "Run AMI schedules",
          "Master switch for the AMI schedules below: every N minutes each schedule checks its controller(s); "
          "if one is idle (or its directive finished) it adopts idle drones of the right kind at its location, "
@@ -4570,9 +4573,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             self.hub.publish("state", "traffic")
 
     async def rule_census_on_arrival(self, vessel: str, star: str) -> None:
+        from . import season
         from .census import can_census
-        if star in (await self.db.kv_get("census", {}) or {}):
-            return
+        done = (await self.db.kv_get("census", {}) or {}).get(star)
+        if done is not None and not season.stale((done or {}).get("at") if isinstance(done, dict) else None,
+                                                 await season.reset_at(self.db)):
+            return   # run from here since the last season reset (which left every system unexplored)
         d = next((x for x in await self.devices() if x.get("device_code") == vessel), None)
         if not d or not can_census(d):
             return

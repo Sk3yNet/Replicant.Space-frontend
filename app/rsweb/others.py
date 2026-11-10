@@ -9,6 +9,9 @@ slingshots. Vessels, drones, surge plates and replicants are left out. kv "other
                 replaces it whole; a beacon-logged departure removes that device; a snapshot older than KEEP_DAYS goes.
     rep_at      {replicant: star} where each of our replicants was when its system was last scanned: a replicant
                 arriving somewhere new scans it (traffic poll).
+    rep_scanned {replicant: iso} when that was: a replicant that has sat in one system since before the last season
+                reset scans it again once (the reset changed the galaxy around it).
+    Snapshots and lockers seen before the last season reset are stale: snapshots go, lockers stay marked stale.
 
 Traffic arrows come from the beacon audit log (kv "traffic"): an entry's vector points from the beacon's system toward
 the other end of the trip (checked live 2026-10-09: FALQUORYX ↔ OTHILETH) — for an arrival toward where it came
@@ -56,6 +59,7 @@ def normalize(s: dict | None) -> dict:
     s.setdefault("stars", {})
     s.setdefault("rep_at", {})
     s.setdefault("lockers", {})   # {LOCATION: {code, type, owner, owner_name, seen_at}}: equipment lockers seen, kept
+    s.setdefault("rep_scanned", {})
     return s
 
 
@@ -97,10 +101,14 @@ def apply_departures(s: dict, entries: list[dict]) -> int:
     return gone
 
 
-def prune(s: dict, now: datetime | None = None) -> None:
+def prune(s: dict, now: datetime | None = None, reset: str | None = None) -> None:
+    """Forget snapshots older than KEEP_DAYS, and any from before the last season reset."""
     now = now or _now()
-    for star in [k for k, v in s["stars"].items() if (_ts(v.get("scanned_at")) or now - timedelta(days=99))
-                 < now - timedelta(days=KEEP_DAYS)]:
+    cut = now - timedelta(days=KEEP_DAYS)
+    r = _ts(reset) if reset else None
+    if r and r > cut:
+        cut = r
+    for star in [k for k, v in s["stars"].items() if (_ts(v.get("scanned_at")) or now - timedelta(days=99)) < cut]:
         del s["stars"][star]
 
 
@@ -232,6 +240,7 @@ async def scan_into(db, api, replicant: str, mine: set[str], s: dict | None = No
         star = star_of(r.get("location") or r.get("current_location"))
     snap = record_scan(s, star, devs, mine, by=replicant)
     s["rep_at"][replicant] = star
+    s.setdefault("rep_scanned", {})[replicant] = _now().isoformat(timespec="seconds")
     if own:
         await db.kv_set(KV, s)
     t = tl.normalize(await db.kv_get(tl.KV, {}) or {})   # any of the followed replicant's devices seen: a sighting
@@ -243,15 +252,23 @@ async def scan_into(db, api, replicant: str, mine: set[str], s: dict | None = No
 
 
 async def on_traffic_poll(db, api, entries: list[dict], mine: set[str]) -> dict:
-    """Each traffic poll: scan the system of any replicant of ours that has arrived somewhere new, drop devices our
-    beacons saw leave, and forget old snapshots."""
+    """Each traffic poll: scan the system of any replicant of ours that has arrived somewhere new (or has sat in its
+    system since before the last season reset), one replicant per system, drop devices our beacons saw leave, and
+    forget old snapshots."""
+    from . import season
     from .api import ApiError
     s = normalize(await db.kv_get(KV, {}))
+    reset = await season.reset_at(db)
     reps = await db.kv_get("replicants", {}) or {}
     scanned, errors = [], {}
     for code, r in reps.items():
         star = star_of(r.get("location") or r.get("current_location"))
-        if not star or str(r.get("status") or "").startswith(("travel", "cruis", "surg")) or s["rep_at"].get(code) == star:
+        if not star or str(r.get("status") or "").startswith(("travel", "cruis", "surg")):
+            continue
+        if s["rep_at"].get(code) == star and not (reset and season.stale(s["rep_scanned"].get(code), reset)):
+            continue
+        if star in scanned:   # another replicant here just scanned it
+            s["rep_at"][code], s["rep_scanned"][code] = star, _now().isoformat(timespec="seconds")
             continue
         try:
             await scan_into(db, api, code, mine, s)
@@ -259,7 +276,8 @@ async def on_traffic_poll(db, api, entries: list[dict], mine: set[str]) -> dict:
         except ApiError as e:
             errors[code] = e.message
             s["rep_at"][code] = star    # don't retry every poll; the System page's button can
+            s["rep_scanned"][code] = _now().isoformat(timespec="seconds")
     removed = apply_departures(s, entries)
-    prune(s)
+    prune(s, reset=reset)
     await db.kv_set(KV, s)
     return {"scanned": scanned, "removed": removed, "errors": errors}

@@ -22,9 +22,10 @@ def all_lockers(found: dict | None) -> list[dict]:
     """KNOWN, with each locker's code where a device scan saw it, plus lockers scans found that KNOWN lacks
     (others.py keeps every one an arrival or traffic scan sees, under "lockers")."""
     found = found or {}
-    out = [{**k, **({"code": found[k["location"]]["code"]} if k["location"] in found else {})} for k in KNOWN]
+    out = [{**k, **({"code": found[k["location"]]["code"], "seen_at": found[k["location"]].get("seen_at")}
+                    if k["location"] in found else {})} for k in KNOWN]
     have = {k["location"] for k in KNOWN}
-    out += [{"location": loc, "code": f["code"], "gives": "unknown (not in the docs' list)",
+    out += [{"location": loc, "code": f["code"], "seen_at": f.get("seen_at"), "gives": "unknown (not in the docs' list)",
              "cost": "unknown" + (f", owner {f['owner_name']}" if f.get("owner_name") else "")}
             for loc, f in sorted(found.items()) if loc not in have]
     return out
@@ -44,8 +45,11 @@ def in_system(star: str, found: dict | None = None) -> list[dict]:
 async def lockers_page(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     reps = [(c, r.get("name") or c, r.get("location") or r.get("current_location")) for c, r in st["replicants"].items()]
+    from . import season
+    reset = await season.reset_at(request.app.state.db)
     known = []
-    for k in all_lockers(await found_lockers(request.app.state.db)):   # how much of the price is there, or on its way (pinned to the locker's location)
+    for k in all_lockers(await found_lockers(request.app.state.db)):
+        k["stale"] = bool(k.get("code")) and season.stale(k.get("seen_at"), reset) and bool(reset)   # how much of the price is there, or on its way (pinned to the locker's location)
         from .loadouts import at_tag
         price = []
         for t, n in (k.get("price") or {}).items():
