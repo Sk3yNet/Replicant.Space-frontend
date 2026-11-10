@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.371.1"
+VERSION = "1.372.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.372.0", "2026-11-10", "The galaxy map (and the wallpaper's system list) counts a system as scanned only when its stored scan is newer than the last season reset. Before, every system scanned last season still showed the scanned ring after Season 4 made them all unexplored again."),
     ("1.371.1", "2026-11-10", "Loadout prints ordered on one autofactory and fed to a neighbor at the same spot by the shared print queue keep counting as incoming for their fleet. Before, the order was dropped as removed by hand, so the next pass ordered another: Delta Printing Hub (wants one system hub) got 5 queued at ISOLITHOR-BELT-1."),
     ("1.371.0", "2026-11-10", "The loadout option is now Needs an active replicant aboard. Fleets › Overview and each fleet card show whether a fleet with it has one (✓ replicant aboard / no replicant aboard, with the latest pickup note). A fleet without one still picks up the nearest matrix tagged spare within the supply range, never beyond the sector range."),
     ("1.370.2", "2026-11-10", "Pick up a spare replicant matrix takes only matrices tagged spare (Joe: never an active replicant). Before, an untagged matrix lying loose or in a fleetless matrix container counted too."),

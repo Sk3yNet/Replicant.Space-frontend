@@ -87,3 +87,17 @@ def test_drone_totals_and_belt_count():
     tot = oth.drone_totals(snap)
     assert tot[0]["name"] == "helga" and tot[0]["types"] == {"mining_drone": 3, "survey_drone": 1}
     assert oth.drones_at(snap, "SOL-BELT-1") == 3 and oth.drones_at(snap, "SOL-BELT-2") == 1
+
+
+def test_map_ignores_scans_from_before_the_season_reset(client):
+    world(client)
+    client.portal.call(client.app.state.worker.sync_catalogue)
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "season_reset", {"at": "2026-11-09T20:00:00+00:00", "number": 4})
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems (star, data, updated_at) VALUES (?, ?, ?)",
+                       ("SOL", "{}", "2026-11-01T10:00:00+00:00"))
+    stars = client.get("/api/map.json", headers=H).json()["stars"]
+    assert not next(s for s in stars if s["designation"] == "SOL")["scanned"]   # scanned last season: unexplored again
+    client.portal.call(db.execute, "UPDATE systems SET updated_at=? WHERE star='SOL'", ("2026-11-10T10:00:00+00:00",))
+    stars = client.get("/api/map.json", headers=H).json()["stars"]
+    assert next(s for s in stars if s["designation"] == "SOL")["scanned"]

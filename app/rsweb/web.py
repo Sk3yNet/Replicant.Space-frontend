@@ -2873,7 +2873,11 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                          if isinstance(v, dict)}
         else:
             rows = await db.fetchall("SELECT star, CASE WHEN json_valid(data) THEN json_extract(data, '$.star.radius_solar') END AS r, "
-                                     "CASE WHEN json_valid(data) THEN json_extract(data, '$.system_tags') END AS tags FROM systems")
+                                     "CASE WHEN json_valid(data) THEN json_extract(data, '$.system_tags') END AS tags, "
+                                     "updated_at FROM systems")
+            from . import season
+            reset = await season.reset_at(db)   # a season reset made every system unexplored: older scans don't count
+            rows = [r for r in rows if not season.stale(r["updated_at"], reset)]
             scanned = {r["star"] for r in rows}
             radii = {r["star"]: r["r"] for r in rows if r["r"] is not None}
             hazardous = {r["star"]: hz for r in rows if (hz := hazard_tags(r["tags"]))}
@@ -4888,7 +4892,10 @@ async def wallpaper_systems(request: Request, slug: str):
     count = Counter(star_of(d.get("location")) for d in st["devices"] if d.get("location"))
     for r in st["replicants"].values():
         count[star_of(r.get("location") or r.get("current_location"))] += 0
-    scanned = {r["star"] for r in await request.app.state.db.fetchall("SELECT star FROM systems")}
+    from . import season
+    reset = await season.reset_at(request.app.state.db)
+    scanned = {r["star"] for r in await request.app.state.db.fetchall("SELECT star, updated_at FROM systems")
+               if not season.stale(r["updated_at"], reset)}
     systems = [{"star": s, "devices": n} for s, n in sorted(count.items(), key=lambda kv: (-kv[1], kv[0])) if s and s in scanned]
     return JSONResponse({"systems": systems})
 
