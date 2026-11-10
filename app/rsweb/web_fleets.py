@@ -53,6 +53,7 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
     pickups = await request.app.state.db.kv_get("matrix_pickups", {}) or {}
     for f in shown:
         f["roster"] = fl.roster(f, st["devices"])
+        f["replicant_aboard"] = fl.has_replicant(f, st["devices"])
         f["matrix_note"] = (pickups.get(f["id"]) or {}) if f.get("pick_matrix") else {}
         f["points"] = fl.attach_points(f, st["devices"], bp_by, f["roster"]["rows"])
         m = f.get("mission") or {}
@@ -191,6 +192,10 @@ async def fleets_overview(request: Request, user: str = Depends(current_user)):
         f["route"] = next((r for r in p.get("routes") or [] if r.get("fleet_id") == f["id"]), None)
         f["sends_to"] = fl.materials_target(f, items)
         f["takes_from"] = [x for x in items if (fl.materials_target(x, items) or {}).get("id") == f["id"]]
+        f["replicant_aboard"] = fl.has_replicant(f, st["devices"])
+    pickups = await request.app.state.db.kv_get("matrix_pickups", {}) or {}
+    for f in items:
+        f["matrix_note"] = (pickups.get(f["id"]) or {}) if f.get("pick_matrix") else {}
     return partial(request, "partials/fleets_overview.html", fleets=items, templates=cfg["phases"],
                    present=Counter(lo.star_of(d.get("location")) for d in st["devices"]), plans_age=pagecache.age_minutes(request))
 

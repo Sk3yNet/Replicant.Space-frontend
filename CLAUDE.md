@@ -129,7 +129,7 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Owner's plan (2026-10-19): relays go first (Relay rollout; any logistics vessel with a replicant may escort relays
   beyond the network); mining stays inside the network, and no automatic assignment goes outside it; survey fleets
-  work at the edge. The owner reassigns replicants and attaches matrices by hand: don't automate those (one exception, opt-in: the loadout option *Pick up a spare replicant matrix*, 1.370.0).
+  work at the edge. The owner reassigns replicants and attaches matrices by hand: don't automate those (one exception, opt-in: the loadout option *Needs an active replicant aboard*, which fetches only matrices tagged spare, 1.370.0).
 - Following Bill's trail starts only by hand on the Trail page (owner 2026-10-22): no automation (his BobNet move post,
   Get listing) pulls a replicant off its job to follow him; his shop's listing or trades go to a logistics fleet member.
 - Fleets never leave on a mission with a partial loadout, but a new home never waits for one (owner 2026-10-21): mining

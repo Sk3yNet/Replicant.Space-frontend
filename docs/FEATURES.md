@@ -439,10 +439,11 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
 - Spares are only gathered to a depot within range.
 - **Supplied from** (Overview): a hub whose autofactories print the fleet's shortfalls and whose carriers bring them, at
   any distance (e.g. a Sol-sector fleet supplied from a home-sector printing hub).
-- **Pick up a spare replicant matrix** (1.370.0, a checkbox per template under *Templates*, or on a custom loadout's
-  fleet card): a fleet with it on and no replicant aboard, at home between missions, sends its idle vessel (heaven,
-  cargo or racing vessel with room in its hold) for the nearest spare filled `replicant_matrix` within the supply range,
-  every 15 minutes with the loadouts rule. Only a matrix you tagged `spare` is taken (1.370.2), and only when it has no
+- **Needs an active replicant aboard** (1.370.0, renamed 1.371.0; a checkbox per template under *Templates*, or on a
+  custom loadout's fleet card): the *Overview* and the fleet card show whether each such fleet has one. A fleet with it
+  on and no replicant aboard, at home between missions, sends its idle vessel (heaven,
+  cargo or racing vessel with room in its hold) for the nearest spare filled `replicant_matrix` within the supply range
+  (never beyond the sector range), every 15 minutes with the loadouts rule. Only a matrix you tagged `spare` is taken (1.370.2), and only when it has no
   fleet tag, it and its host are not reserved / ignored / `contract:` / `to:` / `at:`, and neither is in a job or in motion. The matrix gets the fleet's tag, is deployed out of its host, stows into
   the vessel, and the vessel flies back. The card shows the latest result (e.g. "no spare replicant matrix available").
 - **Keep in stock** (a *Stock* column beside *Want* in a fleet's loadout editor, and a second box (+) per type in the

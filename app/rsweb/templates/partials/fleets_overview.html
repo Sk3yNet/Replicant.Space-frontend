@@ -29,7 +29,10 @@
         {% elif not rep %}<span class="muted">—</span>
         {% elif not rep.short and not rep.surplus %}<span class="lv-done">✓ matches</span>
         {% else %}{% if rep.short %}<span class="lv-alert">short {{ rep.short }}</span>{% endif %}
-          {% if rep.surplus %}<span class="pill small">{{ rep.surplus }} spare</span>{% endif %}{% endif %}</td>
+          {% if rep.surplus %}<span class="pill small">{{ rep.surplus }} spare</span>{% endif %}{% endif %}
+        {% if f.pick_matrix %}<div>{% if f.replicant_aboard %}<span class="lv-done" title="The loadout needs an active replicant aboard">✓ replicant aboard</span>
+          {% else %}<span class="lv-alert" title="The loadout needs an active replicant aboard: it picks up a matrix tagged spare when one is in range">no replicant aboard</span>
+          {% if f.matrix_note.note and f.matrix_note.note != 'has a replicant aboard' %}<span class="muted">{{ f.matrix_note.note }}</span>{% endif %}{% endif %}</div>{% endif %}</td>
       <td>{% if rep %}<button class="small ghost" hx-post="/loadouts/apply" hx-vals='{{ {"fleet": (f.id) | string} | tojson }}' hx-target="#lo-result">Apply</button>{% endif %}</td>
     </tr>
     {% else %}<tr><td colspan="7" class="muted">No fleets yet. Create one above.</td></tr>{% endfor %}

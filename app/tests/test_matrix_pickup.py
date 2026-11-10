@@ -88,7 +88,13 @@ def test_pass_starts_a_job_and_the_card_shows_the_option(client):
     job = next(j for j in client.portal.call(e.jobs) if "replicant matrix" in j["title"])
     assert job["meta"]["fleet"] == "surveyor-6" and "MX000002" in job["meta"]["devices"]
     page = client.get("/fleets/details?all=1", headers=H).text
-    assert "Pick up a spare replicant matrix" in page and "fetches matrix MX000002" in page
+    assert "Needs an active replicant aboard" in page and "no replicant aboard" in page and "fetches matrix MX000002" in page
+    ov = client.get("/fleets/overview", headers=HX).text
+    assert "no replicant aboard" in ov and "fetches matrix MX000002" in ov
+    ds = _devices()
+    ds[0]["hosting_replicant"] = {"name": "Bob"}
+    client.portal.call(client.app.state.db.kv_set, "devices", ds)
+    assert "✓ replicant aboard" in client.get("/fleets/overview", headers=HX).text
     client.post("/fleets/surveyor-6/edit", data={"pick_matrix_set": "1", "template": ""}, headers=HX)
     assert not client.portal.call(e.fleets)[0].get("pick_matrix")
 

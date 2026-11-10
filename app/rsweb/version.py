@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.370.2"
+VERSION = "1.371.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.371.0", "2026-11-10", "The loadout option is now Needs an active replicant aboard. Fleets › Overview and each fleet card show whether a fleet with it has one (✓ replicant aboard / no replicant aboard, with the latest pickup note). A fleet without one still picks up the nearest matrix tagged spare within the supply range, never beyond the sector range."),
     ("1.370.2", "2026-11-10", "Pick up a spare replicant matrix takes only matrices tagged spare (Joe: never an active replicant). Before, an untagged matrix lying loose or in a fleetless matrix container counted too."),
     ("1.370.1", "2026-11-10", "Stow into on a replicant matrix lists matrix containers with an empty cradle, loose or riding on a carrier here, and stows the matrix straight into the cradle."),
     ("1.370.0", "2026-11-10", "Fleet loadouts: new option Pick up a spare replicant matrix (a box per template under Fleets › Templates, and on a custom loadout's fleet card). A fleet with it and no replicant aboard, at home between missions, sends its idle vessel for the nearest spare filled matrix within the supply range: loose, in a fleetless matrix container, or tagged spare. The matrix joins the fleet, is deployed out of its host, stows into the vessel, and the vessel flies back. The fleet card shows the latest result."),

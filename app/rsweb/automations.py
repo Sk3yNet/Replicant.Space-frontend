@@ -4761,7 +4761,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from .ami_schedule import set_stationed
         from .fleets import fleet_tag, stationed
         derived = ("roster", "points", "job", "zero", "report", "route", "sends_to", "takes_from", "target_options",
-                   "owner_move", "owner_hosts", "owners", "orders", "outposts", "matrix_note")   # page-only fields, never stored
+                   "owner_move", "owner_hosts", "owners", "orders", "outposts", "matrix_note", "replicant_aboard")   # page-only fields, never stored
         keep = [{k: v for k, v in f.items() if k not in derived} for f in items]
         if any(f.get("materials") == "supply" or f.get("supply_to") for f in keep):   # nearest receiver, by home
             from .fleets import resolve_supply

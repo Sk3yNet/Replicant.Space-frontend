@@ -22,9 +22,9 @@
             {% for ph in templates %}<option value="{{ ph.id }}" {{ 'selected' if f.template == ph.id }}>{{ ph.name }}</option>{% endfor %}</select></label>
         {% if f.template %}<span class="muted">the loadout follows this template (edit it under <a href="#templates">Templates</a>)</span>{% endif %}
         <input type="hidden" name="pick_matrix_set" value="1">
-        <label style="text-transform:none" title="With no replicant aboard, at home between missions, the fleet's vessel fetches the nearest filled replicant matrix you tagged spare{{ ' — set by the template' if f.template }}">
-          <input type="checkbox" name="pick_matrix" {{ 'checked' if f.pick_matrix }} {{ 'disabled' if f.template }}> Pick up a spare replicant matrix</label>
-        {% if f.pick_matrix and f.matrix_note %}<span class="muted">{{ f.matrix_note.note }} ({{ f.matrix_note.at | ago }})</span>{% endif %}
+        <label style="text-transform:none" title="The fleet should have an active replicant aboard. Without one, at home between missions, its vessel fetches the nearest filled replicant matrix tagged spare within the supply range (sector limit){{ ' — set by the template' if f.template }}">
+          <input type="checkbox" name="pick_matrix" {{ 'checked' if f.pick_matrix }} {{ 'disabled' if f.template }}> Needs an active replicant aboard</label>
+        {% if f.pick_matrix %}{% if f.replicant_aboard %}<span class="lv-done">✓ replicant aboard</span>{% else %}<span class="lv-alert">no replicant aboard</span>{% if f.matrix_note.note %} <span class="muted">{{ f.matrix_note.note }} ({{ f.matrix_note.at | ago }})</span>{% endif %}{% endif %}{% endif %}
       </form>
       <form hx-post="/fleets/{{ f.id }}/edit" hx-swap="none" class="loadout-form" data-fid="{{ f.id }}" data-name="{{ f.name }}">
         <input type="hidden" name="lines" value="1">
