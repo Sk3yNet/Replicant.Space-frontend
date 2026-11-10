@@ -149,4 +149,8 @@ def test_season_reset_makes_old_scans_stale_and_rescans_fleet_homes(client):  # 
                                                      for s, x in (("HUB", 0), ("AAA", 5), ("BBB", 9))]})
     client.portal.call(e.season_rescan_pass)
     assert made and made[0][0] == "new season rescan: HV → AAA → BBB"
-    assert [s.get("scan_star") for s in made[0][1] if s.get("scan_star")] == ["AAA", "BBB"]
+    devices.append({"device_code": "SH", "device_type": "system_hub", "location": "BBB-1-L4", "status": "active"})
+    made.clear()
+    client.portal.call(e.season_rescan_pass)
+    assert made[0][0] == "new season rescan: HV → BBB → AAA"   # hub systems first
+    assert [s.get("scan_star") for s in made[0][1] if s.get("scan_star")] == ["BBB", "AAA"]

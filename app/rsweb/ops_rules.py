@@ -377,7 +377,9 @@ class OpsRules:
         for code, r in reps.items():
             for s_ in relaynet.replicant_stars({code: r}, devices):
                 here.setdefault(s_, code)
-        for star in sorted(s_ for s_ in here if s_ not in fresh)[:3]:
+        # hub systems first (Joe 2026-11-10): the printing hubs feed everything else
+        hubs = {lo.star_of(d.get("location")) for d in devices if d.get("device_type") == "system_hub" and d.get("location")}
+        for star in sorted((s_ for s_ in here if s_ not in fresh), key=lambda x: (x not in hubs, x))[:3]:
             ok, resp, err = await self.send("POST", f"/replicants/{here[star]}/scan", {}, f"auto: rescan {star} (new season)")
             if ok and isinstance(resp, dict) and resp.get("planets") is not None:
                 await self.db.execute("INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
@@ -406,7 +408,7 @@ class OpsRules:
         carrier, rep, home = c["device_code"], c["hosting_replicant"]["replicant_code"], c["location"]
         route, cur, left = [], lo.star_of(home), set(todo)
         while left and len(route) < WAKE_STOPS:
-            nxt = min(left, key=lambda x: (lo._dist(cur, x, pos), x))
+            nxt = min(left, key=lambda x: (x not in hubs, lo._dist(cur, x, pos), x))
             if lo._dist(cur, nxt, pos) >= 1e9:
                 break   # no position known
             left.discard(nxt)
