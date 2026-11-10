@@ -2163,7 +2163,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 self.stage = None
                 await self.note_tick()
                 return
-            for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "matrix_pickup_pass", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_repeats", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "dark_relay_pass", "season_rescan_pass", "station_swap_pass", "news_pass", "station_jobs_pass", "sim_pass", "prospector_pass", "stock_pass", "vqueue_pass", "chatter_pass"):
@@ -4761,7 +4761,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from .ami_schedule import set_stationed
         from .fleets import fleet_tag, stationed
         derived = ("roster", "points", "job", "zero", "report", "route", "sends_to", "takes_from", "target_options",
-                   "owner_move", "owner_hosts", "owners", "orders", "outposts")   # page-only fields, never stored
+                   "owner_move", "owner_hosts", "owners", "orders", "outposts", "matrix_note")   # page-only fields, never stored
         keep = [{k: v for k, v in f.items() if k not in derived} for f in items]
         if any(f.get("materials") == "supply" or f.get("supply_to") for f in keep):   # nearest receiver, by home
             from .fleets import resolve_supply
@@ -5724,6 +5724,56 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             who = ", ".join(f"{d['device_code']} ({d.get('device_type')})" for d in recruits)
             out.append(f"{f['name']}: takes {who}"
                        + ("" if job else " (dry run)"))
+        return out
+
+    async def matrix_pickup_pass(self, force: bool = False, only: str | None = None) -> list[str]:
+        """Loadout option "pick up a spare replicant matrix" (Joe 2026-11-10): a fleet with no replicant aboard, at
+        home between missions, sends its vessel for the nearest spare filled matrix (fleets.spare_matrices /
+        matrix_pickup). Runs with the loadouts rule, every 15 minutes. kv matrix_pickups {fleet: {at, note}}."""
+        if not force:
+            if not await self.rule_cfg("loadouts"):
+                return []
+            last = _ts(await self.db.kv_get("matrix_pickup_at", None))
+            if last and (_now() - last).total_seconds() < 15 * 60:
+                return []
+            await self.db.kv_set("matrix_pickup_at", now_iso())
+        from . import fleets as fl
+        on = [f for f in await self.fleets() if f.get("pick_matrix")]
+        items = [f for f in on if not only or f["id"] == only]
+        notes = {k: v for k, v in (await self.db.kv_get("matrix_pickups", {}) or {}).items() if any(f["id"] == k for f in on)}
+        if not items:
+            await self.db.kv_set("matrix_pickups", notes)
+            return []
+        cat = await self.db.kv_get("stars", {}) or {}
+        stars = {x.get("designation"): x for x in (cat.get("stars") or []) if isinstance(x, dict)}
+        jobs = await self.jobs()
+        busy = self.busy_devices(jobs)
+        working = {(j.get("meta") or {}).get("fleet") for j in jobs if j["status"] in ("running", "waiting")}
+        devices = await self.devices()
+        ignore = set((await self.loadout_cfg()).get("ignore_tags") or [])
+        spares = fl.spare_matrices(devices, busy, ignore)
+        reach = await self.supply_reach()
+        out = []
+        for f in items:
+            if (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped") or f.get("role") == "bootstrap" \
+                    or fl.held(f) or f["id"] in working:
+                continue
+            if fl.has_replicant(f, devices):
+                notes[f["id"]] = {"at": now_iso(), "note": "has a replicant aboard"}
+                continue
+            steps, m, v, note = fl.matrix_pickup(f, devices, spares, stars, busy, reach)
+            notes[f["id"]] = {"at": now_iso(), "note": note}
+            if not steps:
+                continue
+            job = await self.create_job("loadouts", f"{f['name']}: picks up spare replicant matrix {m['device_code']}",
+                                        v["device_code"], steps, {"devices": [m["device_code"], v["device_code"]],
+                                                                  "fleet": f["id"]}, force=force)
+            spares = [x for x in spares if x["device_code"] != m["device_code"]]
+            busy |= {m["device_code"], v["device_code"]}
+            out.append(f"{f['name']}: {note}" + ("" if job else " (dry run)"))
+            if job:
+                await self.log("loadouts", f"{f['name']} has no replicant: {note}")
+        await self.db.kv_set("matrix_pickups", notes)
         return out
 
     @staticmethod

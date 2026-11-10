@@ -1497,6 +1497,7 @@ def resolve_template(fleet: dict, cfg: dict) -> dict:
             fleet["wants"] = template_wants(ph)
             fleet["zero"] = sorted(t for t, n in (ph.get("wants") or {}).items() if t and str(n).strip() == "0")
             fleet["stock"] = dict(ph.get("stock") or {})   # keep in stock (stock.py) follows the template too
+            fleet["pick_matrix"] = bool(ph.get("pick_matrix"))   # fetch a spare replicant matrix (matrix_pickup_pass)
     return fleet
 
 
@@ -2166,3 +2167,117 @@ def device_doing(code: str, dev: dict, fleets: list[dict], jobs: list[dict]) -> 
             what, last = f"at {f.get('home') or 'no home'}, not stationed", None
         out["fleet"] = {"id": f.get("id"), "name": f.get("name") or f.get("id"), "role": role, "status": what, "last": last}
     return out
+
+
+# --- spare replicant matrices: a fleet without a replicant fetches one (loadout option pick_matrix, Joe 2026-11-10) ---
+MATRIX_TYPE = "replicant_matrix"   # a matrix with a replicant in it (an empty one is empty_replicant_matrix)
+
+
+def _carriers_up(d: dict, by: dict[str, dict]) -> list[dict]:
+    """What a device rides in or on, innermost first (up the stow / attach chain)."""
+    out, seen, c = [], set(), d
+    while c:
+        up = c.get("stowed_in_device_code") or c.get("attached_to_device_code")
+        if not up or up in seen or up not in by:
+            break
+        seen.add(up)
+        c = by[up]
+        out.append(c)
+    return out
+
+
+def has_replicant(fleet: dict, devices: list[dict]) -> bool:
+    """A member hosts a replicant, or a filled matrix is (or rides in) a member."""
+    by = {d.get("device_code"): d for d in devices}
+    codes = {d["device_code"] for d in members(fleet, devices)}
+    if any(by[c].get("hosting_replicant") for c in codes if c in by):
+        return True
+    return any(x.get("device_type") == MATRIX_TYPE
+               and (x.get("device_code") in codes or any(c.get("device_code") in codes for c in _carriers_up(x, by)))
+               for x in devices)
+
+
+def _off_limits(d: dict, ignore: set[str] | frozenset) -> bool:
+    tags = set(d.get("tags") or [])
+    return bool(ignore & tags) or "reserved" in tags or any(t.startswith(RESERVED_PREFIXES) for t in tags)
+
+
+def spare_matrices(devices: list[dict], busy: set[str], ignore: set[str] | frozenset = frozenset()) -> list[dict]:
+    """Filled replicant matrices a fleet may take: in no fleet, not reserved / contract: / to: / at: / ignored, not in
+    a job, not in motion, in comms range. Loose, or in a fleetless matrix container, counts as spare; one riding a vessel
+    or hub (where the replicant may be at work) only when the matrix or that host is tagged `spare`. Matrices in a fleet's
+    device count only with the `spare` tag on the matrix. Each gets `_at` (the location to fetch it from) and
+    `_from_host` when it has to be deployed out of something first."""
+    by = {d.get("device_code"): d for d in devices}
+    out = []
+    for x in devices:
+        if x.get("device_type") != MATRIX_TYPE or x.get("device_code") in busy or fleet_of(x) or _off_limits(x, ignore):
+            continue
+        ups = _carriers_up(x, by)
+        if any(c.get("device_code") in busy or in_flight(c) or _off_limits(c, ignore) for c in ups):
+            continue
+        if x.get("in_control_range") is False or any(c.get("in_control_range") is False for c in ups):
+            continue
+        marked = "spare" in (x.get("tags") or [])
+        if ups and not marked:
+            host = ups[0]
+            if any(fleet_of(c) for c in ups) or len(ups) > 1:
+                continue   # a fleet's replicant (untagged): not spare
+            if (host.get("device_type") or "") not in CRADLE_TYPES and "spare" not in (host.get("tags") or []):
+                continue   # in a vessel or hub of its own: leave it unless marked spare
+        loc = (ups[-1] if ups else x).get("location")
+        if not loc or (ups[-1] if ups else x).get("location_stale"):
+            continue
+        out.append({**x, "_at": loc, **({"_from_host": ups[0]["device_code"]} if ups else {})})
+    return out
+
+
+def matrix_vessel(fleet: dict, devices: list[dict], busy: set[str]) -> dict | None:
+    """The member that fetches a matrix: an idle vessel with a hold (heaven, cargo or racing vessel) and room in it."""
+    for d in sorted(members(fleet, devices), key=lambda d: (d.get("device_type") != "heaven_vessel", d["device_code"])):
+        if (d.get("device_type") or "") not in HOLD or d["device_code"] in busy or in_flight(d) or not d.get("location"):
+            continue
+        if d.get("stowed_in_device_code") or d.get("attached_to_device_code") or d.get("in_control_range") is False:
+            continue
+        if hold(d) and _int(d.get("stow_used")) >= hold(d):
+            continue
+        return d
+    return None
+
+
+def matrix_pickup(fleet: dict, devices: list[dict], spares: list[dict], stars: dict, busy: set[str],
+                  reach: float = 0.0) -> tuple[list[dict], dict | None, dict | None, str]:
+    """(steps, matrix, vessel, note): the fleet's vessel flies to the nearest spare matrix within the supply range,
+    the matrix joins the fleet (fleet tag in; spare / home: / to: out), is deployed out of its host if it rides one,
+    stows into the vessel, and the vessel flies back to where it started."""
+    v = matrix_vessel(fleet, devices, busy)
+    if not v:
+        return [], None, None, "no idle vessel with room in its hold to fetch a matrix"
+    if not spares:
+        return [], None, v, "no spare replicant matrix available"
+    pos = {k: (s or {}).get("position") or {} for k, s in stars.items()}
+    here, reach = star_of(v["location"]), sector_reach(reach)
+    near = [m for m in spares if not beyond_reach(here, star_of(m["_at"]), pos, reach)]
+    if not near:
+        return [], None, v, f"{len(spares)} spare matrix(es), none within the {reach:g} ly supply range"
+    m = min(near, key=lambda m: (_dist(here, star_of(m["_at"]), pos), m["device_code"]))
+    tag, code, vc = fleet_tag(fleet["id"]), m["device_code"], v["device_code"]
+    rem = [t for t in m.get("tags") or [] if t == "spare" or t.startswith(("home:", "to:"))]
+    steps = [step(f"{code} ({MATRIX_TYPE}) joins {fleet['name']}", f"/devices/{code}",
+                  {"configuration": {"add_tags": [tag], **({"remove_tags": rem} if rem else {})}}, method="PATCH")]
+    if m["_at"] != v["location"]:
+        st = step(f"{vc} → {m['_at']} (pick up matrix {code})", f"/devices/{vc}",
+                  {"command": "travel", "destination": m["_at"]}, wait=["travel.arrived"], match={"destination": m["_at"]},
+                  critical=True)
+        st["wait_device"] = vc
+        steps.append(st)
+    if m.get("_from_host"):
+        steps.append(deploy_out_step(m))
+    steps.append(board_step(vc, code, "stow"))
+    if m["_at"] != v["location"]:
+        st = step(f"{vc} → {v['location']} (back with matrix {code})", f"/devices/{vc}",
+                  {"command": "travel", "destination": v["location"]}, wait=["travel.arrived"],
+                  match={"destination": star_of(v["location"])})
+        st["wait_device"] = vc
+        steps.append(st)
+    return steps, m, v, f"{vc} fetches matrix {code} from {m['_at']}"

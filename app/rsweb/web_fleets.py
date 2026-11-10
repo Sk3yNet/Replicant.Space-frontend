@@ -50,8 +50,10 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
     types = sorted({b["device_type"] for b in bps} | {d.get("device_type") for d in st["devices"] if d.get("device_type")})
     jobs = {j["id"]: j for j in await eng.jobs()}
     bp_by = {b["device_type"]: b for b in bps}
+    pickups = await request.app.state.db.kv_get("matrix_pickups", {}) or {}
     for f in shown:
         f["roster"] = fl.roster(f, st["devices"])
+        f["matrix_note"] = (pickups.get(f["id"]) or {}) if f.get("pick_matrix") else {}
         f["points"] = fl.attach_points(f, st["devices"], bp_by, f["roster"]["rows"])
         m = f.get("mission") or {}
         f["job"] = jobs.get(m.get("job"))
@@ -492,6 +494,8 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
             how = await eng.start_relocation(f, old_home, f["home"])
             await eng.log("fleets", f"{f['name']}: new home {f['home']} (was {old_home}) — {how}")
         wants = None
+        if "pick_matrix_set" in form and not form.get("template"):   # a template's fleets follow its box
+            f["pick_matrix"] = bool(form.get("pick_matrix"))
         if "template" in form:
             f["template"] = form.get("template") or None
             if f["template"]:

@@ -4414,6 +4414,7 @@ async def loadouts_save_phases(request: Request, user: str = Depends(current_use
                 except ValueError:
                     pass
         ph["stock"] = stock
+        ph["pick_matrix"] = bool(form.get(f"pick_matrix:{pid}"))   # fleets on it fetch a spare replicant matrix
     new = (form.get("new_phase") or "").strip()
     if new:
         pid = re.sub(r"[^a-z0-9]+", "-", new.lower()).strip("-") or "phase"

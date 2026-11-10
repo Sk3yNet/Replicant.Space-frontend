@@ -439,6 +439,13 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
 - Spares are only gathered to a depot within range.
 - **Supplied from** (Overview): a hub whose autofactories print the fleet's shortfalls and whose carriers bring them, at
   any distance (e.g. a Sol-sector fleet supplied from a home-sector printing hub).
+- **Pick up a spare replicant matrix** (1.370.0, a checkbox per template under *Templates*, or on a custom loadout's
+  fleet card): a fleet with it on and no replicant aboard, at home between missions, sends its idle vessel (heaven,
+  cargo or racing vessel with room in its hold) for the nearest spare filled `replicant_matrix` within the supply range,
+  every 15 minutes with the loadouts rule. Spare means in no fleet, not reserved / ignored / `contract:` / `to:` / `at:`,
+  not in a job or in motion, and loose or in a fleetless matrix container; a matrix in a vessel or hub counts only
+  when the matrix or its host is tagged `spare`. The matrix gets the fleet's tag, is deployed out of its host, stows into
+  the vessel, and the vessel flies back. The card shows the latest result (e.g. "no spare replicant matrix available").
 - **Keep in stock** (a *Stock* column beside *Want* in a fleet's loadout editor, and a second box (+) per type in the
   Templates grid, which the template's fleets follow): that many more of a type are kept as spares at the fleet's home.
   Spare gathering leaves those stock prints at the hub (1.284.1), so they aren't shipped away and printed again.
