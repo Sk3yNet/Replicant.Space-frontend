@@ -2152,8 +2152,22 @@ def reconcile_orders(orders: list[dict], devices: list[dict], now_ts: float) -> 
             groups[o["factory"]].append(o)
             continue
         out.append(o)
+    # factories of one type at one spot share their prints (the virtual queue's feeder, owner 2026-11-03): an order
+    # placed on one may print on a neighbor, so it counts against what the whole group holds (live 2026-11-09: each
+    # system hub ordered on E76D3831 was fed to DA0371E9 or 9D363A2F, its order dropped, and 5 got queued for one)
+    def spot(code: str) -> tuple:
+        d = by[code]
+        return (d.get("location"), d.get("device_type")) if d.get("location") else (code,)
+    pooled: dict[tuple, tuple[Counter, list[int]]] = {}
+    for code, d in by.items():
+        if code and (code in groups or any(spot(f) == spot(code) for f in groups)):
+            have, unknown = queued_counts(d)
+            c, u = pooled.setdefault(spot(code), (Counter(), [0]))
+            c.update(have)
+            u[0] += unknown
     for f, os_ in groups.items():
-        have, unknown = queued_counts(by[f])
+        have, unk = pooled[spot(f)]
+        unknown = unk[0]
         for o in os_:   # oldest first: those print first
             t = o.get("device_type")
             if have[t] > 0:
@@ -2163,5 +2177,6 @@ def reconcile_orders(orders: list[dict], devices: list[dict], now_ts: float) -> 
             else:
                 continue
             out.append(o)
+        unk[0] = unknown
     order = {id(o): i for i, o in enumerate(orders)}
     return sorted(out, key=lambda o: order[id(o)])

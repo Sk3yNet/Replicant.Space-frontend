@@ -4587,6 +4587,20 @@ def test_each_fleet_prints_on_its_own_autofactory():
     assert p["returning"] == []
 
 
+def test_print_orders_count_prints_fed_to_a_neighbor_factory():
+    """Live 2026-11-09: the virtual queue fed system hubs ordered on E76D3831 to its neighbors at ISOLITHOR-BELT-1; the
+    orders were dropped as removed, so loadouts kept ordering another and 5 got queued for a fleet wanting one."""
+    from rsweb import loadouts as lo
+    from datetime import datetime, timezone
+    now = datetime(2026, 11, 10, 0, 0, tzinfo=timezone.utc).timestamp()
+    O = lambda f: {"star": "ISO", "fleet": "hub", "device_type": "system_hub", "factory": f, "at": "2026-11-09T23:00:00+00:00"}  # noqa: E731
+    F = lambda c, loc, q: {"device_code": c, "device_type": "autofactory", "location": loc, "status": "idle",  # noqa: E731
+                           "print_queue": [{"device_type": "system_hub"}] * q}
+    orders = [O("AF1"), O("AF1"), O("AF1")]
+    devices = [F("AF1", "ISO-BELT-1", 0), F("AF2", "ISO-BELT-1", 1), F("AF3", "ISO-BELT-1", 1), F("AF4", "ISO-3-L4", 5)]
+    assert len(lo.reconcile_orders(orders, devices, now)) == 2   # AF2 and AF3 hold two of them; AF4 is elsewhere
+
+
 def test_print_orders_removed_from_a_queue_stop_counting_as_incoming(client):
     """Live 2026-10-07: prints taken off a queue by hand kept counting as incoming for 48 h, so the fleet looked complete
     and nothing could be queued to fill its loadout."""
