@@ -189,10 +189,13 @@ def scanned_bodies(rows: list[Any]) -> list[dict]:
 
 async def life_sources(db) -> tuple[dict[str, dict], list[dict]]:
     """(stored system scans, scanned bodies) for inhabited()."""
-    systems = systems_from_rows(await db.fetchall("SELECT star, data FROM systems"))
-    rows = await db.fetchall("SELECT payload FROM events WHERE event='scan.completed' AND payload LIKE '%life_stage%' "
-                             "ORDER BY seq")
-    return systems, scanned_bodies(rows)
+    from . import season
+    reset = await season.reset_at(db)   # a season reset makes every system unexplored: older finds start over
+    systems = systems_from_rows([r for r in await db.fetchall("SELECT star, data, updated_at FROM systems")
+                                 if not season.before(r["updated_at"], reset)])
+    rows = await db.fetchall("SELECT payload, created_at, received_at FROM events WHERE event='scan.completed' "
+                             "AND payload LIKE '%life_stage%' ORDER BY seq")
+    return systems, scanned_bodies([r for r in rows if not season.before(r["created_at"] or r["received_at"], reset)])
 
 
 def coverage(events: dict[str, dict], devices: list[dict], systems: dict[str, dict],

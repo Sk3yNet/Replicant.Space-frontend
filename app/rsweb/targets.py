@@ -301,10 +301,14 @@ async def _system_resources(db, star: str, inventory: list) -> dict:
     depleted: set[str] = set()
     sites: dict[str, dict] = {}
     salvage: dict[str, dict] = {}
-    rows = await db.fetchall("SELECT event, payload, created_at FROM events WHERE (star=? OR (location >= ? AND location < ?)) "
+    from . import season
+    reset = await season.reset_at(db)   # salvage found before a season reset is gone with it
+    rows = await db.fetchall("SELECT event, payload, created_at, received_at FROM events WHERE (star=? OR (location >= ? AND location < ?)) "
                              "AND +event IN ('site.depleted', 'salvage.depleted', 'salvage.discovered', 'mining.started', "
                              "'mining.retargeted', 'mining.relocated') ORDER BY seq", (star, *_loc_range(star)))   # +event: the star / location indexes, not ix_events_event
     for r in rows:
+        if season.before(r["created_at"] or r["received_at"], reset):
+            continue
         p = json.loads(r["payload"] or "{}")
         if r["event"] in ("site.depleted", "salvage.depleted"):
             depleted.add(p.get("site") or "")

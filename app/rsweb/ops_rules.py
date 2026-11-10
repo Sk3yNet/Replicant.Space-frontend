@@ -365,13 +365,22 @@ class OpsRules:
         reset = await season.reset_at(self.db)
         if not reset:
             return []
+        rec = await self.db.kv_get(season.RESET_KV, {}) or {}
+        out: list[str] = []
+        if not rec.get("cleared"):   # once per reset: last season's contracts and survey marks go
+            for k in season.RESET_CLEARS:
+                await self.db.kv_set(k, {})
+            await self.db.kv_set(season.RESET_KV, {**rec, "cleared": now_iso()})
+            await self.log("season", "new season: last season's contracts (approvals, supply, choices) and body survey "
+                                     "marks are cleared; salvage, life and contracts found before the reset no longer "
+                                     "count, and the auto survey surveys the bodies again", notify=True)
+            out.append("cleared last season's contracts and surveys")
         rows = await self.db.fetchall("SELECT star, updated_at FROM systems")
         fresh = {r["star"] for r in rows if not season.stale(r["updated_at"], reset)}
         fleets = await self.fleets()
         homes = {f["home"] for f in fleets if f.get("home") and f.get("station")}
         devices = await self.devices()
         reps = await self.db.kv_get("replicants", {}) or {}
-        out: list[str] = []
         # a replicant there now: scan it
         here: dict[str, str] = {}
         for code, r in reps.items():

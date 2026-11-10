@@ -54,6 +54,17 @@ def stale(updated_at: str | None, reset: str | None) -> bool:
         return False
 
 
+def before(ts: str | None, reset: str | None) -> bool:
+    """Something dated before the last season reset (nothing known about its date: kept)."""
+    return bool(reset and ts and stale(ts, reset))
+
+
+# what a season reset wipes (game docs: contracts end with the season; systems become unexplored, so body surveys,
+# salvage and life finds start over): kv keys cleared once per reset (season_rescan_pass)
+RESET_CLEARS = ("contract_approvals", "contract_choice", "contracts_done", "contracts_state", "contract_supply",
+                "surveyed", "ami_surveyed", "ami_survey_started", "beacon_wanted")
+
+
 def changed(prev: dict | None, season: dict | None) -> bool:
     """A different season number than the one we knew (nothing known yet is not a change)."""
     a, b = (prev or {}).get("number"), (season or {}).get("number")

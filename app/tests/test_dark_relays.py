@@ -154,3 +154,30 @@ def test_season_reset_makes_old_scans_stale_and_rescans_fleet_homes(client):  # 
     client.portal.call(e.season_rescan_pass)
     assert made[0][0] == "new season rescan: HV → BBB → AAA"   # hub systems first
     assert [s.get("scan_star") for s in made[0][1] if s.get("scan_star")] == ["BBB", "AAA"]
+
+
+def test_a_season_reset_clears_last_seasons_contracts_and_finds(client):  # noqa: F811
+    """Joe 2026-11-10: contracts end with the season (game docs); salvage and life found before the reset are gone."""
+    import json
+    from rsweb import gameevents as gev, season, traffic
+    e = _eng(client)
+    db = e.db
+    for i, (ev, at) in enumerate((("event.discovered", "2026-11-08T10:00:00-05:00"),
+                                  ("event.discovered", "2026-11-09T23:00:00+00:00"))):
+        client.portal.call(db.execute, "INSERT INTO events(id, event, payload, created_at, received_at) VALUES(?,?,?,?,?)",
+                           (f"x{i}", ev, json.dumps({"designation": f"E{i}", "location": "AAA-2"}), at, at))
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("AAA", json.dumps({"planets": []}), "2026-11-01T00:00:00+00:00"))
+    client.portal.call(db.kv_set, "contract_approvals", {"body:AAA-2": True})
+    assert set(client.portal.call(gev.load, db)) == {"E0", "E1"}   # no reset known (season 3)
+    client.portal.call(db.kv_set, season.SEASON_KV, {"number": 4})
+    assert set(client.portal.call(gev.load, db)) == {"E1"}
+    systems, _ = client.portal.call(traffic.life_sources, db)
+    assert "AAA" not in systems
+
+    async def fleets():
+        return []
+    e.fleets, e.log = fleets, _noop
+    client.portal.call(e.season_rescan_pass)
+    assert client.portal.call(db.kv_get, "contract_approvals", None) == {}
+    assert client.portal.call(db.kv_get, season.RESET_KV, None)["cleared"]
