@@ -14,6 +14,13 @@ from .db import now_iso
 log = logging.getLogger("rsweb.auto")
 
 
+def can_scan(d: dict) -> bool:
+    """A device that can run a system scan for the replicant it hosts (heaven, racing and cargo vessels). Matrix
+    containers and hubs host replicants without it. A device with no features listed counts as able."""
+    f = d.get("features")
+    return f is None or "system_scan" in f
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -412,9 +419,16 @@ class OpsRules:
         homes = {f["home"] for f in fleets if f.get("home") and f.get("station")}
         devices = await self.devices()
         reps = await self.db.kv_get("replicants", {}) or {}
-        # a replicant there now: scan it
+        # a replicant there now whose host can scan: scan it. A replicant in a matrix container or a hub can't (live
+        # 2026-11-10: "Device does not have system scan capability" for the survey fleets' containers every pass, and
+        # those three systems took the whole 3-a-pass budget), so its system counts as nobody there.
+        by = {d.get("device_code"): d for d in devices}
+        hosts = {(d.get("hosting_replicant") or {}).get("replicant_code"): d for d in devices if d.get("hosting_replicant")}
         here: dict[str, str] = {}
         for code, r in reps.items():
+            host = by.get(r.get("hosted_device_code")) or hosts.get(code)
+            if host is not None and not can_scan(host):
+                continue
             for s_ in relaynet.replicant_stars({code: r}, devices):
                 here.setdefault(s_, code)
         # hub systems first (Joe 2026-11-10): the printing hubs feed everything else
@@ -440,7 +454,7 @@ class OpsRules:
         ltags = {fl_tag for f in fleets if f.get("role") == "logistics" and not f.get("recall_hold")
                  for fl_tag in [f"fleet:{f['id']}"]}
         cands = [c for c in devices if (c.get("hosting_replicant") or {}).get("replicant_code") and lo.can_surge(c)
-                 and c.get("location") and set(c.get("tags") or []) & ltags and c["device_code"] not in busy
+                 and can_scan(c) and c.get("location") and set(c.get("tags") or []) & ltags and c["device_code"] not in busy
                  and lo._idle(c) and not c.get("stowed_in_device_code") and not c.get("attached_to_device_code")]
         if not cands:
             return out

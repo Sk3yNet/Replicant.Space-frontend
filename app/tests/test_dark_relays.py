@@ -126,7 +126,7 @@ def test_season_reset_makes_old_scans_stale_and_rescans_fleet_homes(client):  # 
     client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
                        ("AAA", "{}", "2026-11-01T00:00:00+00:00"))
     devices = [{"device_code": "HV", "device_type": "heaven_vessel", "location": "HUB-1", "status": "idle",
-                "features": ["surge"], "available_commands": ["travel"],
+                "features": ["surge", "system_scan"], "available_commands": ["travel"],
                 "hosting_replicant": {"replicant_code": "REP"}, "tags": ["fleet:logistics"]}]
     made = []
 
@@ -154,6 +154,26 @@ def test_season_reset_makes_old_scans_stale_and_rescans_fleet_homes(client):  # 
     client.portal.call(e.season_rescan_pass)
     assert made[0][0] == "new season rescan: HV → BBB → AAA"   # hub systems first
     assert [s.get("scan_star") for s in made[0][1] if s.get("scan_star")] == ["BBB", "AAA"]
+
+    # a replicant in a matrix container can't scan (live 2026-11-10): its system gets the scout, it isn't scanned in place
+    sent = []
+
+    async def send(method, path, body, note):
+        sent.append(path)
+        return False, None, "Device does not have system scan capability"
+    devices.append({"device_code": "MC", "device_type": "matrix_container", "location": "AAA-2-L4", "status": "idle",
+                    "features": ["cruise", "cradle"], "hosting_replicant": {"replicant_code": "SURV"}})
+    client.portal.call(db.kv_set, "replicants", {"SURV": {"hosted_device_code": "MC", "location": "AAA-2-L4"}})
+    e.send = send
+    made.clear()
+    client.portal.call(e.season_rescan_pass)
+    assert not sent
+    assert made[0][0] == "new season rescan: HV → BBB → AAA"
+    # a scout needs a host that scans
+    devices[0]["features"] = ["surge"]
+    made.clear()
+    client.portal.call(e.season_rescan_pass)
+    assert not made
 
 
 def test_a_season_reset_clears_last_seasons_contracts_and_finds(client):  # noqa: F811

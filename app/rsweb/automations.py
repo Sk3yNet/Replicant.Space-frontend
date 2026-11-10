@@ -4497,6 +4497,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         if not rep:
             return
         from . import season
+        from .ops_rules import can_scan
+        host = next((d for d in await self.devices() if d.get("device_code") == vessel), None)
+        if host is not None and not can_scan(host):
+            return   # a matrix container or hub can't scan ("Device does not have system scan capability")
         row = await self.db.fetchone("SELECT updated_at FROM systems WHERE star=?", (star,))
         if row and not season.stale(row["updated_at"], await season.reset_at(self.db)):
             return   # scanned since the last season reset (which made every system unexplored again)
