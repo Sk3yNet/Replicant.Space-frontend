@@ -379,6 +379,33 @@ class OpsRules:
                                      "marks are cleared; salvage, life and contracts found before the reset no longer "
                                      "count, and the auto survey surveys the bodies again", notify=True)
             out.append("cleared last season's contracts and surveys")
+        rec = await self.db.kv_get(season.RESET_KV, {}) or {}
+        if not rec.get("tags_cleared"):   # once per reset: system tags of scans from before it go (Joe 2026-11-10)
+            n = 0
+            for r in await self.db.fetchall("SELECT star, data, updated_at FROM systems"):
+                if not season.stale(r["updated_at"], reset):
+                    continue
+                try:
+                    data = json.loads(r["data"] or "{}")
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(data, dict) and data.get("system_tags"):
+                    data["system_tags"] = []
+                    await self.db.execute("UPDATE systems SET data=? WHERE star=?", (json.dumps(data), r["star"]))
+                    n += 1
+            await self.db.kv_set(season.RESET_KV, {**rec, "tags_cleared": now_iso()})
+            if n:
+                await self.log("season", f"new season: system tags wiped in {n} system(s) scanned before the reset "
+                                         "(a rescan tags them again)", notify=True)
+                out.append(f"wiped system tags in {n} systems")
+        rec = await self.db.kv_get(season.RESET_KV, {}) or {}
+        if not rec.get("belts_cleared"):   # once per reset: belt viability starts over (Joe 2026-11-10: belts regenerated)
+            for k in season.RESET_BELT_CLEARS:
+                await self.db.kv_set(k, {})
+            await self.db.kv_set(season.RESET_KV, {**rec, "belts_cleared": now_iso()})
+            await self.log("season", "new season: belt viability records and worked-out marks cleared (belts regenerated)",
+                           notify=True)
+            out.append("cleared belt viability")
         rows = await self.db.fetchall("SELECT star, updated_at FROM systems")
         fresh = {r["star"] for r in rows if not season.stale(r["updated_at"], reset)}
         fleets = await self.fleets()

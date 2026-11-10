@@ -167,8 +167,9 @@ def test_a_season_reset_clears_last_seasons_contracts_and_finds(client):  # noqa
         client.portal.call(db.execute, "INSERT INTO events(id, event, payload, created_at, received_at) VALUES(?,?,?,?,?)",
                            (f"x{i}", ev, json.dumps({"designation": f"E{i}", "location": "AAA-2"}), at, at))
     client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
-                       ("AAA", json.dumps({"planets": []}), "2026-11-01T00:00:00+00:00"))
+                       ("AAA", json.dumps({"planets": [], "system_tags": ["hazardous"]}), "2026-11-01T00:00:00+00:00"))
     client.portal.call(db.kv_set, "contract_approvals", {"body:AAA-2": True})
+    client.portal.call(db.kv_set, "viability", {"AAA-BELT-1": {"verdict": "move"}})
     assert set(client.portal.call(gev.load, db)) == {"E0", "E1"}   # no reset known (season 3)
     client.portal.call(db.kv_set, season.SEASON_KV, {"number": 4})
     assert set(client.portal.call(gev.load, db)) == {"E1"}
@@ -180,4 +181,7 @@ def test_a_season_reset_clears_last_seasons_contracts_and_finds(client):  # noqa
     e.fleets, e.log = fleets, _noop
     client.portal.call(e.season_rescan_pass)
     assert client.portal.call(db.kv_get, "contract_approvals", None) == {}
+    assert client.portal.call(db.kv_get, "viability", None) == {}
     assert client.portal.call(db.kv_get, season.RESET_KV, None)["cleared"]
+    row = client.portal.call(db.fetchone, "SELECT data FROM systems WHERE star='AAA'")
+    assert json.loads(row["data"])["system_tags"] == []   # tags from before the reset wiped

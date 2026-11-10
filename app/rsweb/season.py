@@ -65,6 +65,10 @@ RESET_CLEARS = ("contract_approvals", "contract_choice", "contracts_done", "cont
                 "surveyed", "ami_surveyed", "ami_survey_started", "beacon_wanted")
 
 
+# belts regenerate with the season (live 2026-11-10: one fresh primary site each): what we learned about them goes
+RESET_BELT_CLEARS = ("viability", "exhausted_places")
+
+
 def changed(prev: dict | None, season: dict | None) -> bool:
     """A different season number than the one we knew (nothing known yet is not a change)."""
     a, b = (prev or {}).get("number"), (season or {}).get("number")

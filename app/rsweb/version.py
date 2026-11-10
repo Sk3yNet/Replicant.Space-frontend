@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.363.1"
+VERSION = "1.364.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.364.0", "2026-11-10", "Season reset, part 3 (Joe): system tags from scans made before the reset are wiped once (a rescan tags the system again), and belt viability records and worked-out marks start over, since every belt regenerated."),
     ("1.363.1", "2026-11-10", "A relay order counts as done only once the relay relays: out of reach the game lists a relay out_of_range whether it's on or off, so the 18 relays refused at Oort clouds were logged 'is up' and the rollout then skipped their systems."),
     ("1.363.0", "2026-11-10", "Season reset, part 2 (Joe): contracts end with the season, so last season's contracts drop off Contracts and the contract rule, and their approvals, choices, completions and supply orders are cleared once. Salvage, life and civilizations found before the reset no longer count (the salvage rule won't send a fleet to old salvage), and the body survey marks are cleared so the auto survey surveys bodies again."),
     ("1.362.1", "2026-11-10", "Season reset rescan visits hub systems first (Joe), then the rest nearest first; replicants already in a hub system scan it first."),
