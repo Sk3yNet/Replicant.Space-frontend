@@ -250,7 +250,7 @@ RULES_BY_ID = {r.id: r for r in RULES}
 
 # heavy passes run every n-th tick, each on its own tick (stage: (n, offset)): each held the server 3–7 s of CPU every
 # minute (snapshot 2026-10-26, 1.271.1); their own cooldowns are in minutes, so a pass every 3 min loses nothing
-SPREAD = {"station_swap_pass": (5, 3), "dark_relay_pass": (5, 4), "rule_salvage": (3, 0), "rule_restart_idle_miners": (3, 1), "rule_reopen_sites": (3, 2)}
+SPREAD = {"station_swap_pass": (5, 3), "dark_relay_pass": (5, 4), "season_rescan_pass": (5, 2), "rule_salvage": (3, 0), "rule_restart_idle_miners": (3, 1), "rule_reopen_sites": (3, 2)}
 STEP_TIMEOUT = 3600          # waiting for travel/scan to finish
 TRIP_GRACE_S = 1800          # past a trip's ETA, a wait (or a refused step) keeps going this long before giving up
 NO_ETA_EXTRA_S = 3600        # still moving and no ETA known: this much longer, once
@@ -1010,6 +1010,11 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         st["hub_via"] = None
                         ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
             st["response"] = resp if isinstance(resp, (dict, list)) else None
+            if ok and st.get("scan_star") and isinstance(resp, dict) and resp.get("planets") is not None:
+                # a system scan a job made (a season rescan): kept like the arrival rule's, entry point to the catalog
+                await self.db.execute("INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                                      (st["scan_star"], json.dumps(resp), now_iso()))
+                await self.note_entry_point(st["scan_star"], resp.get("entry_point"))
             if ok and job["rule"] == "chain" and self.worker:   # a chain you started: its devices refreshed right away
                 self.worker.after_order(st["path"], st["body"], resp)
             if ok and isinstance(resp, dict):
@@ -2143,7 +2148,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "run_fleets", "auto_deals_pass", "contract_supply_pass", "logistics_pass", "component_pass", "fill_fleets", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_repeats", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass",
-                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "dark_relay_pass", "station_swap_pass", "news_pass", "station_jobs_pass", "sim_pass", "prospector_pass", "stock_pass", "vqueue_pass", "chatter_pass"):
+                          "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "dark_relay_pass", "season_rescan_pass", "station_swap_pass", "news_pass", "station_jobs_pass", "sim_pass", "prospector_pass", "stock_pass", "vqueue_pass", "chatter_pass"):
                 every, at = SPREAD.get(stage, (1, 0))
                 if self.tick_n and self.tick_n % every != at:
                     continue   # a heavy pass that runs every few ticks, on a tick of its own (all run on the first)
@@ -4491,8 +4496,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         rep = await self.replicant_for_host(vessel)
         if not rep:
             return
-        if await self.db.fetchone("SELECT 1 FROM systems WHERE star=?", (star,)):
-            return
+        from . import season
+        row = await self.db.fetchone("SELECT updated_at FROM systems WHERE star=?", (star,))
+        if row and not season.stale(row["updated_at"], await season.reset_at(self.db)):
+            return   # scanned since the last season reset (which made every system unexplored again)
         if (await self.settings())["dry_run"]:
             await self.log("scan_on_arrival", f"[dry run] would scan {star} with {rep[1].get('name') or rep[0]}")
             return
@@ -4501,8 +4508,20 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             await self.db.execute("INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
                                   (star, json.dumps(resp), now_iso()))
             await self.log("scan_on_arrival", f"scanned {star}: {len(resp.get('planets') or [])} planets")
+            await self.note_entry_point(star, resp.get("entry_point"))
         else:
             await self.log("scan_on_arrival", f"scan of {star} failed: {err}", "alert")
+
+    async def note_entry_point(self, star: str, entry: str | None) -> None:
+        """A scan names the system's entry point: the catalog takes it (a census keeps an old one it lacks, and after a
+        season reset the game names none until a scan)."""
+        if not entry:
+            return
+        cat = await self.db.kv_get("stars", {}) or {}
+        hit = next((x for x in cat.get("stars") or [] if isinstance(x, dict) and x.get("designation") == star), None)
+        if hit is not None and (hit.get("entry_point") != entry or not hit.get("explored")):
+            hit["entry_point"], hit["explored"] = entry, True
+            await self.db.kv_set("stars", cat)
 
     async def rule_devices_on_arrival(self, vessel: str, star: str) -> None:
         from . import others, traffic as tr

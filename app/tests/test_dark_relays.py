@@ -112,3 +112,41 @@ def test_mining_rigs_away_from_their_controller_belt_are_brought_back():
     assert sv.scattered(ctrl, devs) == ["G0", "G1", "G2"]
     p = sv.back_to_belt_plan([ctrl], devs, {}, {"MUR-BELT-1": 1}, {"MUR": ["MUR-BELT-1"]}, set())
     assert p and p[0]["away"] == ["G0", "G1", "G2"] and p[0]["belt"] == "MUR-BELT-1"
+
+
+def test_season_reset_makes_old_scans_stale_and_rescans_fleet_homes(client):  # noqa: F811
+    """Season 4 reset every system to unexplored (live 2026-11-10: FENIRON unexplored, no entry point)."""
+    from rsweb import season
+    e = _eng(client)
+    db = e.db
+    assert season.stale("2026-11-09T19:00:00+00:00", season.SEASON_4_START)
+    assert not season.stale("2026-11-09T21:00:00+00:00", season.SEASON_4_START)
+    client.portal.call(db.kv_set, season.SEASON_KV, {"number": 4})
+    assert client.portal.call(season.reset_at, db) == season.SEASON_4_START
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("AAA", "{}", "2026-11-01T00:00:00+00:00"))
+    devices = [{"device_code": "HV", "device_type": "heaven_vessel", "location": "HUB-1", "status": "idle",
+                "features": ["surge"], "available_commands": ["travel"],
+                "hosting_replicant": {"replicant_code": "REP"}, "tags": ["fleet:logistics"]}]
+    made = []
+
+    async def devs():
+        return devices
+
+    async def jobs():
+        return []
+
+    async def fleets():
+        return [{"id": "logistics", "role": "logistics"}, {"id": "m", "role": "mining", "home": "AAA", "station": True},
+                {"id": "n", "role": "mining", "home": "BBB", "station": True}]
+
+    async def create_job(rule, title, device, steps, meta=None, force=False):
+        made.append((title, steps))
+        return {"id": "j"}
+    e.devices, e.jobs, e.fleets, e.create_job, e.log = devs, jobs, fleets, create_job, _noop
+    client.portal.call(db.kv_set, "replicants", {})
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": s, "position": {"x": x, "y": 0, "z": 0}}
+                                                     for s, x in (("HUB", 0), ("AAA", 5), ("BBB", 9))]})
+    client.portal.call(e.season_rescan_pass)
+    assert made and made[0][0] == "new season rescan: HV → AAA → BBB"
+    assert [s.get("scan_star") for s in made[0][1] if s.get("scan_star")] == ["AAA", "BBB"]

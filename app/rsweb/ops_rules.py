@@ -5,6 +5,7 @@ Mixed into AutomationEngine (automations.py), so `self` has db, api, hub, worker
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -349,6 +350,87 @@ class OpsRules:
             await self.log("wards", f"{title} (each moved to an L4/L5 point and switched on)", notify=True)
             return [title]
         return []
+
+    async def season_rescan_pass(self) -> list[str]:
+        """After a season reset (Season 4, live 2026-11-10: every system unexplored again, the entry points gone, belts
+        regenerated with one primary site) our scans are stale. A system with a replicant of yours in it is rescanned
+        right away (up to 3 a pass); fleet homes with none get a scout trip by a free logistics vessel hosting a
+        replicant, nearest first (up to WAKE_STOPS a trip, one trip at a time), scanning each on arrival. A scan
+        explores the system again: arrivals land at its entry point, and the belt and its sites are known."""
+        from . import loadouts as lo
+        from . import relaynet
+        from . import season
+        from .automations import step
+        from .shapes import normalize_blueprints
+        reset = await season.reset_at(self.db)
+        if not reset:
+            return []
+        rows = await self.db.fetchall("SELECT star, updated_at FROM systems")
+        fresh = {r["star"] for r in rows if not season.stale(r["updated_at"], reset)}
+        fleets = await self.fleets()
+        homes = {f["home"] for f in fleets if f.get("home") and f.get("station")}
+        devices = await self.devices()
+        reps = await self.db.kv_get("replicants", {}) or {}
+        out: list[str] = []
+        # a replicant there now: scan it
+        here: dict[str, str] = {}
+        for code, r in reps.items():
+            for s_ in relaynet.replicant_stars({code: r}, devices):
+                here.setdefault(s_, code)
+        for star in sorted(s_ for s_ in here if s_ not in fresh)[:3]:
+            ok, resp, err = await self.send("POST", f"/replicants/{here[star]}/scan", {}, f"auto: rescan {star} (new season)")
+            if ok and isinstance(resp, dict) and resp.get("planets") is not None:
+                await self.db.execute("INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                                      (star, json.dumps(resp), now_iso()))
+                await self.note_entry_point(star, resp.get("entry_point"))
+                fresh.add(star)
+                out.append(f"rescanned {star}")
+        if out:
+            await self.log("season", f"new season: {', '.join(out)}")
+        # fleet homes with nobody there: one scout trip at a time
+        todo = sorted(h for h in homes if h not in fresh and h not in here)
+        jobs = await self.jobs()
+        if not todo or any((j.get("meta") or {}).get("rescan") for j in jobs if j["status"] in ("running", "waiting")):
+            return out
+        busy = self.busy_devices(jobs)
+        pos = await relaynet.star_pos(self.db)
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        ltags = {fl_tag for f in fleets if f.get("role") == "logistics" and not f.get("recall_hold")
+                 for fl_tag in [f"fleet:{f['id']}"]}
+        cands = [c for c in devices if (c.get("hosting_replicant") or {}).get("replicant_code") and lo.can_surge(c)
+                 and c.get("location") and set(c.get("tags") or []) & ltags and c["device_code"] not in busy
+                 and lo._idle(c) and not c.get("stowed_in_device_code") and not c.get("attached_to_device_code")]
+        if not cands:
+            return out
+        c = min(cands, key=lambda x: (min(lo._dist(lo.star_of(x.get("location")), h, pos) for h in todo), x["device_code"]))
+        carrier, rep, home = c["device_code"], c["hosting_replicant"]["replicant_code"], c["location"]
+        route, cur, left = [], lo.star_of(home), set(todo)
+        while left and len(route) < WAKE_STOPS:
+            nxt = min(left, key=lambda x: (lo._dist(cur, x, pos), x))
+            if lo._dist(cur, nxt, pos) >= 1e9:
+                break   # no position known
+            left.discard(nxt)
+            route.append(nxt)
+            cur = nxt
+        if not route:
+            return out
+        steps: list[dict] = []
+        for star in route:
+            st = step(f"{carrier} → {star} (rescan for the new season)", f"/replicants/{rep}/travel", {"destination": star},
+                      wait=["travel.arrived"], match={"destination": star}, critical=True)
+            st["wait_device"] = carrier
+            sc = step(f"scan {star} by {rep}", f"/replicants/{rep}/scan", {})
+            sc["scan_star"] = star
+            steps += [st, sc]
+        st = step(f"{carrier} → {home} (back)", f"/replicants/{rep}/travel", {"destination": home},
+                  wait=["travel.arrived"], match={"destination": home}, critical=True)
+        st["wait_device"] = carrier
+        steps.append(st)
+        title = f"new season rescan: {carrier} → {' → '.join(route)}"
+        if await self.create_job("scan_on_arrival", title, carrier, steps, {"devices": [], "rescan": True}):
+            await self.log("season", f"{title} (fleet homes unexplored since the season reset)", notify=True)
+            out.append(title)
+        return out
 
     async def relay_prints_paused(self) -> bool:
         from . import relayroll as rr

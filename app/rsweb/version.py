@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.361.1"
+VERSION = "1.362.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.362.0", "2026-11-10", "Season reset rescan (Joe): Season 4 made every system unexplored again (FENIRON, a fleet home, listed with no entry point), so scans from before a season change count as stale. A system with a replicant in it is rescanned right away, the arrival scan runs again in systems scanned before the reset, and fleet homes with no replicant get a scout trip by a free logistics vessel hosting a replicant, nearest first, up to 10 per trip, scanning each. A scan puts the system's entry point in the catalog, so arrivals land there again."),
     ("1.361.1", "2026-11-10", "Miners after the Season 4 time skip (Joe): mining rigs left away from their controller's belt are now brought back like drones (Miner_2, Miner_4 and Miner_5 had their rigs idle at L4 points while the controller sat at the regenerated belt, and only drones were counted). A controller whose salvage is used up ('depleted:recalling') gets its next salvage instead of being left alone as still on salvage (Miner_1, 7, 8 and 10 sat paused for days)."),
     ("1.361.0", "2026-11-10", "Season 4 snapshot fixes. Game v4.0.0 switches an FTL relay on only at an L4/L5 point: relay runs now fly to the system's entry point (or another L4/L5 point, scanning a new system first) before each drop, also in jobs already running, and stop with the replicant still there if the relay is refused. Before, two runs left 18 relays dark at Oort clouds and Kuiper belts. Those, and any relay out of reach in a system with none switched on, are woken: a free logistics vessel with a replicant visits them nearest first, stows each, takes it to an L4/L5 point and switches it on. A device pinned (at:) to a system object that is gone loses the pin instead of being refused every pass (3 propulsors for SOLARES-OBJ-6)."),
     ("1.360.1", "2026-11-09", "Jobs: the game shows a station's job board only to a replicant at the station (Joe, live: 400 No replicant at New Havana Station), so boards are read only where a replicant of yours is. Elsewhere the last board read stays, marked with its age, and the Stations card says how many jobs are posted and where to send a replicant."),

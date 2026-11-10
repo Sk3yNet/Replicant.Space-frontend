@@ -1102,6 +1102,8 @@ class Worker:
         # a scheduled outage's hold lifts itself: a new season turns it into one only you lift
         if season.changed(prev, now) and (not hold or hold.get("window")):
             await self.db.kv_set(season.HOLD_KV, {"since": now_iso(), "from": prev, "to": now, "by": "season change"})
+        if season.changed(prev, now):   # systems are unexplored again: scans from before are stale (season_rescan_pass)
+            await self.db.kv_set(season.RESET_KV, {"at": now_iso(), "number": now.get("number")})
             await self.automations.log("season", f"New season: {season.label(prev)} → {season.label(now)}. Automations "
                                                  "are paused until you resume them (Dashboard › Story); the copy from "
                                                  "before the change is kept.", "error", notify=True)

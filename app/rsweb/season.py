@@ -21,6 +21,39 @@ DEVICE_KEYS = ("device_type", "location", "status", "tags", "replicant_code", "s
                "attached_to_device_code", "ami_directive", "ami_directive_status", "directive")
 
 
+RESET_KV = "season_reset"
+# Season 4 (game v4.0.0) began with the scheduled outage of 2026-11-09 20:00 UTC; it reset every system to unexplored
+# (live 2026-11-10: the census listed FENIRON, a fleet home scanned many times, as unexplored with no entry point)
+SEASON_4_START = "2026-11-09T20:00:00+00:00"
+
+
+async def reset_at(db: Any) -> str | None:
+    """When the galaxy was last reset by a season change: scans and surveys from before then are stale. Recorded by
+    the season check; for the season 4 change, which came before that, its start."""
+    rec = await db.kv_get(RESET_KV, None)
+    if isinstance(rec, dict) and rec.get("at"):
+        return str(rec["at"])
+    cur = await db.kv_get(SEASON_KV, None) or {}
+    if cur.get("number") == 4:
+        await db.kv_set(RESET_KV, {"at": SEASON_4_START, "number": 4})
+        return SEASON_4_START
+    return None
+
+
+def stale(updated_at: str | None, reset: str | None) -> bool:
+    """A scan read before the last season reset (or never)."""
+    if not updated_at:
+        return True
+    if not reset:
+        return False
+    try:
+        a, b = datetime.fromisoformat(str(updated_at)), datetime.fromisoformat(str(reset))
+        a = a if a.tzinfo else a.replace(tzinfo=timezone.utc)
+        return a < b
+    except ValueError:
+        return False
+
+
 def changed(prev: dict | None, season: dict | None) -> bool:
     """A different season number than the one we knew (nothing known yet is not a change)."""
     a, b = (prev or {}).get("number"), (season or {}).get("number")
