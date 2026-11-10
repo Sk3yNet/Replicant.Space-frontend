@@ -327,6 +327,15 @@ def field_applies(sugg: dict, f: Field, self_code: str | None) -> bool:
     return has.get(kind, False) == (want == "has")
 
 
+def _cradle_for_me(flt: dict, d: dict, sugg: dict, self_code: str | None) -> bool:
+    """Stow into on a replicant matrix: `d` is a matrix container with an empty cradle."""
+    if flt.get("carrier") != "board":
+        return False
+    from .fleets import cradle_free, is_matrix
+    me = next((x for x in sugg.get("devices") or [] if x.get("device_code") == self_code), {})
+    return is_matrix(me) and cradle_free(d, sugg.get("devices")) > 0
+
+
 def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
     """Devices for a device/devices field: same location first, filtered by the field's filter."""
     here = sugg.get("here")
@@ -354,13 +363,13 @@ def device_options(sugg: dict, f: Field, self_code: str | None) -> list[dict]:
         if flt.get("stowed_in_self") and d.get("stowed_in_device_code") != self_code:
             continue
         if flt.get("here") and (not here or d.get("location") != here or d.get("stowed_in_device_code")
-                                or d.get("attached_to_device_code")):
-            continue
+                                or (d.get("attached_to_device_code") and not _cradle_for_me(flt, d, sugg, self_code))):
+            continue   # a matrix may still go into a container riding on a carrier here
         how = ""
         if flt.get("carrier") == "board":   # stow into: a free hold slot, else free attach points, up the chain
-            from .fleets import attachable, cargo_carrier, stowable
+            from .fleets import attachable, cargo_carrier, is_matrix, stowable
             me = me or next((x for x in sugg["devices"] if x.get("device_code") == self_code), {})
-            cc = cargo_carrier(d, sugg["devices"], stowable(me), attachable(me))
+            cc = cargo_carrier(d, sugg["devices"], stowable(me), attachable(me), is_matrix(me))
             if not cc:
                 continue
             how = f" · {cc['mode']}" + (f" on {cc['carrier']['device_code']}" if cc["carrier"] is not d else "") + \

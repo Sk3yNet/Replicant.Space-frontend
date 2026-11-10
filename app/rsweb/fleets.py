@@ -214,12 +214,32 @@ def tug(d: dict, devices: list[dict]) -> dict:
         d = by[up]
 
 
-def cargo_carrier(d: dict, devices: list[dict], stowable_: bool = True, attachable_: bool = True) -> dict | None:
+def is_matrix(d: dict) -> bool:
+    return (d.get("device_type") or "") == "replicant_matrix"
+
+
+def cradle_free(c: dict, devices: list[dict] | None = None) -> int:
+    """Free cradle slots on a matrix container (its stow_capacity, 1 when unreported): room for a replicant matrix."""
+    if (c.get("device_type") or "") not in CRADLE_TYPES:
+        return 0
+    inside = len(c.get("stowed_devices") or []) or _int(c.get("stow_used"))
+    if c.get("hosting_replicant"):
+        inside = max(inside, 1)
+    if devices is not None:
+        inside = max(inside, sum(1 for d in devices if d.get("stowed_in_device_code") == c.get("device_code")))
+    return max(0, (_int(c.get("stow_capacity")) or 1) - inside)
+
+
+def cargo_carrier(d: dict, devices: list[dict], stowable_: bool = True, attachable_: bool = True,
+                  matrix: bool = False) -> dict | None:
     """Where cargo handed to `d` really rides: its own free hold slots (when the cargo stows), else its own free attach
     points, else, for a device riding on another (a matrix container whose only slot is its cradle, attached to a surge
     platform), that one's, up the chain. {"carrier": device that takes the cargo, "mode": "stow" | "attach", "free": n,
-    "flies": device that travels (tug)} or None when nothing in the chain has room."""
+    "flies": device that travels (tug)} or None when nothing in the chain has room. A replicant matrix (`matrix`) goes
+    into a matrix container's empty cradle: that is all a container is for."""
     by = {x.get("device_code"): x for x in devices}
+    if matrix and cradle_free(d, devices):
+        return {"carrier": d, "mode": "stow", "free": cradle_free(d, devices), "flies": tug(d, devices)}
     c, seen = d, set()
     while c and c.get("device_code") not in seen:
         seen.add(c.get("device_code"))

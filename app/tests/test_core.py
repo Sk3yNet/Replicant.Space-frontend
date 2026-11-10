@@ -9761,6 +9761,27 @@ def test_stow_into_offers_attach_carriers():
     assert set(opts) == {"PL", "CV"} and "attach (4 free)" in opts["PL"] and "stow (50 free)" in opts["CV"]
 
 
+def test_stow_into_offers_matrix_containers_for_a_matrix():
+    """A replicant matrix's Stow into lists matrix containers with an empty cradle, loose or riding on a carrier here;
+    full ones are left out, and other cargo never sees a cradle."""
+    devs = [{"device_code": "MX", "device_type": "replicant_matrix", "location": "X-BELT-1", "features": ["stow"]},
+            {"device_code": "C1", "device_type": "matrix_container", "location": "X-BELT-1", "features": ["cruise", "cradle"],
+             "stow_capacity": 1},
+            {"device_code": "C2", "device_type": "matrix_container", "location": "X-BELT-1", "features": ["cruise", "cradle"],
+             "stow_capacity": 1, "attached_to_device_code": "PL"},
+            {"device_code": "C3", "device_type": "matrix_container", "location": "X-BELT-1", "features": ["cruise", "cradle"],
+             "stow_capacity": 1, "stow_used": 1, "hosting_replicant": {"replicant_code": "R1"}},
+            {"device_code": "PL", "device_type": "surge_platform", "location": "X-BELT-1", "attach_capacity": 4,
+             "attach_used": 1},
+            {"device_code": "ME", "device_type": "mining_drone", "location": "X-BELT-1", "features": ["stow"]}]
+    from rsweb import commands as c
+    f = c.COMMANDS["stow"][0]
+    opts = {o["value"]: o["label"] for o in c.device_options({"devices": devs, "here": "X-BELT-1"}, f, "MX")}
+    assert {"C1", "C2"} <= set(opts) and "C3" not in opts and "stow (1 free)" in opts["C1"]
+    opts = {o["value"] for o in c.device_options({"devices": devs, "here": "X-BELT-1"}, f, "ME")}
+    assert not opts & {"C1", "C2", "C3"}
+
+
 def test_stow_into_attach_carrier_sends_attach(client):
     # survey drone D8C2A140 and surge plate SP000001 are both at SOL-3: the plate has no hold, so it attaches the drone
     r = client.post("/devices/D8C2A140/command", data={"command": "stow", "f.target": "SP000001"}, headers=HX)
