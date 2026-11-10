@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.363.0"
+VERSION = "1.363.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.363.1", "2026-11-10", "A relay order counts as done only once the relay relays: out of reach the game lists a relay out_of_range whether it's on or off, so the 18 relays refused at Oort clouds were logged 'is up' and the rollout then skipped their systems."),
     ("1.363.0", "2026-11-10", "Season reset, part 2 (Joe): contracts end with the season, so last season's contracts drop off Contracts and the contract rule, and their approvals, choices, completions and supply orders are cleared once. Salvage, life and civilizations found before the reset no longer count (the salvage rule won't send a fleet to old salvage), and the body survey marks are cleared so the auto survey surveys bodies again."),
     ("1.362.1", "2026-11-10", "Season reset rescan visits hub systems first (Joe), then the rest nearest first; replicants already in a hub system scan it first."),
     ("1.362.0", "2026-11-10", "Season reset rescan (Joe): Season 4 made every system unexplored again (FENIRON, a fleet home, listed with no entry point), so scans from before a season change count as stale. A system with a replicant in it is rescanned right away, the arrival scan runs again in systems scanned before the reset, and fleet homes with no replicant get a scout trip by a free logistics vessel hosting a replicant, nearest first, up to 10 per trip, scanning each. A scan puts the system's entry point in the catalog, so arrivals land there again."),

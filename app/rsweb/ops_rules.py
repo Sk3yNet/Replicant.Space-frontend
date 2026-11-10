@@ -227,7 +227,11 @@ class OpsRules:
                             changed = True
                             out.append(f"{star}: {msg}")
                         continue
-                if here and wh.active(here) and not civ:
+                # a relay counts as up only once it relays: out of reach the game lists one `out_of_range` whether
+                # it's on or not (live 2026-11-09: 18 relays refused at Oort clouds were logged "is up" and the
+                # rollout then skipped their systems)
+                if (here and wh.active(here) and not civ
+                        and (kind not in wo.RELAY_KINDS or str(here.get("status") or "").startswith("relaying"))):
                     orders.pop(star)
                     changed = True
                     out.append(f"{star}: {label} {here['device_code']} is up")
