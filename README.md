@@ -39,7 +39,7 @@ and codes).
 
 Six tabs, each with sub-tabs; every page keeps its own URL. Or the **command screen** (Account › Command screen, or
 `/bridge`; chosen per browser): the galaxy map fills the screen, an icon rail replaces the tabs, an outliner lists what
-needs you, your fleets, replicants and running automations, and each page opens as a window over the map without
+needs you, your fleets, replicants and running automations (collapse it to a slim edge tab with ›), and each page opens as a window over the map without
 reloading the screen. It is black with steel window frames and an accent color you pick; on a phone the rail is a bottom
 bar and the outliner a pull-up sheet. Account, Diagnostics and Console are in the menu under your
 name. Each rule's settings are on the page it works on, in a collapsed *Rules* panel. Everything below is described in

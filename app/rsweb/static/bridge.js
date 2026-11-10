@@ -148,10 +148,13 @@
     if (store("bridge:max") === "1") w.classList.add("max");
     $("win-max").addEventListener("click", () => { w.classList.toggle("max"); store("bridge:max", w.classList.contains("max") ? "1" : "0"); });
     if (store("bridge:ol") === "0") html.classList.add("ol-hidden");
-    $("outliner-toggle").addEventListener("click", () => {
+    const toggleOl = () => {
       if (matchMedia("(max-width: 800px)").matches) html.classList.toggle("ol-open");
       else { html.classList.toggle("ol-hidden"); store("bridge:ol", html.classList.contains("ol-hidden") ? "0" : "1"); }
-    });
+    };
+    $("outliner-toggle").addEventListener("click", toggleOl);
+    // the collapse button in the outliner's head (redrawn with it) and the tab left on the edge when collapsed
+    document.addEventListener("click", e => { if (e.target.closest(".ol-collapse")) toggleOl(); });
     document.addEventListener("keydown", e => {
       if (e.key === "Escape" && !e.target.closest("input, textarea, select")) {
         if (html.classList.contains("ol-open")) html.classList.remove("ol-open");

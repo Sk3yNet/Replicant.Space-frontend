@@ -1,6 +1,6 @@
 {# The command screen's outliner: what needs you, fleets, replicants (GET /bridge/outliner, redrawn on live changes). #}
 <div class="in">
-  <div class="ol-head plate">OUTLINER <span class="muted small">{{ replicants | length }} replicants · {{ n_devices }} devices</span></div>
+  <div class="ol-head plate">OUTLINER <span class="muted small">{{ replicants | length }} replicants · {{ n_devices }} devices</span><button type="button" class="ghost ol-collapse" aria-label="Collapse the outliner" title="Collapse the outliner">›</button></div>
   <details class="ol-group" data-key="needs" open><summary class="{{ 'hot' if needs }}">Needs you{% if needs %} ({{ needs_total }}){% endif %}</summary>
     {% for n in needs %}<a class="ol-row" href="{{ n.link or '/notifications' }}" title="{{ n.body or '' }}"><span class="clip">{{ n.title }}</span><span class="muted small">{{ n.created_at | ago }}</span></a>{% endfor %}
     {% if not needs %}<p class="ol-row muted small">Nothing waiting.</p>{% endif %}

@@ -68,13 +68,20 @@ html.bridge .fly a.on { color: var(--accent-hi); box-shadow: inset 2px 0 0 var(-
 #backdrop { position: fixed; top: var(--bar); left: var(--rail); right: 0; bottom: 0; z-index: 0; }
 html.bridge #map { height: 100%; min-height: 0; border: 0; border-radius: 0; background: #000; }
 html.bridge #map-panel { z-index: 5; right: calc(var(--ol) + 24px); background: rgba(12,12,13,.92); border-color: #4b4e53; }
-html.bridge.ol-hidden #map-panel { right: 10px; }
+html.bridge.ol-hidden #map-panel { right: 36px; }
 html.bridge #map-tools { max-width: calc(100% - var(--ol) - 380px); }
 
 /* the outliner */
 #outliner { position: fixed; top: calc(var(--bar) + var(--gap)); right: var(--gap); bottom: var(--gap); width: var(--ol); z-index: 20; display: flex; }
 #outliner > .in { flex: 1; overflow: auto; min-height: 0; }
 html.ol-hidden #outliner { display: none; }
+/* collapsed, the outliner leaves a slim tab on the right edge that brings it back */
+#ol-tab { display: none; position: fixed; top: calc(var(--bar) + var(--gap)); right: 0; z-index: 20; width: 26px; padding: 12px 0;
+  border-radius: 3px 0 0 3px; cursor: pointer; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .14em; }
+#ol-tab span { writing-mode: vertical-rl; }
+#ol-tab:hover { color: var(--accent-hi); }
+html.ol-hidden #ol-tab { display: block; }
+.ol-head .ol-collapse { margin-left: auto; padding: 0 6px; font-size: 18px; line-height: 1; }
 .ol-head { padding: 10px 14px; font-size: 12px; font-weight: 600; letter-spacing: .14em; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
 .ol-head .small { letter-spacing: 0; font-weight: 400; }
 .ol-group > summary { padding: 10px 14px 6px; font-weight: 600; cursor: pointer; list-style: none; }
@@ -124,6 +131,7 @@ html.bridge .toast { border-radius: 3px; border-left-color: var(--accent); backg
   #backdrop { bottom: 60px; }
   #outliner { display: none; top: auto; left: var(--gap); right: var(--gap); bottom: 66px; height: 62vh; width: auto; z-index: 35; }
   html.ol-open #outliner { display: flex; }
+  html.ol-hidden #ol-tab { display: none; }
   html.bridge #map-panel { position: absolute; top: 8px; right: 8px; width: min(320px, 88vw); max-height: 45%; }
   html.bridge #map-tools { max-width: 60%; }
   #win, html.ol-hidden #win, #win.max { left: var(--gap); right: var(--gap); width: auto; top: calc(var(--bar) + var(--gap)); bottom: 66px; }

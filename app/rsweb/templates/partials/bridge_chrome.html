@@ -41,5 +41,6 @@
 <aside id="outliner" class="metal" aria-label="Outliner" hx-get="/bridge/outliner" hx-trigger="load, sse:state throttle:20s" hx-swap="innerHTML">
   <div class="in"><p class="muted small">…</p></div>
 </aside>
+<button type="button" id="ol-tab" class="metal ol-collapse" aria-label="Expand the outliner" aria-controls="outliner" title="Expand the outliner"><span>‹ OUTLINER</span></button>
 <div id="backdrop">{% include "partials/map_body.html" %}</div>
 <script type="module" src="/static/map.js?v={{ APP_VERSION }}"></script>
