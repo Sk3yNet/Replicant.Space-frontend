@@ -93,6 +93,9 @@ def drone_steps(code: str, loc: str | None, sal: dict) -> list[dict]:
 # `exhausted:[...]:<body>` forever — even after survey drones re-opened sites on the belt. Nothing moved them back.
 # "depleted:recalling": the salvage ran out and the controller called its drones back (live 2026-10-22, 84EE1EF1: its 8
 # drones sat recall_waiting at AEMEROTH-5-L4, none mining)
+# mining rigs too (live 2026-11-10: Miner_2 and Miner_4 had their 8 rigs idle at an L4 point while the controller sat at
+# the belt, and only drones were brought back)
+MINERS = ("mining_drone", "mining_rig")
 FINISHED_STATES = ("exhausted", "done", "complete", "no_targets", "idle:no_sources", "depleted")
 
 
@@ -174,7 +177,7 @@ def scattered(c: dict, devices: list[dict], managed: dict[str, str] | None = Non
     for d in devices:
         if d.get("controller_device_code"):
             run_by[d["device_code"]] = d["controller_device_code"]
-    kids = [d for d in devices if run_by.get(d.get("device_code")) == code and d.get("device_type") == "mining_drone"]
+    kids = [d for d in devices if run_by.get(d.get("device_code")) == code and d.get("device_type") in MINERS]
     if any(str(d.get("status") or "").startswith("mining") for d in kids):
         return []
     return sorted(d["device_code"] for d in kids if d.get("location") and not (d["location"] or "").startswith(belt)
@@ -222,7 +225,7 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
                 belt = sorted(system_belts[star])[0]
         if not belt:
             continue
-        kids = [k for k, v in run_by.items() if v == code and (by.get(k) or {}).get("device_type") == "mining_drone"]
+        kids = [k for k, v in run_by.items() if v == code and (by.get(k) or {}).get("device_type") in MINERS]
         if any(str((by.get(k) or {}).get("status") or "").startswith("mining") for k in kids):
             continue  # partly exhausted (some resources) but its drones are mining the rest: leave it alone
         away = sorted(k for k in kids if (by.get(k) or {}).get("location") and by[k]["location"] != belt
@@ -232,7 +235,7 @@ def back_to_belt_plan(ctrls: list[dict], devices: list[dict], managed: dict[str,
         gone = [k for k in away if by[k]["location"].split("-")[0] != star]
         away = [k for k in away if k not in gone]
         strays = sorted(d["device_code"] for d in devices
-                        if d.get("device_code") in (free or set()) and d.get("device_type") == "mining_drone"
+                        if d.get("device_code") in (free or set()) and d.get("device_type") in MINERS
                         and (d.get("location") or "").split("-")[0] == star and d["device_code"] not in run_by
                         and str(d.get("status") or "").startswith("idle"))
         why = (f"parked at {c.get('location')}, away from the belt" if is_parked and not place else

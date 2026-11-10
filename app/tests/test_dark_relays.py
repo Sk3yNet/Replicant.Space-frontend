@@ -99,3 +99,16 @@ def test_dark_relays_get_a_wake_trip(client):  # noqa: F811
     assert "stow DR1 in HV" in descs and "activate DR2" in descs and descs[-1] == "HV → HUB-1 (back)"
     assert [s["to_entry"] for s in steps if s.get("to_entry")] == ["AAA", "BBB"]
     assert [s["meet"] for s in steps if s.get("meet")] == ["DR1", "DR1", "DR2", "DR2"]
+
+
+def test_mining_rigs_away_from_their_controller_belt_are_brought_back():
+    """Live 2026-11-10: Miner_4's 8 rigs idle at MURKEB-4-L4, its controller at MURKEB-BELT-1; only drones counted."""
+    from rsweb import salvage as sv
+    ctrl = {"device_code": "C1", "device_type": "ami_mining_controller", "location": "MUR-BELT-1", "status": "coordinating",
+            "ami_directive": {"name": "gather_evenly", "config": {}}, "ami_directive_status": "active"}
+    rigs = [{"device_code": f"G{i}", "device_type": "mining_rig", "location": "MUR-4-L4", "status": "idle",
+             "controller_device_code": "C1"} for i in range(3)]
+    devs = [ctrl, *rigs]
+    assert sv.scattered(ctrl, devs) == ["G0", "G1", "G2"]
+    p = sv.back_to_belt_plan([ctrl], devs, {}, {"MUR-BELT-1": 1}, {"MUR": ["MUR-BELT-1"]}, set())
+    assert p and p[0]["away"] == ["G0", "G1", "G2"] and p[0]["belt"] == "MUR-BELT-1"

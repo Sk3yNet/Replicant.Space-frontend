@@ -6638,6 +6638,15 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             dry = sv.worked_out(res) | {p for p in await self.exhausted_places() if star_of(p) == star}
             sal = sv.available_salvage(res)
             dead_sal = {x["code"] for x in res.get("salvage") or [] if x.get("depleted")}
+            # a salvage a controller here reports finished ("depleted:recalling") is used up too, whatever our copy of the
+            # system says (live 2026-11-10: 4 mining fleets sat paused at used-up salvage for a week, "on salvage")
+            spent = {str(((d.get("ami_directive") or {}).get("config") or {}).get("location") or "")
+                     for d in miners if is_controller(d) and star_of(d.get("location")) == star
+                     and (d.get("ami_directive") or {}).get("name") == "gather_salvage"
+                     and str((d.get("ami_directive") or {}).get("_eval_state") or "").startswith(sv.FINISHED_STATES)} - {""}
+            if spent:
+                dead_sal |= {x["code"] for x in res.get("salvage") or [] if x.get("code") in spent or sv.body_of(x.get("code")) in spent}
+                sal = [x for x in sal if x["code"] not in dead_sal]
             for k in [k for k, v in assigned.items() if k in dead_sal]:
                 assigned.pop(k)
             ctrls = [d for d in miners if is_controller(d) and star_of(d.get("location")) == star]
@@ -6666,7 +6675,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                                                  "ORDER BY seq DESC LIMIT 1", (code,))
                     cur = json.loads(row["payload"] or "{}") if row else {}
                     on_salvage = (row and row["event"] == "directive.set" and cur.get("directive") == "gather_salvage"
-                                  and (cur.get("configuration") or {}).get("location") not in dead_sal | {sv.body_of(c) for c in dead_sal})
+                                  and (cur.get("configuration") or {}).get("location") not in dead_sal | {sv.body_of(c) for c in dead_sal} | spent)
                     if on_salvage:
                         continue
                     idle, _ = await controller_idle(self.db, c)
