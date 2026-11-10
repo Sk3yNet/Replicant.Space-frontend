@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.367.0"
+VERSION = "1.368.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.368.0", "2026-11-10", "Survey fleets: a mission watching a survey controller the game paused (Season 4 time skip) moves on instead of waiting forever (Surveyor 1 at MUSPELION, 18 h). Auto-scout picks only systems inside relay coverage, also with a replicant aboard (Joe: survey within the relay network)."),
     ("1.367.0", "2026-11-10", "Survey controllers the game paused at the Season 4 time skip are launched again when their belt has room for a site. Before, the app took a paused belt_search for one still running, so FENIRON, SOLARES, ANLOREN and ISOLITHOR kept their surveyors idle on belts with no open site."),
     ("1.366.0", "2026-11-10", "Command screen (Joe): the outliner collapses with the › button in its head and leaves a slim OUTLINER tab on the right edge that brings it back; remembered per browser, like the ☰ button in the top bar."),
     ("1.365.0", "2026-11-10", "New season rescans skip replicants whose host can't scan (matrix containers, hubs): the survey fleets' containers answered 'Device does not have system scan capability' every pass and used up the 3-a-pass budget, so no other system got rescanned. Their systems now get a scout trip, scouts must be able to scan, and the arrival scan skips such hosts."),

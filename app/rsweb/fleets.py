@@ -1415,6 +1415,11 @@ def watch_done(fleet: dict, mission: dict, devices: list[dict], now_iso: str,
     if role == "explore":
         ctrl = next((d for d in ms if kind(d) == "survey_controller"), None)
         st = str(((ctrl or {}).get("ami_directive") or {}).get("_eval_state") or "")
+        if ctrl and str(ctrl.get("ami_directive_status") or ctrl.get("status") or "") == "paused" and not any(
+                str(d.get("status") or "").startswith(("scanning", "searching", "travel", "cruis")) for d in ms):
+            # the game paused it (the Season 4 time skip paused AMI directives): nothing is surveying (live 2026-11-10:
+            # Surveyor 1 watched a paused survey_system at MUSPELION for 18 hours)
+            return True, "survey controller paused by the game", {}
         if not ctrl:
             # seen live 2026-10-08 (DABAH): between one moon's scan and the trip to the next the drone looked idle for a
             # moment, the survey was called done and the recall then failed ("Cannot cruise while scanning")

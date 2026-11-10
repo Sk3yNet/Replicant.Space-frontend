@@ -3177,9 +3177,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         busy = {star_of(t) for g in items if g.get("id") != f.get("id") and (g.get("mission") or {}).get("status") in ("running", "stalled")
                 for t in (g["mission"].get("targets") or [])}
         skip = busy | (fl.worked_systems(items) - {home}) | wards.foreign(await self.star_lookup("flagged"), devices) | set(exclude)
-        riding = bool(fl.fleet_replicant(f, devices, await self.db.kv_get("replicants", {}) or {}))
-        reach = (await self.commandable(devices, {k: {"position": v} for k, v in pos.items()} if extra else None)
-                 if not riding else set())
+        # inside relay coverage, even with a replicant aboard (Joe 2026-11-10: survey the systems within the relay
+        # network; Surveyor 4 flew out to RASALGEDO, went out_of_range and stalled)
+        riding = False
+        reach = await self.commandable(devices, {k: {"position": v} for k, v in pos.items()} if extra else None)
         radius = self.SCOUT_RADIUS_LY
 
         def pick() -> str | None:   # pure: every catalog star against local copies, so it runs in a thread

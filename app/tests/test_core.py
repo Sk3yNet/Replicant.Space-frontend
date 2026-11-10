@@ -10104,3 +10104,18 @@ def test_research_at_every_datacenter_found(client):
     t = client.post("/simulations/research/precursor_signal?interface=DC000002", headers=HX).text
     row = client.portal.call(db.fetchall, "SELECT path FROM actions ORDER BY id DESC LIMIT 1")
     assert row[0]["path"] == "/devices/DC000002/research/precursor_signal", t
+
+
+def test_explore_watch_ends_when_the_game_paused_the_survey_controller():
+    """Live 2026-11-10: the Season 4 time skip paused Surveyor 1's survey_system at MUSPELION; it watched for 18 hours."""
+    from rsweb import fleets as fl
+    f = {"id": "s1", "role": "explore", "wants": {"ami_survey_controller": 1, "survey_drone": 1}}
+    devices = [{"device_code": "C1", "device_type": "ami_survey_controller", "location": "MUS-OORT", "status": "paused",
+                "ami_directive_status": "paused", "tags": ["fleet:s1"],
+                "ami_directive": {"name": "survey_system", "_eval_state": "assigned:7:0"}},
+               {"device_code": "D1", "device_type": "survey_drone", "location": "MUS-3", "status": "idle", "tags": ["fleet:s1"]}]
+    m = {"phase": "watch", "phase_at": "2026-11-09T18:30:00+00:00"}
+    done, why, _ = fl.watch_done(f, m, devices, "2026-11-10T12:00:00+00:00")
+    assert done and "paused" in why
+    devices[1]["status"] = "scanning"
+    assert not fl.watch_done(f, m, devices, "2026-11-10T12:00:00+00:00")[0]
