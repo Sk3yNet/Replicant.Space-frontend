@@ -1607,6 +1607,25 @@ def test_reopen_sites_with_ami_survey_controller(client):
     assert client.portal.call(eng.rule_reopen_sites) == []
 
 
+def test_reopen_sites_resumes_a_paused_survey_controller(client):
+    """Live 2026-11-10: the Season 4 time skip paused belt_search controllers on a stale belt_capacity state, holding
+    their surveyors idle at belts with no open site."""
+    eng = _enable(client, "reopen_sites")
+    devices = [
+        {"device_code": "639A138D", "device_type": "ami_survey_controller", "location": "FENIRON-BELT-1", "status": "paused",
+         "ami_directive_status": "paused",
+         "ami_directive": {"_eval_state": "belt_capacity:3+2/5", "name": "belt_search", "config": {}}},
+        {"device_code": "BS000001", "device_type": "belt_surveyor", "location": "FENIRON-BELT-1", "status": "idle",
+         "controller_device_code": "639A138D"},
+    ]
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(client.app.state.db.kv_set, "managed_by", {"BS000001": "639A138D"})
+    assert client.portal.call(eng.rule_reopen_sites) == ["639A138D → belt_search FENIRON-BELT-1 (resumed)"]
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "reopen_sites"][-1]
+    assert [s["body"]["command"] for s in job["steps"]] == ["set_directive", "launch"]
+    assert client.portal.call(eng.rule_reopen_sites) == []   # one job at a time
+
+
 def test_reopen_sites_with_drones_only_and_tracking_drones_stay(client):
     eng = _enable(client, "reopen_sites")
     devices = [{"device_code": "SD1", "device_type": "survey_drone", "location": "FAL-1", "status": "idle"},

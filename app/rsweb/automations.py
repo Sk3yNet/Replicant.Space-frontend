@@ -6311,7 +6311,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             if cfg.get("use_ami", True) and ctrls:
                 def on_belt_search(c: dict) -> bool:
                     dv = c.get("ami_directive") or {}
-                    return dv.get("name") == "belt_search" and c.get("location") == belt and \
+                    return dv.get("name") == "belt_search" and c.get("location") == belt and not sites.paused(c) and \
                         not str(dv.get("_eval_state") or "").startswith(("no_targets", "idle", "done"))
                 if any(on_belt_search(c) for c in ctrls):
                     continue  # already searching this belt
@@ -6333,6 +6333,26 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                                           sites.drone_steps(d, belt), {"belt": belt})
                     done.append(f"{d['device_code']} → search {belt}")
             state[belt] = now.isoformat(timespec="seconds")
+        # a survey controller the game paused (the Season 4 time skip paused AMI directives: live 2026-11-10, FENIRON,
+        # SOLARES, ANLOREN and ISOLITHOR held 20 idle surveyors on a stale belt_capacity state) is launched again when
+        # its belt has room for another site
+        for c in devices:
+            belt = c.get("location") or ""
+            if not ("survey" in (c.get("device_type") or "") and "controller" in (c.get("device_type") or "")
+                    and "BELT" in belt and sites.paused(c)) or c["device_code"] in busy or c.get("in_control_range") is False:
+                continue
+            key = f"resume:{belt}"
+            last = _ts(state.get(key))
+            if last and now - last < cooldown or any(j["rule"] == "reopen_sites" and j["status"] in ("running", "waiting")
+                                                     and j.get("meta", {}).get("belt") == belt for j in jobs):
+                continue
+            searching = sum(1 for d in devices if d.get("location") == belt and str(d.get("status") or "").startswith("searching"))
+            if sites.MAX_SITES - await self.open_sites_now(belt) - searching <= 0:
+                continue
+            await self.create_job("reopen_sites", f"re-open sites at {belt} with {c['device_code']} (its search was paused)",
+                                  c["device_code"], sites.ami_steps(c, belt, []), {"devices": [], "belt": belt})
+            done.append(f"{c['device_code']} → belt_search {belt} (resumed)")
+            state[key] = now.isoformat(timespec="seconds")
         # idle survey drones at a belt with fewer open sites than the game allows search there too: the belt isn't
         # worked out, but its sites may lack what's needed (ISOLITHOR-BELT-1 2026-10-23: no conductive or rares at any)
         idle_at: dict[str, list[dict]] = defaultdict(list)

@@ -78,6 +78,11 @@ def exhausted_belts(devices: list[dict], learned: list[str]) -> dict[str, str]:
     return out
 
 
+def paused(c: dict) -> bool:
+    """A controller whose directive the game paused (a season's time skip pauses AMI directives)."""
+    return str(c.get("ami_directive_status") or "") == "paused" or str(c.get("status") or "") == "paused"
+
+
 def survey_at(devices: list[dict], belt: str) -> list[dict]:
     """Survey drones and belt surveyors already opening/holding a site at this belt."""
     return [d for d in devices if is_surveyor(d) and d.get("location") == belt
