@@ -4609,6 +4609,54 @@ def test_print_orders_count_prints_fed_to_a_neighbor_factory():
     assert len(lo.reconcile_orders(orders, devices, now)) == 2   # AF2 and AF3 hold two of them; AF4 is elsewhere
 
 
+def test_spare_at_home_replaces_a_queued_print_and_busy_spares_are_waited_for():
+    """Snapshot 2026-11-11 01:08: Delta Printing Hub (wants 1 system hub) had one queued on E76D3831 while spare hubs
+    13A4BCE6 (relaying) and 5B9A394D sat at ISOLITHOR-1-L4. A pass ordered it while the spares were busy; the order then
+    counted as incoming, so the spares were never used and a third hub was on its way."""
+    from rsweb import loadouts as lo
+    hub = lambda c, st: {"device_code": c, "device_type": "system_hub", "location": "ISO-1-L4", "status": st,  # noqa: E731
+                         "tags": ["spare"], "features": ["cruise", "relay", "modular"]}
+    af = {"device_code": "AF1", "device_type": "autofactory", "location": "ISO-BELT-1", "status": "idle", "tags": ["fleet:hub"],
+          "available_commands": ["enqueue_print"], "print_queue": [{"device_type": "system_hub", "tags": ["fleet:hub", "to:iso"]}]}
+    fleets = [{"id": "hub", "name": "hub", "home": "ISO", "station": True, "wants": {"system_hub": 1}}]
+    cfg = {"phases": [], "fleets": fleets, "fleets_migrated": True}
+    bps = [{"device_type": "system_hub", "resources": {"structural": 50}, "print_time": 600}]
+    inv = {"ISO-BELT-1": {"structural": 1000}}
+    stars = {"ISO": {"position": {"x": 0, "y": 0, "z": 0}}}
+    devices = [af, hub("H1", "inactive"), hub("H2", "relaying")]
+    order = {"star": "ISO", "fleet": "hub", "device_type": "system_hub", "factory": "AF1", "at": "2026-11-10T22:15:19+00:00"}
+    p = lo.plan(cfg, devices, bps, inv, stars, {}, set(), [order], {})
+    assert p["prints"] == []
+    assert [(c["factory"], c["spare"]) for c in p["cancel_orders"]] == [("AF1", "H2")]   # the working hub first
+    assert p["assign"] == {"H2": "fleet:hub"} and "H2" in p["arrived"]
+    assert any("comes off the queue" in line for line in lo.describe(p))
+    # no order yet and both spares on a job: no print, they're waited for
+    af["print_queue"] = []
+    p = lo.plan(cfg, devices, bps, inv, stars, {}, {"H1", "H2"}, [], {})
+    assert p["prints"] == [] and p["cancel_orders"] == []
+    assert any(u["type"] == "system_hub" and "busy right now" in u["why"] for u in p["unmet"])
+    # with neither spare there, it prints
+    p = lo.plan(cfg, [af], bps, inv, stars, {}, set(), [], {})
+    assert [pr["device_type"] for pr in p["prints"]] == ["system_hub"]
+
+
+def test_cancel_loadout_print_takes_the_newest_matching_print_off(client):
+    from functools import partial
+    eng = client.app.state.worker.automations
+    for body in ({"device_type": "vector_charge"}, {"device_type": "system_hub", "tags": ["fleet:hub", "to:sol"]},
+                 {"device_type": "system_hub", "tags": ["fleet:other"]}, {"device_type": "system_hub", "tags": ["fleet:hub"]}):
+        client.portal.call(partial(eng.api.request, "POST", "/devices/AF00BEEF", json_body={"command": "enqueue_print", **body}))
+    q0 = client.portal.call(eng.api.request, "GET", "/devices/AF00BEEF")["print_queue"]
+    orders = [{"star": "SOL", "fleet": "hub", "device_type": "system_hub", "factory": "AF00BEEF", "at": "2026-11-10T22:00:00+00:00"},
+              {"star": "SOL", "fleet": "hub", "device_type": "system_hub", "factory": "AF00BEEF", "at": "2026-11-10T22:15:00+00:00"}]
+    c = {"factory": "AF00BEEF", "device_type": "system_hub", "fleet": "hub", "star": "SOL", "spare": "H1"}
+    left = client.portal.call(eng.cancel_loadout_print, c, orders)
+    assert left == orders[:1]
+    q = client.portal.call(eng.api.request, "GET", "/devices/AF00BEEF")["print_queue"]
+    assert len(q) == len(q0) - 1
+    assert [x.get("tags") for x in q if x["device_type"] == "system_hub"] == [x.get("tags") for x in q0 if x["device_type"] == "system_hub"][:-1]
+
+
 def test_print_orders_removed_from_a_queue_stop_counting_as_incoming(client):
     """Live 2026-10-07: prints taken off a queue by hand kept counting as incoming for 48 h, so the fleet looked complete
     and nothing could be queued to fill its loadout."""

@@ -554,10 +554,13 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 f = homes_of[dest][0]   # sent before stationed fleets (no fleet tag yet): it joins the fleet there on arrival
             if f and f["home"] == dest:
                 incoming[f["id"]][d.get("device_type")] += 1
+    pending: dict[tuple[str, str], list[dict]] = defaultdict(list)   # (fleet, type) -> its prints not out yet
     for o in orders:
         fid = o.get("fleet") or next((f["id"] for f in homes_of.get(o.get("star") or "", [])), None)
         if fid:
             incoming[fid][o["device_type"]] += 1
+            if not o.get("device_code") and o.get("factory"):
+                pending[(fid, o["device_type"])].append(o)
 
     def members(f: dict) -> list[dict]:
         """A stationed fleet's devices, wherever they are right now (a carrier out on a delivery still counts at home).
@@ -730,6 +733,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     # 3: fill shortfalls — spares first, then prints
     reserved: dict[str, Counter] = defaultdict(Counter)  # location -> resources set aside in this plan
     prints: list[dict] = []
+    cancel_orders: list[dict] = []   # loadout orders a spare at home replaces: their prints come off the queue
     factories = [d for d in pool if is_factory(d) and d["device_code"] not in busy]
 
     qcap_default = {b["device_type"]: int(b.get("queue_size") or 0) for b in blueprints}
@@ -814,6 +818,25 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         star, tag = report[fid]["star"], fl.fleet_tag(fid)
         if True:
             need = row["short"]
+            # a spare sitting at home takes the place of a print ordered for the fleet and not out yet: the print is
+            # taken off its queue (snapshot 2026-11-11 01:08: Delta Printing Hub had a system hub queued while spare hubs
+            # 13A4BCE6, relaying, and 5B9A394D sat at ISOLITHOR-1-L4; the order counted as incoming, so they never got used)
+            pend = pending.get((fid, row["type"])) or []
+            if need <= 0 and pend:
+                home_spares = sorted((d for d in donors.get(row["type"], []) if star_of(d.get("location")) == star
+                                      and fam(d) == fleet_fam(tag) and not working(d)),
+                                     key=lambda d: (not str(d.get("status") or "").startswith(("relaying", "monitoring")),
+                                                    not _idle(d), -_cap(d), d["device_code"]))
+                for d, o in zip(home_spares, pend[::-1]):   # the newest order first: it's the furthest from printing
+                    donors[row["type"]].remove(d)
+                    code = d["device_code"]
+                    tag_remove[code].add(SPARE)
+                    tag_add[code].discard(SPARE)
+                    moves[code] = star
+                    assign[code] = tag
+                    row.setdefault("from_spares", []).append(code)
+                    cancel_orders.append({"factory": o["factory"], "device_type": row["type"], "fleet": fid,
+                                          "star": star, "job": o.get("job"), "at": o.get("at"), "spare": code})
             if need <= 0:
                 continue
             if row["type"] in ("mining_drone", "mining_rig") and open_sites.get(star) == 0:
@@ -834,14 +857,26 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 assign[code] = tag
                 row.setdefault("from_spares", []).append(code)
                 need -= 1
+            # spares at home that can't be taken right now (on a job, mid-command …) are waited for: printing another
+            # would leave the fleet one over once they're free (snapshot 2026-11-11: a system hub was ordered for Delta
+            # Printing Hub with two spare hubs at ISOLITHOR-1-L4)
+            held += [d for d in pool if (d.get("device_type") or "device") == row["type"] and d not in held
+                     and d not in cands and star_of(d.get("location")) == star and SPARE in (d.get("tags") or [])
+                     and SPARE not in tag_remove.get(d["device_code"], set()) and not fleet_now(d["device_code"])
+                     and moves.get(d["device_code"], star) == star and not for_contract(d) and not is_component(d)
+                     and not ferry_side(d) and d["device_code"] not in made_spare
+                     and bound_for(d, known_stars, fleet_homes) in (None, star) and fam(d) == fleet_fam(tag)]
             if need > 0 and held:
                 # spares that are still working (mining, tracking …): they'll be sent once idle — don't print instead
                 wait = held[:need]
                 for d in wait:
-                    donors[row["type"]].remove(d)
+                    if d in donors[row["type"]]:
+                        donors[row["type"]].remove(d)
                 row["held_spares"] = [d["device_code"] for d in wait]
-                unmet.append({"star": star, "type": row["type"], "n": len(wait),
-                              "why": f"spare(s) {', '.join(d['device_code'] for d in wait)} still working — sent once idle"})
+                busy_home = [d for d in wait if star_of(d.get("location")) == star and not working(d)]
+                why = f"spare(s) {', '.join(d['device_code'] for d in wait)} still working — sent once idle" if not busy_home else \
+                    f"spare(s) {', '.join(d['device_code'] for d in wait)} here, busy right now — taken once free"
+                unmet.append({"star": star, "type": row["type"], "n": len(wait), "why": why})
                 need -= len(wait)
             own = [g for g in factories if fleet_tag_of(g) == tag and queue_free.get(g["device_code"], 1) > 0 and near(g, star)]
             if need > 0 and s["print_missing"] and own and row["type"] in bps:
@@ -1387,7 +1422,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 "self_moves": [], "deliveries": [], "arrived": [], "unmet": unmet, "by_code": by_code, "stale": len(stale),
                 "assign": {}}
     return {"compact": compact, "pins": pins, "pins_off": pins_off, "places": places, "misplaced": misplaced, "returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
-            "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints,
+            "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints, "cancel_orders": cancel_orders,
             "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
             "by_code": by_code, "managed": managed_map, "made_spare": sorted(made_spare), "gathering": sorted(gathering),
             "depot": ", ".join(sorted({moves[c] for c in gathering})) or ", ".join(points) or None, "assign": assign}
@@ -1777,6 +1812,9 @@ def pin_step(code: str, loc: str, why: str = "its at: pin") -> dict:
 def describe(p: dict) -> list[str]:
     """Plain-language list of what a pass would do."""
     out = []
+    for c in p.get("cancel_orders") or []:
+        out.append(f"spare {c['spare']} takes the place of the {c['device_type']} queued on {c['factory']} for {c['star']}: "
+                   "that print comes off the queue")
     for ctrl, codes in sorted((p.get("releases") or {}).items()):
         spare = [c for c in codes if c in set(p.get("made_spare") or [])]
         other = [c for c in codes if c not in spare]

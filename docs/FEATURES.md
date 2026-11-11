@@ -419,7 +419,8 @@ rock chaser / bootstrap), a home and a loadout (its own lines or a template).
 ### Stationed fleets and the loadout pass
 - The **loadout pass** keeps a stationed fleet at its loadout in its home system: extras become `spare`, spares are sent
   where they're short (within the supply range, default 1728 ly: the sector range), and what's still missing is printed and carried there
-  (large devices are compacted first).
+  (large devices are compacted first). A spare at home that's busy right now is waited for rather than printed again,
+  and a spare at home takes the place of a loadout print still in a queue: the print comes off the queue (1.375.0).
 - Placed beacons and relays are never made spare or moved.
 - **Fleets sort themselves out** (1.284.0): a device of one fleet run by another fleet's controller is released, so its
   own fleet's controller adopts it again (idle miners are only handed to their own fleet's controller, or a fleetless one).

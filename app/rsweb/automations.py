@@ -4036,6 +4036,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                                                   {"devices": []}, force=manual))
         started += await self.start_compactions(p, force=manual)
         orders = await self.db.kv_get("loadout_orders", []) or []
+        if manual or not (await self.settings())["dry_run"]:
+            for c in p.get("cancel_orders") or []:
+                orders = await self.cancel_loadout_print(c, orders)
         for pr in p["prints"]:
             job = await self.create_job("loadouts", f"loadouts: print {pr['n']}× {pr['device_type']} for {pr['star']}",
                                         pr["factory"], lo.print_steps(pr), {"devices": [], "star": pr["star"]}, force=manual)
@@ -4089,6 +4092,46 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                                                "dry_run": (await self.settings())["dry_run"] and not manual,
                                                "escort_wanted": lo.escort_wanted(p)})
         return lines
+
+    async def cancel_loadout_print(self, c: dict, orders: list[dict]) -> list[dict]:
+        """A spare at home took the place of a loadout order (loadouts.plan cancel_orders): its print comes off the
+        queue it sits in, the game's (newest matching first) or the app's, on the ordering factory or a neighbor fed
+        from it (same spot and type), and the order is forgotten. One already printing stays: its device turns out one
+        over and is made spare by a later pass."""
+        from . import fleets as fl, printqueue as pq
+        from .loadouts import forget_queued
+        devs = {d.get("device_code"): d for d in await self.devices()}
+        f = devs.get(c["factory"]) or {}
+        tag = fl.fleet_tag(c["fleet"])
+        group = [c["factory"]] + sorted(k for k, d in devs.items() if k != c["factory"] and f.get("location")
+                                        and d.get("location") == f.get("location") and d.get("device_type") == f.get("device_type"))
+        mine = lambda t, tags: t == c["device_type"] and tag in (tags or [])   # noqa: E731
+        label = f"loadouts: spare {c['spare']} replaces the {c['device_type']} queued for {c['star']}"
+        done = False
+        for code in group:
+            try:
+                dev = await self.api.request("GET", f"/devices/{code}", background=True, raw=True) or {}
+            except ApiError:
+                continue
+            hit = [it for it in pq.items(dev) if not it["extra"].get("virtual") and mine(it["device_type"], it["tags"])]
+            if hit:
+                ok, _, _ = await self.send("POST", f"/devices/{code}", {"command": "dequeue_print", "index": hit[-1]["api_index"]},
+                                           f"{label}: off {code}'s queue", raw=True)
+                done = ok
+                break
+        vq = getattr(self.api, "vq", None)
+        if not done and vq is not None:
+            kept = [o for o in await vq.orders(codes=group) if mine((o.get("body") or {}).get("device_type"),
+                                                                    (o.get("body") or {}).get("tags"))]
+            if kept:
+                o = kept[-1]
+                ok, _, _ = await self.send("POST", f"/devices/{o['factory']}", {"command": "dequeue_print", "order": o["seq"]},
+                                           f"{label}: off the app's queue for {o['factory']}")
+                done = ok
+        if done:
+            await self.log("loadouts", f"{label}: print taken off the queue", "info")
+            return forget_queued(orders, c["factory"], c["device_type"], 1)
+        return orders
 
     async def _arrival_followups(self, cfg: dict, p: dict, manual: bool, lines: list[str]) -> int:
         """After the moves: drones that reached their system join its controller; inactive maintenance drones and
