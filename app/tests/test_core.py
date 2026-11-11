@@ -10097,6 +10097,18 @@ def test_dashboard_stockpiles_by_location(client):
         assert f'href="/locations/{p["location"]}"' in r.text
 
 
+def test_stock_piles_sector_and_total_sort():
+    """1.378.0: Stockpiles by location rows carry the sector (star region) and total, sorted by sector then total."""
+    from rsweb.web import stock_piles
+    cat = {"stars": [{"designation": "AAA", "region": "beta"}, {"designation": "BBB", "region": "alpha"}]}
+    inv = [{"location": "AAA-BELT-1", "items": {"iron": 5}}, {"location": "BBB-BELT-1", "items": {"iron": 1}},
+           {"location": "BBB-2", "items": {"iron": 3, "ice": 4}}, {"location": "ZZZ-1", "items": {"iron": 99}},
+           {"location": "AAA-1", "items": {"iron": 0}}]
+    rows = stock_piles(inv, cat)
+    assert [(r["location"], r["region"], r["total"]) for r in rows] == [
+        ("BBB-2", "alpha", 7), ("BBB-BELT-1", "alpha", 1), ("AAA-BELT-1", "beta", 5), ("ZZZ-1", "", 99)]
+
+
 def test_outpost_orders_with_virtual_queue_never_fill_a_factory(client, monkeypatch):
     """Live 2026-11-03: rollout prints ordered lately counted against the game's queue slots even though they wait in
     the virtual print queue, so after a few dozen every factory looked full and the relay rollout paused (VORWYRYR)."""

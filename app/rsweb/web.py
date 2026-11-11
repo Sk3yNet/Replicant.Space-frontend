@@ -533,6 +533,22 @@ async def healthz():
     return {"ok": True}
 
 
+def stock_piles(inventory: Any, cat: dict) -> list[dict]:
+    """Stockpiles by location rows: each location's sector (the star's catalog region) and resource total,
+    sorted by sector (unknown last), then by total, largest first."""
+    region = {x.get("designation"): x.get("region") for x in (cat or {}).get("stars") or [] if isinstance(x, dict)}
+    rows = []
+    for loc in inventory or []:
+        items = (loc or {}).get("items") or {}
+        total = sum(v for v in items.values() if isinstance(v, (int, float)) and v > 0)
+        if not total:
+            continue
+        rows.append({"location": loc.get("location"), "items": items, "total": total,
+                     "region": region.get(star_of(loc.get("location"))) or ""})
+    rows.sort(key=lambda r: (not r["region"], r["region"], -r["total"], r["location"] or ""))
+    return rows
+
+
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
@@ -546,9 +562,10 @@ async def dashboard(request: Request, user: str = Depends(current_user)):
     recent = [row_event(r) for r in await request.app.state.db.fetchall(
         "SELECT * FROM events WHERE event NOT LIKE 'ami.%.digest' AND event != 'bobnet.new' ORDER BY seq DESC LIMIT 25")]
     sync = {k: await request.app.state.db.kv_get(f"sync:{k}") for k in ("account", "devices", "inventory")}
+    cat = await request.app.state.db.kv_get("stars", {}) or {}
     ctx = await base_ctx(request, user, "dashboard", visit=visit, digest=digest, alerts=alerts, recent=recent,
                          fleet=fleet_summary(st["devices"]), timers=await active_timers(request),
-                         sync=sync, **st)
+                         sync=sync, stock_piles=stock_piles(st.get("inventory"), cat), **st)
     return templates.TemplateResponse(request, "dashboard.html", ctx)
 
 
