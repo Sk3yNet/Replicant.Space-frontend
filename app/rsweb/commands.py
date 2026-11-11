@@ -101,7 +101,7 @@ COMMANDS: dict[str, list[Field]] = {
     ],
     "dequeue_print": [F("index", "int", required=True, default=0, help="Queue position, counted from 0 (0 = first waiting)")],
     "clear_queue": [],
-    "repair": [F("target", "device", required=True, help="Device to repair (not while the drone runs a patrol directive)")],
+    "repair": [F("target", "device", required=True, help="Device to repair (not while the repairer runs a patrol directive)")],
     "replicate": [F("target", "device", required=True, label="empty matrix",
                     filter={"device_type": "empty_replicant_matrix"})],
     "adopt": [F("devices", "devices", required=True, filter={"adoptable_by_self": True})],
@@ -154,7 +154,8 @@ DESCRIPTIONS: dict[str, str] = {
                      "and an on-complete command apply to the new device.",
     "dequeue_print": "Remove one waiting print from the queue (0 = first waiting item).",
     "clear_queue": "Remove every waiting print (the one already printing carries on).",
-    "repair": "A maintenance drone repairs a device at its location (not while it runs a directive such as patrol).",
+    "repair": "A repair device (maintenance drone, service bot, fleet tender) repairs a device at its location (not while "
+              "it runs a directive such as patrol).",
     "replicate": "Copy this replicant matrix into an empty matrix at the same location (a new replicant).",
     "adopt": "An AMI controller takes these drones under its control; its directive then drives them.",
     "release": "An AMI controller lets these drones go; they stop where they are, idle.",

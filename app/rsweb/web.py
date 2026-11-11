@@ -252,7 +252,20 @@ def unconfirmed_mark(d: Any) -> Markup:
                   'event to confirm">unconfirmed</span>').format(Markup.escape(u.get("what") or "order"), f_ago(u.get("at")))
 
 
-templates.env.globals.update(unconfirmed=unconfirmed_mark)
+def fold_mark(d: Any) -> Markup:
+    """A "compacted" pill next to the status of a large (modular) device that is folded up but whose status doesn't say
+    so (printed compacted, or compacted and idle since): every device with the modular feature or a compact command,
+    fleet tenders too (1.376.0)."""
+    if not isinstance(d, dict):
+        return Markup("")
+    from .modular import folded, is_modular
+    st = str(d.get("status") or "")
+    if not is_modular(d) or st.startswith(("compact", "unfurl")) or not folded(d):
+        return Markup("")
+    return Markup(' <span class="pill st-off small" title="folded up for transport: unfurl it to put it to work">compacted</span>')
+
+
+templates.env.globals.update(unconfirmed=unconfirmed_mark, fold_mark=fold_mark)
 # The menu: (group, landing URL, [(page key, URL, label)]); the classic header shows it as tabs, the command screen as its
 # icon rail with a fly-out per group.
 NAV = [
@@ -1196,8 +1209,11 @@ DANGEROUS = {"decommission", "change_owner", "deactivate", "withdraw", "clear_qu
 def with_attach(dev: dict, same_loc: list[dict]) -> list[str]:
     """The device's commands, plus attach when a carrier with attach points is here: the carrier attaches it (any device,
     stowable ones too: an FTL relay attached to a mobile fleet, live 2026-10-20), though the game doesn't list attach
-    among the cargo's own commands."""
+    among the cargo's own commands. A device with a repair feature (a fleet tender lists none of the repair commands,
+    2026-11-11) gets `repair` too: the game's command endpoint takes it from any device (RepairSchema)."""
     cmds = list(dev.get("available_commands") or [])
+    if any("repair" in str(f) for f in dev.get("features") or []) and "repair" not in cmds:
+        cmds.append("repair")
     if "attach" in cmds or dev.get("attached_to_device_code") or dev.get("stowed_in_device_code") \
             or dev.get("device_type") == "cargo_freighter":
         return cmds

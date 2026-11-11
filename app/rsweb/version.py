@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.375.2"
+VERSION = "1.376.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.376.0", "2026-11-11", "Large (modular) devices, fleet tenders included, show a compacted pill next to their status while folded up and the status does not say so (device page, Devices list, systems, tree). Devices with a repair feature get the repair command on their device page even when the game does not list it (the fleet tender lists none)."),
     ("1.375.2", "2026-11-11", "Stow into on an empty replicant matrix (empty_replicant_matrix) lists matrix containers with an empty cradle too; before, only filled matrices did."),
     ("1.375.1", "2026-11-11", "Stow into on a matrix stowed in a vessel lists the matrix containers where the vessel is (a stowed matrix has no location of its own, so the list was empty)."),
     ("1.375.0", "2026-11-11", "Loadouts never print what a spare at home can fill (Joe: another system hub was queued for Delta Printing Hub with two spare hubs at ISOLITHOR-1-L4). A spare at the fleet's home that is busy right now (on a job, mid-command) is waited for instead of printing another, and a spare at home now takes the place of a loadout print that is still queued: the print comes off the game's or the app's queue (ordering factory or a neighbor fed from it) and its order is dropped. Before, a print ordered while the spares were busy counted as incoming for 48 h, so the spares sat unused and the fleet got one more."),
