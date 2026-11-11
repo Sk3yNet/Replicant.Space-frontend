@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.376.0"
+VERSION = "1.377.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.377.0", "2026-11-11", "Logistics: the ships of a convoy all leave for their stockpile at once instead of one after the other (a six-ship run had five loaded freighters waiting for hours on the sixth). Cargo devices left attached to an idle logistics carrier are let off, so haulers stuck on plates work again and unload what they still hold. A print delivery from another system fills its hold with more of what it was sent for, taken only from stock no request, home reserve or ship under way has claimed."),
     ("1.376.0", "2026-11-11", "Large (modular) devices, fleet tenders included, show a compacted pill next to their status while folded up and the status does not say so (device page, Devices list, systems, tree). Devices with a repair feature get the repair command on their device page even when the game does not list it (the fleet tender lists none)."),
     ("1.375.2", "2026-11-11", "Stow into on an empty replicant matrix (empty_replicant_matrix) lists matrix containers with an empty cradle too; before, only filled matrices did."),
     ("1.375.1", "2026-11-11", "Stow into on a matrix stowed in a vessel lists the matrix containers where the vessel is (a stowed matrix has no location of its own, so the list was empty)."),

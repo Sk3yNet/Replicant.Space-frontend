@@ -636,6 +636,11 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
    way back, instead of flying home empty (*on the way back …* in the job row).
 5. **Rescues**, 6. **shop listings** (*Get listing*), 7. **repair patrols**.
 
+The ships of a convoy all leave for their stockpile at once and load as they arrive. A print delivery from another
+system fills its hold with more of what it was sent for (*holds filled* in the job row), only from stock that no
+request, home reserve or ship under way has claimed. A cargo device left attached to an idle logistics carrier (a
+run that broke off) is let off at a printing hub, so it takes runs again and unloads what it still holds.
+
 Bump or skip a request on the Logistics page. Every logistics job still going has *Cancel job* there (and *Confirm trip* when a long trip waits for your Confirm), on its request row and under Recent trips. A held trip whose request has already left the queue is listed under *Held trips* at the top of the Requests card.
 
 ### How a delivery is planned

@@ -137,7 +137,7 @@ def test_logistics_pass_sends_a_job_for_a_waiting_print(client):  # noqa: F811
     out = client.portal.call(e.logistics_pass, True)
     assert out and "prints at B-2" in out[0]
     job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "logistics")
-    assert job["meta"]["logistics"]["to"] == "B-2" and job["meta"]["logistics"]["carry"] == {"carbon": 80}
+    assert job["meta"]["logistics"]["to"] == "B-2" and job["meta"]["logistics"]["carry"] == {"carbon": 100}
     page = client.get("/fleets/logistics", headers=H).text
     assert "prints at B-2" in page and "F1" in page
     fpage = client.get("/fleets/details?all=1", headers=H)
@@ -154,7 +154,7 @@ def test_a_hauler_is_towed_for_a_long_range_run():
     p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 300}}, pos=POS, commandable={"A", "B", "Z"},
                 hosts={}, busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
     run = next(r for r in p["runs"] if r["req"] == "print:Z-2")
-    assert cargo(run) == ["HL"] and run["ride"] == "PL" and run["carry"] == {"carbon": 40}
+    assert cargo(run) == ["HL"] and run["ride"] == "PL" and run["carry"] == {"carbon": 80}
     cmds = [(s["path"].split("/")[-1], (s["body"] or {}).get("command")) for s in lg.run_steps(run, {d["device_code"]: d for d in devs})
             if s["body"]]
     assert cmds == [("HL", "collect_resources"), ("PL", "attach"), ("PL", "travel"), ("PL", "detach"), ("HL", "deposit_resources")]
@@ -168,7 +168,7 @@ def test_a_plate_fetches_a_hauler_from_another_system_for_a_run():
     p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 300}}, pos=POS, commandable={"A", "B", "Z"},
                 hosts={}, busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
     run = next(r for r in p["runs"] if r["req"] == "print:Z-2")
-    assert cargo(run) == ["HL"] and run["ride"] == "PL" and run["carry"] == {"carbon": 40}
+    assert cargo(run) == ["HL"] and run["ride"] == "PL" and run["carry"] == {"carbon": 80}
     steps = [s for s in lg.run_steps(run, {d["device_code"]: d for d in devs}) if s["body"]]
     cmds = [(s["path"].split("/")[-1], s["body"].get("command"), s["body"].get("destination")) for s in steps]
     assert cmds == [("PL", "travel", "B-1"), ("PL", "attach", None), ("PL", "travel", "A-1"), ("PL", "detach", None),
@@ -1428,3 +1428,57 @@ def test_a_trade_waiting_for_its_devices_holds_no_escort(client, monkeypatch):
                                                                   "skipped": False, "devices_short": short}]})
         client.portal.call(e.loadout_plan)
         assert ("HV1" in seen[-1]) is held
+
+
+def test_convoy_ships_leave_for_their_stockpile_at_once():
+    devs = [dev("F1", "cargo_freighter", "B-1", cargo_capacity=100, **SURGE),
+            dev("F2", "cargo_freighter", "B-2", cargo_capacity=100, **SURGE)]
+    c = {"designation": "EV1", "location": "Z-3", "title": "Big", "price": {"carbon": 180}}
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 1000}}, pos=POS, commandable={"A", "B", "Z"},
+                hosts={}, busy=set(), reach=100, contracts=[c], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    run = next(r for r in p["runs"] if r["req"] == "contract:EV1")
+    steps = lg.run_steps(run, {d["device_code"]: d for d in devs})
+    assert [s["desc"] for s in steps[:4]] == ["F1 → A-1 (pick up)", "F2 → A-1 (pick up)", "wait for F1 at A-1", "wait for F2 at A-1"]
+    assert [steps[i]["seq0_from"] for i in (2, 3)] == [0, 1]
+    assert [s["desc"].split(":")[0] for s in steps[4:6]] == ["F1", "F2"]   # then both load, nobody flies to the pile again
+    assert sum(1 for s in steps if (s["body"] or {}).get("destination") == "A-1") == 2
+
+
+def test_cargo_devices_hanging_on_an_idle_carrier_are_let_off_and_unload():
+    hl = dict(cargo_capacity=80, available_commands=["travel", "collect_resources", "deposit_resources"])
+    devs = [dev("PL", "surge_plate", "A-2", **SURGE),
+            dev("HL", "transport_hauler", "A-2", attached_to_device_code="PL", cargo={"carbon": 30}, cargo_used=30, **hl),
+            dev("P2", "surge_plate", "A-2", **SURGE),
+            dev("H2", "transport_hauler", "A-2", attached_to_device_code="P2", **hl)]
+    kw = dict(fleets=FLEETS, bps=BPS, inventory={}, pos=POS, commandable={"A", "B"}, hosts={}, reach=100, contracts=[],
+              trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    p = lg.plan(devices=devs, busy={"H2"}, **kw)   # H2 is on a job: it stays where it is
+    run = next(r for r in p["runs"] if "lets its cargo devices off" in r["label"])
+    assert run["escort"] == "PL" and run["dump"] == [{"code": "HL", "mode": "attach"}]
+    assert not any(r.get("escort") == "P2" and r.get("dump") for r in p["runs"])
+    cmds = [(s["path"].split("/")[-1], s["body"]) for s in lg.run_steps(run, {d["device_code"]: d for d in devs}) if s["body"]]
+    assert cmds == [("PL", {"command": "detach", "device": "HL"})]
+    devs[1].pop("attached_to_device_code")      # next pass: free again, it brings what it still holds to the drop point
+    p = lg.plan(devices=devs, busy={"H2"}, **kw)
+    run = next(r for r in p["runs"] if r.get("escort") == "HL")
+    assert run["kind"] == "dump" and run["to"] == "A-1" and run["carry"] == {"carbon": 30}
+
+
+def test_a_print_delivery_from_another_system_fills_its_hold_from_what_is_spare():
+    devs = world()
+    p = run_plan(devs, {"A-1": {"carbon": 300}})
+    run = next(r for r in p["runs"] if r["req"] == "print:B-2")
+    assert run["carry"] == {"carbon": 100} and run["filled"] == 20 and run["cargos"][0]["legs"][0]["take"] == {"carbon": 100}
+    assert "holds filled: 20 more" in lg.describe(run)
+    load = next(s for s in lg.run_steps(run, {d["device_code"]: d for d in devs}) if (s["body"] or {}).get("command") == "collect_resources")
+    assert load["body"]["resources"] == {"carbon": 100} and load["desc"].endswith(" at A-1")
+    p = run_plan(devs, {"A-1": {"carbon": 55}})   # no more than the pile can spare
+    assert next(r for r in p["runs"] if r["req"] == "print:B-2")["carry"] == {"carbon": 55}
+    # what the source system's own prints need stays, and a contract's load is never topped up
+    home = dev("AH", "autofactory", "A-1", tags=[], status="waiting_for_resources",
+               print_queue=[{"device_type": "mining_drone", "quantity": 1}], printing={"device_type": "mining_drone"})
+    p = run_plan(devs + [home], {"A-1": {"carbon": 100}})
+    assert next(r for r in p["runs"] if r["req"] == "print:B-2")["carry"] == {"carbon": 40}   # shared by the hubs, not topped up
+    c = {"designation": "EV1", "location": "B-3", "title": "Near", "price": {"carbon": 20}}
+    p = run_plan([d for d in devs if d["device_code"] != "AF"], {"A-1": {"carbon": 300}}, [c])
+    assert next(r for r in p["runs"] if r["req"] == "contract:EV1")["carry"] == {"carbon": 20}

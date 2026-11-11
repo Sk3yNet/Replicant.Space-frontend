@@ -47,6 +47,9 @@ Repair patrols (owner 2026-10-22): repair devices of the logistics fleets are ta
 and too few repair devices (one per six worn devices), worst first, by a free logistics carrier (or on their own, if
 they can surge), and set to patrol there. Like rescues, a trip of more than a day waits for your Confirm.
 
+Convoys (owner 2026-11-11): the ships of a run leave for their stockpiles at once; a print delivery from another system
+fills its holds from what is spare (fill_holds); cargo devices left attached to an idle carrier are let off.
+
 Devices go the same way: deliveries of devices (loadouts.plan) take logistics-fleet carriers first.
 
 Drop-offs (owner 2026-10-20): an idle logistics carrier inside the network with leftover cargo, or with devices aboard
@@ -1371,6 +1374,27 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                             and str(d.get("status") or "").startswith("relaying")}}
     docks = sorted(s for s in receive if s in commandable and receive[s])
     own = {d["device_code"] for d in pool}
+    # cargo devices left hanging on an idle logistics carrier (a run that broke off after the attach) are let off, so
+    # they count as free again (live 2026-11-08 to 11-11: nine of ten haulers sat attached to plates for days, 412
+    # units still aboard, and no run ever took them). Away from the printing hubs the carrier's own trip back to
+    # one brings them along first.
+    from .loadouts import GATHER
+    hub_stars = {s for s in gather if s in commandable and gather[s]}
+    for c, d in sorted(free.items()):
+        here = star_of(d.get("location"))
+        if c in used or here not in commandable or (hub_stars and here not in hub_stars and can_surge(d)
+                                                    and not fl.stationed(d.get("_fleet") or {})):
+            continue
+        hanging = [{"code": x["device_code"], "mode": "attach" if x.get("attached_to_device_code") == c else "stow"}
+                   for x in pool if c in (x.get("attached_to_device_code"), x.get("stowed_in_device_code"))
+                   and x["device_code"] not in busy and (cg.capacity_of(x, bpl, None) or 0) > 0
+                   and not holds_replicant(x, devices)
+                   and not any(t == GATHER or str(t).startswith(("to:", "at:")) for t in x.get("tags") or [])]
+        if hanging:
+            used.add(c)
+            runs.append({"req": None, "kind": "dump", "cargos": [], "escort": c, "legs": [], "to": d["location"],
+                         "carry": {}, "dump": hanging, "fulfil": None, "replicant": None, "back": None,
+                         "label": f"{c} lets its cargo devices off to work"})
     tag_of = {e.get("device_code"): next((t for t in e.get("tags") or [] if str(t).startswith("fleet:")), None)
               for e in devices}
     for c, d in sorted(free.items()):
@@ -1398,6 +1422,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         if (not cargo and not extra) or not docks:
             continue
         to_star = min(docks, key=lambda h: (_dist(here, h, pos), h))
+        if to_star != here and not can_surge(d):
+            continue   # a hauler can't fly there: the tow to the printing hub (below) brings it and its cargo
         used.add(c)
         runs.append({"req": None, "kind": "dump", "cargos": [], "escort": c, "legs": [], "to": receive[to_star],
                      "carry": cargo, "dump": extra, "fulfil": None, "replicant": None, "back": None,
@@ -1405,6 +1431,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     # the way back (owner 2026-10-28: "a lower priority run would be better than a wasted trip"): a delivery's ships
     # would fly home empty, so they load a stray pile near the drop-off and bring it to the nearest printing hub
     backhaul(runs, spare, gather, reqs, pool, commandable, pos, bpl)
+    fill_holds(runs, spare)
     # the rest of the idle logistics devices gather at the nearest printing hub (a fleet that takes materials in, inside
     # the network; owner's request 2026-10-17): those that can surge fly there, the others are towed by a free carrier
     hubs = sorted(s for s in gather if s in commandable and gather[s])
@@ -1443,6 +1470,41 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                        "replicant": hosts.get(d["device_code"]), "covered": star_of(d.get("location")) in commandable,
                        "lane": worked.get(d["device_code"])}
                       for d in pool], "lanes": worked}
+
+
+def fill_holds(runs: list[dict], spare: dict[str, dict[str, float]]) -> None:
+    """A print delivery from another system leaves with full holds (owner 2026-11-11; live 2026-11-10: five freighters
+    flew SOLARES → FALQUORYX within 90 minutes with 120, 137, 240, 360 and 500 conductive, each pass sending only
+    what the queue had grown by): each ship loads more of the resources it was sent for at the stockpiles it visits
+    anyway, shared out like its load. Only from `spare` after every request of this pass has taken its part: what a
+    home system keeps for its own prints, what another request asked for and what ships already under way are going
+    to load is never touched. The extra counts in the run's `carry`, so it is known to be on its way."""
+    for run in runs:
+        if run.get("kind") != "print" or run.get("ami"):
+            continue
+        dstar = star_of(run.get("to"))
+        for c in run.get("cargos") or []:
+            legs = [g for g in c.get("legs") or [] if star_of(g["pile"]) != dstar]
+            left = math.floor(float(c.get("room") or 0) - sum(q for g in c.get("legs") or [] for q in g["take"].values()))
+            if not legs or left < 1:
+                continue
+            total = sum(q for g in legs for q in g["take"].values())
+            for share in (True, False):   # first in proportion to the load, then whatever room is left
+                for g in legs:
+                    for x, q0 in sorted(g["take"].items(), key=lambda kv: (-kv[1], kv[0])):
+                        if left < 1 or not total:
+                            break
+                        cap = math.floor(left * q0 / total) if share else left
+                        q = math.floor(min(cap, spare.get(g["pile"], {}).get(x, 0.0)))
+                        if q >= 1:
+                            spare[g["pile"]][x] -= q
+                            g["take"][x] += q
+                            g["extra"] = g.get("extra", 0) + q
+                            c["carry"][x] = c["carry"].get(x, 0) + q
+                            run["carry"][x] = run["carry"].get(x, 0) + q
+                            run["filled"] = run.get("filled", 0) + q
+                            left -= q
+                total = sum(q for g in legs for q in g["take"].values())
 
 
 BACKHAUL_KINDS = ("print", "contract", "trade", "upkeep", "job")
@@ -1635,20 +1697,25 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
     cargos, ride, esc = run.get("cargos") or [], run.get("ride"), run.get("escort")
     at = {c: (by_code.get(c) or {}).get("location") for c in run_devices(run)}
 
-    def hop(loc: str, who: list[str], why: str = "") -> None:
+    def hops(trips: list[tuple[str, list[str]]], why: str = "") -> None:
+        """Every trip is sent before any arrival is awaited: the ships fly at the same time."""
         sent = []
-        for c in who:
-            if c and at.get(c) != loc:
-                rep = (run.get("direct") or {}).get(c)   # a replicant's own vessel moves by the replicant's travel
-                steps.append(step(f"{c} → {loc}{why}", f"/replicants/{rep}/travel" if rep else f"/devices/{c}",
-                                  {"destination": loc} if rep else {"command": "travel", "destination": loc}))
-                sent.append((c, len(steps) - 1))
-                at[c] = loc
-        for c, i in sorted(sent, key=lambda x: x[0] != esc):   # the escort's arrival first
+        for loc, who in trips:
+            for c in who:
+                if c and at.get(c) != loc:
+                    rep = (run.get("direct") or {}).get(c)   # a replicant's own vessel moves by the replicant's travel
+                    steps.append(step(f"{c} → {loc}{why}", f"/replicants/{rep}/travel" if rep else f"/devices/{c}",
+                                      {"destination": loc} if rep else {"command": "travel", "destination": loc}))
+                    sent.append((c, len(steps) - 1, loc))
+                    at[c] = loc
+        for c, i, loc in sorted(sent, key=lambda x: x[0] != esc):   # the escort's arrival first
             w = step(f"wait for {c} at {loc}", "", None, method="WAIT", wait=["travel.arrived"], match={"destination": loc},
                      timeout=STEP_TIMEOUT)
             w["wait_device"], w["seq0_from"] = c, i
             steps.append(w)
+
+    def hop(loc: str, who: list[str], why: str = "") -> None:
+        hops([(loc, who)], why)
     if run.get("kind") == "dump":
         hop(run["to"], [esc], " (drop-off)")
         if run.get("carry"):
@@ -1751,6 +1818,12 @@ def run_steps(run: dict, by_code: dict[str, dict], template: str | None = None) 
                 steps.append(step(f"{ride}: detach {c}", f"/devices/{ride}", {"command": "detach", "device": c}))
                 at[c] = loc
     outside_pickup = bool(esc and run.get("escort_pickup"))   # stockpiles beyond the network: the escort is there first
+    # the ships that fly themselves all leave for their first stockpile at once (live 2026-11-08: one after the other,
+    # five loaded freighters sat at SOLARES-BELT-1 for hours until the sixth had flown in); beyond the network only
+    # when they share that stockpile, so the one escort is there for all of them
+    firsts = [(c["legs"][0]["pile"], [c["code"]]) for c in cargos if c.get("legs") and not c.get("rides")]
+    if len(firsts) > 1 and (not outside_pickup or len({p_ for p_, _ in firsts}) == 1):
+        hops(firsts + ([(firsts[0][0], [esc])] if outside_pickup else []), " (pick up)")
     for c in cargos:
         for g in c["legs"]:
             if c.get("rides"):
@@ -1844,6 +1917,8 @@ def describe(run: dict) -> str:
         s += ", then fulfills" + (f" all {len(run['also']) + 1}" if run.get("also") else "")
     if run.get("rewards") and run.get("home"):
         s += f" and brings the payout to {run['home']}"
+    if run.get("filled"):
+        s += f" (holds filled: {run['filled']:g} more than asked)"
     if run.get("backhaul"):
         bh = run["backhaul"]
         tot = {}
