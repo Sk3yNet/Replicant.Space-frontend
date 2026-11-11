@@ -9848,6 +9848,9 @@ def test_stow_into_offers_matrix_containers_for_a_matrix():
     f = c.COMMANDS["stow"][0]
     opts = {o["value"]: o["label"] for o in c.device_options({"devices": devs, "here": "X-BELT-1"}, f, "MX")}
     assert {"C1", "C2"} <= set(opts) and "C3" not in opts and "stow (1 free)" in opts["C1"]
+    devs[0]["device_type"] = "empty_replicant_matrix"   # an empty matrix (208A0CC4, live 2026-11-11)
+    opts = {o["value"] for o in c.device_options({"devices": devs, "here": "X-BELT-1"}, f, "MX")}
+    assert {"C1", "C2"} <= opts
     opts = {o["value"] for o in c.device_options({"devices": devs, "here": "X-BELT-1"}, f, "ME")}
     assert not opts & {"C1", "C2", "C3"}
 

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.375.1"
+VERSION = "1.375.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.375.2", "2026-11-11", "Stow into on an empty replicant matrix (empty_replicant_matrix) lists matrix containers with an empty cradle too; before, only filled matrices did."),
     ("1.375.1", "2026-11-11", "Stow into on a matrix stowed in a vessel lists the matrix containers where the vessel is (a stowed matrix has no location of its own, so the list was empty)."),
     ("1.375.0", "2026-11-11", "Loadouts never print what a spare at home can fill (Joe: another system hub was queued for Delta Printing Hub with two spare hubs at ISOLITHOR-1-L4). A spare at the fleet's home that is busy right now (on a job, mid-command) is waited for instead of printing another, and a spare at home now takes the place of a loadout print that is still queued: the print comes off the game's or the app's queue (ordering factory or a neighbor fed from it) and its order is dropped. Before, a print ordered while the spares were busy counted as incoming for 48 h, so the spares sat unused and the fleet got one more."),
     ("1.374.0", "2026-11-11", "Fewer long cruises across ISOLITHOR (Joe). A trip into a system whose surges land at the entry point now lands there and goes on in one trip via the Kuiper belt (or Oort cloud). Before, it hopped to the spot as a trip of its own and then sent the rest, which the game still routed from the entry point: a 499 AU cruise of 57 min (DCB956D8, 74ECB101). A trip whose waypoints got a server error (503) or a device still in flight keeps its waypoints for the retry; before, they were dropped and the retry cruised (F7E30727). Cruise-only haulers and the game's own AMI ferry trips still cruise."),

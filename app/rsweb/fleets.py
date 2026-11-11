@@ -215,7 +215,8 @@ def tug(d: dict, devices: list[dict]) -> dict:
 
 
 def is_matrix(d: dict) -> bool:
-    return (d.get("device_type") or "") == "replicant_matrix"
+    """A replicant matrix, filled (replicant_matrix) or empty (empty_replicant_matrix, live 2026-11-11 208A0CC4)."""
+    return (d.get("device_type") or "").endswith("replicant_matrix") or "matrix" in (d.get("features") or [])
 
 
 def cradle_free(c: dict, devices: list[dict] | None = None) -> int:
