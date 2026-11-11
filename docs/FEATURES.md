@@ -978,8 +978,9 @@ Arriving in a system with a hub is 25 % faster, whoever owns it, and the game ne
 - The spots go in the trip's `via`, ahead of any hub waypoints.
 - **Off-ramp**: arriving in another system, the trip ends with that system's spot nearest the destination when the game
   would arrive much further off; the step reads *(surge hop via …)*. Where surges land at the entry point (a system
-  we scanned, or one with a hub) the trip goes there first, hops to the spot as a trip of its own, then cruises on;
-  a hand-sent trip there leaves the off-ramp out.
-- If the game refuses them, the trip takes its own route. A spot refused as a loop (from the entry point to the belt)
+  we scanned, or one with a hub) the trip goes there first, then on in one trip via the spot (a hop as a trip of its own was still routed from the
+  entry point by the game); a hand-sent trip there leaves the off-ramp out.
+- If the game refuses them, the trip takes its own route (a server error or a device still in flight keeps them for
+  the retry). A spot refused as a loop (from the entry point to the belt)
   becomes a hop of its own first, then the trip cruises the rest; trips sent by hand from the travel forms do the same.
 - Trips sent through a replicant's travel order (a vessel hosting a replicant) are planned the same way.

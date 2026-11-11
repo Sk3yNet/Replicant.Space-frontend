@@ -174,17 +174,16 @@ def test_arriving_in_a_hub_system_lands_at_the_entry_point_then_hops_to_the_off_
     # and cruised 527 AU to the Kuiper belt, 49 min
     sent, job = _run(client, at="Y-2-L4", dest="Z-BELT-1", hub=True, scanned=False)
     assert sent == [{"command": "travel", "destination": "Z-1-L4"}]
-    assert [s["body"]["destination"] for s in job["steps"]] == ["Z-1-L4", "Z-KUIPER", "Z-BELT-1"]
-    job = _arrive(client, "Z-1-L4")
-    assert sent[1:] == [{"command": "travel", "destination": "Z-KUIPER"}]
-    job = _arrive(client, "Z-KUIPER")
-    assert sent[2:] == [{"command": "travel", "destination": "Z-BELT-1"}]
+    assert [s["body"]["destination"] for s in job["steps"]] == ["Z-1-L4", "Z-BELT-1"]
     assert client.portal.call(eng(client).trip_via, "V1", "Z-BELT-1") == []      # one hand-sent trip: no off-ramp
+    job = _arrive(client, "Z-1-L4")
+    # live 2026-11-11: a hop of its own, then the rest, was routed from the entry point anyway: one trip via the spot
+    assert sent[1:] == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]}]
 
 
 def test_a_scanned_system_lands_at_its_entry_point_too(client):
     sent, job = _run(client, at="Y-2-L4", dest="Z-BELT-1")
-    assert sent == [{"command": "travel", "destination": "Z-1-L4"}] and len(job["steps"]) == 3
+    assert sent == [{"command": "travel", "destination": "Z-1-L4"}] and len(job["steps"]) == 2
 
 
 def test_a_wait_lasts_until_the_current_legs_eta_when_the_game_underprices_it(client):
@@ -276,31 +275,34 @@ def test_a_trip_sent_by_its_replicant_surge_hops_too(client):
     assert sent == [("/replicants/R1/travel", {"destination": "Y-2-L4", "via": ["Z-KUIPER", "Y"]})]
 
 
-def test_the_trip_after_a_surge_hop_waits_until_the_device_shows_at_the_spot(client):
-    # live 2026-11-03: F7E30727 hopped ISOLITHOR-1-L4 → ISOLITHOR-KUIPER; the trip on, sent as the hop's arrival came in,
-    # was routed from ISOLITHOR-1-L4 and cruised 499 AU (57 min) instead of 29 AU from the Kuiper belt
+def test_the_trip_from_the_entry_point_waits_until_the_device_shows_there(client):
+    # live 2026-11-03: a trip sent the moment an arrival came in was routed from where the device had been
     from datetime import timedelta
     from rsweb import automations as au
     sent, job = _run(client, at="Y-2-L4", dest="Z-BELT-1", hub=True, scanned=False)
     e, api = eng(client), client.app.state.api
-    shown = {"location": "Z-1-L4", "status": "idle"}
+    shown = {"location": "Y-2-L4", "status": "travelling"}
 
     async def fake_request(method, path, json_body=None, **kw):
         assert method == "GET" and path == "/devices/V1"
         return {"device_code": "V1", **shown}
     api.request = fake_request
     job = _arrive(client, "Z-1-L4")
-    assert sent[1:] == [{"command": "travel", "destination": "Z-KUIPER"}]
-    shown["status"] = "travelling"   # the hop's arrival is in, but the game still has it moving at the entry point
-    job = _arrive(client, "Z-KUIPER")
-    assert sent[2:] == [] and job["steps"][2]["status"] == "retrying", job["steps"][2]
-    shown.update(location="Z-KUIPER", status="idle")
+    assert sent[1:] == [] and job["steps"][1]["status"] == "retrying", job["steps"][1]
+    shown.update(location="Z-1-L4", status="idle")
     job = next(j for j in client.portal.call(e.jobs) if j["id"] == job["id"])
-    job["steps"][2]["retry_at"] = (au._now() - timedelta(seconds=1)).isoformat()
+    job["steps"][1]["retry_at"] = (au._now() - timedelta(seconds=1)).isoformat()
     client.portal.call(e._update, job)
     client.portal.call(e.tick)
-    assert sent[2:] == [{"command": "travel", "destination": "Z-BELT-1"}]
+    assert sent[1:] == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]}]
 
+
+def test_a_via_answered_by_a_struggling_server_is_kept_for_the_retry(client):
+    # live 2026-11-11: F7E30727's trip via ISOLITHOR-KUIPER got a 503; the fallback dropped the via and the retry
+    # cruised 499 AU
+    sent, job = _run(client, refuse_hop="Service Unavailable")
+    assert sent == [{"command": "travel", "destination": "Z-BELT-1", "via": ["Z-KUIPER"]}]
+    assert job["steps"][0]["body"]["via"] == ["Z-KUIPER"] and job["steps"][0]["status"] == "retrying"
 
 def test_a_hand_sent_trip_landing_at_the_entry_point_hops_to_the_off_ramp(client):
     # live 2026-11-03: 5DF3161B and 2D6BFDF1, sent by hand from DELTA to ISOLITHOR-BELT-1, landed at ISOLITHOR-1-L4 and

@@ -1004,9 +1004,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 if far:
                     ok, resp, err = False, None, far
                 else:
-                    exit_via = await self.plan_via(st, job)
+                    exit_via = await self.plan_via(st, job) or st.get("exit_via")
                     if await self._ramp_legs(st, job):
-                        continue   # to the entry point where it lands, the hop to the off-ramp, then the rest
+                        continue   # to the entry point where it lands, then on via the off-ramp
                     if await self._hop_unsettled(st, job):
                         return   # the surge hop before it hasn't landed in the game's eyes yet: next tick
                     ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
@@ -1014,7 +1014,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via or st['body'].get('via') or [])} refused ({err}); "
                                                     "hopping there first", "warning")
                         continue   # the surge hops inside the system go first, each a trip of its own
-                    if not ok and exit_via:   # refused: the route without the surge spots
+                    busy = SERVER_RE.search(err or "") or BUSY_RE.search(err or "")   # struggling server, device mid-trip: the same
+                    # trip later (live 2026-11-11: F7E30727's via got a 503, the fallback dropped it, the retry cruised 499 AU)
+                    if not ok and exit_via and not busy:   # refused: the route without the surge spots
                         await self.log(job["rule"], f"{job['title']}: via {', '.join(exit_via)} refused ({err}); "
                                                     "the game's own route", "warning")
                         from .hubroute import waypoints
@@ -1024,7 +1026,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                             st["body"]["via"] = rest
                         st["exit_via"] = None
                         ok, resp, err = await self.send(st["method"], st["path"], st["body"], f"auto: {st['desc']}")
-                    if not ok and st.get("hub_via"):   # the waypoint refused: the direct route, as planned
+                    if not ok and st.get("hub_via") and not busy:   # the waypoint refused: the direct route, as planned
                         await self.log(job["rule"], f"{job['title']}: via {st['hub_via']} refused ({err}); going direct",
                                        "warning")
                         st["body"].pop("via", None)
@@ -1375,7 +1377,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
 
     async def trip_plan(self, device: str, dest: str) -> tuple[list[str], str | None]:
         """trip_via's waypoints, and the off-ramp one trip can't take: in a system whose surges land at its entry point
-        the job runner splits the trip there (_ramp_legs: to the entry point, a hop to the off-ramp, the rest). A hand-sent
+        the job runner splits the trip there (_ramp_legs: to the entry point, then on via the off-ramp). A hand-sent
         trip with such an off-ramp goes as a job too (live 2026-11-03: 5DF3161B and 2D6BFDF1, sent from DELTA to
         ISOLITHOR-BELT-1 by their travel forms, landed at ISOLITHOR-1-L4 and cruised 499 AU, 57 min)."""
         st = {"path": f"/devices/{device}", "body": {"command": "travel", "destination": dest}, "desc": ""}
@@ -1479,7 +1481,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         point (_hub_entry), where the game then cruises to the off-ramp as a via (live 2026-10-28: F7E30727
         ANLOREN → ISOLITHOR-BELT-1 via ISOLITHOR-KUIPER cruised 527 AU from ISOLITHOR-1-L4, 49 min, though the game's
         route priced that leg at 13 s; three Delta trips waited out their hour). The trip is split: to the entry point,
-        a surge hop of its own to the off-ramp (30 s), then this trip cruises the rest.
+        then this trip from there via the off-ramp (a 30 s hop, then the rest).
         True when steps were added ahead of this one (it runs after them)."""
         from . import hubroute
         body, path = st.get("body") or {}, str(st.get("path") or "")
@@ -1496,18 +1498,19 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         while before and star_of(before[-1]) == ds:   # the star stars_between put ahead of the off-ramp
             before.pop()
         flags = {"wait_device": code, "exit_checked": True, "hub_checked": True, "riders_checked": True, "sector_ok": True}
-        first = step(f"{code} → {entry} (entry point, then a surge hop to {ramp})", path,
+        first = step(f"{code} → {entry} (entry point, then on via {ramp})", path,
                      self._travel_body(path, entry) | ({"via": hubroute.waypoints(before, entry)} if before else {}),
                      wait=["travel.arrived"], match={"destination": entry})
-        hop = step(f"{code} → {ramp} (surge hop)", path, self._travel_body(path, ramp),
-                   wait=["travel.arrived"], match={"destination": ramp})
-        add = []
-        for h in (first, hop):
-            h.update(flags)
-            add.append(h)
-        hop["from_spot"], st["from_spot"] = entry, ramp
-        body.pop("via", None)
-        st["exit_via"], st["arrive_via"] = None, None
+        first.update(flags)
+        add = [first]
+        # from the entry point one trip with the off-ramp as its via: the game hops there, then cruises the rest (live
+        # 2026-11-03: 35DD7376 ISOLITHOR-1-L4 via ISOLITHOR-KUIPER, 402 s). A hop of its own, then the rest, cruised the
+        # whole way (live 2026-11-11: DCB956D8 and 74ECB101 shown at ISOLITHOR-KUIPER after the hop, yet the game routed
+        # the trip on from ISOLITHOR-1-L4, 499 AU, 57 min). "Loop detected" still splits it (_hop_legs).
+        body["via"] = hubroute.waypoints([ramp], str(body.get("destination") or "").upper())
+        st["from_spot"] = entry
+        st.update(exit_checked=True, hub_checked=True)
+        st["exit_via"], st["arrive_via"] = [ramp], None
         i = job["idx"]
         for s2 in job["steps"][i:]:
             if isinstance(s2.get("seq0_from"), int) and s2["seq0_from"] >= i:
@@ -1516,7 +1519,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         st["tries"] -= 1
         await self._update(job)
         if job.get("rule"):
-            await self.log(job["rule"], f"{job['title']}: {code} flies to {entry} first, hops to {ramp}, then on to "
+            await self.log(job["rule"], f"{job['title']}: {code} flies to {entry} first, then on to "
                                         f"{body.get('destination')} (surges into {ds} land at its entry point)")
         return True
 
