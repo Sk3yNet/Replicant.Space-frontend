@@ -9852,6 +9852,23 @@ def test_stow_into_offers_matrix_containers_for_a_matrix():
     assert not opts & {"C1", "C2", "C3"}
 
 
+def test_stow_form_for_a_stowed_matrix_lists_containers_where_its_vessel_is(client):
+    """A matrix stowed in a vessel has no location of its own: Stow into looks where the vessel is (SOLARES-BELT-1,
+    live 2026-11-11: two empty containers there were missing)."""
+    db = client.app.state.db
+    cached = client.portal.call(db.kv_get, "devices")
+    cached += [{"device_code": "HV0000A1", "device_type": "heaven_vessel", "location": "SOLARES-BELT-1", "status": "idle",
+                "stow_capacity": 10, "stow_used": 1},
+               {"device_code": "MX0000A1", "device_type": "replicant_matrix", "location": None, "status": "stowed",
+                "stowed_in_device_code": "HV0000A1", "features": ["stow", "matrix"],
+                "available_commands": ["deploy", "stow"]},
+               {"device_code": "MC0000A1", "device_type": "matrix_container", "location": "SOLARES-BELT-1", "status": "idle",
+                "stow_capacity": 1, "stow_used": 0, "features": ["cruise", "cradle"]}]
+    client.portal.call(db.kv_set, "devices", cached)
+    form = client.get("/devices/MX0000A1/command-form?command=stow", headers=HX).text
+    assert 'value="MC0000A1"' in form
+
+
 def test_stow_into_attach_carrier_sends_attach(client):
     # survey drone D8C2A140 and surge plate SP000001 are both at SOL-3: the plate has no hold, so it attaches the drone
     r = client.post("/devices/D8C2A140/command", data={"command": "stow", "f.target": "SP000001"}, headers=HX)

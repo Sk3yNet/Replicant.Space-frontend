@@ -1310,7 +1310,11 @@ async def device_command_form(request: Request, code: str, command: str = "", ri
     if command == "collect_resources":
         chain["cargo"] = await cargo_context(request.app.state.db, request.app.state.api, dev,
                                              normalize_blueprints(await request.app.state.db.kv_get("blueprints", [])))
-    sugg = await suggestions(request, dev.get("location"))
+    here = dev.get("location")
+    if not here:   # stowed or attached (a matrix in a vessel has no location): where its carrier is
+        devs = (await load_state(request))["devices"]
+        here = where_is(dev, {d.get("device_code"): d for d in devs})
+    sugg = await suggestions(request, here)
     return partial(request, "partials/command_form.html", code=code, command=command, fields=fields or [],
                    description=cmdspec.DESCRIPTIONS.get(command, ""),
                    known=fields is not None, sugg=sugg, sys_targets=sugg.get("system"),
