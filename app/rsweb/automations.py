@@ -3198,8 +3198,10 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             return None, f"{home or 'its home'} has no position in the star catalog"
         scans = {r["star"]: r["data"] for r in await self.db.fetchall("SELECT star, data FROM systems")}
         surveyed = await self.db.kv_get("surveyed", {}) or {}
+        # only where another fleet is or is still heading: the targets it already left behind are done with (Surveyor 10
+        # had 124 targets on its list, so every other survey fleet found nothing left to scout, 2026-11-11)
         busy = {star_of(t) for g in items if g.get("id") != f.get("id") and (g.get("mission") or {}).get("status") in ("running", "stalled")
-                for t in (g["mission"].get("targets") or [])}
+                for t in (g["mission"].get("targets") or [])[(g["mission"].get("idx") or 0):]}
         skip = busy | (fl.worked_systems(items) - {home}) | wards.foreign(await self.star_lookup("flagged"), devices) | set(exclude)
         # inside relay coverage, even with a replicant aboard (Joe 2026-11-10: survey the systems within the relay
         # network; Surveyor 4 flew out to RASALGEDO, went out_of_range and stalled)
@@ -6193,6 +6195,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     self._mlog(m, f"work done ({why})")
             # next phase (skipping any with nothing to do)
             for _ in range(12):
+                idx_was = m.get("idx", 0)   # next_phase moves an explore fleet on to its next target
                 nxt = fl.next_phase(fleet["role"], m)
                 if not nxt:
                     m["status"], m["job"] = "done", None
@@ -6262,15 +6265,38 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         steps, problems = board_steps, board_problems
                         for p_ in problems:
                             self._mlog(m, p_)
+                        title = "board before leaving"
+                        if not steps and m.get("departed"):
+                            # members left in a system with no fleet carrier (assemble leaves them to the gather phase):
+                            # a carrier fetches them, then this same leg. Live 2026-11-10: Surveyor 10's crew sat at
+                            # SYRAXOS with its vessel back at SOLARES; it waited in recall for good
+                            steps, problems = await self.fleet_phase_steps(fleet, m, "gather", devices)
+                            for p_ in problems:
+                                self._mlog(m, p_)
+                            title = "fetch members left behind"
                         if steps:
                             if m.get("departed"):   # a later leg: board, then this same leg (next_phase)
                                 m["phase"], m["board_next"] = "board", nxt
                             else:
                                 m["phase"] = "assemble"
-                            job = await self.create_job("fleets", f"{fleet['name']}: board before leaving", None, steps,
+                            job = await self.create_job("fleets", f"{fleet['name']}: {title}", None, steps,
                                                         {"devices": [d["device_code"] for d in fl.members(fleet, devices)],
                                                          "fleet": fleet["id"]}, force=True)
                             m["job"] = job["id"] if job else None
+                        elif m.get("departed"):
+                            # nothing to send: stay on this target. Before, next_phase had already moved on and the
+                            # next pass appended another star, so a scouting fleet ran through 124 targets in recall
+                            # without leaving (each one then counted as taken for every other survey fleet)
+                            m["idx"] = idx_was
+                            note = f"waiting to leave: {len(loose)} not aboard and no carrier can fetch them ({', '.join(loose[:6])})"
+                            if problems:
+                                note += f": {'; '.join(problems)}"
+                            m["status"], m["job"], m["watch_note"] = "stalled", None, note
+                            again, quiet = self._plan_retry(m)
+                            self._mlog(m, note + again)
+                            await self.log("fleets", f"{fleet['name']}: stalled: {note}" + again, "alert", notify=not quiet)
+                        else:
+                            m["idx"] = idx_was
                         break
                     m["departed"] = True
                     m.pop("watch_note", None)

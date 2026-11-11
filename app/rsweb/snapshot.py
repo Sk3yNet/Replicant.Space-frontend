@@ -226,6 +226,8 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
                                         "relocate", "from", "opts")}
                                       | {"log": ((f.get("mission") or {}).get("log") or [])[-20:]} if f.get("mission") else None,
                     "pending_home": f.get("pending_home"), "path_note": f.get("path_note"),
+                    **({"auto_scout": bool(f.get("auto_scout")), "scout_note": f.get("scout_note")}
+                       if f.get("role") == "explore" else {}),
                     **({"chase": f.get("chase") or {}, "chase_run": f.get("chase_run") or {}}
                        if f.get("role") == "rock_chaser" else {})}   # why a rock chaser sits idle (its run note)
                    for f in await eng.fleets()],

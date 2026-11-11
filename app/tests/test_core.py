@@ -6037,6 +6037,36 @@ def test_auto_scout_surveys_nearest_first_until_worn(client, monkeypatch):
     client.portal.call(eng.run_fleets)
     m = client.portal.call(eng.fleets)[0]["mission"]
     assert m["targets"] == ["NEARA", "NEARB"] and m["scout_ended"] and any("for repairs" in str(x) for x in m["log"])
+    # a star the fleet already left behind isn't taken any more (Surveyor 10's 124 targets blocked every other fleet)
+    nxt, _ = client.portal.call(eng.scout_next, {"id": "x9", "home": "SOL"}, client.portal.call(eng.fleets),
+                                client.portal.call(eng.devices))
+    assert nxt == "NEARA"
+
+
+def test_scout_crew_left_behind_is_fetched_not_skipped(client, monkeypatch):
+    """Live 2026-11-10: Surveyor 10's crew sat at SYRAXOS with its vessel back home; every pass in recall moved the
+    mission on to one more target without leaving. Now the target stays and a carrier fetches the crew (or it stalls)."""
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    devices = client.portal.call(db.kv_get, "devices")
+    devices += [{"device_code": "VES00001", "device_type": "heaven_vessel", "location": "SOL-3", "status": "idle",
+                 "tags": ["fleet:x1"], "features": ["surge", "cruise", "stow"], "available_commands": ["travel", "stow"]},
+                {"device_code": "DRN00001", "device_type": "survey_drone", "location": "NEARA-1", "status": "idle",
+                 "tags": ["fleet:x1"], "features": ["cruise", "survey", "stow"], "available_commands": ["travel", "stow"]}]
+    client.portal.call(db.kv_set, "devices", devices)
+    m = {"status": "running", "phase": "recall", "idx": 0, "targets": ["NEARA", "NEARB"], "departed": True,
+         "log": [], "opts": {}, "scouting": True, "job": None}
+    client.portal.call(eng.save_fleets, [{"id": "x1", "name": "Scouts", "role": "explore", "home": "SOL", "wants": {},
+                                          "auto_scout": True, "mission": m}])
+    for _ in range(3):
+        client.portal.call(eng.run_fleets)
+    m = client.portal.call(eng.fleets)[0]["mission"]
+    assert m["targets"] == ["NEARA", "NEARB"] and m["idx"] <= 1
+    assert m["phase"] == "board" or m["status"] == "stalled", m
+    # the card says why a free auto-scouting fleet hasn't launched
+    client.portal.call(eng.save_fleets, [{"id": "x1", "name": "Scouts", "role": "explore", "home": "SOL", "wants": {},
+                                          "auto_scout": True, "scout_note": "every known system is surveyed or taken"}])
+    page = client.get("/fleets/details?fleet=x1", headers=H).text
+    assert "Not launched: every known system is surveyed or taken" in page
 
 
 def test_profile_edit_and_reputation(client):

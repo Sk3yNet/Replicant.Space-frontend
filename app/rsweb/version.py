@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.378.0"
+VERSION = "1.379.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.379.0", "2026-11-11", "Survey fleets not launching (Joe). Surveyor 10's crew was left at SYRAXOS while its vessel was back at SOLARES, so nobody could board; every pass the mission still moved on to one more target without leaving, and it ran through 124 of them. Auto-scout counted every star on a running mission's list as taken, so Surveyors 2, 3, 4, 7, 8 and 9 found nothing left to survey and sat at home. Now only the stars a fleet is at or still heading to count as taken, a mission whose members are in a system with no fleet carrier sends a carrier to fetch them (or stalls with the reason) instead of skipping targets, and the fleet card of a free survey fleet says why it has not launched (auto-scout off, waiting for repairs or the loadout, nothing left to survey). Departed missions show their waiting to leave note too, and snapshots include each survey fleet's auto-scout setting and note."),
     ("1.378.0", "2026-11-11", "Dashboard › Stockpiles by location (Joe): each location shows its sector (the star's region) and the total of all its resources, sorted by sector, then largest total first."),
     ("1.377.0", "2026-11-11", "Logistics: the ships of a convoy all leave for their stockpile at once instead of one after the other (a six-ship run had five loaded freighters waiting for hours on the sixth). Cargo devices left attached to an idle logistics carrier are let off, so haulers stuck on plates work again and unload what they still hold. A print delivery from another system fills its hold with more of what it was sent for, taken only from stock no request, home reserve or ship under way has claimed."),
     ("1.376.0", "2026-11-11", "Large (modular) devices, fleet tenders included, show a compacted pill next to their status while folded up and the status does not say so (device page, Devices list, systems, tree). Devices with a repair feature get the repair command on their device page even when the game does not list it (the fleet tender lists none)."),
