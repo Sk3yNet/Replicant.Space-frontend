@@ -1229,11 +1229,9 @@ DANGEROUS = {"decommission", "change_owner", "deactivate", "withdraw", "clear_qu
 def with_attach(dev: dict, same_loc: list[dict]) -> list[str]:
     """The device's commands, plus attach when a carrier with attach points is here: the carrier attaches it (any device,
     stowable ones too: an FTL relay attached to a mobile fleet, live 2026-10-20), though the game doesn't list attach
-    among the cargo's own commands. A device with a repair feature (a fleet tender lists none of the repair commands,
-    2026-11-11) gets `repair` too: the game's command endpoint takes it from any device (RepairSchema)."""
+    among the cargo's own commands. Nothing else is added: the game's command list is the word (a fleet tender lists no
+    repair command yet, 2026-11-12: not implemented in the game, Joe)."""
     cmds = list(dev.get("available_commands") or [])
-    if any("repair" in str(f) for f in dev.get("features") or []) and "repair" not in cmds:
-        cmds.append("repair")
     if "attach" in cmds or dev.get("attached_to_device_code") or dev.get("stowed_in_device_code") \
             or dev.get("device_type") == "cargo_freighter":
         return cmds

@@ -1,4 +1,4 @@
-"""Fleet tenders (2026-11-11): compacted pill for every modular device, repair offered for repair-feature devices."""
+"""Fleet tenders (2026-11-11): compacted pill for every modular device, commands only from the game list."""
 from rsweb.web import fold_mark, with_attach
 
 
@@ -13,10 +13,7 @@ def test_fold_mark_for_any_modular_device():
     assert str(fold_mark({"features": ["mine"], "status": "idle", "folded": True})) == ""
 
 
-def test_repair_offered_to_repair_feature_devices():
+def test_commands_follow_the_game_list():
     tender = {"device_type": "fleet_tender", "features": ["cruise", "repair", "modular"],
               "available_commands": ["compact", "unfurl", "travel"]}
-    assert "repair" in with_attach(tender, [])
-    drone = {"features": ["repair"], "available_commands": ["repair", "travel"]}
-    assert with_attach(drone, []).count("repair") == 1
-    assert "repair" not in with_attach({"features": ["mine"], "available_commands": ["travel"]}, [])
+    assert "repair" not in with_attach(tender, [])

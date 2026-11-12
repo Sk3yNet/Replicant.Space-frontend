@@ -155,7 +155,7 @@ DESCRIPTIONS: dict[str, str] = {
                      "and an on-complete command apply to the new device.",
     "dequeue_print": "Remove one waiting print from the queue (0 = first waiting item).",
     "clear_queue": "Remove every waiting print (the one already printing carries on).",
-    "repair": "A repair device (maintenance drone, service bot, fleet tender) repairs a device at its location (not while "
+    "repair": "A repair device (maintenance drone, service bot) repairs a device at its location (not while "
               "it runs a directive such as patrol).",
     "replicate": "Copy this replicant matrix into an empty matrix at the same location (a new replicant).",
     "adopt": "An AMI controller takes these drones under its control; its directive then drives them.",

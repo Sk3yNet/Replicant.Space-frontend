@@ -81,8 +81,7 @@ System → device type → device, with stowed devices nested in their carrier; 
 - Live detail, every available command with its fields (destructive ones ask first), tags, history and game log,
   cancel travel, the game's event log.
 - A *compacted* pill beside the status of any large (modular) device that is folded up while its status doesn't say so
-  (here and on the Devices list, system and tree pages). Devices with a repair feature (fleet tenders too) offer
-  *repair* even when the game leaves it off their command list.
+  (here and on the Devices list, system and tree pages).
 - **Running**: every command in progress with its finish time (printing, scans, prospecting, repairs, the current
   leg of a multi-leg trip, compacting, unfurling, triangulation), with a live countdown and progress bar.
 - **Permissions**: other accounts allowed to use the device, with grant and revoke.
