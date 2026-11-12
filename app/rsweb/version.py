@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.387.2"
+VERSION = "1.387.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.387.3", "2026-11-12", "Prospecting tours no longer stall (Joe). An observatory whose prospect is over but whose result never matched waited 6 h at the star, silently (Prospectors 1, 2 and 5 sat unfurled and idle): it now waits 15 min past the prospect's end (1 h from its start when the end is unknown), says so in its run note, then packs up and moves on. Also: a folded observatory left attached to its carrier at a star it hasn't prospected from (a failed or canceled move) is put down there so it unfurls and prospects, and a retried move with the observatory still aboard skips the second attach. Snapshots carry each prospector fleet's tour note, the observatory runs and the stars prospected from."),
     ("1.387.2", "2026-11-12", "Loadout prints ordered beyond what a fleet still lacks come off the queue (Joe: another system hub queued for Delta Printing Hub, which already has hub 13A4BCE6). Once the fleet has its count, members and devices on their way included, each pass takes the newest extra print not started yet off the game's or the app's queue and drops its order. Before (1.375.0), an order was only canceled when a spare took its place, so a second hub ordered at 00:00 sat queued on DA0371E9."),
     ("1.387.1", "2026-11-12", "A recall to a fleet's own station ends once its directives are cleared and every member is already in that system, instead of stalling for want of a carrier to put everyone aboard (Miner_7, recalled at DOMBTAIRE)."),
     ("1.387.0", "2026-11-12", "Dashboard › Stations & megastructures: Travel order folds out the colony stations in the shortest travel order through all of them (exact, straight-line light years per leg), starting at the end nearer SOLARES (Joe)."),

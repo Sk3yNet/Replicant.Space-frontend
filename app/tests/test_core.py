@@ -7713,6 +7713,68 @@ def test_prospector_fleet_picks_up_every_member_first(client, monkeypatch):
     assert client.get("/fleets/details?all=1", headers=H).status_code == 200
 
 
+def test_prospector_lets_go_of_an_observatory_still_towed(client, monkeypatch):
+    """Snapshot 2026-11-12 17:03: Prospectors 3 and 4 sat folded on their surge platforms at a star they never prospected
+    from, nothing running. The pass detaches it there (observatory_pass unfurls it); one still towed at a prospected star moves on
+    without a second attach."""
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    stars = [{"designation": "HOME", "position": {"x": 0, "y": 0, "z": 0}},
+             {"designation": "NEAR", "position": {"x": 5, "y": 0, "z": 0}},
+             {"designation": "NEXT", "position": {"x": 0, "y": 6, "z": 0}}]
+    client.portal.call(db.kv_set, "stars", {"stars": stars})
+    obs = {"device_code": "OBS1", "device_type": "parallax_array", "location": "NEAR-2-L4", "status": "compacted",
+           "attached_to_device_code": "CAR1", "tags": ["fleet:pro"], "available_commands": ["prospect", "unfurl"]}
+    car = {"device_code": "CAR1", "device_type": "surge_platform", "location": "NEAR-2-L4", "status": "idle",
+           "features": ["surge"], "attach_capacity": 4, "tags": ["fleet:pro"]}
+    client.portal.call(db.kv_set, "devices", [obs, car])
+    client.portal.call(db.kv_set, "prospected_from", {"HOME": {"at": "2026-10-15T00:00:00+00:00", "outcome": "3 new star(s)"}})
+    client.portal.call(eng.save_fleets, [{"id": "pro", "name": "Prospector 3", "role": "prospector", "home": "HOME", "wants": {}}])
+    async def covered(devices, stars=None):
+        return {"HOME", "NEAR", "NEXT"}
+    monkeypatch.setattr(eng, "commandable", covered)
+    out = client.portal.call(eng.prospector_pass)
+    assert out == ["Prospector 3: detaching at NEAR"]
+    job = [j for j in client.portal.call(eng.jobs) if "put observatory" in j["title"]][-1]
+    assert [s["body"]["command"] for s in job["steps"] if s.get("body")][:1] == ["detach"]
+    # already prospected from NEAR, still towed: the next move flies on without attaching again
+    js = client.portal.call(eng.jobs)
+    for j in js:
+        j["status"] = "done"
+    client.portal.call(eng.save_jobs, js)
+    client.portal.call(db.kv_set, "prospected_from", {"HOME": {"at": "2026-10-15T00:00:00+00:00"},
+                                                      "NEAR": {"at": "2026-10-16T00:00:00+00:00"}})
+    out = client.portal.call(eng.prospector_pass)
+    assert out == ["Prospector 3: NEAR → NEXT"]
+    job = [j for j in client.portal.call(eng.jobs) if "prospecting tour" in j["title"]][-1]
+    assert [s["body"]["command"] for s in job["steps"] if s.get("body")][:2] == ["travel", "detach"]
+
+
+def test_observatory_moves_on_soon_after_a_prospect_without_a_result(client):
+    """Snapshot 2026-11-12 20:11: Prospectors 1, 2 and 5 sat unfurled and idle for hours: a finished prospect whose
+    prospect.completed never matched waited 6 h. Now 15 min past its end (1 h from its start when the end is unknown),
+    then the star counts as prospected and the observatory packs up."""
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "FAL", "position": {"x": 0, "y": 0, "z": 0}},
+                                                      {"designation": "CYR", "position": {"x": 5, "y": 0, "z": 0}}]})
+    obs = {"device_code": "OBS1", "device_type": "parallax_array", "location": "CYR-1-L4", "status": "idle",
+           "tags": ["fleet:prospector-1"], "available_commands": ["compact", "prospect", "unfurl"]}
+    client.portal.call(db.kv_set, "devices", [obs])
+    client.portal.call(eng.save_jobs, [{"id": "obsjob", "rule": "observatory", "title": "x", "status": "done", "steps": [],
+                                        "meta": {"devices": ["OBS1"]}}])
+    ago = lambda **k: (datetime.now(timezone.utc) - timedelta(**k)).isoformat(timespec="seconds")
+    run = {"star": "CYR", "used": [], "idx": 0, "job": "obsjob", "seq0": 0, "at": ago(minutes=50),
+           "live": {"completes_at": ago(minutes=5)}}
+    client.portal.call(db.kv_set, "observatory_runs", {"OBS1": dict(run)})
+    client.portal.call(eng.save_fleets, [{"id": "prospector-1", "name": "Prospector 1", "role": "prospector", "home": "FAL"}])
+    assert client.portal.call(eng.observatory_pass) == []                     # 5 min past its end: still waiting
+    assert "waiting for its result" in client.portal.call(db.kv_get, "observatory_runs")["OBS1"]["note"]
+    run["live"]["completes_at"] = ago(minutes=20)
+    client.portal.call(db.kv_set, "observatory_runs", {"OBS1": dict(run)})
+    out = client.portal.call(eng.observatory_pass)
+    assert out and "compacting" in out[0]
+    assert "CYR" in client.portal.call(db.kv_get, "prospected_from")
+
+
 def test_an_asteroid_event_is_over_once_its_impact_time_passes(client):
     """Owner 2026-10-15: no alerts with a negative time; a concluded event isn't tracked any more. The warning's
     destination shows in the Defense card's title."""

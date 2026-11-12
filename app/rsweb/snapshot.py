@@ -199,6 +199,10 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "managed_by": await managed_by(db),
         "salvage_state": await db.kv_get("salvage_state", {}) or {},
         "belt_reads": await db.kv_get("belt_reads", {}) or {},
+        # observatories: each one's run at its star, and the stars prospected from (a prospecting tour skips those)
+        "observatory_runs": {k: {x: v.get(x) for x in ("star", "used", "idx", "done", "job", "note", "retry_at", "found", "at")}
+                             for k, v in (await db.kv_get("observatory_runs", {}) or {}).items() if isinstance(v, dict)},
+        "prospected_from": await db.kv_get("prospected_from", {}) or {},
         "viability": await eng.viability_report(),
         "loadouts_last": await db.kv_get("loadouts_last", {}) or {},
         "loadouts": await db.kv_get("loadouts", {}) or {},              # templates, settings, ignore tags — to replay a pass
@@ -229,7 +233,9 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
                     **({"auto_scout": bool(f.get("auto_scout")), "scout_note": f.get("scout_note")}
                        if f.get("role") == "explore" else {}),
                     **({"chase": f.get("chase") or {}, "chase_run": f.get("chase_run") or {}}
-                       if f.get("role") == "rock_chaser" else {})}   # why a rock chaser sits idle (its run note)
+                       if f.get("role") == "rock_chaser" else {}),
+                    **({"tour": f.get("tour") or {}, "radius": f.get("radius")}   # why a prospecting tour stopped
+                       if f.get("role") == "prospector" else {})}   # why a rock chaser sits idle (its run note)
                    for f in await eng.fleets()],
         # the last commands sent (by you or the automations) and what the game answered — e.g. "did my cancel work?"
         "actions": [{"at": r["at"], "by": "automation" if r["user"] == "automation" else "you", "method": r["method"],

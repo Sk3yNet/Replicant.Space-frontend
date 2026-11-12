@@ -2864,11 +2864,20 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     if st.startswith("prospecting"):
                         runs[code] = run
                         continue
-                    rows = await self.db.fetchall("SELECT payload FROM events WHERE event='prospect.completed' AND device_code=? "
-                                                  "AND seq > ?", (code, run.get("seq0") or 0))
-                    if not rows and _ts(run.get("at")) and (_now() - _ts(run["at"])).total_seconds() < 6 * 3600:
+                    rows = await self.db.fetchall("SELECT payload FROM events WHERE event='prospect.completed' "
+                                                  "AND (device_code=? OR payload LIKE ?) AND seq > ?",
+                                                  (code, f"%{code}%", run.get("seq0") or 0))
+                    # finished but the event isn't in yet: wait a little past the prospect's end (else 1 h from its
+                    # start). It used to be 6 h from the start, silently — Prospectors 1, 2 and 5 sat unfurled and idle
+                    # for hours at their stars (snapshot 2026-11-12 20:11)
+                    end = _ts((run.get("live") or {}).get("completes_at"))
+                    until = (end + timedelta(minutes=15)) if end else (_ts(run.get("at")) + timedelta(hours=1) if _ts(run.get("at")) else None)
+                    if not rows and until and _now() < until:
+                        run["note"] = f"prospect finished; waiting for its result until {until.strftime('%H:%M')} UTC"
                         runs[code] = run
-                        continue   # finished but the event isn't in yet
+                        continue
+                    if not rows:
+                        run["note"] = "no prospect result came in: counted as 0 new stars"
                     before = set(run.get("known") or [])   # the stars known when this prospect started
                     found = set()
                     for r in rows:
@@ -2997,6 +3006,22 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             # moving on: the observatory is folded and done with this star (one prospect each)
             run = runs.get(obs["device_code"]) or {}
             ready = here and obs.get("location") and folded(obs) and (here in pfrom or (run.get("star") == here and run.get("done")))
+            if here and not ready and obs.get("attached_to_device_code") == car["device_code"] and star_of(car.get("location") or "") == here \
+                    and not fl.in_flight(car) and not str(car.get("status") or "").lower().startswith(("travel", "cruis", "surg")) \
+                    and obs["device_code"] not in busy and car["device_code"] not in busy:
+                # still towed at a star it hasn't prospected from (the tour's detach never happened: a failed or
+                # canceled move, or a trip that ended here): let go of it, so observatory_pass unfurls and prospects.
+                # Snapshot 2026-11-12 17:03: Prospectors 3 and 4 sat folded on their platforms with nothing running.
+                cc = car["device_code"]
+                job = await self.create_job("fleets", f"{f['name']}: put observatory {obs['device_code']} down at {here}",
+                                            cc, [step(f"{cc}: detach {obs['device_code']}", f"/devices/{cc}",
+                                                      {"command": "detach", "device": obs["device_code"]}, critical=True)],
+                                            {"devices": [cc, obs["device_code"]]})
+                if job:
+                    tour.update({"job": job["id"], "note": f"putting the observatory down at {here} to prospect"})
+                    out.append(f"{f['name']}: detaching at {here}")
+                    changed = True
+                continue
             if ready and obs["device_code"] not in busy and car["device_code"] not in busy:
                 taken = {(x.get("tour") or {}).get("target") for x in mine if x is not f} | \
                         {(x.get("tour") or {}).get("star") for x in mine if x is not f}
@@ -3038,8 +3063,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     steps += [step(f"{cc} → {obs['location']}", f"/devices/{cc}",
                                    {"command": "travel", "destination": obs["location"]}, critical=True),
                               fl._wait_arrive(cc, obs["location"])]
-                steps += [fl.board_step(car["device_code"], obs["device_code"], "attach"),
-                          step(f"{car['device_code']} → {dest}", f"/devices/{car['device_code']}",
+                if obs.get("attached_to_device_code") != cc:   # a retried move after a failed trip: still towed
+                    steps.append(fl.board_step(cc, obs["device_code"], "attach"))
+                steps += [step(f"{car['device_code']} → {dest}", f"/devices/{car['device_code']}",
                                {"command": "travel", "destination": dest}, critical=True),
                           fl._wait_arrive(car["device_code"], dest, nxt),
                           step(f"{car['device_code']}: detach {obs['device_code']}", f"/devices/{car['device_code']}",
