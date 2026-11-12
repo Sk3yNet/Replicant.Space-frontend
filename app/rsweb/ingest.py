@@ -775,6 +775,11 @@ class Worker:
         month = _iso(datetime.now(timezone.utc) - timedelta(days=30))
         await self.db.execute("DELETE FROM actions WHERE at < ?", (month,))
         await self.db.execute("DELETE FROM notifications WHERE read = 1 AND created_at < ?", (month,))
+        from . import history
+        try:
+            await history.daily(self.db)   # a month of events; older stock and backlog history as one value a day
+        except Exception:
+            log.exception("history clean-up failed")
 
     # --- polling -----------------------------------------------------------------------
     async def _poll_loop(self, name: str, interval: int, fn) -> None:

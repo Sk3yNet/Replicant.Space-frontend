@@ -1,0 +1,69 @@
+import asyncio
+from datetime import datetime, timedelta, timezone
+
+from rsweb import history
+from rsweb.db import DB
+
+NOW = datetime(2026, 11, 12, 15, 0, tzinfo=timezone.utc)
+
+
+def _iso(days, h=0):
+    return (NOW - timedelta(days=days, hours=h)).isoformat(timespec="seconds")
+
+
+async def _ev(db, i, event, days, device="AAAA0001"):
+    await db.insert_event({"id": f"e{i}", "event": event, "device_code": device, "created_at": _iso(days)})
+    await db.execute("UPDATE events SET received_at=? WHERE id=?", (_iso(days), f"e{i}"))
+
+
+def test_old_events_go_but_kept_kinds_and_each_devices_newest_stay(tmp_path):
+    async def go():
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        await _ev(db, 1, "travel.arrived", 40)
+        await _ev(db, 2, "travel.arrived", 35)             # this device's newest arrival: stays
+        await _ev(db, 3, "scan.completed", 40)             # read back for ever
+        await _ev(db, 4, "ami.survey.digest", 40, "BBBB0002")
+        await _ev(db, 5, "ami.survey.digest", 1, "BBBB0002")
+        await _ev(db, 6, "ami.device_adopted", 40, "BBBB0002")
+        await _ev(db, 7, "event.completed", 40)
+        await _ev(db, 9, "print.completed", 45)
+        await _ev(db, 8, "print.completed", 10)            # inside the month
+        assert await history.prune_events(db, NOW) == (3, True)
+        left = {r["id"] for r in await db.fetchall("SELECT id FROM events")}
+        assert left == {"e2", "e3", "e5", "e6", "e7", "e8"}
+        assert await history.prune_events(db, NOW) == (0, True)
+        await db.close()
+    asyncio.run(go())
+
+
+def test_history_older_than_a_week_becomes_one_value_a_day(tmp_path):
+    async def go():
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        for days in (10, 2):
+            for h, qty in ((1, 5.0), (2, 7.0), (3, 9.0)):
+                await db.execute("INSERT INTO inventory_history(ts, resource, qty) VALUES(?,?,?)", (_iso(days, -h), "iron", qty))
+                await db.execute("INSERT INTO metric_history(ts, metric, value) VALUES(?,?,?)", (_iso(days, -h), "req_open", qty))
+        for _ in range(2):   # a second run changes nothing
+            await history.thin_history(db, NOW)
+            inv = await db.fetchall("SELECT ts, qty FROM inventory_history ORDER BY ts")
+            assert [r["qty"] for r in inv] == [9.0, 5.0, 7.0, 9.0]          # the old day's last reading, the recent day whole
+            met = await db.fetchall("SELECT ts, value FROM metric_history ORDER BY ts")
+            assert [r["value"] for r in met] == [7.0, 5.0, 7.0, 9.0]        # the old day's average
+            assert met[0]["ts"] == "2026-11-02T12:00:00+00:00"
+        await db.close()
+    asyncio.run(go())
+
+
+def test_daily_runs_once_a_day(tmp_path):
+    async def go():
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        await _ev(db, 1, "travel.arrived", 40)
+        await _ev(db, 2, "travel.arrived", 39)
+        assert await history.daily(db, NOW) == 1
+        assert await history.daily(db, NOW + timedelta(hours=3)) is None
+        assert await history.daily(db, NOW + timedelta(hours=25)) == 0
+        await db.close()
+    asyncio.run(go())

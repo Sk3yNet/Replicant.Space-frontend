@@ -20,7 +20,7 @@ Internet ─► Cloudflare ─► cloudflared ─► nginx ─(auth_request)─�
 | 🔒 **No host ports** | The tunnel is the only way in; nginx checks every request (the live-update stream too) with oauth2-proxy. |
 | 🔑 **Token stays on the server** | The game API token is an environment variable of the `app` container only and never reaches the browser. |
 | ⏱️ **One process talks to the game** | One event-stream connection, scheduled polls, and every call paced under the game's limits (120 reads + 60 actions a minute), with budget kept for your clicks. |
-| 🗄️ **Full event history** | The game keeps about the last 10,000 events; the app stores everything it sees in SQLite on a named volume. |
+| 🗄️ **Full event history** | The game keeps about the last 10,000 events; the app stores everything it sees in SQLite on a named volume. After a month, events the app no longer reads are dropped (scans, prospects, BobNet posts, deals and each device's latest of every kind stay); stockpile and backlog history older than a week keep one value a day. |
 
 ## Screenshots
 
