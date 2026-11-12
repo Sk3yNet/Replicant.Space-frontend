@@ -1551,9 +1551,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         code = await self._trip_device(st)
         devices = await self.devices()
         if not target:
-            cat = await self.db.kv_get("stars", {}) or {}
-            entry = next((str(x.get("entry_point") or "").upper() for x in cat.get("stars") or []
-                          if isinstance(x, dict) and x.get("designation") == star), "")
+            entry = str(((await self.star_lookup("by")).get(star) or {}).get("entry_point") or "").upper()
             scan = None
             if not is_lagrange(entry):
                 path = str(st.get("path") or "")
@@ -1711,9 +1709,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         cloud, the Kuiper belt and the entry point (usually a planet's L5 next to the belt). Live dry runs agree: from
         FALQUORYX-1-L4 (its entry point) the Kuiper belt and the Oort cloud were 30 s `surge_hop`s, another planet's L4
         and its own L5 a cruise."""
-        cat = await self.db.kv_get("stars", {}) or {}
-        entry = next((str(x.get("entry_point") or "").upper() for x in cat.get("stars") or []
-                      if isinstance(x, dict) and x.get("designation") == star), "")
+        entry = str(((await self.star_lookup("by")).get(star) or {}).get("entry_point") or "").upper()
         return ({x.upper() for x in radii if star_of(x) == star and x.upper().endswith(("-OORT", "-KUIPER"))}
                 | ({entry} - {""})), entry
 
@@ -2355,8 +2351,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         """A shop owner's BobNet post that the shop is open ("Rock Droppers is open for shoppers! … Find me in the
         Oort."): move that shop to the system and spot it names (owner, 2026-10-20: Dash announces each move)."""
         from . import shop as sh
-        cat = await self.db.kv_get("stars", {}) or {}
-        post = sh.open_post(payload, {x.get("designation") for x in cat.get("stars") or [] if isinstance(x, dict)})
+        post = sh.open_post(payload, await self.star_lookup("names"))
         if not post:
             return None
         await sh.shop_opened(self.db, post, now_iso())
@@ -2369,8 +2364,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         follow him, pick the trail up at SOL (leaving his shop he can't be followed: he resets to SOL)."""
         from . import trail as tl
         from .shop import is_bills, known_traders, mark_gone
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {x.get("designation") for x in cat.get("stars") or [] if isinstance(x, dict)}
+        stars = await self.star_lookup("names")
         mv = tl.bill_move_post(payload, stars)
         if not mv:
             return None
@@ -3497,13 +3491,19 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
     async def cruise_radii(self) -> dict[str, float]:
         """Distance from its star (AU) of every place the stored system scans name — to tell long cruises from short."""
         from .fleets import system_radii
+        gen = self.db.gen["systems"]
+        memo = getattr(self, "_radii_memo", None)
+        if memo and memo[0] is self.db and memo[1] == gen:   # every stored scan decoded once per change, not per call
+            return dict(memo[2])
         out: dict[str, float] = {}
         for r in await self.db.fetchall("SELECT data FROM systems"):
             try:
                 out.update(system_radii(json.loads(r["data"])))
             except ValueError:
                 pass
-        return out
+        if self.db.gen["systems"] == gen:
+            self._radii_memo = (self.db, gen, out)
+        return dict(out)
 
     async def component_pass(self) -> list[str]:
         """Factories waiting for component devices (components.py): spares are pinned to the factory's location, the
@@ -3880,8 +3880,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         if not ev.due(objs, warned=warned, pct=pct):
             return []
         devices = await self.devices()
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
         reps = await self.db.kv_get("replicants", {}) or {}
         hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
         busy = self.busy_devices(await self.jobs())
@@ -3976,8 +3975,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         bps = normalize_blueprints(await self.db.kv_get("blueprints", []))
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         inv = await self.safe_piles(inv)   # piles at overdue rocks are left (2026-11-08)
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
         reps = await self.db.kv_get("replicants", {}) or {}
         hosts = {r.get("hosted_device_code"): code for code, r in reps.items() if r.get("hosted_device_code")}
         jobs = await self.jobs()
@@ -4071,8 +4069,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from . import loadouts as lo
         cfg = await self.loadout_cfg()
         p = await self.loadout_plan(only)
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
         stowed_in = {c: k for k, kids in (await self.db.kv_get("stowed_map", {}) or {}).items() for c in kids}
         lines = lo.describe(p)
         started = 0
@@ -4271,8 +4268,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             return []
         await self.db.kv_set("dispatch_try_at", now.isoformat(timespec="seconds"))
         cfg = await self.loadout_cfg()
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {s.get("designation"): s for s in (cat.get("stars") or []) if isinstance(s, dict)}
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
         p = await self.loadout_plan()
         radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
         started: list[str] = []
@@ -4511,7 +4507,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
 
     async def star_lookup(self, name: str) -> Any:
         """Lookups over the star catalog, built once per catalog update and shared (don't change them): "pos"
-        {star: position} for stars with one, "pos_all" (every star, {} without one), "by" {star: record}, "xyz" {star: (x, y, z)}, "names" (set), "slugs"
+        {star: position} for stars with one, "pos_all" (every star, {} without one), "pos_any" (every star, None without one), "by" {star: record}, "xyz" {star: (x, y, z)}, "names" (set), "slugs"
         (loadouts.star_slugs), "flagged" (records flagged has_ward / has_hub), "hubs" (set of stars flagged has_hub)."""
         from . import loadouts as lo
         from . import pathing as pa
@@ -4519,6 +4515,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         def recs(cat):
             return [x for x in (cat or {}).get("stars") or [] if isinstance(x, dict)]
         fns = {"pos": lambda c: {x.get("designation"): x["position"] for x in recs(c) if x.get("position")},
+               "pos_any": lambda c: {x.get("designation"): x.get("position") for x in recs(c)},
                "pos_all": lambda c: {x.get("designation"): x.get("position") or {} for x in recs(c)},
                "by": lambda c: {x.get("designation"): x for x in recs(c)},
                "xyz": lambda c: {x.get("designation"): pa.xyz(x["position"]) for x in recs(c) if x.get("position")},
@@ -4819,8 +4816,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                        and str(d.get("status", "")).startswith("idle") and d["device_code"] not in busy | set(drones)]
         # a survey controller works from the belt (or the inner system when there's none): take it and its drones there
         from . import placement as pl
-        cat = await self.db.kv_get("stars", {}) or {}
-        entry = next((x.get("entry_point") for x in (cat.get("stars") or []) if isinstance(x, dict) and x.get("designation") == star), None)
+        entry = ((await self.star_lookup("by")).get(star) or {}).get("entry_point")
         geo = pl.geography(star, await self.devices(), await self.system_scan(star), entry)
         spot = pl.target("ami_survey_controller", geo) if not pl.ok("ami_survey_controller", here, geo) else None
         if spot and drones:
@@ -4982,8 +4978,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         inv = await self.safe_piles(inv)   # piles at overdue rocks are left (2026-11-08)
         inv_raw = {k: dict(v) for k, v in inv.items()}   # before what jobs will pick up is taken out (backlog sample)
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {x.get("designation"): x for x in cat.get("stars") or [] if isinstance(x, dict)}
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
         pos = {k: v.get("position") for k, v in stars.items() if v.get("position")}
         reps = await self.db.kv_get("replicants", {}) or {}
         hosts = {r.get("hosted_device_code"): c for c, r in reps.items() if r.get("hosted_device_code")}
@@ -5038,7 +5033,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     from .fleets import deal as _deal
                     d = _deal(m)
                     taken.add(d.get("designation") or f"{d.get('controller')}:{d.get('trade_code')}")
-        locked = wards.foreign(cat, devices)
+        locked = wards.foreign(await self.star_lookup("flagged"), devices)
         contracts = []
         from .fleets import device_counts as fl_counts
         life = await gev.life_map(self.db)
@@ -5384,8 +5379,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         inv = await self.safe_piles(inv)   # piles at overdue rocks are left (2026-11-08)
         bps = normalize_blueprints(await self.db.kv_get("blueprints", []))
-        cat = await self.db.kv_get("stars", {}) or {}
-        pos = {x.get("designation"): x.get("position") or {} for x in cat.get("stars") or [] if isinstance(x, dict)}
+        pos = await self.star_lookup("pos_all")
         from .traffic import beacons as _beacons
         civ_locs = {r["location"] for r in await self.civ_coverage() if r.get("completed") or r.get("open")}
         protect = {b["device_code"] for b in _beacons(devices) if b.get("location") in civ_locs}   # as the loadouts pass
@@ -5556,8 +5550,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         from . import fleets as fl
         from . import loadouts as lo
         from .shapes import normalize_inventory
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {x.get("designation"): x for x in (cat.get("stars") or []) if isinstance(x, dict)}
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         target = (m.get("targets") or [None])[m.get("idx", 0)] if m.get("targets") else None
         opts = m.get("opts") or {}
@@ -5794,8 +5787,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 return []
             await self.db.kv_set("fleet_fill_at", now_iso())
         from . import fleets as fl
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {x.get("designation"): x for x in (cat.get("stars") or []) if isinstance(x, dict)}
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
         working = {(j.get("meta") or {}).get("fleet") for j in jobs if j["status"] in ("running", "waiting")}
@@ -5859,8 +5851,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         if not items:
             await self.db.kv_set("matrix_pickups", notes)
             return []
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {x.get("designation"): x for x in (cat.get("stars") or []) if isinstance(x, dict)}
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
         working = {(j.get("meta") or {}).get("fleet") for j in jobs if j["status"] in ("running", "waiting")}
@@ -5960,8 +5951,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             return False
         by = {d.get("device_code"): d for d in devices}
         busy = self.busy_devices(list(jobs.values()))
-        cat = await self.db.kv_get("stars", {}) or {}
-        stars = {x.get("designation"): x for x in (cat.get("stars") or []) if isinstance(x, dict)}
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
         sent = m.setdefault("solo_sent", [])
         changed = False
         if await self.dark_home(fleet, target, devices):
@@ -6447,7 +6437,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         busy = self.busy_devices(jobs)
         done = []
         from . import wards
-        locked = wards.foreign(await self.db.kv_get("stars", {}) or {}, devices)   # wards and hubs lock contracts
+        locked = wards.foreign(await self.star_lookup("flagged"), devices)   # wards and hubs lock contracts
         life = await gev.life_map(self.db)
         approvals = await gev.approvals_of(self.db, life)
         for des, e in (await gev.load(self.db)).items():

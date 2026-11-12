@@ -1,7 +1,9 @@
 """SQLite storage: snapshots, full event history, timers, notifications, visits."""
 from __future__ import annotations
 
+import hashlib
 import json
+import marshal
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable
@@ -123,6 +125,7 @@ def now_iso() -> str:
 # caller annotating star dicts (the map does) doesn't change the cached catalog.
 CACHED = {"stars"}
 SPLIT_KEYS = ("devices", "inventory", "stars")   # their VIRT… (simulated) part goes to sim:<key>
+PACK_MAX = 2_000_000   # saved values up to this many characters of JSON are also kept decoded in memory (kv_get)
 
 
 def _copy(v: Any) -> Any:
@@ -139,6 +142,10 @@ class DB:
         self.rconn: aiosqlite.Connection | None = None
         self._cache: dict[str, Any] = {}
         self._derived: dict[tuple[str, str], Any] = {}
+        self._packed: dict[str, bytes] = {}   # key -> the decoded value, marshaled (see kv_get)
+        self._ver: dict[str, int] = {}        # key -> writes seen, so a read racing a write isn't kept
+        self._digest: dict[str, bytes] = {}   # key -> digest of the JSON last written (see _kv_write)
+        self.gen: dict[str, int] = {"systems": 0, "scans": 0}   # bumped on writes; memo keys for readers of those rows
         self._sim_split: set[str] = set()
 
     async def open(self) -> None:
@@ -190,8 +197,17 @@ class DB:
             await self._kv_write("sim:systems", virt)
             return await self.conn.execute("SELECT 1")
         t0 = time.perf_counter()
+        head = sql.lstrip()[:40].upper()
+        if "SYSTEMS" in head:
+            self.gen["systems"] += 1
+        if "EVENTS" in head:
+            self.gen["scans"] += 1
         cur = await self.conn.execute(sql, tuple(params))
         await self.conn.commit()
+        if "SYSTEMS" in head:
+            self.gen["systems"] += 1
+        if "EVENTS" in head:
+            self.gen["scans"] += 1
         perf.note_query((time.perf_counter() - t0) * 1000)
         return cur
 
@@ -221,13 +237,28 @@ class DB:
 
     async def _kv_write(self, key: str, value: Any) -> None:
         self._cache.pop(key, None)
+        self._packed.pop(key, None)
+        self._ver[key] = self._ver.get(key, 0) + 1
         for k in [k for k in self._derived if k[0] == key]:
             del self._derived[k]
-        await self.execute(
-            "INSERT INTO kv(key, value, updated_at) VALUES(?,?,?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-            (key, json.dumps(value), now_iso()),
-        )
+        text = json.dumps(value)
+        digest = hashlib.blake2b(text.encode(), digest_size=16).digest()
+        try:
+            if self._digest.get(key) == digest:
+                # the same value as last written (passes save their state every tick whether it changed or not, some
+                # of it megabytes): only the timestamp moves. A row deleted meanwhile is written in full.
+                cur = await self.execute("UPDATE kv SET updated_at=? WHERE key=?", (now_iso(), key))
+                if cur.rowcount:
+                    return
+            self._digest.pop(key, None)
+            await self.execute(
+                "INSERT INTO kv(key, value, updated_at) VALUES(?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                (key, text, now_iso()),
+            )
+            self._digest[key] = digest
+        finally:
+            self._ver[key] = self._ver.get(key, 0) + 1
 
     async def kv_get(self, key: str, default: Any = None) -> Any:
         t0 = time.perf_counter()
@@ -235,12 +266,28 @@ class DB:
             value = _copy(self._cache[key])
             perf.note_kv(key, 0, (time.perf_counter() - t0) * 1000)
             return value
+        packed = self._packed.get(key)
+        if packed is not None:
+            # every caller gets its own copy to change, as a fresh decode gave it, at about half the cost and without
+            # a trip to the database
+            value = marshal.loads(packed)
+            perf.note_kv(key, 0, (time.perf_counter() - t0) * 1000)
+            return value
+        ver = self._ver.get(key, 0)
         row = await self.fetchone("SELECT value FROM kv WHERE key=?", (key,))
         if not row:
             return default
         value = json.loads(row["value"])
-        if key in CACHED:
-            self._cache[key] = value
+        if self._ver.get(key, 0) == ver:   # no write since the read began
+            if key in CACHED:
+                self._cache[key] = value
+                value = _copy(value)
+            elif len(row["value"]) <= PACK_MAX:
+                try:
+                    self._packed[key] = marshal.dumps(value)
+                except ValueError:
+                    pass
+        elif key in CACHED:
             value = _copy(value)
         perf.note_kv(key, len(row["value"]), (time.perf_counter() - t0) * 1000)   # read + decode
         return value
@@ -250,8 +297,11 @@ class DB:
         result. For the hot readers of the star catalog (tens of thousands of stars, read every pass): copying it on each
         read and rebuilding the same lookups was most of an engine pass (2026-10-21)."""
         if (key, name) not in self._derived:
+            ver = self._ver.get(key, 0)
             row = await self.fetchone("SELECT value FROM kv WHERE key=?", (key,)) if key not in self._cache else None
             src = self._cache[key] if key in self._cache else (json.loads(row["value"]) if row else default)
+            if self._ver.get(key, 0) != ver:   # written while it was read: answer, but keep nothing
+                return fn(src)
             if key in CACHED and row:
                 self._cache[key] = src
             self._derived[(key, name)] = fn(src)
@@ -282,6 +332,8 @@ class DB:
             ),
         )
         await self.conn.commit()
+        if ev.get("event") == "scan.completed":
+            self.gen["scans"] += 1
         return cur.rowcount > 0
 
 

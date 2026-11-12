@@ -60,8 +60,7 @@ class OpsRules:
         return await self.remove_outpost("ward", star, user)
 
     async def _outpost_ctx(self) -> tuple[dict, float]:
-        cat = await self.db.kv_get("stars", {}) or {}
-        pos = {s.get("designation"): s.get("position") for s in cat.get("stars") or [] if isinstance(s, dict)}
+        pos = await self.star_lookup("pos_any")   # shared: don't change it
         from .loadouts import DEFAULT_SETTINGS
         reach = float(((await self.loadout_cfg()).get("settings") or {}).get("max_supply_ly") or DEFAULT_SETTINGS["max_supply_ly"])
         return pos, reach

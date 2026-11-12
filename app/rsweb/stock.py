@@ -316,8 +316,7 @@ class StockMixin:
                 return False
         from .logistics import SECTOR_RANGE_LY
         from .shapes import as_amounts, normalize_blueprints, normalize_inventory
-        cat = await self.db.kv_get("stars", {}) or {}
-        pos = {s.get("designation"): s.get("position") or {} for s in cat.get("stars") or [] if isinstance(s, dict)}
+        pos = await self.star_lookup("pos_all")
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         every = await self.fleets()

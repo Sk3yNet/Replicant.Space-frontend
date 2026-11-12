@@ -187,15 +187,28 @@ def scanned_bodies(rows: list[Any]) -> list[dict]:
     return out
 
 
+_life_memo: dict = {}   # id(db) -> (db, key, answer)
+
+
 async def life_sources(db) -> tuple[dict[str, dict], list[dict]]:
-    """(stored system scans, scanned bodies) for inhabited()."""
+    """(stored system scans, scanned bodies) for inhabited(). Shared until a system scan or a scan event is stored:
+    don't change them (every scan was decoded on each call, several times a tick)."""
     from . import season
     reset = await season.reset_at(db)   # a season reset makes every system unexplored: older finds start over
+    gen = getattr(db, "gen", None)
+    key = (gen["systems"], gen["scans"], str(reset)) if gen else None
+    hit = _life_memo.get(id(db))
+    if key and hit and hit[0] is db and hit[1] == key:
+        return hit[2]
     systems = systems_from_rows([r for r in await db.fetchall("SELECT star, data, updated_at FROM systems")
                                  if not season.before(r["updated_at"], reset)])
     rows = await db.fetchall("SELECT payload, created_at, received_at FROM events WHERE event='scan.completed' "
                              "AND payload LIKE '%life_stage%' ORDER BY seq")
-    return systems, scanned_bodies([r for r in rows if not season.before(r["created_at"] or r["received_at"], reset)])
+    out = systems, scanned_bodies([r for r in rows if not season.before(r["created_at"] or r["received_at"], reset)])
+    if key and key[:2] == (gen["systems"], gen["scans"]):
+        _life_memo.clear()   # one server, one database (tests open many)
+        _life_memo[id(db)] = (db, key, out)
+    return out
 
 
 def coverage(events: dict[str, dict], devices: list[dict], systems: dict[str, dict],

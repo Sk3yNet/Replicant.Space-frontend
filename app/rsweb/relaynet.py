@@ -103,10 +103,18 @@ def hops(bps: dict[str, dict] | None = None) -> dict[str, float]:
             "long_hop": own_range((bps or {}).get(STATION)) or STATION_LY}
 
 
-def networks(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | None = None) -> dict:
-    """{"networks": [{id, color, stars, relays, hubs}], "links": [{a, b, ly, net}], "of": {star: net id}} — biggest first."""
-    ns = nodes(devices, pos, bps)
+_net_memo: dict = {}   # node signature -> (links found, groups): the pair search, shared by every caller in a tick
+
+
+def _linked(ns: dict[str, dict]) -> tuple[list[dict], list[list[str]]]:
+    """Every linked pair of nodes and the networks they form. Nodes are binned in cells one longest range wide, so each
+    is only compared with its neighbors (500 relays: every pair is 125,000 distances, and the passes ask many times a
+    tick). The answer is kept for the same nodes; callers get their own copies of the link records."""
     stars = sorted(ns)
+    key = tuple((s, ns[s]["xyz"], ns[s]["range"], "hub" in ns[s]["kinds"]) for s in stars)
+    hit = _net_memo.get(key)
+    if hit is not None:
+        return hit
     parent = {s: s for s in stars}
 
     def find(x: str) -> str:
@@ -114,18 +122,37 @@ def networks(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | No
             parent[x] = parent[parent[x]]
             x = parent[x]
         return x
+    size = max((ns[s]["range"] for s in stars), default=1.0) + 1e-6
+    cells: dict[tuple, list[str]] = defaultdict(list)
+    for s in stars:
+        x = ns[s]["xyz"]
+        cells[(math.floor(x[0] / size), math.floor(x[1] / size), math.floor(x[2] / size))].append(s)
     found = []
-    for i, a in enumerate(stars):
-        for b in stars[i + 1:]:
-            ly = math.dist(ns[a]["xyz"], ns[b]["xyz"])
-            if links(ly, ns[a]["range"], ns[b]["range"]):
-                found.append({"a": a, "b": b, "ly": round(ly, 2),
-                              "hub": "hub" in ns[a]["kinds"] or "hub" in ns[b]["kinds"]})
+    for a in stars:
+        xa, ra, ha = ns[a]["xyz"], ns[a]["range"], "hub" in ns[a]["kinds"]
+        ca = (math.floor(xa[0] / size), math.floor(xa[1] / size), math.floor(xa[2] / size))
+        near = [b for i in (-1, 0, 1) for j in (-1, 0, 1) for k in (-1, 0, 1)
+                for b in cells.get((ca[0] + i, ca[1] + j, ca[2] + k), ()) if b > a]
+        for b in sorted(near):
+            ly = math.dist(xa, ns[b]["xyz"])
+            if links(ly, ra, ns[b]["range"]):
+                found.append({"a": a, "b": b, "ly": round(ly, 2), "hub": ha or "hub" in ns[b]["kinds"]})
                 parent[find(a)] = find(b)
     groups: dict[str, list[str]] = defaultdict(list)
     for s in stars:
         groups[find(s)].append(s)
-    ordered = sorted(groups.values(), key=lambda g: (-len(g), g[0]))
+    if len(_net_memo) >= 64:
+        _net_memo.clear()
+    _net_memo[key] = (found, list(groups.values()))
+    return _net_memo[key]
+
+
+def networks(devices: list[dict], pos: dict[str, Any], bps: dict[str, dict] | None = None) -> dict:
+    """{"networks": [{id, color, stars, relays, hubs}], "links": [{a, b, ly, net}], "of": {star: net id}} — biggest first."""
+    ns = nodes(devices, pos, bps)
+    links_found, groups = _linked(ns)
+    found = [dict(l) for l in links_found]
+    ordered = sorted(groups, key=lambda g: (-len(g), g[0]))
     out, of = [], {}
     for i, g in enumerate(ordered):
         for s in g:
