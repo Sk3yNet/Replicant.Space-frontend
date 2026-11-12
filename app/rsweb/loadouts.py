@@ -648,7 +648,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             # who stays: members first, then non-spare, controller-run, already tagged home here (from before stationed
             # fleets), at home, busy ones (can't be moved anyway), then idle-less-healthy last
             # (seen live: FALQUORYX's home-tagged autofactory was about to be made spare in favor of a fresh untagged one)
+            # a controller running the fleet's drones stays over an empty one (Surveyor 6, 2026-11-10: the one made
+            # spare kept all 8 survey drones)
             ranked = sorted(have, key=lambda d: (fleet_tag_of(d) != tag, SPARE in (d.get("tags") or []),
+                                                 -sum(1 for x in devices if x.get("controller_device_code") == d["device_code"]),
                                                  not d.get("controller_device_code"),
                                                  home_tag(star) not in (d.get("tags") or []),
                                                  star_of(d.get("location")) != star,
@@ -1085,6 +1088,15 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if (c and code not in busy and code not in moves and not is_ferry_ctrl(c) and d.get("taxi_mode") != "taxi"
                 and code not in releases.get(c, [])):
             releases[c].append(code)
+    # a controller made spare lets go of what it runs: it leaves the fleet, its drones stay (live 2026-11-12: Surveyor
+    # 6's survey controller E085567D, spare at SOLARES, still ran the fleet's 8 drones at AELTHORION two days later)
+    for code in sorted(made_spare):
+        if "controller" not in ((by_code_all.get(code) or {}).get("device_type") or "") or is_ferry_ctrl(code) or code in busy:
+            continue
+        for d in devices:
+            if (d.get("controller_device_code") == code and d["device_code"] not in busy
+                    and d["device_code"] not in releases.get(code, [])):
+                releases[code].append(d["device_code"])
 
     # a device of one fleet run by another fleet's controller is let go (owner 2026-10-27: Miner_8's drones mined for
     # Miner_9's controller at SOLARES-BELT-1), so its own fleet's controller adopts it again

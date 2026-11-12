@@ -5765,7 +5765,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             if drop:
                 codes = [d["device_code"] for d in drop]
                 job = await self.create_job("fleet_fill", f"{f['name']}: drops {len(codes)} extra(s) at a hub ({', '.join(codes)})",
-                                            None, fl.drop_steps(f, drop), {"devices": codes, "fleet": f["id"]}, force=force)
+                                            None, fl.drop_steps(f, drop, devices), {"devices": codes, "fleet": f["id"]}, force=force)
                 busy |= set(codes)
                 out.append(f"{f['name']}: drops " + ", ".join(f"{d['device_code']} ({d.get('device_type')})" for d in drop)
                            + " as spares at a hub" + ("" if job else " (dry run)"))
@@ -6187,6 +6187,23 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 changed = True   # "go" (fulfill next) or "rewind" (the next phase is deliver / load again)
             if m.get("phase") == "watch":
                 others = [j for j in await self.jobs() if (j.get("meta") or {}).get("fleet") != fleet["id"]]
+                # the fleet's drones run by a controller outside it (a spare, another fleet's): that one releases them
+                # and the fleet's own adopts them (live 2026-11-12: Surveyor 6's controller coordinated alone at
+                # AELTHORION for two days, its 8 drones idle under the spare E085567D). Twice per spot at most.
+                fix_key = f"{m.get('idx', 0)}"
+                fixes = m.setdefault("reclaims", {})
+                if fleet["role"] in ("explore", "mining") and int(fixes.get(fix_key) or 0) < 2:
+                    fix = fl.held_elsewhere(fleet, devices, self.busy_devices(others))
+                    if fix:
+                        fixes[fix_key] = int(fixes.get(fix_key) or 0) + 1
+                        codes = [d["device_code"] for d in fl.members(fleet, devices)]
+                        job = await self.create_job("fleets", f"{fleet['name']}: own controller takes back its drones",
+                                                    None, fix, {"devices": codes, "fleet": fleet["id"]}, force=True)
+                        if job:
+                            m["job"], m["phase_at"] = job["id"], now_iso()   # phase_at: wait for a fresh list after
+                            self._mlog(m, f"drones held by another controller — {len(fix)} step(s) to take them back")
+                            changed = True
+                            continue
                 done, why, upd = fl.watch_done(fleet, m, devices, now_iso(), self.busy_devices(others))
                 m.update(upd)
                 if m.get("watch_note") != why:

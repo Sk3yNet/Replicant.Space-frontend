@@ -1116,6 +1116,7 @@ def mining_work_steps(fleet: dict, devices: list[dict], belt: str | None, delive
             return
         code = c["device_code"]
         if drones:
+            steps.extend(release_from_others(ms, drones, code))
             steps.append(step(f"{code}: adopt {len(drones)}", f"/devices/{code}", {"command": "adopt", "devices": drones}))
         steps.append(step(f"{code}: {directive}" + (f" at {place} ({salvage['code']})" if directive == "gather_salvage" else ""),
                           f"/devices/{code}", {"command": "set_directive", "directive": directive, "configuration": config},
@@ -1241,12 +1242,55 @@ def explore_work_steps(fleet: dict, devices: list[dict], spot: str | None = None
             w["seq0_from"] = first + i
             steps.append(w)
     if drones:
+        steps.extend(release_from_others(ms, drones, code))
         steps.append(step(f"{code}: adopt {len(drones)}", f"/devices/{code}", {"command": "adopt", "devices": drones}))
     steps.append(step(f"{code}: survey_system", f"/devices/{code}",
                       {"command": "set_directive", "directive": "survey_system",
                        "configuration": {"planets": "all", "moons": "all", "recall": True}}, critical=True))
     steps.append(step(f"{code}: launch", f"/devices/{code}", {"command": "launch"}))
     return steps, []
+
+
+def release_from_others(ms: list[dict], drones: list[str], own: str) -> list[dict]:
+    """Steps that let go of `drones` still run by a controller other than `own`, so `own` can adopt them: the game
+    won't adopt a device another controller runs (live 2026-11-12: Surveyor 6's 8 survey drones stayed under the old
+    survey controller E085567D, made spare at SOLARES, while the fleet's new one coordinated at AELTHORION alone)."""
+    by = {d["device_code"]: d for d in ms}
+    held: dict[str, list[str]] = {}
+    for c in drones:
+        cc = (by.get(c) or {}).get("controller_device_code")
+        if cc and cc != own:
+            held.setdefault(cc, []).append(c)
+    return [step(f"{cc}: release {len(cs)} for {own}", f"/devices/{cc}", {"command": "release", "devices": sorted(cs)})
+            for cc, cs in sorted(held.items())]
+
+
+def held_elsewhere(fleet: dict, devices: list[dict], busy: set[str] | frozenset = frozenset()) -> list[dict]:
+    """Repair steps for a fleet on station whose drones are run by a controller outside the fleet (a spare, another
+    fleet's, or none of ours) while the fleet's own controller of that kind stands in the same system: that
+    controller releases them and the fleet's adopts them. Ferries keep theirs."""
+    from . import ami_schedule as ams
+    ms = members(fleet, devices)
+    mine = {d["device_code"] for d in ms}
+    by_all = {d.get("device_code"): d for d in devices}
+    steps = []
+    for c in ms:
+        k = ams.kind_of(c.get("device_type"))
+        if "controller" not in (c.get("device_type") or "") or k not in ("mining", "survey") or "ferry" in (c.get("tags") or []) or c["device_code"] in busy:
+            continue
+        codes = [d["device_code"] for d in ms
+                 if d.get("controller_device_code") and d["controller_device_code"] not in mine
+                 and "ferry" not in ((by_all.get(d["controller_device_code"]) or {}).get("tags") or [])
+                 and ams.runs(k, d.get("device_type")) and "controller" not in (d.get("device_type") or "")
+                 and star_of(d.get("location")) == star_of(c.get("location")) and ams.standing(d)
+                 and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+                 and d["device_code"] not in busy and d["controller_device_code"] not in busy]
+        if codes:
+            code = c["device_code"]
+            steps += release_from_others(ms, codes, code)
+            steps.append(step(f"{code}: adopt {len(codes)} of {fleet.get('name') or fleet['id']}'s own",
+                              f"/devices/{code}", {"command": "adopt", "devices": codes}))
+    return steps
 
 
 def stop_controllers(ms: list[dict], release: bool = False) -> tuple[list[dict], set[str]]:
@@ -1396,12 +1440,17 @@ def extras(fleet: dict, devices: list[dict], ignore: set[str] | frozenset = froz
     return out
 
 
-def drop_steps(fleet: dict, ds: list[dict]) -> list[dict]:
+def drop_steps(fleet: dict, ds: list[dict], devices: list[dict] | None = None) -> list[dict]:
     """Let extras go where they are: out of the carrier, released by a controller, then out of the fleet as spares
-    (the loadout pass gathers spares at the depot and sends them to whoever is short)."""
+    (the loadout pass gathers spares at the depot and sends them to whoever is short). A controller let go first
+    releases the devices it runs, so a spare controller never keeps the fleet's drones."""
     tag, steps = fleet_tag(fleet["id"]), []
     for d in ds:
         code = d["device_code"]
+        runs_ = sorted(x["device_code"] for x in devices or [] if x.get("controller_device_code") == code)
+        if runs_:
+            steps.append(step(f"{code}: release {len(runs_)} before leaving", f"/devices/{code}",
+                              {"command": "release", "devices": runs_}))
         if d.get("controller_device_code"):
             steps.append(step(f"{d['controller_device_code']}: release {code}", f"/devices/{d['controller_device_code']}",
                               {"command": "release", "devices": [code]}))
