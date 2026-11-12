@@ -15,6 +15,7 @@ from typing import Any
 
 from .shapes import as_amounts
 
+TEXT_LIMITS = {"description": 240, "announcement": 80}   # the game refuses longer ones (live 2026-11-12)
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 
 

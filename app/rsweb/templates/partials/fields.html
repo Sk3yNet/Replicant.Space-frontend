@@ -90,7 +90,8 @@
       {% set list_id = {"location": "loc", "device_type": "dtype", "tags": "tags", "replicant": "rep", "channel": "chan"}.get(f.kind) %}
       {% if list_id == "loc" %}{% set used.loc = true %}{% elif list_id == "dtype" %}{% set used.dtype = true %}{% elif list_id == "tags" %}{% set used.tags = true %}{% elif list_id == "rep" %}{% set used.rep = true %}{% elif list_id == "chan" %}{% set used.chan = true %}{% endif %}
       <input name="{{ key }}" value="{{ f.default if f.default is not none else '' }}" {% if list_id %}list="{{ uid }}-{{ list_id }}" autocomplete="off"{% endif %}
-             placeholder="{{ 'start typing or pick…' if list_id else '' }}" size="{{ 30 if f.kind in ('location','text') else 22 }}">
+             placeholder="{{ 'start typing or pick…' if list_id else '' }}" size="{{ 30 if f.kind in ('location','text') else 22 }}"
+             {% if f.maxlen %}maxlength="{{ f.maxlen }}" oninput="this.nextElementSibling.textContent=this.value.length+' / {{ f.maxlen }}'"{% endif %}>{% if f.maxlen %}<span class="muted small">{{ (f.default or '') | string | length }} / {{ f.maxlen }}</span>{% endif %}
     {% endif %}
     {% if f.help %}<div class="muted small">{{ f.help }}</div>{% endif %}
   </div>

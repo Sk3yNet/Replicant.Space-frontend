@@ -234,6 +234,10 @@ async def shop_configure(request: Request, code: str, user: str = Depends(curren
     for k in ("description", "announcement"):
         if (form.get(k) or "").strip():
             cfg[k] = form.get(k).strip()
+    from .shop import TEXT_LIMITS
+    long_ = [f"{k} is {len(cfg[k])} characters, the game takes at most {n}" for k, n in TEXT_LIMITS.items() if len(cfg.get(k) or "") > n]
+    if long_:
+        return _lines(long_, ok=False)
     out = await call_action(request, user, "POST", f"/devices/{code}",
                             {"command": "set_directive", "directive": "trade", "configuration": cfg}, f"shop {code}: {name}")
     if out["ok"]:

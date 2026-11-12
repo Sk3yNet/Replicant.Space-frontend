@@ -38,6 +38,7 @@ class Field:
     help: str = ""
     options: list = field(default_factory=list)
     filter: dict = field(default_factory=dict)  # e.g. {"device_type": "empty_replicant_matrix"} or {"feature": "ami"}
+    maxlen: int = 0   # the game's length limit (text fields): the form sets maxlength and counts characters
     side: str = ""   # shown only on a device that fits: has_hold / no_hold / has_attach / no_attach (field_applies)
 
     @property
@@ -212,8 +213,8 @@ DIRECTIVES: dict[str, dict[str, list[Field]]] = {
                         F("priority", "resource_list")],
     },
     "maintenance": {"patrol": []},
-    "trade": {"trade": [F("name", "text", required=True, label="shop name"), F("description", "text"),
-                        F("announcement", "text")]},
+    "trade": {"trade": [F("name", "text", required=True, label="shop name"), F("description", "text", maxlen=240, help="At most 240 characters (the game's limit)."),
+                        F("announcement", "text", maxlen=80, help="Posted on BobNet: at most 80 characters (the game's limit).")]},
     "fleet": {},
 }
 

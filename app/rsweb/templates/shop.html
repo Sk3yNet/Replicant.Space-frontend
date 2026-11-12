@@ -19,8 +19,8 @@
   <details {{ 'open' if not s.configured }}><summary class="small">Shop details</summary>
     <form class="small" hx-post="/shop/{{ s.code }}/configure" hx-target="next .sh-out">
       <div class="row"><label>Name <input name="name" value="{{ s.config.name or '' }}" size="28" required></label>
-        <label>Announcement (on BobNet) <input name="announcement" value="{{ s.config.announcement or '' }}" size="40"></label></div>
-      <label>Description<br><textarea name="description" rows="2" style="width:100%">{{ s.config.description or '' }}</textarea></label>
+        <label>Announcement (on BobNet, at most 80 characters) <input name="announcement" value="{{ s.config.announcement or '' }}" size="40" maxlength="80" oninput="this.nextElementSibling.textContent=this.value.length+' / 80'"><span class="muted small">{{ (s.config.announcement or '') | length }} / 80</span></label></div>
+      <label>Description (at most 240 characters)<br><textarea name="description" rows="2" style="width:100%" maxlength="240" oninput="this.nextElementSibling.textContent=this.value.length+' / 240'">{{ s.config.description or '' }}</textarea><span class="muted small">{{ (s.config.description or '') | length }} / 240</span></label>
       <button class="small">{{ 'Update shop' if s.configured else 'Open shop' }}</button>
     </form><div class="sh-out"></div>
   </details>

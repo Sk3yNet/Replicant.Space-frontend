@@ -126,3 +126,13 @@ def test_engine_lists_and_card_saves(client):  # noqa: F811
     assert "1 device type(s) stocked, 1 override(s)" in r.text
     f = client.portal.call(e.fleets)[0]
     assert f["trade_post"] == {"onhand": {"mining_drone": 3}, "prices": {"mining_drone": {"rares": 90}}}
+
+
+def test_shop_text_limits(client):  # noqa: F811
+    from test_ops import H
+    r = client.post("/shop/TRD00001/configure", data={"name": "Bits", "announcement": "x" * 81},
+                    headers={**H, "HX-Request": "true"})
+    assert "announcement is 81 characters, the game takes at most 80" in r.text
+    from rsweb.commands import DIRECTIVES
+    f = {x.name: x for x in DIRECTIVES["trade"]["trade"]}
+    assert f["description"].maxlen == 240 and f["announcement"].maxlen == 80
