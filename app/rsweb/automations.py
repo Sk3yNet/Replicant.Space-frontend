@@ -4136,7 +4136,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         group = [c["factory"]] + sorted(k for k, d in devs.items() if k != c["factory"] and f.get("location")
                                         and d.get("location") == f.get("location") and d.get("device_type") == f.get("device_type"))
         mine = lambda t, tags: t == c["device_type"] and tag in (tags or [])   # noqa: E731
-        label = f"loadouts: spare {c['spare']} replaces the {c['device_type']} queued for {c['star']}"
+        label = (f"loadouts: spare {c['spare']} replaces the {c['device_type']} queued for {c['star']}" if c.get("spare")
+                 else f"loadouts: the {c['device_type']} queued for {c['star']} isn't needed any more (the fleet has its count)")
         done = False
         for code in group:
             try:

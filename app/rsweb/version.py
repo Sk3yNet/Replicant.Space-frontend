@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.387.1"
+VERSION = "1.387.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.387.2", "2026-11-12", "Loadout prints ordered beyond what a fleet still lacks come off the queue (Joe: another system hub queued for Delta Printing Hub, which already has hub 13A4BCE6). Once the fleet has its count, members and devices on their way included, each pass takes the newest extra print not started yet off the game's or the app's queue and drops its order. Before (1.375.0), an order was only canceled when a spare took its place, so a second hub ordered at 00:00 sat queued on DA0371E9."),
     ("1.387.1", "2026-11-12", "A recall to a fleet's own station ends once its directives are cleared and every member is already in that system, instead of stalling for want of a carrier to put everyone aboard (Miner_7, recalled at DOMBTAIRE)."),
     ("1.387.0", "2026-11-12", "Dashboard › Stations & megastructures: Travel order folds out the colony stations in the shortest travel order through all of them (exact, straight-line light years per leg), starting at the end nearer SOLARES (Joe)."),
     ("1.386.0", "2026-11-12", "Snapshot review fixes (Joe). A mining fleet whose miners have all sat at home without mining for 6 hours counts its home as dry and picks a next home (Miner_7 at DOMBTAIRE and Delta Miner 2 at XANSELEN sat 28 and 37 h on a used-up salvage); the log names what its controllers report. Salvage never takes rigs or drones tagged component or pinned with at:, and a resource the game says is used up at a salvage is never asked for there again. A hauler the carrier would first have to fetch from another system no longer holds up a convoy of ships that fly themselves (a loaded freighter at ANCENON waited 4.5 h for 80 units). A small print delivery to another system waits for a fuller hold while another is already on its way there (ANLOREN to ISOLITHOR ran 12 to 37 units a trip). No repair patrol for a system with one device worn to 70 % or more. Survey fleets: the auto-scout distance (100 ly) is now set per home hub, like the relay rollout radii: the box on a survey fleet's auto-scout row sets it for every survey fleet based there."),

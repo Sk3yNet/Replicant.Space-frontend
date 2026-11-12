@@ -4638,6 +4638,15 @@ def test_spare_at_home_replaces_a_queued_print_and_busy_spares_are_waited_for():
     # with neither spare there, it prints
     p = lo.plan(cfg, [af], bps, inv, stars, {}, set(), [], {})
     assert [pr["device_type"] for pr in p["prints"]] == ["system_hub"]
+    # snapshot 2026-11-12 20:22: the fleet has its hub (13A4BCE6) and a second one is still ordered: it comes off
+    member = {**hub("H2", "relaying"), "tags": ["fleet:hub"]}
+    p = lo.plan(cfg, [af, member], bps, inv, stars, {}, set(), [order, {**order, "at": "2026-11-12T00:00:32+00:00"}], {})
+    assert p["prints"] == [] and [(c["at"], c["spare"]) for c in p["cancel_orders"]] == [
+        ("2026-11-12T00:00:32+00:00", None), ("2026-11-10T22:15:19+00:00", None)]
+    assert any("has its count without" in line for line in lo.describe(p))
+    # one still needed (no hub yet) stays
+    p = lo.plan(cfg, [af], bps, inv, stars, {}, set(), [order], {})
+    assert p["cancel_orders"] == [] and p["prints"] == []
 
 
 def test_cancel_loadout_print_takes_the_newest_matching_print_off(client):

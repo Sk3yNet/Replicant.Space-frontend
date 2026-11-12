@@ -824,7 +824,15 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             # a spare sitting at home takes the place of a print ordered for the fleet and not out yet: the print is
             # taken off its queue (snapshot 2026-11-11 01:08: Delta Printing Hub had a system hub queued while spare hubs
             # 13A4BCE6, relaying, and 5B9A394D sat at ISOLITHOR-1-L4; the order counted as incoming, so they never got used)
-            pend = pending.get((fid, row["type"])) or []
+            pend = list(pending.get((fid, row["type"])) or [])
+            # prints ordered beyond what the fleet still lacks (it has its count now, members or devices on their way
+            # included) come off the queue too (snapshot 2026-11-12 20:22: Delta Printing Hub had hub 13A4BCE6 and a
+            # second hub ordered at 00:00 queued on DA0371E9; an order is only canceled for a spare, so it stayed)
+            extra = min(len(pend), max(0, row["have"] + row["incoming"] - row["want"]))
+            for o in pend[::-1][:extra]:   # the newest first
+                cancel_orders.append({"factory": o["factory"], "device_type": row["type"], "fleet": fid,
+                                      "star": star, "job": o.get("job"), "at": o.get("at"), "spare": None})
+            pend = pend[:len(pend) - extra]
             if need <= 0 and pend:
                 home_spares = sorted((d for d in donors.get(row["type"], []) if star_of(d.get("location")) == star
                                       and fam(d) == fleet_fam(tag) and not working(d)),
@@ -1825,8 +1833,8 @@ def describe(p: dict) -> list[str]:
     """Plain-language list of what a pass would do."""
     out = []
     for c in p.get("cancel_orders") or []:
-        out.append(f"spare {c['spare']} takes the place of the {c['device_type']} queued on {c['factory']} for {c['star']}: "
-                   "that print comes off the queue")
+        who = f"spare {c['spare']} takes the place of" if c.get("spare") else f"{c['star']} has its count without"
+        out.append(f"{who} the {c['device_type']} queued on {c['factory']} for {c['star']}: that print comes off the queue")
     for ctrl, codes in sorted((p.get("releases") or {}).items()):
         spare = [c for c in codes if c in set(p.get("made_spare") or [])]
         other = [c for c in codes if c not in spare]
