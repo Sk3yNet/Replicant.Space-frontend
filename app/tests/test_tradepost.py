@@ -136,3 +136,33 @@ def test_shop_text_limits(client):  # noqa: F811
     from rsweb.commands import DIRECTIVES
     f = {x.name: x for x in DIRECTIVES["trade"]["trade"]}
     assert f["description"].maxlen == 240 and f["announcement"].maxlen == 80
+
+
+def test_shop_spot_pins_the_controller_and_waits_for_it():
+    f = {**FLEET, "trade_post": {**FLEET["trade_post"], "spot": "sol-5-l4"}}
+    devs = [shop(), dev("D1", "mining_drone", "SOL-5-L4", [TAG])]
+    pl = tp.plan(f, devs, [], {}, BPS, P, TAG)
+    assert pl["location"] == "SOL-5-L4" and pl["pin"] == {"code": "SHOP", "add": ["at:sol-5-l4"], "remove": []}
+    assert pl["actions"] == [] and pl["need"] == {"mining_drone": 2} and "on its way to SOL-5-L4" in pl["notes"][0]
+    devs[0] = {**shop("SOL-5-L4"), "tags": ["fleet:tp", "at:sol-5-l4"]}
+    pl = tp.plan(f, devs, [], {}, BPS, P, TAG)
+    assert pl["pin"] is None and pl["actions"][0]["create"]["stock"] == 1
+
+
+def test_card_spot_run_and_shop_link(client):  # noqa: F811
+    from test_ops import H
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "blueprints", list(BPS.values()))
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices")
+                       + [shop(), dev("D1", "mining_drone", tags=[TAG])])
+    client.portal.call(e.save_fleets, [dict(FLEET)])
+    hx = {**H, "HX-Request": "true"}
+    assert "not in the home system" in client.post("/fleets/tp/tradepost", data={"action": "spot", "spot": "ALPHA-4-L4"}, headers=hx).text
+    assert "pinned to SOL-4-L4" in client.post("/fleets/tp/tradepost", data={"action": "spot", "spot": "sol-4-l4"}, headers=hx).text
+    assert client.portal.call(e.fleets)[0]["trade_post"]["spot"] == "SOL-4-L4"
+    r = client.post("/fleets/tp/tradepost", data={"action": "run"}, headers=hx)
+    assert "listed 1× mining_drone" in r.text
+    assert client.portal.call(e.fleets)[0]["trade_post"]["onhand"] == {"mining_drone": 2}
+    page = client.get("/shop", headers=H).text
+    assert 'id="shop-SHOP"' in page and "Run by the trade post" in page
+    assert "/shop#shop-SHOP" in client.get("/fleets/details?all=1", headers=H).text

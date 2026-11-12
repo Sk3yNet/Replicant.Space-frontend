@@ -3,9 +3,17 @@
 <div class="small" style="margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
   <div><b>Trade post</b> ·
     {% if tp.controller %}shop <a href="/devices/{{ tp.controller }}">{{ tp.controller }}</a> at <b>{{ tp.location }}</b>
+    · <a href="/shop#shop-{{ tp.controller }}">its trades on the Shop page</a>
     {% else %}<span class="lv-alert">no AMI trade controller in the fleet: add one (and an active FTL relay in its system, for the directory)</span>{% endif %}
     {% if tp.state.at %}<span class="muted"> · checked {{ tp.state.at | ago }}</span>{% endif %}
     {% if tp.state.note %}<span class="lv-alert"> · {{ tp.state.note }}</span>{% endif %}</div>
+  <form hx-post="/fleets/{{ f.id }}/tradepost" hx-target="next .tp-out" class="row small" style="margin:4px 0">
+    <label style="text-transform:none" title="The exact location the shop works from, in its home system (an L4/L5 point or a body of its own is best: the game escrows any device of a listed type found there). The controller is pinned there and Loadouts carries it; stock is delivered there. Blank: wherever the controller is.">Shop spot
+      <input name="spot" value="{{ tp.spot }}" placeholder="e.g. {{ f.home }}-4-L4" list="tp-spots-{{ f.id }}" size="22" autocomplete="off"></label>
+    <datalist id="tp-spots-{{ f.id }}">{% for loc in tp.spots %}<option value="{{ loc }}">{% endfor %}</datalist>
+    <button class="small" name="action" value="spot">Save spot</button>
+    <button class="small ghost" name="action" value="run" title="Read the listing now and create, restock or reprice the trades (otherwise every 5 minutes)">List now</button>
+  </form>
   <form hx-post="/fleets/{{ f.id }}/tradepost" hx-target="next .tp-out" class="row small" style="margin:4px 0">
     <input type="hidden" name="action" value="pricing">
     <span title="Shared by every trade post. Price per resource = materials × (factor + % per hour × print hours), rounded up. Materials and print time include every component, all the way down.">Price formula:</span>

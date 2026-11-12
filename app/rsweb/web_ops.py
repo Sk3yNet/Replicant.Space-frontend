@@ -210,7 +210,14 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(at)).total_seconds() if at else None
         if age is None or age > 600:
             await _read_trades(request, s["code"])
-    return await page(request, user, "shop.html", "shop", shops=await _shops(request), traders=traders,
+    from . import tradepost as tp
+    posts = {}
+    for f_ in await request.app.state.worker.automations.fleets():
+        if f_.get("role") == tp.ROLE:
+            c_ = tp.controller(f_, st["devices"])
+            if c_:
+                posts[c_["device_code"]] = f_
+    return await page(request, user, "shop.html", "shop", shops=await _shops(request), traders=traders, posts=posts,
                       traders_last=await request.app.state.db.kv_get(sh.LAST_KV),
                       listing_wanted=await request.app.state.db.kv_get(sh.LISTING_KV, {}) or {},
                       trade_ok=await request.app.state.db.kv_get("trade_approvals", {}) or {},

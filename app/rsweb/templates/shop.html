@@ -8,7 +8,9 @@
   when you create it — you need them at the shop's location for the whole stock — and come back if you remove it.</p>
 
 {% for s in shops %}
-<div class="card">
+<div class="card" id="shop-{{ s.code }}">
+  {% set post = posts.get(s.code) %}{% if post %}<div class="small" style="margin-bottom:4px">Run by the trade post <a href="/fleets/details?fleet={{ post.id }}"><b>{{ post.name }}</b></a>:
+    its trades are created from the stock and prices set there (one listing per device type), so change them there rather than here.</div>{% endif %}
   <div class="row between">
     <h2 style="margin:0">{{ s.config.name or 'Unnamed shop' }} <span class="mono small"><a href="/devices/{{ s.code }}">{{ s.code }}</a></span>
       <span class="small muted">{{ s.location }} · {{ s.status }}</span>

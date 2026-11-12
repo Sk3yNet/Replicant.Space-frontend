@@ -66,7 +66,8 @@ def settings(fleet: dict) -> dict:
         except (TypeError, ValueError):
             pass
     prices = {t: {r: int(q) for r, q in as_amounts(p).items() if q > 0} for t, p in (tp.get("prices") or {}).items()}
-    return {"onhand": onhand, "prices": {t: p for t, p in prices.items() if p}}
+    spot = str(tp.get("spot") or "").strip().upper()
+    return {"onhand": onhand, "prices": {t: p for t, p in prices.items() if p}, "spot": spot}
 
 
 def print_seconds(device_type: str, bps: dict[str, dict], depth: int = 0) -> float:
@@ -161,12 +162,23 @@ def plan(fleet: dict, devices: list[dict], trades: list[dict] | None, state: dic
     """What to list, delist and supply. Pure. `trades`: the shop's listing as just read (None: unknown).
     Returns {rows, actions: [{type, delete, create, escrow}], release: [codes], need: {type: n}, skip: [codes], notes}."""
     ctrl = controller(fleet, devices)
+    spot = settings(fleet)["spot"]
     out: dict[str, Any] = {"rows": rows(fleet, bps, p), "actions": [], "release": [], "need": {}, "skip": [],
-                           "notes": [], "location": (ctrl or {}).get("location")}
+                           "notes": [], "location": spot or (ctrl or {}).get("location"), "pin": None}
     if not ctrl:
         out["notes"].append("no AMI trade controller in the fleet")
         return out
-    loc = ctrl["location"]
+    loc = out["location"]
+    away = bool(spot) and ctrl.get("location") != spot   # on its way to the shop spot: stock goes there, nothing listed yet
+    if spot:
+        from .loadouts import at_tag
+        tags = ctrl.get("tags") or []
+        if at_tag(spot) not in tags:
+            out["pin"] = {"code": ctrl["device_code"], "add": [at_tag(spot)],
+                          "remove": [t for t in tags if str(t).startswith("at:")]}
+        if away:
+            out["notes"].append(f"shop {ctrl['device_code']} is at {ctrl.get('location')}, on its way to {spot}: "
+                                "listing starts once it is there")
     listings = state.get("listings") or {}
     at_loc = [d for d in devices if d.get("location") == loc and not d.get("stowed_in_device_code")
               and not d.get("attached_to_device_code")]
@@ -194,8 +206,8 @@ def plan(fleet: dict, devices: list[dict], trades: list[dict] | None, state: dic
             out["release"] += [d["device_code"] for d in loose]
             continue
         out["need"][t] = max(0, want - listed)
-        if trades is None:
-            r["status"] = "listing not read"
+        if trades is None or away:
+            r["status"] = "waiting for the shop to reach its spot" if away else "listing not read"
             continue
         bad = [d for d in loose + others if carries_replicant(d, devices)]
         if bad:
@@ -341,6 +353,12 @@ class TradePostMixin:
                     out.append(f"{f.get('name')}: listed {a['create']['stock']}× {t}")
             by = {d.get("device_code"): d for d in devices}
             busy = self.busy_devices(await self.jobs())
+            pin = pl.get("pin")
+            if pin and pin["code"] not in busy and not dry:   # the shop spot: Loadouts carries the controller there
+                if await self.create_job("trade_post", f"trade post {f.get('name')}: pin shop {pin['code']} to "
+                                         f"{pl['location']}", None, [tag_step(pin["code"], pin["add"], pin["remove"] or None)],
+                                         {"devices": [pin["code"]]}):
+                    out.append(f"{f.get('name')}: shop pinned to {pl['location']}")
             rel = [by[c] for c in pl["release"] if c in by and c not in busy]
             if rel and not dry:
                 steps = [tag_step(d["device_code"], ["spare"], [x for x in d.get("tags") or []

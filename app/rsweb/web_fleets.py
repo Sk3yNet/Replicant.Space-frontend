@@ -65,7 +65,11 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
             ctrl = tp_.controller(f, st["devices"])
             rows = tp_.rows(f, bp_by, tp_pricing)
             fst = tp_state.get(f["id"]) or {}
+            spots = sorted({d.get("location") for d in st["devices"] if d.get("location")
+                            and star_of(d["location"]) == f.get("home") and d["location"] != f.get("home")}
+                           | {f"{f.get('home')}-{n}-L{k}" for n in range(1, 6) for k in (4, 5)} if f.get("home") else set())
             f["tp_view"] = {"pricing": tp_pricing, "rows": rows, "state": fst, "wanted": sum(1 for r in rows if r["onhand"]),
+                            "spot": tp_.settings(f)["spot"], "spots": spots,
                             "controller": (ctrl or {}).get("device_code"), "location": (ctrl or {}).get("location"),
                             "status": {r["type"]: r for r in fst.get("rows") or []}}
         if f.get("role") == "rock_chaser":   # rockchase.py: every setting resolved, and the run with all its keys
@@ -1167,6 +1171,23 @@ async def fleets_tradepost(request: Request, fid: str, user: str = Depends(curre
         await db.kv_set(tp.KV_PRICING, new)
         await eng.log("trade_post", f"price formula: materials × {new['factor']:g} + {new['pct_per_hour']:g} % per print hour, by {user}")
         return HTMLResponse('<div class="result ok">Saved. Listings are repriced on the next pass (reload to see the new prices).</div>')
+    if form.get("action") == "spot":
+        spot = str(form.get("spot") or "").strip().upper()
+        if spot and star_of(spot) != f.get("home"):
+            return HTMLResponse(f'<div class="result err">{html.escape(spot)} is not in the home system {html.escape(f.get("home") or "?")}.</div>')
+        if spot and "-" not in spot:
+            return HTMLResponse('<div class="result err">Pick a spot in the system (a planet, moon or L-point), not the star.</div>')
+        f.setdefault("trade_post", {})["spot"] = spot
+        await eng.save_fleets(items)
+        await eng.log("trade_post", f"{f['name']}: shop spot {spot or 'cleared'} by {user}")
+        return HTMLResponse('<div class="result ok">' + (f"Saved: the shop is pinned to {html.escape(spot)} on the next pass and Loadouts carries it there; stock is delivered there."
+                            if spot else "Cleared: the shop works wherever its controller is.") + '</div>')
+    if form.get("action") == "run":
+        out = await eng.trade_post_pass(force=True)
+        note = ((await request.app.state.db.kv_get(tp.KV, {}) or {}).get(fid) or {}).get("note")
+        lines = out or ["Nothing to list or change right now."]
+        return HTMLResponse('<div class="result ok">' + "<br>".join(html.escape(x) for x in lines)
+                            + (f'<br><span class="lv-alert">{html.escape(note)}</span>' if note else "") + '</div>')
     if form.get("action") != "stock":
         return HTMLResponse('<div class="result err">Unknown action.</div>')
     onhand, prices, bad = {}, {}, []
@@ -1183,7 +1204,7 @@ async def fleets_tradepost(request: Request, fid: str, user: str = Depends(curre
             prices[t] = p
     if bad:
         return HTMLResponse('<div class="result err">' + "<br>".join(html.escape(b) for b in bad) + '</div>')
-    f["trade_post"] = {"onhand": onhand, "prices": prices}
+    f["trade_post"] = {**(f.get("trade_post") or {}), "onhand": onhand, "prices": prices}
     await eng.save_fleets(items)
     await eng.log("trade_post", f"{f['name']}: stock set for {len(onhand)} device type(s), {len(prices)} price override(s), by {user}")
     return HTMLResponse(f'<div class="result ok">Saved: {len(onhand)} device type(s) stocked, {len(prices)} override(s). '
