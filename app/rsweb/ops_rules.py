@@ -853,7 +853,18 @@ class OpsRules:
         devices = await self.devices()
         by = {d.get("device_code"): d for d in devices}
         lines = []
-        red = tr.redundant_beacons(devices, rows, self.busy_devices(await self.jobs()))
+        busy = self.busy_devices(await self.jobs())
+        for sp in tr.stale_pins(devices, busy):
+            d = by.get(sp["code"]) or {}
+            pins = [t for t in d.get("tags") or [] if t.startswith("at:")]
+            job = await self.create_job("civ_beacons", f"beacon {sp['code']} ({sp['location']}): drop its pin to {sp['pin']}",
+                                        sp["code"], [tag_step(sp["code"], None, pins)], {"devices": [sp["code"]]}, force=manual)
+            if job:
+                busy.add(sp["code"])
+                await self.remember_tags(sp["code"], sorted(set(d.get("tags") or []) - set(pins)))
+            lines.append(f"{sp['code']} at {sp['location']}: pin to {sp['pin']} dropped, that body has a beacon already"
+                         + ("" if job else " (dry run)"))
+        red = tr.redundant_beacons(devices, rows, busy)
         if len(red) > REDUNDANT_PER_PASS:   # 163 at once on 2026-11-01: a few dozen jobs per pass, the rest next time
             lines.append(f"{len(red)} redundant beacons: {REDUNDANT_PER_PASS} now, the rest on the next passes")
             red = red[:REDUNDANT_PER_PASS]

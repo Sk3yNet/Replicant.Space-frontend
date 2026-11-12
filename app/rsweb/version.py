@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.381.0"
+VERSION = "1.381.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.381.1", "2026-11-12", "Beacons pinned to a civilization body in another system that already has a beacon of its own drop that pin and stay where they are (Joe: beacons tagged for one place sitting in another; BADU-3-L4, OXETH-BELT-1 and XERLARNIS-5-L4 had waited since October)."),
     ("1.381.0", "2026-11-12", "Fewer notifications (Joe): stellar censuses, completed prints and AMI directives, prospects, relay and hub switch-ons and hub upkeep, salvage finds and auto-read messages, wards/relays/beacons coming up, dark-relay wake trips, long-range stations going spare, fleet moves and missions completing, pathing home changes, repair returns, stale-rescue cancels, season rescans, simulation starts, station jobs accepted and Kuiper launch marks no longer raise a notification. They stay in the event feed and the automation log."),
     ("1.380.0", "2026-11-12", "Beacons at civilization event sites: new option (on by default) also puts a beacon at every civilization with no event yet (intelligent or spacefaring life on a planet or moon) in a system your relay network covers (Joe)."),
     ("1.379.2", "2026-11-12", "Command screen: status colors (green done, amber warning, red alert, purple moving, gray off) no longer take the accent color on links, so beacon marks and other status links show their real state (Joe: they all showed red)."),

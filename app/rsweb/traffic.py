@@ -290,6 +290,25 @@ def redundant_beacons(devices: list[dict], rows: list[dict], busy: set[str] | No
     return out
 
 
+def stale_pins(devices: list[dict], busy: set[str] | None = None) -> list[dict]:
+    """Beacons pinned (`at:`) to a body in another system that already has a working beacon of yours (live 2026-11-12:
+    BADU-3-L4 pinned to RASTUBAN-3, OXETH-BELT-1 to KOMOND-4, XERLARNIS-5-L4 to ZELIONUM-4 since October, left there
+    by relay runs while their bodies got beacons of their own). The pin is dropped: the beacon stays where it sits."""
+    from .loadouts import pinned_at
+    from .wardhub import active
+    busy = busy or set()
+    up = {d.get("location") for d in beacons(devices) if active(d)}
+    out = []
+    for d in beacons(devices):
+        pin, loc, tags = pinned_at(d), d.get("location"), d.get("tags") or []
+        if (not pin or not loc or pin == loc or star_of(pin) == star_of(loc) or pin not in up
+                or d.get("device_code") in busy
+                or any(t.startswith(("fleet:", "contract:", "to:")) for t in tags)):
+            continue
+        out.append({"code": d["device_code"], "location": loc, "pin": pin})
+    return out
+
+
 def pinned_for(devices: list[dict], locs: list[str] | set[str]) -> dict | None:
     """A beacon pinned (`at:`) to one of `locs` that isn't there yet: a carrier of the loadout pass brings it."""
     from .loadouts import pinned_at

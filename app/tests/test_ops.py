@@ -565,3 +565,14 @@ def test_civ_beacon_pass_covers_quiet_civilizations_in_relay_range(client, monke
     client.portal.call(e.save_settings, s)
     lines = client.portal.call(e.civ_beacon_pass, "SOL-4")
     assert lines and lines[0].startswith("SOL-4:"), lines
+
+
+def test_stale_beacon_pins_in_other_systems():
+    """Live 2026-11-12: BADU-3-L4 pinned at:rastuban-3 since October while RASTUBAN-3 has beacons of its own."""
+    b = lambda c, loc, tags: {"device_code": c, "device_type": "ftl_beacon", "location": loc, "status": "monitoring", "tags": tags}
+    devs = [b("B1", "BADU-3-L4", ["at:rastuban-3"]), b("R1", "RASTUBAN-3", ["spare"]),
+            b("B2", "BADU-3-L4", ["at:komond-4"]),           # nothing at KOMOND-4 yet: kept
+            b("B3", "RASTUBAN-2", ["at:rastuban-3"]),        # same system: the loadout pass fetches it
+            b("B4", "BADU-BELT-1", ["at:rastuban-3", "contract:x"])]
+    assert [s["code"] for s in tr.stale_pins(devs)] == ["B1"]
+    assert tr.stale_pins(devs, {"B1"}) == []
