@@ -120,7 +120,7 @@ def f_ago(v: Any) -> str:
 
 
 def f_pretty(v: Any) -> str:
-    return json.dumps(v, indent=2, sort_keys=True, default=str)
+    return json.dumps(v, indent=2, sort_keys=True, default=str, ensure_ascii=False)
 
 
 def f_human(v: Any) -> str:
@@ -479,8 +479,8 @@ async def call_action(request: Request, user: str, method: str, path: str, body:
         HAND.reset(hand)
     await st.db.execute(
         "INSERT INTO actions(at, user, method, path, body, status, response) VALUES(?,?,?,?,?,?,?)",
-        (now_iso(), user, method, path, json.dumps(body) if body is not None else None, status,
-         json.dumps(resp, default=str)[:20000] if resp is not None else None),
+        (now_iso(), user, method, path, json.dumps(body, ensure_ascii=False) if body is not None else None, status,
+         json.dumps(resp, default=str, ensure_ascii=False)[:20000] if resp is not None else None),
     )
     request.state.action_response = resp if err is None else None
     if not err:

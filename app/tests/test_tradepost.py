@@ -166,3 +166,8 @@ def test_card_spot_run_and_shop_link(client):  # noqa: F811
     page = client.get("/shop", headers=H).text
     assert 'id="shop-SHOP"' in page and "Run by the trade post" in page
     assert "/shop#shop-SHOP" in client.get("/fleets/details?all=1", headers=H).text
+
+
+def test_pretty_keeps_curly_quotes():
+    from rsweb.web import f_pretty
+    assert "Don’t" in f_pretty({"a": "Don’t"})
