@@ -138,6 +138,7 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
 
 ## Writing character texts (replicant profiles)
 
-Name ≤ 60 characters with underscores (no spaces or dashes). Description and Plan ≤ 500 characters each, Project ≤ 2000. The
-text is rendered as HTML, so use no quotes, apostrophes, ampersands or angle brackets: spell contractions out and
-introduce speech with "Says:".
+Name ≤ 60 characters: letters, digits, hyphens and underscores only (Joe's names are SK3Y-First_Last). Description and
+Plan ≤ 500 characters each, Project ≤ 2000. Apostrophes (straight and curly), quotes, ampersands and angle brackets
+reach the game and come back unchanged (live test 2026-11-12, Sk3y-30), so plain English with contractions is fine.
+Shop texts: description ≤ 240, announcement ≤ 80 characters.
