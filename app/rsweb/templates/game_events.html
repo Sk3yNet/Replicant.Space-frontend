@@ -3,9 +3,9 @@
 {% block live %} data-live-cards{% endblock %}
 {% block content %}
 {% macro beacon_mark(loc, star) %}{% set b = beacon.get(star) %}{% set here = b.here.get(loc) if b else none %}
-{%- if here %}<a href="/traffic" class="small lv-done" title="your beacon is at {{ loc }}: {{ here | join(', ') }}">📡 beacon</a>
-{%- elif b %}<a href="/traffic" class="small lv-warning" title="your beacon in {{ star }} ({{ b.system | join(', ') }}) is not at {{ loc }}: follow-up requests need one at the body">📡 in system</a>
-{%- else %}<a href="/traffic" class="small lv-alert" title="no beacon of yours in {{ star }}: no follow-up requests from this civilization">no beacon</a>{% endif %}{% endmacro %}
+{%- if here %}<a href="/traffic" class="pill small st-work" title="your beacon is at {{ loc }}: {{ here | join(', ') }}">✓ beacon here</a>
+{%- elif b %}<a href="/traffic" class="pill small st-idle" title="your beacon in {{ star }} ({{ b.system | join(', ') }}) is not at {{ loc }}: follow-up requests need one at the body">beacon only in system</a>
+{%- else %}<a href="/traffic" class="pill small lv-alert" style="border-color:rgba(255,107,107,.4)" title="no beacon of yours in {{ star }}: no follow-up requests from this civilization">✗ no beacon</a>{% endif %}{% endmacro %}
 <h1>Contracts <span class="muted small">in-game events · {{ open | length }} open</span></h1>
 <p class="muted small">Discovered events and what they ask for. A replicant must be at the event's location to fulfill one; the
   criteria are consumed from what's there. Progress counts stock at the location and across its system.</p>

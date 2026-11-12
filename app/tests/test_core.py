@@ -1765,16 +1765,16 @@ def test_contracts_tracker_progress_and_actions(client):
     assert e["status"] == "open" and e["title"] == "Atmospheric Harvest"
     page = client.get("/game-events", headers=H).text
     assert "Atmospheric Harvest" in page and "Contracts" in page
-    assert "no beacon</a>" in page                               # the mock's only beacon is stowed
+    assert "✗ no beacon</a>" in page                               # the mock's only beacon is stowed
     world = client.app.state.api.http._transport.app.state.world
     fb = next(d for d in world.devices if d["device_code"] == "FB000001")
     keep = dict(fb)
     fb.update(status="idle", location="SOL-3")
     client.portal.call(client.app.state.db.kv_set, "devices", world.devices)
-    assert "📡 in system</a>" in client.get("/game-events", headers=H).text
+    assert "beacon only in system</a>" in client.get("/game-events", headers=H).text
     fb.update(location="SOL-3-L4")
     client.portal.call(client.app.state.db.kv_set, "devices", world.devices)
-    assert "📡 beacon</a>" in client.get("/game-events", headers=H).text
+    assert "✓ beacon here</a>" in client.get("/game-events", headers=H).text
     fb.clear(); fb.update(keep)
     client.portal.call(client.app.state.db.kv_set, "devices", world.devices)
     # SOL-3-L4 has 400 structural and no carbon; SOL-BELT-1 has 180 carbon → deliver carbon from the belt
