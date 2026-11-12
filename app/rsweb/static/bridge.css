@@ -11,6 +11,13 @@ html.bridge {
 }
 html.bridge, html.bridge body { height: 100%; overflow: hidden; background: #000; }
 html.bridge a { color: var(--accent-hi); }
+/* status colors stay the same whatever the accent: links that carry a status class keep it (Joe 2026-11-12: every
+   beacon mark showed in the red accent) */
+html.bridge .lv-done, html.bridge .st-work { color: var(--good); }
+html.bridge .lv-alert, html.bridge .lv-error { color: var(--bad); }
+html.bridge .lv-warning, html.bridge .lv-mention, html.bridge .st-idle { color: var(--warn); }
+html.bridge .st-move { color: var(--move); }
+html.bridge .st-off, html.bridge .lv-info { color: var(--muted); }
 html.bridge h1 { font-weight: 600; letter-spacing: .03em; }
 html.bridge button, html.bridge .btn { background: var(--plate); border-color: #4b4e53; color: var(--text); }
 html.bridge button:hover, html.bridge .btn:hover { background: var(--accent-soft); border-color: var(--accent); }

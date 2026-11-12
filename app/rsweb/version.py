@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.379.1"
+VERSION = "1.379.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.379.2", "2026-11-12", "Command screen: status colors (green done, amber warning, red alert, purple moving, gray off) no longer take the accent color on links, so beacon marks and other status links show their real state (Joe: they all showed red)."),
     ("1.379.1", "2026-11-12", "Contracts page beacon marks are colored pills with plain words (✓ beacon here, beacon only in system, ✗ no beacon) instead of a satellite emoji (Joe read the green mark at RASTUBAN-2 as red next to its auto-approved note)."),
     ("1.379.0", "2026-11-11", "Survey fleets not launching (Joe). Surveyor 10's crew was left at SYRAXOS while its vessel was back at SOLARES, so nobody could board; every pass the mission still moved on to one more target without leaving, and it ran through 124 of them. Auto-scout counted every star on a running mission's list as taken, so Surveyors 2, 3, 4, 7, 8 and 9 found nothing left to survey and sat at home. Now only the stars a fleet is at or still heading to count as taken, a mission whose members are in a system with no fleet carrier sends a carrier to fetch them (or stalls with the reason) instead of skipping targets, and the fleet card of a free survey fleet says why it has not launched (auto-scout off, waiting for repairs or the loadout, nothing left to survey). Departed missions show their waiting to leave note too, and snapshots include each survey fleet's auto-scout setting and note."),
     ("1.378.0", "2026-11-11", "Dashboard › Stockpiles by location (Joe): each location shows its sector (the star's region) and the total of all its resources, sorted by sector, then largest total first."),
