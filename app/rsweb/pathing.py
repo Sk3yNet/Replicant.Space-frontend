@@ -25,6 +25,8 @@ RELAY_LY, HUB_LY = 7.5, 15.0
 DEFAULT_CONE = 60
 DRY_FOR_HOURS = 2.0           # dry this long before choosing (sites come and go)
 GRACE_MINUTES = 30            # planned → moving: time to cancel
+IDLE_HOURS = 6.0              # no miner of the fleet mining this long at home: the home counts as dry
+MINER_TYPES = ("mining_drone", "mining_rig")
 PROSPECT_EVERY_HOURS = 4.0
 AHEAD_WANTED = 3              # prospect while fewer candidate systems than this lie ahead
 
@@ -130,6 +132,28 @@ def dry(home: str, devices: list[dict], viability: list[dict], nothing: dict, wa
     if belts and verdicts and len(verdicts) >= len(belts) and all(v == "consider moving" for v in verdicts):
         return "every belt is 'consider moving' (searches take far longer than a site lasts)"
     return None
+
+
+def idle_miners(tag: str, home: str, devices: list[dict]) -> str | None:
+    """The fleet's miners are all at home and none is mining: what its mining controllers report (for the log), else
+    None (one is mining, or some are still away or on the way, e.g. a move trickling in). Live 2026-11-12: Miner_7 at
+    DOMBTAIRE and Delta Miner 2 at XANSELEN sat 28 and 37 h on a finished salvage with nothing marking the home dry."""
+    mine = [d for d in devices if tag in (d.get("tags") or [])]
+    miners = [d for d in mine if d.get("device_type") in MINER_TYPES]
+    if not miners:
+        return None
+    for d in miners:
+        st = str(d.get("status") or "")
+        loc = d.get("location") or ""
+        if st.startswith("mining") or not loc or loc.split("-")[0] != home or st in ("travelling", "cruising", "surging"):
+            return None
+    states = []
+    for c in mine:
+        if c.get("device_type") == "ami_mining_controller":
+            dv = c.get("ami_directive") if isinstance(c.get("ami_directive"), dict) else {}
+            states.append(f"{c.get('device_code')} at {c.get('location')}: "
+                          + (f"{dv.get('name')} {dv.get('_eval_state') or ''}".strip() if dv.get("name") else "no directive"))
+    return "; ".join(states) or "no mining controller"
 
 
 def choose(fleet: dict, fleets: list[dict], rows: list[dict], xyz_of: dict[str, tuple], devices: list[dict],

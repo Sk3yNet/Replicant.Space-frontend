@@ -164,7 +164,7 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
     obs_fleets = {fl.fleet_of(d) for d in st["devices"] if is_observatory(d) and fl.fleet_of(d)}
     obs_fleets |= {f["id"] for f in items if any((fl.station_wants(f) or {}).get(t) for t in OBSERVATORY_TYPES)}   # or its loadout wants one
     from . import bootstrap as _bt
-    return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items, "shown_fleets": shown,
+    return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items, "shown_fleets": shown, "scout_radii": await eng.db.kv_get("scout_radii", {}) or {},
             "types": types,
             "stars": stars_all, "roles": fl.ROLE_CHOICES, "phases": {**fl.PHASES, "homing": fl.HOMING_PHASES}, "traders": traders,
             "boot_reps": [(c, r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")],
@@ -982,6 +982,14 @@ async def fleets_auto_scout(request: Request, fid: str, user: str = Depends(curr
         f["scout_count"] = max(1, min(10, int(form.get("scout_count") or 3)))
     except ValueError:
         f["scout_count"] = 3
+    if form.get("scout_radius") is not None and f.get("home"):
+        # one radius per home hub, shared by every survey fleet based there, like the relay rollout radii (Joe 2026-11-12)
+        try:
+            radii = await eng.db.kv_get("scout_radii", {}) or {}
+            radii[f["home"]] = max(5.0, min(1728.0, float(form.get("scout_radius") or eng.SCOUT_RADIUS_LY)))
+            await eng.db.kv_set("scout_radii", radii)
+        except ValueError:
+            pass
     await eng.save_fleets(items)
     return HTMLResponse(f'<span class="small {"lv-done" if f["auto_scout"] else "muted"}">'
                         + ("On: scouts the nearest unsurveyed systems when it's free." if f["auto_scout"] else "Off.")

@@ -5990,8 +5990,9 @@ def test_auto_scout_surveys_nearest_first_until_worn(client, monkeypatch):
     client.portal.call(eng.save_fleets, [{"id": "x1", "name": "Scouts", "role": "explore", "home": "SOL", "wants": {}},
                                          {"id": "x2", "name": "Lazy", "role": "explore", "home": "SOL", "wants": {}}])
     client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES('SOL', '{}', '2026-10-08')")
-    r = client.post("/fleets/x1/auto-scout", data={"auto_scout": "on"}, headers=HX)
+    r = client.post("/fleets/x1/auto-scout", data={"auto_scout": "on", "scout_radius": "250"}, headers=HX)
     assert "nearest unsurveyed" in r.text
+    assert client.portal.call(db.kv_get, "scout_radii") == {"SOL": 250}   # per home hub, shared by its survey fleets
     devices = client.portal.call(db.kv_get, "devices")
     devices.append({"device_code": "TIRED", "device_type": "survey_drone", "location": "SOL-3", "status": "idle",
                     "operational_capacity": 0.8, "tags": ["fleet:x1"]})
@@ -6322,6 +6323,44 @@ def test_pathing_pass_prospects_then_relocates(client):
     assert f["home"] == "AHEADB" and f["prev_home"] == "HOMEA" and not f.get("next_home")
     notes = client.portal.call(db.fetchall, "SELECT title FROM notifications WHERE link='/fleets'")
     assert not any("moving home: HOMEA → AHEADB" in n["title"] for n in notes)   # announced ahead only (1.381.0)
+
+
+def test_a_fleet_whose_miners_sit_idle_at_home_for_6_hours_moves_on(client):
+    """Live 2026-11-12: Miner_7 (DOMBTAIRE) and Delta Miner 2 (XANSELEN) sat 28 and 37 h on a finished salvage, rigs idle
+    at L4 points, and nothing marked the home dry."""
+    from rsweb import pathing as pa
+    ctrl = {"device_code": "C1", "device_type": "ami_mining_controller", "location": "HOMEA-6-L4", "status": "coordinating",
+            "tags": ["fleet:m1"], "ami_directive": {"name": "gather_salvage", "_eval_state": "depleted:recalling"}}
+    rigs = [{"device_code": f"R{i}", "device_type": "mining_rig", "location": "HOMEA-6-L4", "status": "idle", "tags": ["fleet:m1"]}
+            for i in range(2)]
+    assert "C1 at HOMEA-6-L4: gather_salvage depleted:recalling" in pa.idle_miners("fleet:m1", "HOMEA", [ctrl, *rigs])
+    assert pa.idle_miners("fleet:m1", "HOMEA", [ctrl, {**rigs[0], "status": "mining (carbon)"}, rigs[1]]) is None
+    assert pa.idle_miners("fleet:m1", "HOMEA", [ctrl, {**rigs[0], "location": "OTHER-BELT-1"}, rigs[1]]) is None  # still moving in
+    assert pa.idle_miners("fleet:m1", "HOMEA", [ctrl]) is None                                                 # no miners
+    eng, db = client.app.state.worker.automations, client.app.state.db
+
+    async def commandable(devices, stars=None, without=None):
+        return {"HOMEA", "AHEADB"}
+    eng.commandable = commandable
+    stars = {"HOMEA": (0, 0, 0), "AHEADB": (5, 0, 0)}
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": k, "position": dict(zip("xyz", v))} for k, v in stars.items()]})
+    belt = {"asteroid_belt": {"belts": [{"designation": "X", "density": "dense", "resources": {"structural": "rich"}}]}}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("AHEADB", json.dumps(belt), "2026-10-08T00:00:00+00:00"))
+    relays = [{"device_code": f"REL{s}", "device_type": "ftl_relay", "location": f"{s}-5-L4", "status": "relaying", "tags": []}
+              for s in ("HOMEA", "AHEADB")]
+    client.portal.call(db.kv_set, "devices", [ctrl, *rigs, *relays])
+    client.portal.call(eng.save_fleets, [{"id": "m1", "name": "Miner 1", "role": "mining", "home": "HOMEA", "station": True,
+                                          "wants": {}, "auto_relocate": True}])
+    client.portal.call(eng.pathing_pass, True)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert f["idle_since"] and not f.get("depleted_since")                 # the clock starts
+    items = client.portal.call(eng.fleets)
+    items[0]["idle_since"] = "2026-10-01T00:00:00+00:00"
+    client.portal.call(eng.save_fleets, items)
+    out = client.portal.call(eng.pathing_pass, True)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert out == ["Miner 1: next home AHEADB"] and "none of its miners has mined for 6 h" in f["path_note"], f
 
 
 def test_renaming_a_fleet_moves_its_tag(client):
@@ -10307,3 +10346,26 @@ def test_dashboard_lists_station_and_megastructure_systems(client):
     assert 'data-card="stations"' in page
     assert '<a href="/systems/ALKALAROPS">ALKALAROPS</a> <span class="muted">New Havana Station' in page
     assert '<a href="/systems/MIRFAKA">MIRFAKA</a> <span class="muted">datacenter' in page
+
+
+def test_salvage_skips_pinned_component_rigs_and_used_up_resources(client):
+    """Live 2026-11-12: two component rigs pinned to FALQUORYX-BELT-1 were sent to salvage at FALQUORYX-2-2 and asked for
+    conductive, which the salvage no longer had ("No conductive remaining at salvage site")."""
+    from rsweb import salvage as sv
+    from rsweb.automations import QUIET_SKIP_RE, SALVAGE_GONE_RE
+    sal = {"code": "X-2-2-SAL-1", "amounts": {"conductive": 300, "carbon": 20}}
+    assert sv.main_resource(sal) == "conductive" and sv.main_resource(sal, ["conductive"]) == "carbon"
+    assert sv.main_resource(sal, ["conductive", "carbon"]) is None and sv.main_resource({"code": "Y"}) == "structural"
+    assert sv.drone_steps("R1", "X-2-2", sal, ["conductive"])[-1]["body"]["resource_type"] == "carbon"
+    err = "No conductive remaining at salvage site"
+    assert SALVAGE_GONE_RE.search(err).group(1) == "conductive" and QUIET_SKIP_RE.search(err)
+    world, eng = _salvage_setup(client, drop_controller=True)
+    for i, site in enumerate(("SOL-BELT-1-SITE-1", "SOL-BELT-1-SITE-2")):
+        client.portal.call(client.app.state.worker.handle_event, _ev(300 + i, "site.depleted", site=site))
+    db = client.app.state.db
+    devs = client.portal.call(db.kv_get, "devices", [])
+    for d in devs:
+        if d["device_type"] == "mining_drone":
+            d["tags"] = ["component", "at:sol-belt-1"]
+    client.portal.call(db.kv_set, "devices", devs)
+    assert not [x for x in client.portal.call(eng.rule_salvage) if "SAL" in x]   # pinned components stay put

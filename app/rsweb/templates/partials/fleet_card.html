@@ -220,7 +220,8 @@
         {% if f.role == 'explore' %}
         <form class="row small" hx-post="/fleets/{{ f.id }}/auto-scout" hx-trigger="change" hx-target="#scout-{{ f.id }}" style="gap:14px;margin:6px 0">
           <label style="text-transform:none"><input type="checkbox" name="auto_scout" {{ 'checked' if f.auto_scout }}> auto-scout</label>
-          <span class="muted">surveys the nearest unsurveyed systems within 100 ly of home, ring by ring (without a replicant aboard: only inside relay
+          <label style="text-transform:none">within <input type="number" name="scout_radius" min="5" max="1728" step="5" value="{{ ((scout_radii or {}).get(f.home) or 100)|round|int }}" style="width:5em"> ly of {{ f.home }}</label>
+          <span class="muted">(the same for every survey fleet based there) surveys the nearest unsurveyed systems within that distance of home, ring by ring (without a replicant aboard: only inside relay
             coverage), until a member is down to 50 % capacity — then home for repairs; it sets out again once everything is at 85 % or more.{% if f.scout_note %} <b>{{ f.scout_note }}</b>{% endif %}</span>
           <span id="scout-{{ f.id }}" class="muted">When the fleet is free it visits the stars your observatories found that nothing
             of yours has scanned, nearest to its home first (not another player's warded system, not a stationed fleet's home).</span>

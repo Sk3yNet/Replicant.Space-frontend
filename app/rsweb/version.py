@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.385.2"
+VERSION = "1.386.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.386.0", "2026-11-12", "Snapshot review fixes (Joe). A mining fleet whose miners have all sat at home without mining for 6 hours counts its home as dry and picks a next home (Miner_7 at DOMBTAIRE and Delta Miner 2 at XANSELEN sat 28 and 37 h on a used-up salvage); the log names what its controllers report. Salvage never takes rigs or drones tagged component or pinned with at:, and a resource the game says is used up at a salvage is never asked for there again. A hauler the carrier would first have to fetch from another system no longer holds up a convoy of ships that fly themselves (a loaded freighter at ANCENON waited 4.5 h for 80 units). A small print delivery to another system waits for a fuller hold while another is already on its way there (ANLOREN to ISOLITHOR ran 12 to 37 units a trip). No repair patrol for a system with one device worn to 70 % or more. Survey fleets: the auto-scout distance (100 ly) is now set per home hub, like the relay rollout radii: the box on a survey fleet's auto-scout row sets it for every survey fleet based there."),
     ("1.385.2", "2026-11-12", "Device commands follow the game's list again: the repair command added in 1.376.0 for repair-feature devices the game lists without it (fleet tender) is gone."),
     ("1.385.1", "2026-11-12", "Deliver takes an empty replicant matrix, or a matrix container holding only empty matrices (Joe: an empty matrix was refused as carrying a replicant). A device that does hold a replicant but has no drive now says to fly the vessel it rides in, or to stow it on a vessel or transfer / teleport the replicant, instead of pointing at a travel command it doesn't have."),
     ("1.385.0", "2026-11-12", "Activity › Contacts (Joe): other players' replicants seen by your beacons, owning devices in a scanned system, or posting on BobNet, each with its game profile (description, plan, project, pronouns, XP, location; read once, then daily, a few per beacon read), systems and sources seen, search, hide NPCs, profile text only, a note of your own, hide, and Add by name from the game directory. Traffic names link there."),

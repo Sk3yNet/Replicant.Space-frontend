@@ -271,7 +271,10 @@ NO_SITE_RE = re.compile(r"\bno \w+ remaining at any active site", re.I)
 # Refusals the engine sorts out by itself (live 2026-10-30): a belt surveyor re-activated after a move with no site left to
 # track ("Nothing to activate"), a search at a belt already holding the game's most sites (reopen_sites waits for them).
 # Skipped at info level, never counted toward the 3-in-a-row stop.
-QUIET_SKIP_RE = re.compile(NO_SITE_RE.pattern + r"|nothing to activate|maximum active sites", re.I)
+# "No conductive remaining at salvage site" (live 2026-11-12, FALQUORYX-2-2): our copy of the salvage's amounts is stale;
+# the resource is noted in kv salvage_gone {body: [resource]} and never asked for there again
+SALVAGE_GONE_RE = re.compile(r"\bno (\w+) remaining at salvage site", re.I)
+QUIET_SKIP_RE = re.compile(NO_SITE_RE.pattern + r"|nothing to activate|maximum active sites|" + SALVAGE_GONE_RE.pattern, re.I)
 BUSY_RETRY_S, BUSY_TRIES = 300, 36   # retry such a refusal every 5 min, for up to 3 h
 # the game server itself failing (a 502/503/504 answer, or no answer): nothing was done, so send the same step again
 # (snapshot 2026-10-31: two logistics trips answered "Service Unavailable" were skipped and their jobs then failed waiting
@@ -1262,6 +1265,13 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     await self._update(job)
                     continue
                 quiet = bool(QUIET_SKIP_RE.search(err or ""))
+                sg = SALVAGE_GONE_RE.search(err or "")
+                if sg and job["rule"] == "salvage_when_depleted" and job.get("meta", {}).get("salvage"):
+                    from .salvage import body_of
+                    body = body_of(job["meta"]["salvage"])
+                    sgone = await self.db.kv_get("salvage_gone", {}) or {}
+                    sgone[body] = sorted(set(sgone.get(body) or []) | {sg.group(1).lower()})
+                    await self.db.kv_set("salvage_gone", sgone)
                 gone = str((st.get("body") or {}).get("destination") or "")
                 if GONE_OBJECT_RE.search(err or "") and str(st.get("desc") or "").endswith("(its at: pin)") and gone:
                     # the object it was pinned to is gone (live 2026-11-10, after the Season 4 time skip: 3 propulsors
@@ -2655,6 +2665,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         it its home — the loadout pass then moves the fleet. Every 5 minutes."""
         from . import pathing as pa
         from . import prospects as pr
+        from .fleets import fleet_tag
         last = _ts(await self.db.kv_get("pathing_at", None))
         if not force and last and (_now() - last).total_seconds() < 300:
             return []
@@ -2688,7 +2699,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     changed = True
                     continue
                 f["prev_home"], f["home"] = home, nxt
-                f.pop("next_home", None), f.pop("next_home_at", None), f.pop("depleted_since", None)
+                f.pop("next_home", None), f.pop("next_home_at", None), f.pop("depleted_since", None), f.pop("idle_since", None)
                 f["path_note"] = f"moved home {home} → {nxt} at {now_iso()} — " + await self.start_relocation(f, home, nxt)
                 changed = True
                 out.append(f"{f['name']}: home {home} → {nxt}")
@@ -2696,6 +2707,19 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 continue
             # --- is the home dry, and for long enough?
             why = pa.dry(home, devices, inp["viability"], nothing, inp["warded"], (await self.system_belts({home}))[home])
+            idle = pa.idle_miners(fleet_tag(f["id"]), home, devices)
+            if idle is None:
+                f.pop("idle_since", None)
+            elif not f.get("idle_since"):
+                f["idle_since"] = now_iso()
+                changed = True
+            elif not why and (now - _ts(f["idle_since"])).total_seconds() >= pa.IDLE_HOURS * 3600:
+                why = f"none of its miners has mined for {pa.IDLE_HOURS:g} h ({idle})"
+                if not f.get("depleted_since"):   # it has been idle long enough already: no second wait
+                    f["depleted_since"] = (now - timedelta(hours=float(f.get("dry_hours") or pa.DRY_FOR_HOURS))).isoformat(timespec="seconds")
+                    f["path_note"] = f"{home} looks dry: {why}"
+                    changed = True
+                    await self.log("fleets", f"{f['name']}: {home} looks dry: {why}", "alert")
             if not why:
                 if f.pop("depleted_since", None):
                     changed = True
@@ -3210,7 +3234,8 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         # network; Surveyor 4 flew out to RASALGEDO, went out_of_range and stalled)
         riding = False
         reach = await self.commandable(devices, {k: {"position": v} for k, v in pos.items()} if extra else None)
-        radius = self.SCOUT_RADIUS_LY
+        # per home hub (kv scout_radii {home: ly}, set on a survey fleet's auto-scout row), else SCOUT_RADIUS_LY
+        radius = float((await self.db.kv_get("scout_radii", {}) or {}).get(home) or self.SCOUT_RADIUS_LY)
 
         def pick() -> str | None:   # pure: every catalog star against local copies, so it runs in a thread
             def done(star: str) -> bool:
@@ -3234,7 +3259,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             return min(cands)[2] if cands else None
         best = await asyncio.to_thread(pick)
         if best is None:
-            return None, (f"every known system within {self.SCOUT_RADIUS_LY:g} ly of {home} "
+            return None, (f"every known system within {radius:g} ly of {home} "
                           + ("" if riding else "inside relay coverage ") + "is surveyed or taken")
         return best, ""
 
@@ -6841,9 +6866,12 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             t = _ts(cool.get(code))
             return bool(t and now - t < cooldown)
 
+        # print components and devices pinned (at:) somewhere stay where they are (live 2026-11-12: two component rigs
+        # pinned to FALQUORYX-BELT-1 were sent to salvage at FALQUORYX-2-2)
         miners = [d for d in devices if (d.get("device_type") in ("mining_drone", "mining_rig") or
                   (is_controller(d) and kind_of(d.get("device_type")) == "mining"))
-                  and not _reserved(d)]
+                  and not _reserved(d) and not any(t == "component" or t.startswith("at:") for t in d.get("tags") or [])]
+        sgone = await self.db.kv_get("salvage_gone", {}) or {}
         done: list[str] = []
         nothing = state.setdefault("nothing", {})   # star -> when we last said there's nothing to mine there
         warded = await self.warded(devices)
@@ -6852,8 +6880,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             scanned = await self.db.fetchone("SELECT 1 FROM systems WHERE star=?", (star,))
             no_belt = bool(scanned) and not (await self.system_belts({star}))[star]   # scanned: no belt to mine
             dry = sv.worked_out(res) | {p for p in await self.exhausted_places() if star_of(p) == star}
-            sal = sv.available_salvage(res)
-            dead_sal = {x["code"] for x in res.get("salvage") or [] if x.get("depleted")}
+            sal = [x for x in sv.available_salvage(res) if sv.main_resource(x, sgone.get(sv.body_of(x["code"]))) is not None]
+            dead_sal = {x["code"] for x in res.get("salvage") or [] if x.get("depleted")
+                        or sv.main_resource(x, sgone.get(sv.body_of(x["code"]))) is None}
             # a salvage a controller here reports finished ("depleted:recalling") is used up too, whatever our copy of the
             # system says (live 2026-11-10: 4 mining fleets sat paused at used-up salvage for a week, "on salvage")
             spent = {str(((d.get("ami_directive") or {}).get("config") or {}).get("location") or "")
@@ -6932,7 +6961,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 target = sal[i]
                 code = d["device_code"]
                 await self.create_job("salvage_when_depleted", f"{code}: salvage {target['code']} (sites in {star} depleted)", code,
-                                      sv.drone_steps(code, d.get("location"), target), {"salvage": target["code"]})
+                                      sv.drone_steps(code, d.get("location"), target, sgone.get(sv.body_of(target["code"]))), {"salvage": target["code"]})
                 cool[code] = now.isoformat(timespec="seconds")
                 counts[target["code"]] += 1
                 done.append(f"{code} → {target['code']}")

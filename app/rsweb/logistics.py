@@ -131,6 +131,7 @@ CATEGORIES = {"prints": "queued prints", "deals": "trades & contracts", "rescues
 LANES = ("prints", "deals", "rescues", "shop", "repairs", "upkeep")
 PATROL_LOAD = 6                # worn devices one patrolling repair device looks after (upkeep.report's "covered")
 KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like placed relays and beacons: never "rescued"
+REPAIR_ALONE_BELOW = 70.0     # a repair patrol goes to a system with one worn device only when it is below this %
 MIN_LOAD = 0.25               # a cross-system print delivery leaves with its hold at least this full (or all that's wanted)
 LONG_HAUL_LY = 15.0            # beyond this a part load waits even when a print is stalled for materials
 RELAY_HOP = 7.5                # distances compared in relay hops: anything in the same hop counts as equally near
@@ -666,6 +667,8 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
     for star, r in report.items():
         short = want(star) - len(there.get(star) or []) - int(incoming.get(star) or 0)
         if short > 0 and star in (commandable if targets is None else targets & commandable) and star not in danger:
+            if len(r["damaged"]) < 2 and r["min"] >= REPAIR_ALONE_BELOW:
+                continue   # one device a little worn isn't worth a trip (live 2026-11-12: FENIRON, one at 77 %)
             wear = sum(100 - x["capacity"] for x in r["damaged"])
             needs.append((star, short, wear, r))
     needs.sort(key=lambda x: (-x[2], x[3]["min"], x[0]))
@@ -764,6 +767,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     bpl = list(bps.values())
     free = {d["device_code"]: d for d in pool if d["device_code"] not in busy and _free(d)}
     runs, unmet, used = [], [], set()
+    sent_to: set[str] = set()   # print destinations a convoy already left for this pass: the next part load waits
     rep_at = defaultdict(list)
     for code, r in (replicants or {}).items():
         rep_at[r.get("location") or r.get("current_location")].append(code)
@@ -997,7 +1001,11 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                                                and (same or (ride and seats >= 1)))
                               or (ride and seats >= 1 and star_of(d.get("location")) != fstar))
                          and (star_of(d.get("location")) in commandable or c in hosts)
-                         and (star_of(d.get("location")) == fstar or _dist(star_of(d.get("location")), fstar, pos) <= reach)]
+                         and (star_of(d.get("location")) == fstar or _dist(star_of(d.get("location")), fstar, pos) <= reach)
+                         # a hauler the carrier must first fetch from another system doesn't hold up a ship that flies
+                         # itself (live 2026-11-12: a loaded 500 freighter at ANCENON waited 4.5 h for an 80-unit hauler)
+                         and not (not can_surge(d) and star_of(d.get("location")) != fstar
+                                  and any(can_surge(g["dev"]) for g in group))]
                 if not cands:
                     break
                 # one already holding what's needed first (e.g. loaded on a trip that failed), then nearest (by relay hop),
@@ -1048,7 +1056,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             hold = sum(g["room"] for g in group)
             far = _dist(fstar, dstar, pos) > LONG_HAUL_LY
             if r["kind"] == "print" and not same and need and hold and sum(taken.values()) < MIN_LOAD * hold \
-                    and (far or not r.get("waiting")):
+                    and (far or not r.get("waiting") or dest in sent_to
+                         or any(q >= 1 for q in (incoming.get(dest) or {}).values())):
                 # a part load for a print queue: more was wanted but this is all that can be spared now — wait and load
                 # more on a later pass instead of sending a near-empty hold (a long haul even when a print waits)
                 for g in group:
@@ -1107,6 +1116,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                          "escort_pickup": any(star_of(x) not in commandable for x in stops[:-1]),
                          "rewards": rewards if home else {}, "home": home,
                          "reward_devices": rdev})
+            if r["kind"] == "print":
+                sent_to.add(dest)
         r["_left"], r["_assigned"] = need, assigned
     # rescues: your devices out of command range (beyond an active relay network, no replicant with them), last tier.
     # A device that can surge home is reached by a replicant (in its system, or anywhere its own dark relay network

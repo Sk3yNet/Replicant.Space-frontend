@@ -52,9 +52,16 @@ def available_salvage(res: dict) -> list[dict]:
     return sorted(out, key=lambda s: (s.get("total") is None, -(s.get("total") or 0), s["code"]))
 
 
-def main_resource(sal: dict) -> str:
-    amounts = sal.get("amounts") or {}
-    return max(amounts, key=amounts.get) if amounts else "structural"
+def main_resource(sal: dict, gone: list[str] | set[str] | None = None) -> str | None:
+    """The salvage's biggest resource, leaving out those the game said are used up there (`gone`); None when nothing is
+    left."""
+    gone = set(gone or [])
+    amounts = {k: v for k, v in (sal.get("amounts") or {}).items() if k not in gone and (v is None or v > 0)}
+    if amounts:
+        return max(amounts, key=lambda k: amounts[k] or 0)
+    if sal.get("amounts"):
+        return None
+    return None if "structural" in gone else "structural"
 
 
 def at_worked_out_place(loc: str | None, dry_belts: set[str], dead_salvage: set[str]) -> bool:
@@ -73,7 +80,7 @@ def ami_steps(ctrl: str, sal: str, recall: bool, adopt: list[str]) -> list[dict]
     return steps
 
 
-def drone_steps(code: str, loc: str | None, sal: dict) -> list[dict]:
+def drone_steps(code: str, loc: str | None, sal: dict, gone: list[str] | None = None) -> list[dict]:
     steps = []
     body = body_of(sal["code"])
     if loc not in (sal["code"], body):
@@ -81,7 +88,7 @@ def drone_steps(code: str, loc: str | None, sal: dict) -> list[dict]:
                   wait=["travel.arrived"], match={"destination": body}, critical=True)
         st["wait_device"] = code
         steps.append(st)
-    res = main_resource(sal)
+    res = main_resource(sal, gone) or "structural"
     steps.append(step(f"{code}: salvage {res} at {body}", f"/devices/{code}",
                       {"command": "start_mining", "resource_type": res}))
     return steps

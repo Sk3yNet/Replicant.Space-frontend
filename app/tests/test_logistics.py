@@ -983,7 +983,7 @@ def _repair_plan(devs, busy=frozenset(), repair_to=None, prefs=None, pos=None):
 def test_a_logistics_repair_drone_is_carried_to_the_most_worn_system_and_patrols_there():
     devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
             dev("MD", "maintenance_drone", "A-1", operational_capacity=100, **MAINT, **PATROL),
-            dev("X1", "mining_drone", "B-2", tags=[], operational_capacity=70),     # B: 30 % missing
+            dev("X1", "mining_drone", "B-2", tags=[], operational_capacity=60),     # B: 40 % missing (one alone under 70 %)
             dev("Y1", "mining_drone", "Z-2", tags=[], operational_capacity=50),     # Z: 50 % + 30 %: worst
             dev("Y2", "mining_drone", "Z-3", tags=[], operational_capacity=70)]
     p = _repair_plan(devs)
@@ -1482,3 +1482,33 @@ def test_a_print_delivery_from_another_system_fills_its_hold_from_what_is_spare(
     c = {"designation": "EV1", "location": "B-3", "title": "Near", "price": {"carbon": 20}}
     p = run_plan([d for d in devs if d["device_code"] != "AF"], {"A-1": {"carbon": 300}}, [c])
     assert next(r for r in p["runs"] if r["req"] == "contract:EV1")["carry"] == {"carbon": 20}
+
+
+def test_a_near_part_load_waits_while_another_is_on_its_way():
+    """Live 2026-11-12: ANLOREN → ISOLITHOR print runs left every pass with 12 to 37 units of a 935-unit need."""
+    pos = {"FAL": {"x": 0, "y": 0, "z": 0}, "SOL": {"x": 5, "y": 0, "z": 0}}
+    fleets = [{"id": "cab", "name": "Cab", "role": "logistics", "home": "FAL"},
+              {"id": "hub", "role": "mining", "home": "FAL", "station": True, "materials": "self"},
+              {"id": "sol", "role": "mining", "home": "SOL", "station": True, "materials": "self"}]
+    bps = {"mining_drone": {"device_type": "mining_drone", "resources": {"carbon": 40}, "print_time": 600}}
+    devs = [dev("F1", "cargo_freighter", "FAL-1", cargo_capacity=2000, **SURGE), dev("HV", "heaven_vessel", "FAL-1", **SURGE),
+            dev("AS", "autofactory", "SOL-2", tags=[], status="waiting_for_resources",
+                printing={"device_type": "mining_drone"}, print_queue=[{"device_type": "mining_drone", "quantity": 30}])]
+
+    def sent(incoming):
+        p = lg.plan(fleets=fleets, devices=devs, bps=bps, inventory={"FAL-1": {"carbon": 100}}, pos=pos,
+                    commandable={"FAL", "SOL"}, hosts={"HV": "R1"}, busy=set(), reach=lg.SECTOR_RANGE_LY, contracts=[], trades=[],
+                    incoming=incoming, replicants={}, drop=lambda s: f"{s}-1")
+        return sum(r["carry"].get("carbon", 0) for r in p["runs"] if r["req"] == "print:SOL-2")
+    assert sent({}) == 100                              # a print waits and nothing is coming: the small load goes
+    assert sent({"SOL-2": {"carbon": 40}}) == 0         # one is on its way already: wait for a fuller hold
+
+
+def test_one_slightly_worn_device_gets_no_repair_trip():
+    """Live 2026-11-12: a repair patrol of hours for FENIRON, one worn device at 77 %."""
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("MD", "maintenance_drone", "A-1", operational_capacity=100, **MAINT, **PATROL),
+            dev("X1", "mining_drone", "B-2", tags=[], operational_capacity=77)]
+    assert not [r for r in _repair_plan(devs)["runs"] if r["kind"] == "repair" and r.get("req")]
+    devs[-1]["operational_capacity"] = 65
+    assert [r for r in _repair_plan(devs)["runs"] if r["kind"] == "repair" and r.get("req") == "repair:B"]
