@@ -535,3 +535,33 @@ def test_spare_monitoring_beacon_is_sent_instead_of_a_print():
     assert wo.spare_ward([dict(b, tags=[])], "A", set(), pos, 100, "ftl_beacon") is None   # a working one stays
     relay = dict(b, device_type="ftl_relay", status="relaying")
     assert wo.spare_ward([relay], "A", set(), pos, 100, "ftl_relay") is None
+
+
+def test_civ_beacon_pass_covers_quiet_civilizations_in_relay_range(client, monkeypatch):
+    """Joe 2026-11-12: a civilization with no event yet gets a beacon too when its system is in relay range."""
+    e = eng(client)
+    s = client.portal.call(e.settings)
+    s["rules"]["civ_beacons"]["enabled"] = True
+    client.portal.call(e.save_settings, s)
+    add(client, device_code="NB000003", device_type="ftl_beacon", location="SOL-4-L4", status="monitoring",
+        features=["stow", "audit"], available_commands=["stow", "deploy"])
+    row = {"location": "SOL-4", "star": "SOL", "completed": [], "open": [], "beacon": [], "system_beacons": [],
+           "life": {"life_stage": "intelligent", "species": "Zynthara"}, "needs_beacon": False, "state": "no event yet"}
+
+    async def cov():
+        return [dict(row)]
+    reach = {"stars": set()}
+
+    async def commandable(devices, stars=None, without=None, networked=False):
+        return reach["stars"]
+    monkeypatch.setattr(e, "civ_coverage", cov)
+    monkeypatch.setattr(e, "commandable", commandable)
+    assert client.portal.call(e.civ_beacon_pass, "SOL-4") == []          # SOL out of relay range: left alone
+    reach["stars"] = {"SOL"}
+    s["rules"]["civ_beacons"]["quiet_in_range"] = False
+    client.portal.call(e.save_settings, s)
+    assert client.portal.call(e.civ_beacon_pass, "SOL-4") == []          # option off
+    s["rules"]["civ_beacons"]["quiet_in_range"] = True
+    client.portal.call(e.save_settings, s)
+    lines = client.portal.call(e.civ_beacon_pass, "SOL-4")
+    assert lines and lines[0].startswith("SOL-4:"), lines

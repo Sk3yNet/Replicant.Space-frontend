@@ -182,6 +182,9 @@ RULES: list[Rule] = [
          "on a later pass. Never printed on a vessel (Place beacon on the Traffic page can have a replicant print one).",
          [Option("print_beacons", "bool", "Print a beacon on the system's autofactory when none is free", True,
                  help="60 structural + 20 conductive each"),
+          Option("quiet_in_range", "bool", "Also civilizations with no event yet, in systems your relay network covers", True,
+                 help="A beacon goes to every planet or moon with intelligent or spacefaring life in a relay-covered system, "
+                      "so their first requests reach you too"),
           Option("spare_redundant", "bool", "Mark beacons a system doesn't need as spare", True,
                  help="Once a system has a beacon at a civilization's body, its other beacons (e.g. Kuiper/Oort) are spare "
                       "(beacons with a destination, fleet or contract never are); "

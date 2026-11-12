@@ -798,12 +798,16 @@ class OpsRules:
         keep = {r["location"] for r in rows}
         from . import fleets as fl
         logistics = {d["device_code"] for f in await self.fleets() if f.get("role") == "logistics" for d in fl.members(f, devices)}
+        # civilizations with no event yet, in systems the relay network covers (option quiet_in_range)
+        in_range = await self.commandable(devices, networked=True) if cfg.get("quiet_in_range", True) else set()
         lines = []
         for row in rows:
             loc = row["location"]
             if only_loc and loc != only_loc:
                 continue
-            if not row["needs_beacon"] and not (manual and only_loc and not row["beacon"]):
+            quiet = (not row["beacon"] and row["star"] in in_range
+                     and (row.get("life") or {}).get("life_stage") in tr.CIV_STAGES)
+            if not row["needs_beacon"] and not quiet and not (manual and only_loc and not row["beacon"]):
                 continue
             if loc in pending or loc in wanted:
                 lines.append(f"{loc}: a beacon is already on its way")
