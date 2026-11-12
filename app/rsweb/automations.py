@@ -2943,6 +2943,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                             "known": sorted(set(pos) | set(found_so_far) | set(unplaced))})
                 run.pop("note", None)
                 out.append(f"{code}: prospecting from {here}, direction {nxt + 1}")
+        for r in runs.values():
+            if isinstance(r, dict) and not r.get("job"):
+                r.pop("known", None)   # every star known when a prospect began: megabytes, needed only until its result is in
         await self.db.kv_set("observatory_runs", runs)
         if fleets_changed:
             await self.save_fleets(fleet_list)

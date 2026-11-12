@@ -145,7 +145,8 @@ class DB:
         self._packed: dict[str, bytes] = {}   # key -> the decoded value, marshaled (see kv_get)
         self._ver: dict[str, int] = {}        # key -> writes seen, so a read racing a write isn't kept
         self._digest: dict[str, bytes] = {}   # key -> digest of the JSON last written (see _kv_write)
-        self.gen: dict[str, int] = {"systems": 0, "scans": 0}   # bumped on writes; memo keys for readers of those rows
+        self.gen: dict[str, int] = {"systems": 0, "scans": 0, "all": 0}   # bumped on writes; memo keys for readers of those rows
+        self.star_gen: dict[str, int] = {}    # star -> bumped when an event, a location detail or a scan of it is stored
         self._sim_split: set[str] = set()
 
     async def open(self) -> None:
@@ -200,6 +201,10 @@ class DB:
         head = sql.lstrip()[:40].upper()
         if "SYSTEMS" in head:
             self.gen["systems"] += 1
+            for v in (params[:1] + params[-1:]):   # the star is the first value of an insert, the last of an update
+                self.touch_star(v)
+        if head.startswith("DELETE") and ("EVENTS" in head or " KV" in head or "SYSTEMS" in head):
+            self.gen["all"] += 1    # rows gone: every per-star memo starts over
         if "EVENTS" in head:
             self.gen["scans"] += 1
         cur = await self.conn.execute(sql, tuple(params))
@@ -235,7 +240,19 @@ class DB:
                 await self._kv_write(f"sim:{key}", virt or [])
         await self._kv_write(key, value)
 
+    def touch_star(self, place: Any) -> None:
+        """Something stored about this system (or a place in it) changed: targets.system_resources reads it again."""
+        if isinstance(place, str) and place and len(place) < 80:
+            star = place.split("-")[0].upper()
+            self.star_gen[star] = self.star_gen.get(star, 0) + 1
+
+    def kv_version(self, key: str) -> tuple[int, int]:
+        """Changes with every write of `key` through this database (for memos of values worked out from it)."""
+        return id(self), self._ver.get(key, 0)
+
     async def _kv_write(self, key: str, value: Any) -> None:
+        if key.startswith("loc:"):
+            self.touch_star(key[4:])
         self._cache.pop(key, None)
         self._packed.pop(key, None)
         self._ver[key] = self._ver.get(key, 0) + 1
@@ -332,6 +349,8 @@ class DB:
             ),
         )
         await self.conn.commit()
+        self.touch_star(ev.get("star"))
+        self.touch_star(ev.get("location"))
         if ev.get("event") == "scan.completed":
             self.gen["scans"] += 1
         return cur.rowcount > 0

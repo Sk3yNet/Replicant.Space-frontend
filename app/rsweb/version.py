@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.389.0"
+VERSION = "1.390.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.390.0", "2026-11-12", "Efficiency (Joe: build the review's suggestions). An observatory's run drops its list of every known star once the prospect's result is in (the saved runs had grown to 8 MB). Mining prospects, Systems, the system pages and the salvage rule no longer ask the database whether each system changed: the database counts what it stores per system, so the prospects page goes from about 2,000 queries to a handful, and a stockpile changing in one system no longer makes every other system's sites and salvage be worked out again."),
     ("1.389.0", "2026-11-12", "History clean-up (Joe: a month is enough, older records as totals). Once a day, events older than 30 days are deleted unless the app still reads them: scans, prospects, BobNet posts, location events, trades and contracts, hubs, relays, directives, asteroids, depleted sites, lost devices, blueprint unlocks and AMI adoptions stay, and so does each device's newest event of every kind. Stockpile history older than a week keeps each day's last reading; backlog metrics older than a week keep one average a day. The first clean-up runs in batches over a few account polls. The database file doesn't shrink by itself: the freed space is reused."),
     ("1.388.1", "2026-11-12", "Auto-scout: a survey fleet with a replicant aboard goes beyond relay coverage (still within its home hub's scout radius); one without a replicant stays inside coverage (Joe)."),
     ("1.388.0", "2026-11-12", "Efficiency review (Joe), no behavior change. Saved values read more than once are kept decoded in memory, so a repeat read costs about half and skips the database (decoding saved JSON was about a quarter of the server's busy time in the 11-12 snapshot); a value saved unchanged only moves its timestamp instead of rewriting megabytes (the observatory runs were 8 MB every tick). Relay networks are found by comparing each relay with its neighbors instead of every pair, and the answer is shared while the relays stay the same (about a quarter of busy time; the station swap check took 3.9 s a pass). Ward, relay and beacon orders, logistics, loadouts, fleets, evacuation, stock and BobNet post checks read the shared star lookups instead of copying the whole catalog; system scans and scanned bodies are decoded once per change."),

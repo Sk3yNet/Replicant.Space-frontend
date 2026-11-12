@@ -254,38 +254,40 @@ def _site_code(site: dict) -> str | None:
 
 
 _res_memo: dict[str, tuple[tuple, dict]] = {}
-_inv_memo: list = [None, []]
+_inv_memo: list = [None, [], {}]
 
 
-async def _token(db, star: str) -> tuple:
-    """What system_resources(star) depends on: the star's newest event, its cached location details, its scan and the
-    stockpiles. Unchanged → the memoized answer is still right."""
-    lo, hi = _loc_range(star)
-    r = await db.fetchone(
-        "SELECT (SELECT MAX(seq) FROM events WHERE star=? OR (location >= ? AND location < ?)) AS e, "
-        "(SELECT MAX(updated_at) || ' ' || COUNT(*) || ' ' || SUM(length(value)) FROM kv WHERE key >= ? AND key < ?) AS l, "
-        "(SELECT updated_at || ' ' || length(data) FROM systems WHERE star=?) AS s, "
-        "(SELECT updated_at || ' ' || length(value) FROM kv WHERE key='inventory') AS i",
-        (star, lo, hi, f"loc:{star}-", f"loc:{star}.", star))
-    return (r["e"], r["l"], r["s"], r["i"]) if r else None
-
-
-async def _inventory(db, stamp) -> list:
-    """The stockpiles, decoded once per change (system_resources runs for every system on /fleets and prospects)."""
-    if _inv_memo[0] != stamp or stamp is None:
-        _inv_memo[0], _inv_memo[1] = stamp, await db.kv_get("inventory", []) or []
-    return _inv_memo[1]
+async def _inventory(db) -> tuple[list, dict[str, str]]:
+    """The stockpiles, decoded once per change, and each system's own part of them as text (system_resources runs for
+    every system on /fleets and prospects; a stockpile changing in one system leaves the others' answers standing)."""
+    stamp = db.kv_version("inventory")
+    if _inv_memo[0] != stamp:
+        inv = await db.kv_get("inventory", []) or []
+        per: dict[str, list] = defaultdict(list)
+        for x in inv:
+            if isinstance(x, dict) and x.get("location"):
+                per[str(x["location"]).split("-")[0].upper()].append(x)
+        sig = {k: json.dumps(v, sort_keys=True, default=str) for k, v in per.items()}
+        if db.kv_version("inventory") == stamp:
+            _inv_memo[0], _inv_memo[1], _inv_memo[2] = stamp, inv, sig
+        return inv, sig
+    return _inv_memo[1], _inv_memo[2]
 
 
 async def system_resources(db, star: str) -> dict:
-    """Memoized _system_resources (see _token); the answer is shared, so callers only read it."""
+    """Memoized _system_resources; the answer is shared, so callers only read it. It stands until the database stores
+    an event, a location detail or a scan of this system (db.star_gen), deletes rows, or the system's stockpiles change:
+    no query is needed to tell (a token query per system made the prospects page 2,000 queries, 2026-11-12)."""
     star = (star or "").upper()
-    tok = await _token(db, star)
+    if not hasattr(db, "star_gen"):   # a stand-in database (tests): nothing to tell changes by, so no memo
+        return await _system_resources(db, star, await db.kv_get("inventory", []) or [])
+    inv, sig = await _inventory(db)
+    tok = (id(db), db.star_gen.get(star, 0), db.gen["all"], sig.get(star))
     hit = _res_memo.get(star)
-    if tok and hit and hit[0] == tok:
+    if hit and hit[0] == tok:
         return hit[1]
-    out = await _system_resources(db, star, await _inventory(db, tok and tok[3]))
-    if tok and now_iso() not in (tok[1] or "") + (tok[3] or ""):   # not written this very second (timestamps are to the second)
+    out = await _system_resources(db, star, inv)
+    if tok[1:3] == (db.star_gen.get(star, 0), db.gen["all"]):   # nothing stored while it was worked out
         _res_memo[star] = (tok, out)
     return out
 
