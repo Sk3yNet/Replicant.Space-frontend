@@ -122,3 +122,62 @@ async def dashboard_rows(db) -> list[dict]:
             if t not in r["items"]:
                 r["items"].append(t)
     return [{"star": k, **v} for k, v in sorted(rows.items()) if k]
+
+
+_tour_memo: dict = {}
+
+
+def shortest_path(stars: list[str], xyz: dict[str, tuple], near: tuple | None = None) -> list[str]:
+    """The shortest open path through every star (Held-Karp, exact; 12 stations take well under a second), turned so it
+    starts at the end nearer `near` (SOLARES, the Sol-zone hub)."""
+    import math
+    st = [s for s in stars if s in xyz]
+    n = len(st)
+    if n < 3:
+        return st
+    d = [[math.dist(xyz[a], xyz[b]) for b in st] for a in st]
+    inf = float("inf")
+    cost = [[inf] * n for _ in range(1 << n)]
+    back = [[-1] * n for _ in range(1 << n)]
+    for i in range(n):
+        cost[1 << i][i] = 0.0
+    for m in range(1, 1 << n):
+        cm = cost[m]
+        for j in range(n):
+            c = cm[j]
+            if c == inf:
+                continue
+            dj = d[j]
+            for k in range(n):
+                if not m >> k & 1:
+                    nm = m | 1 << k
+                    v = c + dj[k]
+                    if v < cost[nm][k]:
+                        cost[nm][k], back[nm][k] = v, j
+    m = (1 << n) - 1
+    j = min(range(n), key=lambda i: cost[m][i])
+    path = []
+    while j >= 0:
+        path.append(st[j])
+        m, j = m ^ (1 << j), back[m][j]
+    if near in xyz and math.dist(xyz[near], xyz[path[0]]) > math.dist(xyz[near], xyz[path[-1]]):
+        path.reverse()
+    return path
+
+
+async def station_tour(db, stars: list[str], start: str = "SOLARES") -> list[dict]:
+    """Dashboard › Stations: the station systems in the shortest travel order (Joe 2026-11-12), each with the leg's
+    light years from the one before (the first from `start`). Straight-line distances; surges take about 50 s/ly."""
+    import asyncio, math
+    from .relaynet import star_pos, _xyz
+    pos = await star_pos(db)
+    xyz = {s: _xyz(pos[s]) for s in set(stars) | {start} if pos.get(s) and _xyz(pos[s])}
+    key = (tuple(sorted(stars)), start, tuple(sorted(xyz.items())))
+    if _tour_memo.get("key") != key:
+        path = await asyncio.to_thread(shortest_path, stars, xyz, start)
+        out, prev = [], start if start in xyz else None
+        for s in path:
+            out.append({"star": s, "ly": round(math.dist(xyz[prev], xyz[s]), 1) if prev else None})
+            prev = s
+        _tour_memo.update(key=key, val=out)
+    return _tour_memo["val"]

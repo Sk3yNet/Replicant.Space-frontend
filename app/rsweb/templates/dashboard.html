@@ -45,6 +45,16 @@
       <li><a href="/systems/{{ m.star }}">{{ m.star }}</a> <span class="muted">{{ m["items"] | join(" · ") }}</span></li>
       {% endfor %}
     </ul>
+    {% if station_tour | length > 2 %}
+    <details class="small" style="margin-top:8px"><summary>Travel order (shortest path, {{ station_tour | sum(attribute="ly", start=0) | round(1) if station_tour[0].ly is not none else "" }} ly from SOLARES)</summary>
+      <ol style="margin:4px 0 0;padding-left:22px">
+        {% for t in station_tour %}
+        <li><a href="/systems/{{ t.star }}">{{ t.star }}</a> <span class="muted">{{ t["items"] | join(" · ") }}{% if t.ly is not none %} · {{ t.ly }} ly{% endif %}</span></li>
+        {% endfor %}
+      </ol>
+      <p class="muted" style="margin:4px 0 0">Straight-line light years, each leg from the one before (the first from SOLARES); surges take about 50 s per ly, 37.5 into a system with a hub.</p>
+    </details>
+    {% endif %}
   </div>
 
   <div class="card" data-card="news" id="news" hx-get="/partials/news" hx-trigger="load, every 900s" hx-swap="innerHTML">

@@ -566,7 +566,11 @@ async def dashboard(request: Request, user: str = Depends(current_user)):
     sync = {k: await request.app.state.db.kv_get(f"sync:{k}") for k in ("account", "devices", "inventory")}
     cat = await request.app.state.db.kv_get("stars", {}) or {}
     from . import megas
-    ctx = await base_ctx(request, user, "dashboard", visit=visit, megas_rows=await megas.dashboard_rows(request.app.state.db), digest=digest, alerts=alerts, recent=recent,
+    megas_rows = await megas.dashboard_rows(request.app.state.db)
+    tour = await megas.station_tour(request.app.state.db, [m["star"] for m in megas_rows if m["station"]])
+    names = {m["star"]: m["items"] for m in megas_rows}
+    ctx = await base_ctx(request, user, "dashboard", visit=visit, megas_rows=megas_rows,
+                         station_tour=[{**t, "items": names.get(t["star"], [])} for t in tour], digest=digest, alerts=alerts, recent=recent,
                          fleet=fleet_summary(st["devices"]), timers=await active_timers(request),
                          sync=sync, stock_piles=stock_piles(st.get("inventory"), cat), **st)
     return templates.TemplateResponse(request, "dashboard.html", ctx)

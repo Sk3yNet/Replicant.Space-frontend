@@ -10369,3 +10369,21 @@ def test_salvage_skips_pinned_component_rigs_and_used_up_resources(client):
             d["tags"] = ["component", "at:sol-belt-1"]
     client.portal.call(db.kv_set, "devices", devs)
     assert not [x for x in client.portal.call(eng.rule_salvage) if "SAL" in x]   # pinned components stay put
+def test_station_tour_is_the_shortest_open_path_from_the_nearer_end():
+    """1.387.0: stations in the shortest travel order (exact), starting at the end nearer SOLARES."""
+    from rsweb.megas import shortest_path
+    xyz = {"A": (0, 0, 0), "B": (10, 0, 0), "C": (3, 0, 0), "D": (7, 0, 0), "SOLARES": (12, 0, 0)}
+    assert shortest_path(["A", "B", "C", "D"], xyz, "SOLARES") == ["B", "D", "C", "A"]
+
+
+def test_dashboard_station_card_lists_travel_order(client):
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "stations", {"at": "x", "stations": [
+        {"name": f"S{i}", "slug": f"s{i}", "location": f"ST{i}-OBJ-1"} for i in range(4)]})
+    stars = [{"designation": f"ST{i}", "position": {"x": x, "y": 0, "z": 0}} for i, x in enumerate((0, 10, 3, 7))]
+    client.portal.call(db.kv_set, "stars", {"stars": stars + [{"designation": "SOLARES", "position": {"x": 12, "y": 0, "z": 0}}]})
+    page = client.get("/", headers=H).text
+    assert "Travel order (shortest path, 12.0 ly from SOLARES)" in page
+    page = page[page.index("Travel order"):]
+    i = [page.index(f'<li><a href="/systems/{s}">{s}</a> <span class="muted">S') for s in ("ST1", "ST3", "ST2", "ST0")]
+    assert i == sorted(i)
