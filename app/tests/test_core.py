@@ -10296,3 +10296,14 @@ def test_automation_notifications_link_to_the_fixing_page(tmp_path):
                          "/automations#job-j7", "/fleets/logistics", "/automations"]
         await db.close()
     asyncio.run(go())
+
+
+def test_dashboard_lists_station_and_megastructure_systems(client):
+    """1.383.0: Dashboard › Stations & megastructures links each system with a station (by name) or megastructure."""
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "stations", {"at": "x", "stations": [
+        {"name": "New Havana Station", "slug": "new_havana", "location": "ALKALAROPS-OBJ-2"}]})
+    page = client.get("/", headers=H).text
+    assert 'data-card="stations"' in page
+    assert '<a href="/systems/ALKALAROPS">ALKALAROPS</a> <span class="muted">New Havana Station' in page
+    assert '<a href="/systems/MIRFAKA">MIRFAKA</a> <span class="muted">datacenter' in page

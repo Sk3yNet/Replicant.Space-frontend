@@ -37,6 +37,16 @@
     </table>
   </div>
 
+  <div class="card" data-card="stations">
+    <h2>Stations &amp; megastructures</h2>
+    {% if not megas_rows %}<p class="muted small">None known yet: stations come from the game's station list and system scans.</p>{% endif %}
+    <ul class="small" style="margin:0;padding-left:18px">
+      {% for m in megas_rows %}
+      <li><a href="/systems/{{ m.star }}">{{ m.star }}</a> <span class="muted">{{ m["items"] | join(" · ") }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+
   <div class="card" data-card="news" id="news" hx-get="/partials/news" hx-trigger="load, every 900s" hx-swap="innerHTML">
     <h2>Game news</h2><p class="muted small">Loading…</p></div>
 

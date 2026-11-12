@@ -565,7 +565,8 @@ async def dashboard(request: Request, user: str = Depends(current_user)):
         "SELECT * FROM events WHERE event NOT LIKE 'ami.%.digest' AND event != 'bobnet.new' ORDER BY seq DESC LIMIT 25")]
     sync = {k: await request.app.state.db.kv_get(f"sync:{k}") for k in ("account", "devices", "inventory")}
     cat = await request.app.state.db.kv_get("stars", {}) or {}
-    ctx = await base_ctx(request, user, "dashboard", visit=visit, digest=digest, alerts=alerts, recent=recent,
+    from . import megas
+    ctx = await base_ctx(request, user, "dashboard", visit=visit, megas_rows=await megas.dashboard_rows(request.app.state.db), digest=digest, alerts=alerts, recent=recent,
                          fleet=fleet_summary(st["devices"]), timers=await active_timers(request),
                          sync=sync, stock_piles=stock_piles(st.get("inventory"), cat), **st)
     return templates.TemplateResponse(request, "dashboard.html", ctx)

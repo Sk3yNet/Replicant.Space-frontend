@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.382.2"
+VERSION = "1.383.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.383.0", "2026-11-12", "Dashboard: a Stations & megastructures card links every system with a colony station (named from the game's station list) or another megastructure (from system scans and contributions, with its type), like the datacenter at MIRFAKA."),
     ("1.382.2", "2026-11-12", "Shop text limits shown (Joe): the trade directive's description (240 characters) and announcement (80) say their limit, stop typing at it and count characters, on the Shop page and the device command form; the Shop page refuses longer ones before sending."),
     ("1.382.1", "2026-11-12", "Fleet drones held by an outside controller are taken back (Joe: Surveyor 6's survey drones at AELTHORION were still run by its old controller, made spare at SOLARES, so the new one surveyed with none). A fleet on station whose drones sit under a controller outside the fleet has that controller release them and its own adopt them (twice per spot at most); the work phase releases before it adopts; a controller made spare or dropped as an extra lets its drones go first; and of two controllers the one running the fleet's drones is the one kept."),
     ("1.382.0", "2026-11-12", "Trade post fleets (Joe): a new fleet role whose AMI trade controller lists one of each device you have a blueprint for (system hubs left out). Fleet details sets how many to keep on hand and a price override per device; the default price is materials x 2 plus 10 % of the materials per print hour, both counting every component, and both numbers are settings. Stock is supplied like a contract (spares, else prints), listed once it is all at the shop and re-listed at full stock after sales; vessels with a replicant aboard and anything holding a matrix are never sold. Logistics brings the proceeds to a printing hub."),

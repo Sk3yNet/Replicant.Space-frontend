@@ -43,13 +43,14 @@ async def known(db) -> dict[str, list[str]]:
     key = (stamp["n"], stamp["t"], ev["s"])
     if _cache["key"] == key:
         return _cache["val"]
-    codes, stations = {DATACENTER}, set()
+    codes, stations, types = {DATACENTER}, set(), {DATACENTER: "datacenter"}
     for r in await db.fetchall("SELECT data FROM systems"):
         try:
             found = in_scan(json.loads(r["data"] or "{}"))
         except ValueError:
             continue
         codes |= set(found)
+        types.update({c: t for c, t in found.items() if t})
         stations |= {c for c, t in found.items() if t == "space_station"}
     for r in await db.fetchall("SELECT payload, location FROM events WHERE event = 'megastructure.contributed'"):
         p = json.loads(r["payload"] or "{}") or {}
@@ -59,7 +60,7 @@ async def known(db) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for c in sorted(codes):
         out.setdefault(star_of(c), []).append(c)
-    _cache.update(key=key, val=out, stations=stations)
+    _cache.update(key=key, val=out, stations=stations, types=types)
     return out
 
 
@@ -97,3 +98,27 @@ def other_than_stations(codes: list[str]) -> list[str]:
     """The megastructures among codes that aren't space stations (those get the station wheel, not the hexagon)."""
     st = _cache.get("stations") or set()
     return [c for c in codes if c not in st]
+
+
+async def dashboard_rows(db) -> list[dict]:
+    """Dashboard › Stations & megastructures: one row per system with a colony station or another megastructure,
+    {star, items: [label, ...], station}. Station names come from GET /stations (kv stations), other megastructures
+    from system scans and contributions, typed by the scan (Joe 2026-11-12)."""
+    by_star = await known(db)
+    types = _cache.get("types") or {}
+    rows: dict[str, dict] = {}
+    for st in ((await db.kv_get("stations", {})) or {}).get("stations") or []:
+        if isinstance(st, dict) and st.get("location"):
+            r = rows.setdefault(star_of(st["location"]), {"items": [], "station": True})
+            r["items"].append(str(st.get("name") or st.get("slug") or st["location"]))
+    for star in await stations(db):
+        rows.setdefault(star, {"items": ["space station"], "station": True})
+    for star, codes in by_star.items():
+        for c in codes:
+            t = (types.get(c) or "megastructure").replace("_", " ")
+            if t == "space station" and rows.get(star, {}).get("station"):
+                continue
+            r = rows.setdefault(star, {"items": [], "station": False})
+            if t not in r["items"]:
+                r["items"].append(t)
+    return [{"star": k, **v} for k, v in sorted(rows.items()) if k]

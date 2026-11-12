@@ -50,7 +50,7 @@ seconds, and a trip's countdown reaching zero loads the new location.
 
 | Tab | Page | In short |
 |---|---|---|
-| **Dashboard** | [Dashboard](docs/FEATURES.md#dashboard) | while-you-were-away digest, alerts, season story, logistics backlog, trends, print queues, stockpiles (totals and per location); cards drag, fold and remember |
+| **Dashboard** | [Dashboard](docs/FEATURES.md#dashboard) | while-you-were-away digest, alerts, season story, logistics backlog, trends, print queues, stockpiles (totals and per location), station and megastructure systems; cards drag, fold and remember |
 | **Devices** | [Tree](docs/FEATURES.md#tree) | system → type → device, cargo nested in its carrier |
 | | [Device list](docs/FEATURES.md#device-list-fleet) | filter, then one command, tag change or delivery for many devices |
 | | [Device](docs/FEATURES.md#device-page) · [Replicant](docs/FEATURES.md#replicant-page) | every command, print queue, carrier card, permissions; travel, scan, profile, slingshot |
