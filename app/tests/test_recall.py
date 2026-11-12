@@ -107,3 +107,20 @@ def test_held_logistics_fleet_leaves_the_pool():
     fs = [{"id": "a", "role": "logistics"}, {"id": "b", "role": "logistics", "recall_hold": {"state": "home"}}]
     assert [f["id"] for f in lg.logistics_fleets(fs)] == ["a"]
     assert len(lg.logistics_fleets(fs, held=True)) == 2
+
+
+def test_a_recall_to_its_own_station_ends_once_everyone_is_there(client):
+    """Live 2026-11-12: Miner_7 recalled at its station DOMBTAIRE stalled for hours: no carrier to put everyone aboard,
+    though nothing had to fly."""
+    e = client.app.state.worker.automations
+    fleet, devices = _fleet_world()
+    home = fl.where(fleet, devices)
+    devices = [{**d, "location": f"{home}-3-L4"} if d.get("location") else d for d in devices]   # everyone at home
+    fleet = {**fleet, "station": True, "home": home, "role": "mining"}
+    fleet["mission"] = {"status": "stalled", "homing": True, "phase": "recall", "targets": [], "idx": 0, "log": [],
+                        "departed": True, "drop_star": home, "auto_retry": {"spot": [0, "recall"], "n": 1, "at": "2026-01-01T00:00:00+00:00"}}
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(e.save_fleets, [fleet])
+    client.portal.call(e.run_fleets)
+    m = next(x for x in client.portal.call(e.fleets) if x["id"] == fleet["id"])["mission"]
+    assert m["status"] == "done" and "already at" in m["log"][-1]["text"]

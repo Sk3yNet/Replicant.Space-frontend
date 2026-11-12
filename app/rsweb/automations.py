@@ -6079,6 +6079,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             await self.save_fleets(items)
         if not any((f.get("mission") or {}).get("status") == "running"
                    or (f.get("mission") or {}).get("comms_wait") or self._retry_due(f.get("mission") or {})
+                   or ((f.get("mission") or {}).get("homing") and (f.get("mission") or {}).get("status") == "stalled")
                    for f in items):
             return
         jobs = {j["id"]: j for j in await self.jobs()}
@@ -6088,6 +6089,17 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             if fleet.get("role") == "bootstrap" and not (fleet.get("mission") or {}).get("homing"):
                 continue   # no missions: bootstrap_pass drives it (a recall's trip home excepted)
             m = fleet.get("mission") or {}
+            if (m.get("homing") and m.get("status") in ("running", "stalled") and m.get("phase") and fleet.get("station")
+                    and fleet.get("role") != "bootstrap" and m.get("drop_star") == fleet.get("home")
+                    and fl.roster(fleet, devices)["stars"] == [fleet.get("home")]
+                    and not any(j_["status"] in ("running", "waiting") for j_ in self.fleet_jobs(fleet, devices, list(jobs.values())))):
+                # recalled to its own station while every member is already there: nothing to board or fly (live
+                # 2026-11-12: Miner_7 recalled at DOMBTAIRE, stalled for want of a carrier to put everyone aboard)
+                m["status"], m["job"] = "done", None
+                self._mlog(m, f"recall: everyone is already at {fleet['home']}, its station — nothing to fly")
+                await self.log("fleets", f"{fleet['name']}: recall done, the fleet is already at {fleet['home']}")
+                changed = True
+                continue
             if m.get("status") == "stalled" and m.get("comms_wait"):
                 # stalled because members were out of comms range (live 2026-10-22: Surveyor 2's heaven vessel left
                 # ALFOLEN, its controller and drones went dark): resumes by itself once every member is back in range
