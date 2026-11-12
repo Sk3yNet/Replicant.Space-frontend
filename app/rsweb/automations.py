@@ -3250,9 +3250,9 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         busy = {star_of(t) for g in items if g.get("id") != f.get("id") and (g.get("mission") or {}).get("status") in ("running", "stalled")
                 for t in (g["mission"].get("targets") or [])[(g["mission"].get("idx") or 0):]}
         skip = busy | (fl.worked_systems(items) - {home}) | wards.foreign(await self.star_lookup("flagged"), devices) | set(exclude)
-        # inside relay coverage, even with a replicant aboard (Joe 2026-11-10: survey the systems within the relay
-        # network; Surveyor 4 flew out to RASALGEDO, went out_of_range and stalled)
-        riding = False
+        # a fleet with a replicant aboard may go beyond relay coverage: the replicant commands the system it is in (Joe
+        # 2026-11-12, overriding the 11-10 rule after Surveyor 4 went out_of_range at RASALGEDO); without one, coverage only
+        riding = fl.has_replicant(f, devices)
         reach = await self.commandable(devices, {k: {"position": v} for k, v in pos.items()} if extra else None)
         # per home hub (kv scout_radii {home: ly}, set on a survey fleet's auto-scout row), else SCOUT_RADIUS_LY
         radius = float((await self.db.kv_get("scout_radii", {}) or {}).get(home) or self.SCOUT_RADIUS_LY)

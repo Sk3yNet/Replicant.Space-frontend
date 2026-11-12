@@ -124,3 +124,22 @@ def test_a_recall_to_its_own_station_ends_once_everyone_is_there(client):
     client.portal.call(e.run_fleets)
     m = next(x for x in client.portal.call(e.fleets) if x["id"] == fleet["id"])["mission"]
     assert m["status"] == "done" and "already at" in m["log"][-1]["text"]
+
+
+def test_auto_scout_goes_beyond_relay_coverage_with_a_replicant_aboard(client):
+    """Joe 2026-11-12: survey fleets carry replicants, so relay coverage shouldn't hold them back."""
+    e = client.app.state.worker.automations
+    db = client.app.state.db
+
+    async def commandable(devices, stars=None, without=None):
+        return {"HOMEA"}
+    e.commandable = commandable
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": s, "position": {"x": x, "y": 0, "z": 0}}
+                                                      for s, x in (("HOMEA", 0), ("FARB", 20))]})
+    ves = {"device_code": "HV1", "device_type": "heaven_vessel", "location": "HOMEA-BELT-1", "status": "idle",
+           "tags": ["fleet:s1"]}
+    f = {"id": "s1", "name": "S1", "role": "explore", "home": "HOMEA", "station": True, "wants": {}}
+    star, why = client.portal.call(e.scout_next, f, [f], [ves], None, {"HOMEA"})
+    assert star is None and "inside relay coverage" in why
+    star, _ = client.portal.call(e.scout_next, f, [f], [{**ves, "hosting_replicant": {"replicant_code": "R1"}}], None, {"HOMEA"})
+    assert star == "FARB"
