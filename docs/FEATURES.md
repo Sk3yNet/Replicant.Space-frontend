@@ -69,8 +69,8 @@ System → device type → device, with stowed devices nested in their carrier; 
 - Tick devices (or all listed) to send them **one command**, or to **add tags** / **remove tags**.
 - **Deliver** tags the ticked devices for logistics: a star (another system: `to:<star>`, a carrier takes it there) or a
   spot (`SOL-3`: `at:<spot>` too, it goes on to that spot). Earlier to:/at:/lift tags, spare and gather go, and its
-  fleet tag unless the spot is in the fleet's home. Devices carrying a replicant, or reserved for a print component or a
-  contract, are skipped. **Cancel delivery** takes the to:/at:/lift tags off. The tags go on arrival.
+  fleet tag unless the spot is in the fleet's home. Devices holding a replicant (an empty matrix is fine), or reserved for
+  a print component or a contract, are skipped; one with no drive is told to fly the vessel it rides in instead. **Cancel delivery** takes the to:/at:/lift tags off. The tags go on arrival.
 - Devices that can't take it are listed and skipped: command not available, in use by an automation, a deploy/detach
   while the carrier is between systems.
 

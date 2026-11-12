@@ -61,3 +61,23 @@ def test_hand_delivery_is_planned_and_pinned_relay_not_unbound():
     p = lo.plan(cfg, devices, [], {}, stars, {"HV": "X"}, set(), [], {}, commandable={"HUB", "AAA"})
     assert "spare" not in p["tag_add"].get("R1", [])
     assert "R1" in {x for d in p["deliveries"] for x in d["devices"]}
+
+
+def test_deliver_refuses_only_real_replicants():
+    from rsweb.web_bulk import deliver_refusal
+    v = {"device_code": "V", "device_type": "heaven_vessel", "features": ["surge", "cruise", "stow"],
+         "available_commands": ["travel"], "hosting_replicant": {"replicant_code": "R1"}}
+    full = {"device_code": "M", "device_type": "replicant_matrix", "features": ["stow", "matrix"], "stowed_in_device_code": "V",
+            "available_commands": ["deploy"]}
+    empty = {"device_code": "E", "device_type": "empty_replicant_matrix", "features": ["stow", "matrix"], "location": "SOL-3",
+             "available_commands": ["stow"]}
+    cont = {"device_code": "C", "device_type": "matrix_container", "features": ["stow", "cradle"], "location": "SOL-3",
+            "available_commands": ["stow"]}
+    inside = {**empty, "device_code": "E2", "location": None, "stowed_in_device_code": "C"}
+    loose = {**full, "device_code": "M2", "stowed_in_device_code": None, "location": "SOL-3"}
+    devs = [v, full, empty, cont, inside, loose]
+    assert deliver_refusal(empty, devs) is None                     # an empty matrix is cargo (Joe 2026-11-12)
+    assert deliver_refusal(cont, devs) is None                      # a container holding only an empty matrix too
+    assert "own travel command" in deliver_refusal(v, devs)
+    assert "fly V (heaven vessel)" in deliver_refusal(full, devs)   # no drive: its vessel moves it
+    assert "Transfer / Teleport" in deliver_refusal(loose, devs)

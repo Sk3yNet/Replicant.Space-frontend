@@ -15,7 +15,6 @@ from fastapi.responses import HTMLResponse
 from . import commands as cmdspec
 from . import fleets as fl
 from . import loadouts as lo
-from .logistics import holds_replicant
 from .web import (DANGEROUS, add_repeats, call_action, current_user, load_state, order_commands, parse_json_field, partial,
                   suggestions)
 
@@ -51,6 +50,33 @@ def clean_tags(raw: str) -> list[str]:
     return out
 
 
+def hosts_replicant(d: dict, devices: list[dict]) -> bool:
+    """A replicant is in it: its host (hosting_replicant), a filled matrix (replicant_matrix), or anything with a filled
+    matrix inside. An empty matrix (empty_replicant_matrix) or an empty matrix container is cargo like any other."""
+    if d.get("hosting_replicant") or d.get("device_type") == fl.MATRIX_TYPE:
+        return True
+    code = d.get("device_code")
+    by = {x.get("device_code"): x for x in devices}
+    return bool(code) and any(code in {c.get("device_code") for c in fl._carriers_up(x, by)}
+                              for x in devices if x.get("device_type") == fl.MATRIX_TYPE)
+
+
+def deliver_refusal(d: dict, devices: list[dict]) -> str | None:
+    """Why Deliver won't take `d` (None: it may). A replicant never goes as cargo (drop-offs never unload one): say how
+    to move it instead, by its own drive, the vessel it rides in, or the replicant's transfer / teleport."""
+    if not hosts_replicant(d, devices):
+        return None
+    if lo.can_travel(d) or lo.can_surge(d):
+        return "it carries a replicant: move it with its own travel command"
+    by = {x.get("device_code"): x for x in devices}
+    ride = next((c for c in fl._carriers_up(d, by) if lo.can_travel(c) or lo.can_surge(c)), None)
+    if ride:
+        return (f"it holds a replicant and has no drive: fly {ride['device_code']} "
+                f"({(ride.get('device_type') or 'vessel').replace('_', ' ')}), which it rides in, with its travel command")
+    return ("it holds a replicant and has no drive: stow or attach it on a vessel (Stow into on its device page) and fly "
+            "that, or move the replicant into an empty matrix with Transfer / Teleport on its Replicant page")
+
+
 def bulk_check(codes: list[str], command: str, devices: list[dict], busy: set[str], stowed: dict[str, list[str]],
                include_busy: bool = False) -> tuple[list[str], list[tuple[str, str]]]:
     """(devices to send it to, [(device, why it's skipped)])."""
@@ -64,8 +90,9 @@ def bulk_check(codes: list[str], command: str, devices: list[dict], busy: set[st
             skip.append((code, "no longer in the device list"))
             continue
         cmds = d.get("available_commands")
-        if command == "deliver" and holds_replicant(d, devices):
-            skip.append((code, "it carries a replicant: move it with its own travel command"))
+        why = deliver_refusal(d, devices) if command == "deliver" else None
+        if why:
+            skip.append((code, why))
             continue
         if command in PSEUDO_CMDS:
             if code in busy and not include_busy:
@@ -345,8 +372,9 @@ async def device_deliver(request: Request, code: str, user: str = Depends(curren
     st = await load_state(request)
     d = next((x for x in st["devices"] if x.get("device_code") == code), None)
     clear = form.get("clear") == "1"
-    if not clear and d and holds_replicant(d, st["devices"]):
-        return HTMLResponse('<div class="result err">It carries a replicant: move it with its own travel command.</div>')
+    why = None if clear or not d else deliver_refusal(d, st["devices"])
+    if why:
+        return HTMLResponse(f'<div class="result err">{html.escape(why[0].upper() + why[1:])}.</div>')
     return await deliver_devices(request, user, [code], form.get("destination") or "", clear)
 
 
