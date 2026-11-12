@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.384.1"
+VERSION = "1.385.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.385.0", "2026-11-12", "Activity › Contacts (Joe): other players' replicants seen by your beacons, owning devices in a scanned system, or posting on BobNet, each with its game profile (description, plan, project, pronouns, XP, location; read once, then daily, a few per beacon read), systems and sources seen, search, hide NPCs, profile text only, a note of your own, hide, and Add by name from the game directory. Traffic names link there."),
     ("1.384.1", "2026-11-12", "Device and AMI pages show text with curly quotes and other non-ASCII characters as typed (Joe: a shop directive showed Don\\u2019t); the action log stores them as typed too. What the game receives was always the same text."),
     ("1.384.0", "2026-11-12", "Trade posts (Joe): a shop spot sets the exact location of the AMI trade controller (pinned there, carried by Loadouts, stock delivered there; listing starts once it is there); the card links to its trades on the Shop page and has List now, which creates, restocks and reprices the trades at once; the Shop page marks a shop run by a trade post and links back."),
     ("1.383.0", "2026-11-12", "Dashboard: a Stations & megastructures card links every system with a colony station (named from the game's station list) or another megastructure (from system scans and contributions, with its type), like the datacenter at MIRFAKA."),

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Contacts{% endblock %}
+{% block content %}
+<div class="row between">
+  <h1>Contacts</h1>
+  <span class="small muted">{% if state.read_at %}updated {{ state.read_at | ago }}{% else %}not gathered yet{% endif %}
+    <button class="small" hx-post="/contacts/refresh" hx-target="#ct-msg">Update now</button></span>
+</div>
+<p class="small muted">Other players' replicants you've come across: seen by your FTL beacons (<a href="/traffic">Traffic</a>),
+  owning devices in a system you scanned, or posting on BobNet. Each new contact's game profile is read once, then
+  every {{ refresh_hours }} hours (a few per beacon read).</p>
+<div id="ct-msg"></div>
+
+<div class="card">
+  <form class="inline small" method="get" action="/contacts">
+    <input name="q" value="{{ q }}" placeholder="Search names, profiles, notes, systems" size="32">
+    <label><input type="checkbox" name="no_npcs" value="1" {% if not npcs %}checked{% endif %}> hide NPCs</label>
+    <label><input type="checkbox" name="text" value="1" {% if text %}checked{% endif %}> with profile text only</label>
+    {% if hidden %}<input type="hidden" name="hidden" value="1">{% endif %}
+    <button class="small ghost">Filter</button>
+    <span class="muted">{{ rows | length }} of {{ total }} shown{% if n_hidden %} ·
+      {% if hidden %}<a href="/contacts">back to contacts</a>{% else %}<a href="/contacts?hidden=1">{{ n_hidden }} hidden</a>{% endif %}{% endif %}</span>
+  </form>
+  <form class="inline small" hx-post="/contacts/add" hx-target="#ct-msg" style="margin-top:6px">
+    Add by name <input name="name" size="20" placeholder="a replicant's name"> <button class="small ghost">Look up</button>
+    <span class="muted">searches the game's directory</span></form>
+</div>
+
+{% for c in rows %}
+<div class="card" id="c-{{ c.code }}">
+  <div class="row between">
+    <h3 style="margin:0">{{ c.name or c.code }}{% if c.is_npc %} <span class="pill small">NPC</span>{% endif %}
+      <span class="mono muted small">{{ c.code }}</span>{% if c.pronouns %} <span class="small muted">({{ c.pronouns }})</span>{% endif %}</h3>
+    <span class="small">
+      <button class="small ghost" hx-post="/contacts/{{ c.code }}/profile" hx-target="#ct-out-{{ c.code }}">Read profile</button>
+      <button class="small ghost" hx-post="/contacts/{{ c.code }}/hide" hx-target="#ct-out-{{ c.code }}">{{ 'Show' if c.hidden else 'Hide' }}</button>
+    </span>
+  </div>
+  <div class="small muted">
+    {% if c.location %}at <a class="mono" href="/locations/{{ c.location }}">{{ c.location }}</a>{% if c.status %} · {{ c.status }}{% endif %} · {% endif %}
+    {% if c.xp is not none %}{{ c.xp }} XP · {% endif %}
+    last seen {{ c.last_seen | ago }}{% if c.star_list %} in {% for s in c.star_list[:8] %}<a href="/systems/{{ s }}">{{ s }}</a>{{ ", " if not loop.last }}{% endfor %}{% if c.star_list | length > 8 %} and {{ c.star_list | length - 8 }} more{% endif %}{% endif %}
+    · first {{ c.first_seen | ago }}
+    · {% for s, n in (c.sources or {}).items() %}{{ {"beacon": "beacons", "scan": "scans", "bobnet": "BobNet", "added": "added by hand"}.get(s, s) }}{% if s != 'added' %} {{ n }}{% endif %}{{ ", " if not loop.last }}{% endfor %}
+  </div>
+  {% if c.error %}<div class="small lv-warning">Profile not readable: {{ c.error }}</div>
+  {% elif not c.profile_at %}<div class="small muted">Profile not read yet.</div>
+  {% elif not c.has_text %}<div class="small muted">No profile text.</div>{% endif %}
+  {% if c.description %}<p style="white-space:pre-wrap;margin:6px 0">{{ c.description }}</p>{% endif %}
+  {% if c.plan %}<div class="small"><b>Plan</b></div><p class="small" style="white-space:pre-wrap;margin:2px 0 6px">{{ c.plan }}</p>{% endif %}
+  {% if c.project %}<div class="small"><b>Project</b></div><p class="small" style="white-space:pre-wrap;margin:2px 0 6px">{{ c.project }}</p>{% endif %}
+  <form class="inline small" hx-post="/contacts/{{ c.code }}/note" hx-target="#ct-out-{{ c.code }}">
+    <input name="note" value="{{ c.note or '' }}" placeholder="your note (only in this app)" size="48"> <button class="small ghost">Save note</button></form>
+  <div id="ct-out-{{ c.code }}"></div>
+</div>
+{% else %}
+<div class="card"><p class="muted small">{% if total %}No contact matches.{% else %}No contacts yet. They're gathered at each beacon read, from beacon traffic, device scans and BobNet posts; or add one by name above.{% endif %}</p></div>
+{% endfor %}
+{% endblock %}

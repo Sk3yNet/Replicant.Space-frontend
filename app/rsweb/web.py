@@ -276,7 +276,7 @@ NAV = [
     ("Fleets", "/fleets", [("fleets", "/fleets", "Fleets"), ("fleet_details", "/fleets/details", "Fleet details"), ("logistics", "/fleets/logistics", "Logistics"), ("reform", "/fleets/reform", "Reset & reform")]),
     ("Economy", "/blueprints", [("blueprints", "/blueprints", "Blueprints"), ("gameevents", "/game-events", "Contracts"), ("jobs", "/jobs", "Jobs"), ("reputation", "/reputation", "Reputation"), ("shop", "/shop", "Shop"), ("simulations", "/simulations", "Simulations"), ("lockers", "/lockers", "Lockers")]),
     ("Activity", "/automations", [("automations", "/automations", "Automations"), ("events", "/events", "Events"),
-                        ("messages", "/messages", "Messages"), ("chatter", "/chatter", "Chatter"), ("notifications", "/notifications", "Notifications"),
+                        ("messages", "/messages", "Messages"), ("contacts", "/contacts", "Contacts"), ("chatter", "/chatter", "Chatter"), ("notifications", "/notifications", "Notifications"),
                         ("leaderboards", "/leaderboards", "Leaderboards"), ("blog", "/blog", "Blog")]),
   ]
 

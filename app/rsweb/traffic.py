@@ -526,18 +526,15 @@ async def sync(db, api, hub, rule_cfg: dict | None, max_beacons: int = 20, profi
     state["read_at"] = now_iso()
     state["errors"] = errors
     state["beacons"] = [{"code": b["device_code"], "location": b.get("location")} for b in bs]
-    # names of the replicants we've seen
-    profiles = await db.kv_get("replicant_profiles", {}) or {}
+    # names and profiles of the replicants we've seen (Activity › Contacts; kv replicant_profiles follows it)
+    from . import contacts
     mine = my_codes(await db.kv_get("account", {}) or {}, await db.kv_get("replicants", {}) or {}, devices)
-    unknown = [r for r in {e.get("replicant_code") for e in state.get("entries", [])} if r and r not in mine and r not in profiles]
-    for rep in unknown[:profile_lookups]:
-        try:
-            p = await api.request("GET", f"/replicants/{rep}", background=True) or {}
-            profiles[rep] = {"name": p.get("name"), "is_npc": p.get("is_npc"), "description": p.get("description"),
-                             "at": now_iso()}
-        except ApiError as e:
-            profiles[rep] = {"name": None, "error": e.message, "at": now_iso()}
-    await db.kv_set("replicant_profiles", profiles)
+    try:
+        await contacts.update(db, api, mine, profile_lookups, state)
+    except Exception:   # never let contacts break the beacon read
+        import logging
+        logging.getLogger(__name__).exception("contacts update failed")
+    profiles = await db.kv_get("replicant_profiles", {}) or {}
     alerts = []
     if rule_cfg:
         rh = rule_cfg.get("repeat_hours")

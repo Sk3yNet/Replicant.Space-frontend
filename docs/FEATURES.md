@@ -307,6 +307,14 @@ redundant beacons (each civilization body keeps one; extras in its system and at
 40 per pass; a beacon has no off switch, and a beacon order takes the nearest spare one before printing). With *Also civilizations with no event yet* on (the default), the civilization beacon rule also
 puts one at every inhabited body (intelligent or spacefaring) in a system your relay network covers. How often beacons are read is a setting (default 10 minutes).
 
+### Contacts
+Activity › Contacts lists other players' replicants you've come across: seen in a beacon's traffic log, owning devices in
+a system you scanned, or posting on BobNet (your own are left out). Each one's game profile (`GET /replicants/{code}`:
+description, plan, project, pronouns, XP, location) is read when it first turns up and again daily, a few per beacon
+read; *Update now* reads up to 20. Filters: search (names, profile text, notes, systems), hide NPCs, profile text only.
+Each contact keeps a note of your own (app only) and can be hidden. *Add by name* looks a name up in the game directory.
+Unverified live whether the game shows another player's profile text; an error it gives is shown on the card.
+
 ### Trail
 - Follows a replicant through the audit logs of public FTL beacons: candidate systems with travel time and a travel
   button.

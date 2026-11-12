@@ -50,7 +50,7 @@
   {% if summary %}
   <table class="small"><tr><th>Replicant</th><th>Systems</th><th class="num">Devices</th><th class="num">Arrivals</th><th class="num">Departures</th><th>Types</th><th>Last seen</th></tr>
     {% for s in summary %}<tr>
-      <td><a href="/replicants/{{ s.replicant_code }}">{{ s.name or s.replicant_code }}</a>{% if s.is_npc %} <span class="pill small">NPC</span>{% endif %} <span class="mono muted">{{ s.replicant_code }}</span></td>
+      <td><a href="/contacts#c-{{ s.replicant_code }}">{{ s.name or s.replicant_code }}</a>{% if s.is_npc %} <span class="pill small">NPC</span>{% endif %} <span class="mono muted">{{ s.replicant_code }}</span></td>
       <td>{% for x in s.stars %}<a href="/traffic?star={{ x }}">{{ x }}</a>{{ ', ' if not loop.last }}{% endfor %}</td>
       <td class="num">{{ s.devices }}</td><td class="num">{{ s.arrivals }}</td><td class="num">{{ s.departures }}</td>
       <td>{% for t, n in s.types.items() %}{{ n }}× {{ t | human }}{{ ', ' if not loop.last }}{% endfor %}</td>

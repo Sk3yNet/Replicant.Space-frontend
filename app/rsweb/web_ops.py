@@ -381,3 +381,90 @@ async def lost_forget(request: Request, user: str = Depends(current_user)):
         s["found"].append({**rec, "found_at": now_iso(), "found_location": None, "outcome": f"written off by {user}"})
         await db.kv_set(ls.KV, s)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+# =====================================================================================
+# contacts: other players' replicants and their profiles
+# =====================================================================================
+
+async def _contacts_mine(request: Request) -> set[str]:
+    st = await load_state(request)
+    return tr.my_codes(st["account"], st["replicants"], st["devices"])
+
+
+@router.get("/contacts", response_class=HTMLResponse)
+async def contacts_page(request: Request, q: str = "", no_npcs: int = 0, text: int = 0, hidden: int = 0,
+                        user: str = Depends(current_user)):
+    from . import contacts as ct
+    state = await request.app.state.db.kv_get(ct.KV, {}) or {}
+    people = state.get("people") or {}
+    rows = ct.listing(people, q, not no_npcs, bool(text), bool(hidden))
+    return await page(request, user, "contacts.html", "contacts", rows=rows, state=state, q=q, npcs=not no_npcs, text=text,
+                      hidden=hidden, total=sum(1 for p in people.values() if not p.get("hidden")),
+                      n_hidden=sum(1 for p in people.values() if p.get("hidden")), refresh_hours=ct.REFRESH_HOURS)
+
+
+@router.post("/contacts/refresh", response_class=HTMLResponse)
+async def contacts_refresh(request: Request, user: str = Depends(current_user)):
+    from . import contacts as ct
+    out = await ct.update(request.app.state.db, request.app.state.api, await _contacts_mine(request), 20)
+    request.app.state.hub.publish("state", "contacts")
+    return _lines([f"{out['new']} new contacts, {out['fetched']} profiles read."])
+
+
+@router.post("/contacts/add", response_class=HTMLResponse)
+async def contacts_add(request: Request, user: str = Depends(current_user)):
+    """Look a name up in the public directory (GET /replicants?name=…) and add the exact match, or every partial one."""
+    from . import contacts as ct
+    db, api = request.app.state.db, request.app.state.api
+    name = str((await request.form()).get("name") or "").strip()
+    if not name:
+        return _lines(["Type a name."], ok=False)
+    try:
+        found = ((await api.get("/replicants", name=name, limit=20)) or {}).get("replicants") or []
+    except ApiError as e:
+        return _lines([f"Directory lookup failed: {e.message}"], ok=False)
+    mine = await _contacts_mine(request)
+    found = [r for r in found if r.get("replicant_code") and r["replicant_code"] not in mine]
+    exact = [r for r in found if str(r.get("name") or "").lower() == name.lower()]
+    picks = (exact or found)[:10]
+    if not picks:
+        return _lines([f"No other player's replicant called {name} in the directory."], ok=False)
+    state = await db.kv_get(ct.KV, {}) or {}
+    people = state.setdefault("people", {})
+    for r in picks:
+        ct.sight(people, r["replicant_code"], "added", ct.star_of(r.get("last_location")), name=r.get("name"))
+        people[r["replicant_code"]].pop("hidden", None)
+        if r.get("last_location") and not people[r["replicant_code"]].get("location"):
+            people[r["replicant_code"]]["location"] = r["last_location"]
+    await ct.fetch(api, people, [r["replicant_code"] for r in picks])
+    await db.kv_set(ct.KV, state)
+    await db.kv_set("replicant_profiles", ct.sync_names(await db.kv_get("replicant_profiles", {}) or {}, people))
+    request.app.state.hub.publish("state", "contacts")
+    return _lines([f"Added {', '.join(r.get('name') or r['replicant_code'] for r in picks)}. Reload to see "
+                   + ("them." if len(picks) > 1 else "the profile.")])
+
+
+@router.post("/contacts/{code}/{what}", response_class=HTMLResponse)
+async def contacts_edit(request: Request, code: str, what: str, user: str = Depends(current_user)):
+    from . import contacts as ct
+    db = request.app.state.db
+    state = await db.kv_get(ct.KV, {}) or {}
+    p = (state.get("people") or {}).get(code)
+    if p is None:
+        return _lines([f"{code} isn't a contact."], ok=False)
+    if what == "profile":
+        await ct.fetch(request.app.state.api, state["people"], [code])
+        msg = f"Profile read failed: {p['error']}" if p.get("error") else "Profile read. Reload to see it."
+    elif what == "note":
+        p["note"] = str((await request.form()).get("note") or "").strip()[:1000] or None
+        msg = "Note saved."
+    elif what == "hide":
+        p["hidden"] = not p.get("hidden")
+        msg = "Hidden: it stays in the list of hidden contacts." if p["hidden"] else "Shown again."
+    else:
+        return _lines(["Unknown action."], ok=False)
+    await db.kv_set(ct.KV, state)
+    if what == "profile":
+        await db.kv_set("replicant_profiles", ct.sync_names(await db.kv_get("replicant_profiles", {}) or {}, state["people"]))
+    return _lines([msg], ok=not p.get("error") or what != "profile")
