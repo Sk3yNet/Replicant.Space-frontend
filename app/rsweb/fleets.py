@@ -33,7 +33,8 @@ from typing import Any
 from .automations import SHORT_TIMEOUT, STEP_TIMEOUT, step
 from .shapes import as_amounts
 
-ROLES = ("mining", "explore", "logistics", "prospector", "rock_chaser")   # rock_chaser: asteroid mining (rockchase.py)   # prospector: an observatory touring nearby stars (prospector_pass)   # logistics: no missions — it runs the logistics service (logistics.py). Trade fleets are retired
+ROLES = ("mining", "explore", "logistics", "prospector", "rock_chaser", "trade_post")   # trade_post: a shop listing devices for sale (tradepost.py)
+#   # rock_chaser: asteroid mining (rockchase.py)   # prospector: an observatory touring nearby stars (prospector_pass)   # logistics: no missions — it runs the logistics service (logistics.py). Trade fleets are retired
                                        # (2026-10-12): they become logistics fleets once their last run ends (auto_deals_pass)
 ROLE_CHOICES = ROLES + ("bootstrap",)   # a fleet's role select: picking bootstrap converts it (web_fleets._to_bootstrap)
 PHASES = {
@@ -42,6 +43,7 @@ PHASES = {
     "logistics": [],
     "prospector": [],
     "rock_chaser": [],
+    "trade_post": [],
     "bootstrap": ["home", "survey", "hub_choice", "move", "hub_compound", "hub", "outposts", "operate"],   # bootstrap.STAGES
     "trade": ["load", "assemble", "gather", "travel", "deliver", "wait", "trade", "collect", "recall", "return", "unload",
               "home"],
@@ -464,7 +466,7 @@ RELOCATE_PHASES = ["assemble", "gather", "travel", "deploy"]
 # receiving point) and unload there (owner 2026-11-01)
 HOMING_PHASES = ["recall", "return", "unload"]
 # roles with no missions of their own: a recall holds them (their pass gives them no new work) until Resume
-HOLD_ROLES = ("logistics", "prospector", "rock_chaser", "bootstrap")
+HOLD_ROLES = ("logistics", "prospector", "rock_chaser", "bootstrap", "trade_post")
 
 
 RETRY_FIRST_MIN = 15   # a stalled mission retries by itself after this, doubling each time (owner 2026-10-22)
@@ -536,7 +538,7 @@ def next_phase(role: str, m: dict) -> str | None:
 def receiving_points(fleets: list[dict], skip: str | None = None) -> set[str]:
     """Systems that receive a fleet home: stationed fleets' homes and fleets that take materials in (not logistics,
     which roams)."""
-    return {f["home"] for f in fleets if f.get("home") and f.get("id") != skip and f.get("role") != "logistics"
+    return {f["home"] for f in fleets if f.get("home") and f.get("id") != skip and f.get("role") not in ("logistics", "trade_post")
             and (f.get("station") or f.get("materials") == "self")}
 
 

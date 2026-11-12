@@ -1,0 +1,42 @@
+{# Trade post fleet (tradepost.py): the price formula, and the stock and price of every device offered #}
+{% set tp = f.tp_view %}{% set pr = tp.pricing %}
+<div class="small" style="margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
+  <div><b>Trade post</b> ·
+    {% if tp.controller %}shop <a href="/devices/{{ tp.controller }}">{{ tp.controller }}</a> at <b>{{ tp.location }}</b>
+    {% else %}<span class="lv-alert">no AMI trade controller in the fleet: add one (and an active FTL relay in its system, for the directory)</span>{% endif %}
+    {% if tp.state.at %}<span class="muted"> · checked {{ tp.state.at | ago }}</span>{% endif %}
+    {% if tp.state.note %}<span class="lv-alert"> · {{ tp.state.note }}</span>{% endif %}</div>
+  <form hx-post="/fleets/{{ f.id }}/tradepost" hx-target="next .tp-out" class="row small" style="margin:4px 0">
+    <input type="hidden" name="action" value="pricing">
+    <span title="Shared by every trade post. Price per resource = materials × (factor + % per hour × print hours), rounded up. Materials and print time include every component, all the way down.">Price formula:</span>
+    <label style="text-transform:none">materials ×
+      <input type="number" step="0.05" min="0" name="factor" value="{{ pr.factor }}" style="width:60px"></label>
+    <label style="text-transform:none">+ <input type="number" step="0.5" min="0" name="pct_per_hour" value="{{ pr.pct_per_hour }}" style="width:60px"> % of materials per print hour</label>
+    <button class="small">Save formula</button>
+  </form><span class="tp-out"></span>
+  <details style="margin-top:4px" {{ 'open' if tp.wanted }}><summary>Stock and prices ({{ tp.wanted }} device type(s) stocked, {{ tp.rows | length }} offered)</summary>
+    <form hx-post="/fleets/{{ f.id }}/tradepost" hx-target="next .tp-out2">
+      <input type="hidden" name="action" value="stock">
+      <p class="muted" style="margin:4px 0">On hand: how many to keep listed (0 or blank: not offered). Override: a price in place of the formula,
+        e.g. <code>200 structural, 50 conductive</code> (blank: the formula). Devices are printed on an autofactory in range when no spare covers them,
+        delivered to the shop and listed once they're all there; a listing is re-created at full stock after sales.</p>
+      <div style="max-height:520px;overflow:auto">
+      <table class="small"><tr><th>Device</th><th>Materials (with components)</th><th class="num">Print time</th><th>Formula price</th>
+        <th>Override</th><th class="num">On hand</th><th class="num" title="Listed now (of the stock it was listed with)">Listed</th><th class="num" title="Stock at the shop not listed yet">At shop</th><th></th></tr>
+        {% for r in tp.rows %}{% set s = tp.status.get(r.type) or {} %}
+        <tr{% if not r.onhand %} class="muted"{% endif %}>
+          <td>{{ r.type | human }}<input type="hidden" name="type" value="{{ r.type }}">{% if r.components %}<div class="muted">+ {% for t, n in r.components.items() %}{{ n }}× {{ t | human }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}</td>
+          <td>{{ price_text(r.materials) or '—' }}</td>
+          <td class="num">{{ hours_text(r.seconds) }}</td>
+          <td>{{ price_text(r.formula) or '—' }}</td>
+          <td><input name="price" value="{{ price_text(r.override) }}" placeholder="formula" style="width:15em"></td>
+          <td class="num"><input type="number" min="0" name="onhand" value="{{ r.onhand or '' }}" style="width:52px"></td>
+          <td class="num">{% if s.trade_code %}{{ s.listed }}/{{ s.initial }}{% else %}—{% endif %}</td>
+          <td class="num">{{ s.here if s.here is not none else '' }}</td>
+          <td class="muted">{{ s.status or '' }}</td>
+        </tr>{% endfor %}
+      </table></div>
+      <button style="margin-top:6px">Save stock and prices</button>
+    </form><span class="tp-out2"></span>
+  </details>
+</div>

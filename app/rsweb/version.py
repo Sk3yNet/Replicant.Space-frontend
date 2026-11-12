@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.381.1"
+VERSION = "1.382.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.382.0", "2026-11-12", "Trade post fleets (Joe): a new fleet role whose AMI trade controller lists one of each device you have a blueprint for (system hubs left out). Fleet details sets how many to keep on hand and a price override per device; the default price is materials x 2 plus 10 % of the materials per print hour, both counting every component, and both numbers are settings. Stock is supplied like a contract (spares, else prints), listed once it is all at the shop and re-listed at full stock after sales; vessels with a replicant aboard and anything holding a matrix are never sold. Logistics brings the proceeds to a printing hub."),
     ("1.381.1", "2026-11-12", "Beacons pinned to a civilization body in another system that already has a beacon of its own drop that pin and stay where they are (Joe: beacons tagged for one place sitting in another; BADU-3-L4, OXETH-BELT-1 and XERLARNIS-5-L4 had waited since October)."),
     ("1.381.0", "2026-11-12", "Fewer notifications (Joe): stellar censuses, completed prints and AMI directives, prospects, relay and hub switch-ons and hub upkeep, salvage finds and auto-read messages, wards/relays/beacons coming up, dark-relay wake trips, long-range stations going spare, fleet moves and missions completing, pathing home changes, repair returns, stale-rescue cancels, season rescans, simulation starts, station jobs accepted and Kuiper launch marks no longer raise a notification. They stay in the event feed and the automation log."),
     ("1.380.0", "2026-11-12", "Beacons at civilization event sites: new option (on by default) also puts a beacon at every civilization with no event yet (intelligent or spacefaring life on a planet or moon) in a system your relay network covers (Joe)."),

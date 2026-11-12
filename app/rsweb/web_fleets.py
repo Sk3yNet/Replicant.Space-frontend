@@ -58,6 +58,16 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
         f["points"] = fl.attach_points(f, st["devices"], bp_by, f["roster"]["rows"])
         m = f.get("mission") or {}
         f["job"] = jobs.get(m.get("job"))
+        if f.get("role") == "trade_post":   # tradepost.py: the formula, every offered device, the last pass's listing
+            from . import tradepost as tp_
+            tp_pricing = tp_.pricing(await request.app.state.db.kv_get(tp_.KV_PRICING, {}))
+            tp_state = await request.app.state.db.kv_get(tp_.KV, {}) or {}
+            ctrl = tp_.controller(f, st["devices"])
+            rows = tp_.rows(f, bp_by, tp_pricing)
+            fst = tp_state.get(f["id"]) or {}
+            f["tp_view"] = {"pricing": tp_pricing, "rows": rows, "state": fst, "wanted": sum(1 for r in rows if r["onhand"]),
+                            "controller": (ctrl or {}).get("device_code"), "location": (ctrl or {}).get("location"),
+                            "status": {r["type"]: r for r in fst.get("rows") or []}}
         if f.get("role") == "rock_chaser":   # rockchase.py: every setting resolved, and the run with all its keys
             from . import rockchase as rc
             f["chase_cfg"] = rc.settings(f)
@@ -265,6 +275,8 @@ async def fleets_create(request: Request, name: str = Form(...), role: str = For
     fid = fl.fleet_id_for(name, items)
     items.append({"id": fid, "name": name.strip(), "role": role if role in fl.ROLES else "mining", "home": home.strip().upper(),
                   "wants": {}, "station": station == "on", "materials": "", "template": template or None})
+    if role == "trade_post" and not template:   # tradepost.py: the shop and a relay for the directory, kept at home
+        items[-1].update({"wants": {"ami_trade_controller": 1, "ftl_relay": 1}, "station": True})
     await eng.save_fleets(items)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
@@ -1127,3 +1139,52 @@ async def fleets_chase(request: Request, fid: str, user: str = Depends(current_u
     await eng.save_fleets(items)
     await eng.log("rock_chaser", f"{f['name']}: {action} by {user}")
     return HTMLResponse(f'<div class="result ok">{html.escape(msg)}</div>')
+
+
+# --- trade post fleets (tradepost.py) -----------------------------------------------------------------------------
+@router.post("/fleets/{fid}/tradepost", response_class=HTMLResponse)
+@_fleet_locked
+async def fleets_tradepost(request: Request, fid: str, user: str = Depends(current_user)):
+    """The price formula shared by every trade post (action=pricing: factor, pct_per_hour), or a trade post's stock and
+    price overrides (action=stock: type / onhand / price per row)."""
+    from . import tradepost as tp
+    form = await request.form()
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid and x.get("role") == tp.ROLE), None)
+    if not f:
+        return HTMLResponse('<div class="result err">No such trade post fleet.</div>', status_code=404)
+    db = request.app.state.db
+    if form.get("action") == "pricing":
+        new = {}
+        for k in tp.DEFAULT_PRICING:
+            try:
+                v = float(str(form.get(k) or "").strip())
+            except ValueError:
+                return HTMLResponse(f'<div class="result err">{html.escape(k)} must be a number</div>')
+            if v < 0:
+                return HTMLResponse(f'<div class="result err">{html.escape(k)} cannot be negative</div>')
+            new[k] = v
+        await db.kv_set(tp.KV_PRICING, new)
+        await eng.log("trade_post", f"price formula: materials × {new['factor']:g} + {new['pct_per_hour']:g} % per print hour, by {user}")
+        return HTMLResponse('<div class="result ok">Saved. Listings are repriced on the next pass (reload to see the new prices).</div>')
+    if form.get("action") != "stock":
+        return HTMLResponse('<div class="result err">Unknown action.</div>')
+    onhand, prices, bad = {}, {}, []
+    for t, n, pr in zip(form.getlist("type"), form.getlist("onhand"), form.getlist("price")):
+        try:
+            if int(n or 0) > 0:
+                onhand[t] = int(n)
+        except ValueError:
+            bad.append(f"{t}: on hand must be a whole number")
+        p = tp.parse_price(pr)
+        if p is None:
+            bad.append(f"{t}: can't read the price '{pr}' (write e.g. 200 structural, 50 conductive)")
+        elif p:
+            prices[t] = p
+    if bad:
+        return HTMLResponse('<div class="result err">' + "<br>".join(html.escape(b) for b in bad) + '</div>')
+    f["trade_post"] = {"onhand": onhand, "prices": prices}
+    await eng.save_fleets(items)
+    await eng.log("trade_post", f"{f['name']}: stock set for {len(onhand)} device type(s), {len(prices)} price override(s), by {user}")
+    return HTMLResponse(f'<div class="result ok">Saved: {len(onhand)} device type(s) stocked, {len(prices)} override(s). '
+                        'The next pass supplies and lists them.</div>')

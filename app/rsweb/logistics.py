@@ -498,7 +498,9 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
                         "need": {r: q for r, q in items.items() if q >= 1},
                         "label": f"evacuate the {loc} stockpile to {to} before impact"})
     asked = {r["to"] for r in out} | set(costs) | set(evacuate or {}) | {u["location"] for u in upkeep}
-    homes = {f.get("home") for f in fleets if f.get("home") and (f.get("station") or f.get("materials") == "self")}
+    # a trade post's home isn't one (tradepost.py): the proceeds piling up at its shop are brought to a printing hub
+    homes = {f.get("home") for f in fleets if f.get("home") and (f.get("station") or f.get("materials") == "self")
+             and f.get("role") != "trade_post"}
     # a bootstrap fleet builds from what it mines at its home: its piles stay (live 2026-10-22: Delta Force's ISOLITHOR
     # stock was sent for, 28 874 ly from SOLARES)
     building = {f.get("home") for f in fleets if f.get("home") and f.get("role") == "bootstrap"}

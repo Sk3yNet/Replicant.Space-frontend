@@ -304,6 +304,8 @@ def ui_accent(request: Request | None) -> str:
 
 
 templates.env.globals.update(NAV=NAV, ui_mode=ui_mode, ui_accent=ui_accent)
+from . import tradepost as _tp  # noqa: E402
+templates.env.globals.update(price_text=_tp.price_text, hours_text=_tp.hours_text)
 templates.env.globals.update(is_large=lambda b: _modular_type((b or {}).get("device_type"), {(b or {}).get("device_type"): b or {}}))
 templates.env.globals.update(RESOURCES=RESOURCES, describe=notify.describe, level_of=notify.level_of,
                              device_options=cmdspec.device_options, field_applies=cmdspec.field_applies,

@@ -77,6 +77,8 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
     bps = {b["device_type"]: b for b in blueprints or []}
     by = {d.get("device_code"): d for d in devices}
     need = need_of(prog)
+    # a trade post (tradepost.py): only its own stock counts, and not what is already in a listing's escrow
+    skip, tagged_only = set(e.get("_skip") or []), bool(e.get("_tagged_only"))
     assigned = {c: a for c, a in (entry.get("assigned") or {}).items()
                 if c in by and (tag in (by[c].get("tags") or []) or (_ts(a.get("at")) or 0) > now - ASSIGN_MINUTES * 60)}
     printed = set(entry.get("printed") or []) | {d["device_code"] for d in devices
@@ -94,7 +96,8 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
     picked: set[str] = set()
     reserved: dict[str, Counter] = {}
     for t, n in sorted(need.items()):
-        here = sum(1 for d in devices if d.get("device_type") == t and d.get("location") == loc)
+        here = sum(1 for d in devices if d.get("device_type") == t and d.get("location") == loc
+                   and d.get("device_code") not in skip and (not tagged_only or tag in (d.get("tags") or [])))
         coming = sorted(c for c in ours if by[c].get("device_type") == t and by[c].get("location") != loc)
         printing = max(0, ordered[t] - came[t])
         short = max(0, n - here - len(coming) - printing)
@@ -136,6 +139,16 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
             "orders": orders, "ready": ready, "tag": tag, "notes": notes,
             "unresolved": sum(r["short"] for r in rows),
             "to_authorize": {r["type"]: r["short"] for r in rows if r["short"] and r["authorized"] <= r["ordered"]}}
+
+
+def recent_orders(entry: dict, now: float | None = None) -> Counter:
+    """{type: n} printed for it within ORDER_DAYS (what plan() counts as ordered)."""
+    now = now or datetime.now(timezone.utc).timestamp()
+    out: Counter = Counter()
+    for o in entry.get("orders") or []:
+        if (_ts(o.get("at")) or 0) > now - ORDER_DAYS * 86400:
+            out[o["type"]] += int(o.get("n") or 1)
+    return out
 
 
 def factory_for(t: str, n: int, devices: list[dict], star: str, busy: set[str], bps: dict, inventory: dict,
