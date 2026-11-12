@@ -447,8 +447,8 @@ class ChaseMixin:
                 marks.update(new)
                 if new:
                     out.append(f"marked for launch: {', '.join(sorted(new))}")
-                    await self._notify("info", f"{f['name']}: Kuiper object(s) marked for launch at {star}: "
-                                               f"{', '.join(sorted(new))}", "/fleets/details")
+                    await self.log("rock_chaser", f"{f['name']}: Kuiper object(s) marked for launch at {star}: "
+                                                  f"{', '.join(sorted(new))}")
         return out
 
     async def _chase_launch(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict) -> list[str]:

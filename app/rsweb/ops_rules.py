@@ -204,7 +204,7 @@ class OpsRules:
                         changed = True
                         at = ", ".join(civ)
                         out.append(f"{star}: {label}s up at {at}" if len(civ) > 1 else f"{star}: {label} is up at {at}")
-                        await self.log("wards", f"{star}: {label} up at every civilization ({at})", notify=True)
+                        await self.log("wards", f"{star}: {label} up at every civilization ({at})")
                         continue
                     if missing != o.get("civ"):
                         o["civ"] = missing
@@ -242,7 +242,7 @@ class OpsRules:
                     orders.pop(star)
                     changed = True
                     out.append(f"{star}: {label} {here['device_code']} is up")
-                    await self.log("wards", f"{star}: {label} {here['device_code']} is up", notify=True)
+                    await self.log("wards", f"{star}: {label} {here['device_code']} is up")
                     continue
                 if not here and wo.lost_print(devices, star, o, jobs, dtype):
                     # the print never got into a queue (a full one, or it failed): send a spare or print it again
@@ -358,7 +358,7 @@ class OpsRules:
         title = f"wake dark relays: {carrier} → {' → '.join(s for s, _ in route)}"
         if await self.create_job("wards", title, carrier, steps,
                                  {"devices": [x for _, cs in route for x in cs], "wake": True}):
-            await self.log("wards", f"{title} (each moved to an L4/L5 point and switched on)", notify=True)
+            await self.log("wards", f"{title} (each moved to an L4/L5 point and switched on)")
             return [title]
         return []
 
@@ -484,7 +484,7 @@ class OpsRules:
         steps.append(st)
         title = f"new season rescan: {carrier} → {' → '.join(route)}"
         if await self.create_job("scan_on_arrival", title, carrier, steps, {"devices": [], "rescan": True}):
-            await self.log("season", f"{title} (fleet homes unexplored since the season reset)", notify=True)
+            await self.log("season", f"{title} (fleet homes unexplored since the season reset)")
             out.append(title)
         return out
 
@@ -632,7 +632,7 @@ class OpsRules:
                 continue
             if any(d.get("device_type") == "ftl_relay" and relaynet.reach(d, bps) is not None for d in here):
                 msg = await self.remove_outpost("station", star, "station swap")
-                await self.log("wards", f"{star}: a relay links it now, so the long-range station goes spare ({msg})", notify=True)
+                await self.log("wards", f"{star}: a relay links it now, so the long-range station goes spare ({msg})")
                 out.append(f"{star}: {msg}")
                 break   # one at a time: two stations may each be redundant only while the other works
             if star not in relays:

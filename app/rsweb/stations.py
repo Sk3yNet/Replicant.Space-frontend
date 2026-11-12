@@ -350,7 +350,7 @@ async def run_pass(eng) -> list[str]:
                     cfg["run"] = [str(j["id"])]
                     cfg["accept_fail_at"] = None
                     await eng.log("station_jobs", f"accepted {j.get('title')} at {j['station_name']} ({j['faction_name']}, "
-                                                  f"tier {j['tier']}): {j.get('objectives_summary') or ''}", "info", notify=True)
+                                                  f"tier {j['tier']}): {j.get('objectives_summary') or ''}", "info")
                     await refresh(api, db, boards=False)
                     mine = await db.kv_get(KV_MINE, {}) or {}
                     jobs = accepted(mine)

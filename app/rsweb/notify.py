@@ -30,14 +30,14 @@ DONE_EVENTS = {
     "simulation.completed", "device.decommissioned", "ward.activated", "blueprint.unlocked", "device.discovered",
 }
 # Done-events that also raise a notification (the rest just go in the digest/feed).
+# Routine results the automations produce all day (prints, directives, prospects, relay/hub switch-ons, salvage finds,
+# hub upkeep) stay in the feed only (Joe 2026-11-12: cut unnecessary notifications).
 NOTIFY_DONE = {
-    "print.completed", "directive.completed", "event.completed", "trade.completed", "prospect.completed",
-    "teleport.completed", "story.awakened", "salvage.discovered", "event.discovered",
-    "triangulation.complete", "simulation.completed", "hub.activated", "relay.activated", "system.object_off_target",
-    "device.discovered",
+    "event.completed", "trade.completed", "teleport.completed", "story.awakened", "event.discovered",
+    "triangulation.complete", "simulation.completed", "system.object_off_target", "device.discovered",
 }
 # Info-level events that still raise a notification.
-NOTIFY_INFO = {"multiplayer.replicant_entered", "hub.maintained", "trade.created", "trade.deleted"}
+NOTIFY_INFO = {"multiplayer.replicant_entered", "trade.created", "trade.deleted"}
 NOISY = {"ami.mining.digest", "ami.survey.digest", "ami.transport.digest", "bobnet.new", "experience.gained"}
 
 

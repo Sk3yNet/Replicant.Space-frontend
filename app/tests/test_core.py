@@ -123,7 +123,7 @@ def test_worker_timers_notifications_and_digest(tmp_path):
         await w.handle_event(_ev(5, "hub.warning", warning_type="maintenance_due", capacity=70))
         await w.handle_event(_ev(6, "experience.gained", amount=25, source="mining"))
         levels = sorted(r["level"] for r in await db.fetchall("SELECT level FROM notifications"))
-        assert levels == ["done", "warning"]   # print done (info); hub warning
+        assert levels == ["warning"]   # print done: feed only since 1.381.0; hub warning
         # inventory snapshots for the delta
         await db.execute("INSERT INTO inventory_history VALUES(?,?,?)", ("2000-01-01T00:00:00+00:00", "structural", 100))
         await db.execute("INSERT INTO inventory_history VALUES(?,?,?)", (iso(datetime.now(timezone.utc)), "structural", 180))
@@ -6321,7 +6321,7 @@ def test_pathing_pass_prospects_then_relocates(client):
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
     assert f["home"] == "AHEADB" and f["prev_home"] == "HOMEA" and not f.get("next_home")
     notes = client.portal.call(db.fetchall, "SELECT title FROM notifications WHERE link='/fleets'")
-    assert any("moving home: HOMEA → AHEADB" in n["title"] for n in notes)
+    assert not any("moving home: HOMEA → AHEADB" in n["title"] for n in notes)   # announced ahead only (1.381.0)
 
 
 def test_renaming_a_fleet_moves_its_tag(client):

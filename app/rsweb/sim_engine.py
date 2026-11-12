@@ -118,7 +118,7 @@ class SimMixin:
         s.pop("prep", None)
         await self.sim_save(s)
         await self.log("simulation", f"took over {s['active']['name']} (#{s['active']['id']}) with {rep}: the game reports "
-                                     f"it running", notify=True)
+                                     f"it running")
         return [f"simulation: took over {s['active']['name']} #{s['active']['id']}"]
 
     @staticmethod
@@ -465,7 +465,7 @@ class SimMixin:
         s.pop("prep", None)
         await self.sim_save(s)
         await self.log("simulation", f"started {s['active']['name']} (#{s['active']['id']}) with {rep}, build order: "
-                                     f"{s['active'].get('order_name')}", notify=True)
+                                     f"{s['active'].get('order_name')}")
         return True, f"started {s['active']['name']}"
 
     async def sim_run_pass(self, s: dict) -> list[str]:

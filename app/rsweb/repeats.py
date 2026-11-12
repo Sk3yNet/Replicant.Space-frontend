@@ -1,7 +1,7 @@
 """Repeating console commands: send one request every N minutes until stopped (e.g. a belt scan for debris or devices).
 
 Each repeat watches for finds in its system (device.discovered, salvage.discovered): it counts them, and stops at the
-first one only when asked to. The finds raise their own notifications either way (notify.NOTIFY_DONE)."""
+first one only when asked to. A discovered device raises its own notification (notify.NOTIFY_DONE); salvage does not since 1.381.0."""
 from datetime import datetime, timedelta, timezone
 
 KV = "console_repeats"

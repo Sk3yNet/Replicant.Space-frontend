@@ -2491,7 +2491,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 left = [s for s in cur if s["fleet"] == fid]
                 hours = (now - (_ts(m["at"]) or now)).total_seconds() / 3600
                 if not left:
-                    await self.log("fleets", f"{f.get('name')}: move to {m['to']} complete, every member is there", notify=True)
+                    await self.log("fleets", f"{f.get('name')}: move to {m['to']} complete, every member is there")
                     moves.pop(fid)
                 elif hours >= 2 and not m.get("alerted"):
                     m["alerted"] = now_iso()
@@ -2692,7 +2692,6 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                 changed = True
                 out.append(f"{f['name']}: home {home} → {nxt}")
                 await self.log("fleets", f"{f['name']}: new home {nxt} (was {home}) — the loadout pass moves the fleet there")
-                await self._notify("warning", f"{f['name']} is moving home: {home} → {nxt}")
                 continue
             # --- is the home dry, and for long enough?
             why = pa.dry(home, devices, inp["viability"], nothing, inp["warded"], (await self.system_belts({home}))[home])
@@ -3122,7 +3121,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
             how = await self.start_relocation(f, old, new, devices)
             f["path_note"] = f"moving home {old} → {new} — {how}"
             out.append(f"{f['name']}: {old} → {new}")
-            await self.log("fleets", f"{f['name']}: {new} reachable — moving home {old} → {new}: {how}", notify=True)
+            await self.log("fleets", f"{f['name']}: {new} reachable — moving home {old} → {new}: {how}")
         await self.save_fleets(items)
         return out
 
@@ -3173,7 +3172,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         how = await self.start_relocation(f, home, nxt, devices)
         f["path_note"] += f" — {how}"
         out.append(f"{f['name']}: advancing {home} → {nxt}")
-        await self.log("fleets", f"{f['name']}: every direction prospected from {home} — advancing to {nxt}", notify=True)
+        await self.log("fleets", f"{f['name']}: every direction prospected from {home} — advancing to {nxt}")
         return True
 
     SCOUT_MIN_CAPACITY = 50.0   # a member at or below this (%) ends the scouting: finish the system, go home for repairs
@@ -3298,7 +3297,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         m["targets"] = (m.get("targets") or [])[:m.get("idx", 0) + 1]   # no further targets
                     why = f"{', '.join(weak)} at or below {self.SCOUT_MIN_CAPACITY:g} %"
                     self._mlog(m, f"returning home for repairs ({why})")
-                    await self.log("fleets", f"{f.get('name')}: returning home for repairs ({why})", notify=True)
+                    await self.log("fleets", f"{f.get('name')}: returning home for repairs ({why})")
                     out.append(f"{f.get('name')}: home for repairs")
                     changed = True
                 continue
@@ -4659,7 +4658,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         found = await census.record(self.db, star, device, pages)
         new = [s["designation"] for s in found if s.get("explored") is False]
         await self.log("census_on_arrival", f"stellar census in {star}: {len(found)} stars"
-                       + (f", unexplored: {', '.join(new)}" if new else ", all explored"), notify=bool(new))
+                       + (f", unexplored: {', '.join(new)}" if new else ", all explored"))   # no notification (Joe 2026-11-12)
         return found, err
 
     async def rule_auto_survey(self, vessel: str, vessel_loc: str, star: str, stowed: list[dict], cfg: dict) -> None:
@@ -4919,7 +4918,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
         for j, why in lg.stale_rescues(await self.jobs(), await self.devices()):
             j["status"], j["finished_at"] = "cancelled", now_iso()
             await self._update(j)
-            await self.log("logistics", f"canceled: {j['title']} — {why}", notify=True)
+            await self.log("logistics", f"canceled: {j['title']} — {why}")
         items = await self.fleets()
         if not lg.logistics_fleets(items, held=True):
             await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": [], "runs": [], "unmet": [], "fleet_devices": [],
@@ -6140,7 +6139,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                     m["status"], m["job"] = "ended", None
                     m.pop("end_here", None), m.pop("end_started", None)
                     self._mlog(m, f"mission ended early — fleet aboard its carriers in {at}")
-                    await self.log("fleets", f"{fleet['name']}: mission ended early, fleet aboard in {at}", notify=True)
+                    await self.log("fleets", f"{fleet['name']}: mission ended early, fleet aboard in {at}")
                     changed = True
                     continue
                 m["phase"], m["phase_at"], m["end_started"] = "recall", now_iso(), True
@@ -6214,7 +6213,7 @@ class AutomationEngine(OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixi
                         await self.log("fleets", f"{fleet['name']}: recalled, back at {dest}", notify=True)
                         break
                     self._mlog(m, "mission complete")
-                    await self.log("fleets", f"{fleet['name']}: mission complete", notify=True)
+                    await self.log("fleets", f"{fleet['name']}: mission complete")
                     break
                 if nxt == "travel" and not m.get("departed"):   # first departure: the loadout (or members) all in one place
                     # all in one place: a relocation waits for every member, not for a complete loadout

@@ -384,7 +384,10 @@ class Worker:
             n = None
         else:
             await self.note_caught_up()
-            n = await notify.add_notification(self.db, ev) or await notify.add_mention(self.db, ev)
+            if ev["event"] == "message.new" and auto_read(ev.get("payload") or {}, await auto_read_cfg(self.db)):
+                n = None   # marked read as it arrives (salvage, civ help when ticked): no bell either (Joe 2026-11-12)
+            else:
+                n = await notify.add_notification(self.db, ev) or await notify.add_mention(self.db, ev)
         self.hub.publish("event", ev)
         if n:
             self.hub.publish("notify", n)
