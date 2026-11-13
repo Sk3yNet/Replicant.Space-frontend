@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.396.0"
+VERSION = "1.397.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.397.0", "2026-11-13", "Components come from the hubs only (Joe: why are the galactic observatories out of position for prints?). A print's components were pinned from any spare of that type, first by device code: three old prospecting observatories compacted at DRAQUELIS, MYRRALON and ZALDRALAI were pinned to FALQUORYX for a parallax array, no carrier ever came for them, and since they counted as on their way the factory never printed its own. Spares are now taken only from systems with an autofactory, the factory's own system first; components pinned earlier that still sit in a system without one, on no job, are spares again, so the factory prints what it needs."),
     ("1.396.0", "2026-11-12", "History clean-up also drops what a season reset wiped (Joe): scans, salvage and depleted-site finds, location events and contracts, and asteroid events stored before the last reset go at once, whatever their age. The app already ignored them. The clean-up runs again right after this update."),
     ("1.395.0", "2026-11-12", "From the 02:24 performance snapshot (Joe). An observatory's list of every known star (about a megabyte per running prospect; the runs were still 7.6 MB and read by every map refresh and three passes a tick) is kept in a value of its own, written once and read once. Scanned bodies for the civilization checks are read incrementally: only scan events since the last call. The database's write-ahead log is emptied after the daily clean-up (it had grown to 139 MB). Diagnostics › Performance lists events by kind and the clean-up's state, to show what the month rule keeps."),
     ("1.394.0", "2026-11-12", "Tests only (Joe: build the review's suggestions). test_core.py (10,460 lines, 471 tests) is split by area into test_core_logistics, _loadouts, _fleets, _mining, _relays, _deals, _prints and _messages; the shared helpers and fixtures moved to tests/corelib.py. Run one area with python -m pytest tests/test_core_fleets.py."),

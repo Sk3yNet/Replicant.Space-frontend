@@ -316,11 +316,13 @@ class SimMixin:
     async def pin_or_print(self, ctype: str, n: int, loc: str, devices: list[dict], busy: set[str], why: str,
                            skip: list[dict] | None = None, tags: list[str] | None = None,
                            not_at: set[str] | frozenset = frozenset(),
-                           load: dict[str, float] | None = None) -> tuple[list[str], int, str | None]:
+                           load: dict[str, float] | None = None,
+                           spare_stars: set[str] | None = None) -> tuple[list[str], int, str | None]:
         """Get n devices of `ctype` to `loc`: spare ones anywhere are pinned there first (the loadout pass delivers to: /
         at: tagged devices), the rest are printed at the least busy autofactory with those tags (logistics brings the
         materials), split over the autofactories at that factory's stockpile. `tags` replaces the to: / at: pins as the tags
-        to add; factories in `not_at` don't print; `load` (code -> queued seconds) balances successive calls. Returns (codes
+        to add; factories in `not_at` don't print; `load` (code -> queued seconds) balances successive calls; `spare_stars`: spares
+        only from these systems (components: the hubs). Returns (codes
         pinned, how many queued to print, note on what failed)."""
         from .components import retag
         from .loadouts import at_tag, is_component, is_factory, pinned_at, to_tag
@@ -340,7 +342,8 @@ class SimMixin:
             return SECTOR_RANGE_LY < x < 1e9
         # never from beyond the sector range (snapshot 2026-11-01 20:41: spare mining drones at ANLOREN, in the Delta
         # sector, were pinned to the FALQUORYX and SOLARES factories and their trips held at the sector range)
-        spares = [d for d in spares if not far(d.get("location"))]
+        spares = [d for d in spares if not far(d.get("location"))
+                  and (spare_stars is None or star_of(d.get("location") or "") in spare_stars)]
         if len(spares) > n:
             # the nearest first (snapshot 2026-11-01: the SOLARES and FALQUORYX factories each took the other's spare
             # mining drones, so carriers crossed between the hubs both ways)
