@@ -177,3 +177,32 @@ async def ami_directive(request: Request, code: str, user: str = Depends(current
 
 
 __all__ = [n for n in dir() if not n.startswith("__")]   # everything, underscore helpers too
+
+
+@router.get("/blueprints/missing", response_class=HTMLResponse)
+async def missing_blueprints(request: Request, hidden: int = 0, user: str = Depends(current_user)):
+    """Device types with no blueprint on the account, where they were seen and what holds them (missingbp.py)."""
+    from . import missingbp as mb, components as comp
+    db = request.app.state.db
+    s = await mb.refresh(db)
+    bps = {b["device_type"]: b for b in normalize_blueprints(await db.kv_get("blueprints", []))}
+    rows = mb.rows(s, bps, await db.kv_get("devices", []) or [], await db.kv_get(comp.LOCKED_KV, {}) or {},
+                   show_hidden=bool(hidden))
+    return await page(request, user, "missing_blueprints.html", "missingbp", rows=rows, show_hidden=bool(hidden),
+                      hidden_count=len(s["hidden"]), refreshed=s.get("refreshed_at"), known=len(bps))
+
+
+@router.post("/blueprints/missing/add")
+async def missing_blueprints_add(request: Request, user: str = Depends(current_user)):
+    from . import missingbp as mb
+    form = await request.form()
+    await mb.add(request.app.state.db, str(form.get("device_type") or ""), str(form.get("note") or ""))
+    return Response(status_code=200, headers={"HX-Redirect": "/blueprints/missing"})
+
+
+@router.post("/blueprints/missing/hide")
+async def missing_blueprints_hide(request: Request, user: str = Depends(current_user)):
+    from . import missingbp as mb
+    form = await request.form()
+    await mb.hide(request.app.state.db, str(form.get("device_type") or ""), form.get("unhide") is None)
+    return Response(status_code=200, headers={"HX-Redirect": "/blueprints/missing" + ("?hidden=1" if form.get("unhide") is not None else "")})

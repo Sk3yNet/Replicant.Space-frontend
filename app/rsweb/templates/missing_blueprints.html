@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Missing blueprints{% endblock %}
+{% block content %}
+<div class="row between"><h1>Missing blueprints <span class="muted small">{{ rows | length }} types · {{ known }} unlocked{% if refreshed %} · read {{ refreshed | ago }}{% endif %}</span></h1>
+  <span class="row">{% if show_hidden %}<a class="small" href="/blueprints/missing">hide hidden</a>{% elif hidden_count %}<a class="small" href="/blueprints/missing?hidden=1">show {{ hidden_count }} hidden</a>{% endif %}</span></div>
+<p class="muted small">Device types with no blueprint on your account: priority targets for trade and research. Filled from
+  blueprints that need them as components, prints the game refused as locked, other players' devices in scans and beacon
+  traffic, devices at locations read, shop listings and simulations. Sightings are kept after their source forgets them;
+  a type drops off once its blueprint unlocks. Decommissioning a device unlocks its blueprint, and decommissioning a device
+  built from components unlocks the component blueprints, so a device you own is the quickest route (nothing here acts on its own).</p>
+<div class="card" style="overflow-x:auto">
+  <table class="small">
+    <tr><th>Blueprint</th><th>Why</th><th>Route</th><th>Seen</th><th></th></tr>
+    {% for r in rows %}
+    <tr{% if r.hidden %} class="muted"{% endif %}>
+      <td><strong>{{ r.type | human }}</strong><div class="muted mono">{{ r.type }}</div>{% if r.first_seen %}<div class="muted">listed {{ r.first_seen | ago }}</div>{% endif %}</td>
+      <td>{% if r.needed_by %}component of {{ r.needed_by | map('human') | join(', ') }}{% if r.blocks | length > r.needed_by | length %}<div class="muted">blocks {{ r.blocks | length }} blueprints</div>{% endif %}{% endif %}
+        {% if r.refused_at %}<div class="lv-warning">print refused as locked {{ r.refused_at | ago }}</div>{% endif %}
+        {% if not r.needed_by and not r.refused_at %}<span class="muted">seen only</span>{% endif %}</td>
+      <td><span class="pill">{{ r.route }}</span>
+        {% if r.own %}<div>you own {{ r.own | length }}: {% for d in r.own[:4] %}<a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> {% endfor %}</div>{% endif %}
+        {% if r.holders %}<div>held as a component by your {% for d in r.holders[:4] %}<a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> ({{ d.device_type | human }}) {% endfor %}</div>{% endif %}
+        {% for x in r.shops[:3] %}<div>shop {{ x.owner_name or x.code }} at {{ x.where }}: {{ x.note }}</div>{% endfor %}
+        {% if r.players %}<div>owned by {{ r.players[:5] | join(', ') }}{% if r.players | length > 5 %} +{{ r.players | length - 5 }}{% endif %}</div>{% endif %}</td>
+      <td>{% if r.seen %}<details><summary>{{ r.seen | length }} sightings</summary>
+        {% for x in r.seen %}<div>{{ x.kind }}{% if x.where %} · <a class="mono" href="/systems/{{ x.where.split('-')[0] }}">{{ x.where }}</a>{% endif %}{% if x.code %} · <span class="mono">{{ x.code }}</span>{% endif %}{% if x.owner_name or x.owner %} · {{ x.owner_name or x.owner }}{% endif %}{% if x.note %} · {{ x.note }}{% endif %}{% if x.at %} <span class="muted">{{ x.at | ago }}</span>{% endif %}</div>{% endfor %}
+        </details>{% else %}<span class="muted">none yet</span>{% endif %}</td>
+      <td><form hx-post="/blueprints/missing/hide" class="inline"><input type="hidden" name="device_type" value="{{ r.type }}">{% if r.hidden %}<input type="hidden" name="unhide" value="1"><button class="small">Unhide</button>{% else %}<button class="small" title="take it off the list (story devices nobody prints, say)">Hide</button>{% endif %}</form></td>
+    </tr>
+    {% else %}<tr><td colspan="5" class="muted">Nothing missing found yet (or blueprints not synced).</td></tr>{% endfor %}
+  </table>
+</div>
+<div class="card"><h2>Add a type</h2>
+  <form hx-post="/blueprints/missing/add" class="row">
+    <input name="device_type" placeholder="device type, e.g. aquifer_tap" required>
+    <input name="note" placeholder="note (where you heard of it)" style="min-width:260px">
+    <button class="small">Add</button></form></div>
+{% endblock %}

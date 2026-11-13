@@ -69,6 +69,7 @@ seconds, and a trip's countdown reaching zero loads the new location.
 | | [Logistics](docs/FEATURES.md#logistics) | deliveries on demand by task category, carriers spread over the hubs, rescues, repair patrols |
 | | Reset & reform | rebuild messy tags |
 | **Economy** | [Blueprints](docs/FEATURES.md#blueprints) | travel, cargo, costs, production planner, [component prints](docs/FEATURES.md#component-prints) |
+| | [Missing blueprints](docs/FEATURES.md#missing-blueprints) | blueprints you lack, where they were seen, which devices hold them |
 | | [Contracts](docs/FEATURES.md#contracts) · [Reputation](docs/FEATURES.md#reputation) · [Shop](docs/FEATURES.md#shop) | contracts and trades, deliveries, shops and traders; bulk replicant profile import (with the NPC flag) |
 | | [Simulations](docs/FEATURES.md#simulations) | scenario runs with build orders, terraforming training, research and data uploads |
 | | [Jobs](docs/FEATURES.md#jobs) | colony station job boards, reputation, the job runner |

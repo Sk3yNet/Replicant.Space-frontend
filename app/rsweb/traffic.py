@@ -558,6 +558,12 @@ async def sync(db, api, hub, rule_cfg: dict | None, max_beacons: int = 20, profi
     except Exception:   # never let contacts break the beacon read
         import logging
         logging.getLogger(__name__).exception("contacts update failed")
+    from . import missingbp   # sightings of device types we have no blueprint for (Missing blueprints page)
+    try:
+        await missingbp.refresh(db, max_age_min=missingbp.REFRESH_MIN)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("missing blueprints refresh failed")
     profiles = await db.kv_get("replicant_profiles", {}) or {}
     alerts = []
     if rule_cfg:

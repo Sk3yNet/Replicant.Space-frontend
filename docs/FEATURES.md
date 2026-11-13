@@ -776,6 +776,15 @@ they are (a print already started isn't counted; what it turns out stays a spare
 
 <br clear="right">
 
+### Missing blueprints
+- A running list of device types you have no blueprint for: priority targets for trade and research.
+- Filled from blueprints that need a type as a component (with how many blueprints it blocks), prints the game refused as
+  locked, other players' devices in scans and beacon traffic, devices at locations read, shop listings that pay in a type,
+  simulations, and types added by hand. Sightings are kept after their source forgets them; a type drops off when its
+  blueprint unlocks.
+- A route per type: *decommission* (you own one), *decommission a holder* (you own a device built with it), *buy* (a
+  shop lists it), *trade* (another player has one) or *research*. Nothing acts on its own. *Hide* takes a type off the list.
+
 ### Contracts
 - In-game events with criteria (any one option completes it), rewards and progress.
 - Options that ask for devices show how many of each type are tagged spare and the option's total cost in resources
