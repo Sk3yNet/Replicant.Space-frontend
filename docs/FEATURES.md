@@ -619,7 +619,9 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
 - Each request has a category: queued prints, trades & contracts, rescues, shop listings, repair patrols, hub upkeep,
   stockpile returns. Every free carrier is given one category that has work and keeps it until that category runs dry, so a small
   category isn't starved by a big one (a category with work and no carrier takes one from the biggest).
-- Evacuations (priority 0) go first with every carrier. Carriers left over after each category's turn help any
+- Urgent requests (priority 0) go first with every carrier: evacuations, then trades at Sol (its shops cycle and sell
+  out), then prints a factory is stalled on. Before that pass, components a factory is waiting for and devices paying
+  a Sol trade get their carriers (loadout deliveries marked *(priority)*). Carriers left over after each category's turn help any
   category; stockpile returns (reallocations) only get leftovers, last. The Devices card shows each carrier's category.
 
 ### Where they wait
@@ -638,8 +640,9 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
   totals.
 
 ### Requests, in priority order
-0. **Evacuation**: stockpiles at an asteroid due to hit or be diverted.
-1. **Queued prints**: their cost minus what's stocked, waiting ones first.
+0. **Urgent**: stockpiles at an asteroid due to hit or be diverted; trades at Sol (*Sol trade*); prints a factory
+   is waiting on (*stalled print*). A bump on the page still sets another priority.
+1. **Queued prints**: their cost minus what's stocked.
 2. **Local delivery** and 3. **long-range transfer**:
    - contracts you approved, whose location you pre-approved, or (with auto-approve by beacon on) at a location where your beacon is deployed (Contracts);
    - trades you approved (Shop: *Logistics buys* n, 0 = not approved: one delivery pays n prices and the trade runs n times, at most

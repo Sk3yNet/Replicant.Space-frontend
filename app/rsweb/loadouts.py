@@ -333,6 +333,29 @@ def for_contract(d: dict) -> bool:
     return any(str(t).startswith("contract:") for t in d.get("tags") or [])
 
 
+def priority_devices(devices: list[dict]) -> set[str]:
+    """Devices whose collection goes ahead of everything but evacuations (Joe 2026-11-13): components pinned to a
+    factory that is waiting for their type, and devices paying a deal at a priority star (logistics.PRIORITY_STARS:
+    Sol's shops cycle and sell out). Only those not there yet."""
+    from .logistics import PRIORITY_STARS
+    awaited: set[tuple[str, str]] = set()
+    for f in devices:
+        wf = (f.get("waiting_for") or {}).get("components")
+        if isinstance(wf, dict) and f.get("location"):
+            awaited.update((f["location"], t) for t in wf)
+    out: set[str] = set()
+    for d in devices:
+        pin, here = pinned_at(d), d.get("location") or ""
+        if is_component(d) and pin and pin != here and (pin, d.get("device_type")) in awaited:
+            out.add(d["device_code"])
+        elif for_contract(d):
+            tags = d.get("tags") or []
+            dest = star_of(pin) if pin else next((s for s in PRIORITY_STARS if to_tag(s) in tags), "")
+            if dest in PRIORITY_STARS and star_of(here) != dest:
+                out.add(d["device_code"])
+    return out
+
+
 # printers that only make one class of device (live 2026-11-03: a crystal synthesis lab, features print + epitaxy,
 # answered "This printer can only fabricate epitaxy-class devices" to relay and beacon prints): never a general factory
 CLASS_FEATURES = {"epitaxy"}

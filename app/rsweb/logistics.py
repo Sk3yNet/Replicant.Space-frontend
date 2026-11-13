@@ -14,6 +14,9 @@ Demand, tracked every pass (engine stage logistics_pass), one request per destin
 Priority (owner's order, 2026-10-12): 1 queued prints (the ones waiting for resources first), 2 local deliveries (the
 stock is in the same system), 3 long-range transfers, 4 stockpile returns. A request can be bumped or skipped on the
 Logistics page. Each home system keeps what its own prints need (a reserve): only the surplus is taken.
+Urgent (priority 0, owner 2026-11-13): evacuations, then trades at Sol (PRIORITY_STARS: its shops cycle and sell out),
+then prints a factory is stalled on (waiting for resources). The device side goes first too: components a factory
+waits for and devices paying a Sol trade are collected before this pass (Engine.priority_deliveries_pass).
 
 Task categories (owner 2026-10-23): each request falls in one category (CATEGORIES: prints, trades & contracts, rescues,
 shop listings, repair patrols, hub upkeep, stockpile returns). Every free logistics carrier is given one category that has work and
@@ -121,13 +124,16 @@ def times(amounts: dict, n: int) -> dict:
     return {k: v * n for k, v in amounts.items()} if n > 1 else dict(amounts)
 ROLE = "logistics"
 MIN_RETURN = 25.0              # a stray pile smaller than this isn't worth a trip
-TIERS = {0: "evacuation", 1: "queued prints", 2: "local delivery", 3: "long-range transfer", 4: "stockpile return", 5: "rescue",
+# stars whose trades go first (Joe 2026-11-13: Sol's shops cycle and sell out), with stalled prints (a factory waiting
+# for materials) and the components a factory waits for (loadouts.priority_devices): priority 0, right after evacuations
+PRIORITY_STARS = ("SOL",)
+TIERS = {0: "urgent", 1: "queued prints", 2: "local delivery", 3: "long-range transfer", 4: "stockpile return", 5: "rescue",
          6: "shop listing", 7: "repair patrol"}
 # task categories (owner 2026-10-23): each free logistics carrier works one category until it runs dry, so a small
 # category isn't starved by a big one; stockpile returns (reallocations) get no carrier of their own and come last
 CATEGORIES = {"prints": "queued prints", "deals": "trades & contracts", "rescues": "rescues", "shop": "shop listings",
               "repairs": "repair patrols", "upkeep": "hub upkeep", "returns": "stockpile returns",
-              "urgent": "evacuations & priority 0"}
+              "urgent": "urgent: evacuations, Sol trades, stalled prints"}
 LANES = ("prints", "deals", "rescues", "shop", "repairs", "upkeep")
 PATROL_LOAD = 6                # worn devices one patrolling repair device looks after (upkeep.report's "covered")
 KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like placed relays and beacons: never "rescued"
@@ -492,6 +498,11 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
             here = star_of(r["to"])
             local = any(spare.get(l, {}).get(x, 0) >= 1 for l in spare if star_of(l) == here and l != r["to"] for x in r["need"])
             r["tier"] = 2 if local else 3
+    for r in out:   # urgent (Joe 2026-11-13): trades at Sol (its shops sell out) and prints a factory is stalled on
+        if (r["kind"] == "trade" and star_of(r["to"]) in PRIORITY_STARS) or \
+                (r["kind"] == "print" and r.get("waiting") and r["tier"] == 1):
+            r["tier"] = 0
+            r["urgent"] = "Sol trade" if r["kind"] == "trade" else "stalled print"
     for loc, to in sorted((evacuate or {}).items()):   # an asteroid is due there: its pile goes first (evacuate.py)
         items = stock.get(loc) or {}
         if sum(items.values()) >= 1 and to:
@@ -546,7 +557,9 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
         if r["id"] in (prefs.get("bump") or {}):
             r["tier"] = int(prefs["bump"][r["id"]])
         r["skipped"] = r["id"] in set(prefs.get("skip") or [])
-    out.sort(key=lambda r: (r["tier"], not r.get("waiting"), r["id"]))
+    # among the urgent ones: evacuations, then Sol trades, then stalled prints
+    out.sort(key=lambda r: (r["tier"], {"return": 0, "trade": 1}.get(r["kind"], 2) if r["tier"] == 0 else 0,
+                            not r.get("waiting"), r["id"]))
     _batch_deals(out, stock, incoming)
     return out, spare, reserve
 

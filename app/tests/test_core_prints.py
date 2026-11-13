@@ -582,3 +582,38 @@ def test_automations_never_print_on_vessels_but_your_jobs_may(client):
     job = client.portal.call(eng.create_job, "chain", "t", HOST, [auto.step("p", f"/devices/{HOST}", body)], {}, True)
     job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
     assert "don't print on vessels" not in str(job["steps"][0])
+
+
+def test_awaited_component_is_collected_before_logistics(client):
+    """Joe 2026-11-13: collections for a print stalled on a component go ahead of the logistics pass."""
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+
+    async def enable():
+        s = await eng.settings()
+        s["rules"]["loadouts"]["enabled"] = True
+        await eng.save_settings(s)
+    client.portal.call(enable)
+    devices = [
+        {"device_code": "AF1", "device_type": "autofactory", "location": "ITH-BELT-1", "status": "waiting_for_resources",
+         "available_commands": ["enqueue_print"], "tags": ["home:ith"],
+         "waiting_for": {"components": {"mining_drone": {"have": 0, "need": 1}}}},
+        {"device_code": "PL1", "device_type": "surge_plate", "location": "FAL-1-L4", "status": "idle", "attach_capacity": 1,
+         "features": ["surge", "attach", "taxi"], "taxi_mode": "taxi", "available_commands": ["attach", "detach", "travel"],
+         "tags": ["home:fal", "taxi"]},
+        {"device_code": "C1", "device_type": "mining_drone", "location": "FAL-BELT-1", "status": "idle",
+         "available_commands": ["travel", "stow", "deploy"], "tags": ["component", "to:ith", "at:ith-belt-1"]},
+        {"device_code": "RLF", "device_type": "ftl_relay", "location": "FAL-1-L4", "status": "relaying", "tags": []},
+        {"device_code": "RLI", "device_type": "ftl_relay", "location": "ITH-2-L4", "status": "relaying", "tags": []},
+    ]
+    client.portal.call(db.kv_set, "devices", devices)
+    reps = client.portal.call(db.kv_get, "replicants") or {}
+    client.portal.call(db.kv_set, "replicants", {**reps, "RX": {"name": "rx", "location": "FAL-1-L4"}})
+    cat = {"stars": [{"designation": "FAL", "position": {"x": 0, "y": 0, "z": 0}, "entry_point": "FAL-1-L4"},
+                     {"designation": "ITH", "position": {"x": 1, "y": 0, "z": 0}, "entry_point": "ITH-2-L4"}]}
+    client.portal.call(db.kv_set, "stars", cat)
+    started = client.portal.call(eng.priority_deliveries_pass)
+    assert started and "C1" in started[0], started
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "loadouts"][-1]
+    assert job["title"].endswith("(priority)") and "C1" in job["meta"]["devices"]
+    assert client.portal.call(eng.priority_deliveries_pass) == []   # throttled, and C1 is on its way

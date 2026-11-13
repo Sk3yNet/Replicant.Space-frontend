@@ -884,6 +884,48 @@ class LoadoutMixin:
             n += bool(job)
         return n
 
+    async def priority_deliveries_pass(self) -> list[str]:
+        """Device collections ahead of the logistics pass (Joe 2026-11-13): components a factory is waiting for, and
+        devices paying a trade at Sol (its shops cycle and sell out) — loadouts.priority_devices. Every couple of
+        minutes, when there are any, only the loadout deliveries and moves carrying them start, before logistics_pass
+        and the regular loadouts pass take the free carriers."""
+        from . import loadouts as lo
+        if not await self.rule_cfg("loadouts"):
+            return []
+        last = _ts(await self.db.kv_get("priority_deliveries_at", None))
+        if last and (_now() - last).total_seconds() < 110:
+            return []
+        want = lo.priority_devices(await self.devices()) - self.busy_devices(await self.jobs())   # not on a trip already
+        if not want:
+            return []
+        await self.db.kv_set("priority_deliveries_at", now_iso())
+        cfg = await self.loadout_cfg()
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
+        p = await self.loadout_plan()
+        radii, far_au = await self.cruise_radii(), await self.max_cruise_au()
+        started: list[str] = []
+        if await self.start_compactions({**p, "compact": [x for x in p.get("compact") or [] if x[0] in want]}):
+            started.append("compacting " + ", ".join(c for c, _ in p.get("compact") or [] if c in want))
+        for code, dest in p["self_moves"]:
+            if code in want and await self.create_job(
+                    "loadouts", f"loadouts: {code} → {dest} (priority)", code,
+                    lo.self_move_steps(code, dest, stars, p["by_code"][code], p.get("managed"),
+                                       gathering=code in set(p.get("gathering") or []), join=(p.get("assign") or {}).get(code)),
+                    {"devices": [code], "star": dest}):
+                started.append(f"{code} flies to {dest}")
+        for dl in p["deliveries"]:
+            if want & set(dl["devices"]) and await self.create_job(
+                    "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → "
+                                f"{' → '.join([dl['to']] + list(dl.get('stops') or []))} (priority)", dl["carrier"],
+                    lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
+                                      gathering=set(p.get("gathering") or []), assign=p.get("assign"),
+                                      radii=radii, max_cruise_au=far_au),
+                    {"devices": dl["devices"], "star": dl["to"]}):
+                started.append(f"{dl['carrier']} carries {', '.join(dl['devices'])} to {dl['to']}")
+        for line in started:
+            await self.log("loadouts", f"priority collection: {line}")
+        return started
+
     async def dispatch_new_prints(self, max_wait_minutes: int = 15) -> list[str]:
         """Prints that just came out bound for another system: refresh the device list until they show up, then start
         only the deliveries (carrier or own surge) that involve them — the rest waits for the regular pass."""

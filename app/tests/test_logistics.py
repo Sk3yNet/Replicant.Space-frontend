@@ -61,7 +61,7 @@ def test_prints_come_first_and_home_prints_keep_their_reserve():
                       print_queue=[{"device_type": "mining_drone", "quantity": 5}])])
     inv = {"A-1": {"carbon": 230}}       # A's own queue keeps 200: 30 to spare
     p = run_plan(devs, inv)
-    assert p["requests"][0]["id"] == "print:B-2" and p["requests"][0]["tier"] == 1 and p["requests"][0]["waiting"]
+    assert p["requests"][0]["id"] == "print:B-2" and p["requests"][0]["tier"] == 0 and p["requests"][0]["urgent"] == "stalled print" and p["requests"][0]["waiting"]
     assert p["reserve"]["A"] == {"carbon": 200}
     run = next(r for r in p["runs"] if r["req"] == "print:B-2")
     # 30 spare, plus 50 of A's reserve: A still has 3 prints paid (30 min) against B's 2 (20 min) — equally busy
@@ -1512,3 +1512,34 @@ def test_one_slightly_worn_device_gets_no_repair_trip():
     assert not [r for r in _repair_plan(devs)["runs"] if r["kind"] == "repair" and r.get("req")]
     devs[-1]["operational_capacity"] = 65
     assert [r for r in _repair_plan(devs)["runs"] if r["kind"] == "repair" and r.get("req") == "repair:B"]
+
+
+def test_sol_trades_and_stalled_prints_are_urgent_right_after_evacuations():
+    """Joe 2026-11-13: Sol's shops cycle and sell out, and a stalled print waits on its materials: both go first."""
+    devs = world()
+    sol = {"key": "S:T1", "location": "SOL-3", "price": {"carbon": 30}, "controller": "S", "trade_code": "T1", "name": "T1"}
+    other = {"key": "X:T2", "location": "A-2", "price": {"carbon": 30}, "controller": "X", "trade_code": "T2", "name": "T2"}
+    reqs, _, _ = lg.requests(devices=devs, bps=BPS, inventory={"Z-1": {"carbon": 50}}, pos=POS, contracts=[],
+                             trades=[other, sol], incoming={}, fleets=FLEETS, gather={"A": "A-1"}, busy_stars=set(),
+                             evacuate={"Z-1": "A-1"})
+    by = {r["id"]: r for r in reqs}
+    assert by["trade:S:T1"]["tier"] == 0 and by["trade:S:T1"]["urgent"] == "Sol trade"
+    assert by["trade:X:T2"]["tier"] in (2, 3) and "urgent" not in by["trade:X:T2"]
+    assert by["print:B-2"]["tier"] == 0 and lg.category(by["print:B-2"]) == "urgent"
+    assert [r["id"] for r in reqs[:3]] == ["evacuate:Z-1", "trade:S:T1", "print:B-2"]
+    reqs, _, _ = lg.requests(devices=devs, bps=BPS, inventory={}, pos=POS, contracts=[], trades=[sol], incoming={},
+                             fleets=FLEETS, gather={}, busy_stars=set(), prefs={"bump": {"trade:S:T1": 3}})
+    assert next(r for r in reqs if r["id"] == "trade:S:T1")["tier"] == 3   # a bump still wins
+
+
+def test_priority_devices_are_awaited_components_and_sol_trade_payments():
+    from rsweb import loadouts as lo
+    devs = [{"device_code": "F", "device_type": "autofactory", "location": "A-1",
+             "waiting_for": {"components": {"galactic_observatory": {"have": 0, "need": 3}}}},
+            {"device_code": "O1", "device_type": "galactic_observatory", "location": "B-4", "tags": ["component", "at:a-1"]},
+            {"device_code": "O2", "device_type": "galactic_observatory", "location": "A-1", "tags": ["component", "at:a-1"]},
+            {"device_code": "D1", "device_type": "mining_drone", "location": "B-4", "tags": ["component", "at:a-1"]},
+            {"device_code": "P1", "device_type": "propulsor", "location": "A-1", "tags": ["contract:trade:s:t1", "to:sol"]},
+            {"device_code": "P2", "device_type": "propulsor", "location": "SOL-3", "tags": ["contract:trade:s:t1", "at:sol-3"]},
+            {"device_code": "P3", "device_type": "propulsor", "location": "A-1", "tags": ["contract:x", "at:b-2"]}]
+    assert lo.priority_devices(devs) == {"O1", "P1"}

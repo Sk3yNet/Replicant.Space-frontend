@@ -23,7 +23,7 @@
   {% if st.requests %}
   <table class="small"><tr><th>Priority</th><th>Request</th><th>To</th><th>Still needed</th><th>Status</th><th></th></tr>
     {% for r in st.requests %}<tr{% if r.skipped %} class="muted"{% endif %}>
-      <td>{{ r.tier }} · {{ tiers[r.tier] }}{% if r.tier != r.base_tier %} <span class="pill small">bumped</span>{% endif %}{% if r.waiting %} <span class="lv-alert">waiting</span>{% endif %}{% if r.category %}<br><span class="muted">{{ categories.get(r.category, r.category) }}</span>{% endif %}</td>
+      <td>{{ r.tier }} · {{ tiers[r.tier] }}{% if r.tier != r.base_tier %} <span class="pill small">bumped</span>{% endif %}{% if r.waiting %} <span class="lv-alert">waiting</span>{% endif %}{% if r.urgent %} <span class="pill small">{{ r.urgent }}</span>{% endif %}{% if r.category %}<br><span class="muted">{{ categories.get(r.category, r.category) }}</span>{% endif %}</td>
       <td>{{ r.label }}</td><td>{{ r.to }}</td>
       <td>{% for k, q in r.need.items() %}{{ q | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% else %}<span class="muted">stocked</span>{% endfor %}</td>
       <td>{% if r.paused %}<span class="lv-warning">paused</span> <span class="muted">{{ r.paused }}{% if r.paused_until %} until {{ r.paused_until | local }}{% endif %}</span>{% elif on_way.get(r.id) %}{% if r.skipped %}skipped, but {% endif %}{{ job_state(on_way[r.id]) }}{% elif r.skipped %}skipped{% elif why.get(r.id) %}<span class="lv-alert">{{ why[r.id] }}</span>{% elif r.need %}queued{% else %}—{% endif %}</td>
