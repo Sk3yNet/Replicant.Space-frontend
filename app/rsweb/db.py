@@ -14,6 +14,7 @@ from . import perf
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
+PRAGMA journal_size_limit=67108864;
 PRAGMA synchronous=NORMAL;
 
 CREATE TABLE IF NOT EXISTS kv (
@@ -136,7 +137,8 @@ CACHED = {"stars"}
 SPLIT_KEYS = ("devices", "inventory", "stars")   # their VIRT… (simulated) part goes to sim:<key>
 ROW_KEYS = {"devices"}   # lists of devices stored one row each (device_rows) instead of one JSON value
 ROWS_MARK = "__device_rows__"
-PACK_MAX = 2_000_000   # saved values up to this many characters of JSON are also kept decoded in memory (kv_get)
+PACK_MAX = 8_000_000   # (2 MB until 1.407.0: four values read every tick had grown just past it)
+# saved values up to this many characters of JSON are also kept decoded in memory (kv_get)
 
 
 def _copy(v: Any) -> Any:
@@ -265,7 +267,13 @@ class DB:
     async def _kv_write(self, key: str, value: Any) -> None:
         if key.startswith("loc:"):
             self.touch_star(key[4:])
-        self._cache.pop(key, None)
+        if key in CACHED and isinstance(value, dict):
+            # the cache takes the written value itself (writers hand it over and don't touch it again; readers get
+            # copies): dropping it meant decoding 20 MB of star catalog again after every write, a stall of seconds
+            # on each prospect, census and scan (2026-11-13)
+            self._cache[key] = value
+        else:
+            self._cache.pop(key, None)
         self._packed.pop(key, None)
         self._ver[key] = self._ver.get(key, 0) + 1
         for k in [k for k in self._derived if k[0] == key]:
@@ -346,6 +354,8 @@ class DB:
             obj.pop(c, None)
         first = not old["order"] and not old["obj"]
         self._rows[key] = {"order": codes, "raw": raw, "obj": obj}
+        if not changed and not gone and codes == old["order"] and old.get("all") is not None:
+            self._rows[key]["all"] = old["all"]     # nothing a reader sees changed
         t0 = time.perf_counter()
         try:
             if changed:
@@ -382,7 +392,13 @@ class DB:
         if key in ROW_KEYS:
             st = self._rows.get(key) or await self._rows_load(key)
             if st is not None:
-                value = [marshal.loads(st["obj"][c]) for c in st["order"]]
+                if st.get("all") is not None:
+                    value = marshal.loads(st["all"])
+                else:
+                    value = [marshal.loads(st["obj"][c]) for c in st["order"]]
+                    st["reads"] = st.get("reads", 0) + 1
+                    if st["reads"] >= 2:     # read again with no write between: one blob loads a third faster
+                        st["all"] = marshal.dumps(value)
                 perf.note_kv(key, 0, (time.perf_counter() - t0) * 1000)
                 return value
         packed = self._packed.get(key)

@@ -106,3 +106,23 @@ def test_compaction_runs_once_and_shrinks_the_file(tmp_path):
         assert await db.kv_get("after") == 1
         await db.close()
     asyncio.run(go())
+
+
+def test_compaction_tries_again_after_a_locked_database(tmp_path):
+    async def go():
+        from datetime import datetime, timedelta, timezone
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        for i in range(400):
+            await db.kv_set(f"big{i}", "x" * 20000)
+        await db.execute("DELETE FROM kv WHERE key LIKE 'big%'")
+        old = (datetime.now(timezone.utc) - timedelta(hours=4)).isoformat()
+        await db.kv_set(history.COMPACT_KV, {"at": old, "state": "failed", "error": "database table is locked"})
+        rec = await history.compact_once(db)
+        assert rec["state"] == "done" and rec["tries"] == 2 and "error" not in rec
+        await db.kv_set(history.COMPACT_KV, {"at": old, "state": "failed", "tries": history.COMPACT_TRIES})
+        assert await history.compact_once(db) is None        # given up
+        await db.kv_set(history.COMPACT_KV, {"at": datetime.now(timezone.utc).isoformat(), "state": "failed"})
+        assert await history.compact_once(db) is None        # not within half an hour
+        await db.close()
+    asyncio.run(go())

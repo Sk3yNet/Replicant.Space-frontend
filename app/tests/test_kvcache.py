@@ -104,3 +104,50 @@ def test_device_list_is_stored_by_row_and_reads_back_the_same(tmp_path):
         assert await db2.kv_get("devices") == [] and not await db2.fetchall("SELECT code FROM device_rows")
         await db2.close()
     asyncio.run(go())
+
+
+def test_star_catalog_stays_in_memory_across_writes(tmp_path, monkeypatch):
+    async def go():
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        await db.kv_set("stars", {"stars": [{"designation": "SOL"}]})
+        seen = []
+        real = db.fetchone
+
+        async def spy(sql, params=()):
+            seen.append(sql)
+            return await real(sql, params)
+        monkeypatch.setattr(db, "fetchone", spy)
+        got = await db.kv_get("stars")
+        assert got == {"stars": [{"designation": "SOL"}]} and not seen     # no read, no decode
+        got["stars"][0]["explored"] = True                                  # a reader's copy is its own
+        assert "explored" not in (await db.kv_get("stars"))["stars"][0]
+        await db.kv_set("stars", got)
+        assert (await db.kv_get("stars"))["stars"][0]["explored"] and not seen
+        await db.close()
+        db2 = DB(str(tmp_path / "t.sqlite"))
+        await db2.open()
+        assert (await db2.kv_get("stars"))["stars"][0]["explored"]          # and it was saved
+        await db2.close()
+    asyncio.run(go())
+
+
+def test_device_list_reads_match_after_repeated_reads_and_writes(tmp_path):
+    async def go():
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        devs = [{"device_code": f"D{i}", "status": "idle"} for i in range(5)]
+        await db.kv_set("devices", devs)
+        for _ in range(3):                                  # the third read comes from the single blob
+            got = await db.kv_get("devices")
+            assert got == devs
+        got[0]["status"] = "changed by a reader"
+        assert (await db.kv_get("devices"))[0]["status"] == "idle"
+        await db.kv_set("devices", devs)                    # unchanged write
+        assert await db.kv_get("devices") == devs
+        devs[2]["status"] = "mining"
+        await db.kv_set("devices", devs[:4])
+        for _ in range(3):
+            assert await db.kv_get("devices") == devs[:4]
+        await db.close()
+    asyncio.run(go())
