@@ -51,3 +51,15 @@ def test_time_skip_report_lists_what_moved(client):
     assert "ELSEWHERE-OORT" in page and code in page and gone in page
     rep = season.compare(None, devs, {}, {})
     assert rep["empty"]
+
+
+def test_story_card_takes_location_entries_without_system(client):
+    """Live 2026-11-13: Station Politics lists {location, name} entries (no system); the card errored and stayed loading."""
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "overview", {"season": {"number": 4, "title": "S"}, "opportunities": [
+        {"title": "Station Politics", "locations": [{"location": "BALEL-OBJ-2", "name": "Tianjin Station"}, {"name": "Nowhere"}]},
+        {"title": "Training", "locations": [{"name": "Deep Space Tracking Array", "system": "MIRFAKA"}], "location": {"x": 1}}]})
+    r = client.get("/partials/story", headers=H)
+    assert r.status_code == 200
+    assert 'href="/systems/BALEL"' in r.text and "Tianjin Station (BALEL-OBJ-2)" in r.text and "Nowhere" in r.text
+    assert 'href="/systems/MIRFAKA"' in r.text

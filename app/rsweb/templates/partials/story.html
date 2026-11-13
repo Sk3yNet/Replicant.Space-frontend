@@ -6,10 +6,10 @@
 {% if se.tagline %}<p class="small muted" style="margin-top:0">{{ se.tagline }}</p>{% endif %}
 {% if season_end %}<p class="small" style="margin-top:0" title="The game names no season end: this is the latest end date of its storylines and events">Season likely ends <b>{{ season_end[0] }}</b>{% if season_end[1] > 0 %} (in {{ season_end[1] }} day{{ 's' if season_end[1] != 1 }}){% elif season_end[1] == 0 %} (today){% else %} (date passed){% endif %}.</p>{% endif %}
 {% macro item(x) %}{% if x is mapping %}<b>{{ x.title or x.name or '' }}</b>{% if x.status %} <span class="pill small {{ 'st-move' if x.status == 'active' else '' }}">{{ x.status }}</span>{% endif %}
-  {% if x.location %} · <a href="/systems/{{ x.location.split('-')[0] }}">{{ x.location }}</a>{% endif %}
+  {% if x.location is string and x.location %} · <a href="/systems/{{ x.location.split('-')[0] }}">{{ x.location }}</a>{% endif %}
   {% if x.schedule is mapping and x.schedule.total_stops %} · stop {{ x.schedule.current_stop }}/{{ x.schedule.total_stops }}{% endif %}
   {% if x.visible_until %} · <span class="muted">until {{ x.visible_until }}</span>{% endif %}
-  {% if x.locations %}<div class="muted">{% for l in x.locations %}{% set sy = l.system if l is mapping else l %}<a href="/systems/{{ sy.split('-')[0] }}">{{ l.name ~ ' (' ~ sy ~ ')' if l is mapping and l.name else sy }}</a>{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+  {% if x.locations %}<div class="muted">{% for l in x.locations %}{% set sy = ((l.system or l.location or '') if l is mapping else l) | string %}{% if sy %}<a href="/systems/{{ sy.split('-')[0] }}">{{ l.name ~ ' (' ~ sy ~ ')' if l is mapping and l.name else sy }}</a>{% elif l is mapping and l.name %}{{ l.name }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
   {% if x.summary %}<div>{{ x.summary }}</div>{% endif %}{% if x.action %}<div class="muted">→ {{ x.action }}</div>{% endif %}
   {% if x.reward %}<div class="muted">Reward: {{ x.reward }}</div>{% endif %}
 {% else %}{{ x }}{% endif %}{% endmacro %}
