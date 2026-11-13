@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.404.0"
+VERSION = "1.405.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.405.0", "2026-11-12", "Device list stored one row per device (Joe: build it). Nearly every game event changes one device, and the megabyte list was encoded, hashed, rewritten and decoded again whole each time (about a quarter of the server's remaining busy time); now only changed devices are written and reads come from memory. Nothing else changes: the list moves over at the first start. The database is compacted once after the clean-up, giving the freed space back to the disk (it holds the database for about a minute; Diagnostics › Performance shows the result). CLAUDE.md describes the new code layout."),
     ("1.404.0", "2026-11-13", "The fleet tender at SOLARES no longer waits for good (Joe: now the fleet tender is stuck). Its maintenance drone and service bot were printed and kept as components, but the maintenance rule put them on patrol and they went repairing around SOLARES-4-L4, so the factory never had them. Components are now left out of patrol, wake-ups and the other in-system rules, and the component pass takes any component off an AMI directive so the loadout pass brings it to its factory."),
     ("1.403.0", "2026-11-13", "Logistics: Sol trades and stalled prints are urgent (Joe: Sol's shops cycle and run out of stock; collections for prints missing devices or materials should be high). Priority 0 now holds evacuations, then trades at SOL, then prints a factory is waiting on; every free carrier works them before the task categories. Components a factory is waiting for and devices paying a Sol trade are collected every couple of minutes ahead of the logistics pass (loadout deliveries marked (priority)). The Logistics page marks them Sol trade / stalled print; a bump still overrides."),
     ("1.402.1", "2026-11-13", "Dashboard Story card loads again (Joe: stuck loading). The game's Station Politics opportunity now lists its stations as a name and a location (BALEL-OBJ-2) instead of a system, and the card errored on it; both shapes now link to the system."),

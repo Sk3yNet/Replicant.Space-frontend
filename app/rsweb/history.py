@@ -113,6 +113,35 @@ async def thin_history(db, now: datetime | None = None) -> None:
     await db.execute("DELETE FROM metric_history WHERE ts < ? AND substr(ts, 11) != ?", (cut, noon))
 
 
+COMPACT_KV = "history_compacted"
+
+
+async def compact_once(db) -> dict | None:
+    """Give the space the clean-up freed back to the disk, once (owner 2026-11-13): SQLite reuses freed pages but never
+    shrinks the file by itself. VACUUM rewrites the database, holding it for about a minute at this size; it is tried
+    a single time (the attempt is recorded first, so a restart in the middle doesn't start it again)."""
+    import os
+    if await db.kv_get(COMPACT_KV, None):
+        return None
+    free = (await db.fetchone("PRAGMA freelist_count") or {}).get("freelist_count") or 0
+    pages = (await db.fetchone("PRAGMA page_count") or {}).get("page_count") or 1
+    before = round(os.path.getsize(db.path) / 1048576, 1) if os.path.exists(db.path) else None
+    rec = {"at": _iso(datetime.now(timezone.utc)), "before_mb": before, "free_pct": round(100 * free / pages)}
+    await db.kv_set(COMPACT_KV, {**rec, "state": "started"})
+    if free / pages < 0.2:
+        rec["state"] = "not needed"
+    else:
+        try:
+            await db.conn.commit()
+            await db.conn.execute("VACUUM")
+            await db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            rec.update(state="done", after_mb=round(os.path.getsize(db.path) / 1048576, 1))
+        except Exception as e:   # no room on the disk, or the database busy: left as it is
+            rec.update(state="failed", error=str(e)[:200])
+    await db.kv_set(COMPACT_KV, rec)
+    return rec
+
+
 async def daily(db, now: datetime | None = None) -> int | None:
     """Run the clean-up when a day has passed since the last finished one (or one is unfinished). Returns the events
     deleted, None when it wasn't due."""
@@ -123,6 +152,7 @@ async def daily(db, now: datetime | None = None) -> int | None:
     except (TypeError, ValueError):
         last = None
     if last and not st.get("more") and st.get("rules") == RULES and (now - last).total_seconds() < 86400:
+        await compact_once(db)   # after a finished clean-up
         return None
     if not st.get("more"):
         await thin_history(db, now)

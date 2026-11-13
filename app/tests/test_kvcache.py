@@ -71,3 +71,36 @@ def test_a_long_retry_after_holds_only_that_endpoint():
         assert c.act_bucket.wait_time() <= 0 and c.rate_status()["endpoints_held"][0]["path"] == "/trades"
         await c.close()
     asyncio.run(go())
+
+
+def test_device_list_is_stored_by_row_and_reads_back_the_same(tmp_path):
+    async def go():
+        path = str(tmp_path / "t.sqlite")
+        db = DB(path)
+        await db.open()
+        await db.execute("INSERT INTO kv(key, value, updated_at) VALUES('devices', ?, 'old')",
+                         ('[{"device_code": "A1", "status": "idle"}, {"device_code": "B2", "status": "idle"}]',))
+        assert [d["device_code"] for d in await db.kv_get("devices")] == ["A1", "B2"]   # the old single value still reads
+        devs = await db.kv_get("devices")
+        devs[1]["status"] = "mining"
+        devs.append({"device_code": "C3", "tags": ("x",)})
+        await db.kv_set("devices", devs)
+        devs[0]["status"] = "changed after saving"                      # the caller's list is its own
+        got = await db.kv_get("devices")
+        assert got == [{"device_code": "A1", "status": "idle"}, {"device_code": "B2", "status": "mining"},
+                       {"device_code": "C3", "tags": ["x"]}]
+        got[0]["status"] = "x"
+        assert (await db.kv_get("devices"))[0]["status"] == "idle"
+        rows = await db.fetchall("SELECT code FROM device_rows ORDER BY code")
+        assert [r["code"] for r in rows] == ["A1", "B2", "C3"]
+        await db.kv_set("devices", [got[2], got[1]])                    # one gone, order changed
+        assert await db.kv_updated("devices") != "old"
+        await db.close()
+        db2 = DB(path)                                                  # a restart reads the rows back, in order
+        await db2.open()
+        assert [d["device_code"] for d in await db2.kv_get("devices")] == ["C3", "B2"]
+        assert await db2.kv_derived("devices", "n", len) == 2
+        await db2.kv_set("devices", [])                                 # not a list of devices: one value again
+        assert await db2.kv_get("devices") == [] and not await db2.fetchall("SELECT code FROM device_rows")
+        await db2.close()
+    asyncio.run(go())

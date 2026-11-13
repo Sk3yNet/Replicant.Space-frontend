@@ -87,3 +87,22 @@ def test_records_a_season_reset_wiped_go_at_once(tmp_path):
         assert {r["id"] for r in await db.fetchall("SELECT id FROM events")} == {"e4", "e5", "e6"}
         await db.close()
     asyncio.run(go())
+
+
+def test_compaction_runs_once_and_shrinks_the_file(tmp_path):
+    async def go():
+        import os
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        for i in range(400):
+            await db.kv_set(f"big{i}", "x" * 20000)
+        await db.execute("DELETE FROM kv WHERE key LIKE 'big%'")
+        await db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        before = os.path.getsize(db.path)
+        rec = await history.compact_once(db)
+        assert rec["state"] == "done" and os.path.getsize(db.path) < before / 4
+        assert await history.compact_once(db) is None
+        await db.kv_set("after", 1)
+        assert await db.kv_get("after") == 1
+        await db.close()
+    asyncio.run(go())

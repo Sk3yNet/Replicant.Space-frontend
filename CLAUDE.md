@@ -33,9 +33,24 @@ Portainer, which follows `main`: **a push to `main` is a deploy.**
    Claude-Session: https://claude.ai/code/session_01QkRgNdiSgaWDkDuW8ndNLw
    ```
 
+## Code layout (since 1.391.0)
+
+- Engine: `automations.py` (events, tick stages, helpers) plus mixins `engine_jobs.py`, `engine_loadouts.py`,
+  `engine_fleets.py`, `engine_rules.py`; shared names in `engine_base.py`. Older mixins: `ops_rules.py`, `stock.py` …
+- Pages: `web_core.py` (router, templates, shared helpers) and route modules `web_devices.py`, `web_systems.py`,
+  `web_map.py`, `web_planning.py`, `web_activity.py`, `web_diag.py`, `web_deals.py`, `web_fleets.py` …; `web.py` holds
+  the dashboard routes and imports the rest in route order. A new route goes in its area's module.
+- These modules share names with `from .engine_base import *` / `from .web_core import *`, which copies constants: a
+  test patches a name in the module that uses it (`web_activity.BOBNET_PAGE`), not in `web`.
+- Storage (`db.py`): saved values are cached decoded, so `kv_get` gives each caller its own copy; an unchanged
+  `kv_set` only moves the timestamp; the device list is stored one row per device (`device_rows`) behind the same
+  `kv_get("devices")` / `kv_set("devices")`. Star lookups from `eng.star_lookup(...)` are shared: never change them.
+- History (`history.py`) deletes old events daily. A new reader of old events must add its kind to `history.KEEP_*`.
+- Tests: helpers and fixtures in `tests/corelib.py`; core tests by area in `tests/test_core_<area>.py`.
+
 ## Testing
 
-- `cd app && python -m pytest -q` (the full suite takes about a minute). Tests use the mock game server in `rsweb/mock.py`.
+- `cd app && python -m pytest -q` (the full suite takes about two minutes). Tests use the mock game server in `rsweb/mock.py`.
 - Run just the tests you touched while working (`-k name`), and the full suite before saying something is done.
 - To look at a page: start `uvicorn rsweb.mock:app --port 9000` and the app with
   `DB_PATH=<scratch>/dev.sqlite RS_API_BASE=http://127.0.0.1:9000/v1 RS_API_TOKEN=dev DEV_USER=you@example.com uvicorn rsweb.main:app --port 8000`.

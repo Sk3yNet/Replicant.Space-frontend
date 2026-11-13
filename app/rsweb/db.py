@@ -96,6 +96,15 @@ CREATE TABLE IF NOT EXISTS metric_history (
 );
 
 -- Cached system scans / location details.
+-- The device list, one row per device (kv_set("devices") writes only the devices that changed; the kv row "devices"
+-- holds their order). See DB._rows_write.
+CREATE TABLE IF NOT EXISTS device_rows (
+    key TEXT NOT NULL,
+    code TEXT NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (key, code)
+);
+
 CREATE TABLE IF NOT EXISTS systems (
     star TEXT PRIMARY KEY,
     data TEXT NOT NULL,
@@ -125,6 +134,8 @@ def now_iso() -> str:
 # caller annotating star dicts (the map does) doesn't change the cached catalog.
 CACHED = {"stars"}
 SPLIT_KEYS = ("devices", "inventory", "stars")   # their VIRT… (simulated) part goes to sim:<key>
+ROW_KEYS = {"devices"}   # lists of devices stored one row each (device_rows) instead of one JSON value
+ROWS_MARK = "__device_rows__"
 PACK_MAX = 2_000_000   # saved values up to this many characters of JSON are also kept decoded in memory (kv_get)
 
 
@@ -145,6 +156,7 @@ class DB:
         self._packed: dict[str, bytes] = {}   # key -> the decoded value, marshaled (see kv_get)
         self._ver: dict[str, int] = {}        # key -> writes seen, so a read racing a write isn't kept
         self._digest: dict[str, bytes] = {}   # key -> digest of the JSON last written (see _kv_write)
+        self._rows: dict[str, dict] = {}      # ROW_KEYS key -> {"order": [codes], "raw": {code: bytes}, "obj": {code: bytes}}
         self.gen: dict[str, int] = {"systems": 0, "scans": 0, "all": 0}   # bumped on writes; memo keys for readers of those rows
         self.star_gen: dict[str, int] = {}    # star -> bumped when an event, a location detail or a scan of it is stored
         self._sim_split: set[str] = set()
@@ -258,6 +270,9 @@ class DB:
         self._ver[key] = self._ver.get(key, 0) + 1
         for k in [k for k in self._derived if k[0] == key]:
             del self._derived[k]
+        if key in ROW_KEYS and await self._rows_write(key, value):
+            self._ver[key] = self._ver.get(key, 0) + 1
+            return
         text = json.dumps(value)
         digest = hashlib.blake2b(text.encode(), digest_size=16).digest()
         try:
@@ -277,12 +292,99 @@ class DB:
         finally:
             self._ver[key] = self._ver.get(key, 0) + 1
 
+    # --- device rows ---------------------------------------------------------------------------------------------
+    # The device list is a megabyte of JSON and something about one device changes with nearly every game event.
+    # Stored as one value it was encoded, hashed and rewritten whole each time, and decoded whole on the next read
+    # (about a quarter of the server's busy time, 2026-11-13). Stored one row per device, a write compares each
+    # device with what was last written and stores only the changed ones; a read hands out copies from memory.
+    # kv_get / kv_set("devices") behave as before for every caller.
+    async def _rows_load(self, key: str) -> dict | None:
+        """The rows of `key` from the database, or None when it is (still) stored as one value."""
+        ver = self._ver.get(key, 0)
+        row = await self.fetchone("SELECT value FROM kv WHERE key=?", (key,))
+        try:
+            mark = json.loads(row["value"]) if row else None
+        except ValueError:
+            mark = None
+        if not (isinstance(mark, dict) and mark.get(ROWS_MARK)):
+            return None
+        data = {r["code"]: r["data"] for r in await self.fetchall("SELECT code, data FROM device_rows WHERE key=?", (key,))}
+        order = [c for c in mark.get("order") or [] if c in data]
+        st = {"order": order, "raw": {}, "obj": {c: marshal.dumps(json.loads(data[c])) for c in order}}
+        if key in self._rows:        # written while this was read
+            return self._rows[key]
+        if self._ver.get(key, 0) == ver:
+            self._rows[key] = st
+        return st
+
+    async def _rows_write(self, key: str, value: Any) -> bool:
+        """Store a list of devices by row. False: not such a list (stored as one value, as any other key)."""
+        codes = [d.get("device_code") if isinstance(d, dict) else None for d in value] if isinstance(value, list) else None
+        if not codes or not all(isinstance(c, str) and c for c in codes) or len(set(codes)) != len(codes):
+            if self._rows.pop(key, None) is not None or await self._rows_load(key) is not None:
+                self._rows.pop(key, None)
+                await self.conn.execute("DELETE FROM device_rows WHERE key=?", (key,))
+                await self.conn.commit()
+            return False
+        old = self._rows.get(key) or await self._rows_load(key) or {"order": [], "raw": {}, "obj": {}}
+        raw, obj, changed = dict(old["raw"]), dict(old["obj"]), []
+        try:
+            for c, d in zip(codes, value):
+                b = marshal.dumps(d, 2)      # version 2: the same content gives the same bytes
+                if raw.get(c) != b or c not in obj:
+                    text = json.dumps(d)
+                    o = marshal.dumps(json.loads(text))   # what a reader gets: as JSON gives it back
+                    if obj.get(c) != o:
+                        changed.append((key, c, text))
+                    raw[c], obj[c] = b, o
+        except ValueError:
+            return False
+        have = set(codes)
+        gone = [c for c in obj if c not in have]
+        for c in gone:
+            raw.pop(c, None)
+            obj.pop(c, None)
+        first = not old["order"] and not old["obj"]
+        self._rows[key] = {"order": codes, "raw": raw, "obj": obj}
+        t0 = time.perf_counter()
+        try:
+            if changed:
+                await self.conn.executemany(
+                    "INSERT INTO device_rows(key, code, data) VALUES(?,?,?) "
+                    "ON CONFLICT(key, code) DO UPDATE SET data=excluded.data", changed)
+            if gone:
+                await self.conn.executemany("DELETE FROM device_rows WHERE key=? AND code=?", [(key, c) for c in gone])
+            if changed or gone or first or codes != old["order"]:
+                await self.conn.execute(
+                    "INSERT INTO kv(key, value, updated_at) VALUES(?,?,?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                    (key, json.dumps({ROWS_MARK: True, "order": codes}), now_iso()))
+            else:
+                await self.conn.execute("UPDATE kv SET updated_at=? WHERE key=?", (now_iso(), key))
+            await self.conn.commit()
+        except Exception:
+            self._rows.pop(key, None)    # memory no longer matches the database: read it again next time
+            try:
+                await self.conn.rollback()
+            except Exception:
+                pass
+            raise
+        self._digest.pop(key, None)
+        perf.note_query((time.perf_counter() - t0) * 1000)
+        return True
+
     async def kv_get(self, key: str, default: Any = None) -> Any:
         t0 = time.perf_counter()
         if key in self._cache:
             value = _copy(self._cache[key])
             perf.note_kv(key, 0, (time.perf_counter() - t0) * 1000)
             return value
+        if key in ROW_KEYS:
+            st = self._rows.get(key) or await self._rows_load(key)
+            if st is not None:
+                value = [marshal.loads(st["obj"][c]) for c in st["order"]]
+                perf.note_kv(key, 0, (time.perf_counter() - t0) * 1000)
+                return value
         packed = self._packed.get(key)
         if packed is not None:
             # every caller gets its own copy to change, as a fresh decode gave it, at about half the cost and without
@@ -313,6 +415,12 @@ class DB:
         """fn(value of `key`), worked out once and shared until the key is next written. Callers must not change the
         result. For the hot readers of the star catalog (tens of thousands of stars, read every pass): copying it on each
         read and rebuilding the same lookups was most of an engine pass (2026-10-21)."""
+        if key in ROW_KEYS and (key, name) not in self._derived:
+            ver = self._ver.get(key, 0)
+            out = fn(await self.kv_get(key, default))
+            if self._ver.get(key, 0) != ver:
+                return out
+            self._derived[(key, name)] = out
         if (key, name) not in self._derived:
             ver = self._ver.get(key, 0)
             row = await self.fetchone("SELECT value FROM kv WHERE key=?", (key,)) if key not in self._cache else None

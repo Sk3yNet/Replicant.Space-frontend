@@ -284,6 +284,7 @@ async def storage(db) -> dict:
     return {"tables": tables, "files_mb": files, "oldest_event": (oldest or {}).get("t"),
             "events_by_kind": {r["event"]: r["n"] for r in kinds},   # what the history clean-up keeps or could drop
             "history_pruned": await db.kv_get("history_pruned", None),
+            "history_compacted": await db.kv_get("history_compacted", None),
             "kv_largest": [{"key": r["key"], "kb": round(r["bytes"] / 1024, 1), "updated_at": r["updated_at"]} for r in big]}
 
 
