@@ -1619,6 +1619,8 @@ def printers(state: dict) -> list[dict]:
                         "name": f"{f_human(d.get('device_type'))} {d['device_code']}", "location": d.get("location"),
                         "autofactory": "autofactory" in (d.get("device_type") or ""),
                         "group": f"{d.get('location')}|{d.get('device_type')}",
+                        # an epitaxy printer: exotic blueprints only (its own card on the Blueprints page)
+                        "pclass": lo.print_class(d) if "enqueue_print" in (d.get("available_commands") or []) else None,
                         "vessel": (d.get("device_type") or "").endswith("vessel")})
     out.sort(key=lambda p: (not p["autofactory"], p["name"]))
     for code, r in state["replicants"].items():

@@ -16,7 +16,7 @@
 <div class="card" style="margin-bottom:14px">
   <h2>Plan</h2>
   <label>Printer</label>
-  <select name="printer">{% for p in printers %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
+  <select name="printer">{% for p in printers if not p.pclass %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
   <div class="muted small">Draws on the stock at the printer's location. Autofactories are listed first: they hold queued prints until the materials arrive.</div>
   <div id="plan"><p class="muted">Enter quantities to see total cost and shortfall.</p></div>
   <div id="plan-result"></div>
@@ -37,7 +37,7 @@
         <td class="small" style="white-space:nowrap">{% for r, v in (b.resources or {}) | dictsort %}{{ v }} {{ r }}<br>{% endfor %}
           {% for t, n in (b._components or {}) | dictsort %}<span title="component device: used up by the print">{{ n }}× {{ t | human }}</span><br>{% endfor %}
           {% if b._components %}<span class="muted" title="materials with the components' own prints">all in: {% for r, v in b._total | dictsort %}{{ v | round(0) | int }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}</td>
-        <td class="small afford-col"><div class="afford">{% for p in printers %}{% set n = b._afford.get(p.code, 0) %}
+        <td class="small afford-col"><div class="afford">{% for p in printers if p.code in b._afford %}{% set n = b._afford.get(p.code, 0) %}
           <span class="{{ 'lv-done' if n else 'muted' }}{{ ' afford-vessel' if p.vessel }}" title="{{ p.name }} @ {{ p.location }}: enough stock there for {{ n }}">{{ p.name }} <b>×{{ n }}</b></span>{% endfor %}</div></td>
         <td class="num"><input type="number" min="0" name="qty:{{ b.device_type }}" value="0" style="width:64px"></td>
       </tr>
@@ -53,10 +53,27 @@
     {% else %}<div class="pq-box"><div hx-get="/devices/{{ p.code }}/print-queue?compact=1" hx-trigger="load" hx-swap="outerHTML"><span class="muted small">Loading {{ p.name }}…</span></div></div>{% endif %}
   {% endfor %}</div>
 </div>{% endif %}
+{% set epi = printers | selectattr('pclass') | list %}
+{% if epi %}<div class="card" style="margin-top:14px" id="epitaxy-printers">
+  <h2>Epitaxy printers <span class="muted small">exotic blueprints only · {{ epi | length }} printer{{ 's' if epi | length != 1 }}</span></h2>
+  <div class="muted small">The game lets these print only epitaxy-class devices: the planner and the app's print queue give them
+    exotic blueprints alone{% if exotic %} ({{ exotic | map(attribute='device_type') | map('human') | join(', ') }}){% else %} (no exotic blueprint known yet){% endif %},
+    and leave them out of the plans above.</div>
+  <div class="grid g2">{% for p in epi %}
+    <div class="pq-box"><div hx-get="/devices/{{ p.code }}/print-queue?compact=1" hx-trigger="load" hx-swap="outerHTML"><span class="muted small">Loading {{ p.name }}…</span></div></div>
+  {% endfor %}</div>
+  {% if exotic %}<form class="inline" hx-post="/blueprints/print" hx-target="#epi-result" style="margin-top:8px">
+    <select name="printer">{% for p in epi %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
+    <select name="device_type">{% for b in exotic %}<option value="{{ b.device_type }}">{{ b.device_type | human }}</option>{% endfor %}</select>
+    <input type="number" name="quantity" value="1" min="1" style="width:64px" title="quantity">
+    <button>Add to queue</button>
+  </form>
+  <div id="epi-result"></div>{% endif %}
+</div>{% endif %}
 <div class="card" style="margin-top:14px">
   <h2>Queue a print</h2>
   <form class="inline" hx-post="/blueprints/print" hx-target="#print-result">
-    <select name="printer">{% for p in printers %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
+    <select name="printer">{% for p in printers if not p.pclass %}<option value="{{ p.kind }}:{{ p.code }}">{{ p.name }} @ {{ p.location }}</option>{% endfor %}</select>
     <select name="device_type" class="bp-type">{% for b in blueprints %}<option value="{{ b.device_type }}" {{ 'data-large=1' if is_large(b) }}>{{ b.device_type | human }}</option>{% endfor %}</select>
     <input type="number" name="quantity" value="1" min="1" style="width:64px" title="quantity (autofactories only)">
     <label class="small flat-opt" style="text-transform:none" title="large (modular) devices: printed compacted, ready to be carried without hours of folding up">

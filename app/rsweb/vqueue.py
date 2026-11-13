@@ -117,8 +117,15 @@ class VirtualQueue:
         code, cmd = m.group(1).upper(), body.get("command")
         if cmd == "enqueue_print":
             dev = await self._device(code)
-            from .loadouts import is_factory
-            if dev is not None and not is_factory(dev):
+            from . import loadouts as lom
+            if dev is not None and lom.print_class(dev):
+                bp = next((b for b in await self.db.kv_get("blueprints", []) or []
+                           if isinstance(b, dict) and b.get("device_type") == body.get("device_type")), None)
+                if bp is not None and not lom.can_make(dev, bp):   # unknown blueprints go to the game to answer
+                    from .api import ApiError
+                    raise ApiError(400, f"This printer can only fabricate {lom.print_class(dev)}-class devices: "
+                                        f"{body.get('device_type')} isn't an exotic blueprint.")
+            elif dev is not None and not lom.is_factory(dev):
                 return None   # a vessel prints through its replicant: no queue
             async with self.lock:
                 o = await self.add(code, body, priority(body, HAND.get()))

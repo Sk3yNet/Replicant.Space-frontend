@@ -338,6 +338,32 @@ def for_contract(d: dict) -> bool:
 CLASS_FEATURES = {"epitaxy"}
 CLASS_PRINTERS: set[str] = set()   # device types the game refused a print on that way (kv class_printers)
 CLASS_RE = re.compile(r"can only fabricate", re.I)
+# the blueprint feature a class-limited printer makes (Joe 2026-11-12: epitaxy printers print exotic blueprints only)
+CLASS_BLUEPRINT = {"epitaxy": "exotic"}
+# set once a general printer refused an exotic print (kv exotic_class_only): exotic prints then go to class printers only
+EXOTIC_CLASS_ONLY: list[bool] = [False]
+
+
+def print_class(d: dict) -> str | None:
+    """The one class of device this printer makes ("epitaxy"), or None for a general printer."""
+    f = CLASS_FEATURES & set(d.get("features") or [])
+    if f:
+        return sorted(f)[0]
+    return "epitaxy" if (d.get("device_type") or "") in CLASS_PRINTERS else None
+
+
+def is_class_bp(bp: dict | None) -> bool:
+    """A blueprint only a class-limited printer may be asked for (exotic, the epitaxy class)."""
+    return bool(set(CLASS_BLUEPRINT.values()) & set((bp or {}).get("features") or []))
+
+
+def can_make(d: dict, bp: dict | None) -> bool:
+    """Whether printer `d` takes a print of blueprint `bp`: a class-limited printer only its class's blueprints (an
+    unknown blueprint counts as no), a general one everything, exotic too until the game refuses one."""
+    cls = print_class(d)
+    if cls:
+        return CLASS_BLUEPRINT.get(cls, cls) in set((bp or {}).get("features") or [])
+    return not (EXOTIC_CLASS_ONLY[0] and is_class_bp(bp))
 
 
 def is_factory(d: dict) -> bool:
@@ -737,7 +763,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     reserved: dict[str, Counter] = defaultdict(Counter)  # location -> resources set aside in this plan
     prints: list[dict] = []
     cancel_orders: list[dict] = []   # loadout orders a spare at home replaces: their prints come off the queue
-    factories = [d for d in pool if is_factory(d) and d["device_code"] not in busy]
+    # class-limited printers (epitaxy) work their own class's prints only: `fits` keeps every other print off them
+    factories = [d for d in pool if (is_factory(d) or (is_printer(d) and print_class(d))) and d["device_code"] not in busy]
+
+    def fits(f: dict, t: str | None) -> bool:
+        return t is None or can_make(f, bps.get(t))
 
     qcap_default = {b["device_type"]: int(b.get("queue_size") or 0) for b in blueprints}
     queue_free: dict[str, int] = {}
@@ -772,10 +802,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         FALQUORYX and SOLARES, ~500 ly apart); one further away (Delta's, at ISOLITHOR) isn't lent."""
         return bool(star) and fleet_tag_of(f) in hub_tags and _dist(star_of(f.get("location")), star, pos) <= SECTOR_RANGE_LY
 
-    def usable(tag: str | None, star: str | None = None) -> list[dict]:
+    def usable(tag: str | None, star: str | None = None, t: str | None = None) -> list[dict]:
         """Factories with queue room a fleet may print on: fleetless ones, its own and the printing hubs' in range of
-        `star`; another fleet's only when there's nothing else (e.g. every autofactory belongs to the printing hub)."""
-        open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0 and fam(f) == fleet_fam(tag)]
+        `star`; another fleet's only when there's nothing else (e.g. every autofactory belongs to the printing hub).
+        With `t`, only those that make that type (an epitaxy printer exotic blueprints alone)."""
+        open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0 and fam(f) == fleet_fam(tag) and fits(f, t)]
         sup = supplier(tag)
         mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) in {tag, sup} - {None} or shared(f, star)]
         return mine or open_f
@@ -792,15 +823,19 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if not factories:
             return None, "no autofactory"
         best = None
-        open_f = usable(tag, star)
+        open_f = usable(tag, star, t)
         if not open_f:
+            if not any(fits(f, t) for f in factories):
+                return None, f"no printer makes {t}" + (" (exotic: an epitaxy printer)" if is_class_bp(bp) else "")
             return None, "every autofactory's print queue is full"
         sup = supplier(tag)
         open_f = [f for f in open_f if near(f, star) or (sup and fleet_tag_of(f) == sup)]
         if not open_f:
             return None, f"no autofactory within {reach:g} ly of {star} (Fleets › settings: supply range)"
         # supplied from a hub: its factories first, wherever they are; else the nearest
-        for f in sorted(open_f, key=lambda f: (bool(sup) and fleet_tag_of(f) != sup, star_of(f.get("location")) != star,
+        # an exotic print goes to an epitaxy printer first (a general one only when none is open)
+        for f in sorted(open_f, key=lambda f: (is_class_bp(bp) and not print_class(f),
+                                               bool(sup) and fleet_tag_of(f) != sup, star_of(f.get("location")) != star,
                                                _dist(star_of(f.get("location")), star, pos))):
             stock = as_amounts(inventory.get(f.get("location")) or {})
             free = {r: stock.get(r, 0.0) - reserved[f.get("location")][r] for r in cost}
@@ -889,7 +924,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     f"spare(s) {', '.join(d['device_code'] for d in wait)} here, busy right now — taken once free"
                 unmet.append({"star": star, "type": row["type"], "n": len(wait), "why": why})
                 need -= len(wait)
-            own = [g for g in factories if fleet_tag_of(g) == tag and queue_free.get(g["device_code"], 1) > 0 and near(g, star)]
+            own = [g for g in factories if fleet_tag_of(g) == tag and queue_free.get(g["device_code"], 1) > 0 and near(g, star)
+                   and fits(g, row["type"])]
             if need > 0 and s["print_missing"] and own and row["type"] in bps:
                 # its own stockpile can't cover one: another hub's autofactory that can prints it instead (owner 2026-10-26)
                 cost = as_amounts((bps.get(row["type"]) or {}).get("resources"))
@@ -929,7 +965,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     # those at the same stockpile, since the stock check above was for that one)
                     peers = [g for g in factories if star_of(g.get("location")) == star_of(f.get("location"))
                              and (not s["need_stock"] or g.get("location") == f.get("location"))
-                             and g in usable(tag, star)]
+                             and g in usable(tag, star, row["type"])]
                     # Seen live (2026-10-07): Miner 1 and Miner 2 have no autofactory, all three are Printing Hub 1's; both
                     # their prints went on one of them while another sat idle — the split only had the first one to use.
                     parts = pq.split(peers, row["type"], n, bps, load, queue_free)

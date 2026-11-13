@@ -88,6 +88,12 @@ System → device type → device, with stowed devices nested in their carrier; 
 - **Print queue** (autofactories): add (with an optional *deliver to*), remove, clear, and move a waiting print to the
   front, up or down. The game can't reorder a queue, so the waiting prints from that place down are taken off and
   queued again in the new order, tags and destinations kept. The print running now can't be moved.
+- **Epitaxy printers** (printers with the `epitaxy` feature, such as the crystal synthesis lab): the game lets them
+  print only epitaxy-class devices, that is blueprints with the `exotic` feature. Fleet loadouts send exotic prints
+  there first and nothing else; the app's queue drops other prints kept for them and refuses a hand print of a
+  non-exotic blueprint before it reaches the game; logistics supplies their queued prints. Blueprints › *Epitaxy
+  printers* is their own card (queues and an exotic-only *Add to queue*); the Plan and Queue a print forms leave them
+  out. If a general printer ever refuses an exotic print, exotic prints go to epitaxy printers only from then on.
 - **Virtual print queue**: every print the app queues waits in the app's own queue, and each factory gets only its 2
   best waiting prints in the game's queue: prints you queue by hand (or untagged ones found in the game's queue) first,
   then components (a rig's drones always before the rig), relays, relay stations, beacons and wards, then loadouts and

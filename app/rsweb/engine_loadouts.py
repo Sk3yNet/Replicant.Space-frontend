@@ -162,7 +162,6 @@ class LoadoutMixin:
         a better one kept in the app takes a worse one's place, which is kept in the app again."""
         from . import printqueue as pq
         from . import vqueue as vqm
-        from .loadouts import is_factory
         vq = getattr(self.api, "vq", None)
         if vq is None:
             return []
@@ -177,19 +176,23 @@ class LoadoutMixin:
         devs = await self.devices()
         from . import loadouts as lom
         lom.CLASS_PRINTERS.update(await self.db.kv_get("class_printers", {}) or {})
-        # the app's own prints kept for a class-limited printer (no general factory) are dropped: the ward / relay /
-        # beacon orders then find them lost and print elsewhere; prints queued there by hand stay and are fed
+        lom.EXOTIC_CLASS_ONLY[0] = bool(await self.db.kv_get("exotic_class_only", False))
+        bpd = {b.get("device_type"): b for b in await self.db.kv_get("blueprints", []) or [] if isinstance(b, dict)}
+        # the app's own prints kept for a printer that can't make them (an epitaxy printer: exotic blueprints only) are
+        # dropped: the ward / relay / beacon orders then find them lost and print elsewhere; prints queued by hand stay
         printers = {d["device_code"] for d in devs if d.get("device_code") and lom.is_printer(d)}
-        not_fab = {d["device_code"] for d in devs if d.get("device_code") in printers and not is_factory(d)}
+        by_code = {d["device_code"]: d for d in devs if d.get("device_code") in printers}
         async with vq.lock:
             st = await vq.state()
-            drop = [o for o in st["orders"] if o.get("factory") in not_fab and o.get("prio") != 0]
+            drop = [o for o in st["orders"] if o.get("factory") in by_code and o.get("prio") != 0
+                    and not lom.can_make(by_code[o["factory"]], bpd.get((o.get("body") or {}).get("device_type")))]
             if drop:
                 st["orders"] = [o for o in st["orders"] if not any(o is x for x in drop)]
                 await self.db.kv_set(vqm.KV, st)
         for code in sorted({o["factory"] for o in drop}):
             n = sum(o["factory"] == code for o in drop)
-            line = f"{code}: dropped {n} kept print(s): it is no general factory"
+            line = f"{code}: dropped {n} kept print(s) it can't make" + \
+                (" (exotic blueprints only)" if lom.print_class(by_code[code]) else " (exotic: an epitaxy printer's)")
             out.append(line)
             await self.log("print queue", line, "warning")
         # factories of one type at one spot share their kept prints (owner 2026-11-03): each one's game queue is fed
@@ -257,6 +260,11 @@ class LoadoutMixin:
                     body = vqm.body_of(x) if kind == "real" else vqm.send_body(x)
                     ok, _, err = await self.send("POST", f"/devices/{code}", body,
                                                  f"print queue: {code} gets {body.get('device_type')}", raw=True)
+                    if not ok and not lom.print_class(d) and lom.is_class_bp(bpd.get(body.get("device_type"))) \
+                            and re.search(r"epitaxy|exotic", str(err), re.I):
+                        # a general printer refused an exotic print: from now on those go to epitaxy printers only
+                        await self.db.kv_set("exotic_class_only", True)
+                        lom.EXOTIC_CLASS_ONLY[0] = True
                     if not ok and lom.CLASS_RE.search(str(err)) and d.get("device_type"):
                         cp = await self.db.kv_get("class_printers", {}) or {}
                         cp.setdefault(str(d["device_type"]), str(err)[:200])

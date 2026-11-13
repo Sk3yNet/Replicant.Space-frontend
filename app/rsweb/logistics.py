@@ -252,11 +252,11 @@ def _add(a: dict, b: dict, sign: float = 1.0) -> dict:
 def print_costs(devices: list[dict], bps: dict[str, dict]) -> dict[str, dict]:
     """{factory location: {"cost": {res: n}, "waiting": bool, "types": {type: n}}} — every print still to be paid for: the
     one waiting for resources and those queued behind it (a print already running has been paid)."""
-    from .loadouts import is_factory, queued_counts
+    from .loadouts import is_printer, queued_counts
     out: dict[str, dict] = {}
     for d in devices:
         loc = d.get("location")
-        if not loc or not is_factory(d):
+        if not loc or not is_printer(d):   # epitaxy printers too: the game only queues their exotic prints
             continue
         counts, _ = queued_counts(d)
         st = str(d.get("status") or "")
@@ -295,14 +295,14 @@ def take_from(inventory: dict[str, Any], pile: str, take: dict[str, float]) -> N
 def queue_items(devices: list[dict], bps: dict[str, dict]) -> dict[str, dict]:
     """{star: {"items": [(seconds, cost)], "factories": n, "dest": factory location}} — each system's prints still to pay
     for, in the order they'll run (factories interleaved by when each item starts; a print already running is paid)."""
-    from .loadouts import is_factory
+    from .loadouts import is_printer
     from . import printqueue as pq
     per: dict[str, list] = defaultdict(list)
     dests: dict[str, str] = {}
     nfac: dict[str, int] = defaultdict(int)
     for d in devices:
         loc = d.get("location")
-        if not loc or not is_factory(d):
+        if not loc or not is_printer(d):
             continue
         star = star_of(loc)
         nfac[star] += 1

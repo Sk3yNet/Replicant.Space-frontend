@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.392.0"
+VERSION = "1.393.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.393.0", "2026-11-13", "Epitaxy printers print exotic blueprints (Joe: 1476F94F answered This printer can only fabricate epitaxy-class devices). Printers with the epitaxy feature now take prints of blueprints with the exotic feature, and nothing else: fleet loadouts send exotic prints to them first, the app's queue drops other kept prints and refuses a hand print of anything else before the game sees it, and logistics supplies what they have queued. Blueprints has an Epitaxy printers card (their queues and an exotic-only Add to queue); the Plan and Queue a print forms and the Can afford at column leave them out for other blueprints."),
     ("1.392.0", "2026-11-12", "Code layout only, no behavior change (Joe: build the review's suggestions). web.py (5,000 lines) is split by page area: web_core.py (router, templates, sign-in, shared helpers), web_devices.py, web_systems.py, web_map.py, web_planning.py, web_activity.py, web_diag.py and web_deals.py. web.py keeps the dashboard routes and loads the others in the original route order, and still exports the same names."),
     ("1.391.0", "2026-11-12", "Code layout only, no behavior change (Joe: build the review's suggestions). automations.py (7,100 lines) is split by area: engine_base.py (rule table, step helpers, lock), engine_jobs.py (job runner), engine_loadouts.py, engine_fleets.py (missions, recall, fleet runner) and engine_rules.py (contract and mining rules). automations.py keeps events, tick stages and helpers, and still exports the same names."),
     ("1.390.0", "2026-11-12", "Efficiency (Joe: build the review's suggestions). An observatory's run drops its list of every known star once the prospect's result is in (the saved runs had grown to 8 MB). Mining prospects, Systems, the system pages and the salvage rule no longer ask the database whether each system changed: the database counts what it stores per system, so the prospects page goes from about 2,000 queries to a handful, and a stockpile changing in one system no longer makes every other system's sites and salvage be worked out again."),

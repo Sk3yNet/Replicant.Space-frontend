@@ -224,9 +224,56 @@ def test_class_limited_printers_are_no_factory_and_lose_the_apps_prints(client):
     client.portal.call(vq.add, "CC00CAFE", {"device_type": "some_crystal", "quantity": 1}, 0)
     out = feed(client)
     assert client.portal.call(VirtualQueue(db).orders, "CC00CAFE") == []
-    assert out == ["CC00CAFE: dropped 1 kept print(s): it is no general factory",
+    assert out == ["CC00CAFE: dropped 1 kept print(s) it can't make (exotic blueprints only)",
                    "CC00CAFE: 1 print(s) into the game's queue"]   # the relay dropped, the print by hand sent
 
+
+def test_epitaxy_printers_take_exotic_blueprints_only(client):  # noqa: F811
+    """Joe 2026-11-12: printers with the epitaxy feature are limited to blueprints with the exotic feature (1476F94F:
+    "This printer can only fabricate epitaxy-class devices"), and get their own card on the Blueprints page."""
+    from rsweb import loadouts as lo
+    from rsweb.api import ApiError
+    lab = {"device_code": "CC00CAFE", "device_type": "crystal_synthesis_lab", "features": ["cruise", "print", "epitaxy"],
+           "available_commands": ["enqueue_print", "dequeue_print"], "location": "DELTA-OBJ-2", "status": "idle"}
+    seed = {"device_type": "crystal_seed", "features": ["stow", "exotic", "seed"], "resources": {"metals": 1}, "print_time": 60}
+    relay = {"device_type": "ftl_relay", "features": ["relay"], "resources": {"metals": 1}}
+    assert lo.can_make(lab, seed) and not lo.can_make(lab, relay) and not lo.can_make(lab, None)
+    assert lo.can_make({"device_type": "autofactory"}, seed) and lo.can_make({"device_type": "autofactory"}, relay)
+    db, e, world = setup(client)
+    client.portal.call(db.kv_set, "blueprints", BPS + [seed])
+    world.devices.append(lab)
+    world.queues["CC00CAFE"] = []
+    vq = client.app.state.api.vq
+    # an exotic print kept for it by an automation stays and is fed; a hand print of anything else is refused up front
+    client.portal.call(vq.add, "CC00CAFE", {"device_type": "crystal_seed", "quantity": 1}, 2)
+    out = feed(client)
+    assert out == ["CC00CAFE: 1 print(s) into the game's queue"] and client.portal.call(vq.orders, "CC00CAFE") == []
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices") + [lab])
+    try:
+        client.portal.call(vq.intercept, "/devices/CC00CAFE", {"command": "enqueue_print", "device_type": "orbital_farm"})
+        raise AssertionError("not refused")
+    except ApiError as err:
+        assert "exotic" in err.message
+    # the Blueprints page: its own card with only exotic blueprints, and it's no choice in the general Plan
+    r = client.get("/blueprints", headers={"X-Auth-Request-Email": "joe@example.com"})
+    card = r.text.split('id="epitaxy-printers"')[1].split('<h2>Queue a print')[0]
+    assert "Epitaxy printers" in card and 'value="crystal_seed"' in card and 'value="orbital_farm"' not in card
+    plan = r.text.split("<h2>Plan</h2>")[1].split("</select>")[0]
+    assert "CC00CAFE" not in plan
+
+
+def test_planner_sends_exotic_prints_to_an_epitaxy_printer_and_nothing_else():
+    from rsweb import loadouts as lo
+    from test_core import _lo_world
+    cfg, devices, bps, inv, stars = _lo_world()
+    devices.append({"device_code": "LAB", "device_type": "crystal_synthesis_lab", "features": ["print", "epitaxy"],
+                    "available_commands": ["enqueue_print"], "location": "AAA-3-L4", "status": "idle"})
+    bps.append({"device_type": "crystal_seed", "features": ["exotic"], "resources": {"structural": 10}, "print_time": 60})
+    cfg["phases"][0]["wants"]["crystal_seed"] = 1
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    on = {(pr["factory"], pr["device_type"]) for pr in p["prints"]}
+    assert ("LAB", "crystal_seed") in on and ("AF", "crystal_seed") not in on, on
+    assert not any(f == "LAB" and t != "crystal_seed" for f, t in on) and ("AF", "survey_drone") in on, on
 
 def test_a_print_with_its_components_free_there_jumps_a_waiting_one():
     """Snapshot 2026-11-03 23:43: mining rigs waited behind relay stations (waiting for a relay) with 18 drones idle there."""
