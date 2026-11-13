@@ -84,9 +84,9 @@ async def main():
                                for f in app["fleets"]])
     eng = au.AutomationEngine(db, Api(), Hub(), None)
     with mock.patch.object(au, "_now", lambda: NOW):
-        order = ["run_fleets", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+        order = ["run_fleets", "dispatch_pass", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                  "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rule_restart_idle_miners",
-                 "run_due_schedules", "run_due_loadouts", "civ_beacon_pass", "maintenance_pass"]
+                 "run_due_schedules", "civ_beacon_pass", "maintenance_pass"]
         for name in order:
             t = time.time()
             n = len(SENT)

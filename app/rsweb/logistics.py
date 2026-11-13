@@ -15,10 +15,15 @@ Priority (owner's order, 2026-10-12): 1 queued prints (the ones waiting for reso
 stock is in the same system), 3 long-range transfers, 4 stockpile returns. A request can be bumped or skipped on the
 Logistics page. Each home system keeps what its own prints need (a reserve): only the surplus is taken.
 Urgent (priority 0, owner 2026-11-13): evacuations, then trades at Sol (PRIORITY_STARS: its shops cycle and sell out),
-then prints a factory is stalled on (waiting for resources). The device side goes first too: components a factory
-waits for and devices paying a Sol trade are collected before this pass (Engine.priority_deliveries_pass).
+then prints a factory is stalled on (waiting for resources). Devices too: components a factory waits for and devices
+paying a Sol trade are urgent device moves, taken right after evacuations.
 
-Task categories (owner 2026-10-23): each request falls in one category (CATEGORIES: prints, trades & contracts, rescues,
+Device moves (owner 2026-11-13): devices bound for another place (loadouts.plan: tagged to:/at:, fleet members going
+home, relays and beacons on their way out) are requests in the same list (kind `devices`, one per pick-up, destination
+and owner), a category of their own with the priority of queued prints. So one pass gives every carrier its work,
+materials and devices alike (Engine.dispatch); carriers outside the logistics fleets only ever carry devices.
+
+Task categories (owner 2026-10-23): each request falls in one category (CATEGORIES: device moves, prints, trades & contracts, rescues,
 shop listings, repair patrols, hub upkeep, stockpile returns). Every free logistics carrier is given one category that has work and
 keeps it, pass after pass, until that category runs dry; a category with work and no carrier takes one from the
 biggest. Priority orders the requests within a category. Evacuations (priority 0) go first with every carrier; after
@@ -53,7 +58,6 @@ they can surge), and set to patrol there. Like rescues, a trip of more than a da
 Convoys (owner 2026-11-11): the ships of a run leave for their stockpiles at once; a print delivery from another system
 fills its holds from what is spare (fill_holds); cargo devices left attached to an idle carrier are let off.
 
-Devices go the same way: deliveries of devices (loadouts.plan) take logistics-fleet carriers first.
 
 Drop-offs (owner 2026-10-20): an idle logistics carrier inside the network with leftover cargo, or with devices aboard
 that aren't its work (stray_aboard), goes to the nearest receiving point (a fleet that takes materials in, or a working
@@ -131,10 +135,10 @@ TIERS = {0: "urgent", 1: "queued prints", 2: "local delivery", 3: "long-range tr
          6: "shop listing", 7: "repair patrol"}
 # task categories (owner 2026-10-23): each free logistics carrier works one category until it runs dry, so a small
 # category isn't starved by a big one; stockpile returns (reallocations) get no carrier of their own and come last
-CATEGORIES = {"prints": "queued prints", "deals": "trades & contracts", "rescues": "rescues", "shop": "shop listings",
+CATEGORIES = {"devices": "device moves", "prints": "queued prints", "deals": "trades & contracts", "rescues": "rescues", "shop": "shop listings",
               "repairs": "repair patrols", "upkeep": "hub upkeep", "returns": "stockpile returns",
-              "urgent": "urgent: evacuations, Sol trades, stalled prints"}
-LANES = ("prints", "deals", "rescues", "shop", "repairs", "upkeep")
+              "urgent": "urgent: evacuations, awaited devices, Sol trades, stalled prints"}
+LANES = ("devices", "prints", "deals", "rescues", "shop", "repairs", "upkeep")
 PATROL_LOAD = 6                # worn devices one patrolling repair device looks after (upkeep.report's "covered")
 KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like placed relays and beacons: never "rescued"
 REPAIR_ALONE_BELOW = 70.0     # a repair patrol goes to a system with one worn device only when it is below this %
@@ -609,7 +613,7 @@ def category(r: dict) -> str:
     if r.get("tier") == 0:
         return "urgent"
     return {"print": "prints", "contract": "deals", "trade": "deals", "rescue": "rescues", "listing": "shop",
-            "repair": "repairs", "upkeep": "upkeep", "job": "deals"}.get(r["kind"], "returns")
+            "repair": "repairs", "upkeep": "upkeep", "job": "deals", "devices": "devices"}.get(r["kind"], "returns")
 
 
 def _free(d: dict) -> bool:
@@ -750,8 +754,12 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
          listings: list[dict] | None = None, repair_threshold: float = 80.0,
          repair_to: dict[str, int] | None = None, repair_stars: set[str] | None = None,
          lanes: dict[str, str] | None = None, upkeep: list[dict] | None = None,
-         rescue_pause: dict | None = None) -> dict:
-    """What the logistics devices do this pass. `hosts`: device → the replicant it hosts. `drop(star)`: where materials land in a
+         rescue_pause: dict | None = None, moves: tuple[list[dict], Any] | None = None,
+         device_escorts: set[str] | frozenset = frozenset()) -> dict:
+    """What the logistics devices do this pass, and (`moves`) which carriers take the devices bound somewhere:
+    `moves` is (batches, carry) from loadouts.plan — each batch of devices is a request here (kind `devices`), taken in
+    its turn with the carriers of that turn; carriers outside the logistics fleets (spare ones, a fleet's own) are
+    always open to it, and so are `device_escorts` (replicant vessels kept back for relays waiting for an escort). `hosts`: device → the replicant it hosts. `drop(star)`: where materials land in a
     system. `listings`: shops whose trades you asked for ({controller, location, label}): a logistics device hosting a
     replicant goes there, last of all (the engine reads the trades once a replicant is in the system). `repair_to`: repair
     devices already on their way, per star. `repair_stars`: where repair patrols may go (default: commandable). `lanes`:
@@ -1317,13 +1325,59 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     # pass after pass until that category runs dry; a category with work and no carrier takes one from the biggest.
     # First evacuations (priority 0) with every free carrier, then each category with its own carriers, then whatever
     # is left over with every carrier still free (categories in turn, stockpile returns last).
+    # Device moves (owner 2026-11-13): the batches of devices the loadout planner wants carried are requests in this
+    # same list, so one assignment gives every carrier its work — before, the loadout pass picked carriers on its own
+    # every 15 minutes, after this pass had taken the free ones, and two extra passes patched the urgent cases.
+    # Urgent batches (components a factory waits for, devices paying a Sol trade) go right after evacuations.
+    batches, carry = moves or ([], None)
+    pool_codes = {d["device_code"] for d in pool}
+    move_tasks: list[tuple[dict, dict]] = []
+    for b in batches:
+        here, dest, owner, fam_ = b["key"]
+        rid = f"devices:{here}>{dest}" + "".join(f":{x}" for x in (owner, fam_) if x)
+        what = ", ".join(f"{n} {str(t).replace('_', ' ')}" for t, n in sorted(b["types"].items()))
+        req = {"id": rid, "kind": "devices", "from": here, "to": dest, "need": {}, "tier": 0 if b["urgent"] else 1,
+               "devices": list(b["codes"]), "label": f"move {what}: {here} → {dest}" if here != dest else f"move {what} within {here}"}
+        req["base_tier"] = req["tier"]
+        if b["urgent"]:
+            req["urgent"] = "awaited devices"
+        if rid in ((prefs or {}).get("bump") or {}):
+            req["tier"] = int(prefs["bump"][rid])
+        req["skipped"] = rid in set((prefs or {}).get("skip") or [])
+        if req["skipped"]:
+            b["why"] = [{"star": dest, "type": ", ".join(sorted(b["types"])), "n": len(b["left"]),
+                         "why": f"waits in {here}: skipped on Fleets › Logistics"}]
+        reqs.append(req)
+        move_tasks.append((req, b))
+
+    def move(r: dict, b: dict) -> None:
+        in_runs = {c for run in runs for c in run_devices(run)}
+        b["left"] = [x for x in b["left"] if x not in in_runs and x not in used]   # a run of this pass has it
+
+        def allow(c: dict) -> bool:
+            code = c["device_code"]
+            return (code not in used and code not in in_runs
+                    and (code not in pool_codes or code in free or code in device_escorts))
+        n0 = len(b["deliveries"])
+        carry(b, allow)
+        for dl in b["deliveries"][n0:]:
+            used.add(dl["carrier"])
+            used.update(dl["devices"])
+        r["sent"] = sum(len(dl["devices"]) for dl in b["deliveries"])
+        r["carriers"] = [dl["carrier"] for dl in b["deliveries"]]
+        if b["left"]:
+            unmet.append({"req": r["id"], "why": (b["why"][-1]["why"] if b["why"] else "waits for a carrier")})
+
     tasks = [(r, lambda r=r: deliver(r)) for r in reqs if r["kind"] in ("print", "contract", "trade", "return", "upkeep", "job")]
+    tasks += [(r, lambda r=r, b=b: move(r, b)) for r, b in move_tasks]
     tasks += [(r, lambda r=r, d=d, h=h: rescue(r, d, h)) for r, d, h in sorted(rescue_reqs, key=lambda x: (x[0]["tier"], x[0]["id"]))]
     tasks += [(r, lambda r=r, li=li: shop(r, li)) for r, li in listing_tasks]
     tasks += repair_tasks
     for r in reqs:
         r["category"] = category(r)
-    tasks = sorted(((r, fn) for r, fn in tasks if not r["skipped"]), key=lambda t: t[0]["tier"])
+    tasks = sorted(((r, fn) for r, fn in tasks if not r["skipped"]),
+                   key=lambda t: (t[0]["tier"], 0 if t[0]["tier"] else (0 if t[0]["id"].startswith("evacuate:") else
+                                                                       1 if t[0]["kind"] == "devices" else 2)))
     every = dict(free)
     prev = lanes or {}
     pending = {r["category"] for r, _ in tasks} & set(LANES)
@@ -1395,6 +1449,10 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             for c in run_devices(run):
                 if c in every and c not in (run.get("rescued"), run.get("repairer")):
                     worked[c] = k
+    for r, b in move_tasks:   # and one that carried devices works device moves
+        for dl in b["deliveries"]:
+            if dl["carrier"] in every and r.get("category") in LANES:
+                worked[dl["carrier"]] = r["category"]
     for r in reqs:
         r.pop("_left", None)
         r.pop("_assigned", None)

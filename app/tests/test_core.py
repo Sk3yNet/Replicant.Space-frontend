@@ -2142,7 +2142,8 @@ def test_terraforming_training_controls(client):
     client.portal.call(eng.sim_purge, {"id": 7})   # the run ends: its world's reports go, whatever it recorded
     assert not client.portal.call(db.fetchall, "SELECT 1 FROM events WHERE location = 'VIRTCEL-1'")
     client.portal.call(db.kv_set, sim.KV, {})
-    assert "410" not in client.get("/terraforming?sim=7", headers=H).text
+    from rsweb.version import VERSION as _v   # (the page's stylesheet link carries the version: 1.410.0 held "410")
+    assert "410" not in client.get("/terraforming?sim=7", headers=H).text.replace(_v, "")
 
 
 def test_terraforming_candidates():

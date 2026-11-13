@@ -101,17 +101,39 @@ class FleetsMixin:
         await self.db.kv_set(sh.LISTING_KV, wanted)
         return lines, todo
 
+    async def dispatch_pass(self, force: bool = False) -> list[str]:
+        """The carrier dispatcher, every couple of minutes (Engine.dispatch); with it, every `every_minutes` of the
+        loadouts rule (15), the rest of the loadout plan: tags, prints, own flights, pins, arrivals, ferries."""
+        last = _ts(await self.db.kv_get("logistics_last", None))
+        if not force and last and (_now() - last).total_seconds() < 110:
+            return []
+        cfg = await self.rule_cfg("loadouts")
+        due = False
+        if cfg:
+            at = _ts(((await self.db.kv_get("loadouts_last", {})) or {}).get("at"))
+            due = not at or (_now() - at).total_seconds() >= 60 * max(1, int(cfg.get("every_minutes") or 15))
+        return (await self.dispatch(full=due, devices_on=bool(cfg)))["logistics"]
+
     async def logistics_pass(self, force: bool = False) -> list[str]:
-        """The logistics service (logistics.py): every couple of minutes, track what prints, approved contracts and approved trades
-        need, and send free logistics-fleet devices with it — priority: queued prints, local, long-range, stockpile returns."""
+        """The dispatcher under its old name (Fleets › Logistics: Run now)."""
+        return await self.dispatch_pass(force)
+
+    async def dispatch(self, *, full: bool = False, manual: bool = False, only: set[str] | None = None,
+                       fast: set[str] | frozenset = frozenset(), devices_on: bool = True) -> dict:
+        """One carrier assignment for materials and devices (owner 2026-11-13). The logistics service (logistics.py)
+        tracks what prints, approved contracts and approved trades need; the loadout planner (loadouts.plan) lists the
+        devices bound somewhere else; logistics.plan takes both as one list of requests, by priority and task
+        category, and gives each free carrier its work. Before, the two planners ran apart (logistics every 2 minutes,
+        loadouts every 15) and took each other's carriers, and two more passes patched the urgent cases.
+        `full`: also apply the rest of the loadout plan (apply_loadout_plan). `fast`: devices whose own flights and
+        compactions start now too (just printed). `devices_on`: False leaves devices alone (the loadouts rule is off).
+        Returns {"logistics": lines, "loadouts": lines, "plan": the loadout plan or None}."""
         from . import gameevents as gev
         from . import loadouts as lo
         from . import logistics as lg
         from . import wards
         from .shapes import normalize_blueprints, normalize_inventory
-        last = _ts(await self.db.kv_get("logistics_last", None))
-        if not force and last and (_now() - last).total_seconds() < 110:
-            return []
+        result: dict = {"logistics": [], "loadouts": [], "plan": None}
         await self.db.kv_set("logistics_last", now_iso())
         for j, why in lg.stale_rescues(await self.jobs(), await self.devices()):
             j["status"], j["finished_at"] = "cancelled", now_iso()
@@ -121,7 +143,10 @@ class FleetsMixin:
         if not lg.logistics_fleets(items, held=True):
             await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": [], "runs": [], "unmet": [], "fleet_devices": [],
                                                "note": "no logistics fleet yet (Fleets: a fleet with role logistics)"})
-            return []
+            if devices_on:   # spare carriers and the fleets' own still move devices
+                result["plan"] = await self.loadout_plan(only, routes=full)
+                result["loadouts"] = await self.apply_loadout_plan(result["plan"], full=full, manual=manual, fast=fast)
+            return result
         devices = await self.devices()
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
@@ -289,7 +314,7 @@ class FleetsMixin:
         from . import stations as stj   # station jobs the runner works: their resources, stocked like hub upkeep
         upkeep = upkeep + stj.logistics_rows(await self.db.kv_get(stj.KV_MINE, {}), await stj.runner_cfg(self.db),
                                              ((await self.db.kv_get(stj.KV_STATIONS, {})) or {}).get("stations") or [])
-        p = lg.plan(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
+        plan_args = dict(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
                     busy=busy, reach=lg.SECTOR_RANGE_LY, contracts=contracts, trades=trades, incoming=incoming,
                     replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),
                     busy_stars=mission_stars,
@@ -303,6 +328,13 @@ class FleetsMixin:
                     repair_stars=(await self.commandable(devices, stars, networked=True)) | (homes_now & commandable),
                     lanes=(await self.db.kv_get(lg.KV_STATE, {}) or {}).get("lanes"), upkeep=upkeep,
                     rescue_pause=lg.rescue_pauses(await self.db.kv_get(lg.KV_RESCUE_PAUSE, {})))
+        if devices_on:
+            box: dict = {}
+            result["plan"] = await self.loadout_plan(only, routes=full, dispatch=lambda batches, carry: box.update(
+                p=lg.plan(**plan_args, moves=(batches, carry), device_escorts=set(escorts))))
+            p = box.get("p") or lg.plan(**plan_args)   # (the loadout planner had nothing to plan with)
+        else:
+            p = lg.plan(**plan_args)
         for r in p["requests"]:   # a rescue beyond the sector range waits for your OK (owner 2026-10-22): one alert each
             key = f"rescue-ok:{r['id']}"
             if r.get("confirm") and key not in self.stage_errors:
@@ -372,12 +404,16 @@ class FleetsMixin:
         await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": p["requests"], "runs": p["runs"], "unmet": p["unmet"],
                                            "far": p.get("far") or [], "fleet_devices": p["fleet_devices"], "reserve": p["reserve"], "escorts": escorts,
                                            "lanes": p["lanes"]})
+        if result["plan"] is not None:   # the device deliveries start before the hubs are balanced: their carriers are busy
+            result["loadouts"] = await self.apply_loadout_plan(result["plan"], full=full, manual=manual, fast=fast)
         await self.sample_backlog(items, devices, inv_raw, drop_raw, busy, p, bps, reps)
-        await self.note_demand({f"req:{r['id']}": r.get("to") for r in p["requests"] if not r.get("skipped")})
+        await self.note_demand({f"req:{r['id']}": r.get("to") for r in p["requests"]
+                                if not r.get("skipped") and r.get("kind") != "devices"})   # (devices: by pick-up, below)
         out += await self.balance_pass(items, devices, hosts, pos, commandable, stars, inv_raw, set(escorts))
         for line in out:
             await self.log("logistics", line)
-        return out
+        result["logistics"] = out
+        return result
 
     async def note_demand(self, wants: dict[str, str | None]) -> None:
         """What needed a carrier where ({key: location}), first seen, kept balance.DEMAND_DAYS: the hubs' weights."""

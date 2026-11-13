@@ -612,11 +612,12 @@ def test_awaited_component_is_collected_before_logistics(client):
     cat = {"stars": [{"designation": "FAL", "position": {"x": 0, "y": 0, "z": 0}, "entry_point": "FAL-1-L4"},
                      {"designation": "ITH", "position": {"x": 1, "y": 0, "z": 0}, "entry_point": "ITH-2-L4"}]}
     client.portal.call(db.kv_set, "stars", cat)
-    started = client.portal.call(eng.priority_deliveries_pass)
-    assert started and "C1" in started[0], started
+    client.portal.call(eng.dispatch_pass, True)
     job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "loadouts"][-1]
     assert job["title"].endswith("(priority)") and "C1" in job["meta"]["devices"]
-    assert client.portal.call(eng.priority_deliveries_pass) == []   # throttled, and C1 is on its way
+    n = len(client.portal.call(eng.jobs))
+    client.portal.call(eng.dispatch_pass, True)
+    assert len(client.portal.call(eng.jobs)) == n   # C1 is on its way
 
 
 def _mixed_setup(client, extra=()):
@@ -660,13 +661,79 @@ def test_mixed_batch_boards_what_it_can(client):
     assert any("neither stows nor flies" in u["why"] and u["n"] == 1 for u in p["unmet"]), p["unmet"]
 
 
-def test_freed_carrier_goes_to_waiting_devices_before_logistics(client):
-    """Joe 2026-11-13: a carrier that comes free takes waiting device moves before the logistics pass grabs it."""
+def _with_logistics(client, eng, db, extra_devices=()):
+    """A logistics fleet (freighter F1 and plate LP1 at FAL), a print stalled at ITH and 300 carbon at FAL."""
+    devs = client.portal.call(db.kv_get, "devices")
+    devs += [{"device_code": "F1", "device_type": "cargo_freighter", "location": "FAL-1-L4", "status": "idle",
+              "cargo_capacity": 100, "features": ["surge"], "tags": ["fleet:cab"],
+              "available_commands": ["travel", "collect_resources", "deposit_resources"]},
+             {"device_code": "AF", "device_type": "autofactory", "location": "ITH-2-L4", "status": "waiting_for_resources",
+              "tags": [], "print_queue": [{"device_type": "mining_drone", "quantity": 1}],
+              "printing": {"device_type": "mining_drone"}},
+             *extra_devices]
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(db.kv_set, "blueprints", [{"device_type": "mining_drone", "resources": {"carbon": 40}}])
+    client.portal.call(db.kv_set, "inventory", [{"location": "FAL-1-L4", "items": {"carbon": 300}}])
+    items = client.portal.call(eng.fleets)
+    client.portal.call(eng.save_fleets, items + [{"id": "cab", "name": "Cab", "role": "logistics", "home": "FAL", "wants": {}}])
+
+
+def test_device_moves_and_material_runs_get_their_carriers_in_one_pass(client):
+    """Joe 2026-11-13: one carrier assignment. The loadout planner's device batches are requests in the logistics
+    list; a single pass sends the freighter with the print's materials and a carrier with the tagged devices."""
     eng, db = _mixed_setup(client)
-    client.portal.call(db.kv_set, "loadouts_last", {"at": "2026-11-13T16:50:00+00:00", "lines": [
-        "can't fill 2× ftl_beacon in ITH: waiting for a surge-capable carrier in FAL (or a free one within 1728 ly) to go to ITH"]})
-    started = client.portal.call(eng.priority_deliveries_pass)
-    assert started and "MF1" in started[0], started
-    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "loadouts"][-1]
-    assert job["title"].endswith("(carrier came free)") and {"S1", "T1"} <= set(job["meta"]["devices"])
-    assert client.portal.call(eng.priority_deliveries_pass) == []   # MF1 is busy now, nothing new came free
+    _with_logistics(client, eng, db)
+    client.portal.call(eng.dispatch_pass, True)
+    jobs = client.portal.call(eng.jobs)
+    lg_job = next(j for j in jobs if j["rule"] == "logistics")
+    lo_job = next(j for j in jobs if j["rule"] == "loadouts" and "carries" in j["title"])
+    assert "F1" in lg_job["meta"]["devices"] and lg_job["meta"]["logistics"]["to"] == "ITH-2-L4"
+    assert lo_job["device"] == "MF1" and {"S1", "T1"} <= set(lo_job["meta"]["devices"])
+    st = client.portal.call(db.kv_get, "logistics_state")
+    req = next(r for r in st["requests"] if r["kind"] == "devices")
+    assert req["id"].startswith("devices:FAL>ITH") and req["category"] == "devices" and req["sent"] == 2
+    assert req["carriers"] == ["MF1"] and {"S1", "T1", "H1"} >= set(req["devices"])
+    page = client.get("/fleets/logistics", headers=H).text
+    assert "device moves" in page and "FAL → ITH" in page
+
+
+def test_a_logistics_carrier_is_given_one_job_per_pass(client):
+    """The only carrier is a logistics plate that could tow the hauler for the print or carry the beacon: it gets one
+    of the two, never both (before, the loadout pass and the logistics pass each planned with it)."""
+    eng, db = _mixed_setup(client)
+    devs = [d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] not in ("MF1", "T1", "H1")]
+    client.portal.call(db.kv_set, "devices", devs)
+    _with_logistics(client, eng, db, [
+        {"device_code": "LP1", "device_type": "surge_plate", "location": "FAL-1-L4", "status": "idle", "attach_capacity": 1,
+         "features": ["surge", "attach"], "available_commands": ["attach", "detach", "travel"], "tags": ["fleet:cab"]}])
+    devs = [d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] != "F1"]
+    devs.append({"device_code": "HL", "device_type": "transport_hauler", "location": "FAL-1-L4", "status": "idle",
+                 "cargo_capacity": 100, "tags": ["fleet:cab"], "available_commands": ["collect_resources", "deposit_resources"]})
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(eng.dispatch_pass, True)
+    using = [j for j in client.portal.call(eng.jobs) if "LP1" in (j["meta"].get("devices") or []) or j.get("device") == "LP1"]
+    assert len(using) == 1 and using[0]["rule"] == "logistics", [j["title"] for j in using]   # the stalled print is urgent
+    st = client.portal.call(db.kv_get, "logistics_state")
+    req = next(r for r in st["requests"] if r["kind"] == "devices")
+    assert req["sent"] == 0 and any(u["req"] == req["id"] and "waiting for a surge-capable carrier" in u["why"] for u in st["unmet"])
+    last = client.portal.call(db.kv_get, "loadouts_last")
+    assert any("waiting for a surge-capable carrier" in line for line in last["lines"])
+
+
+def test_a_skipped_device_move_waits_and_a_spare_carrier_needs_no_logistics_fleet(client):
+    eng, db = _mixed_setup(client)
+    client.portal.call(eng.dispatch_pass, True)     # no logistics fleet at all: the spare mobile fleet still carries
+    job = next(j for j in client.portal.call(eng.jobs) if j["rule"] == "loadouts" and "carries" in j["title"])
+    assert job["device"] == "MF1"
+    client.portal.call(eng.cancel, job["id"])
+    _with_logistics(client, eng, db)
+    p = client.portal.call(eng.loadout_plan)
+    rid = "devices:FAL>ITH" + "".join(f":{x}" for x in next(iter(
+        {(d.get("replicant_code"),) for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == "S1"})) if x)
+    client.portal.call(db.kv_set, "logistics_prefs", {"skip": [rid]})
+    client.portal.call(eng.dispatch_pass, True)
+    st = client.portal.call(db.kv_get, "logistics_state")
+    req = next(r for r in st["requests"] if r["kind"] == "devices")
+    assert req["id"] == rid and req["skipped"] and not req.get("sent")
+    assert not [j for j in client.portal.call(eng.jobs) if j["rule"] == "loadouts" and "carries" in j["title"]
+                and j["status"] in ("running", "waiting")]

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.409.0"
+VERSION = "1.410.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.410.0", "2026-11-13", "One carrier assignment (Joe 2026-11-13): devices bound for another place are requests in the logistics list (device moves, a task category of their own; urgent ones right after evacuations), and one pass every couple of minutes gives each free carrier its work, materials and devices together. The urgent deliveries pass, the freed-carrier patch and the just-printed planning are gone; the rest of the loadout plan still runs every 15 minutes. The pass is also cheaper (relay and geography lookups no longer walk the whole device list per device)."),
     ("1.409.0", "2026-11-13", "Mobile fleets are kept for fleet moves (Joe: mobile fleets for fleet moves, surge plates for the haulers). A logistics run that tows haulers between systems now takes the smallest free ride that seats them, a surge plate or platform, and uses a mobile fleet or surge carrier only when nothing smaller is near; before, it took the biggest, so four mobile fleets towed one or two 80-unit haulers each while mining fleets' rigs moved one per trip on one-seat plates."),
     ("1.408.0", "2026-11-13", "Storage follow-up from the 21:27 snapshot: the star catalog stays in memory across writes (each prospect, census or scan made the next read decode 20 MB again); values up to 8 MB are kept decoded (four read every tick had grown past 2 MB); device list reads come from one blob; the one-time compaction failed on a locked database and now retries; the write-ahead log file is capped at 64 MB."),
     ("1.407.0", "2026-11-13", "Trade posts list past the game's 5-listing cap (Joe: one of nearly every blueprint). Every AMI trade controller in a trade post is a shop of its own with 5 listings: a listed type keeps its shop, the rest fill free slots priciest first, and the post raises its wanted controllers to one per 5 stocked types so Loadouts brings (or prints) more to the shop spot. Types without a slot wait, named on the card, which lists every shop and how full it is. Unverified live that several shops at one spot all list."),

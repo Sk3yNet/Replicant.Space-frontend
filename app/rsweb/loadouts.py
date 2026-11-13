@@ -314,6 +314,16 @@ def relaying_stars(devices: list[dict], exclude: set[str] | frozenset = frozense
             and d.get("location") and d.get("device_code") not in exclude and str(d.get("status") or "").startswith("relaying")}
 
 
+def relays_on(devices: list[dict]) -> dict[str, set[str]]:
+    """System → the relays of ours switched on there. `relays_on(devices).get(star, set()) - {code}` asks whether
+    another relay covers the system, for many relays at once (relaying_stars walks the whole device list each time)."""
+    out: dict[str, set[str]] = defaultdict(set)
+    for d in devices:
+        if (d.get("device_type") or "") == "ftl_relay" and d.get("location") and str(d.get("status") or "").startswith("relaying"):
+            out[star_of(d["location"])].add(d.get("device_code"))
+    return out
+
+
 def survey_cargo(devices: list[dict], fleets: list[dict]) -> set[str]:
     """An explore fleet's relays and beacons: carried to be dropped one per new system, so the placement step and the
     wake-up rule leave them alone while they wait at home (seen live 2026-10-09: three Surveyors relays printed in
@@ -411,7 +421,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
          replicant_hosts: dict[str, str], busy: set[str], orders: list[dict], stowed_map: dict[str, list[str]],
          only: set[str] | None = None, open_sites: dict[str, int] | None = None, protect: set[str] | None = None,
          geo: dict[str, dict] | None = None, commandable: set[str] | None = None,
-         stuck: dict[str, str] | None = None) -> dict:
+         stuck: dict[str, str] | None = None, dispatch: Any = None) -> dict:
     """Work out what to tag, print and move. `commandable`: systems you can give commands in (an active relay network's
     coverage, or a replicant there — relaynet.coverage); a delivery anywhere else rides a vessel hosting a replicant, or
     waits (owner's rule, 2026-10-12: outside the network nothing arrives unaccompanied). `only`: limit shortfall filling to these stars.
@@ -1286,7 +1296,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     used: set[str] = set()
     deliveries = []
     escorts = replicant_hosts   # a carrier with a replicant's matrix aboard brings that replicant
-    def same_owner(c: dict, owner: str | None) -> bool:
+    def same_owner(c: dict, owner: str | None, codes: list[str]) -> bool:
         """A carrier can only take on devices of its own replicant (seen live 2026-10-06: 'Target device belongs to a
         different account'). Since 1.26.0 the job hands each device to the carrier's owner as it boards
         (modular.with_owner_handoff), so any carrier will do — except for a batch whose owner is unknown-mixed or that
@@ -1364,15 +1374,16 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         return any(is_component(by_code.get(x) or {}) and ((pinned_at(by_code.get(x) or {}) or ""),
                                                            (by_code.get(x) or {}).get("device_type")) in awaited_types
                    for x in codes_)
-    for (here, dest, owner, _fam), codes in sorted(batches.items(), key=lambda kv: (not awaited(kv[1]), -len(kv[1]), kv[0][0], kv[0][1],
-                                                                                    kv[0][2] or "", kv[0][3])):
-        codes = sorted(x for x in codes if x not in taken)
-        stuck = [x for x in codes if unboardable(x)]
-        if stuck:
-            codes = [x for x in codes if x not in stuck]
-            unmet.append({"star": dest, "type": ", ".join(sorted({by_code[x].get("device_type") for x in stuck})),
-                          "n": len(stuck), "why": f"can't leave {here}: it neither stows nor flies, so no carrier can "
-                                                  "take it (move it by hand or drop its to: tag)"})
+    prio = priority_devices(devices)
+
+    def carry(b: dict, allow: Any = None) -> None:
+        """Give the devices of one batch still waiting (b["left"]) to carriers: b["deliveries"] grows, b["left"] keeps
+        the ones no carrier took and b["why"] says why (replaced on every call). `allow(carrier)`: the carriers this
+        call may take (default: any) — the dispatcher (logistics.plan) hands each batch the carriers of its turn."""
+        here, dest, owner, _fam = b["key"]
+        why: list[dict] = []
+        open_carriers = carriers if allow is None else [c for c in carriers if allow(c)]
+        codes = sorted(x for x in b["left"] if x not in taken)
         # beyond an active relay network, at either end (live 2026-10-20: a surge platform with no replicant flew into
         # SOL to pick up a gas separator and was stranded there itself)
         outside = commandable is not None and (dest not in commandable or bool(here) and here not in commandable)
@@ -1380,20 +1391,20 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             # a vessel hosting a replicant carries only as a member of a logistics fleet (owner 2026-10-20: every
             # logistics vessel is there for automation; another fleet's replicant vessel stays with its fleet), or as
             # the escort a trip beyond the network needs
-            cpool = [c for c in carriers if (c["device_code"] in escorts if outside else
+            cpool = [c for c in open_carriers if (c["device_code"] in escorts if outside else
                                              (c["device_code"] not in replicant_hosts or fleet_tag_of(c) in logistics_tags
                                               or c["device_code"] in boot_vessels))] \
-                if commandable is not None else [c for c in carriers if c["device_code"] not in replicant_hosts
+                if commandable is not None else [c for c in open_carriers if c["device_code"] not in replicant_hosts
                                                  or fleet_tag_of(c) in logistics_tags or c["device_code"] in boot_vessels]
             options = [c for c in cpool if star_of(c.get("location")) == here and c["device_code"] not in used and keeps(c, codes)
-                       and same_owner(c, owner) and c["device_code"] not in codes and boardable(c, codes) and may_carry(c, codes)
+                       and same_owner(c, owner, codes) and c["device_code"] not in codes and boardable(c, codes) and may_carry(c, codes)
                        ]
             fetched_from = None
             if not options:
                 # none in this system: send the nearest free carrier from another system to pick them up
                 btag = fleet_tag_of(by_code.get(codes[0]) or {}) or assign.get(codes[0])
                 remote = [c for c in cpool if star_of(c.get("location")) not in (here, "") and c["device_code"] not in used and keeps(c, codes)
-                          and same_owner(c, owner) and c["device_code"] not in codes and boardable(c, codes)
+                          and same_owner(c, owner, codes) and c["device_code"] not in codes and boardable(c, codes)
                           and may_carry(c, codes) and _free(c, bps, stowed_map) > 0
                           # a borrowed carrier only comes from within the supply range of the pick-up (seen live 2026-10-10:
                           # five carriers flew ~500 ly empty to move one drone each); the fleet's own, or its supplier's, may come from anywhere
@@ -1404,7 +1415,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 if remote:
                     options, fetched_from = remote[:1], remote[0].get("location")
             if not options and outside:
-                unmet.append({"star": dest, "type": ", ".join(sorted({by_code[c].get('device_type') for c in codes})),
+                why.append({"star": dest, "type": ", ".join(sorted({by_code[c].get('device_type') for c in codes})),
                               "n": len(codes), "escort_from": here,
                               "why": f"{dest} is outside an active relay network: it needs a vessel hosting "
                                                       f"a replicant to carry it there (none free in {here} or within "
@@ -1414,7 +1425,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 what = "gather at the depot" if set(codes) <= set(gathering) else f"go to {dest}"
                 hosts = any((by_code.get(x) or {}).get("hosting_replicant") for x in codes)
                 whose = f" owned by {owner}" if owner and hosts else ""
-                unmet.append({"star": dest, "type": ", ".join(sorted({by_code[c].get('device_type') for c in codes})),
+                why.append({"star": dest, "type": ", ".join(sorted({by_code[c].get('device_type') for c in codes})),
                               "n": len(codes), "why": f"waiting for a surge-capable carrier{whose} in {here} (or a free one "
                                                       + (f"within {reach:g} ly" if reach else "elsewhere") + f") to {what}" + (" — a device hosting a replicant only rides its own replicant's carrier" if whose else "")})
                 break
@@ -1484,7 +1495,34 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 # it flies in first and loads where most of them are
                 spots = Counter(by_code[x].get("location") for x in load if can_travel(by_code[x]))
                 dl.update({"fetch_from": fetched_from, "carrier_loc": (spots.most_common(1)[0][0] if spots else by_code[load[0]].get("location"))})
-            deliveries.append(dl)
+            b["deliveries"].append(dl)
+        b["left"], b["why"] = codes, why
+
+    todo: list[dict] = []   # the batches, most urgent first
+    for key, codes in sorted(batches.items(), key=lambda kv: (not (awaited(kv[1]) or bool(prio & set(kv[1]))), not awaited(kv[1]),
+                                                              -len(kv[1]), kv[0][0], kv[0][1], kv[0][2] or "", kv[0][3])):
+        here, dest = key[0], key[1]
+        stuck = [x for x in codes if unboardable(x)]
+        if stuck:
+            codes = [x for x in codes if x not in stuck]
+            unmet.append({"star": dest, "type": ", ".join(sorted({by_code[x].get("device_type") for x in stuck})),
+                          "n": len(stuck), "why": f"can't leave {here}: it neither stows nor flies, so no carrier can "
+                                                  "take it (move it by hand or drop its to: tag)"})
+        todo.append({"key": key, "from": here, "to": dest, "codes": sorted(codes), "left": sorted(codes),
+                     "urgent": awaited(codes) or bool(prio & set(codes)),
+                     "types": dict(Counter((by_code.get(x) or {}).get("device_type") or "device" for x in codes)),
+                     "deliveries": [], "why": []})
+    if dispatch is None:
+        for b in todo:
+            carry(b)
+    else:
+        # one carrier assignment for devices and materials (owner 2026-11-13): the dispatcher takes the batches in
+        # its order of priority, between the logistics requests, calling carry() with the carriers of each turn
+        dispatch(todo, carry)
+    for b in todo:
+        b["left"] = [x for x in b["left"] if x not in taken]   # (some rode along on another batch's multi-drop run)
+        deliveries.extend(b["deliveries"])
+        unmet.extend(b["why"] if b["left"] else [])
 
     for code, home in carriers_away:   # fleet carriers away from home that no delivery needed: home they go
         if code not in used and code not in moves and code not in busy:
@@ -1494,6 +1532,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
 
     # pinned devices (`at:<location>`) in their pin's system but somewhere else in it: send them to the spot
     pins, pins_off = [], []   # pins_off: relays switched off before they move (relay_off_to_pin)
+    lit_by = relays_on(devices)
     for d in pool:
         code, pin = d["device_code"], pinned_at(d)
         if (pin and star_of(pin) == star_of(d.get("location")) and d.get("location") != pin and code not in busy
@@ -1520,7 +1559,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 or d.get("location_stale") or SPARE in (d.get("tags") or []) or code in cargo):
             continue
         star = star_of(loc)
-        if t == "ftl_relay" and star in relaying_stars(devices, {code}):
+        if t == "ftl_relay" and lit_by.get(star, set()) - {code}:
             continue   # one working relay covers the system: another isn't sent to its L4/L5 point
         g = geo.get(star) or geo.setdefault(star, pl.geography(star, devices, None, (stars.get(star) or {}).get("entry_point")))
         if pl.ok(t, loc, g):
@@ -1544,7 +1583,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 "assign": {}}
     return {"compact": compact, "pins": pins, "pins_off": pins_off, "places": places, "misplaced": misplaced, "returning": returning, "releases": {k: sorted(v) for k, v in releases.items()}, "report": report, "tag_add": {k: sorted(v) for k, v in tag_add.items() if v},
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints, "cancel_orders": cancel_orders,
-            "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
+            "priority": sorted(prio), "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
             "by_code": by_code, "managed": managed_map, "made_spare": sorted(made_spare), "gathering": sorted(gathering),
             "depot": ", ".join(sorted({moves[c] for c in gathering})) or ", ".join(points) or None, "assign": assign}
 

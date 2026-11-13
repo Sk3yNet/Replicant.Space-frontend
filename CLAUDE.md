@@ -45,6 +45,10 @@ Portainer, which follows `main`: **a push to `main` is a deploy.**
 - Storage (`db.py`): saved values are cached decoded, so `kv_get` gives each caller its own copy; an unchanged
   `kv_set` only moves the timestamp; the device list is stored one row per device (`device_rows`) behind the same
   `kv_get("devices")` / `kv_set("devices")`. Star lookups from `eng.star_lookup(...)` are shared: never change them.
+- Carriers: one pass assigns them all (`Engine.dispatch`, stage `dispatch_pass`, every 110 s). `loadouts.plan` lists
+  the device batches and hands them to `logistics.plan` (`dispatch=` / `moves=`), where they are requests of kind
+  `devices` beside the material requests; `apply_loadout_plan` starts the deliveries every pass and the rest of the
+  loadout plan every 15 minutes. Never add another pass that picks carriers: add a request kind or a tier.
 - History (`history.py`) deletes old events daily. A new reader of old events must add its kind to `history.KEEP_*`.
 - Tests: helpers and fixtures in `tests/corelib.py`; core tests by area in `tests/test_core_<area>.py`.
 

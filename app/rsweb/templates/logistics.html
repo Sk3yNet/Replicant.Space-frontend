@@ -9,11 +9,12 @@
   demand: what queued prints need, contracts you approved or whose civilization you pre-approved (Contracts page), and
   trades you approved (Shop page; once each — plain shop listings are never fulfilled). Priority: queued prints (waiting ones first), local deliveries,
   long-range transfers, stray stockpiles back to a gather point, then rescues of devices out of command range, then repair patrols (the logistics fleets’ repair devices to the most worn systems). Home systems keep what their own prints need.
-  Each request has a task category (prints, trades &amp; contracts, rescues, shop listings, repair patrols): every free carrier is given one
+  Each request has a task category (device moves, prints, trades &amp; contracts, rescues, shop listings, repair patrols): every free carrier is given one
   category that has work and keeps it until that category runs dry, so small categories aren’t starved by big ones. Evacuations go first with
   every carrier; carriers left over then help any category, stockpile returns last.
   Outside an active relay network a logistics device hosting a replicant flies alongside, or nothing goes; afterwards the logistics devices wait
-  inside the network. Devices go the same way: deliveries take logistics carriers first.</p>
+  inside the network. Devices bound for another place are requests in this list too (<i>device moves</i>): one pass
+  gives every free carrier its work, materials and devices together. Spare carriers and a fleet’s own only carry devices.</p>
 <div class="card">
   <h2>Requests <button class="small" hx-post="/fleets/logistics/run" hx-target="#tx-run">Run now</button><span id="tx-run"></span></h2>
   {% if st.note %}<p class="muted">{{ st.note }}</p>{% endif %}
@@ -23,10 +24,10 @@
   {% if st.requests %}
   <table class="small"><tr><th>Priority</th><th>Request</th><th>To</th><th>Still needed</th><th>Status</th><th></th></tr>
     {% for r in st.requests %}<tr{% if r.skipped %} class="muted"{% endif %}>
-      <td>{{ r.tier }} · {{ tiers[r.tier] }}{% if r.tier != r.base_tier %} <span class="pill small">bumped</span>{% endif %}{% if r.waiting %} <span class="lv-alert">waiting</span>{% endif %}{% if r.urgent %} <span class="pill small">{{ r.urgent }}</span>{% endif %}{% if r.category %}<br><span class="muted">{{ categories.get(r.category, r.category) }}</span>{% endif %}</td>
+      <td>{{ r.tier }} · {{ 'device move' if r.kind == 'devices' and r.tier == r.base_tier and r.tier else tiers[r.tier] }}{% if r.tier != r.base_tier %} <span class="pill small">bumped</span>{% endif %}{% if r.waiting %} <span class="lv-alert">waiting</span>{% endif %}{% if r.urgent %} <span class="pill small">{{ r.urgent }}</span>{% endif %}{% if r.category %}<br><span class="muted">{{ categories.get(r.category, r.category) }}</span>{% endif %}</td>
       <td>{{ r.label }}</td><td>{{ r.to }}</td>
-      <td>{% for k, q in r.need.items() %}{{ q | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% else %}<span class="muted">stocked</span>{% endfor %}</td>
-      <td>{% if r.paused %}<span class="lv-warning">paused</span> <span class="muted">{{ r.paused }}{% if r.paused_until %} until {{ r.paused_until | local }}{% endif %}</span>{% elif on_way.get(r.id) %}{% if r.skipped %}skipped, but {% endif %}{{ job_state(on_way[r.id]) }}{% elif r.skipped %}skipped{% elif why.get(r.id) %}<span class="lv-alert">{{ why[r.id] }}</span>{% elif r.need %}queued{% else %}—{% endif %}</td>
+      <td>{% if r.kind == 'devices' %}<span title="{{ r.devices | join(', ') }}">{{ r.devices | length }} device{{ '' if r.devices | length == 1 else 's' }}</span>{% else %}{% for k, q in r.need.items() %}{{ q | round(0) | int }} {{ k }}{{ ', ' if not loop.last }}{% else %}<span class="muted">stocked</span>{% endfor %}{% endif %}</td>
+      <td>{% if r.paused %}<span class="lv-warning">paused</span> <span class="muted">{{ r.paused }}{% if r.paused_until %} until {{ r.paused_until | local }}{% endif %}</span>{% elif on_way.get(r.id) %}{% if r.skipped %}skipped, but {% endif %}{{ job_state(on_way[r.id]) }}{% elif r.skipped %}skipped{% elif r.kind == 'devices' and r.sent %}{{ r.sent }} on {{ r.carriers | join(', ') }}{% if why.get(r.id) %}; <span class="lv-alert">the rest: {{ why[r.id] }}</span>{% endif %}{% elif why.get(r.id) %}<span class="lv-alert">{{ why[r.id] }}</span>{% elif r.need %}queued{% else %}—{% endif %}</td>
       <td><form hx-post="/fleets/logistics/prefs" hx-target="next .tx-r" style="display:inline"><input type="hidden" name="req" value="{{ r.id }}">
         <select name="tier" onchange="this.form.requestSubmit()"><option value="">priority…</option>{% for t, n in tiers.items() %}<option value="{{ t }}"{% if r.tier != r.base_tier and r.tier == t %} selected{% endif %}>{{ t }} {{ n }}</option>{% endfor %}<option value="reset">its own</option></select>
         {% if r.confirm %}<button class="small" name="confirm" value="on" title="{{ ('about %d h of travel' % r.trip_h) if r.trip_h is not none else 'trip of unknown length' }}">Confirm</button>{% endif %}
