@@ -80,8 +80,12 @@ def read_source() -> str:
     return "background" if name.startswith("Task-") else name
 
 
+def path_pattern(path: str) -> str:
+    return _PLACE_RE.sub("/{place}", _CODE_RE.sub("/{code}", path.split("?")[0]))
+
+
 def note_read(path: str) -> None:
-    pattern = _PLACE_RE.sub("/{place}", _CODE_RE.sub("/{code}", path.split("?")[0]))
+    pattern = path_pattern(path)
     reads.append((time.time(), read_source(), pattern))
 
 

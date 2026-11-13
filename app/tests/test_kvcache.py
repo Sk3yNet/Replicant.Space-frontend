@@ -44,3 +44,30 @@ def test_networks_link_across_cells_and_answer_with_fresh_records():
     assert [g["stars"] for g in net["networks"]] == [["A", "B", "C"], ["D"]]
     net["links"][0]["net"] = "changed"
     assert relaynet.networks(devs, pos)["links"][0]["net"] == 0
+
+
+def test_a_long_retry_after_holds_only_that_endpoint():
+    import httpx
+    import pytest
+    from rsweb.api import ApiError, RSClient
+    from rsweb.config import Settings
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith("/trades"):
+            return httpx.Response(429, headers={"Retry-After": "3600"}, json={"error": "hourly limit"})
+        return httpx.Response(200, json={"ok": True})
+
+    async def go():
+        c = RSClient(Settings(api_token="t", api_base="http://x/v1"), transport=httpx.MockTransport(handler))
+        with pytest.raises(ApiError) as e:
+            await c.post("/trades", {})
+        assert e.value.status == 429 and "3600 s" in e.value.message
+        with pytest.raises(ApiError) as e2:
+            await c.post("/trades", {})                      # refused here, not sent again
+        assert "refused for another" in e2.value.message and calls.count("/v1/trades") == 1
+        assert await c.post("/devices/AAAA0001", {"command": "deploy"}) == {"ok": True}   # other commands go on
+        assert c.act_bucket.wait_time() <= 0 and c.rate_status()["endpoints_held"][0]["path"] == "/trades"
+        await c.close()
+    asyncio.run(go())

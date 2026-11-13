@@ -98,6 +98,7 @@ class RSClient:
         self.last_ok: float | None = None
         # called before each POST (main.py: components.before_print — a print's components are queued first)
         self.before_post: Any = None
+        self.endpoint_blocked: dict[tuple[str, str], tuple[float, str, float]] = {}   # (method, path pattern) -> (until, since, seconds)
         self.vq: Any = None   # vqueue.VirtualQueue when the virtual print queue is on
 
     async def close(self) -> None:
@@ -123,6 +124,8 @@ class RSClient:
 
     def rate_status(self) -> dict:
         return {
+            "endpoints_held": [{"method": m, "path": pth, "since": v[1], "seconds": round(v[2])}
+                               for (m, pth), v in self.endpoint_blocked.items()],
             "get_used": self.get_bucket.used_last_minute(),
             "get_limit": 120,
             "act_used": self.act_bucket.used_last_minute(),
@@ -168,6 +171,13 @@ class RSClient:
         if path.startswith("/v1/"):
             path = path[3:]
         attempt = 0
+        pattern = (method, perf.path_pattern(path))
+        until = self.endpoint_blocked.get(pattern)
+        if until:
+            if time.monotonic() < until[0]:
+                raise ApiError(429, f"rate limited: this kind of request is refused for another {until[0] - time.monotonic():.0f} s",
+                               {"retry": until[0] - time.monotonic()})
+            del self.endpoint_blocked[pattern]
         while True:
             await self._acquire(method, background)
             if method in READ_METHODS:
@@ -195,6 +205,14 @@ class RSClient:
                 raise ApiError(429, "rate limited", _safe_json(resp))
             if resp.status_code == 429:
                 retry = retry_after(resp.headers.get("Retry-After"), 10.0)
+                if retry > LONG_RETRY:
+                    # a wait this long is one endpoint's own limit (an hourly one, say), not the shared per-minute
+                    # budget: holding every read or every command for it stopped the whole engine for an hour
+                    # (2026-11-13: one pass waited 3,630 s and prints sat). Only this kind of request waits it out.
+                    self.endpoint_blocked[pattern] = (time.monotonic() + retry, now_text(), retry)
+                    self.last_error = f"{method} {pattern[1]}: rate limited for {retry:.0f}s (its own limit)"
+                    log.warning("429 on %s %s for %ss: only that kind of request is held", method, path, retry)
+                    raise ApiError(429, f"rate limited for {retry:.0f} s", _safe_json(resp))
                 bucket = self.get_bucket if method in READ_METHODS else self.act_bucket
                 bucket.blocked_until = time.monotonic() + retry
                 self.last_error = f"rate limited for {retry:.0f}s"
@@ -262,6 +280,14 @@ class RSClient:
                 raise ApiError(resp.status_code, f"stream refused: {resp.text[:200]}")
             async for ev in parse_sse(resp.aiter_lines()):
                 yield ev
+
+
+LONG_RETRY = 120.0   # a Retry-After beyond this is an endpoint's own limit: the shared budget isn't held for it
+
+
+def now_text() -> str:
+    from .db import now_iso
+    return now_iso()
 
 
 def retry_after(v: str | None, default: float) -> float:

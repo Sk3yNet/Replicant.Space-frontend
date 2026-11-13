@@ -24,14 +24,16 @@ def test_old_events_go_but_kept_kinds_and_each_devices_newest_stay(tmp_path):
         await _ev(db, 2, "travel.arrived", 35)             # this device's newest arrival: stays
         await _ev(db, 3, "scan.completed", 40)             # read back for ever
         await _ev(db, 4, "ami.survey.digest", 40, "BBBB0002")
+        await _ev(db, 10, "ami.survey.digest", 9, "BBBB0002")   # digests keep a week
+        await _ev(db, 11, "ami.survey.digest", 3, "BBBB0002")
         await _ev(db, 5, "ami.survey.digest", 1, "BBBB0002")
         await _ev(db, 6, "ami.device_adopted", 40, "BBBB0002")
         await _ev(db, 7, "event.completed", 40)
         await _ev(db, 9, "print.completed", 45)
         await _ev(db, 8, "print.completed", 10)            # inside the month
-        assert await history.prune_events(db, NOW) == (3, True)
+        assert await history.prune_events(db, NOW) == (4, True)
         left = {r["id"] for r in await db.fetchall("SELECT id FROM events")}
-        assert left == {"e2", "e3", "e5", "e6", "e7", "e8"}
+        assert left == {"e2", "e3", "e5", "e6", "e7", "e8", "e11"}
         assert await history.prune_events(db, NOW) == (0, True)
         await db.close()
     asyncio.run(go())

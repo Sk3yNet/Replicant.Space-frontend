@@ -2,6 +2,7 @@
 totals instead of exact values).
 
 Once a day:
+- AMI digests, experience gains and scan / search starts older than SHORT_DAYS are deleted (each device's newest stays);
 - events older than EVENT_DAYS are deleted, except the kinds the app reads back without a time limit (KEEP: scans,
   prospects, BobNet posts, location events, deals, hubs, relays, directives, asteroids, depleted sites, lost devices,
   blueprint unlocks, AMI adoptions) and the newest event of each kind per device (its last digest, trip, print ...);
@@ -20,7 +21,7 @@ THIN_DAYS = 7
 BATCH = 4000
 MAX_BATCHES = 15          # per call
 STATE_KV = "history_pruned"
-RULES = 2                 # raise when the rules change, so the clean-up runs again without waiting a day
+RULES = 3                 # raise when the rules change, so the clean-up runs again without waiting a day
 
 KEEP_EVENTS = ("scan.completed", "prospect.completed", "bobnet.new", "mining.resource_depleted", "site.depleted",
                "salvage.depleted", "salvage.discovered", "system.impact_warning", "device.decommissioned",
@@ -33,6 +34,13 @@ KEEP_SQL = ("(event IN (%s) OR %s OR (event LIKE 'ami.%%' AND event NOT LIKE '%%
 KEEP_ARGS = (*KEEP_EVENTS, *(p + "%" for p in KEEP_PREFIXES))
 
 
+# High-volume kinds nothing reads back beyond a visit's digest: kept SHORT_DAYS (the 2026-11-13 snapshot: AMI digests
+# were 230,000 of 539,000 events, experience gains 83,000). Each device's newest one still stays.
+SHORT_DAYS = 7
+SHORT_SQL = "(event LIKE 'ami.%.digest' OR event IN ('experience.gained', 'scan.started', 'search.started'))"
+SHORT_ARGS: tuple = ()
+
+
 def _iso(t: datetime) -> str:
     return t.isoformat(timespec="seconds")
 
@@ -43,17 +51,22 @@ async def prune_events(db, now: datetime | None = None, max_batches: int = MAX_B
     await db.execute("CREATE TEMP TABLE IF NOT EXISTS prune_keep(seq INTEGER PRIMARY KEY)")
     await db.execute("DELETE FROM temp.prune_keep")
     await db.execute("INSERT OR IGNORE INTO temp.prune_keep SELECT MAX(seq) FROM events GROUP BY device_code, event")
-    done = 0
-    for _ in range(max_batches):
-        cur = await db.execute(
-            "DELETE FROM events WHERE seq IN (SELECT seq FROM events WHERE received_at < ? "
-            f"AND NOT {KEEP_SQL} AND seq NOT IN (SELECT seq FROM temp.prune_keep) LIMIT ?)", (cutoff, *KEEP_ARGS, BATCH))
-        n = cur.rowcount or 0
-        done += n
-        if n < BATCH:
-            return done, True
-        await asyncio.sleep(0.05)   # let pages and the engine at the database between batches
-    return done, False
+    short = _iso((now or datetime.now(timezone.utc)) - timedelta(days=SHORT_DAYS))
+    done, left = 0, max_batches
+    for cut, cond, args in ((cutoff, f"NOT {KEEP_SQL}", KEEP_ARGS), (short, SHORT_SQL, SHORT_ARGS)):
+        while True:
+            if left <= 0:
+                return done, False
+            left -= 1
+            cur = await db.execute(
+                f"DELETE FROM events WHERE seq IN (SELECT seq FROM events WHERE received_at < ? AND {cond} "
+                "AND seq NOT IN (SELECT seq FROM temp.prune_keep) LIMIT ?)", (cut, *args, BATCH))
+            n = cur.rowcount or 0
+            done += n
+            if n < BATCH:
+                break
+            await asyncio.sleep(0.05)   # let pages and the engine at the database between batches
+    return done, True
 
 
 # What a season reset wipes or ends (owner 2026-11-13: those records can go too; game docs and season.py: systems become

@@ -419,6 +419,17 @@ class JobsMixin:
             if not ok:
                 hint = next((h for k, h in (st.get("hint") or {}).items() if k in (err or "").lower()), None)
                 st["error"] = err = f"{err} — {hint}" if hint else err
+                held = re.search(r"rate limited(?: for|: this kind of request is refused for another) (\d+) s", err or "")
+                if held and int(held.group(1)) > 60 and st["tries"] < SERVER_TRIES:
+                    # this endpoint's own limit (api.LONG_RETRY): the step waits it out, nothing else is held up
+                    st["status"] = "retrying"
+                    st["retry_at"] = (_now() + timedelta(seconds=int(held.group(1)) + 5)).isoformat(timespec="seconds")
+                    job["status"] = "waiting"
+                    await self._update(job)
+                    if st["tries"] == 1:
+                        await self.log(job["rule"], f"{job['title']}: '{st['desc']}' — the game limits this kind of request; "
+                                                    f"trying again in {int(held.group(1)) // 60 + 1} min", "warning")
+                    return
                 if st["tries"] < 2 and re.search(r"\brate.?limit|too many requests", (err or "").lower()):
                     await self._update(job)
                     return  # retry on next tick

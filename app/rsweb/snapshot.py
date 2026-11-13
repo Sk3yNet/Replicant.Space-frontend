@@ -245,6 +245,7 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
     }
     if "perf" in on:
         from . import perf
+        app["rate"] = api.rate_status()   # the request budget, and endpoints the game is holding (their own limits)
         app["perf"] = await perf.report(db)   # slowest requests, engine stage timings, storage sizes
     from . import version as ver
     app["server"] = {"version": ver.VERSION, "fingerprint": ver.FINGERPRINT, "build": ver.BUILD, "run": ver.RUN_ID,
