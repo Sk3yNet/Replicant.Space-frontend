@@ -621,7 +621,7 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
   category isn't starved by a big one (a category with work and no carrier takes one from the biggest).
 - Urgent requests (priority 0) go first with every carrier: evacuations, then trades at Sol (its shops cycle and sell
   out), then prints a factory is stalled on. Before that pass, components a factory is waiting for and devices paying
-  a Sol trade get their carriers (loadout deliveries marked *(priority)*). Carriers left over after each category's turn help any
+  a Sol trade get their carriers (loadout deliveries marked *(priority)*), and a carrier that has just come free goes to devices waiting for a carrier (*(carrier came free)*). A carrier takes the part of a batch it can board (stowable devices, and fly-capable ones on attach points); a device that neither stows nor flies is listed as one no carrier can take. Carriers left over after each category's turn help any
   category; stockpile returns (reallocations) only get leftovers, last. The Devices card shows each carrier's category.
 
 ### Where they wait

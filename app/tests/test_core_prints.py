@@ -617,3 +617,56 @@ def test_awaited_component_is_collected_before_logistics(client):
     job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "loadouts"][-1]
     assert job["title"].endswith("(priority)") and "C1" in job["meta"]["devices"]
     assert client.portal.call(eng.priority_deliveries_pass) == []   # throttled, and C1 is on its way
+
+
+def _mixed_setup(client, extra=()):
+    eng = client.app.state.worker.automations
+    db = client.app.state.db
+
+    async def enable():
+        s = await eng.settings()
+        s["rules"]["loadouts"]["enabled"] = True
+        await eng.save_settings(s)
+    client.portal.call(enable)
+    devices = [
+        {"device_code": "MF1", "device_type": "mobile_fleet", "location": "FAL-1-L4", "status": "idle", "attach_capacity": 36,
+         "features": ["surge", "attach"], "available_commands": ["attach", "detach", "travel"], "tags": []},
+        {"device_code": "S1", "device_type": "ftl_beacon", "location": "FAL-1-L4", "status": "monitoring",
+         "available_commands": ["stow"], "tags": ["to:ith"]},
+        {"device_code": "T1", "device_type": "gas_separator", "location": "FAL-1-L4", "status": "idle",
+         "available_commands": ["travel", "activate"], "tags": ["to:ith"]},
+        {"device_code": "H1", "device_type": "hull_plate", "location": "FAL-1-L4", "status": "idle",
+         "available_commands": [], "tags": ["to:ith"]},
+        {"device_code": "RLF", "device_type": "ftl_relay", "location": "FAL-1-L4", "status": "relaying", "tags": []},
+        {"device_code": "RLI", "device_type": "ftl_relay", "location": "ITH-2-L4", "status": "relaying", "tags": []},
+        *extra,
+    ]
+    client.portal.call(db.kv_set, "devices", devices)
+    reps = client.portal.call(db.kv_get, "replicants") or {}
+    client.portal.call(db.kv_set, "replicants", {**reps, "RX": {"name": "rx", "location": "FAL-1-L4"}})
+    cat = {"stars": [{"designation": "FAL", "position": {"x": 0, "y": 0, "z": 0}, "entry_point": "FAL-1-L4"},
+                     {"designation": "ITH", "position": {"x": 1, "y": 0, "z": 0}, "entry_point": "ITH-2-L4"}]}
+    client.portal.call(db.kv_set, "stars", cat)
+    return eng, db
+
+
+def test_mixed_batch_boards_what_it_can(client):
+    """Live 2026-11-13: SOL_Trader's devices (stow-only, fly-only and a hull plate that does neither) never fit a carrier
+    whole, so none of them moved."""
+    eng, _ = _mixed_setup(client)
+    p = client.portal.call(eng.loadout_plan)
+    dl = [d for d in p["deliveries"] if d["carrier"] == "MF1"]
+    assert dl and set(dl[0]["devices"]) == {"S1", "T1"}, p["deliveries"]
+    assert any("neither stows nor flies" in u["why"] and u["n"] == 1 for u in p["unmet"]), p["unmet"]
+
+
+def test_freed_carrier_goes_to_waiting_devices_before_logistics(client):
+    """Joe 2026-11-13: a carrier that comes free takes waiting device moves before the logistics pass grabs it."""
+    eng, db = _mixed_setup(client)
+    client.portal.call(db.kv_set, "loadouts_last", {"at": "2026-11-13T16:50:00+00:00", "lines": [
+        "can't fill 2× ftl_beacon in ITH: waiting for a surge-capable carrier in FAL (or a free one within 1728 ly) to go to ITH"]})
+    started = client.portal.call(eng.priority_deliveries_pass)
+    assert started and "MF1" in started[0], started
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "loadouts"][-1]
+    assert job["title"].endswith("(carrier came free)") and {"S1", "T1"} <= set(job["meta"]["devices"])
+    assert client.portal.call(eng.priority_deliveries_pass) == []   # MF1 is busy now, nothing new came free

@@ -913,11 +913,17 @@ class LoadoutMixin:
         from . import loadouts as lo
         if not await self.rule_cfg("loadouts"):
             return []
+        devices, jobs = await self.devices(), await self.jobs()
+        busy = self.busy_devices(jobs)
         last = _ts(await self.db.kv_get("priority_deliveries_at", None))
-        if last and (_now() - last).total_seconds() < 110:
-            return []
-        want = lo.priority_devices(await self.devices()) - self.busy_devices(await self.jobs())   # not on a trip already
-        if not want:
+        want = set()
+        if not last or (_now() - last).total_seconds() >= 110:
+            want = lo.priority_devices(devices) - busy   # not on a trip already
+        # carriers that just came free go to waiting device moves first (Joe 2026-11-13: many to:-tagged devices sat for
+        # hours: logistics_pass runs every 2 minutes and took each freed carrier before the 15-minute loadouts pass looked,
+        # sending some straight back to their hub idle)
+        freed = await self.freed_carriers(devices, busy)
+        if not want and not freed:
             return []
         await self.db.kv_set("priority_deliveries_at", now_iso())
         cfg = await self.loadout_cfg()
@@ -928,24 +934,50 @@ class LoadoutMixin:
         if await self.start_compactions({**p, "compact": [x for x in p.get("compact") or [] if x[0] in want]}):
             started.append("compacting " + ", ".join(c for c, _ in p.get("compact") or [] if c in want))
         for code, dest in p["self_moves"]:
-            if code in want and await self.create_job(
+            if code in want and code not in busy and await self.create_job(
                     "loadouts", f"loadouts: {code} → {dest} (priority)", code,
                     lo.self_move_steps(code, dest, stars, p["by_code"][code], p.get("managed"),
                                        gathering=code in set(p.get("gathering") or []), join=(p.get("assign") or {}).get(code)),
                     {"devices": [code], "star": dest}):
                 started.append(f"{code} flies to {dest}")
         for dl in p["deliveries"]:
-            if want & set(dl["devices"]) and await self.create_job(
+            why = "priority" if want & set(dl["devices"]) else "carrier came free" if dl["carrier"] in freed else None
+            if why and await self.create_job(
                     "loadouts", f"loadouts: {dl['carrier']} carries {len(dl['devices'])} {dl['from']} → "
-                                f"{' → '.join([dl['to']] + list(dl.get('stops') or []))} (priority)", dl["carrier"],
+                                f"{' → '.join([dl['to']] + list(dl.get('stops') or []))} ({why})", dl["carrier"],
                     lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
                                       gathering=set(p.get("gathering") or []), assign=p.get("assign"),
                                       radii=radii, max_cruise_au=far_au),
                     {"devices": dl["devices"], "star": dl["to"]}):
                 started.append(f"{dl['carrier']} carries {', '.join(dl['devices'])} to {dl['to']}")
         for line in started:
-            await self.log("loadouts", f"priority collection: {line}")
+            await self.log("loadouts", f"collection ahead of logistics: {line}")
         return started
+
+    async def freed_carriers(self, devices: list[dict], busy: set[str]) -> set[str]:
+        """Logistics or fleetless surge carriers idle now that weren't at the last look, while the last loadouts pass left
+        devices waiting for a carrier (kv carriers_free_seen keeps the idle set, so one left idle isn't planned for again
+        every couple of minutes)."""
+        from . import fleets as fl
+        from . import loadouts as lo
+        from .shapes import normalize_blueprints
+        last = (await self.db.kv_get("loadouts_last", {})) or {}
+        if not any("waiting for a surge-capable carrier" in str(line) for line in last.get("lines") or []):
+            return set()
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        ltags = {fl.fleet_tag(f["id"]) for f in await self.fleets() if f.get("role") == "logistics" and not f.get("recall_hold")}
+        free = set()
+        for d in devices:
+            ft = next((t for t in d.get("tags") or [] if t.startswith("fleet:")), None)
+            if (d.get("device_code") not in busy and lo.can_surge(d) and lo._carrier_cap(d, bps) > 0
+                    and (not ft or ft in ltags) and not d.get("controller_device_code")
+                    and "reserved" not in (d.get("tags") or [])
+                    and not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed"))):
+                free.add(d["device_code"])
+        seen = set(await self.db.kv_get("carriers_free_seen", []) or [])
+        if free != seen:
+            await self.db.kv_set("carriers_free_seen", sorted(free))
+        return free - seen
 
     async def dispatch_new_prints(self, max_wait_minutes: int = 15) -> list[str]:
         """Prints that just came out bound for another system: refresh the device list until they show up, then start

@@ -1312,6 +1312,22 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         stow_ok = all("stow" in (by_code[x].get("available_commands") or ["stow"]) for x in rest)
         return stow_ok or (attach_ and all(can_travel(by_code[x]) for x in rest))
 
+    def boardable(c: dict, codes_: list[str]) -> list[str]:
+        """The ones of a batch this carrier can take, each on its own terms: aboard it already, stowable, or (attach
+        points) able to fly. A batch mixing stow-only devices with fly-only ones, or holding one that does neither,
+        never fit any carrier whole (live 2026-11-13: SOL_Trader's 27 devices at SOLARES, a hull plate among them,
+        waited for hours while carriers came and went)."""
+        attach_ = carry_mode(c, bps) == "attach"
+        return [x for x in codes_ if stowed_in.get(x) == c["device_code"]
+                or "stow" in (by_code[x].get("available_commands") or ["stow"])
+                or (attach_ and can_travel(by_code[x]))]
+
+    def unboardable(x: str) -> bool:
+        """Neither stows nor flies, and isn't aboard anything: no carrier can take it (a hull plate)."""
+        d = by_code.get(x) or {}
+        return (not stowed_in.get(x) and d.get("available_commands") is not None
+                and "stow" not in d["available_commands"] and not can_travel(d))
+
     def may_carry(c: dict, codes_: list[str]) -> bool:
         """Deliveries are the logistics fleets' work (and a spare carrier's, in no fleet); another fleet's carrier only
         picks up its own fleet's members (live 2026-10-18: Miner 0.5's cargo vessel was borrowed to carry compute cores
@@ -1351,6 +1367,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     for (here, dest, owner, _fam), codes in sorted(batches.items(), key=lambda kv: (not awaited(kv[1]), -len(kv[1]), kv[0][0], kv[0][1],
                                                                                     kv[0][2] or "", kv[0][3])):
         codes = sorted(x for x in codes if x not in taken)
+        stuck = [x for x in codes if unboardable(x)]
+        if stuck:
+            codes = [x for x in codes if x not in stuck]
+            unmet.append({"star": dest, "type": ", ".join(sorted({by_code[x].get("device_type") for x in stuck})),
+                          "n": len(stuck), "why": f"can't leave {here}: it neither stows nor flies, so no carrier can "
+                                                  "take it (move it by hand or drop its to: tag)"})
         # beyond an active relay network, at either end (live 2026-10-20: a surge platform with no replicant flew into
         # SOL to pick up a gas separator and was stranded there itself)
         outside = commandable is not None and (dest not in commandable or bool(here) and here not in commandable)
@@ -1364,14 +1386,14 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 if commandable is not None else [c for c in carriers if c["device_code"] not in replicant_hosts
                                                  or fleet_tag_of(c) in logistics_tags or c["device_code"] in boot_vessels]
             options = [c for c in cpool if star_of(c.get("location")) == here and c["device_code"] not in used and keeps(c, codes)
-                       and same_owner(c, owner) and c["device_code"] not in codes and fits(c, codes) and may_carry(c, codes)
+                       and same_owner(c, owner) and c["device_code"] not in codes and boardable(c, codes) and may_carry(c, codes)
                        ]
             fetched_from = None
             if not options:
                 # none in this system: send the nearest free carrier from another system to pick them up
                 btag = fleet_tag_of(by_code.get(codes[0]) or {}) or assign.get(codes[0])
                 remote = [c for c in cpool if star_of(c.get("location")) not in (here, "") and c["device_code"] not in used and keeps(c, codes)
-                          and same_owner(c, owner) and c["device_code"] not in codes and fits(c, codes)
+                          and same_owner(c, owner) and c["device_code"] not in codes and boardable(c, codes)
                           and may_carry(c, codes) and _free(c, bps, stowed_map) > 0
                           # a borrowed carrier only comes from within the supply range of the pick-up (seen live 2026-10-10:
                           # five carriers flew ~500 ly empty to move one drone each); the fleet's own, or its supplier's, may come from anywhere
@@ -1406,8 +1428,10 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 continue
             on_c = {x.get("device_code") for x in (c.get("attached_devices") or []) + (c.get("stowed_devices") or [])
                     if isinstance(x, dict)} | set((stowed_map or {}).get(c["device_code"], []))
-            codes = sorted(codes, key=lambda x: x not in on_c)   # already aboard first: they hold their seat (_free)
-            load, codes = codes[:room], codes[room:]
+            can = boardable(c, codes)
+            can = sorted(can, key=lambda x: x not in on_c)   # already aboard first: they hold their seat (_free)
+            load = can[:room]
+            codes = [x for x in codes if x not in load]   # the rest (overflow, or ones it can't take) wait for another
             taken.update(load)
             used.add(c["device_code"])
             dl = {"carrier": c["device_code"], "carrier_loc": c.get("location"), "from": here, "to": dest,
