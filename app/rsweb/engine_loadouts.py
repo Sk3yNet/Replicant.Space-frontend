@@ -101,19 +101,6 @@ class LoadoutMixin:
                 out.append(f"{n} component(s) pinned to a factory beyond the sector range are spares again")
                 await self.log("components", out[-1])
         far_codes = {d["device_code"] for d in far}
-        left_out = [d for d in comp.stranded(devices, self.busy_devices(await self.jobs())) if d["device_code"] not in far_codes]
-        n = 0
-        for d in left_out:   # pinned to a factory but left out in a system without one: spares again, the factory prints
-            cfg = comp.release(d)
-            ok, _, _ = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": cfg},
-                                       f"components: {d['device_code']} released (left at {d.get('location')}, no factory there)")
-            if ok:
-                n += 1
-                far_codes.add(d["device_code"])
-                d["tags"] = [t for t in d.get("tags") or [] if t not in cfg["remove_tags"]] + ["spare"]
-        if n:
-            out.append(f"{n} component(s) left out in systems without a factory are spares again (their factories print their own)")
-            await self.log("components", out[-1])
         lost = [(d, cfg) for d, cfg in comp.unbound(devices) if d["device_code"] not in far_codes]
         for d, cfg in lost:   # pinned to a factory in another system but no longer bound there: sent again
             ok, _, _ = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": cfg},
@@ -159,8 +146,7 @@ class LoadoutMixin:
         blocked = {g["factory"] for g in gaps}
         for g in gaps:
             pinned, printed, note = await self.pin_or_print(g["type"], g["short"], g["location"], devices, busy,
-                                                            f"components for {g['factory']}", tags=g["tags"], not_at=blocked,
-                                                            spare_stars=comp.factory_stars(devices))
+                                                            f"components for {g['factory']}", tags=g["tags"], not_at=blocked)
             ahead = await self.components_ahead(g, g["short"] - len(pinned) - printed)
             what = ", ".join(x for x in [f"{len(pinned)} spare(s) sent" if pinned else "",
                                          f"{printed} queued to print" if printed else "", ahead] if x)

@@ -1357,3 +1357,27 @@ def test_stow_into_attach_carrier_sends_attach(client):
     assert r.status_code == 200
     row = client.portal.call(client.app.state.db.fetchone, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")
     assert row["path"] == "/devices/SP000001" and '"attach"' in row["body"] and "D8C2A140" in row["body"]
+
+
+def test_awaited_components_ride_first_and_compacted_spares_are_gathered():
+    """Joe 2026-11-13: three observatories pinned to FALQUORYX for a parallax array waited 10 hours while every carrier
+    took bigger batches; spare observatories left compacted at far stars were never gathered."""
+    from rsweb import loadouts as lo
+    cfg, devices, bps, inv, stars = _lo_world()
+    cfg["settings"] = {"spare_depot": "AAA"}
+    af = next(d for d in devices if d["device_code"] == "AF")
+    af["status"] = "waiting_for_resources"
+    af["print_queue"] = [{"device_type": "parallax_array"}]
+    af["waiting_for"] = {"components": {"galactic_observatory": {"have": 0, "need": 1}}}
+    obs = dict(features=["cruise"], cmds=["travel", "stow", "compact", "unfurl"])
+    devices += [
+        {"device_code": "GO", "device_type": "galactic_observatory", "location": "CCC-4-L4", "status": "compacted",
+         "features": ["cruise"], "available_commands": ["travel", "stow", "unfurl"],
+         "tags": ["component", "to:aaa", "at:aaa-3-l4"]},
+        {"device_code": "GS", "device_type": "galactic_observatory", "location": "BBB-4-L4", "status": "compacted",
+         "features": obs["features"], "available_commands": obs["cmds"], "tags": ["spare"]}]
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    # the one carrier fetches the awaited component before the two drones bound for BBB
+    first = next(dl for dl in p["deliveries"] if dl["carrier"] == "CAR")
+    assert first["devices"] == ["GO"] and first["to"] == "AAA"
+    assert "GS" in p["gathering"] and p["moves"]["GS"] == "AAA"

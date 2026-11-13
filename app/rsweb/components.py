@@ -166,45 +166,12 @@ def free_here(devices: list[dict], fac: dict, device_type: str, bps: dict[str, d
     return max(0, n)
 
 
-def factory_stars(devices: list[dict]) -> set[str]:
-    """Systems with an autofactory of ours: the hubs, where logistics carriers come and go."""
-    from .automations import star_of
-    from .loadouts import is_factory
-    return {star_of(d["location"]) for d in devices if d.get("location") and is_factory(d)}
-
-
 def spares_elsewhere(devices: list[dict], location: str, device_type: str) -> list[dict]:
-    """Spare components of a type away from the location and not pinned anywhere (another factory's components stay),
-    in a system with a factory, the factory's own first. A spare left out in a system without one isn't taken
-    (snapshot 2026-11-13 02:24: three old prospecting observatories, compacted at DRAQUELIS, MYRRALON and ZALDRALAI,
-    were pinned to FALQUORYX for a parallax array; no carrier ever came for lone devices that far out, and as they
-    counted as coming, the factory never printed its own)."""
-    from .automations import star_of
+    """Spare components of a type away from the location and not pinned anywhere (another factory's components stay)."""
     from .loadouts import is_component, pinned_at
-    hubs = factory_stars(devices)
-    home = star_of(location)
     return sorted((d for d in devices if d.get("device_type") == device_type and "spare" in (d.get("tags") or [])
-                   and d.get("location") != location and not pinned_at(d) and not is_component(d)
-                   and star_of(d.get("location") or "") in hubs),
-                  key=lambda d: (star_of(d.get("location") or "") != home, d.get("device_code") or ""))
-
-
-def stranded(devices: list[dict], busy: set[str] | frozenset = frozenset()) -> list[dict]:
-    """Components pinned to a factory in another system that sit, on no job and aboard nothing, in a system without a
-    factory (spares_elsewhere no longer takes those; pinned before 1.397.0): they go back to being spares where they
-    are, so the factory prints its own."""
-    from .automations import star_of
-    from .loadouts import is_component, pinned_at
-    hubs = factory_stars(devices)
-    out = []
-    for d in devices:
-        pin = pinned_at(d)
-        here = star_of(d.get("location") or "")
-        if (is_component(d) and pin and here and here != star_of(pin) and here not in hubs
-                and d.get("device_code") not in busy and not d.get("stowed_in_device_code")
-                and not d.get("attached_to_device_code")):
-            out.append(d)
-    return out
+                   and d.get("location") != location and not pinned_at(d) and not is_component(d)),
+                  key=lambda d: d.get("device_code") or "")
 
 
 def coming(devices: list[dict], location: str, device_type: str) -> int:

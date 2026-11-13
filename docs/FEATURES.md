@@ -753,9 +753,8 @@ don't pass on, so no fleet counts them, the loadout pass never makes them spare,
 
 A factory already waiting for components first claims the ones of that type already at its location (tags them
 `component`), then gets free spares pinned to it, or the rest printed at another autofactory (every 5 minutes).
-Spares are only taken from systems with an autofactory (the hubs), its own system first: a spare left out elsewhere (an
-old observatory compacted at a far star) is never pinned, and a component pinned earlier that still sits in a system
-without a factory, on no job, goes back to spare so the factory prints its own.
+Loadouts carries components a factory is waiting for before any other delivery, so a lone device far out isn't left
+behind bigger batches.
 
 ### Blueprints
 

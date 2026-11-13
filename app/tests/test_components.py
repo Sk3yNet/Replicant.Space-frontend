@@ -69,7 +69,7 @@ def test_a_new_print_uses_components_already_there_and_spares_before_printing(cl
         {"device_code": "AF1", "device_type": "autofactory", "location": "SOL-3-L4", "status": "idle",
          "available_commands": ["enqueue_print"], "print_queue": [{"device_type": "hydroponic_bay", "quantity": 1}]},
         {"device_code": "HB1", "device_type": "hydroponic_bay", "location": "SOL-3-L4", "status": "idle", "tags": []},
-        {"device_code": "OF1", "device_type": "orbital_farm", "location": "SOL-5", "status": "idle", "tags": ["spare"]}])
+        {"device_code": "OF1", "device_type": "orbital_farm", "location": "ABOTEIN-2", "status": "idle", "tags": ["spare"]}])
     sent = []
 
     class Api:
@@ -162,7 +162,7 @@ def test_components_are_tagged_and_not_traded_between_hubs(client):  # noqa: F81
     devs = [fac("AF1", "SOLARES-BELT-1"), fac("AF2", "FALQUORYX-BELT-1"),
             ic("S1", "SOLARES-BELT-1", ["at:solares-belt-1", "spare"]), ic("S2", "SOLARES-BELT-1", []),
             ic("F1", "FALQUORYX-BELT-1", ["at:falquoryx-belt-1", "spare"]), ic("F2", "FALQUORYX-BELT-1", ["spare", "stock"]),
-            ic("X1", "FALQUORYX-5", ["spare"])]
+            ic("X1", "ABOTEIN-2", ["spare"])]
     claim = comp.claimable(devs)
     assert sorted(d["device_code"] for d, _ in claim) == ["F1", "F2", "S1", "S2"]
     f2 = next((d, t) for d, t in claim if d["device_code"] == "F2")
@@ -313,22 +313,3 @@ def test_a_component_aboard_a_replicant_vessel_at_its_pin_is_unloaded():
     p = lo.plan(cfg, [{**hv, "status": "surging"}, d1], [], {}, stars, {"HV": "X"}, set(), [], {"HV": ["D1"]},
                 commandable={"SOLARES"})
     assert p["arrived"] == []   # still on the way
-
-
-def test_spares_out_where_no_factory_are_neither_pinned_nor_kept_pinned():
-    # snapshot 2026-11-13 02:24: old prospecting observatories compacted far out were pinned to FALQUORYX for a parallax
-    # array and never fetched, while they counted as coming
-    af = {"device_code": "AF1", "device_type": "autofactory", "location": "FALQUORYX-BELT-1", "available_commands": ["enqueue_print"]}
-    far = {"device_code": "GO1", "device_type": "galactic_observatory", "location": "DRAQUELIS-6-L4", "status": "compacted",
-           "tags": ["spare"]}
-    hub = {"device_code": "GO2", "device_type": "galactic_observatory", "location": "SOLARES-BELT-1", "status": "idle",
-           "tags": ["spare"]}
-    other = {"device_code": "AF2", "device_type": "autofactory", "location": "SOLARES-BELT-1", "available_commands": ["enqueue_print"]}
-    assert [d["device_code"] for d in comp.spares_elsewhere([af, far, hub, other], "FALQUORYX-BELT-1", "galactic_observatory")] == ["GO2"]
-    assert comp.spares_elsewhere([af, far], "FALQUORYX-BELT-1", "galactic_observatory") == []
-    pinned = {**far, "tags": ["component", "to:falquoryx", "at:falquoryx-belt-1"]}
-    aboard = {**pinned, "device_code": "GO3", "attached_to_device_code": "SP1"}
-    at_hub = {**pinned, "device_code": "GO4", "location": "SOLARES-BELT-1"}
-    assert [d["device_code"] for d in comp.stranded([af, other, pinned, aboard, at_hub])] == ["GO1"]
-    assert comp.stranded([af, pinned], {"GO1"}) == []   # on its way: a job has it
-    assert comp.release(pinned) == {"add_tags": ["spare"], "remove_tags": ["component", "to:falquoryx", "at:falquoryx-belt-1"]}

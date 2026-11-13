@@ -1068,7 +1068,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                         or d.get("taxi_mode") == "taxi" or "taxi" in (d.get("tags") or []) or fam(d)
                         or kept_in_stock(d)
                         or not near(d, depot)   # never flown further than the supply range just to be parked
-                        or not str(d.get("status") or "").startswith(("idle", "stowed", "inactive", "monitoring", "deployed"))):
+                        # compacted ones too (Joe 2026-11-13: old prospecting observatories sat compacted at far stars)
+                        or not (str(d.get("status") or "").startswith(("idle", "stowed", "inactive", "monitoring", "deployed"))
+                                or str(d.get("status") or "") == "compacted")):
                     continue
                 moves[code] = depot
                 gathering.append(code)
@@ -1308,7 +1310,20 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         for x in codes_:
             split[(*k, fam(by_code.get(x)) or "")].append(x)
     batches = split
-    for (here, dest, owner, _fam), codes in sorted(batches.items(), key=lambda kv: (-len(kv[1]), kv[0][0], kv[0][1], kv[0][2] or "", kv[0][3])):
+    # components a factory is waiting for go first (Joe 2026-11-13: three observatories pinned to FALQUORYX for a
+    # parallax array lost every carrier to bigger batches for 10 hours, one-device batches sorting last)
+    awaited_types: set[tuple[str, str]] = set()
+    for f in devices:
+        wf = (f.get("waiting_for") or {}).get("components")
+        if isinstance(wf, dict) and f.get("location"):
+            awaited_types.update((f["location"], t) for t in wf)
+
+    def awaited(codes_: list[str]) -> bool:
+        return any(is_component(by_code.get(x) or {}) and ((pinned_at(by_code.get(x) or {}) or ""),
+                                                           (by_code.get(x) or {}).get("device_type")) in awaited_types
+                   for x in codes_)
+    for (here, dest, owner, _fam), codes in sorted(batches.items(), key=lambda kv: (not awaited(kv[1]), -len(kv[1]), kv[0][0], kv[0][1],
+                                                                                    kv[0][2] or "", kv[0][3])):
         codes = sorted(x for x in codes if x not in taken)
         # beyond an active relay network, at either end (live 2026-10-20: a surge platform with no replicant flew into
         # SOL to pick up a gas separator and was stranded there itself)
