@@ -756,7 +756,9 @@ orbital farm), deployed at the factory. Every print the app queues (manual ones 
    unlocks it.
 
 Components are tagged `component` and pinned to the factory (`to:`/`at:`); the item's spare, stock and fleet tags
-don't pass on, so no fleet counts them, the loadout pass never makes them spare, and no other factory takes them.
+don't pass on, so no fleet counts them, the loadout pass never makes them spare, and no other factory takes them. The
+in-system rules (patrol, wake-ups, adoption) leave them alone, and one found on an AMI directive is taken off it so it
+reaches its factory (1.404.0).
 
 A factory already waiting for components first claims the ones of that type already at its location (tags them
 `component`), then gets free spares pinned to it, or the rest printed at another autofactory (every 5 minutes).

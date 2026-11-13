@@ -115,6 +115,26 @@ class LoadoutMixin:
                 await self.log("print queue", out[-1], "warning")
         return out
 
+    async def recall_working_components(self, devices: list[dict]) -> list[str]:
+        """Components on an AMI directive (a maintenance drone or service bot set to patrol) are taken off it, so the
+        loadout pass brings them to the factory waiting for them (they were "coordinating" around the system instead)."""
+        from .loadouts import is_component
+        busy = self.busy_devices(await self.jobs())
+        out = []
+        for d in devices:
+            dv = d.get("ami_directive")
+            name = dv.get("name") if isinstance(dv, dict) else dv
+            if (not is_component(d) or not name or d.get("device_code") in busy
+                    or "clear_directive" not in (d.get("available_commands") or [])):
+                continue
+            ok, _, _ = await self.send("POST", f"/devices/{d['device_code']}", {"command": "clear_directive"},
+                                       f"components: {d['device_code']} off its {name} directive")
+            if ok:
+                out.append(f"{d['device_code']} ({str(d.get('device_type')).replace('_', ' ')}) at {d.get('location')}: "
+                           f"taken off its {name} directive, it's kept for a print")
+                await self.log("components", out[-1])
+        return out
+
     async def component_pass(self) -> list[str]:
         """Factories waiting for component devices (components.py): spares are pinned to the factory's location, the
         rest printed at another autofactory, with the waiting item's tags. Every 5 minutes."""
@@ -126,6 +146,7 @@ class LoadoutMixin:
         await self.db.kv_set("components_last", now_iso())
         devices = await self.devices()
         out = await self.unstick_heads(devices)
+        out += await self.recall_working_components(devices)
         if out:
             devices = await self.devices()
         far = comp.far_pins(devices, await self.star_lookup("pos"))

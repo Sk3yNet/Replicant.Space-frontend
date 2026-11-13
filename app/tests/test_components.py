@@ -378,3 +378,18 @@ def test_a_print_with_locked_components_is_refused_and_a_stuck_head_dropped(clie
     out = client.portal.call(e.unstick_heads, [stuck])
     assert out and "dropped the atmospheric regulator" in out[0], out
     assert [x["device_type"] for x in w.queues["AF00BEEF"]] == ["orbital_farm"]
+
+
+def test_components_are_kept_off_patrol_and_taken_off_a_directive(client):  # noqa: F811
+    from rsweb import ami_schedule as ams, upkeep as up
+    e = client.app.state.worker.automations
+    drone = {"device_code": "MD000001", "device_type": "maintenance_drone", "location": "SOLARES-4-L4", "status": "coordinating",
+             "tags": ["at:solares-belt-1", "component"], "ami_directive": {"name": "patrol"}, "ami_directive_status": "active",
+             "available_commands": ["clear_directive", "set_directive", "travel"]}
+    idle = {**drone, "status": "idle", "location": "SOLARES-BELT-1", "ami_directive": None}
+    assert ams.reserved(idle) and up.to_patrol([idle], set()) == [] and ams.wakeups([idle], set(), {}) == []
+    client.app.state.api.http._transport.app.state.world.devices.append(dict(drone))
+    out = client.portal.call(e.recall_working_components, [drone, idle])
+    assert len(out) == 1 and "MD000001" in out[0] and "patrol directive" in out[0]
+    row = client.portal.call(client.app.state.db.fetchone, "SELECT body FROM actions WHERE path='/devices/MD000001' ORDER BY rowid DESC LIMIT 1")
+    assert "clear_directive" in row["body"]

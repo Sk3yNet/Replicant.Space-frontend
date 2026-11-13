@@ -159,8 +159,11 @@ def standing(d: dict) -> bool:
 
 def reserved(d: dict) -> bool:
     """Not available to the in-system work rules: a fleet member away from its station, a device on its way to another
-    system, or a spare (the loadout let it go so it can be sent where it's needed — re-adopting it here would undo that)."""
-    return on_mission(d) or in_transit(d) or "spare" in (d.get("tags") or [])
+    system, a spare (the loadout let it go so it can be sent where it's needed — re-adopting it here would undo that), or
+    a component kept for a print (snapshot 2026-11-13 14:54: the maintenance drone and service bot printed for SOLARES's
+    fleet tender were put on patrol and wandered off to SOLARES-4-L4, so the tender waited for them for good)."""
+    tags = d.get("tags") or []
+    return on_mission(d) or in_transit(d) or "spare" in tags or "component" in tags
 
 
 def can_adopt(ctrl: dict, d: dict) -> bool:
