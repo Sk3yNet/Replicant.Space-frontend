@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.390.0"
+VERSION = "1.391.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.391.0", "2026-11-12", "Code layout only, no behavior change (Joe: build the review's suggestions). automations.py (7,100 lines) is split by area: engine_base.py (rule table, step helpers, lock), engine_jobs.py (job runner), engine_loadouts.py, engine_fleets.py (missions, recall, fleet runner) and engine_rules.py (contract and mining rules). automations.py keeps events, tick stages and helpers, and still exports the same names."),
     ("1.390.0", "2026-11-12", "Efficiency (Joe: build the review's suggestions). An observatory's run drops its list of every known star once the prospect's result is in (the saved runs had grown to 8 MB). Mining prospects, Systems, the system pages and the salvage rule no longer ask the database whether each system changed: the database counts what it stores per system, so the prospects page goes from about 2,000 queries to a handful, and a stockpile changing in one system no longer makes every other system's sites and salvage be worked out again."),
     ("1.389.0", "2026-11-12", "History clean-up (Joe: a month is enough, older records as totals). Once a day, events older than 30 days are deleted unless the app still reads them: scans, prospects, BobNet posts, location events, trades and contracts, hubs, relays, directives, asteroids, depleted sites, lost devices, blueprint unlocks and AMI adoptions stay, and so does each device's newest event of every kind. Stockpile history older than a week keeps each day's last reading; backlog metrics older than a week keep one average a day. The first clean-up runs in batches over a few account polls. The database file doesn't shrink by itself: the freed space is reused."),
     ("1.388.1", "2026-11-12", "Auto-scout: a survey fleet with a replicant aboard goes beyond relay coverage (still within its home hub's scout radius); one without a replicant stays inside coverage (Joe)."),

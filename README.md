@@ -347,7 +347,12 @@ app/rsweb/
   main.py, config.py       app start-up and settings
   api.py                   rate-limited API client + SSE parser
   ingest.py                event stream, pollers, timers, device sync
-  automations.py           the automation engine: jobs, rules, fleet missions, tick stages
+  automations.py           the automation engine: events, tick stages, helpers for rules
+  engine_base.py           what the engine's parts share (rule table, step helpers, lock)
+  engine_jobs.py           the job runner (steps, waits, retries, trips)
+  engine_loadouts.py       loadout plan and jobs
+  engine_fleets.py         fleet missions, recall, the fleet runner
+  engine_rules.py          contract and mining rules
   ops_rules.py             the Traffic / Defense / Upkeep / Shop rules (mixed into the engine)
   loadouts.py              the loadout pass: spares, prints, deliveries, placement
   fleets.py                fleets, missions, deals; reform.py rebuilds tags
