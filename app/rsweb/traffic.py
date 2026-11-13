@@ -187,28 +187,39 @@ def scanned_bodies(rows: list[Any]) -> list[dict]:
     return out
 
 
-_life_memo: dict = {}   # id(db) -> (db, key, answer)
+_life_memo: dict = {}   # "systems" -> (db, key, scans), "bodies" -> (db, key, last seq, bodies)
 
 
 async def life_sources(db) -> tuple[dict[str, dict], list[dict]]:
-    """(stored system scans, scanned bodies) for inhabited(). Shared until a system scan or a scan event is stored:
-    don't change them (every scan was decoded on each call, several times a tick)."""
+    """(stored system scans, scanned bodies) for inhabited(). Shared: don't change them. The system scans are decoded
+    again only when one is stored; the scanned bodies only grow, so each call reads just the scan events that came in
+    since the last one (every scan was read and decoded on each call, several times a tick)."""
     from . import season
     reset = await season.reset_at(db)   # a season reset makes every system unexplored: older finds start over
     gen = getattr(db, "gen", None)
-    key = (gen["systems"], gen["scans"], str(reset)) if gen else None
-    hit = _life_memo.get(id(db))
-    if key and hit and hit[0] is db and hit[1] == key:
-        return hit[2]
-    systems = systems_from_rows([r for r in await db.fetchall("SELECT star, data, updated_at FROM systems")
-                                 if not season.before(r["updated_at"], reset)])
-    rows = await db.fetchall("SELECT payload, created_at, received_at FROM events WHERE event='scan.completed' "
-                             "AND payload LIKE '%life_stage%' ORDER BY seq")
-    out = systems, scanned_bodies([r for r in rows if not season.before(r["created_at"] or r["received_at"], reset)])
-    if key and key[:2] == (gen["systems"], gen["scans"]):
-        _life_memo.clear()   # one server, one database (tests open many)
-        _life_memo[id(db)] = (db, key, out)
-    return out
+    skey = (gen["systems"], str(reset)) if gen else None
+    hit = _life_memo.get("systems")
+    if skey and hit and hit[0] is db and hit[1] == skey:
+        systems = hit[2]
+    else:
+        systems = systems_from_rows([r for r in await db.fetchall("SELECT star, data, updated_at FROM systems")
+                                     if not season.before(r["updated_at"], reset)])
+        if skey and skey[0] == gen["systems"]:
+            _life_memo["systems"] = (db, skey, systems)
+    bkey = (gen["all"], str(reset)) if gen else None
+    hit = _life_memo.get("bodies")
+    if bkey and hit and hit[0] is db and hit[1] == bkey:
+        last, bodies = hit[2], hit[3]
+    else:
+        last, bodies = 0, []
+    rows = await db.fetchall("SELECT seq, payload, created_at, received_at FROM events WHERE event='scan.completed' "
+                             "AND seq > ? AND payload LIKE '%life_stage%' ORDER BY seq", (last,))
+    if rows:
+        bodies = bodies + scanned_bodies([r for r in rows if not season.before(r["created_at"] or r["received_at"], reset)])
+        last = rows[-1]["seq"]
+    if bkey and bkey[0] == gen["all"]:
+        _life_memo["bodies"] = (db, bkey, last, bodies)
+    return systems, bodies
 
 
 def coverage(events: dict[str, dict], devices: list[dict], systems: dict[str, dict],

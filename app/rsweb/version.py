@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.394.0"
+VERSION = "1.395.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.395.0", "2026-11-12", "From the 02:24 performance snapshot (Joe). An observatory's list of every known star (about a megabyte per running prospect; the runs were still 7.6 MB and read by every map refresh and three passes a tick) is kept in a value of its own, written once and read once. Scanned bodies for the civilization checks are read incrementally: only scan events since the last call. The database's write-ahead log is emptied after the daily clean-up (it had grown to 139 MB). Diagnostics › Performance lists events by kind and the clean-up's state, to show what the month rule keeps."),
     ("1.394.0", "2026-11-12", "Tests only (Joe: build the review's suggestions). test_core.py (10,460 lines, 471 tests) is split by area into test_core_logistics, _loadouts, _fleets, _mining, _relays, _deals, _prints and _messages; the shared helpers and fixtures moved to tests/corelib.py. Run one area with python -m pytest tests/test_core_fleets.py."),
     ("1.393.0", "2026-11-13", "Epitaxy printers print exotic blueprints (Joe: 1476F94F answered This printer can only fabricate epitaxy-class devices). Printers with the epitaxy feature now take prints of blueprints with the exotic feature, and nothing else: fleet loadouts send exotic prints to them first, the app's queue drops other kept prints and refuses a hand print of anything else before the game sees it, and logistics supplies what they have queued. Blueprints has an Epitaxy printers card (their queues and an exotic-only Add to queue); the Plan and Queue a print forms and the Can afford at column leave them out for other blueprints."),
     ("1.392.0", "2026-11-12", "Code layout only, no behavior change (Joe: build the review's suggestions). web.py (5,000 lines) is split by page area: web_core.py (router, templates, sign-in, shared helpers), web_devices.py, web_systems.py, web_map.py, web_planning.py, web_activity.py, web_diag.py and web_deals.py. web.py keeps the dashboard routes and loads the others in the original route order, and still exports the same names."),

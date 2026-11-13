@@ -276,7 +276,10 @@ async def storage(db) -> dict:
             pass
     big = await db.fetchall("SELECT key, length(value) AS bytes, updated_at FROM kv ORDER BY bytes DESC LIMIT 15")
     oldest = await db.fetchone("SELECT MIN(received_at) AS t FROM events")
+    kinds = await db.fetchall("SELECT event, COUNT(*) AS n FROM events GROUP BY event ORDER BY n DESC LIMIT 30")
     return {"tables": tables, "files_mb": files, "oldest_event": (oldest or {}).get("t"),
+            "events_by_kind": {r["event"]: r["n"] for r in kinds},   # what the history clean-up keeps or could drop
+            "history_pruned": await db.kv_get("history_pruned", None),
             "kv_largest": [{"key": r["key"], "kb": round(r["bytes"] / 1024, 1), "updated_at": r["updated_at"]} for r in big]}
 
 

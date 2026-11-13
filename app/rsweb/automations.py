@@ -1146,7 +1146,8 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                         continue
                     if not rows:
                         run["note"] = "no prospect result came in: counted as 0 new stars"
-                    before = set(run.get("known") or [])   # the stars known when this prospect started
+                    # the stars known when this prospect started (kept apart: see the end of this pass)
+                    before = set(run.get("known") or (await self.db.kv_get(f"observatory_known:{code}", []) if run.get("known_kv") else []) or [])
                     found = set()
                     for r in rows:
                         found |= {(x.get("designation") if isinstance(x, dict) else x)
@@ -1217,9 +1218,19 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                             "known": sorted(set(pos) | set(found_so_far) | set(unplaced))})
                 run.pop("note", None)
                 out.append(f"{code}: prospecting from {here}, direction {nxt + 1}")
-        for r in runs.values():
-            if isinstance(r, dict) and not r.get("job"):
-                r.pop("known", None)   # every star known when a prospect began: megabytes, needed only until its result is in
+        for c, r in runs.items():
+            # every star known when a prospect began is about a megabyte per run: it is kept in a value of its own
+            # (written once, read once) so the runs stay small for the passes and the map that read them all the time,
+            # and emptied when the result is in
+            if not isinstance(r, dict):
+                continue
+            if r.get("job") and "known" in r:
+                await self.db.kv_set(f"observatory_known:{c}", r.pop("known"))
+                r["known_kv"] = True
+            elif not r.get("job"):
+                r.pop("known", None)
+                if r.pop("known_kv", None):
+                    await self.db.kv_set(f"observatory_known:{c}", [])
         await self.db.kv_set("observatory_runs", runs)
         if fleets_changed:
             await self.save_fleets(fleet_list)

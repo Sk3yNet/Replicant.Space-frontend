@@ -82,5 +82,10 @@ async def daily(db, now: datetime | None = None) -> int | None:
     if not st.get("more"):
         await thin_history(db, now)
     n, finished = await prune_events(db, now)
+    if finished:
+        try:   # the write-ahead log only shrinks when it is emptied on purpose (it had grown to 139 MB, 2026-11-13)
+            await db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            pass
     await db.kv_set(STATE_KV, {"at": _iso(now), "more": not finished, "deleted": n + (st.get("deleted") or 0 if st.get("more") else 0)})
     return n
