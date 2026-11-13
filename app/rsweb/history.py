@@ -8,6 +8,7 @@ Once a day:
 - stockpile history older than THIN_DAYS keeps each day's last reading;
 - backlog metrics older than THIN_DAYS keep one average per day (they are dropped after 30 days by metrics.py).
 Deleting runs in batches, so a large first clean-up never holds the database long; it carries on at the next call.
+Events of kinds a season reset wipes (WIPED_*) go as soon as they predate the reset.
 The file itself doesn't shrink (SQLite reuses the freed pages)."""
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ THIN_DAYS = 7
 BATCH = 4000
 MAX_BATCHES = 15          # per call
 STATE_KV = "history_pruned"
+RULES = 2                 # raise when the rules change, so the clean-up runs again without waiting a day
 
 KEEP_EVENTS = ("scan.completed", "prospect.completed", "bobnet.new", "mining.resource_depleted", "site.depleted",
                "salvage.depleted", "salvage.discovered", "system.impact_warning", "device.decommissioned",
@@ -54,6 +56,36 @@ async def prune_events(db, now: datetime | None = None, max_batches: int = MAX_B
     return done, False
 
 
+# What a season reset wipes or ends (owner 2026-11-13: those records can go too; game docs and season.py: systems become
+# unexplored, so scans, salvage and site finds start over; contracts and location events end; asteroids drift away).
+# The readers of these kinds already skip anything dated before the reset.
+WIPED_EVENTS = ("scan.completed", "salvage.discovered", "salvage.depleted", "site.depleted", "system.impact_warning")
+WIPED_PREFIXES = ("event.", "contract.", "system.object_", "diversion.")
+
+
+async def prune_wiped(db, max_batches: int = MAX_BATCHES) -> tuple[int, bool]:
+    """Delete the events of the kinds above that were stored before the last season reset. (deleted, finished)."""
+    from . import season
+    reset = await season.reset_at(db)
+    if not reset:
+        return 0, True
+    where = "(event IN (%s) OR %s)" % (",".join("?" * len(WIPED_EVENTS)),
+                                        " OR ".join("(event >= ? AND event < ?)" for _ in WIPED_PREFIXES))
+    args = [*WIPED_EVENTS]
+    for p in WIPED_PREFIXES:
+        args += [p, p[:-1] + chr(ord(p[-1]) + 1)]
+    done = 0
+    for _ in range(max_batches):
+        cur = await db.execute(f"DELETE FROM events WHERE seq IN (SELECT seq FROM events WHERE {where} "
+                               "AND received_at < ? LIMIT ?)", (*args, str(reset), BATCH))
+        n = cur.rowcount or 0
+        done += n
+        if n < BATCH:
+            return done, True
+        await asyncio.sleep(0.05)
+    return done, False
+
+
 async def thin_history(db, now: datetime | None = None) -> None:
     """Stockpile history and backlog metrics older than THIN_DAYS: one value per day (whole UTC days only, so a day is
     never summed up twice from a part of it)."""
@@ -77,15 +109,17 @@ async def daily(db, now: datetime | None = None) -> int | None:
         last = datetime.fromisoformat(st["at"]) if st.get("at") else None
     except (TypeError, ValueError):
         last = None
-    if last and not st.get("more") and (now - last).total_seconds() < 86400:
+    if last and not st.get("more") and st.get("rules") == RULES and (now - last).total_seconds() < 86400:
         return None
     if not st.get("more"):
         await thin_history(db, now)
+    w, wiped_done = await prune_wiped(db)
     n, finished = await prune_events(db, now)
+    n, finished = n + w, finished and wiped_done
     if finished:
         try:   # the write-ahead log only shrinks when it is emptied on purpose (it had grown to 139 MB, 2026-11-13)
             await db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         except Exception:
             pass
-    await db.kv_set(STATE_KV, {"at": _iso(now), "more": not finished, "deleted": n + (st.get("deleted") or 0 if st.get("more") else 0)})
+    await db.kv_set(STATE_KV, {"at": _iso(now), "more": not finished, "rules": RULES, "deleted": n + (st.get("deleted") or 0 if st.get("more") else 0)})
     return n

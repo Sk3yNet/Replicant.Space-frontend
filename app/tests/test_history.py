@@ -67,3 +67,21 @@ def test_daily_runs_once_a_day(tmp_path):
         assert await history.daily(db, NOW + timedelta(hours=25)) == 0
         await db.close()
     asyncio.run(go())
+
+
+def test_records_a_season_reset_wiped_go_at_once(tmp_path):
+    async def go():
+        from rsweb import season
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        await db.kv_set(season.RESET_KV, {"at": _iso(3), "number": 4})
+        await _ev(db, 1, "scan.completed", 5)              # before the reset: wiped
+        await _ev(db, 2, "event.discovered", 4)
+        await _ev(db, 3, "system.object_detected", 4)
+        await _ev(db, 4, "scan.completed", 1)              # after it: stays
+        await _ev(db, 5, "bobnet.new", 5)                  # not wiped by a season
+        await _ev(db, 6, "eventful.other", 5)              # only the event. prefix
+        assert await history.prune_wiped(db) == (3, True)
+        assert {r["id"] for r in await db.fetchall("SELECT id FROM events")} == {"e4", "e5", "e6"}
+        await db.close()
+    asyncio.run(go())

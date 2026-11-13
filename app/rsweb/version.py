@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.395.0"
+VERSION = "1.396.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.396.0", "2026-11-12", "History clean-up also drops what a season reset wiped (Joe): scans, salvage and depleted-site finds, location events and contracts, and asteroid events stored before the last reset go at once, whatever their age. The app already ignored them. The clean-up runs again right after this update."),
     ("1.395.0", "2026-11-12", "From the 02:24 performance snapshot (Joe). An observatory's list of every known star (about a megabyte per running prospect; the runs were still 7.6 MB and read by every map refresh and three passes a tick) is kept in a value of its own, written once and read once. Scanned bodies for the civilization checks are read incrementally: only scan events since the last call. The database's write-ahead log is emptied after the daily clean-up (it had grown to 139 MB). Diagnostics › Performance lists events by kind and the clean-up's state, to show what the month rule keeps."),
     ("1.394.0", "2026-11-12", "Tests only (Joe: build the review's suggestions). test_core.py (10,460 lines, 471 tests) is split by area into test_core_logistics, _loadouts, _fleets, _mining, _relays, _deals, _prints and _messages; the shared helpers and fixtures moved to tests/corelib.py. Run one area with python -m pytest tests/test_core_fleets.py."),
     ("1.393.0", "2026-11-13", "Epitaxy printers print exotic blueprints (Joe: 1476F94F answered This printer can only fabricate epitaxy-class devices). Printers with the epitaxy feature now take prints of blueprints with the exotic feature, and nothing else: fleet loadouts send exotic prints to them first, the app's queue drops other kept prints and refuses a hand print of anything else before the game sees it, and logistics supplies what they have queued. Blueprints has an Epitaxy printers card (their queues and an exotic-only Add to queue); the Plan and Queue a print forms and the Can afford at column leave them out for other blueprints."),
