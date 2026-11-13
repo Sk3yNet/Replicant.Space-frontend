@@ -8739,7 +8739,7 @@ def test_bobnet_feed_shows_where_the_poster_is(client):
 
 
 def test_bobnet_feed_pages_back(client, monkeypatch):
-    from rsweb import web
+    from rsweb import web_activity as web   # where the Messages routes read the page size
     monkeypatch.setattr(web, "BOBNET_PAGE", 2)
     w = client.app.state.worker
     for i in range(5):

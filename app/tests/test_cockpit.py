@@ -118,7 +118,7 @@ def test_a_swoop_run_holds_the_engine_and_map_until_it_ends(client):  # noqa: F8
     """Live 2026-10-29 23:09: ticks of 18-47 s and map redraws of 21 s stalled the loop and round 4 came too late."""
     eng = client.app.state.worker.automations
     calls = []
-    import rsweb.web as web
+    import rsweb.web_map as web   # where the map route looks the payload builder up
     orig = web.map_payload
 
     async def counting(request, part):

@@ -365,7 +365,8 @@ app/rsweb/
   targets.py, sites.py, salvage.py, viability.py   locations, sites, salvage, belt viability
   traffic.py, trail.py, census.py, transit.py      beacons, trails, star census, things in transit
   wards.py, wardhub.py, defence.py, upkeep.py, shop.py, decommission.py, modular.py, printqueue.py …
-  web.py and web_*.py      pages, htmx partials and actions; templates/ and static/ (map.js is the galaxy map)
+  web.py and web_*.py      pages, htmx partials and actions by page area (web_core.py: what they share; web.py: dashboard
+                           and the route order); templates/ and static/ (map.js is the galaxy map)
   tenants.py               multi-user manager
   mock.py                  fake game API for dev and tests
 ```
