@@ -120,17 +120,40 @@ class LoadoutMixin:
         if claim:
             out.append(f"{len(claim)} device(s) at factories waiting for them tagged as components")
             await self.log("components", out[-1])
+        from .shapes import normalize_blueprints as _nb
+        bps_ = {b["device_type"]: b for b in _nb(await self.db.kv_get("blueprints", []))}
+        busy_ = self.busy_devices(await self.jobs())
+        for g in comp.surplus(devices, bps_, await self.star_lookup("pos")):   # more coming than needed
+            left = g["excess"]   # pins are never released here: Joe pins spares by hand too (2026-11-13)
+            for f, it in g["prints"]:   # spares beat prints: a print not started yet comes off first
+                q = max(1, int(it.get("quantity") or 1))
+                if q > left or not g["pins"]:
+                    continue
+                body = ({"command": "dequeue_print", "order": it["extra"]["order"]} if it["extra"].get("virtual")
+                        else {"command": "dequeue_print", "index": it["api_index"]})
+                ok, _, _ = await self.send("POST", f"/devices/{f['device_code']}", body,
+                                           f"components: {g['type']} print for {g['location']} dropped (spares are on their way)")
+                if ok:
+                    left -= q
+                    out.append(f"{g['location']}: a queued {g['type'].replace('_', ' ')} print dropped, spares are on their way")
+                    await self.log("components", out[-1])
         if getattr(self.api, "vq", None) is not None:   # every queued print's components, not just the first one's
             from .shapes import normalize_blueprints
             bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
             lk = await self.db.kv_get("locked_prints", {}) or {}
             locked = {t for t, at in lk.items() if _ts(at) and (_now() - _ts(at)).total_seconds() < 6 * 3600}
+            from .loadouts import is_factory as _is_fac
+            others = {d["device_code"] for d in devices if _is_fac(d) and d.get("device_code")}
             for g in comp.backfill(devices, {t: b for t, b in bps.items() if t not in locked}):
-                ok, _, err = await self.send("POST", f"/devices/{g['factory']}",
-                                             {"command": "enqueue_print", "device_type": g["type"], "quantity": g["short"],
-                                              "tags": g["tags"]}, f"components: {g['short']} {g['type']} for {g['location']}")
-                if ok:
-                    out.append(f"{g['location']}: {g['short']} {g['type'].replace('_', ' ')} queued for the prints waiting there")
+                # spares first, then the rest printed on that factory (Joe 2026-11-13: observatories were printed with
+                # spares out there)
+                pinned, printed, _ = await self.pin_or_print(g["type"], g["short"], g["location"], devices, busy_,
+                                                             f"components for {g['location']}", tags=g["tags"],
+                                                             not_at=others - {g["factory"]})
+                what = ", ".join(x for x in [f"{len(pinned)} spare(s) sent" if pinned else "",
+                                             f"{printed} queued to print" if printed else ""] if x)
+                if what:
+                    out.append(f"{g['location']}: {g['short']} {g['type'].replace('_', ' ')} for the prints waiting there: {what}")
                     await self.log("components", out[-1])
             devices = await self.devices()
         gaps = comp.shortfalls(devices)

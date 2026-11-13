@@ -313,3 +313,24 @@ def test_a_component_aboard_a_replicant_vessel_at_its_pin_is_unloaded():
     p = lo.plan(cfg, [{**hv, "status": "surging"}, d1], [], {}, stars, {"HV": "X"}, set(), [], {"HV": ["D1"]},
                 commandable={"SOLARES"})
     assert p["arrived"] == []   # still on the way
+
+
+def test_more_components_coming_than_needed_drop_prints_then_the_furthest_pins():
+    # snapshot 2026-11-13 03:58: six observatories pinned to FALQUORYX-BELT-1 and one printing for a parallax array (3)
+    bps = {"parallax_array": {"device_type": "parallax_array", "components": {"galactic_observatory": 3}}}
+    pin = ["component", "to:aaa", "at:aaa-1"]
+    af = {"device_code": "AF1", "device_type": "autofactory", "location": "AAA-1", "available_commands": ["enqueue_print"],
+          "print_queue": [{"device_type": "parallax_array"}], "waiting_for": {"components": {"galactic_observatory": {"have": 0, "need": 3}}}}
+    af2 = {"device_code": "AF2", "device_type": "autofactory", "location": "AAA-1", "available_commands": ["enqueue_print"],
+           "printing": {"device_type": "galactic_observatory", "tags": pin},
+           "print_queue": [{"device_type": "galactic_observatory", "quantity": 1, "tags": pin}]}
+    go = lambda c, loc: {"device_code": c, "device_type": "galactic_observatory", "location": loc, "status": "compacted",  # noqa: E731
+                         "tags": list(pin)}
+    devs = [af, af2, go("G1", "BBB-4"), go("G2", "CCC-4"), go("G3", "DDD-4"), go("G4", "EEE-4")]
+    pos = {s: {"x": x, "y": 0, "z": 0} for s, x in (("AAA", 0), ("BBB", 1), ("CCC", 2), ("DDD", 3), ("EEE", 4))}
+    (g,) = comp.surplus(devs, bps, pos)
+    assert g["excess"] == 2   # 4 pinned + 1 queued, 3 needed; the started print doesn't count
+    assert [f["device_code"] for f, _ in g["prints"]] == ["AF2"]
+    assert [d["device_code"] for d in g["pins"]][:1] == ["G4"]   # furthest first
+    assert comp.surplus(devs[:5], bps, pos)[0]["excess"] == 1
+    assert comp.surplus(devs[:4], bps, pos) == []

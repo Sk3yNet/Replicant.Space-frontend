@@ -127,13 +127,14 @@ def test_components_for_every_queued_print_are_ordered(client):  # noqa: F811
     sync_queue(client)
     client.portal.call(db.kv_set, "components_last", None)
     out = client.portal.call(e.component_pass)
-    assert any("4 hydroponic bay queued" in x for x in out) and any("2 orbital farm queued" in x for x in out), out
+    assert any("4 hydroponic bay for the prints waiting there: 4 queued to print" in x for x in out) \
+        and any("2 orbital farm for the prints waiting there: 2 queued to print" in x for x in out), out
     kept = client.portal.call(VirtualQueue(db).orders, "AF00BEEF")
     assert sorted((o["body"]["device_type"], o["body"]["quantity"]) for o in kept) == [("hydroponic_bay", 4), ("orbital_farm", 2)]
     sync_queue(client)
     client.portal.call(db.kv_set, "components_last", None)
     out = client.portal.call(e.component_pass)
-    assert not any("queued for the prints" in x for x in out), out   # counted as coming now
+    assert not any("for the prints waiting there" in x for x in out), out   # counted as coming now
 
 
 def test_jump_rules():

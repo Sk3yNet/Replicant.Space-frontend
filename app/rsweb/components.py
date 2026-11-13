@@ -259,6 +259,49 @@ def unbound(devices: list[dict]) -> list[tuple[dict, dict]]:
     return out
 
 
+def surplus(devices: list[dict], bps: dict[str, dict], pos: dict | None = None) -> list[dict]:
+    """Component types a factory spot has more of on the way than its queues need (snapshot 2026-11-13 03:58: six spare
+    observatories pinned to FALQUORYX-BELT-1 and one printing, for a parallax array needing 3; started prints don't count): [{location, type,
+    excess, prints: [(factory, queue item)] not started yet, newest first, pins: [devices] furthest first}]. Spares beat
+    prints (Joe 2026-11-13): the prints go first, then the furthest pins."""
+    from . import printqueue as pq
+    from .automations import star_of
+    from .loadouts import _dist, at_tag, is_component, is_factory, pinned_at
+    need: dict[tuple[str, str], int] = {}
+    prints: dict[tuple[str, str], list] = {}
+    started: dict[tuple[str, str], int] = {}
+    for f in devices:
+        loc = f.get("location")
+        if not loc or not is_factory(f):
+            continue
+        queued = list(pq.items(f))
+        pr = f.get("printing") if isinstance(f.get("printing"), dict) else None
+        for it in queued + ([{"device_type": pr.get("device_type"), "quantity": 1}] if pr else []):
+            for t, n in components(bps.get(it.get("device_type"))).items():
+                need[(loc, t)] = need.get((loc, t), 0) + n * max(1, int(it.get("quantity") or 1))
+        for it in queued:
+            if COMPONENT in (it.get("tags") or []) and at_tag(loc) in (it.get("tags") or []):
+                prints.setdefault((loc, it["device_type"]), []).append((f, it))
+        if pr and COMPONENT in (pr.get("tags") or []) and at_tag(loc) in (pr.get("tags") or []):
+            started[(loc, pr.get("device_type"))] = started.get((loc, pr.get("device_type")), 0) + 1
+    out = []
+    for (loc, t), n in sorted(need.items()):
+        here = [d for d in devices if d.get("device_type") == t and d.get("location") == loc
+                and not d.get("stowed_in_device_code") and not any(str(g).startswith("fleet:") for g in d.get("tags") or [])
+                and pinned_at(d) in (None, loc)]
+        pins = [d for d in devices if d.get("device_type") == t and is_component(d) and pinned_at(d) == loc
+                and (d.get("location") != loc or d.get("stowed_in_device_code"))]
+        ps = prints.get((loc, t), [])
+        # a print already started isn't counted: the spares are used, and what it turns out stays a spare there
+        total = len(here) + len(pins) + sum(max(1, int(it.get("quantity") or 1)) for _, it in ps)
+        if total <= n:
+            continue
+        home = star_of(loc)
+        pins.sort(key=lambda d: (-min(_dist(star_of(d.get("location") or ""), home, pos or {}), 1e8), d.get("device_code") or ""))
+        out.append({"location": loc, "type": t, "excess": total - n, "prints": ps[::-1], "pins": pins})
+    return out
+
+
 def release(d: dict) -> dict:
     """The PATCH configuration that makes a component a plain spare again: its component tag and pins go."""
     return {"add_tags": ["spare"], "remove_tags": [t for t in d.get("tags") or [] if t == COMPONENT

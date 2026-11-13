@@ -755,6 +755,9 @@ A factory already waiting for components first claims the ones of that type alre
 `component`), then gets free spares pinned to it, or the rest printed at another autofactory (every 5 minutes).
 Loadouts carries components a factory is waiting for before any other delivery, so a lone device far out isn't left
 behind bigger batches.
+Spares beat prints: the components for every queued print pin free spares first and print only the rest, and when
+more is pinned or queued for a spot than its queues need, prints not started yet come off the queue; pins stay as
+they are (a print already started isn't counted; what it turns out stays a spare there).
 
 ### Blueprints
 

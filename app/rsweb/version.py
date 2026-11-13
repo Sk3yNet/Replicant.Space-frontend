@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.398.0"
+VERSION = "1.399.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.399.0", "2026-11-13", "Spares beat prints for components (Joe: the observatories were queued for printing again; they should have used the spares). The components for every queued print now pin free spares first and print only the rest (they were printed straight away). When more is pinned or queued for a spot than its queues need (six spare observatories were pinned to FALQUORYX-BELT-1 for a parallax array needing 3), prints not started yet come off the queue; pins are left as they are (Joe pinned spares by hand). A print already started isn't counted: the spares are used, and what it turns out stays a spare at the hub."),
     ("1.398.0", "2026-11-13", "Spare observatories are used after all (Joe: move them into the autofactory system as part of collecting spares, and move them up when they are waited on). 1.397.0's hubs-only rule and its release of far pins are undone. Spare gathering now also collects compacted spares (it took only idle, stowed, inactive or deployed ones, so the old prospecting observatories compacted at far stars were never brought in), and Loadouts carries components a factory is waiting for before any other delivery: one-device batches sorted last, so the three observatories pinned to FALQUORYX for a parallax array lost every carrier for 10 hours."),
     ("1.397.0", "2026-11-13", "Components come from the hubs only (Joe: why are the galactic observatories out of position for prints?). A print's components were pinned from any spare of that type, first by device code: three old prospecting observatories compacted at DRAQUELIS, MYRRALON and ZALDRALAI were pinned to FALQUORYX for a parallax array, no carrier ever came for them, and since they counted as on their way the factory never printed its own. Spares are now taken only from systems with an autofactory, the factory's own system first; components pinned earlier that still sit in a system without one, on no job, are spares again, so the factory prints what it needs."),
     ("1.396.0", "2026-11-12", "History clean-up also drops what a season reset wiped (Joe): scans, salvage and depleted-site finds, location events and contracts, and asteroid events stored before the last reset go at once, whatever their age. The app already ignored them. The clean-up runs again right after this update."),
