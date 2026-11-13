@@ -62,7 +62,8 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
             from . import tradepost as tp_
             tp_pricing = tp_.pricing(await request.app.state.db.kv_get(tp_.KV_PRICING, {}))
             tp_state = await request.app.state.db.kv_get(tp_.KV, {}) or {}
-            ctrl = tp_.controller(f, st["devices"])
+            ctrls = tp_.controllers(f, st["devices"])
+            ctrl = ctrls[0] if ctrls else None
             rows = tp_.rows(f, bp_by, tp_pricing)
             fst = tp_state.get(f["id"]) or {}
             spots = sorted({d.get("location") for d in st["devices"] if d.get("location")
@@ -71,6 +72,10 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
             f["tp_view"] = {"pricing": tp_pricing, "rows": rows, "state": fst, "wanted": sum(1 for r in rows if r["onhand"]),
                             "spot": tp_.settings(f)["spot"], "spots": spots,
                             "controller": (ctrl or {}).get("device_code"), "location": (ctrl or {}).get("location"),
+                            "shops": [{"code": c.get("device_code"), "location": c.get("location"),
+                                       "types": next((x.get("types") for x in fst.get("shops") or []
+                                                      if x.get("code") == c.get("device_code")), [])} for c in ctrls],
+                            "per_shop": tp_.PER_SHOP, "needed": tp_.shops_needed(f),
                             "status": {r["type"]: r for r in fst.get("rows") or []}}
         if f.get("role") == "rock_chaser":   # rockchase.py: every setting resolved, and the run with all its keys
             from . import rockchase as rc

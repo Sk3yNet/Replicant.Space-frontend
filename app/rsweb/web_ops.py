@@ -214,8 +214,7 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
     posts = {}
     for f_ in await request.app.state.worker.automations.fleets():
         if f_.get("role") == tp.ROLE:
-            c_ = tp.controller(f_, st["devices"])
-            if c_:
+            for c_ in tp.controllers(f_, st["devices"]):
                 posts[c_["device_code"]] = f_
     return await page(request, user, "shop.html", "shop", shops=await _shops(request), traders=traders, posts=posts,
                       traders_last=await request.app.state.db.kv_get(sh.LAST_KV),

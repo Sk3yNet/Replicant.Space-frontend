@@ -38,6 +38,7 @@ DEFAULT_PRICING = {"factor": 2.0, "pct_per_hour": 10.0}
 EXCLUDED = {"system_hub"}      # never offered (owner: manufacturing time scales with the hubs you have)
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 EVERY_S = 300
+PER_SHOP = 5                   # the game caps a trade controller at 5 listings (owner 2026-11-13)
 
 
 def supply_key(fid: str) -> str:
@@ -127,11 +128,25 @@ def rows(fleet: dict, bps: dict[str, dict], p: dict) -> list[dict]:
     return out
 
 
-def controller(fleet: dict, devices: list[dict]) -> dict | None:
+def controllers(fleet: dict, devices: list[dict]) -> list[dict]:
+    """The fleet's AMI trade controllers (each a shop of its own, PER_SHOP listings), by code."""
     from .fleets import members
     from .shop import is_shop
-    return next((d for d in sorted(members(fleet, devices), key=lambda x: x.get("device_code") or "")
-                 if is_shop(d) and d.get("location")), None)
+    return [d for d in sorted(members(fleet, devices), key=lambda x: x.get("device_code") or "")
+            if is_shop(d) and d.get("location")]
+
+
+def controller(fleet: dict, devices: list[dict]) -> dict | None:
+    return next(iter(controllers(fleet, devices)), None)
+
+
+def shops_needed(fleet: dict) -> int:
+    """Controllers it takes to list every stocked type, PER_SHOP each."""
+    return max(1, -(-len(settings(fleet)["onhand"]) // PER_SHOP))
+
+
+def value(price: dict) -> int:
+    return sum(int(q) for q in (price or {}).values())
 
 
 def carries_replicant(d: dict, devices: list[dict]) -> bool:
@@ -157,57 +172,112 @@ def listing_for(trades: list[dict], t: str, known: str | None) -> dict | None:
     return None
 
 
-def plan(fleet: dict, devices: list[dict], trades: list[dict] | None, state: dict, bps: dict[str, dict],
+def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: dict, bps: dict[str, dict],
          p: dict, tag: str) -> dict:
-    """What to list, delist and supply. Pure. `trades`: the shop's listing as just read (None: unknown).
-    Returns {rows, actions: [{type, delete, create, escrow}], release: [codes], need: {type: n}, skip: [codes], notes}."""
-    ctrl = controller(fleet, devices)
+    """What to list, delist and supply. Pure. `trades`: {controller code: its listing as just read, None: unknown}
+    (a plain list stands for the first controller's). Every controller is a shop of PER_SHOP listings: a listed type
+    keeps its shop, the others take free slots priciest first, and the rest wait for a slot (the pass raises the
+    fleet's wanted controllers to shops_needed, so Loadouts brings more).
+    Returns {rows, actions: [{type, controller, delete, create, escrow}], release: [codes], need: {type: n},
+    skip: [codes], notes, pins: [{code, add, remove}], shops: [{code, location, types, read}]}."""
+    ctrls = controllers(fleet, devices)
+    ctrl = ctrls[0] if ctrls else None
+    if isinstance(trades, list) or trades is None:
+        trades = {ctrl["device_code"]: trades} if ctrl else {}
     spot = settings(fleet)["spot"]
     out: dict[str, Any] = {"rows": rows(fleet, bps, p), "actions": [], "release": [], "need": {}, "skip": [],
-                           "notes": [], "location": spot or (ctrl or {}).get("location"), "pin": None}
+                           "notes": [], "location": spot or (ctrl or {}).get("location"), "pin": None, "pins": [],
+                           "shops": []}
     if not ctrl:
         out["notes"].append("no AMI trade controller in the fleet")
         return out
     loc = out["location"]
-    away = bool(spot) and ctrl.get("location") != spot   # on its way to the shop spot: stock goes there, nothing listed yet
-    if spot:
-        from .loadouts import at_tag
-        tags = ctrl.get("tags") or []
-        if at_tag(spot) not in tags:
-            out["pin"] = {"code": ctrl["device_code"], "add": [at_tag(spot)],
-                          "remove": [t for t in tags if str(t).startswith("at:")]}
-        if away:
-            out["notes"].append(f"shop {ctrl['device_code']} is at {ctrl.get('location')}, on its way to {spot}: "
-                                "listing starts once it is there")
+    from .loadouts import at_tag
+    ready = []   # shops at the shop's location: the ones that list
+    for c in ctrls:
+        if spot:
+            tags = c.get("tags") or []
+            if at_tag(spot) not in tags:
+                out["pins"].append({"code": c["device_code"], "add": [at_tag(spot)],
+                                    "remove": [t for t in tags if str(t).startswith("at:")]})
+        if c.get("location") == loc:
+            ready.append(c)
+        elif spot:
+            out["notes"].append(f"shop {c['device_code']} is at {c.get('location')}, on its way to {spot}: "
+                                "it lists once it is there")
+    out["pin"] = next(iter(out["pins"]), None)
+    away = not ready
     listings = state.get("listings") or {}
-    at_loc = [d for d in devices if d.get("location") == loc and not d.get("stowed_in_device_code")
-              and not d.get("attached_to_device_code")]
+    read = {c["device_code"]: trades.get(c["device_code"]) for c in ready}
+    # where each type is listed now (or was, when that shop's listing could not be read)
+    cur_of: dict[str, tuple[str, dict | None]] = {}
     for r in out["rows"]:
         t = r["type"]
         mine = listings.get(t) or {}
-        cur = listing_for(trades or [], t, mine.get("trade_code")) if trades is not None else None
-        listed = int((cur or {}).get("current_stock") or 0) if trades is not None else int(mine.get("stock") or 0)
-        esc = {c for c in mine.get("escrow") or []}
-        if trades is not None and not cur:
+        order = sorted(read, key=lambda c: c != mine.get("controller"))
+        for c in order:
+            if read[c] is None:
+                if mine.get("controller") == c or (not mine.get("controller") and c == ctrl["device_code"] and mine):
+                    cur_of[t] = (c, None)
+                    break
+                continue
+            x = listing_for(read[c], t, mine.get("trade_code") if mine.get("controller") in (c, None) else None)
+            if x:
+                cur_of[t] = (c, x)
+                break
+    used = {c: 0 for c in read}
+    for t, (c, _) in cur_of.items():
+        if (settings(fleet)["onhand"].get(t) or 0) > 0:
+            used[c] += 1
+    slot: dict[str, str] = {}
+    for r in sorted(out["rows"], key=lambda r: (-value(r["price"]), r["type"])):
+        t = r["type"]
+        if not r["onhand"]:
+            continue
+        if t in cur_of:
+            slot[t] = cur_of[t][0]
+            continue
+        free = next((c for c in sorted(read) if read[c] is not None and used[c] < PER_SHOP), None)
+        if free:
+            slot[t] = free
+            used[free] += 1
+    at_loc = [d for d in devices if d.get("location") == loc and not d.get("stowed_in_device_code")
+              and not d.get("attached_to_device_code")]
+    waiting = 0
+    for r in out["rows"]:
+        t = r["type"]
+        mine = listings.get(t) or {}
+        c, cur = cur_of.get(t, (slot.get(t), None))
+        known = c is not None and read.get(c) is not None
+        listed = int((cur or {}).get("current_stock") or 0) if known else (int(mine.get("stock") or 0) if t in cur_of else 0)
+        esc = {x for x in mine.get("escrow") or []}
+        if known and not cur:
             esc = set()
         same = [d for d in at_loc if d.get("device_type") == t and d.get("device_code") not in esc
                 and not d.get("location_stale")]
         loose = sorted((d for d in same if tag in (d.get("tags") or [])), key=lambda d: d["device_code"])
         others = [d for d in same if tag not in (d.get("tags") or [])]
-        out["skip"] += sorted(c for c in esc if c)
+        out["skip"] += sorted(x for x in esc if x)
         r.update({"listed": listed, "initial": int((cur or {}).get("initial_stock") or 0), "here": len(loose),
                   "trade_code": (cur or {}).get("trade_code"), "listed_price": as_amounts(((cur or {}).get("criteria") or {}).get("resources")),
-                  "status": ""})
+                  "status": "", "controller": c if (cur or t in cur_of) else slot.get(t)})
         want = r["onhand"]
         if not want:
             if cur:
-                out["actions"].append({"type": t, "delete": cur["trade_code"], "create": None, "escrow": []})
+                out["actions"].append({"type": t, "controller": c, "delete": cur["trade_code"], "create": None, "escrow": []})
                 r["status"] = "delisting"
             out["release"] += [d["device_code"] for d in loose]
             continue
         out["need"][t] = max(0, want - listed)
-        if trades is None or away:
-            r["status"] = "waiting for the shop to reach its spot" if away else "listing not read"
+        if away:
+            r["status"] = "waiting for the shop to reach its spot" if spot else "listing not read"
+            continue
+        if c is None:
+            r["status"] = f"waiting for a shop slot ({len(ctrls)} shop(s), {PER_SHOP} listings each)"
+            waiting += 1
+            continue
+        if not known:
+            r["status"] = "listing not read"
             continue
         bad = [d for d in loose + others if carries_replicant(d, devices)]
         if bad:
@@ -223,7 +293,7 @@ def plan(fleet: dict, devices: list[dict], trades: list[dict] | None, state: dic
             stock = listed + len(loose)
             if stock < 1:
                 continue
-            out["actions"].append({"type": t, "delete": (cur or {}).get("trade_code"),
+            out["actions"].append({"type": t, "controller": c, "delete": (cur or {}).get("trade_code"),
                                    "create": {"name": t.replace("_", " ").capitalize(), "stock": stock,
                                               "criteria": {"resources": price, "devices": {}},
                                               "rewards": {"resources": {}, "devices": {t: 1}}},
@@ -231,6 +301,11 @@ def plan(fleet: dict, devices: list[dict], trades: list[dict] | None, state: dic
             r["status"] = "repricing" if repriced and not loose else "restocking"
         elif listed < want:
             r["status"] = f"{len(loose)} on hand, waiting for {want - listed - len(loose)} more" if loose else "supplying"
+    if waiting:
+        out["notes"].append(f"{waiting} type(s) wait for a shop slot: {shops_needed(fleet)} AMI trade controllers "
+                            f"needed, {len(ctrls)} in the fleet")
+    out["shops"] = [{"code": c["device_code"], "location": c.get("location"), "read": read.get(c["device_code"]) is not None,
+                     "types": sorted(t for t, x in slot.items() if x == c["device_code"])} for c in ctrls]
     return out
 
 
@@ -307,35 +382,51 @@ class TradePostMixin:
                 st["note"] = "recalled: listings left as they are until Resume"
                 continue
             tag = contract_tag(supply_key(f["id"]))
-            ctrl = controller(f, devices)
-            trades = None
-            if ctrl:
+            ctrls = controllers(f, devices)
+            trades: dict[str, list | None] = {}
+            errs = []
+            for c in ctrls:
                 try:
-                    res = await self.api.get(f"/devices/{ctrl['device_code']}/trades")
-                    trades = (res or {}).get("trades") or []
-                    st["read_error"] = None
+                    res = await self.api.get(f"/devices/{c['device_code']}/trades")
+                    trades[c["device_code"]] = (res or {}).get("trades") or []
                 except ApiError as e:
-                    st["read_error"] = e.message
+                    trades[c["device_code"]] = None
+                    errs.append(f"{c['device_code']}: {e.message}")
+            st["read_error"] = "; ".join(errs) or None
             pl = plan(f, devices, trades, st, bps, p, tag)
-            st["rows"] = [{k: r.get(k) for k in ("type", "listed", "initial", "here", "status", "trade_code", "listed_price")}
+            st["rows"] = [{k: r.get(k) for k in ("type", "listed", "initial", "here", "status", "trade_code", "listed_price",
+                                                  "controller")}
                           for r in pl["rows"] if r.get("onhand") or r.get("listed") or r.get("trade_code")]
             st["location"] = pl["location"]
-            st["controller"] = (ctrl or {}).get("device_code")
+            st["controller"] = ctrls[0]["device_code"] if ctrls else None
+            st["shops"] = pl["shops"]
             notes = list(pl["notes"])
-            if ctrl and trades is None:
-                notes.append(f"could not read the listing: {st.get('read_error')}")
-            if ctrl and trades is not None and not (ctrl.get("ami_directive") or {}).get("name") == "trade" and not dry:
-                ok, _, err = await self.send("POST", f"/devices/{ctrl['device_code']}",
+            if errs:
+                notes.append(f"could not read the listing: {st['read_error']}")
+            need_shops = shops_needed(f)
+            wants = f.get("wants") or {}
+            if need_shops > max(1, int(wants.get("ami_trade_controller") or 0)) and not dry:   # Loadouts brings the extra shops
+                items = await self.fleets()
+                for x in items:
+                    if x.get("id") == f["id"]:
+                        x.setdefault("wants", {})["ami_trade_controller"] = need_shops
+                await self.save_fleets(items)
+                out.append(f"{f.get('name')}: {need_shops} AMI trade controllers wanted for "
+                           f"{len(settings(f)['onhand'])} device types ({PER_SHOP} listings each)")
+            for c in ctrls:
+                if trades.get(c["device_code"]) is None or (c.get("ami_directive") or {}).get("name") == "trade" or dry:
+                    continue
+                ok, _, err = await self.send("POST", f"/devices/{c['device_code']}",
                                              {"command": "set_directive", "directive": "trade",
                                               "configuration": {"name": f.get("name") or "Trade post"}},
-                                             f"trade post {f.get('name')}: open the shop on {ctrl['device_code']}")
+                                             f"trade post {f.get('name')}: open the shop on {c['device_code']}")
                 if not ok:
-                    notes.append(f"shop not opened: {err}")
+                    notes.append(f"shop {c['device_code']} not opened: {err}")
             listings = st.setdefault("listings", {})
             for a in pl["actions"] if not dry else []:
-                t = a["type"]
+                t, code = a["type"], a["controller"]
                 if a["delete"]:
-                    ok, _, err = await self.send("DELETE", f"/devices/{ctrl['device_code']}/trades/{a['delete']}", None,
+                    ok, _, err = await self.send("DELETE", f"/devices/{code}/trades/{a['delete']}", None,
                                                  f"trade post {f.get('name')}: take down the {t} listing")
                     if not ok:
                         notes.append(f"{t}: delisting failed: {err}")
@@ -343,19 +434,20 @@ class TradePostMixin:
                     listings.pop(t, None)
                     out.append(f"{f.get('name')}: delisted {t}")
                 if a["create"]:
-                    ok, res, err = await self.send("POST", f"/devices/{ctrl['device_code']}/trades", a["create"],
+                    ok, res, err = await self.send("POST", f"/devices/{code}/trades", a["create"],
                                                    f"trade post {f.get('name')}: list {a['create']['stock']}× {t} for "
-                                                   f"{price_text(a['price'])}")
+                                                   f"{price_text(a['price'])} on {code}")
                     if not ok:
                         notes.append(f"{t}: listing failed: {err}")
                         continue
                     listings[t] = {"trade_code": (res or {}).get("trade_code"), "stock": a["create"]["stock"],
-                                   "escrow": a["escrow"], "price": a["price"], "at": now_iso()}
+                                   "escrow": a["escrow"], "price": a["price"], "at": now_iso(), "controller": code}
                     out.append(f"{f.get('name')}: listed {a['create']['stock']}× {t}")
             by = {d.get("device_code"): d for d in devices}
             busy = self.busy_devices(await self.jobs())
-            pin = pl.get("pin")
-            if pin and pin["code"] not in busy and not dry:   # the shop spot: Loadouts carries the controller there
+            for pin in pl["pins"]:   # the shop spot: Loadouts carries each controller there
+                if pin["code"] in busy or dry:
+                    continue
                 if await self.create_job("trade_post", f"trade post {f.get('name')}: pin shop {pin['code']} to "
                                          f"{pl['location']}", None, [tag_step(pin["code"], pin["add"], pin["remove"] or None)],
                                          {"devices": [pin["code"]]}):

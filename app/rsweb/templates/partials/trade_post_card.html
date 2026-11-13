@@ -2,8 +2,8 @@
 {% set tp = f.tp_view %}{% set pr = tp.pricing %}
 <div class="small" style="margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
   <div><b>Trade post</b> ·
-    {% if tp.controller %}shop <a href="/devices/{{ tp.controller }}">{{ tp.controller }}</a> at <b>{{ tp.location }}</b>
-    · <a href="/shop#shop-{{ tp.controller }}">its trades on the Shop page</a>
+    {% if tp.controller %}{{ tp.shops | length }} shop(s) at <b>{{ tp.location }}</b>, {{ tp.per_shop }} listings each{% if tp.needed > tp.shops | length %} <span class="lv-alert">({{ tp.needed }} needed for every stocked type: Loadouts brings more)</span>{% endif %}:
+    {% for s in tp.shops %}<a href="/shop#shop-{{ s.code }}" title="{{ s.location }}{% if s.types %}: {{ s.types | join(', ') }}{% endif %}">{{ s.code }}</a> ({{ s.types | length }}/{{ tp.per_shop }}){{ ', ' if not loop.last }}{% endfor %}
     {% else %}<span class="lv-alert">no AMI trade controller in the fleet: add one (and an active FTL relay in its system, for the directory)</span>{% endif %}
     {% if tp.state.at %}<span class="muted"> · checked {{ tp.state.at | ago }}</span>{% endif %}
     {% if tp.state.note %}<span class="lv-alert"> · {{ tp.state.note }}</span>{% endif %}</div>
@@ -41,7 +41,7 @@
           <td class="num"><input type="number" min="0" name="onhand" value="{{ r.onhand or '' }}" style="width:52px"></td>
           <td class="num">{% if s.trade_code %}{{ s.listed }}/{{ s.initial }}{% else %}—{% endif %}</td>
           <td class="num">{{ s.here if s.here is not none else '' }}</td>
-          <td class="muted">{{ s.status or '' }}</td>
+          <td class="muted">{{ s.status or '' }}{% if s.controller and tp.shops | length > 1 %} <span title="the shop that lists it">· {{ s.controller }}</span>{% endif %}</td>
         </tr>{% endfor %}
       </table></div>
       <button style="margin-top:6px">Save stock and prices</button>
