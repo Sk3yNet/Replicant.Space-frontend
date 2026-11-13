@@ -387,7 +387,8 @@ def is_printer(d: dict) -> bool:
 def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict[str, dict], stars: dict[str, dict],
          replicant_hosts: dict[str, str], busy: set[str], orders: list[dict], stowed_map: dict[str, list[str]],
          only: set[str] | None = None, open_sites: dict[str, int] | None = None, protect: set[str] | None = None,
-         geo: dict[str, dict] | None = None, commandable: set[str] | None = None) -> dict:
+         geo: dict[str, dict] | None = None, commandable: set[str] | None = None,
+         stuck: dict[str, str] | None = None) -> dict:
     """Work out what to tag, print and move. `commandable`: systems you can give commands in (an active relay network's
     coverage, or a replicant there — relaynet.coverage); a delivery anywhere else rides a vessel hosting a replicant, or
     waits (owner's rule, 2026-10-12: outside the network nothing arrives unaccompanied). `only`: limit shortfall filling to these stars.
@@ -819,6 +820,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         bp = bps.get(t)
         if not bp:
             return None, f"no blueprint for {t}"
+        if t in (stuck or {}):   # its components are locked and none is on hand (components.stuck_parts)
+            return None, stuck[t]
         cost = as_amounts(bp.get("resources"))
         if not factories:
             return None, "no autofactory"

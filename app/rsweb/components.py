@@ -5,7 +5,8 @@ waits at the head until they're there (`waiting_for.components: {type: {have, ne
 - A new print (any enqueue_print the app sends) uses the components already at the factory (deployed there or queued
   there, less what earlier prints in its queue use up), then pins spare ones from elsewhere to the factory's location,
   and only queues the rest first, on the same factory, so they're printed there before the item. A component the game
-  won't print (a locked blueprint) is logged and the item queued anyway: the factory waits for it. They carry the item's tags (its reservation: contract, fleet, spare …), with the item's
+  won't print (a locked blueprint) with none on hand anywhere refuses the item (it would block the queue for
+  good, 1.400.0); otherwise it's logged and the item queued anyway: the factory waits for it. They carry the item's tags (its reservation: contract, fleet, spare …), with the item's
   to:/at: pins swapped for the factory's location so the loadout pass keeps them there.
 - A factory already waiting for components gets them from spares (pinned to its location) or printed at another
   autofactory (component_pass in the engine). Components of the missing type already at its location are claimed
@@ -89,6 +90,90 @@ def claimable(devices: list[dict]) -> list[tuple[dict, list[str]]]:
     return out
 
 
+LOCKED_KV = "locked_prints"   # {device type: when the game last refused it "Blueprint not yet unlocked"}
+LOCKED_HOURS = 6
+
+
+def recent_locked(lk: Any) -> set[str]:
+    """Types the game refused as locked in the last LOCKED_HOURS (kv locked_prints)."""
+    from datetime import datetime, timezone
+    out = set()
+    for t, at in (lk or {}).items() if isinstance(lk, dict) else []:
+        try:
+            ts = datetime.fromisoformat(str(at))
+        except ValueError:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - ts).total_seconds() < LOCKED_HOURS * 3600:
+            out.add(str(t))
+    return out
+
+
+def locked_parts(device_type: str, bps: dict[str, dict], locked: set[str] | frozenset = frozenset(),
+                 depth: int = 0) -> set[str]:
+    """Component types (at any depth) a print of this type needs that the game won't print: their blueprint isn't on the
+    account's list (/blueprints lists unlocked blueprints only) or was just refused as locked. Snapshot 2026-11-13 13:52:
+    SOLARES autofactory 3245B486 sat for good on an atmospheric regulator (trade post SOL_Trader wants one of every
+    type) waiting for an aquifer tap and a bio seeder, both locked, and nothing else printed there behind it."""
+    if not bps or depth >= MAX_DEPTH:
+        return set()
+    out: set[str] = set()
+    for t in components(bps.get(device_type)):
+        if t in locked or t not in bps:
+            out.add(t)
+        else:
+            out |= locked_parts(t, bps, locked, depth + 1)
+    return out
+
+
+def on_hand(devices: list[dict], device_type: str) -> int:
+    """Devices of a type that could still serve as a component somewhere: spares, or already pinned as components."""
+    from .loadouts import is_component
+    return sum(1 for d in devices if d.get("device_type") == device_type
+               and ("spare" in (d.get("tags") or []) or is_component(d)))
+
+
+def stuck_parts(device_type: str, bps: dict[str, dict], locked: set[str], devices: list[dict]) -> set[str]:
+    """The locked components of a type with none on hand anywhere: a print of it would wait at its factory's head for
+    good, holding up everything queued behind it."""
+    return {t for t in locked_parts(device_type, bps, locked) if on_hand(devices, t) <= 0}
+
+
+def printable_bps(bps: dict[str, dict], locked: set[str], devices: list[dict]) -> dict[str, dict]:
+    """The blueprints without stuck parts: what the automations may print."""
+    return {t: b for t, b in bps.items() if not stuck_parts(t, bps, locked, devices)}
+
+
+def stuck_heads(devices: list[dict], bps: dict[str, dict], locked: set[str]) -> list[dict]:
+    """Factories whose queue head waits for components that will never come (locked, none on hand or pinned anywhere):
+    [{factory, location, type, missing}]. Dequeued by the component pass so the prints behind it go."""
+    from . import printqueue as pq
+    out = []
+    if not bps:
+        return out
+    for f in devices:
+        wf = (f.get("waiting_for") or {}).get("components") or {}
+        if not isinstance(wf, dict) or not wf or not f.get("location") or not f.get("device_code"):
+            continue
+        head = (pq.items(f) or [{}])[0]
+        t = head.get("device_type")
+        if not t or head.get("virtual"):
+            continue
+        missing = sorted(c for c, x in wf.items() if isinstance(x, dict)
+                         and int(x.get("need") or 0) > int(x.get("have") or 0)
+                         and (c in locked or c not in bps) and on_hand(devices, c) <= 0)
+        if missing:
+            out.append({"factory": f["device_code"], "location": f["location"], "type": t, "missing": missing})
+    return out
+
+
+def stuck_text(device_type: str, missing: Any) -> str:
+    names = " and ".join(str(t).replace("_", " ") for t in sorted(missing))
+    return (f"{device_type.replace('_', ' ')} needs {names}, whose blueprint isn't unlocked, and none is on hand "
+            f"(decommissioning a {device_type.replace('_', ' ')} or a {names} unlocks it)")
+
+
 async def before_print(api: Any, db: Any, path: str, body: Any, depth: int = 0) -> None:
     """Called before every POST the app sends: an enqueue_print of a type with components queues those first on the
     same factory (and theirs before them)."""
@@ -108,6 +193,11 @@ async def before_print(api: Any, db: Any, path: str, body: Any, depth: int = 0) 
         return   # a replicant's vessel prints one at a time through the replicant: no queue to put them in
     qty = int(body.get("quantity") or 1)
     devices = await db.kv_get("devices", []) or []
+    stuck = {t for t in stuck_parts(str(body.get("device_type")), bps, recent_locked(await db.kv_get(LOCKED_KV, {})), devices)
+             if t not in need or free_here(devices, fac, t, bps) <= 0}   # one deployed there serves too
+    if stuck:   # it would sit at the head of the queue for good, and nothing behind it would print (2026-11-13)
+        from .api import ApiError
+        raise ApiError(400, "Not queued: " + stuck_text(str(body.get("device_type")), stuck))
     tags = component_tags(body.get("tags"), fac["location"])
     for t, n in sorted(need.items()):
         left = n * qty - free_here(devices, fac, t, bps)

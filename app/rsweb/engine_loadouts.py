@@ -64,6 +64,57 @@ class LoadoutMixin:
             self._radii_memo = (self.db, gen, out)
         return dict(out)
 
+    async def stuck_prints(self, devices: list[dict], bps: Any) -> dict[str, str]:
+        """{device type: why not}: types whose components are locked with none on hand (components.stuck_parts). A
+        print of one would wait at its factory's head for good (SOLARES 3245B486, 2026-11-13)."""
+        from . import components as comp
+        bpd = bps if isinstance(bps, dict) else {b["device_type"]: b for b in bps or [] if b.get("device_type")}
+        locked = comp.recent_locked(await self.db.kv_get(comp.LOCKED_KV, {}))
+        out = {}
+        for t in bpd:
+            miss = comp.stuck_parts(t, bpd, locked, devices)
+            if miss:
+                out[t] = comp.stuck_text(t, miss)
+        return out
+
+    async def unstick_heads(self, devices: list[dict]) -> list[str]:
+        """Prints at the head of a factory's queue waiting for components that will never come (locked, none on hand)
+        are dequeued, so the prints behind them go; kept app-queue orders of such types are dropped too."""
+        from . import components as comp
+        from . import vqueue as vqm
+        from .shapes import normalize_blueprints
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        if not bps:
+            return []
+        locked = comp.recent_locked(await self.db.kv_get(comp.LOCKED_KV, {}))
+        out = []
+        for g in comp.stuck_heads(devices, bps, locked):
+            why = comp.stuck_text(g["type"], g["missing"])
+            ok, _, _ = await self.send("POST", f"/devices/{g['factory']}", {"command": "dequeue_print", "index": 0},
+                                       f"components: {g['factory']} drops its {g['type'].replace('_', ' ')} print")
+            if ok:
+                out.append(f"{g['factory']} at {g['location']}: dropped the {g['type'].replace('_', ' ')} print at the "
+                           f"head of its queue, so the prints behind it go: {why}")
+                await self.log("components", out[-1], "warning")
+        vq = getattr(self.api, "vq", None)
+        if vq is not None:
+            gone = []
+            async with vq.lock:
+                st = await vq.state()
+                orders = st.get("orders") or []
+                keep = [o for o in orders
+                        if not comp.stuck_parts(str((o.get("body") or {}).get("device_type")), bps, locked, devices)]
+                if len(keep) != len(orders):
+                    gone = [o for o in orders if o not in keep]
+                    st["orders"] = keep
+                    await self.db.kv_set(vqm.KV, st)
+            for o in gone:
+                t = str((o.get("body") or {}).get("device_type"))
+                out.append(f"{o.get('factory')}: dropped the queued {t.replace('_', ' ')} print: "
+                           f"{comp.stuck_text(t, comp.stuck_parts(t, bps, locked, devices))}")
+                await self.log("print queue", out[-1], "warning")
+        return out
+
     async def component_pass(self) -> list[str]:
         """Factories waiting for component devices (components.py): spares are pinned to the factory's location, the
         rest printed at another autofactory, with the waiting item's tags. Every 5 minutes."""
@@ -74,7 +125,9 @@ class LoadoutMixin:
             return []
         await self.db.kv_set("components_last", now_iso())
         devices = await self.devices()
-        out = []
+        out = await self.unstick_heads(devices)
+        if out:
+            devices = await self.devices()
         far = comp.far_pins(devices, await self.star_lookup("pos"))
         if far:   # pinned beyond the sector range: their held trips are dropped and they're spares again where they are
             codes = {d["device_code"] for d in far}
@@ -616,7 +669,8 @@ class LoadoutMixin:
         protect = {b["device_code"] for b in _beacons(devices) if b.get("location") in civ_locs}
         p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
                  await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites(), protect,
-                 await self.geography(devices, stars), await self.commandable(devices, stars))
+                 await self.geography(devices, stars), await self.commandable(devices, stars),
+                 await self.stuck_prints(devices, bps))
         current = {}
         live: set[str] = set()
         for d in devices:

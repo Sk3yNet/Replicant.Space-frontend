@@ -334,3 +334,47 @@ def test_more_components_coming_than_needed_drop_prints_then_the_furthest_pins()
     assert [d["device_code"] for d in g["pins"]][:1] == ["G4"]   # furthest first
     assert comp.surplus(devs[:5], bps, pos)[0]["excess"] == 1
     assert comp.surplus(devs[:4], bps, pos) == []
+
+
+LOCKED_BPS = [{"device_type": "atmospheric_regulator", "resources": {"carbon": 10}, "print_time": 60,
+               "components": {"aquifer_tap": 1, "bio_seeder": 1}},
+              {"device_type": "bio_seeder", "resources": {"carbon": 5}, "print_time": 60},
+              {"device_type": "orbital_farm", "resources": {"structural": 7}, "print_time": 60}]
+
+
+def test_locked_components_with_none_on_hand_mark_a_type_stuck():
+    bps = {b["device_type"]: b for b in LOCKED_BPS}   # aquifer_tap isn't on the list: its blueprint is locked
+    assert comp.locked_parts("atmospheric_regulator", bps) == {"aquifer_tap"}
+    assert comp.locked_parts("atmospheric_regulator", bps, {"bio_seeder"}) == {"aquifer_tap", "bio_seeder"}
+    assert comp.stuck_parts("atmospheric_regulator", bps, set(), []) == {"aquifer_tap"}
+    spare = [{"device_code": "AQ1", "device_type": "aquifer_tap", "location": "X-1", "tags": ["spare"]}]
+    assert comp.stuck_parts("atmospheric_regulator", bps, set(), spare) == set()
+    assert "atmospheric_regulator" not in comp.printable_bps(bps, set(), []) and "orbital_farm" in comp.printable_bps(bps, set(), [])
+    fac = {"device_code": "F1", "location": "SOLARES-BELT-1", "status": "waiting_for_resources",
+           "print_queue": [{"device_type": "atmospheric_regulator", "tags": ["fleet:sol-trader"]}, {"device_type": "orbital_farm"}],
+           "waiting_for": {"components": {"aquifer_tap": {"have": 0, "need": 1}, "bio_seeder": {"have": 0, "need": 1}}}}
+    heads = comp.stuck_heads([fac], bps, set())
+    assert heads == [{"factory": "F1", "location": "SOLARES-BELT-1", "type": "atmospheric_regulator", "missing": ["aquifer_tap"]}]
+    assert comp.stuck_heads([fac] + spare, bps, set()) == []
+
+
+def test_a_print_with_locked_components_is_refused_and_a_stuck_head_dropped(client):  # noqa: F811
+    db, e = client.app.state.db, client.app.state.worker.automations
+    w = client.app.state.api.http._transport.app.state.world
+    client.portal.call(db.kv_set, "blueprints", LOCKED_BPS)
+    fac = {"device_code": "AF00BEEF", "device_type": "autofactory", "location": "SOL-3-L4", "status": "idle",
+           "available_commands": ["enqueue_print", "dequeue_print"]}
+    client.portal.call(db.kv_set, "devices", [fac])
+    before = list(w.queues.get("AF00BEEF", []))
+    ok, _, err = client.portal.call(e.send, "POST", "/devices/AF00BEEF",
+                                    {"command": "enqueue_print", "device_type": "atmospheric_regulator", "quantity": 1}, "test")
+    assert not ok and "aquifer tap" in str(err) and w.queues.get("AF00BEEF", []) == before
+    plan = client.portal.call(e.stuck_prints, [fac], LOCKED_BPS)
+    assert list(plan) == ["atmospheric_regulator"]
+    # one already queued before the fix: dequeued so the print behind it goes
+    w.queues["AF00BEEF"] = [{"device_type": "atmospheric_regulator"}, {"device_type": "orbital_farm"}]
+    stuck = {**fac, "status": "waiting_for_resources", "print_queue": list(w.queues["AF00BEEF"]),
+             "waiting_for": {"components": {"aquifer_tap": {"have": 0, "need": 1}, "bio_seeder": {"have": 0, "need": 1}}}}
+    out = client.portal.call(e.unstick_heads, [stuck])
+    assert out and "dropped the atmospheric regulator" in out[0], out
+    assert [x["device_type"] for x in w.queues["AF00BEEF"]] == ["orbital_farm"]

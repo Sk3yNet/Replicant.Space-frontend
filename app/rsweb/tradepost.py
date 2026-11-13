@@ -256,6 +256,7 @@ class TradePostMixin:
             return out
         state = await self.trade_posts_state()
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        stuck = await self.stuck_prints(devices, bps)   # never printed: its components are locked (2026-11-13)
         p = pricing(await self.db.kv_get(KV_PRICING, {}))
         from .fleets import held
         for f in fleets_:
@@ -267,7 +268,7 @@ class TradePostMixin:
                 continue
             from .shop import star_of
             out[key] = {"designation": key, "location": pl["location"], "star": star_of(pl["location"]), "status": "open",
-                        "title": f"trade post {f.get('name') or f['id']}", "_need": {t: n for t, n in pl["need"].items() if n},
+                        "title": f"trade post {f.get('name') or f['id']}", "_need": {t: n for t, n in pl["need"].items() if n and t not in stuck},
                         "_skip": pl["skip"], "_tagged_only": True}
         return out
 
