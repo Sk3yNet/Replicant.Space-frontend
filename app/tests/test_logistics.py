@@ -1543,3 +1543,16 @@ def test_priority_devices_are_awaited_components_and_sol_trade_payments():
             {"device_code": "P2", "device_type": "propulsor", "location": "SOL-3", "tags": ["contract:trade:s:t1", "at:sol-3"]},
             {"device_code": "P3", "device_type": "propulsor", "location": "A-1", "tags": ["contract:x", "at:b-2"]}]
     assert lo.priority_devices(devs) == {"O1", "P1"}
+
+
+def test_a_hauler_rides_a_plate_not_a_mobile_fleet():
+    """Joe 2026-11-13: mobile fleets are for fleet moves; a hauler's ride is the smallest carrier that seats it."""
+    devs = [dev("HL", "transport_hauler", "A-1", cargo_capacity=80, available_commands=["travel", "collect_resources"]),
+            dev("MF", "mobile_fleet", "A-1", **{**SURGE, "attach_capacity": 36}),
+            dev("PL", "surge_plate", "A-1", **{**SURGE, "attach_capacity": 1}),
+            dev("AF", "autofactory", "Z-2", tags=[], status="waiting_for_resources",
+                print_queue=[{"device_type": "mining_drone", "quantity": 1}])]
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 300}}, pos=POS, commandable={"A", "B", "Z"},
+                hosts={}, busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    run = next(r for r in p["runs"] if r["req"] == "print:Z-2")
+    assert cargo(run) == ["HL"] and run["ride"] == "PL"

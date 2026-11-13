@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.408.0"
+VERSION = "1.409.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.409.0", "2026-11-13", "Mobile fleets are kept for fleet moves (Joe: mobile fleets for fleet moves, surge plates for the haulers). A logistics run that tows haulers between systems now takes the smallest free ride that seats them, a surge plate or platform, and uses a mobile fleet or surge carrier only when nothing smaller is near; before, it took the biggest, so four mobile fleets towed one or two 80-unit haulers each while mining fleets' rigs moved one per trip on one-seat plates."),
     ("1.408.0", "2026-11-13", "Storage follow-up from the 21:27 snapshot: the star catalog stays in memory across writes (each prospect, census or scan made the next read decode 20 MB again); values up to 8 MB are kept decoded (four read every tick had grown past 2 MB); device list reads come from one blob; the one-time compaction failed on a locked database and now retries; the write-ahead log file is capped at 64 MB."),
     ("1.407.0", "2026-11-13", "Trade posts list past the game's 5-listing cap (Joe: one of nearly every blueprint). Every AMI trade controller in a trade post is a shop of its own with 5 listings: a listed type keeps its shop, the rest fill free slots priciest first, and the post raises its wanted controllers to one per 5 stocked types so Loadouts brings (or prints) more to the shop spot. Types without a slot wait, named on the card, which lists every shop and how full it is. Unverified live that several shops at one spot all list."),
     ("1.406.0", "2026-11-13", "Tagged devices move again (Joe: many devices tagged for movement aren't moving). A batch that mixed devices that only stow with ones that only fly, or held one that does neither, never fit any carrier whole, so none of it moved: SOL_Trader's 27 devices at SOLARES waited for hours. Carriers now take the part of a batch they can, and a device that neither stows nor flies (the hull plate) gets its own line saying no carrier can take it. A carrier that comes free now goes to waiting device moves before the logistics pass, which runs every 2 minutes and had taken each freed carrier long before the 15-minute loadouts pass looked."),

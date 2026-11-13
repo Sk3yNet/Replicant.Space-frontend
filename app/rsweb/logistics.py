@@ -140,6 +140,7 @@ KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like plac
 REPAIR_ALONE_BELOW = 70.0     # a repair patrol goes to a system with one worn device only when it is below this %
 MIN_LOAD = 0.25               # a cross-system print delivery leaves with its hold at least this full (or all that's wanted)
 LONG_HAUL_LY = 15.0            # beyond this a part load waits even when a print is stalled for materials
+BIG_RIDE_SEATS = 4             # rides with more attach seats (mobile fleets, surge carriers) tow haulers only as a last resort
 RELAY_HOP = 7.5                # distances compared in relay hops: anything in the same hop counts as equally near
 RESCUE_NEAR_LY = 15.0          # a rescue carrier with seats to spare also picks up devices stranded this near
 MOVING = ("travel", "cruis", "surg", "moving", "recall", "returning", "collecting", "depositing", "mining", "printing")
@@ -645,7 +646,7 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
     work() sends what it can for that request with the carriers in `free` at the time of the call."""
     from . import fleets as fl
     from . import upkeep as up
-    from .loadouts import can_surge
+    from .loadouts import _carrier_cap, can_surge
     mine = {c: d for c, d in free.items() if repairs(d) and c not in used}
     if not any(repairs(d) for d in pool):
         return []
@@ -758,7 +759,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     rescues are listed, not run).
     Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices", "lanes"}."""
     from . import cargo as cg
-    from .loadouts import can_surge
+    from .loadouts import _carrier_cap, can_surge
     gather = {f["home"]: drop(f["home"]) for f in fleets or [] if f.get("materials") == "self" and f.get("home")}
     reqs, spare, reserve = requests(devices=devices, bps=bps, inventory=inventory, pos=pos, contracts=contracts,
                                     trades=trades, incoming=incoming, fleets=fleets, gather=gather,
@@ -998,9 +999,23 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 rides = [d for c, d in free.items() if c not in used and can_surge(d) and attach_free(d) >= 1
                          and (star_of(d.get("location")) in commandable or c in hosts)
                          and (star_of(d.get("location")) == fstar or _dist(star_of(d.get("location")), fstar, pos) <= reach)]
+                # the smallest ride that seats the haulers this run would use: mobile fleets (and other big attach
+                # carriers) are kept for fleet moves, which need many seats (Joe 2026-11-13: four mobile fleets towed one
+                # or two 80-unit haulers each while mining fleets' rigs moved one per trip on one-seat surge plates)
+                total = sum(min(q, sum(spare[l].get(x, 0.0) for l in piles if star_of(l) == fstar)) for x, q in need.items())
+                hauls = sorted((room(d) for c, d in free.items() if c not in used and not can_surge(d) and room(d) >= 1
+                                and star_of(d.get("location")) == fstar), reverse=True)
+                n_seats, got = 0, 0.0
+                for h in hauls:
+                    if got >= total:
+                        break
+                    n_seats, got = n_seats + 1, got + h
+                n_seats = max(1, n_seats)
                 ride = min(rides, key=lambda d: (_dist(star_of(d.get("location")), fstar, pos) > 0,
                                                  round(_dist(star_of(d.get("location")), fstar, pos) / RELAY_HOP),
-                                                 -attach_free(d), _dist(star_of(d.get("location")), fstar, pos),
+                                                 _carrier_cap(d, bps) > BIG_RIDE_SEATS, attach_free(d) < n_seats,
+                                                 attach_free(d) if attach_free(d) >= n_seats else -attach_free(d),
+                                                 _dist(star_of(d.get("location")), fstar, pos),
                                                  d["device_code"]), default=None)
             seats = attach_free(ride) if ride else 0
             group, taken = [], {}
