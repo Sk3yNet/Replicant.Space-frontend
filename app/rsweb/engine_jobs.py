@@ -28,6 +28,14 @@ class JobsMixin:
         if not force and not (meta or {}).get("through_hold") and await self.held():
             await self.log(rule, f"[paused for the season change] not started: {title}")
             return None
+        if not force and not (meta or {}).get("sim"):
+            far = await self._far_steps(steps)
+            if far:   # never sent beyond the sector range (owner 2026-11-14): logged once a day per job title
+                seen = self.__dict__.setdefault("_far_logged", {})
+                if (_now() - (seen.get(title) or datetime.min.replace(tzinfo=timezone.utc))).total_seconds() > 86400:
+                    seen[title] = _now()
+                    await self.log(rule, f"not started: {title} — {far}")
+                return None
         from .modular import prepare_moves
         from .shapes import normalize_blueprints
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
@@ -206,11 +214,8 @@ class JobsMixin:
                 if await self._let_off_riders(st, job):
                     continue   # other fleets' members get off first; this trip goes out after them
                 why = await self._beyond_sector(st, job)
-                if why:   # beyond the sector range: waits for your Confirm (Automations › Jobs)
-                    st["status"], st["hold"], job["status"] = "confirm", why, "waiting"
-                    await self._update(job)
-                    await self.log(job["rule"], f"{job['title']}: {st['desc']} — {why}; waits for your Confirm on the "
-                                                "Automations page", "error", notify=True, job=job)
+                if why:   # beyond the sector range: never sent (owner 2026-11-14), the job stops here
+                    await self._block_far(job, st, why)
                     return
                 far = no_spot or await self._too_far(st)
                 if far and not no_spot:
@@ -998,7 +1003,7 @@ class JobsMixin:
     async def _beyond_sector(self, st: dict, job: dict) -> str | None:
         """The sector range (owner 2026-10-22: logistics sent freighter 2D6BFDF1 from SOLARES on a 241 h trip to
         ISOLITHOR to fetch a stockpile): an automated trip longer than logistics.SECTOR_RANGE_H at the game's surge pace,
-        or of unknown length, isn't sent until you Confirm it. Measured from the catalog; a trip over the range or off
+        or of unknown length, is never sent (owner 2026-11-14; it waited for a Confirm before). Measured from the catalog; a trip over the range or off
         the catalog by the game's preview of its planned route (a hub can bring it under).
         Trips you asked for (a forced job, an allow_far step), simulations and previews go as they are."""
         from . import hubroute
@@ -1039,11 +1044,64 @@ class JobsMixin:
                         hours = secs / 3600
                         break
             st["sector_h"] = round(hours, 1) if hours is not None else -1.0
+            st["sector_leg"] = f"{here}>{there}" if here and there else None
         h = st["sector_h"]
         if 0 <= h <= SECTOR_RANGE_H:
             return None
         return (f"about {h:.0f} h of travel, beyond the {SECTOR_RANGE_H:.0f} h sector range" if h >= 0
                 else "a trip of unknown length (beyond the sector range?)")
+
+    async def _block_far(self, job: dict, st: dict, why: str) -> None:
+        """A trip beyond the sector range: the job stops, nothing is sent, and the leg is remembered (KV_SECTOR_FAR) so
+        no planner starts the same trip again for a week, 6 h when its length is unknown (create_job checks it)."""
+        st["status"], st["error"], job["status"] = "failed", f"not sent: {why}", "failed"
+        job["finished_at"] = now_iso()
+        st.pop("hold", None)
+        await self._update(job)
+        leg = st.get("sector_leg")
+        if leg:   # an unknown length (the game's preview failed too) is remembered for 6 h only: it may be a hiccup
+            h = st.get("sector_h")
+            far = await self.db.kv_get(KV_SECTOR_FAR, {}) or {}
+            far[leg] = {"at": now_iso(), "h": h if isinstance(h, (int, float)) and h >= 0 else None}
+            await self.db.kv_set(KV_SECTOR_FAR, far)
+        await self.log(job["rule"], f"stopped: {job['title']}: {st['desc']} not sent — {why}", "warning", job=job)
+
+    async def _far_steps(self, steps: list[dict]) -> str | None:
+        """Before a job starts: a trip in it on a leg the job runner found beyond the sector range in the last week (its
+        planned route measured by the game, a hub can bring a long straight line under). Returns why, or None."""
+        from .logistics import SECTOR_RANGE_H
+        trips = [st for st in steps if isinstance(st.get("body"), dict) and st["body"].get("destination")
+                 and not st["body"].get("dry_run") and not st.get("allow_far") and not st.get("sector_ok")
+                 and ((st["body"].get("command") == "travel" and str(st.get("path") or "").startswith("/devices/"))
+                      or (str(st.get("path") or "").startswith("/replicants/") and str(st.get("path")).endswith("/travel")))]
+        if not trips:
+            return None
+        devs = {x.get("device_code"): x for x in await self.devices()}
+        far = await self.db.kv_get(KV_SECTOR_FAR, {}) or {}
+        if not far:
+            return None
+        reps = await self.db.kv_get("replicants", {}) or {}
+        week = _now() - timedelta(days=7)
+        seen: dict[str, str] = {}
+        for st in trips:
+            path = str(st["path"])
+            code = path.split("/")[2]
+            if path.startswith("/replicants/"):
+                code = (reps.get(code) or {}).get("hosted_device_code") or ""
+            d = devs.get(code) or {}
+            car = devs.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code") or "") or {}
+            here = seen.get(code) or star_of(d.get("location") or car.get("location"))
+            there = star_of(str(st["body"]["destination"]).upper())
+            seen[code] = there
+            if not here or not there or here == there:
+                continue
+            e = far.get(f"{here}>{there}")
+            e = e if isinstance(e, dict) else {"at": e, "h": 0}
+            at = _ts(e.get("at"))
+            if at and at > (week if e.get("h") is not None else _now() - timedelta(hours=6)):
+                return (f"{here} → {there} was found beyond the {SECTOR_RANGE_H:.0f} h sector range"
+                        + (f" (about {e['h']:.0f} h)" if e.get("h") else " (length unknown)"))
+        return None
 
     async def confirm_trip(self, job_id: str) -> bool:
         """Your Confirm for a trip held at the sector range: it goes out now."""

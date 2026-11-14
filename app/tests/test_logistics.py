@@ -926,9 +926,10 @@ def test_a_carrier_lets_other_fleets_members_off_before_it_leaves():
     assert descs == ["CAR: detach B1 (not its fleet's)", "deploy B2 from CAR (not its fleet's)"]
 
 
-def test_a_rescue_of_more_than_a_day_waits_for_your_ok():
+def test_a_rescue_of_more_than_a_day_is_never_sent():
     """Owner 2026-10-22: a heaven vessel was sent from SOLARES to DELTA to rescue a stranded vessel, well over a day of
-    travel. A rescue that long waits for Confirm on the Logistics page; the OK holds for two days."""
+    travel. Since 2026-11-14 a rescue that long is never sent (it waited for a Confirm before); a Confirm left in the
+    prefs no longer sends it. Unknown lengths are left to the job runner's own check."""
     pos = {**POS, "F": {"x": 700, "y": 0, "z": 0}}
     devs = [dev("HV", "heaven_vessel", "A-1", **SURGE), dev("P1", "surge_plate", "F-1", in_control_range=False, **SURGE)]
 
@@ -938,16 +939,11 @@ def test_a_rescue_of_more_than_a_day_waits_for_your_ok():
                        drop=lambda s: f"{s}-1", prefs=prefs)
     p = go({})
     req = next(r for r in p["requests"] if r["id"] == "rescue:P1")
-    assert req["confirm"] and req["trip_h"] > 24 and not p["runs"]
-    assert "waits for your OK" in next(u["why"] for u in p["unmet"] if u["req"] == "rescue:P1")
-    now = datetime.now(timezone.utc)
-    assert go({"confirm": {"rescue:P1": now.isoformat()}})["runs"][0]["rescued"] == "P1"
-    assert not go({"confirm": {"rescue:P1": (now - timedelta(days=3)).isoformat()}})["runs"]   # an old OK has run out
+    assert req["beyond"] and req["trip_h"] > 24 and not p["runs"] and not req.get("confirm")
+    assert "beyond the 24 h sector range" in next(u["why"] for u in p["unmet"] if u["req"] == "rescue:P1")
+    assert not go({"confirm": {"rescue:P1": datetime.now(timezone.utc).isoformat()}})["runs"]
     pos["F"]["x"] = 60
     assert go({})["runs"]                                                                       # a short one just goes
-    pos.pop("F")                                                    # DELTA, 2026-10-22: not in the catalog → it asks
-    p = go({})
-    assert not p["runs"] and next(r for r in p["requests"] if r["id"] == "rescue:P1")["trip_h"] is None
 
 
 def test_trades_at_one_location_share_one_delivery():
@@ -1025,7 +1021,7 @@ def test_repair_drones_not_in_the_logistics_fleet_and_far_trips_are_left_alone()
     far = {**POS, "Z": {"x": 2000, "y": 0, "z": 0}}                                # about 28 h of surging
     p = _repair_plan(devs, pos=far)
     assert not any(r["kind"] == "repair" for r in p["runs"])
-    assert any(u["req"] == "repair:Z" and "waits for your OK" in u["why"] for u in p["unmet"])
+    assert any(u["req"] == "repair:Z" and "beyond the 24 h sector range" in u["why"] for u in p["unmet"])
 
 
 def test_repair_patrols_go_only_where_a_patrol_may_be_sent():

@@ -408,8 +408,9 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                 if job["status"] != "waiting":
                     continue
                 st = job["steps"][job["idx"]]
-                if st.get("status") == "confirm":
-                    continue   # beyond the sector range: waits for your Confirm
+                if st.get("status") == "confirm":   # held for a Confirm before 1.418.0: now never sent
+                    await self._block_far(job, st, st.get("hold") or "beyond the sector range")
+                    continue
                 if st.get("status") == "retrying":
                     # a trip waiting for its surge hop to land reads the device fresh itself (the list may be minutes old)
                     off = None if st.get("from_spot") else await self._off_course(st, job)

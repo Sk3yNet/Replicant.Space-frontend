@@ -143,8 +143,8 @@ Rules run in the app container, so they keep going with the browser closed. The 
 - **Fleets** keep their loadouts, run missions, recall home (now or after the current task), follow a path forward, chase asteroids, run a trade post that sells your devices and bootstrap new hubs
   ([Fleets](docs/FEATURES.md#fleets)); **logistics** delivers materials and devices on demand
   ([Logistics](docs/FEATURES.md#logistics)).
-- **Travel** waits on the game's ETA, routes via hubs and surge hops when that's faster, and asks for **Confirm** on
-  trips over a day ([Sector range](docs/FEATURES.md#activity-and-tools)).
+- **Travel** waits on the game's ETA, routes via hubs and surge hops when that's faster, and never sends an
+  automated trip over a day ([Sector range](docs/FEATURES.md#activity-and-tools)).
 - **Season changes** pause every automation until you resume, and scheduled game outages pause and resume them by themselves; the engine watchdog flags a stalled engine, and late
   replayed events trigger nothing.
 

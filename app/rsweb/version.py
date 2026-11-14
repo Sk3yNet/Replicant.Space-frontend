@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.417.1"
+VERSION = "1.418.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.418.0", "2026-11-14", "Automated trips beyond the sector range (a day of surging) are never sent: rescues and repair "
+     "patrols that far are dropped when planned, and any other automated trip that far stops at the trip check instead of "
+     "waiting for a Confirm (jobs held for a Confirm stop too). The leg is remembered for a week so nothing plans it again. "
+     "Logistics no longer picks carriers or haulers the game lists out of comms range (a mobile fleet at SOL was asked to "
+     "tow a hauler there)."),
     ("1.417.1", "2026-11-14", "Terraformer fleets: steering is off by default (Joe: you play it). The fleet still goes to its "
      "planet, deploys and switches its monitor on; you steer on the Terraforming console, and the card's Devices list says "
      "what each kind would do. Tick 'let the fleet steer the devices' to have it play. A disaster or anomaly is an error while "

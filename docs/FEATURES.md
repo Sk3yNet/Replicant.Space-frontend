@@ -668,7 +668,7 @@ system fills its hold with more of what it was sent for (*holds filled* in the j
 request, home reserve or ship under way has claimed. A cargo device left attached to an idle logistics carrier (a
 run that broke off) is let off at a printing hub, so it takes runs again and unloads what it still holds.
 
-Bump or skip a request on the Logistics page. Every logistics job still going has *Cancel job* there (and *Confirm trip* when a long trip waits for your Confirm), on its request row and under Recent trips. A held trip whose request has already left the queue is listed under *Held trips* at the top of the Requests card.
+Bump or skip a request on the Logistics page. Every logistics job still going has *Cancel job* there, on its request row and under Recent trips.
 
 ### How a delivery is planned
 - A print delivery to another system leaves with its hold at least a quarter full (or carrying all that's wanted); a
@@ -683,7 +683,7 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
   logistics fleet of its own. Deliveries beyond it aren't considered at all (1.323.0): a request whose destination is
   more than 1728 ly from every logistics carrier and the logistics fleet's home, or a return whose pile is that far from
   where it would go, is left off the request list (a muted line names them), and no delivery loads at a pile that far
-  from its destination. Stars missing from the catalog are left to the trip Confirm.
+  from its destination. Stars missing from the catalog are left to the trip check, which measures them with the game's preview.
 - **Ships** are picked nearest first (by relay hop), then the smallest that takes the rest in one go (else the
   biggest), and as many as the load needs go at once, as one convoy. Freighters and cargo vessels fly themselves (a
   freighter is too large to attach); haulers and drones stay in their system unless they ride (attached) on a free
@@ -720,8 +720,8 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
   The seats every device stranded in that system (for the same home) needs pick the carrier: the smallest that seats
   them all, else the one that seats the most and the rest get another; seats to spare pick up rescues within 15 ly. Out of range the game names only the star, so once the replicant is in the system the carrier goes to
   each device's own spot. A device pinned (`at:`) in the system it's stranded in counts as stocked there.
-- A rescue whose trips add up to more than the **sector range** (a day at the game's 50 s/ly), or to a star whose
-  position isn't known, waits for your **Confirm** on the request (one alert; the OK holds two days).
+- A rescue whose trips add up to more than the **sector range** (a day at the game's 50 s/ly) is never sent (1.418.0);
+  one to a star whose position isn't known goes to the trip check.
 - **Pause rescues** (Logistics page): all of them, or one fleet's devices, for 6 h to a week or until resumed. Paused
   requests stay listed but nothing is sent; a rescue already under way goes on.
 
@@ -732,7 +732,7 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
 - A free logistics carrier picks one up from a system that has enough without it (one mid-repair finishes first), drops
   it at the worst device and sets it to `patrol`; one that can surge flies itself.
 - Only to systems the relay network covers or a fleet's home (not one lit only by a passing replicant), never one with
-  an asteroid due. Trips over a day wait for **Confirm** like rescues.
+  an asteroid due. Trips over a day are never sent, like rescues.
 - A logistics repair device in a system that needs it is set to patrol there, and none of them gathers at a hub.
 
 ### Drop-offs
@@ -933,7 +933,7 @@ yield quota. The built-in *Mining Rush: spread out* order uses them.
 
 | Page | What it has |
 |---|---|
-| **Automations** | every rule, jobs step by step with Cancel, and the log; **Confirm** buttons for trips over the sector range |
+| **Automations** | every rule, jobs step by step with Cancel, and the log |
 | **Events** | full local history with filters |
 | **Messages** | game messages (unread first and highlighted, read ones dimmed; *unread only* box; checkboxes mark salvage site discoveries and civilizations' requests for help read as they arrive) and BobNet channels (each post shows the system its poster is in; new lines come first in blue, lines that repeat an earlier one with other places, codes or numbers follow grayed, and *hide repeats* drops them; the feed searches every saved message and pages back with *Older*; *recent* history includes NPCs and pages back through the relay with *Older*) |
 | **Chatter** | Write a message (pick the replicant and the channel, or type a channel). NPC chatter: your NPC replicants post canned BobNet lines about events they took part in (survey done, belt or site mined out, arrival, salvage, contract), answer each other in conversations and answer other NPCs (Bill, Riker, Dash …); placeholders {from} (the system a post names, such as the one Bill left), {star}, {region}, {poster}, {arrival} (who a post says just arrived), {pilot} (who an announcer's post is about), {score}; a message posted before comes up less often the more it has been posted, and never twice in a row; imported names also match a clan prefixed name. Bulk import with a tick per message, library with Post now / Remove, settings (on/off, general and bots channels, one limiter per channel, how often one of the NPCs may start a post there (24 h by default for the general and bots channels, blank = never); a refused reply is tried by another NPC; chances, daily cap), queue and posted log. Only replicants marked NPC post |
@@ -944,8 +944,9 @@ yield quota. The built-in *Mining Rush: spread out* order uses them.
 | **Console** (menu) | call any API endpoint through the server-side client |
 
 **Sector range**: any automated trip longer than a day at the game's surge pace (or of unknown length: the game's
-preview measures stars the catalog lacks) isn't sent; its job waits with a **Confirm** button on Automations (one
-alert). Trips you start yourself go as they are.
+preview measures stars the catalog lacks) is never sent (Joe 2026-11-14; it waited for a Confirm before). Its job stops
+with a warning and the leg is remembered for a week (6 h when its length was unknown), so no planner starts that trip
+again. Trips you start yourself go as they are.
 
 **Performance** (Diagnostics): pages slowest on average, the slowest requests with their queries, game API calls,
 engine lock waits and saved values decoded; engine stage timings and lock holds; table sizes and the largest saved

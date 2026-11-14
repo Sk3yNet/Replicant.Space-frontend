@@ -47,13 +47,13 @@ system; placed relays and beacons, wards, hubs and fleets on a mission excepted 
 else the nearest covered system). One that can surge is reached by a logistics device hosting a replicant, in its own
 system or anywhere its dark relay network covers (nearest first), and commanded home; one that can't is picked up from
 its last known location by a logistics carrier with a free seat, with a replicant alongside unless the carrier hosts one.
-A rescue whose trips add up to more than the sector range (SECTOR_RANGE_H, a day at the game's surge pace) waits for your
-Confirm on the Logistics page (owner 2026-10-22). Carriers only serve stars within the sector range (SECTOR_RANGE_LY), so a
+A rescue whose trips add up to more than the sector range (SECTOR_RANGE_H, a day at the game's surge pace) is never sent
+(owner 2026-11-14). Carriers only serve stars within the sector range (SECTOR_RANGE_LY), so a
 sector of its own gets a logistics fleet of its own; a star with no known position is out of range.
 
 Repair patrols (owner 2026-10-22): repair devices of the logistics fleets are taken to the systems with the most wear
 and too few repair devices (one per six worn devices), worst first, by a free logistics carrier (or on their own, if
-they can surge), and set to patrol there. Like rescues, a trip of more than a day waits for your Confirm.
+they can surge), and set to patrol there. Like rescues, a trip of more than a day is never sent.
 
 Convoys (owner 2026-11-11): the ships of a run leave for their stockpiles at once; a print delivery from another system
 fills its holds from what is spare (fill_holds); cargo devices left attached to an idle carrier are let off.
@@ -232,20 +232,16 @@ def rescue_pauses(raw: dict | None, now: datetime | None = None) -> dict:
 
 
 def _needs_ok(req: dict, hours: float, prefs: dict | None, unmet: list[dict]) -> bool:
-    """A rescue whose trips add up to more than SECTOR_RANGE_H waits for your OK on the Logistics page (owner
-    2026-10-22: a heaven vessel was sent from SOLARES toward DELTA, the round trip was well over a day)."""
+    """A rescue or repair trip that adds up to more than SECTOR_RANGE_H is never sent (owner 2026-11-14: "block all
+    automated travel requests beyond the sector limit"; it waited for a Confirm since 2026-10-22). A trip of unknown
+    length (a star off the catalog) is planned: the job runner measures it with the game's preview and blocks it there
+    if it's too long. True: drop this run."""
     req["trip_h"] = round(hours, 1) if math.isfinite(hours) else None
-    ok = ((prefs or {}).get("confirm") or {}).get(req["id"])
-    try:   # an OK holds for two days: a device stranded again later asks again
-        fresh = bool(ok) and (datetime.now(timezone.utc) - datetime.fromisoformat(ok)).total_seconds() < 2 * 86400
-    except (TypeError, ValueError):
-        fresh = False
-    if hours <= SECTOR_RANGE_H or fresh:
+    if not math.isfinite(hours) or hours <= SECTOR_RANGE_H:
         return False
-    req["confirm"] = True
-    long = (f"about {hours:.0f} h of travel (beyond the {SECTOR_RANGE_H:.0f} h sector range)" if math.isfinite(hours)
-            else "a trip of unknown length (a star's position isn't known)")
-    unmet.append({"req": req["id"], "why": f"waits for your OK: {long}; Confirm to send it"})
+    req["beyond"] = True
+    unmet.append({"req": req["id"], "why": f"not sent: about {hours:.0f} h of travel, beyond the "
+                                           f"{SECTOR_RANGE_H:.0f} h sector range"})
     return True
 
 
@@ -620,7 +616,10 @@ def _free(d: dict) -> bool:
     st = str(d.get("status") or "").lower()
     return (bool(d.get("location")) and not d.get("location_stale") and not d.get("stowed_in_device_code")
             and not d.get("controller_device_code")   # run by an AMI controller: released first (logistics_pass)
-            and not d.get("attached_to_device_code") and not st.startswith(MOVING))
+            and not d.get("attached_to_device_code") and not st.startswith(MOVING)
+            # the game's word on comms (live 2026-11-14: mobile fleet 15DFB014 at SOL was picked to tow a hauler there,
+            # "attach failed: Device is out of comms range")
+            and d.get("in_control_range") is not False)
 
 
 def fleet_devices(fleets: list[dict], devices: list[dict]) -> list[dict]:
@@ -645,7 +644,7 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
     those it has already (any owner's, placed there, or on their way: `incoming`) count. Worst first: the most missing
     capacity, then the lowest device. A repair device leaves only a system that has enough without it, and one at work
     (repairing) stays until it's done. `targets`: the systems a patrol may be sent to (default: all commandable). One that can surge flies itself; the others ride a free logistics carrier (stowed or
-    attached). Trips over SECTOR_RANGE_H wait for your OK, like rescues. All of them are kept out of the idle passes:
+    attached). Trips over SECTOR_RANGE_H are never sent, like rescues. All of them are kept out of the idle passes:
     a patrolling repair device stays where it works. Mutates reqs, runs, unmet and used; returns (request, work) pairs:
     work() sends what it can for that request with the carriers in `free` at the time of the call."""
     from . import fleets as fl

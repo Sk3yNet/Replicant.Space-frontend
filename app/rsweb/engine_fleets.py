@@ -335,13 +335,6 @@ class FleetsMixin:
             p = box.get("p") or lg.plan(**plan_args)   # (the loadout planner had nothing to plan with)
         else:
             p = lg.plan(**plan_args)
-        for r in p["requests"]:   # a rescue beyond the sector range waits for your OK (owner 2026-10-22): one alert each
-            key = f"rescue-ok:{r['id']}"
-            if r.get("confirm") and key not in self.stage_errors:
-                self.stage_errors[key] = "asked"
-                await self.log("logistics", f"{r['label']}: " + (f"about {r['trip_h']:.0f} h of travel" if r.get("trip_h") is not None
-                                                                     else "trip of unknown length") + " — waits for your Confirm "
-                                            "on Fleets › Logistics", "error", notify=True)
         by_code = by_code0
         pickups = await self.db.kv_get(lg.KV_PICKUPS, {}) or {}
         # devices a deal paid out: once they're at the site (fleetless, going nowhere), they're sent to the gather point,

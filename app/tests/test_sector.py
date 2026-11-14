@@ -32,15 +32,32 @@ def _job(client, e, jid):
     return next(j for j in client.portal.call(e.jobs) if j["id"] == jid)
 
 
-def test_a_trip_beyond_the_sector_range_waits_for_confirm(client):
+def test_a_trip_beyond_the_sector_range_is_never_sent(client):
+    """Owner 2026-11-14: "block all automated travel requests beyond the sector limit" (they waited for a Confirm)."""
     e, sent, jid = _run(client, "FAR-BELT-1")
     job = _job(client, e, jid)
-    assert not sent and job["status"] == "waiting" and job["steps"][0]["status"] == "confirm"
-    assert "sector range" in job["steps"][0]["hold"]
-    client.portal.call(e.tick)   # the tick leaves it alone: no timeout
-    assert not sent and _job(client, e, jid)["steps"][0]["status"] == "confirm"
-    assert client.portal.call(e.confirm_trip, jid)
-    assert sent and sent[0]["destination"] == "FAR-BELT-1"
+    assert not sent and job["status"] == "failed" and job["steps"][0]["status"] == "failed"
+    assert "sector range" in job["steps"][0]["error"]
+    # the leg is remembered: the same trip isn't started again
+    assert "SOLARES>FAR" in client.portal.call(client.app.state.db.kv_get, "sector_far", {})
+    from rsweb import automations as au
+    again = client.portal.call(e.create_job, "logistics", "trip", "F1",
+                               [au.step("F1 → there", "/devices/F1", {"command": "travel", "destination": "FAR-BELT-1"},
+                                        wait=["travel.arrived"])], {}, False)
+    assert again is None and not sent
+
+
+def test_a_trip_held_for_confirm_before_is_stopped_by_the_tick(client):
+    from rsweb import automations as au
+    e = eng(client)
+    _run(client, "NEAR-BELT-1")
+    jobs = client.portal.call(e.jobs)
+    jobs.append({"id": "old-1", "rule": "logistics", "title": "old", "device": "F1", "idx": 0, "status": "waiting",
+                 "meta": {}, "steps": [{**au.step("F1 → far", "/devices/F1", {"command": "travel", "destination": "FAR-1"}),
+                                        "status": "confirm", "hold": "about 240 h of travel"}]})
+    client.portal.call(e.save_jobs, jobs)
+    client.portal.call(e.tick)
+    assert _job(client, e, "old-1")["status"] == "failed"
 
 
 def test_trips_inside_the_sector_range_and_your_own_go_out(client):
@@ -84,3 +101,9 @@ def test_a_planned_route_under_the_range_goes_out(client):
                                       wait=["travel.arrived"])], {}, False)
     assert seen[0]["via"] == ["HUB", "FAR", "FAR-KUIPER"] and _job(client, e, job["id"])["steps"][0]["sector_h"] == 20.0
     assert sent and sent[0]["destination"] == "FAR-BELT-1"
+
+
+def test_a_carrier_out_of_comms_range_is_never_picked():
+    # live 2026-11-14: mobile fleet 15DFB014 at SOL (out of comms range) was picked to tow a hauler: attach failed
+    d = {"device_code": "M", "location": "SOL-3-1", "status": "idle", "in_control_range": False}
+    assert not lg._free(d) and lg._free({**d, "in_control_range": True}) and lg._free({**d, "in_control_range": None})
