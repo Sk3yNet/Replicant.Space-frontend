@@ -7,8 +7,10 @@
   (or system hub) in its system it's listed in the galactic directory; without one it trades locally only. A trade's rewards go into escrow
   when you create it — you need them at the shop's location for the whole stock — and come back if you remove it.</p>
 
-{% for g in shop_groups %}
-<div class="card"{% if not g.post %} id="shop-{{ g.shops[0].code }}"{% endif %}>
+{% for g in shop_groups + ([{"post": None, "spare": True, "shops": spare_shops}] if spare_shops else []) %}
+<div class="card"{% if not g.post and not g.spare %} id="shop-{{ g.shops[0].code }}"{% endif %}>
+  {% if g.spare %}<div class="small muted">Trade controllers that are no shop yet ({{ g.shops | length }}): open one to set it up.</div>{% endif %}
+  {% set fold = g.post or g.spare %}
   {% set post = g.post %}{% if post %}<h2 style="margin:0 0 4px">{{ post.name }} <span class="small muted">trade post · {{ g.shops | length }} shop(s)</span></h2>
   <div class="small" style="margin-bottom:4px">Run by the trade post <a href="/fleets/details?fleet={{ post.id }}"><b>{{ post.name }}</b></a>:
     its trades are created from the stock and prices set there (one listing per device type), so change them there rather than here.</div>
@@ -24,12 +26,12 @@
     </form><div class="sh-out"></div>
   </details>{% endif %}
   {% for s in g.shops %}
-  {% if post %}<details id="shop-{{ s.code }}" class="small" style="border-top:1px solid var(--line);margin-top:2px;padding:2px 0">
+  {% if fold %}<details id="shop-{{ s.code }}" class="small" style="border-top:1px solid var(--line);margin-top:2px;padding:2px 0">
     <summary><b>{{ s.config.name or 'Unnamed shop' }}</b> <span class="mono">{{ s.code }}</span>
       <span class="muted">· {{ s.trades | length }} listing(s){% if s.outside %} · {{ s.outside }}{% endif %}</span></summary>
   {% else %}<div>{% endif %}
   <div class="row between">
-    <h2 style="margin:0{% if post %};font-size:1em{% endif %}">{{ s.config.name or 'Unnamed shop' }} <span class="mono small"><a href="/devices/{{ s.code }}">{{ s.code }}</a></span>
+    <h2 style="margin:0{% if fold %};font-size:1em{% endif %}">{{ s.config.name or 'Unnamed shop' }} <span class="mono small"><a href="/devices/{{ s.code }}">{{ s.code }}</a></span>
       <span class="small muted">{{ s.location }} · {{ s.status }}</span>
       {% if s.listed %}<span class="pill small">listed via {{ s.relay }}</span>{% elif s.configured %}<span class="small lv-alert">not listed — no relay in {{ s.star }}</span>{% else %}<span class="small lv-alert">not set up</span>{% endif %}</h2>
     <button class="small ghost" hx-post="/shop/{{ s.code }}/refresh" hx-swap="none">Read trades</button>
@@ -72,7 +74,7 @@
       <button class="small">Add trade</button>
     </form><div class="sh-out"></div>
   </details>
-  {% if post %}</details>{% else %}</div>{% endif %}
+  {% if fold %}</details>{% else %}</div>{% endif %}
   {% endfor %}
 </div>
 {% else %}

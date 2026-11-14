@@ -219,24 +219,29 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
             for c_ in members(f_, st["devices"]):
                 if sh.is_shop(c_):
                     posts[c_["device_code"]] = f_
-                    if c_.get("location"):
-                        by_loc.setdefault(c_["location"], f_)
+            spot_ = tp.settings(f_)["spot"] or next((c_.get("location") for c_ in tp.controllers(f_, st["devices"])), None)
+            if spot_:   # the shop spot only (Joe 2026-11-14: B3F801E9 elsewhere was put on the card)
+                by_loc.setdefault(spot_, f_)
             tag_ = contract_tag(tp.supply_key(f_["id"]))
             for d_ in st["devices"]:
                 if tag_ in (d_.get("tags") or []) and sh.is_shop(d_):
                     stock_of[d_["device_code"]] = f_
     shops = await _shops(request)
+    spare: list[dict] = []
     groups: list[dict] = []   # a trade post's shops share one card (owner 2026-11-14), in shop order
     for s in shops:   # its stock for sale and any other controller at its spot go on its card too
         post = posts.get(s["code"]) or stock_of.get(s["code"]) or by_loc.get(s.get("location"))
         if post and s["code"] not in posts:
             s["outside"] = "stock for sale" if s["code"] in stock_of else "at the shop spot, not in the fleet"
+        if not post and not s.get("configured"):   # a controller that's no shop yet: listed apart, folded
+            spare.append(s)
+            continue
         g = next((x for x in groups if post and x["post"] and x["post"].get("id") == post.get("id")), None)
         if g:
             g["shops"].append(s)
         else:
             groups.append({"post": post, "shops": [s]})
-    return await page(request, user, "shop.html", "shop", shops=shops, shop_groups=groups, traders=traders, posts=posts,
+    return await page(request, user, "shop.html", "shop", shops=shops, shop_groups=groups, spare_shops=spare, traders=traders, posts=posts,
                       traders_last=await request.app.state.db.kv_get(sh.LAST_KV),
                       listing_wanted=await request.app.state.db.kv_get(sh.LISTING_KV, {}) or {},
                       trade_ok=await request.app.state.db.kv_get("trade_approvals", {}) or {},
