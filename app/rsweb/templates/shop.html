@@ -24,12 +24,12 @@
     </form><div class="sh-out"></div>
   </details>{% endif %}
   {% for s in g.shops %}
-  {% if post %}<details id="shop-{{ s.code }}" style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px">
-    <summary><b>{{ s.config.name or 'Unnamed shop' }}</b> <span class="mono small">{{ s.code }}</span>
-      <span class="small muted">· {{ s.trades | length }} listing(s){% if s.outside %} · {{ s.outside }}{% endif %}</span></summary>
+  {% if post %}<details id="shop-{{ s.code }}" class="small" style="border-top:1px solid var(--line);margin-top:2px;padding:2px 0">
+    <summary><b>{{ s.config.name or 'Unnamed shop' }}</b> <span class="mono">{{ s.code }}</span>
+      <span class="muted">· {{ s.trades | length }} listing(s){% if s.outside %} · {{ s.outside }}{% endif %}</span></summary>
   {% else %}<div>{% endif %}
   <div class="row between">
-    <h2 style="margin:0">{{ s.config.name or 'Unnamed shop' }} <span class="mono small"><a href="/devices/{{ s.code }}">{{ s.code }}</a></span>
+    <h2 style="margin:0{% if post %};font-size:1em{% endif %}">{{ s.config.name or 'Unnamed shop' }} <span class="mono small"><a href="/devices/{{ s.code }}">{{ s.code }}</a></span>
       <span class="small muted">{{ s.location }} · {{ s.status }}</span>
       {% if s.listed %}<span class="pill small">listed via {{ s.relay }}</span>{% elif s.configured %}<span class="small lv-alert">not listed — no relay in {{ s.star }}</span>{% else %}<span class="small lv-alert">not set up</span>{% endif %}</h2>
     <button class="small ghost" hx-post="/shop/{{ s.code }}/refresh" hx-swap="none">Read trades</button>

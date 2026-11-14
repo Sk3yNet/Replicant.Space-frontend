@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.415.0"
+VERSION = "1.415.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.415.1", "2026-11-14", "Shop page: a trade post's shop drop-downs are compact (Joe: smaller and collapsed): one small line each, folded, with a smaller heading when opened."),
     ("1.415.0", "2026-11-14", "Shop page: every AMI trade controller of a trade post sits on the post's card (Joe: SOL trader's controllers still had cards of their own). Controllers in the fleet but not yet placed, controllers held as stock for sale, and any other controller at the shop spot now join it too, marked as such. Each shop on the card is a drop-down showing its trade listings."),
     ("1.414.0", "2026-11-14", "A trade post's shops share one set of shop details (Joe: combine them, only the first announces itself). The Shop page card of a trade post has one Shop details form: its description and BobNet announcement go to the first shop, and every other shop gets a generic description (More listings from Post 1.) and no announcement. Update every shop sends it to all of them at once; new shops open with it."),
     ("1.413.0", "2026-11-14", "Fleet cards show only what fits the fleet (Joe): a fleet with no carrier in its loadout or among its members no longer shows the Seats column or the hold and attach-point budget, just a line saying so (and how many devices can't fly themselves). Its Board everyone button is gone and End mission no longer says it boards. Adding a carrier line brings the counts back as you edit."),
