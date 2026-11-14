@@ -98,7 +98,7 @@ def sightings(known: set[str], mine_devices: set[str], mine_reps: set[str], othe
                 out.append((t, f"shop:{ctrl}:{tr.get('trade_code') or tr.get('name')}",
                             {"kind": "shop", "at": sh.get("read_at") or sh.get("seen_at"), "code": ctrl,
                              "where": sh.get("location") or sh.get("star"), "owner": sh.get("owner_replicant_code"),
-                             "owner_name": sh.get("owner_name") or sh.get("name"),
+                             "owner_name": sh.get("shop_name") or sh.get("owner_name") or sh.get("name"),
                              "note": f"{tr.get('name') or 'trade'}: {n} for {_price(tr.get('criteria'))}"}))
     for d in sim_devices or []:
         t = d.get("device_type")
@@ -234,12 +234,22 @@ async def refresh(db, max_age_min: float = 0) -> dict:
         if isinstance(v, dict) and v.get("devices"):
             places[r["key"][4:]] = {"devices": v["devices"], "_read_at": r["updated_at"]}
     found = sightings(set(bps), mine_devices, mine_reps, await db.kv_get("others", {}) or {},
-                      await db.kv_get("traffic", {}) or {}, places, await db.kv_get("traders_cache", {}) or {},
+                      await db.kv_get("traffic", {}) or {}, places, await _shops(db),
                       await db.kv_get("sim:devices", []) or [], await db.kv_get("replicant_profiles", {}) or {})
     merge(s, found, set(bps))
     s["refreshed_at"] = _now()
     await db.kv_set(KV, s)
     return s
+
+
+async def _shops(db) -> dict:
+    """Every shop known (shop.known_traders: the trader directory, system and device scans, BobNet posts and every shop
+    seen before; the newest sighting of each), plus directory reads of shops since closed: what they sold was seen."""
+    from . import shop
+    out = dict(await shop.known_traders(db))
+    for code, t in (await db.kv_get("traders_cache", {}) or {}).items():
+        out.setdefault(code, t)
+    return out
 
 
 async def add(db, device_type: str, note: str = "") -> None:

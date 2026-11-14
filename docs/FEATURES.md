@@ -796,7 +796,7 @@ they are (a print already started isn't counted; what it turns out stays a spare
 ### Missing blueprints
 - A running list of device types you have no blueprint for: priority targets for trade and research.
 - Filled from blueprints that need a type as a component (with how many blueprints it blocks), prints the game refused as
-  locked, other players' devices in scans and beacon traffic, devices at locations read, shop listings that pay in a type,
+  locked, other players' devices in scans and beacon traffic, devices at locations read, what any known shop sells (directory, scans, BobNet posts),
   simulations, and types added by hand. Sightings are kept after their source forgets them; a type drops off when its
   blueprint unlocks.
 - A route per type: *decommission* (you own one), *decommission a holder* (you own a device built with it), *buy* (a

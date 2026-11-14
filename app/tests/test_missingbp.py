@@ -55,3 +55,14 @@ def test_page_add_and_hide(client):  # noqa: F811
     client.post("/blueprints/missing/hide", data={"device_type": "warp_lens"}, headers=HX)
     assert "warp_lens" not in client.get("/blueprints/missing", headers=H).text
     assert "warp_lens" in client.get("/blueprints/missing?hidden=1", headers=H).text
+
+
+def test_shops_from_scans_and_posts_count(client):  # noqa: F811
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "blueprints", BPS)
+    client.portal.call(db.kv_set, "shops_known", {"C0FFEE01": {
+        "controller_code": "C0FFEE01", "location": "ZED-OORT", "shop_name": "Rock Droppers", "seen_at": "2026-11-14T10:00:00+00:00",
+        "trades": [{"name": "Lens deal", "trade_code": "t1", "rewards": {"devices": {"warp_lens": 2}},
+                    "criteria": {"resources": {"rares": 9}}}]}})
+    page = client.get("/blueprints/missing", headers=H).text
+    assert "warp_lens" in page and "Rock Droppers" in page and "Lens deal: 2 for 9 rares" in page

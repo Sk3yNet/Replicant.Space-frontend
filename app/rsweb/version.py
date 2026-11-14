@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.422.0"
+VERSION = "1.423.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.423.0", "2026-11-14", "Missing blueprints also lists what every known shop sells (Joe): shops found by system and device scans, BobNet opening posts and earlier sightings count, not only the trader directory read."),
     ("1.422.0", "2026-11-14", "Rock chasers with no target gather at home: the fleet's carriers fetch members left in "
      "other systems (within the sector range) and bring them to the home system, and self-flying members fly back on "
      "their own (Chaser_1 sat split over SOLARES and FALQUORYX). A board step told \"already attached\" no longer "
