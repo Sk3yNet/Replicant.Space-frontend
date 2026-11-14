@@ -7,10 +7,13 @@
   (or system hub) in its system it's listed in the galactic directory; without one it trades locally only. A trade's rewards go into escrow
   when you create it — you need them at the shop's location for the whole stock — and come back if you remove it.</p>
 
-{% for s in shops %}
-<div class="card" id="shop-{{ s.code }}">
-  {% set post = posts.get(s.code) %}{% if post %}<div class="small" style="margin-bottom:4px">Run by the trade post <a href="/fleets/details?fleet={{ post.id }}"><b>{{ post.name }}</b></a>:
+{% for g in shop_groups %}
+<div class="card"{% if not g.post %} id="shop-{{ g.shops[0].code }}"{% endif %}>
+  {% set post = g.post %}{% if post %}<h2 style="margin:0 0 4px">{{ post.name }} <span class="small muted">trade post · {{ g.shops | length }} shop(s)</span></h2>
+  <div class="small" style="margin-bottom:4px">Run by the trade post <a href="/fleets/details?fleet={{ post.id }}"><b>{{ post.name }}</b></a>:
     its trades are created from the stock and prices set there (one listing per device type), so change them there rather than here.</div>{% endif %}
+  {% for s in g.shops %}
+  <div{% if post %} id="shop-{{ s.code }}"{% if not loop.first %} style="border-top:1px solid var(--line);margin-top:10px;padding-top:8px"{% endif %}{% endif %}>
   <div class="row between">
     <h2 style="margin:0">{{ s.config.name or 'Unnamed shop' }} <span class="mono small"><a href="/devices/{{ s.code }}">{{ s.code }}</a></span>
       <span class="small muted">{{ s.location }} · {{ s.status }}</span>
@@ -55,6 +58,8 @@
       <button class="small">Add trade</button>
     </form><div class="sh-out"></div>
   </details>
+  </div>
+  {% endfor %}
 </div>
 {% else %}
 <div class="card"><p class="muted">You have no AMI trade controller. Print one (if you have the blueprint), deploy it where you want the shop

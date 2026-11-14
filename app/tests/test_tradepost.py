@@ -108,9 +108,18 @@ def test_engine_lists_and_card_saves(client):  # noqa: F811
     client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices")
                        + [shop(), dev("D1", "mining_drone", tags=[TAG]), dev("D2", "mining_drone", tags=[TAG])])
     client.portal.call(e.save_fleets, [dict(FLEET)])
+    sent, real = [], e.send
+
+    async def spy(method, path, body, *a, **kw):
+        sent.append(body)
+        return await real(method, path, body, *a, **kw)
+    e.send = spy
     out = client.portal.call(e.trade_post_pass)
+    e.send = real
     assert out == ["Post: listed 2× mining_drone"]
     st = client.portal.call(db.kv_get, tp.KV)["tp"]
+    assert st["numbers"] == {"SHOP": 1}
+    assert any(b and (b.get("configuration") or {}).get("name") == "Post 1" for b in sent)
     assert st["listings"]["mining_drone"]["stock"] == 2 and st["listings"]["mining_drone"]["escrow"] == ["D1", "D2"]
     sup = client.portal.call(e.trade_post_supply, client.portal.call(e.devices))
     assert sup["tp:tp"]["_need"] == {} and sup["tp:tp"]["location"] == "SOL-4-L4"
@@ -225,3 +234,20 @@ def test_spares_beat_queued_stock_prints():
         ("compute_core", 1, "2026-11-13T21:04:46+00:00"), ("compute_core", 1, "2026-11-13T21:00:45+00:00")]
     assert rows["hull_plate"]["sending"] == [] and not rows["hull_plate"].get("cancel")   # no spare: its prints stay
     assert all(c["tag"] == cs.contract_tag("tp:tp") for c in p["cancel"])
+
+
+def test_shops_numbered_and_kept():
+    assert tp.number_shops({}, ["B", "A"]) == {"B": 1, "A": 2}
+    assert tp.number_shops({"A": 2, "GONE": 1}, ["A", "C"]) == {"A": 2, "C": 1}
+    assert tp.shop_name({"name": "SOL Market"}, 3) == "SOL Market 3"
+
+
+def test_shop_page_one_card_per_trade_post(client):  # noqa: F811
+    from test_ops import H
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices")
+                       + [shop(), dev("SHOP2", "ami_trade_controller", tags=["fleet:tp"], ami_directive={"name": "trade"})])
+    client.portal.call(e.save_fleets, [dict(FLEET)])
+    page = client.get("/shop", headers=H).text
+    assert 'id="shop-SHOP"' in page and 'id="shop-SHOP2"' in page
+    assert page.count("trade post · 2 shop(s)") == 1

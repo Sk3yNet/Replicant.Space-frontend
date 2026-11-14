@@ -145,6 +145,19 @@ def shops_needed(fleet: dict) -> int:
     return max(1, -(-len(settings(fleet)["onhand"]) // PER_SHOP))
 
 
+def number_shops(known: dict, codes: list[str]) -> dict[str, int]:
+    """Each controller's shop number: kept once given, a new one takes the lowest free number (owner 2026-11-14)."""
+    out = {c: int(n) for c, n in (known or {}).items() if c in codes and str(n).isdigit()}
+    for c in codes:
+        if c not in out:
+            out[c] = next(i for i in range(1, len(codes) + 2) if i not in out.values())
+    return out
+
+
+def shop_name(fleet: dict, n: int) -> str:
+    return f"{(fleet.get('name') or 'Trade post').strip()} {n}"
+
+
 def value(price: dict) -> int:
     return sum(int(q) for q in (price or {}).values())
 
@@ -413,15 +426,23 @@ class TradePostMixin:
                 await self.save_fleets(items)
                 out.append(f"{f.get('name')}: {need_shops} AMI trade controllers wanted for "
                            f"{len(settings(f)['onhand'])} device types ({PER_SHOP} listings each)")
+            nums = st["numbers"] = number_shops(st.get("numbers") or {}, [c["device_code"] for c in ctrls])
+            from .shop import shop_config
             for c in ctrls:
-                if trades.get(c["device_code"]) is None or (c.get("ami_directive") or {}).get("name") == "trade" or dry:
+                code = c["device_code"]
+                name = shop_name(f, nums[code])
+                is_open = (c.get("ami_directive") or {}).get("name") == "trade"
+                if trades.get(code) is None or dry or (is_open and shop_config(c).get("name") == name):
                     continue
-                ok, _, err = await self.send("POST", f"/devices/{c['device_code']}",
+                if is_open and trades.get(code):   # renaming resets the directive: only while it lists nothing
+                    continue
+                ok, _, err = await self.send("POST", f"/devices/{code}",
                                              {"command": "set_directive", "directive": "trade",
-                                              "configuration": {"name": f.get("name") or "Trade post"}},
-                                             f"trade post {f.get('name')}: open the shop on {c['device_code']}")
+                                              "configuration": {"name": name}},
+                                             f"trade post {f.get('name')}: {'rename' if is_open else 'open'} the shop "
+                                             f"on {code} as {name}")
                 if not ok:
-                    notes.append(f"shop {c['device_code']} not opened: {err}")
+                    notes.append(f"shop {code} not opened: {err}")
             listings = st.setdefault("listings", {})
             for a in pl["actions"] if not dry else []:
                 t, code = a["type"], a["controller"]

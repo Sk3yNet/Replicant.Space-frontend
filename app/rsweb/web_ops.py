@@ -216,7 +216,16 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
         if f_.get("role") == tp.ROLE:
             for c_ in tp.controllers(f_, st["devices"]):
                 posts[c_["device_code"]] = f_
-    return await page(request, user, "shop.html", "shop", shops=await _shops(request), traders=traders, posts=posts,
+    shops = await _shops(request)
+    groups: list[dict] = []   # a trade post's shops share one card (owner 2026-11-14), in shop order
+    for s in shops:
+        post = posts.get(s["code"])
+        g = next((x for x in groups if post and x["post"] and x["post"].get("id") == post.get("id")), None)
+        if g:
+            g["shops"].append(s)
+        else:
+            groups.append({"post": post, "shops": [s]})
+    return await page(request, user, "shop.html", "shop", shops=shops, shop_groups=groups, traders=traders, posts=posts,
                       traders_last=await request.app.state.db.kv_get(sh.LAST_KV),
                       listing_wanted=await request.app.state.db.kv_get(sh.LISTING_KV, {}) or {},
                       trade_ok=await request.app.state.db.kv_get("trade_approvals", {}) or {},
