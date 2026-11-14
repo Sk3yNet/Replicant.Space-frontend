@@ -16,6 +16,7 @@
     {% elif f.scout_note and not f.scout_note.startswith('scouting from') %}Not launched: {{ f.scout_note }}{% else %}Auto-scout: the next pass picks a system.{% endif %}</div>{% endif %}
   {% include "partials/recall_buttons.html" %}
   {% if f.role == 'rock_chaser' %}{% include "partials/chase_card.html" %}{% endif %}
+  {% if f.role == 'terraformer' and f.tf_view %}{% include "partials/terraformer_card.html" %}{% endif %}
   {% if f.role == 'trade_post' and f.tp_view %}{% include "partials/trade_post_card.html" %}{% endif %}
   <div class="grid g2">
     <div>
@@ -229,7 +230,7 @@
           <span id="scout-{{ f.id }}" class="muted">When the fleet is free it visits the stars your observatories found that nothing
             of yours has scanned, nearest to its home first (not another player's warded system, not a stationed fleet's home).</span>
         </form>{% endif %}
-        {% if f.role == 'logistics' %}<p class="muted">A logistics fleet takes no missions: it runs the <a href="/fleets/logistics">logistics service</a>.</p>{% else %}<h3>New mission</h3>
+        {% if f.role == 'logistics' %}<p class="muted">A logistics fleet takes no missions: it runs the <a href="/fleets/logistics">logistics service</a>.</p>{% elif f.role == 'terraformer' %}<p class="muted">A terraformer fleet takes no missions: it goes to the planet assigned above and stays until the world is habitable.</p>{% else %}<h3>New mission</h3>
         <form hx-post="/fleets/{{ f.id }}/mission" hx-swap="none">
           {% if f.role == 'trade' %}
             {% if contracts %}<label style="text-transform:none;display:block">Contract

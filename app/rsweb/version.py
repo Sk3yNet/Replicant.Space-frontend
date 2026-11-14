@@ -16,11 +16,20 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.416.0"
+VERSION = "1.417.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.417.0", "2026-11-14", "New fleet role: terraformer (Joe). Assign it a planet or moon and a species on its card. It waits "
+     "for its whole loadout and an active replicant aboard (it works outside relay coverage; Needs an active replicant aboard "
+     "is ticked for it), flies there with everyone, deploys its terraform devices and steers them from the monitor's reports "
+     "like the training: each value outside its band gets the devices that move it, harder the farther it is, stopping as it "
+     "nears the middle; strong heaters and coolers only for big gaps; bio seeders once their preconditions hold; nothing pushes "
+     "into an active disaster; the atmospheric regulator locks temperature, pressure and hydrosphere once they're in range. It "
+     "stays and shows as terraforming while assigned, holding the world in range, until it gets another planet or is recalled. "
+     "Disasters and anomalies notify (warnings; errors while steering is paused). A new terraformer fleet starts with a kit "
+     "loadout. Fleet card: no New mission section for it."),
     ("1.416.0", "2026-11-14", "Trade post announcements point at the shop (Joe: BobNet showed SK3Y-Ottoline_Bulkferry @ SOLARES). BobNet names only the posting replicant's star, which the app can't change, so the shop's exact location goes into the texts: in place of {spot}, else added to the announcement or description where it fits; the other shops say More listings from Post 1 at that spot. Shops open only once they reach the shop spot, so a controller still on its way never announces itself."),
     ("1.415.2", "2026-11-14", "Shop page: only controllers at a trade post's shop spot join its card (Joe: B3F801E9 is neither at the spot nor in the fleet); before, any location of the post's controllers counted. Trade controllers that are no shop yet are left out of the shop list and folded into one small card at the end, where one can still be opened."),
     ("1.415.1", "2026-11-14", "Shop page: a trade post's shop drop-downs are compact (Joe: smaller and collapsed): one small line each, folded, with a smaller heading when opened."),

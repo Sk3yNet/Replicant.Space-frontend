@@ -407,3 +407,83 @@ async def terraforming_candidates_read(request: Request, user: str = Depends(cur
     msg = f"Read {n} body/bodies." + (f" {left} more to read: click again." if left else "") + \
           (f" Not read: {html.escape('; '.join(failed[:5]))}{' …' if len(failed) > 5 else ''}" if failed else "")
     return HTMLResponse(f'<span class="{"lv-warning" if failed else "muted"}">{msg} Reload the page to see them.</span>')
+
+
+# --- terraformer fleets (terraformer.py, tf_engine.py): the fleet card and its settings -------------------------------
+async def terraformer_view(request: Request, f: dict, devices: list[dict], jobs: dict) -> dict:
+    """What a terraformer fleet's card shows: settings, the run, the last report against the species' ranges, and what
+    each terraform device at the planet is doing."""
+    from . import fleets as fl
+    from . import terraformer as tr
+    cfg = tr.settings(f)
+    run = {"phase": "idle", "note": None, **(f.get("tf_run") or {})}
+    species = await species_list(request)
+    targets = tr.targets_for(cfg["species"], species)
+    rep = run.get("report") or {}
+    vals = rep.get("values") or {}
+    push = run.get("push") or {}
+    rows = []
+    for a in tf.ATTRS:
+        lo, hi = targets.get(a, (None, None))
+        v = vals.get(a)
+        rows.append({"attr": a, "value": v, "lo": lo, "hi": hi, "unit": tf.UNITS.get(a, ""),
+                     "ok": tf.in_range(a, v, targets), "push": push.get(a, 0)})
+    at = [d for d in fl.members(f, devices) if (d.get("device_type") or "") in tf.DEVICES]
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for d in at:
+        groups[d.get("device_type") or "?"].append({"code": d.get("device_code"), "on": tf.is_on(d),
+                                                    "here": d.get("location") == cfg["planet"] and not d.get("stowed_in_device_code")
+                                                    and not d.get("attached_to_device_code"),
+                                                    "set": tf.settings_of(d), "capacity": d.get("capacity")})
+    order = sorted(groups, key=tf.priority)
+    return {"cfg": cfg, "run": run, "rows": rows, "species": species, "target_name": next(
+                (s.get("name") for s in species if str(s.get("species_key") or "").lower() == cfg["species"]), cfg["species"]),
+            "groups": [{"type": t, "devices": groups[t], "why": (run.get("why") or {}).get(t)} for t in order],
+            "alerts": sorted(run.get("alerts") or {}), "job": jobs.get(run.get("job")), "steer_job": jobs.get(run.get("steer_job"))}
+
+
+@router.post("/fleets/{fid}/terraform", response_class=HTMLResponse)
+async def fleets_terraform(request: Request, fid: str, user: str = Depends(current_user)):
+    """A terraformer fleet's settings (action=settings: planet, species, margin_pct, steer), leaving without
+    its whole loadout (action=go), or pausing / resuming the steering (action=pause / steer)."""
+    from . import terraformer as tr
+    form = await request.form()
+    eng = request.app.state.worker.automations
+    async with eng.lock:
+        items = await eng.fleets()
+        f = next((x for x in items if x["id"] == fid and x.get("role") == tr.ROLE), None)
+        if not f:
+            return HTMLResponse('<div class="result err">No such terraformer fleet.</div>', status_code=404)
+        c = f.setdefault("terraform", {})
+        run = f.setdefault("tf_run", {})
+        action = form.get("action") or "settings"
+        if action == "settings":
+            planet = str(form.get("planet") or "").strip().upper()
+            if planet and not tr.valid_body(planet):
+                return HTMLResponse('<div class="result err">A planet (STAR-3) or a moon (STAR-3-1), please.</div>')
+            if planet.startswith("VIRT"):
+                return HTMLResponse('<div class="result err">That is a simulated world.</div>')
+            c["planet"] = planet
+            for k in ("margin_pct",):
+                raw = str(form.get(k) or "").strip()
+                if raw:
+                    try:
+                        c[k] = max(0.0, float(raw))
+                    except ValueError:
+                        return HTMLResponse(f'<div class="result err">{html.escape(k)} must be a number</div>')
+            if form.get("species"):
+                c["species"] = str(form.get("species")).strip().lower()
+            c["steer"] = form.get("steer") == "on"
+            f["terraform"] = {k: v for k, v in tr.settings(f).items() if k in tr.DEFAULTS}
+            msg = "Saved." + (f" Assigned to {planet}." if planet else " No planet assigned.")
+        elif action == "go":
+            run["go"] = True
+            msg = "It leaves on the next pass with what it has (it still needs its monitor and a carrier)."
+        elif action in ("pause", "steer"):
+            c["steer"] = action == "steer"
+            msg = "Steering resumed." if c["steer"] else "Steering paused: the devices stay as they are."
+        else:
+            return HTMLResponse('<div class="result err">Unknown action.</div>')
+        await eng.save_fleets(items)
+    await eng.log("terraformer", f"{f['name']}: {action} by {user}")
+    return HTMLResponse(f'<div class="result ok">{html.escape(msg)}</div>')

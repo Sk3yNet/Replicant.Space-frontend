@@ -1,0 +1,51 @@
+{# Terraformer fleet (terraformer.py, tf_engine.py): its planet, the world's last report, the devices and the settings #}
+{% set v = f.tf_view %}{% set c = v.cfg %}{% set run = v.run %}
+<div class="small" style="margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px">
+  <div><b>Terraformer</b> ·
+    {% if c.planet %}<a href="/terraforming/world/{{ c.planet }}"><b>{{ c.planet }}</b></a> for {{ v.target_name }}{% else %}<span class="lv-alert">no planet assigned</span>{% endif %}
+    · {% if c.planet %}<span class="pill small st-work" title="Assigned: it stays until you give it another planet or recall it">terraforming</span>{% if run.phase != 'terraforming' %} <span class="muted">({{ run.phase }})</span>{% endif %}{% else %}<span class="pill small">idle</span>{% endif %}
+    {% if run.note %}<span class="muted"> · {{ run.note }}</span>{% endif %}
+    {% if not c.steer %}<span class="lv-warning"> · steering paused</span>{% endif %}
+</div>
+  {% if v.job %}<div class="muted">trip: {{ v.job.title }} · step {{ v.job.idx + 1 }}/{{ v.job.steps | length }}</div>{% endif %}
+  {% if run.left %}<div class="lv-warning">Left behind (busy, aboard something else or no seat): {{ run.left | join(', ') }}</div>{% endif %}
+  {% if v.alerts %}<div class="lv-warning">Active: {% for a in v.alerts %}{{ a.split(':', 1)[1] }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+  {% if run.report %}
+  <table class="small" style="margin-top:4px"><tr><th>Attribute</th><th class="num">Now</th><th>Range</th><th>Push</th></tr>
+    {% for r in v.rows if r.lo is not none or r.hi is not none %}<tr>
+      <td>{{ r.attr }}</td>
+      <td class="num {{ 'lv-done' if r.ok else 'lv-alert' if r.ok == false }}">{{ '%.2f' | format(r.value) if r.value is not none else '—' }} {{ r.unit }}</td>
+      <td class="muted">{{ r.lo if r.lo is not none else '…' }}–{{ r.hi if r.hi is not none else '…' }}</td>
+      <td>{{ '↑' if r.push > 0 else '↓' if r.push < 0 else '' }}</td></tr>{% endfor %}
+  </table>
+  <div class="muted">report {{ run.report.at | ago }}{% if run.report.warnings %} · monitor: {{ run.report.warnings | join('; ') }}{% endif %}</div>
+  {% endif %}
+  {% if v.groups %}<details style="margin-top:4px"><summary>Devices ({{ v.groups | sum(attribute='devices', start=[]) | length }})</summary>
+    <table class="small">{% for g in v.groups %}<tr><td>{{ g.type | human }}</td>
+      <td class="mono">{% for d in g.devices %}<a href="/devices/{{ d.code }}" class="{{ 'lv-done' if d.on else 'muted' }}" title="{{ 'on' if d.on else 'off' }}{% if d.set.strength is defined and d.set.strength is not none %} · strength {{ d.set.strength }}{% endif %}{% if d.set.direction %} · {{ d.set.direction }}{% endif %}{% if not d.here %} · not deployed at the planet{% endif %}">{{ d.code }}{{ '' if d.here else '⇢' }}</a> {% endfor %}</td>
+      <td class="muted">{{ g.why or '' }}</td></tr>{% endfor %}</table></details>{% endif %}
+  <details style="margin-top:4px"><summary>Assignment and steering</summary>
+    <p class="muted" style="margin:4px 0">The fleet waits for its whole loadout and an active replicant aboard (it works outside
+      relay coverage), flies to the planet with everyone, deploys its terraform devices there and steers them from the
+      monitor's reports: each value outside its band gets the devices that move it the right way, harder the farther it is,
+      until it nears the middle of the range. Strong heaters and coolers only for big gaps; bio seeders once their
+      preconditions hold; nothing pushes into an active disaster. Once temperature, pressure and hydrosphere are in range,
+      the atmospheric regulator locks them while oxygen, toxicity and biosphere are finished. It stays and reports
+      terraforming for as long as it is assigned, holding the world in range, until you give it another planet or recall it.
+      Disasters and anomalies notify you. Find worlds on <a href="/terraforming/candidates">Terraforming candidates</a>.</p>
+    <form hx-post="/fleets/{{ f.id }}/terraform" hx-target="next .tf-out" class="small row" style="gap:10px;flex-wrap:wrap">
+      <input type="hidden" name="action" value="settings">
+      <label style="text-transform:none">planet or moon <input name="planet" value="{{ c.planet }}" placeholder="KELMONENT-3" size="16"></label>
+      <label style="text-transform:none">species <select name="species">
+        {% for s in v.species %}<option value="{{ s.species_key }}" {{ 'selected' if (s.species_key or '') | lower == c.species }}>{{ s.name or s.species_key }}</option>{% endfor %}
+        {% if not v.species %}<option value="{{ c.species }}" selected>{{ c.species }}</option>{% endif %}</select></label>
+      <label style="text-transform:none" title="How far inside each edge of a range the fleet aims (percent of the range)">margin <input name="margin_pct" type="number" min="0" max="40" step="1" value="{{ c.margin_pct | int }}" style="width:4em"> %</label>
+      <label style="text-transform:none"><input type="checkbox" name="steer" {{ 'checked' if c.steer }}> steer the devices</label>
+      <button class="small">Save</button>
+    </form>
+    <div class="row small" style="margin-top:4px">
+      {% if not run.departed and c.planet %}<form hx-post="/fleets/{{ f.id }}/terraform" hx-target="next .tf-out" hx-confirm="Leave for {{ c.planet }} without the whole loadout?">
+        <input type="hidden" name="action" value="go"><button class="small ghost">Depart now</button></form>{% endif %}
+      <span class="tf-out"></span></div>
+  </details>
+</div>

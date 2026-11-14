@@ -24,6 +24,7 @@
         {% if f.materials == 'supply' %}<div class="muted">{% if f.sends_to %}to {{ f.sends_to.name }} ({{ f.sends_to.home }}), the nearest{% else %}no fleet is receiving yet{% endif %}</div>{% endif %}</td>
       <td>{% if f.role == 'bootstrap' and f.boot %}{% set bs = f.boot.status or {} %}<span class="pill small {{ 'lv-alert' if f.boot.paused or bs.blocked else ('st-move' if f.boot.decision else 'st-work') }}">bootstrap: {{ bs.label or f.boot.stage }}</span>
           {% if f.boot.paused %}<span class="muted">paused</span>{% elif f.boot.decision %}<span class="muted">waiting for your OK</span>{% endif %}
+        {% elif f.role == 'terraformer' and (f.terraform or {}).planet and not f.recall_hold %}{% set tr = f.tf_run or {} %}<span class="pill small st-work" title="{{ tr.note or '' }}">terraforming {{ f.terraform.planet }}</span>{% if tr.phase and tr.phase != 'terraforming' %} <span class="muted">{{ tr.phase }}</span>{% endif %}
         {% elif m.status in ('running', 'stalled', 'ended', 'stopped') %}<span class="pill small {{ 'lv-alert' if m.status == 'stalled' else 'st-work' }}">mission: {{ m.status }}{% if m.status == 'running' %} · {{ m.phase }}{% endif %}</span>
         {% elif not f.station %}<span class="muted">not stationed</span>
         {% elif not rep %}<span class="muted">—</span>

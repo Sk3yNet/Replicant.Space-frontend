@@ -234,6 +234,8 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
                        if f.get("role") == "explore" else {}),
                     **({"chase": f.get("chase") or {}, "chase_run": f.get("chase_run") or {}}
                        if f.get("role") == "rock_chaser" else {}),
+                    **({"terraform": f.get("terraform") or {}, "tf_run": f.get("tf_run") or {}}
+                       if f.get("role") == "terraformer" else {}),
                     **({"tour": f.get("tour") or {}, "radius": f.get("radius")}   # why a prospecting tour stopped
                        if f.get("role") == "prospector" else {})}   # why a rock chaser sits idle (its run note)
                    for f in await eng.fleets()],

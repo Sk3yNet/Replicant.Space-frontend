@@ -77,6 +77,9 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
                                                       if x.get("code") == c.get("device_code")), [])} for c in ctrls],
                             "per_shop": tp_.PER_SHOP, "needed": tp_.shops_needed(f),
                             "status": {r["type"]: r for r in fst.get("rows") or []}}
+        if f.get("role") == "terraformer":   # terraformer.py: its planet, the last report, what each device is doing
+            from .web_terraform import terraformer_view
+            f["tf_view"] = await terraformer_view(request, f, st["devices"], jobs)
         if f.get("role") == "rock_chaser":   # rockchase.py: every setting resolved, and the run with all its keys
             from . import rockchase as rc
             f["chase_cfg"] = rc.settings(f)
@@ -284,6 +287,9 @@ async def fleets_create(request: Request, name: str = Form(...), role: str = For
     fid = fl.fleet_id_for(name, items)
     items.append({"id": fid, "name": name.strip(), "role": role if role in fl.ROLES else "mining", "home": home.strip().upper(),
                   "wants": {}, "station": station == "on", "materials": "", "template": template or None})
+    if role == "terraformer" and not template:   # terraformer.py: a starting kit, carried by a cargo vessel with a replicant
+        from . import terraformer as tr_
+        items[-1].update({"wants": dict(tr_.KIT), "pick_matrix": True, "tf_init": True})
     if role == "trade_post" and not template:   # tradepost.py: the shop and a relay for the directory, kept at home
         items[-1].update({"wants": {"ami_trade_controller": 1, "ftl_relay": 1}, "station": True})
     await eng.save_fleets(items)

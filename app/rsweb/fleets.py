@@ -33,7 +33,7 @@ from typing import Any
 from .automations import SHORT_TIMEOUT, STEP_TIMEOUT, step
 from .shapes import as_amounts
 
-ROLES = ("mining", "explore", "logistics", "prospector", "rock_chaser", "trade_post")   # trade_post: a shop listing devices for sale (tradepost.py)
+ROLES = ("mining", "explore", "logistics", "prospector", "rock_chaser", "trade_post", "terraformer")   # terraformer: one planet until it is habitable (terraformer.py)   # trade_post: a shop listing devices for sale (tradepost.py)
 #   # rock_chaser: asteroid mining (rockchase.py)   # prospector: an observatory touring nearby stars (prospector_pass)   # logistics: no missions — it runs the logistics service (logistics.py). Trade fleets are retired
                                        # (2026-10-12): they become logistics fleets once their last run ends (auto_deals_pass)
 ROLE_CHOICES = ROLES + ("bootstrap",)   # a fleet's role select: picking bootstrap converts it (web_fleets._to_bootstrap)
@@ -44,6 +44,7 @@ PHASES = {
     "prospector": [],
     "rock_chaser": [],
     "trade_post": [],
+    "terraformer": [],
     "bootstrap": ["home", "survey", "hub_choice", "move", "hub_compound", "hub", "outposts", "operate"],   # bootstrap.STAGES
     "trade": ["load", "assemble", "gather", "travel", "deliver", "wait", "trade", "collect", "recall", "return", "unload",
               "home"],
@@ -467,7 +468,7 @@ RELOCATE_PHASES = ["assemble", "gather", "travel", "deploy"]
 # receiving point) and unload there (owner 2026-11-01)
 HOMING_PHASES = ["recall", "return", "unload"]
 # roles with no missions of their own: a recall holds them (their pass gives them no new work) until Resume
-HOLD_ROLES = ("logistics", "prospector", "rock_chaser", "bootstrap", "trade_post")
+HOLD_ROLES = ("logistics", "prospector", "rock_chaser", "bootstrap", "trade_post", "terraformer")
 
 
 RETRY_FIRST_MIN = 15   # a stalled mission retries by itself after this, doubling each time (owner 2026-10-22)

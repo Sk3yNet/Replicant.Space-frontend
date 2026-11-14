@@ -64,7 +64,7 @@ seconds, and a trip's countdown reaching zero loads the new location.
 | | [Traffic](docs/FEATURES.md#traffic) · [Trail](docs/FEATURES.md#trail) | beacon logs and civilization contact; follow a replicant (Bill) through the beacons |
 | | [Wards & hubs](docs/FEATURES.md#wards--hubs) · [Upkeep](docs/FEATURES.md#upkeep) | ward cap, hub shield and upkeep; wear and maintenance |
 | | [Defense](docs/FEATURES.md#defense) | asteroids: defend, evacuate, mine them with rigs or a rock chaser fleet |
-| | [Terraforming](docs/FEATURES.md#terraforming) · [candidates](docs/FEATURES.md#terraforming-candidates) | live console per world, dropping rocks; bodies rated as targets |
+| | [Terraforming](docs/FEATURES.md#terraforming) · [candidates](docs/FEATURES.md#terraforming-candidates) | live console per world, dropping rocks; bodies rated as targets; a terraformer fleet works one world on its own |
 | **Fleets** | [Fleets](docs/FEATURES.md#fleets) · [details](docs/FEATURES.md#pages) | status against loadout, missions, strays, roles, bootstrap |
 | | [Logistics](docs/FEATURES.md#logistics) | materials and devices delivered on demand in one carrier assignment, by task category, urgent work first, carriers spread over the hubs, rescues, repair patrols |
 | | Reset & reform | rebuild messy tags |
