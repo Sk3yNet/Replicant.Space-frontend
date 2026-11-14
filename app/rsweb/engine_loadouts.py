@@ -868,14 +868,14 @@ class LoadoutMixin:
         from .loadouts import forget_queued
         devs = {d.get("device_code"): d for d in await self.devices()}
         f = devs.get(c["factory"]) or {}
-        tag = fl.fleet_tag(c["fleet"])
+        tag = c.get("tag") or fl.fleet_tag(c["fleet"])   # a contract's or trade post's print carries contract:<des>
         group = [c["factory"]] + sorted(k for k, d in devs.items() if k != c["factory"] and f.get("location")
                                         and d.get("location") == f.get("location") and d.get("device_type") == f.get("device_type"))
         mine = lambda t, tags: t == c["device_type"] and tag in (tags or [])   # noqa: E731
-        label = (f"loadouts: spare {c['spare']} replaces the {c['device_type']} queued for {c['star']}" if c.get("spare")
+        label = c.get("label") or (f"loadouts: spare {c['spare']} replaces the {c['device_type']} queued for {c['star']}" if c.get("spare")
                  else f"loadouts: the {c['device_type']} queued for {c['star']} isn't needed any more (the fleet has its count)")
         done = False
-        for code in group:
+        for code in ([] if c.get("virtual_only") else group):   # virtual_only: the game's queue is left alone
             try:
                 dev = await self.api.request("GET", f"/devices/{code}", background=True, raw=True) or {}
             except ApiError:
@@ -896,7 +896,7 @@ class LoadoutMixin:
                                            f"{label}: off the app's queue for {o['factory']}")
                 done = ok
         if done:
-            await self.log("loadouts", f"{label}: print taken off the queue", "info")
+            await self.log(c.get("rule") or "loadouts", f"{label}: print taken off the queue", "info")
             return forget_queued(orders, c["factory"], c["device_type"], 1)
         return orders
 

@@ -204,3 +204,24 @@ def test_engine_raises_wanted_controllers(client):  # noqa: F811
     assert any("2 AMI trade controllers wanted" in x for x in out)
     f = client.portal.call(e.fleets)[0]
     assert f["wants"]["ami_trade_controller"] == 2
+
+
+def test_spares_beat_queued_stock_prints():
+    """Joe 2026-11-13: stock devices taken out of the fleet went spare while their stock was already queued to print.
+    A free spare goes to the post, and the queued prints it (or an earlier order) covers come off the app's queue."""
+    from datetime import datetime, timezone
+    now = datetime(2026, 11, 13, 22, 0, tzinfo=timezone.utc).timestamp()
+    e = {"designation": "tp:tp", "location": "SOL-4-L4", "star": "SOL", "_tagged_only": True, "_skip": []}
+    prog = {"best": {"devices": [{"device_type": "compute_core", "need": 1}, {"device_type": "hull_plate", "need": 2}]}}
+    orders = [{"type": "compute_core", "factory": "F1", "n": 1, "at": "2026-11-13T21:00:45+00:00"},
+              {"type": "compute_core", "factory": "F1", "n": 1, "at": "2026-11-13T21:04:46+00:00"},
+              {"type": "hull_plate", "factory": "F1", "n": 2, "at": "2026-11-13T21:05:00+00:00"}]
+    devs = [dev("S1", "compute_core", tags=["spare"]), dev("X1", "hull_plate", tags=["fleet:other"])]
+    devs[0]["location"] = "SOL-BELT-1"
+    p = cs.plan(e, prog, {"orders": orders}, devs, hosts=set(), busy=set(), active=True, now=now)
+    rows = {r["type"]: r for r in p["rows"]}
+    assert rows["compute_core"]["sending"] == ["S1"]
+    assert [(c["device_type"], c["n"], c["at"]) for c in p["cancel"]] == [
+        ("compute_core", 1, "2026-11-13T21:04:46+00:00"), ("compute_core", 1, "2026-11-13T21:00:45+00:00")]
+    assert rows["hull_plate"]["sending"] == [] and not rows["hull_plate"].get("cancel")   # no spare: its prints stay
+    assert all(c["tag"] == cs.contract_tag("tp:tp") for c in p["cancel"])

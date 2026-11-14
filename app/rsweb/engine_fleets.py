@@ -604,6 +604,19 @@ class FleetsMixin:
                         entry["assigned"][d["device_code"]] = {"type": d.get("device_type"), "at": now_iso()}
                     busy |= set(codes)
                     out.append(f"{des}: sending {len(codes)}")
+            for cx in p.get("cancel") or []:   # spares (or an earlier order) cover it: queued prints come off the app's queue
+                for _ in range(int(cx["n"])):
+                    lab = f"contract {des}: the {cx['device_type']} queued for {e['location']} isn't needed (a spare covers it)"
+                    probe = [{"factory": cx["factory"], "device_type": cx["device_type"]}]   # forgotten only once dequeued
+                    if await self.cancel_loadout_print({**cx, "virtual_only": True, "rule": "contracts", "label": lab}, probe):
+                        continue   # not found in the app's queue (printing already, or in the game's queue): kept
+                    o = next((o for o in sorted(entry["orders"], key=lambda o: o.get("at") or "", reverse=True)
+                              if o["type"] == cx["device_type"]), None)
+                    if o:
+                        o["n"] = int(o.get("n") or 1) - 1
+                        if o["n"] <= 0:
+                            entry["orders"].remove(o)
+                    out.append(f"{des}: dequeued 1× {cx['device_type']}")
             for pr in p["prints"]:
                 if await self.create_job("contracts", f"contract {des}: print {pr['n']}× {pr['device_type']} on "
                                          f"{pr['factory']} for {e['location']}", pr["factory"], lo.print_steps(pr),

@@ -92,7 +92,7 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
         if c not in by:
             came[(entry.get("printed_types") or {}).get(c)] += 1
     ours = {c for c in set(assigned) | printed if c in by}
-    rows, send, prints, notes = [], [], [], []
+    rows, send, prints, notes, cancel = [], [], [], [], []
     picked: set[str] = set()
     reserved: dict[str, Counter] = {}
     for t, n in sorted(need.items()):
@@ -100,22 +100,32 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
                    and d.get("device_code") not in skip and (not tagged_only or tag in (d.get("tags") or [])))
         coming = sorted(c for c in ours if by[c].get("device_type") == t and by[c].get("location") != loc)
         printing = max(0, ordered[t] - came[t])
-        short = max(0, n - here - len(coming) - printing)
+        gap = max(0, n - here - len(coming))   # what neither the site nor devices on their way cover
+        short = max(0, gap - printing)
         row = {"type": t, "need": n, "here": here, "coming": coming, "printing": printing, "sending": [],
                "print": 0, "short": short, "authorized": int((entry.get("print_ok") or {}).get(t) or 0),
                "ordered": ordered[t], "cost": as_amounts((bps.get(t) or {}).get("resources")), "why": ""}
-        if active and short:
+        if active and gap:   # free spares beat prints: they go even while prints are queued (2026-11-13)
             cands = [d for d in devices if d["device_code"] not in picked
                      and free_for(d, t, hosts, busy, protect, ignore, stationed)
                      and (not reach or lo._dist(lo.star_of(d.get("location")), star, pos) <= reach
                           or lo._dist(lo.star_of(d.get("location")), star, pos) >= 1e9)]
             cands.sort(key=lambda d: (d.get("location") != loc, lo._dist(lo.star_of(d.get("location")), star, pos),
                                       lo.SPARE not in (d.get("tags") or []), d["device_code"]))
-            for d in cands[:short]:
+            for d in cands[:gap]:
                 picked.add(d["device_code"])
                 row["sending"].append(d["device_code"])
                 send.append(d)
-            row["short"] = short = short - len(row["sending"])
+            # queued prints beyond what is still missing come off the app's queue (spares sent, or ordered twice)
+            extra = max(0, printing - (gap - len(row["sending"])))
+            if extra:
+                for o in sorted((o for o in orders if o["type"] == t), key=lambda o: o.get("at") or "", reverse=True):
+                    k = min(extra, int(o.get("n") or 1))
+                    if k:
+                        cancel.append({"factory": o["factory"], "device_type": t, "n": k, "tag": tag, "at": o.get("at")})
+                        extra -= k
+                row["cancel"] = sum(c["n"] for c in cancel if c["device_type"] == t)
+            row["short"] = short = max(0, gap - len(row["sending"]) - printing)
         if active and short:
             allowed = max(0, row["authorized"] - ordered[t])
             k = min(short, allowed)
@@ -135,7 +145,7 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
                 row["why"] = "authorize printing below" if not allowed else "waiting for an autofactory"
         rows.append(row)
     ready = bool(need) and all(r["here"] >= r["need"] for r in rows)
-    return {"rows": rows, "send": send, "prints": prints, "assigned": assigned, "printed": sorted(printed),
+    return {"rows": rows, "send": send, "prints": prints, "cancel": cancel, "assigned": assigned, "printed": sorted(printed),
             "orders": orders, "ready": ready, "tag": tag, "notes": notes,
             "unresolved": sum(r["short"] for r in rows),
             "to_authorize": {r["type"]: r["short"] for r in rows if r["short"] and r["authorized"] <= r["ordered"]}}
