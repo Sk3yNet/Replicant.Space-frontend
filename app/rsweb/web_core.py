@@ -1389,7 +1389,20 @@ def relaynet_max() -> int:
     return MAX_BRIDGE
 
 
-_MAP_LAST: dict[str, Any] = {}
+_MAP_LAST: dict[str, Any] = {}          # map.json answers: key -> (time, payload)
+_INFLIGHT: dict[str, "asyncio.Task"] = {}
+
+
+async def shared_build(key: str, make):
+    """One build per key at a time: callers asking while it runs wait for that same build instead of starting their
+    own (a page with several map tabs or a reconnecting wallpaper asked for the same map 19 times in 2 s, live
+    2026-11-14). A caller that goes away doesn't cancel the build for the others."""
+    task = _INFLIGHT.get(key)
+    if task is None:
+        task = asyncio.get_running_loop().create_task(make())
+        _INFLIGHT[key] = task
+        task.add_done_callback(lambda t, k=key: _INFLIGHT.pop(k, None) if _INFLIGHT.get(k) is t else None)
+    return await asyncio.shield(task)
 
 
 def mining_now(devices: list[dict]) -> dict[str, int]:
@@ -2289,7 +2302,9 @@ async def _wp_cached(request: Request, kind: str, make) -> Response:
     hit = store.get(key)
     if hit and (_t.time() - hit[0] < WALLPAPER_TTL or request.app.state.worker.automations.focused()):
         return Response(hit[1], media_type="application/json")
-    body = json.dumps(await make(), default=str).encode()
+    async def build() -> bytes:
+        return json.dumps(await make(), default=str).encode()
+    body = await shared_build("wp:" + key, build)
     store[key] = (_t.time(), body)
     return Response(body, media_type="application/json")
 

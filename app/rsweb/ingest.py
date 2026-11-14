@@ -669,7 +669,16 @@ class Worker:
             return {c: {} for c in ({code} | riders) & codes if c}
         code = resp.get("device_code")
         if code in codes:
-            return {code: {k: resp[k] for k in self.REPLY_FIELDS if k in resp}}
+            f = {k: resp[k] for k in self.REPLY_FIELDS if k in resp}
+            # where it now rides: a stow answers {"status": "stowed", "stowed_in": X}, a deploy {"deployed_from": X,
+            # "location": L}. Before, only the status was kept, so a fleet that had just boarded its crew still saw
+            # them outside and boarded them again ("Device is already stowed"), or stalled with no hold room left for
+            # crew that sat in that hold (live 2026-11-14, Surveyors 7 and 10)
+            if resp.get("stowed_in"):
+                f.update(stowed_in_device_code=resp["stowed_in"], attached_to_device_code=None, location=None)
+            elif resp.get("deployed_from") and resp.get("location"):
+                f.update(stowed_in_device_code=None, attached_to_device_code=None, location=resp["location"])
+            return {code: f}
         return {}
 
     async def note_reply(self, answered: dict[str, dict], what: str) -> None:

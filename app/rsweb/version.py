@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.419.1"
+VERSION = "1.420.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.420.0", "2026-11-14", "Health check fixes. A stow's answer now puts the device in its vessel on the cached "
+     "device list (before, only its status changed): survey fleets re-boarded crew that had just boarded at every hop "
+     "(\"Device is already stowed\"), and Surveyor 7 stalled 15 minutes at PHAZHORIX with \"no hold room\" for drones "
+     "that sat in that hold. The galaxy map data is built once for requests that arrive together (19 at once took "
+     "95-124 s each and held up the engine), the wallpaper's too, and a swoop run's cached map tells scope=mine from "
+     "scope=rest."),
     ("1.419.1", "2026-11-14", "Hub balance never moves a logistics carrier the game lists out of comms range, and no "
      "longer counts it at a hub (freighter 137A4E1A, stranded at MENKUNT, was sent SOLARES → FALQUORYX every pass "
      "and refused)."),

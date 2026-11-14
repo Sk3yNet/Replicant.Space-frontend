@@ -2505,6 +2505,19 @@ def test_replicant_details_read_only_when_needed(client):
         w.api.get = real
 
 
+def test_stow_and_deploy_answers_say_where_the_device_rides(client):
+    """1.420.0 (live 2026-11-14): a stow answer puts the device in its vessel on the cached list (before, only its
+    status changed, so fleets saw freshly boarded crew outside and boarded them again or stalled for hold room)."""
+    w = client.app.state.worker
+    p = "/devices/AAAA0001/command"
+    assert w.reply_codes(p, {"AAAA0001"}, {"device_code": "AAAA0001", "status": "stowed", "stowed_in": "BBBB0002"}) == {
+        "AAAA0001": {"status": "stowed", "stowed_in_device_code": "BBBB0002", "attached_to_device_code": None,
+                     "location": None}}
+    got = w.reply_codes(p, {"AAAA0001"}, {"device_code": "AAAA0001", "status": "deployed", "deployed_from": "BBBB0002",
+                                          "location": "SOL-3-L4", "star": "SOL"})["AAAA0001"]
+    assert got["location"] == "SOL-3-L4" and got["stowed_in_device_code"] is None and got["status"] == "deployed"
+
+
 def test_order_answer_stands_in_for_a_reread_until_confirmed(client):
     """1.317.0 (Joe): a command whose answer names the device and its status puts that on the cached list, marked
     unconfirmed, instead of two GETs; a GET of the device (event or list) clears the mark."""
@@ -2630,3 +2643,19 @@ def test_dashboard_station_card_lists_travel_order(client):
     page = page[page.index("Travel order"):]
     i = [page.index(f'<li><a href="/systems/{s}">{s}</a> <span class="muted">S') for s in ("ST1", "ST3", "ST2", "ST0")]
     assert i == sorted(i)
+
+
+def test_shared_build_runs_once_for_callers_at_the_same_time():
+    """1.420.0: map.json asked 19 times at once built the map 19 times (95-124 s each, live 2026-11-14)."""
+    from rsweb import web_core
+    runs = []
+
+    async def make():
+        runs.append(1)
+        await asyncio.sleep(0.05)
+        return {"ok": len(runs)}
+
+    async def go():
+        return await asyncio.gather(*[web_core.shared_build("t", make) for _ in range(5)])
+    out = asyncio.run(go())
+    assert runs == [1] and all(o == {"ok": 1} for o in out) and "t" not in web_core._INFLIGHT

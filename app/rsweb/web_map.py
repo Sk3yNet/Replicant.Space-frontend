@@ -152,11 +152,15 @@ async def galaxy_map(request: Request, user: str = Depends(current_user)):
 
 @router.get("/api/map.json")
 async def map_data(request: Request, user: str = Depends(current_user)):
+    import time as _t
     part = request.query_params.get("part") or "all"
-    key = f"{part}?{sim_view(request) or ''}"
-    if request.app.state.worker.automations.focused() and key in _MAP_LAST:
-        return JSONResponse(_MAP_LAST[key])   # a swoop run is on: a map redraw took up to 21 s of the event loop
-    _MAP_LAST[key] = out = await map_payload(request, part)
+    # scope is part of the key: before, a swoop run could answer scope=rest with the scope=mine stars
+    key = f"{part}?{request.query_params.get('scope') or ''}?{sim_view(request) or ''}"
+    hit = _MAP_LAST.get(key)
+    if hit and request.app.state.worker.automations.focused():
+        return JSONResponse(hit[1])   # a swoop run is on: a map redraw took up to 21 s of the event loop
+    out = await shared_build("map:" + key, lambda: map_payload(request, part))
+    _MAP_LAST[key] = (_t.time(), out)
     return JSONResponse(out)
 
 
