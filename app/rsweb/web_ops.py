@@ -211,15 +211,26 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
         if age is None or age > 600:
             await _read_trades(request, s["code"])
     from . import tradepost as tp
-    posts = {}
+    from .contractsupply import contract_tag
+    from .fleets import members
+    posts, stock_of, by_loc = {}, {}, {}
     for f_ in await request.app.state.worker.automations.fleets():
         if f_.get("role") == tp.ROLE:
-            for c_ in tp.controllers(f_, st["devices"]):
-                posts[c_["device_code"]] = f_
+            for c_ in members(f_, st["devices"]):
+                if sh.is_shop(c_):
+                    posts[c_["device_code"]] = f_
+                    if c_.get("location"):
+                        by_loc.setdefault(c_["location"], f_)
+            tag_ = contract_tag(tp.supply_key(f_["id"]))
+            for d_ in st["devices"]:
+                if tag_ in (d_.get("tags") or []) and sh.is_shop(d_):
+                    stock_of[d_["device_code"]] = f_
     shops = await _shops(request)
     groups: list[dict] = []   # a trade post's shops share one card (owner 2026-11-14), in shop order
-    for s in shops:
-        post = posts.get(s["code"])
+    for s in shops:   # its stock for sale and any other controller at its spot go on its card too
+        post = posts.get(s["code"]) or stock_of.get(s["code"]) or by_loc.get(s.get("location"))
+        if post and s["code"] not in posts:
+            s["outside"] = "stock for sale" if s["code"] in stock_of else "at the shop spot, not in the fleet"
         g = next((x for x in groups if post and x["post"] and x["post"].get("id") == post.get("id")), None)
         if g:
             g["shops"].append(s)

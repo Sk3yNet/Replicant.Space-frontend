@@ -248,9 +248,12 @@ def test_shop_page_one_card_per_trade_post(client):  # noqa: F811
     client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices")
                        + [shop(), dev("SHOP2", "ami_trade_controller", tags=["fleet:tp"], ami_directive={"name": "trade"})])
     client.portal.call(e.save_fleets, [dict(FLEET)])
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices")
+                       + [dev("LOOSE", "ami_trade_controller"), dev("SALE", "ami_trade_controller", "SOL-3", [TAG])])
     page = client.get("/shop", headers=H).text
-    assert 'id="shop-SHOP"' in page and 'id="shop-SHOP2"' in page
-    assert page.count("trade post · 2 shop(s)") == 1
+    assert 'id="shop-SHOP"' in page and 'id="shop-SHOP2"' in page and 'id="shop-LOOSE"' in page
+    assert page.count("trade post · 4 shop(s)") == 1 and page.count('class="card"') - page.count("trade post ·") >= 0
+    assert "not in the fleet" in page and "stock for sale" in page
 
 
 def test_shop_texts_first_shop_announces():
