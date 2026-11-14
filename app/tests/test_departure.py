@@ -1312,3 +1312,24 @@ def test_ferry_freighter_is_no_stray():
     f = {"id": "m", "home": "HOME", "station": True}
     out = fl.strays([f], devs, set())
     assert [s["code"] for s in out] == ["F2"]
+
+
+def test_a_survey_controller_in_another_system_is_fetched_not_stalled_on(client):
+    """1.420.0 (owner 2026-11-14): Surveyor 8 stalled 8 times at SEMAYA in work, its controller at SOLARES. A fleet
+    carrier now fetches it (gather) and the fleet comes back; one beyond the supply range, or twice over, still stalls."""
+    e = eng(client)
+    devs = [dev("V", "heaven_vessel", "LERNA-4", features=["surge"], stow_capacity=10),
+            dev("SC", "ami_survey_controller", "SOL-4-L4"),
+            dev("D1", "survey_drone", "LERNA-4")]
+    m = {"status": "running", "phase": "work", "idx": 0, "targets": ["LERNA"], "log": [], "opts": {}, "departed": True}
+    _fleet(e, client, devs, role="explore", wants={"ami_survey_controller": 1, "heaven_vessel": 1, "survey_drone": 1},
+           mission=m)
+    f = client.portal.call(e.fleets)[0]
+    steps, problems = client.portal.call(e.fleet_phase_steps, f, m, "work", devs)
+    assert not steps and not problems and not m.get("stall") and m["phase"] == "assemble"
+    assert "V fetches it" in m["log"][-1]["text"] and fl.next_phase("explore", m) == "gather"
+    steps, _ = client.portal.call(e.fleet_phase_steps, f, m, "gather", devs)
+    assert any(s["path"] == "/devices/V" and (s.get("body") or {}).get("command") == "travel" for s in steps)
+    m["fetch_ctrl"] = {"0": 2}
+    steps, problems = client.portal.call(e.fleet_phase_steps, f, m, "work", devs)
+    assert not steps and m.get("stall") and "is in SOL, not in LERNA" in problems[0]

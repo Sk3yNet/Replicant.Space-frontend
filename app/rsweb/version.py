@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.420.0"
+VERSION = "1.420.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.420.1", "2026-11-14", "A survey fleet whose controller sits in another system no longer stalls in its work "
+     "phase (Surveyor 8 at SEMAYA, its controller at SOLARES, 8 tries): a fleet carrier fetches it within the supply "
+     "range and the fleet comes back to the target. Beyond the range, or after two fetches at one target, it still "
+     "stalls with the reason."),
     ("1.420.0", "2026-11-14", "Health check fixes. A stow's answer now puts the device in its vessel on the cached "
      "device list (before, only its status changed): survey fleets re-boarded crew that had just boarded at every hop "
      "(\"Device is already stowed\"), and Surveyor 7 stalled 15 minutes at PHAZHORIX with \"no hold room\" for drones "

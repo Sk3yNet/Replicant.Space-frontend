@@ -819,6 +819,20 @@ class FleetsMixin:
                     host = by.get(ctrl.get("stowed_in_device_code") or ctrl.get("attached_to_device_code") or "") or {}
                     where = star_of(ctrl.get("location") or host.get("location"))
                     if where and where != star_of(target or ""):
+                        # a fleet carrier fetches it from wherever it is, within the supply range (owner 2026-11-14:
+                        # Surveyor 8 stalled 8 times at SEMAYA, its controller at SOLARES): back to gather, which tours
+                        # for stranded members; the leg after it boards the crew and flies on to the target again
+                        plan = fl.gather_plan(fleet, devices, stars, self.busy_devices(await self.jobs()),
+                                              await self.supply_reach())
+                        tries = m.setdefault("fetch_ctrl", {})
+                        key = str(m.get("idx", 0))
+                        if tries.get(key, 0) < 2 and any(d.get("device_code") == ctrl["device_code"]
+                                                         for _, ds in plan["tour"] for d in ds):
+                            tries[key] = tries.get(key, 0) + 1
+                            self._mlog(m, f"the survey controller {ctrl['device_code']} is in {where}: "
+                                          f"{plan['carrier']} fetches it, then the fleet comes back to {star_of(target or '')}")
+                            m["phase"] = "assemble"   # the loop's next phase is gather
+                            return [], []
                         # seen live 2026-10-08: it rode in another fleet's vessel, the survey ran in that system instead
                         m["stall"] = True
                         return [], [f"the survey controller {ctrl['device_code']} is in {where}, not in {star_of(target or '')} "
