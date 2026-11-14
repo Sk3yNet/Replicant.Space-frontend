@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.417.0"
+VERSION = "1.417.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.417.1", "2026-11-14", "Terraformer fleets: steering is off by default (Joe: you play it). The fleet still goes to its "
+     "planet, deploys and switches its monitor on; you steer on the Terraforming console, and the card's Devices list says "
+     "what each kind would do. Tick 'let the fleet steer the devices' to have it play. A disaster or anomaly is an error while "
+     "you steer, a warning while the fleet does."),
     ("1.417.0", "2026-11-14", "New fleet role: terraformer (Joe). Assign it a planet or moon and a species on its card. It waits "
      "for its whole loadout and an active replicant aboard (it works outside relay coverage; Needs an active replicant aboard "
      "is ticked for it), flies there with everyone, deploys its terraform devices and steers them from the monitor's reports "

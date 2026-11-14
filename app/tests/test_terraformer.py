@@ -111,8 +111,21 @@ def test_engine_waits_for_a_replicant_then_flies_everyone_to_the_planet(client):
     assert f["tf_run"]["phase"] == "moving" and f["tf_run"]["departed"] and f["station"] is False
 
 
+def test_steering_is_off_by_default_only_the_monitor_is_switched_on(client):  # noqa: F811
+    kit = [dict(d) for d in KIT]
+    kit[0]["status"] = "idle"
+    db, e = _setup(client, kit)
+    _report_event(client, report(temperature=262, pressure=12))
+    client.portal.call(e.terraformer_pass)
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "terraformer")
+    assert [(s["path"], s["body"]) for s in job["steps"]] == [("/devices/MON", {"command": "activate"})]
+    rows = client.portal.call(db.fetchall, "SELECT level FROM notifications WHERE title LIKE '%Greenhouse%'")
+    assert [r["level"] for r in rows] == ["error"]   # you steer it: you must act
+    assert "you steer it" in client.portal.call(e.fleets)[0]["tf_run"]["note"]
+
+
 def test_engine_steers_alerts_and_stays_terraforming(client):  # noqa: F811
-    db, e = _setup(client, [dict(d) for d in KIT])
+    db, e = _setup(client, [dict(d) for d in KIT], {"steer": True})
     st = report(temperature=262, pressure=12)
     _report_event(client, st)
     out = client.portal.call(e.terraformer_pass)
@@ -138,7 +151,7 @@ def test_engine_steers_alerts_and_stays_terraforming(client):  # noqa: F811
                                                   "margin_pct": "10"}, headers=HX)
     assert "Assigned to SOL-5" in r.text
     f = client.portal.call(e.fleets)[0]
-    assert f["terraform"]["planet"] == "SOL-5" and f["terraform"]["steer"] is False
+    assert f["terraform"]["planet"] == "SOL-5" and f["terraform"]["steer"] is False   # unticked
     assert "a moon" in client.post("/fleets/tf/terraform", data={"action": "settings", "planet": "SOL"}, headers=HX).text
 
 

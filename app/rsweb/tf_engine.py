@@ -259,9 +259,10 @@ class TerraformerMixin:
             run["push"] = p["push"]
             run["why"] = p["why"]
             out += await self._tf_progress(f, cfg, run, st, targets)
-        if not cfg["steer"]:
-            run["note"] = (run.get("note") or "") if not fresh else "steering paused: the devices stay as they are"
-            return out
+        if not cfg["steer"]:   # off by default (Joe 2026-11-14: you play it): only the monitor is kept on, for the reports
+            p = {**p, "set": {c: s for c, s in p["set"].items() if c in {d["device_code"] for d in mon}}}
+            if fresh:
+                run["note"] = (run.get("note") or "") + " · you steer it on the Terraforming console"
         if run.get("steer_job"):
             return out
         now = _now()
@@ -312,7 +313,7 @@ class TerraformerMixin:
 
     async def _tf_alerts(self, f: dict, cfg: dict, run: dict, st: dict) -> list[str]:
         """A disaster (coupling rule) turning active or an anomaly in the report: one notification each, again only after
-        it has cleared. A warning while the fleet steers; an error when steering is paused (nothing counters it)."""
+        it has cleared. A warning while the fleet steers; an error when you steer it yourself (steering off, the default)."""
         from . import terraformer as tr
         planet = cfg["planet"]
         level = "warning" if cfg["steer"] else "error"
@@ -325,7 +326,7 @@ class TerraformerMixin:
             if k not in seen:
                 txt = (f"{f['name']}: disaster at {planet}: {c['rule']} ({c['attr']} {c['op']} {c['threshold']:g}, now "
                        f"{c['value']:g}: {c['effect']})" + ("; the fleet steers away from it" if cfg["steer"] else
-                                                           "; steering is paused, nothing counters it"))
+                                                           "; steering is off: counter it on the Terraforming console"))
                 await self.log("terraformer", txt, level, notify=True)
                 out.append(f"disaster: {c['rule']}")
         a = tr.anomaly_text(st)

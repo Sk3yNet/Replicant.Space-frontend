@@ -5,7 +5,7 @@
     {% if c.planet %}<a href="/terraforming/world/{{ c.planet }}"><b>{{ c.planet }}</b></a> for {{ v.target_name }}{% else %}<span class="lv-alert">no planet assigned</span>{% endif %}
     · {% if c.planet %}<span class="pill small st-work" title="Assigned: it stays until you give it another planet or recall it">terraforming</span>{% if run.phase != 'terraforming' %} <span class="muted">({{ run.phase }})</span>{% endif %}{% else %}<span class="pill small">idle</span>{% endif %}
     {% if run.note %}<span class="muted"> · {{ run.note }}</span>{% endif %}
-    {% if not c.steer %}<span class="lv-warning"> · steering paused</span>{% endif %}
+    {% if not c.steer %}<span class="muted"> · you steer it (<a href="/terraforming/world/{{ c.planet }}">console</a>)</span>{% else %}<span class="muted"> · the fleet steers it</span>{% endif %}
 </div>
   {% if v.job %}<div class="muted">trip: {{ v.job.title }} · step {{ v.job.idx + 1 }}/{{ v.job.steps | length }}</div>{% endif %}
   {% if run.left %}<div class="lv-warning">Left behind (busy, aboard something else or no seat): {{ run.left | join(', ') }}</div>{% endif %}
@@ -26,12 +26,13 @@
       <td class="muted">{{ g.why or '' }}</td></tr>{% endfor %}</table></details>{% endif %}
   <details style="margin-top:4px"><summary>Assignment and steering</summary>
     <p class="muted" style="margin:4px 0">The fleet waits for its whole loadout and an active replicant aboard (it works outside
-      relay coverage), flies to the planet with everyone, deploys its terraform devices there and steers them from the
-      monitor's reports: each value outside its band gets the devices that move it the right way, harder the farther it is,
-      until it nears the middle of the range. Strong heaters and coolers only for big gaps; bio seeders once their
-      preconditions hold; nothing pushes into an active disaster. Once temperature, pressure and hydrosphere are in range,
-      the atmospheric regulator locks them while oxygen, toxicity and biosphere are finished. It stays and reports
-      terraforming for as long as it is assigned, holding the world in range, until you give it another planet or recall it.
+      relay coverage), flies to the planet with everyone, deploys its terraform devices there and switches its monitor on. You steer the world on the
+      Terraforming console, as in the training (the Devices list above says what each kind would do now). Tick
+      <i>let the fleet steer</i> to have it play for you: each value outside its band gets the devices that move it, harder
+      the farther it is, until it nears the middle of the range; strong heaters and coolers only for big gaps; bio seeders
+      once their preconditions hold; nothing pushes into an active disaster; the atmospheric regulator locks temperature,
+      pressure and hydrosphere once they're in range. It stays and reports terraforming for as long as it is assigned,
+      until you give it another planet or recall it.
       Disasters and anomalies notify you. Find worlds on <a href="/terraforming/candidates">Terraforming candidates</a>.</p>
     <form hx-post="/fleets/{{ f.id }}/terraform" hx-target="next .tf-out" class="small row" style="gap:10px;flex-wrap:wrap">
       <input type="hidden" name="action" value="settings">
@@ -40,7 +41,7 @@
         {% for s in v.species %}<option value="{{ s.species_key }}" {{ 'selected' if (s.species_key or '') | lower == c.species }}>{{ s.name or s.species_key }}</option>{% endfor %}
         {% if not v.species %}<option value="{{ c.species }}" selected>{{ c.species }}</option>{% endif %}</select></label>
       <label style="text-transform:none" title="How far inside each edge of a range the fleet aims (percent of the range)">margin <input name="margin_pct" type="number" min="0" max="40" step="1" value="{{ c.margin_pct | int }}" style="width:4em"> %</label>
-      <label style="text-transform:none"><input type="checkbox" name="steer" {{ 'checked' if c.steer }}> steer the devices</label>
+      <label style="text-transform:none"><input type="checkbox" name="steer" {{ 'checked' if c.steer }}> let the fleet steer the devices</label>
       <button class="small">Save</button>
     </form>
     <div class="row small" style="margin-top:4px">

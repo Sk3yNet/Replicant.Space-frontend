@@ -18,7 +18,7 @@ everyone, deploys its terraform devices there and runs them the way the terrafor
   • the fleet stays and reports terraforming for as long as it is assigned (Joe 2026-11-14): there is no "complete";
     in range, the regulator and the steering keep the world there until the fleet gets another planet or is recalled
 Alerts: a disaster (coupling rule) becoming active and an anomaly in the report, as warnings (the fleet
-counters disasters by itself); errors only when Joe must act (steering paused during a disaster, no replicant to go).
+counters disasters by itself); errors only when Joe must act (a disaster while you steer by hand, no replicant to go).
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from typing import Any
 from . import terraform as tf
 
 ROLE = "terraformer"
-DEFAULTS: dict[str, Any] = {"planet": "", "species": "humans", "margin_pct": 15.0, "steer": True}
+DEFAULTS: dict[str, Any] = {"planet": "", "species": "humans", "margin_pct": 15.0, "steer": False}   # steer: off by default (Joe: you play it)
 # Humans from GET /species (live 2026-10-17), used when the species list hasn't been read
 HUMANS = {"temperature": (270, 300), "pressure": (0.8, 1.2), "oxygen": (18, 25), "toxicity": (0, 5),
           "hydrosphere": (40, 70), "biosphere": (30, 70), "tectonic": (5, 30)}
