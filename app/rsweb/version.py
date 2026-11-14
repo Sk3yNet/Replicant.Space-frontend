@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.418.0"
+VERSION = "1.419.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.419.0", "2026-11-14", "Account › Claude connector: a read-only MCP endpoint (/mcp/<id>) so a Claude chat can read "
+     "devices, jobs, the automation log, notifications, fleets, logistics, game events, sent commands, performance and the "
+     "read budget live, filtered, from the app's own store (no game calls). claude.ai signs in with the app's own OAuth "
+     "(client ID replicant-diagnostics, a secret made on the card, shown once, stored as a hash, revocable)."),
     ("1.418.0", "2026-11-14", "Automated trips beyond the sector range (a day of surging) are never sent: rescues and repair "
      "patrols that far are dropped when planned, and any other automated trip that far stops at the trip check instead of "
      "waiting for a Confirm (jobs held for a Confirm stop too). The leg is remembered for a week so nothing plans it again. "

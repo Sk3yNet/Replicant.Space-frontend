@@ -464,3 +464,129 @@ async def tree_view(request: Request, user: str = Depends(current_user)):
 
 
 __all__ = [n for n in dir() if not n.startswith("__")]   # everything, underscore helpers too
+
+
+# =====================================================================================
+# read-only diagnostics over MCP (Account › Claude connector) — see diagmcp.py
+# =====================================================================================
+from . import diagmcp as dm  # noqa: E402
+
+_dm_lock = asyncio.Lock()   # the connector's key store: token issue vs. new secret / turn off
+
+
+async def diag_mcp_ctx(request: Request) -> dict:
+    return {"dm": dm.normalize(await request.app.state.db.kv_get(dm.KV, {})), "dm_url": dm.base(_origin(request), wp.slug()),
+            "dm_client": dm.CLIENT_ID}
+
+
+@router.post("/diag-mcp-settings", response_class=HTMLResponse)
+async def diag_mcp_settings(request: Request, action: str = Form(...), user: str = Depends(current_user)):
+    db = request.app.state.db
+    if action not in ("create", "disable"):
+        return HTMLResponse('<div class="result err">Unknown action.</div>', status_code=400)
+    new = None
+    async with _dm_lock:
+        st = dm.normalize(await db.kv_get(dm.KV, {}))
+        if action == "create":
+            new = dm.new_secret(st)
+        else:
+            st.update(enabled=False, secret_hash=None, tokens=[])
+        await db.kv_set(dm.KV, st)
+    await request.app.state.worker.automations.log("diag_mcp", f"Claude connector {'new secret' if new else 'turned off'} by {user}")
+    return partial(request, "partials/diag_mcp_card.html", **await diag_mcp_ctx(request), dm_secret=new)
+
+
+def _dm_off() -> Response:
+    return PlainTextResponse("Not found", status_code=404)
+
+
+async def _dm_state(request: Request, slug: str) -> dict | None:
+    if not wp.slug_ok(slug):
+        return None
+    st = dm.normalize(await request.app.state.db.kv_get(dm.KV, {}))
+    return st if st["enabled"] else None
+
+
+@router.get("/.well-known/oauth-protected-resource/mcp/{slug}")
+@router.get("/mcp/{slug}/.well-known/oauth-protected-resource")
+async def dm_resource_meta(request: Request, slug: str):
+    if not await _dm_state(request, slug):
+        return _dm_off()
+    return JSONResponse(dm.resource_metadata(_origin(request), slug))
+
+
+@router.get("/.well-known/oauth-authorization-server/mcp/{slug}")
+@router.get("/.well-known/openid-configuration/mcp/{slug}")
+@router.get("/mcp/{slug}/.well-known/oauth-authorization-server")
+@router.get("/mcp/{slug}/.well-known/openid-configuration")
+async def dm_server_meta(request: Request, slug: str):
+    if not await _dm_state(request, slug):
+        return _dm_off()
+    return JSONResponse(dm.server_metadata(_origin(request), slug))
+
+
+@router.get("/mcp/{slug}/authorize")
+async def dm_authorize(request: Request, slug: str):
+    if not await _dm_state(request, slug):
+        return _dm_off()
+    url, err = dm.authorize(dict(request.query_params))
+    if err:
+        return PlainTextResponse(err, status_code=400)
+    return RedirectResponse(url, status_code=302)
+
+
+def _dm_err(code: str, status: int = 400) -> JSONResponse:
+    return JSONResponse({"error": code}, status_code=status, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/mcp/{slug}/token")
+async def dm_token(request: Request, slug: str):
+    if not await _dm_state(request, slug):
+        return _dm_off()
+    form = {k: str(v) for k, v in (await request.form()).items()}
+    cid, sec = dm.client_creds(form, request.headers.get("authorization"))
+    db = request.app.state.db
+    async with _dm_lock:
+        st = dm.normalize(await db.kv_get(dm.KV, {}))
+        if cid != dm.CLIENT_ID or not dm.secret_ok(st, sec):
+            return _dm_err("invalid_client", 401)
+        grant = form.get("grant_type")
+        if grant == "authorization_code":
+            if not dm.take_code(form.get("code"), form.get("code_verifier"), form.get("redirect_uri")):
+                return _dm_err("invalid_grant")
+        elif grant == "refresh_token":
+            if not dm.token_ok(st, form.get("refresh_token"), "refresh"):
+                return _dm_err("invalid_grant")
+            dm.drop_token(st, form["refresh_token"])
+        else:
+            return _dm_err("unsupported_grant_type")
+        out = dm.issue(st)
+        st["last_used"] = dm._now()
+        await db.kv_set(dm.KV, st)
+    return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+
+@router.api_route("/mcp/{slug}", methods=["GET", "POST", "DELETE"])
+@router.api_route("/mcp/{slug}/", methods=["GET", "POST", "DELETE"])
+async def dm_endpoint(request: Request, slug: str):
+    st = await _dm_state(request, slug)
+    if not st:
+        return _dm_off()
+    auth = request.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer ") or not dm.token_ok(st, auth[7:]):
+        meta = f"{_origin(request)}/.well-known/oauth-protected-resource/mcp/{slug}"
+        return JSONResponse({"error": "invalid_token"}, status_code=401,
+                            headers={"WWW-Authenticate": f'Bearer resource_metadata="{meta}"'})
+    if request.method != "POST":
+        return PlainTextResponse("Method not allowed", status_code=405, headers={"Allow": "POST"})
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, status_code=400)
+    if isinstance(body, list):
+        out = [r for r in [await dm.rpc(request.app, m) for m in body] if r is not None]
+    else:
+        out = await dm.rpc(request.app, body)
+    if not out:
+        return Response(status_code=202)
+    return JSONResponse(out)

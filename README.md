@@ -75,7 +75,7 @@ seconds, and a trip's countdown reaching zero loads the new location.
 | | [Jobs](docs/FEATURES.md#jobs) | colony station job boards, reputation, the job runner |
 | | [Lockers](docs/FEATURES.md#lockers) | equipment lockers: deliver the price, retrieve |
 | **Activity** | [Automations, Events, Messages, Contacts, Chatter, Notifications, Leaderboards, Blog](docs/FEATURES.md#activity-and-tools) | rules, jobs and log; history; BobNet; other players' profiles; NPC chatter; alerts; boards; the game's blog |
-| **Menu** | Account · [Diagnostics · Console](docs/FEATURES.md#activity-and-tools) | server runs, [desktop wallpaper](docs/FEATURES.md#desktop-wallpaper-optional); snapshots and performance; any API call |
+| **Menu** | Account · [Diagnostics · Console](docs/FEATURES.md#activity-and-tools) | server runs, [desktop wallpaper](docs/FEATURES.md#desktop-wallpaper-optional), [Claude connector](docs/FEATURES.md#claude-connector-optional-read-only-diagnostics); snapshots and performance; any API call |
 
 ## Map legend
 

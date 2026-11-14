@@ -975,6 +975,20 @@ a read-only link (`/wallpaper/<id>/#key=…`). Options:
 | `layers` | the galaxy layers that are on, by the Galaxy page's checkbox ids without `opt-` (e.g. `labels,regions,mark-hub`); every other layer is off |
 | `follow` | a replicant name or code: the galaxy stays centered on it, gliding along while it travels; the system view shows the system it's in |
 
+### Claude connector (optional, read-only diagnostics)
+*Account › Claude connector* lets a Claude chat read this server's live state over MCP instead of an uploaded snapshot:
+devices (filter by code, type, status, star, tag or fleet), jobs, the automation log, notifications, fleets (one in full
+with its members), the last logistics pass, saved game events, the last commands sent, performance and the game read
+budget, and any stored value (secrets and key stores excepted). Read-only: no commands, no settings, and no game calls
+(everything comes from the app's own store, so it costs nothing of the read budget).
+
+claude.ai signs in to connectors with OAuth, so the app serves a small OAuth server for one client. Turn it on to get a
+client secret, shown once and stored as a hash. In claude.ai: *Settings › Connectors › Add custom connector*, the
+connector URL from the card (`https://<your host>/mcp/<id>`), then *Advanced settings*: client ID `replicant-diagnostics`
+and the secret. The secret also works as a plain bearer token (Claude Code:
+`claude mcp add --transport http replicant <url> --header "Authorization: Bearer <secret>"`). A new secret or *Turn off*
+ends every sign-in. nginx passes `/mcp/` and the `/.well-known/oauth-*/mcp/` discovery paths without Google sign-in.
+
 ---
 
 ## How automation works

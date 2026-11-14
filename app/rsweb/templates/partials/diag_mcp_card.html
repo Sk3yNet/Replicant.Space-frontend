@@ -1,0 +1,22 @@
+<div class="card" id="diag-mcp-card" style="margin-top:14px">
+  <h2>Claude connector <span class="muted small">read-only diagnostics · {{ 'on' if dm.enabled else 'off' }}</span></h2>
+  <p class="small muted">Lets Claude read this server's live state (devices, jobs, the automation log, notifications, fleets,
+    logistics, game events, timings) as a custom connector. Read-only: no commands, no settings, no game calls. The client
+    secret is shown once and stored here only as a hash; a new secret or <i>Turn off</i> ends every Claude sign-in.</p>
+  {% if dm_secret %}
+  <div class="result ok">
+    <p class="small" style="margin:0 0 6px"><b>Client secret</b>, shown only this once. In claude.ai: Settings › Connectors ›
+      Add custom connector, paste the URL below, open <i>Advanced settings</i> and fill in the client ID and this secret.</p>
+    <input id="dm-new-secret" class="mono" style="width:100%" readonly value="{{ dm_secret }}" onclick="this.select()">
+  </div>{% endif %}
+  <table class="small" style="margin-top:6px">
+    <tr><th>Connector URL</th><td><input class="mono" size="48" readonly value="{{ dm_url }}" onclick="this.select()"></td></tr>
+    <tr><th>Client ID</th><td><input class="mono" size="48" readonly value="{{ dm_client }}" onclick="this.select()"></td></tr>
+    {% if dm.enabled %}<tr><th>Secret made</th><td>{{ dm.created_at | ago }}{% if dm.last_used %} · last sign-in {{ dm.last_used | ago }}{% endif %}</td></tr>{% endif %}
+  </table>
+  <form class="row small" hx-post="/diag-mcp-settings" hx-target="#diag-mcp-card" hx-swap="outerHTML" style="gap:8px;margin-top:6px">
+    <button name="action" value="create" {% if dm.enabled %}hx-confirm="Make a new client secret? Claude has to be signed in again with it."{% endif %}>{{ 'New client secret' if dm.enabled else 'Turn on and make a client secret' }}</button>
+    {% if dm.enabled %}<button class="ghost" name="action" value="disable" hx-confirm="Turn the Claude connector off? Every Claude sign-in ends.">Turn off</button>{% endif %}
+  </form>
+  <p class="small muted" style="margin-top:6px">Claude Code: <span class="mono">claude mcp add --transport http replicant {{ dm_url }} --header "Authorization: Bearer &lt;secret&gt;"</span></p>
+</div>
