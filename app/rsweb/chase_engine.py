@@ -106,6 +106,8 @@ class ChaseMixin:
         else:   # no target, or the trip ended without the rigs there: pick (again)
             run.pop("target", None)
             out += await self._chase_move(f, cfg, run, ctx, k)
+            if run.get("phase") == "idle" and not run.get("job"):
+                out += await self._chase_gather(f, cfg, run, ctx, k, ms)
         if run.get("target"):
             out += await self._chase_ship(f, cfg, run, ctx, k, run["target"])
         out += await self._chase_search(f, cfg, run, ctx, k)
@@ -254,6 +256,89 @@ class ChaseMixin:
             run["note"] += f"; left behind: {', '.join(left)} (busy, aboard another device or no seat)"
         out = [f"→ {rock} to mine {c['resource']}"]
         out += await self._chase_freighters(f, cfg, run, ctx, k, c["star"])
+        return out
+
+    async def _chase_gather(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict, ms: list[dict]) -> list[str]:
+        """No target: members away from home come home, so the fleet sets out together next time (Joe 2026-11-14,
+        Chaser_1 split over SOLARES and FALQUORYX). The fleet's carriers fetch them from wherever they are within the
+        sector range of home, nearest carrier first; self-flying members fly home on their own."""
+        from . import fleets as fl
+        from .automations import step
+        from .bootstrap import dist
+        from .logistics import SECTOR_RANGE_LY
+        if (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
+            return []   # a fleet mission (recall, end mission) has the members
+        home, devices, busy, pos = f["home"], ctx["devices"], ctx["busy"], ctx["pos"]
+        drop = self._chase_drop(cfg, home, ctx)
+        if not drop:
+            return []
+
+        def star(loc: str | None) -> str:
+            return (loc or "").split("-")[0]
+
+        def near(st: str) -> bool:
+            return st == home or (st in ctx["reach"] and dist(st, home, pos) <= SECTOR_RANGE_LY)
+        carriers = {c["device_code"]: c for c in k["carriers"]}
+        free = {cc: fl.seats(c, devices) for cc, c in carriers.items()}
+        aboard: dict[str, list[tuple[str, str]]] = {cc: [] for cc in carriers}
+        stops: dict[str, dict[str, list[tuple[str, str]]]] = {cc: {} for cc in carriers}
+        fly, left = [], []
+        for d in ms:
+            code = d["device_code"]
+            if code in carriers:
+                continue
+            t = fl.tug(d, devices)
+            if t is not d:
+                if t.get("device_code") in carriers:
+                    aboard[t["device_code"]].append((code, "attach" if d.get("attached_to_device_code") else "stow"))
+                continue
+            st = star(d.get("location"))
+            if not d.get("location") or st == home or code in busy:
+                continue
+            if not near(st):
+                left.append(code)
+            elif fl.flies_itself(d):
+                fly.append(d)
+            else:
+                cand = sorted((cc for cc in carriers if cc not in busy and near(star(carriers[cc].get("location")))),
+                              key=lambda cc: (star(carriers[cc].get("location")) != st,
+                                              dist(star(carriers[cc].get("location")), st, pos), cc))
+                cc = mode = None
+                for c in cand:
+                    mode = fl.take_seat(free[c], d)
+                    if mode:
+                        cc = c
+                        break
+                if cc:
+                    stops[cc].setdefault(d["location"], []).append((code, mode))
+                    aboard[cc].append((code, mode))
+                else:
+                    left.append(code)
+        out = []
+        for cc, c in carriers.items():
+            if cc in busy or not near(star(c.get("location"))):
+                continue
+            if not stops[cc] and star(c.get("location")) == home:
+                continue   # home already; what it carries goes along on the next chase
+            tour, _at = fl.pickup_tour(cc, c.get("location"), stops[cc])
+            steps = tour + [step(f"{cc} → {drop}", f"/devices/{cc}", {"command": "travel", "destination": drop}, critical=True),
+                            fl._wait_arrive(cc, drop)] + self._unload(cc, aboard[cc])
+            codes = {cc} | {x for x, _ in aboard[cc]}
+            if await self.create_job("rock_chaser", f"{f['name']}: {cc} gathers the fleet at {home}", cc, steps,
+                                     {"devices": sorted(codes)}):
+                busy.update(codes)
+                n = len(aboard[cc])
+                out.append(f"{cc} brings {n} member(s) home to {drop}" if n else f"{cc} flies home to {drop}")
+        for d in fly:
+            code = d["device_code"]
+            if await self.create_job("rock_chaser", f"{f['name']}: {code} → {drop} (home)", code,
+                                     [step(f"{code} → {drop}", f"/devices/{code}", {"command": "travel", "destination": drop},
+                                           critical=True), fl._wait_arrive(code, drop)], {"devices": [code]}):
+                busy.add(code)
+                out.append(f"{code} flies home to {drop}")
+        if out or left:
+            run["note"] = (run.get("note") or "") + (f"; gathering at {home}" if out else "") + \
+                (f"; can't fetch: {', '.join(left)} (out of reach, beyond {SECTOR_RANGE_LY:g} ly or no free seat)" if left else "")
         return out
 
     async def _chase_freighters(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict, star: str) -> list[str]:

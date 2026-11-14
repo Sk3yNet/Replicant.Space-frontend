@@ -139,3 +139,38 @@ def test_engine_starts_its_own_rigs_and_scan_at_the_rock(client):  # noqa: F811
     out = client.portal.call(e.rock_chase_pass)
     assert any(x.startswith("Chaser: RIG1 at SOL-OBJ-1: start rares") for x in out)   # the mock has no RIG1
     assert "Chaser: SURV scans SOL-OBJ-1" in out
+
+
+def test_idle_chaser_gathers_members_from_other_systems_at_home(client):  # noqa: F811
+    # live 2026-11-14 (Chaser_1): half the fleet sat in another system and nothing ever brought it home
+    prop = {"device_code": "PROP", "device_type": "propulsor", "location": "NEAR-1-L4", "status": "idle", "tags": ["fleet:rc"],
+            "features": ["cruise", "stow"], "available_commands": ["travel", "stow"]}
+    fr = {"device_code": "FRT", "device_type": "cargo_freighter", "location": "NEAR-1-L4", "status": "idle",
+          "tags": ["fleet:rc"], "features": ["surge", "cruise", "transport"], "cargo_capacity": 500,
+          "available_commands": ["travel"]}
+    devs = [rig("RIG1", "SOL-1"), rig("RIG2", "NEAR-BELT-1"), prop, fr, rig("RIG3", "FAR-BELT-1"),
+            carrier("PLAT", "SOL-1"), carrier("PLAT2", "NEAR-BELT-1", attach_capacity=1)]
+    db, e = _setup(client, devs, {})
+    far = {"SOL": {"x": 0, "y": 0, "z": 0}, "NEAR": {"x": 10, "y": 0, "z": 0}, "FAR": {"x": 4000, "y": 0, "z": 0}}
+    orig = e.star_lookup
+
+    async def lookup(kind, *a, **k):
+        return far if kind == "pos" else await orig(kind, *a, **k)
+
+    async def commandable(devices, *a, **k):
+        return {"SOL", "NEAR", "FAR"}
+    e.star_lookup, e.commandable = lookup, commandable
+    try:
+        out = client.portal.call(e.rock_chase_pass)
+    finally:
+        e.__dict__.pop("star_lookup", None), e.__dict__.pop("commandable", None)
+    jobs = [j for j in client.portal.call(e.jobs) if j["rule"] == "rock_chaser"]
+    by = {j["device"]: [st.get("body") for st in j["steps"]] for j in jobs}
+    # PLAT2 (in NEAR, one attach point) takes RIG2; PLAT flies over from home for the propulsor
+    assert {"command": "attach", "device": "RIG2"} in by["PLAT2"]
+    assert {"command": "detach", "device": "RIG2"} in by["PLAT2"]
+    assert {"command": "attach", "device": "PROP"} in by["PLAT"]
+    assert by["FRT"][0]["command"] == "travel" and by["FRT"][0]["destination"].startswith("SOL")
+    assert "RIG3" not in str(by) and "RIG1" not in str(by)            # beyond the sector range; home already
+    f = client.portal.call(e.fleets)[0]
+    assert "can't fetch: RIG3" in f["chase_run"]["note"] and any("gathers" in x or "home" in x for x in out)

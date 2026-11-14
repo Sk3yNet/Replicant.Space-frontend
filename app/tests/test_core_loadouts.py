@@ -1101,8 +1101,36 @@ def test_attach_already_attached(client):
             else:                     # no carrier named: deploy it, then attach again
                 assert sent == [(f"/devices/{carrier}", "attach"), ("/devices/OBS0000A", "deploy")], (on, carrier, sent)  # then waits
                 assert [s["desc"].split(" ")[0] for s in j["steps"]] == [f"{carrier}:", "deploy", f"{carrier}:"]
+        # live 2026-11-14 (Chaser_1): the cache named no carrier, but the device sat on this one: never deploy it
+        cached = client.portal.call(db.kv_get, "devices")
+        next(d for d in cached if d["device_code"] == "OBS0000A")["attached_to_device_code"] = None
+        next(d for d in cached if d["device_code"] == "CAR00002")["attached_devices"] = [{"device_code": "OBS0000A"}]
+        client.portal.call(db.kv_set, "devices", cached)
+        sent.clear()
+        job = client.portal.call(eng.create_job, "fleets", "attach test", "CAR00002",
+                                 [step("CAR00002: attach OBS0000A", "/devices/CAR00002",
+                                       {"command": "attach", "device": "OBS0000A"}, critical=True)], {"devices": []}, True)
+        j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
+        assert j["steps"][0]["status"] == "done" and sent == [("/devices/CAR00002", "attach")], sent
+        # nor when only the game's own record of the device names the carrier
+        next(d for d in cached if d["device_code"] == "CAR00002")["attached_devices"] = []
+        client.portal.call(db.kv_set, "devices", cached)
+        orig_get = eng.api.get
+
+        async def fake_get(path, *a, **k):
+            if path == "/devices/OBS0000A":
+                return {"device_code": "OBS0000A", "attached_to_device_code": "CAR00001"}
+            return await orig_get(path, *a, **k)
+        eng.api.get = fake_get
+        sent.clear()
+        job = client.portal.call(eng.create_job, "fleets", "attach test", "CAR00002",
+                                 [step("CAR00002: attach OBS0000A", "/devices/CAR00002",
+                                       {"command": "attach", "device": "OBS0000A"}, critical=True)], {"devices": []}, True)
+        j = next(x for x in client.portal.call(eng.jobs) if x["id"] == job["id"])
+        assert j["steps"][0]["status"] == "done" and sent == [("/devices/CAR00002", "attach")], sent
     finally:
         eng.send = orig
+        eng.api.__dict__.pop("get", None)
 
 
 def test_a_drone_aboard_a_carrier_at_the_destination_has_arrived(client):

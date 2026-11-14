@@ -329,6 +329,17 @@ class JobsMixin:
                 devs_now = await self.devices()
                 by_now = {d.get("device_code"): d for d in devs_now}
                 other = (by_now.get(code) or {}).get("attached_to_device_code")
+                if not other:
+                    # the cached list may lag the game (live 2026-11-14, Chaser_1: D754E016 sat on 93829E9A itself, the
+                    # cache named no carrier, and the deploy failed "Cannot deploy a mining rig"): look at the carriers'
+                    # lists, then ask the game
+                    other = next((d.get("device_code") for d in devs_now
+                                  if any(a.get("device_code") == code for a in d.get("attached_devices") or [])), None)
+                if not other:
+                    try:
+                        other = (await self.api.get(f"/devices/{code}") or {}).get("attached_to_device_code")
+                    except ApiError:
+                        other = None
                 fleet_tags = {x for x in (by_now.get(carrier) or {}).get("tags") or [] if x.startswith("fleet:")}
                 if other and (other == carrier or fleet_tags & set((by_now.get(other) or {}).get("tags") or [])):
                     ok, st["note"] = True, f"{err} — already attached to {other}, a carrier of this fleet"

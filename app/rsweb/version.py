@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.421.0"
+VERSION = "1.422.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.422.0", "2026-11-14", "Rock chasers with no target gather at home: the fleet's carriers fetch members left in "
+     "other systems (within the sector range) and bring them to the home system, and self-flying members fly back on "
+     "their own (Chaser_1 sat split over SOLARES and FALQUORYX). A board step told \"already attached\" no longer "
+     "deploys the device when the cached list names no carrier: it checks the carriers' lists and the game first "
+     "(Chaser_1's end mission stalled on \"Cannot deploy a mining rig\" with the rig already on its own carrier)."),
     ("1.421.0", "2026-11-14", "Print where the materials are (new rule, on by default): a queued print its factory's "
      "stockpile can't pay for moves to another printing hub's autofactory that can, when flying the finished device "
      "costs less than hauling the missing materials (one freighter load per 500 units). Only to factories within the "
