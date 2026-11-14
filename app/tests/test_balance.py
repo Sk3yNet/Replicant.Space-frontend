@@ -94,3 +94,16 @@ def test_a_leeway_leaves_small_imbalances_alone():
     assert [(m["from"], m["to"]) for m in go(6, 25)] == [("FAL", "SOL")]   # 6 / 2: beyond it
     assert go(5, 0)                                              # 0 %: the strict balance
     assert [(m["from"], m["to"]) for m in go(8, 50)] == [("FAL", "SOL")]   # a hub with none always gets one
+
+
+def test_a_carrier_out_of_comms_range_is_never_moved():
+    # live 2026-11-14: freighter 137A4E1A stranded at MENKUNT was sent SOLARES → FALQUORYX every pass and refused
+    lost = {**mf("M1", "FAL-BELT-1", "out_of_range"), "in_control_range": False}
+    devices = [lost, mf("M2", "FAL-BELT-1")]
+    idle = {"M1": 0.0, "M2": 0.0}
+    p = bal.plan(FLEETS, devices, [], {}, set(), POS, CMD, 1728, {}, idle, 3600.0)
+    assert [m["code"] for m in p["moves"]] == [] and "M1" not in idle
+    assert p["classes"]["attach"]["counts"] == {"FAL": 1, "SOL": 0}
+    devices.append(mf("M3", "FAL-BELT-1"))
+    p = bal.plan(FLEETS, devices, [], {}, set(), POS, CMD, 1728, {}, {"M2": 0.0, "M3": 0.0}, 3600.0)
+    assert [m["code"] for m in p["moves"]] == ["M2"]

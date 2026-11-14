@@ -142,6 +142,10 @@ def plan(fleets: list[dict], devices: list[dict], jobs: list[dict], hosts: dict,
         cls = klass(d, hosts)
         if not cls or d.get("stowed_in_device_code") or d.get("attached_to_device_code"):
             continue
+        # out of comms range it can't be commanded: neither counted nor moved (live 2026-11-14: freighter 137A4E1A,
+        # stranded at MENKUNT, was sent SOLARES → FALQUORYX every pass, "Device is out of comms range")
+        if d.get("in_control_range") is False or str(d.get("status") or "").lower() == "out_of_range":
+            continue
         here = star_of(d.get("location"))
         where = going.get(code) if code in busy else here
         h = nearest(where or here, hub_list, pos) if (where or here) else None
