@@ -97,6 +97,15 @@
       if (p.carrier || p.hold) { h += (p.hold || 0) * n; a += (p.carrier || 0) * n; }
       else if (!p.flies) { if (p.stowable) sn += n; else an += n; }
     });
+    const carries = h + a > 0 || form.dataset.carriers === "1";   // members already aboard a carrier count too
+    const fs = form.querySelector("fieldset"); if (fs) fs.classList.toggle("no-carrier", !carries);
+    const full = form.querySelector(".attach-points"), none = form.querySelector(".ap-none");
+    if (full) full.hidden = !carries;
+    if (none) {
+      none.hidden = carries;
+      const rd = none.querySelector(".ap-riders");
+      if (rd) rd.textContent = sn + an ? (sn + an) + " device(s) can't fly themselves: add a carrier for the fleet to travel." : "";
+    }
     const el = form.querySelector(".ap-plan"); if (!el) return;
     const r = budgetText(h, a, sn, an);
     el.textContent = r[0];

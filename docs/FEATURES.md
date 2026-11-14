@@ -490,7 +490,7 @@ rock chaser / trade post / bootstrap), a home and a loadout (its own lines or a 
 - **Materials** (Fleets overview): a fleet is *receiving* (takes materials in) or *supplying the nearest receiver*: its
   materials go to the receiving fleet nearest its home (recomputed whenever fleets change). A mission that ferries while
   mining delivers to the receiver nearest the belt it mines. A fleet set earlier to send to one named fleet keeps it.
-- Also: owner hand-over (`change_owner`), *send to* / *takes materials in*, *fill from spares*, carrying budget.
+- Also: owner hand-over (`change_owner`), *send to* / *takes materials in*, *fill from spares*, carrying budget (seats and the budget show only when the loadout or the members have a carrier).
 
 ### Nothing leaves short
 - A fleet only sets off with its whole loadout in its home system (aboard, there, or arriving).

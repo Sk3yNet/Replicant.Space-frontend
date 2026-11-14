@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.412.0"
+VERSION = "1.413.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.413.0", "2026-11-14", "Fleet cards show only what fits the fleet (Joe): a fleet with no carrier in its loadout or among its members no longer shows the Seats column or the hold and attach-point budget, just a line saying so (and how many devices can't fly themselves). Its Board everyone button is gone and End mission no longer says it boards. Adding a carrier line brings the counts back as you edit."),
     ("1.412.0", "2026-11-14", "Trade post shops are numbered (Joe: similar names with a number). Each AMI trade controller in a trade post opens as the fleet's name plus its own number (Post 1, Post 2 …), kept for good; a new controller takes the lowest free number. A shop already open under another name is renamed while it lists nothing, so no listing is lost. Extra controllers still come through Loadouts, which brings them to the shop spot. On the Shop page all of a trade post's shops share one card (Joe: one card per fleet), each shop a section of it."),
     ("1.411.0", "2026-11-14", "Trade stock takes spares before it prints (Joe: devices taken out of the trade fleet went spare while their stock was queued to print). The stock prints were ordered while those devices still carried the fleet tag, and once a print was queued the post counted it as covered, so the new spares were never used. Now a free spare in range goes to the post (or contract site) even while prints are queued, and every queued print it covers, or that was ordered twice, comes off the app's print queue. Prints already running or in the game's own queue are left alone."),
     ("1.410.0", "2026-11-13", "One carrier assignment (Joe 2026-11-13): devices bound for another place are requests in the logistics list (device moves, a task category of their own; urgent ones right after evacuations), and one pass every couple of minutes gives each free carrier its work, materials and devices together. The urgent deliveries pass, the freed-carrier patch and the just-printed planning are gone; the rest of the loadout plan still runs every 15 minutes. The pass is also cheaper (relay and geography lookups no longer walk the whole device list per device)."),

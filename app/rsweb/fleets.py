@@ -414,7 +414,8 @@ def attach_points(fleet: dict, devices: list[dict], bps: dict[str, dict], rows: 
                 sn += n
             else:
                 an += n
-    return {"now": now, "plan": _budget(h, a, sn, an)}
+    # carriers: the loadout or the members bring seats at all; without any, the card shows no seat counts
+    return {"now": now, "plan": _budget(h, a, sn, an), "carriers": bool(cars or h or a)}
 
 
 def kind(d: dict) -> str:

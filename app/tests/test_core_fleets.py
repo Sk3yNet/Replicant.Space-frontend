@@ -1687,3 +1687,19 @@ def test_explore_watch_ends_when_the_game_paused_the_survey_controller():
     assert done and "paused" in why
     devices[1]["status"] = "scanning"
     assert not fl.watch_done(f, m, devices, "2026-11-10T12:00:00+00:00")[0]
+
+
+def test_fleet_card_hides_seats_without_carrier(client):
+    client.post("/fleets", data={"name": "Rocks", "role": "mining", "home": "SOL"}, headers=HX)
+    client.post("/fleets/rocks/edit", data={"lines": "1", "type": ["mining_drone"], "qty": ["2"], "stock": [""]}, headers=HX)
+    card = client.get("/fleets/details?fleet=rocks", headers=H).text
+    card = card[card.index('id="fleet-rocks"'):]
+    assert 'class="no-carrier"' in card and "No carrier in the loadout" in card
+    assert "device(s) can't fly themselves" in card
+    assert 'class="small attach-points" style="margin-top:6px" hidden' in card
+    client.post("/fleets/rocks/edit", data={"lines": "1", "type": ["mining_drone", "surge_carrier"], "qty": ["2", "1"],
+                                            "stock": ["", ""]}, headers=HX)
+    card = client.get("/fleets/details?fleet=rocks", headers=H).text
+    card = card[card.index('id="fleet-rocks"'):]
+    assert 'class="no-carrier"' not in card and "At full loadout" in card
+    assert 'class="small attach-points" style="margin-top:6px">' in card

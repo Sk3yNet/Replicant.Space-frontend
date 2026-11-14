@@ -30,10 +30,11 @@
           <input type="checkbox" name="pick_matrix" {{ 'checked' if f.pick_matrix }} {{ 'disabled' if f.template }}> Needs an active replicant aboard</label>
         {% if f.pick_matrix %}{% if f.replicant_aboard %}<span class="lv-done">✓ replicant aboard</span>{% else %}<span class="lv-alert">no replicant aboard</span>{% if f.matrix_note.note %} <span class="muted">{{ f.matrix_note.note }} ({{ f.matrix_note.at | ago }})</span>{% endif %}{% endif %}{% endif %}
       </form>
-      <form hx-post="/fleets/{{ f.id }}/edit" hx-swap="none" class="loadout-form" data-fid="{{ f.id }}" data-name="{{ f.name }}">
+      <form hx-post="/fleets/{{ f.id }}/edit" hx-swap="none" class="loadout-form" data-fid="{{ f.id }}" data-carriers="{{ 1 if f.points.now.available else 0 }}" data-name="{{ f.name }}">
         <input type="hidden" name="lines" value="1">
-        <fieldset {{ 'disabled' if f.template }} style="border:0;padding:0;margin:0">
-        <table class="small"><tr><th>Type</th><th class="num">Want</th><th class="num" title="Keep in stock: this many more printed as spares at the fleet's home, on an autofactory there with nothing else to print, so any fleet can take them">Stock</th><th class="num">Have</th><th class="num" title="▣N hold slots and +N attach points a carrier offers; −1 ▣ a rider that can go in a hold, −1 one that needs an attach point; ✈ surges itself">Seats</th><th>Devices</th><th></th></tr>
+        {% set carries = f.points.carriers %}
+        <fieldset {{ 'disabled' if f.template }} style="border:0;padding:0;margin:0" class="{{ '' if carries else 'no-carrier' }}">
+        <table class="small"><tr><th>Type</th><th class="num">Want</th><th class="num" title="Keep in stock: this many more printed as spares at the fleet's home, on an autofactory there with nothing else to print, so any fleet can take them">Stock</th><th class="num">Have</th><th class="num lp-h" title="▣N hold slots and +N attach points a carrier offers; −1 ▣ a rider that can go in a hold, −1 one that needs an attach point; ✈ surges itself">Seats</th><th>Devices</th><th></th></tr>
           {% for row in r.rows %}<tr data-have="{{ row.have }}" data-type="{{ row.type }}"{% if not row.want %} class="muted" title="Not in the loadout — set a quantity to keep it"{% endif %}>
             <td>{{ row.type | human }}<input type="hidden" name="type" value="{{ row.type }}"></td>
             <td class="num"><input type="number" min="0" name="qty" value="{{ row.want or '' }}" data-old="{{ row.want or '' }}" style="width:52px"></td>
@@ -61,7 +62,9 @@
           attach {{ b.attach.needed }} / {{ b.attach.available }}
           {%- if b.short %} · short {{ b.short }} attach point(s) — add {{ b.fix }}{% elif b.needed %} · fits{% endif -%}
         {%- endmacro %}
-        <div class="small attach-points" style="margin-top:6px">
+        <div class="small ap-none muted" style="margin-top:6px"{% if carries %} hidden{% endif %}>No carrier in the loadout, so no seats to count.
+          <span class="ap-riders lv-alert">{% if f.points.plan.needed %}{{ f.points.plan.needed }} device(s) can't fly themselves: add a carrier for the fleet to travel.{% endif %}</span></div>
+        <div class="small attach-points" style="margin-top:6px"{% if not carries %} hidden{% endif %}>
           <div><b>Carrying now</b> (members, needed / available):
             <span class="{{ 'lv-alert' if pt.now.short }}">{{ budget(pt.now) }}</span>
             <span class="muted">· {{ pt.now.stowed }} stowed · {{ pt.now.attached }} attached</span></div>
@@ -145,8 +148,8 @@
         {% if f.job %}<div class="small muted">job: {{ f.job.title }} · step {{ f.job.idx + 1 }}/{{ f.job.steps | length }}{% if f.job.steps[f.job.idx] is defined %} — {{ f.job.steps[f.job.idx].desc }}{% endif %}</div>{% endif %}
         <div class="row" style="margin-top:6px">
           <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "end"}' hx-swap="none"
-                  hx-confirm="End the mission now? Controllers stop, every device returns to its place on a fleet carrier, and the fleet stays where it is."
-                  title="Stop work, bring every device back aboard its carriers, stay in this system">End mission &amp; board</button>
+                  hx-confirm="End the mission now? Controllers stop{{ ', every device returns to its place on a fleet carrier,' if f.points.now.available }} and the fleet stays where it is."
+                  title="Stop work{{ ', bring every device back aboard its carriers' if f.points.now.available }}, stay in this system">End mission{{ ' &amp; board' | safe if f.points.now.available }}</button>
           {% if m.status == 'stalled' %}<button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "resume"}' hx-swap="none">Retry</button>
             {% if m.auto_retry and m.auto_retry.at and not m.comms_wait %}<span class="small muted" title="A stalled mission tries again by itself, waiting longer each time">retries by itself at {{ m.auto_retry.at[11:16] }} UTC</span>{% endif %}{% endif %}
           <button class="small ghost" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "stop"}' hx-swap="none" hx-confirm="Stop the mission? Devices stay where they are.">Stop</button>
@@ -157,7 +160,7 @@
           <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "station"}' hx-swap="none"
                   title="Clear the mission{{ ': the loadout pass brings its devices home and keeps it at its loadout' if f.station }}">{{ 'Back to station' if f.station else 'Clear mission' }}</button></div>
       {% else %}
-        {% if r.loose and not f.station %}
+        {% if r.loose and not f.station and f.points.now.available %}
         <div class="row small" style="margin-bottom:6px">
           <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "end"}' hx-swap="none"
                   title="Bring every member back aboard a fleet carrier where it is">Board everyone</button>
