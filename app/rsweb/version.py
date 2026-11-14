@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.415.2"
+VERSION = "1.416.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.416.0", "2026-11-14", "Trade post announcements point at the shop (Joe: BobNet showed SK3Y-Ottoline_Bulkferry @ SOLARES). BobNet names only the posting replicant's star, which the app can't change, so the shop's exact location goes into the texts: in place of {spot}, else added to the announcement or description where it fits; the other shops say More listings from Post 1 at that spot. Shops open only once they reach the shop spot, so a controller still on its way never announces itself."),
     ("1.415.2", "2026-11-14", "Shop page: only controllers at a trade post's shop spot join its card (Joe: B3F801E9 is neither at the spot nor in the fleet); before, any location of the post's controllers counted. Trade controllers that are no shop yet are left out of the shop list and folded into one small card at the end, where one can still be opened."),
     ("1.415.1", "2026-11-14", "Shop page: a trade post's shop drop-downs are compact (Joe: smaller and collapsed): one small line each, folded, with a smaller heading when opened."),
     ("1.415.0", "2026-11-14", "Shop page: every AMI trade controller of a trade post sits on the post's card (Joe: SOL trader's controllers still had cards of their own). Controllers in the fleet but not yet placed, controllers held as stock for sale, and any other controller at the shop spot now join it too, marked as such. Each shop on the card is a drop-down showing its trade listings."),

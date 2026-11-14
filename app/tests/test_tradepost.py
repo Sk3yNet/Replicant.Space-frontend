@@ -262,6 +262,13 @@ def test_shop_texts_first_shop_announces():
     f = {**FLEET, "trade_post": {"description": "Devices of every kind.", "announcement": "Open at SOL-4-L4"}}
     assert tp.shop_config(f, 1) == {"name": "Post 1", "description": "Devices of every kind.", "announcement": "Open at SOL-4-L4"}
     assert tp.shop_config(f, 2) == {"name": "Post 2", "description": "More listings from Post 1."}
+    assert tp.shop_config(f, 1, "SOL-4-L4") == {"name": "Post 1", "description": "At SOL-4-L4. Devices of every kind.",
+                                                 "announcement": "Open at SOL-4-L4"}
+    g = {**FLEET, "trade_post": {"announcement": "x" * 76 + " {spot}"}}
+    assert tp.shop_config(g, 1, "SOL-4-L4")["announcement"] == ("x" * 76 + " SOL-4-L4")[:80]
+    h = {**FLEET, "trade_post": {"announcement": "y" * 76}}
+    assert tp.shop_config(h, 1, "SOL-4-L4") == {"name": "Post 1", "announcement": "y" * 76, "description": "At SOL-4-L4."}
+    assert tp.shop_config(f, 2, "SOL-4-L4")["description"] == "More listings from Post 1 at SOL-4-L4."
     assert tp.config_differs({"name": "Post 2"}, tp.shop_config(f, 2))
 
 
@@ -282,7 +289,7 @@ def test_post_texts_sent_to_every_shop(client):  # noqa: F811
     e.send = real
     assert "Saved" in r.text
     cfg = {p: b["configuration"] for p, b in sent}
-    assert cfg["/devices/SHOP"] == {"name": "Post 1", "description": "All sorts", "announcement": "Hi"}
-    assert cfg["/devices/SHOP2"] == {"name": "Post 2", "description": "More listings from Post 1."}
+    assert cfg["/devices/SHOP"] == {"name": "Post 1", "description": "At SOL-4-L4. All sorts", "announcement": "Hi @ SOL-4-L4"}
+    assert cfg["/devices/SHOP2"] == {"name": "Post 2", "description": "More listings from Post 1 at SOL-4-L4."}
     page = client.get("/shop", headers=H).text
     assert "Update every shop" in page and "Open shop" not in page

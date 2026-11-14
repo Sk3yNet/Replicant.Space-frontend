@@ -159,15 +159,28 @@ def shop_name(fleet: dict, n: int) -> str:
     return f"{(fleet.get('name') or 'Trade post').strip()} {n}"
 
 
-def shop_config(fleet: dict, n: int) -> dict:
+def shop_config(fleet: dict, n: int, location: str | None = None) -> dict:
     """The trade directive's configuration for shop `n` (owner 2026-11-14): the first shop carries the post's description
-    and its BobNet announcement, the others only a generic description pointing at it."""
+    and its BobNet announcement, the others only a generic description pointing at it. BobNet names only the star of
+    the replicant that posts it, so the shop's exact location goes into the texts: in place of {spot}, else added where
+    it fits (announcement ≤ 80, description ≤ 240)."""
     s = settings(fleet)
     cfg = {"name": shop_name(fleet, n)}
     if n == 1:
-        cfg.update({k: s[k] for k in ("description", "announcement") if s[k]})
+        for k, lim, add in (("announcement", 80, lambda t, l: f"{t} @ {l}"), ("description", 240, lambda t, l: f"At {l}. {t}")):
+            t = s[k]
+            if not t:
+                continue
+            if location:
+                if "{spot}" in t:
+                    t = t.replace("{spot}", location)
+                elif location not in t and len(add(t, location)) <= lim:
+                    t = add(t, location)
+            cfg[k] = t.replace("{spot}", "")[:lim]
+        if location and "announcement" in cfg and location not in cfg["announcement"] and "description" not in cfg:
+            cfg["description"] = f"At {location}."
     else:
-        cfg["description"] = f"More listings from {shop_name(fleet, 1)}."[:240]
+        cfg["description"] = f"More listings from {shop_name(fleet, 1)}{' at ' + location if location else ''}."[:240]
     return cfg
 
 
@@ -447,7 +460,9 @@ class TradePostMixin:
             from .shop import shop_config as have_config
             for c in ctrls:
                 code = c["device_code"]
-                want = shop_config(f, nums[code])
+                if pl["location"] and c.get("location") != pl["location"]:
+                    continue   # opened at the shop spot only, so its announcement points at the right place
+                want = shop_config(f, nums[code], pl["location"])
                 name = want["name"]
                 is_open = (c.get("ami_directive") or {}).get("name") == "trade"
                 if trades.get(code) is None or dry or (is_open and not config_differs(have_config(c), want)):

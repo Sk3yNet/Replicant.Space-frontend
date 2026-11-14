@@ -19,7 +19,9 @@
     <form class="small" hx-post="/fleets/{{ post.id }}/tradepost" hx-target="next .sh-out">
       <input type="hidden" name="action" value="texts">
       <p class="muted">Names are set by the post ({{ post.name }} 1, {{ post.name }} 2 …). Only the first shop gets this description and
-        announces itself on BobNet; the others say "More listings from {{ post.name }} 1."</p>
+        announces itself on BobNet; the others say "More listings from {{ post.name }} 1 at …". BobNet shows only the star of
+        the replicant that posts it, so write <span class="mono">{spot}</span> where the shop's exact location should go (else it is added
+        where it fits). Shops open only once they reach the shop spot.</p>
       <label>Announcement (on BobNet, at most 80 characters) <input name="announcement" value="{{ tpc.announcement or '' }}" size="40" maxlength="80"></label>
       <label>Description (at most 240 characters)<br><textarea name="description" rows="2" style="width:100%" maxlength="240">{{ tpc.description or '' }}</textarea></label>
       <button class="small">Update every shop</button>

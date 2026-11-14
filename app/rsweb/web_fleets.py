@@ -1195,12 +1195,14 @@ async def fleets_tradepost(request: Request, fid: str, user: str = Depends(curre
         await eng.save_fleets(items)
         nums = ((await db.kv_get(tp.KV, {}) or {}).get(fid) or {}).get("numbers") or {}
         st = await load_state(request)
-        codes = [c["device_code"] for c in tp.controllers(f, st["devices"])]
-        nums = tp.number_shops(nums, codes)
+        ctrls = tp.controllers(f, st["devices"])
+        nums = tp.number_shops(nums, [c["device_code"] for c in ctrls])
+        loc = tp.settings(f)["spot"] or (ctrls[0].get("location") if ctrls else None)
+        codes = [c["device_code"] for c in ctrls if c.get("location") == loc]   # the rest open on arrival
         bad = []
         for code in codes:
             ok, _, err = await eng.send("POST", f"/devices/{code}", {"command": "set_directive", "directive": "trade",
-                                                                    "configuration": tp.shop_config(f, nums[code])},
+                                                                    "configuration": tp.shop_config(f, nums[code], loc)},
                                         f"trade post {f.get('name')}: shop texts on {code}, by {user}")
             if not ok:
                 bad.append(f"{code}: {err}")
