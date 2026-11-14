@@ -226,6 +226,15 @@ RULES: list[Rule] = [
           Option("hub_upkeep", "bool", "Logistics stocks hub upkeep at each hub's location", True,
                  help="The game draws a hub's upkeep from the stockpile at its own spot: enough for 100 % plus one 20 % step")],
          default_on=True),
+    Rule("print_reroute", "Print where the materials are",
+         "A queued print its factory's stockpile can't pay for moves to another printing hub's autofactory that can, "
+         "when flying the finished device there costs less than hauling the missing materials (one cargo freighter "
+         "load per 500 units, each flown from that hub). Only prints that name where they go (a fleet, to: or at: "
+         "tag) move, never components or contract prints, and only to factories within the sector range (1728 ly) "
+         "of where the device goes. A fleet's device printed elsewhere joins it as fleets collect their members.",
+         [Option("every_minutes", "int", "Check every (minutes)", 10),
+          Option("dry_run", "bool", "Only log what would move", False)],
+         default_on=True),
     Rule("restart_idle_miners", "Restart idle mining drones",
          "Every minute, any mining drone sitting idle at a belt gets back to work. Drones an AMI mining controller "
          "already manages are left alone; with a controller at the same location the drone is handed to it "

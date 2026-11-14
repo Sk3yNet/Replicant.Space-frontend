@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.420.1"
+VERSION = "1.421.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.421.0", "2026-11-14", "Print where the materials are (new rule, on by default): a queued print its factory's "
+     "stockpile can't pay for moves to another printing hub's autofactory that can, when flying the finished device "
+     "costs less than hauling the missing materials (one freighter load per 500 units). Only to factories within the "
+     "sector range of where the device goes; components and contract prints stay. The fleet Print button no longer "
+     "queues what's already queued for the fleet (Terraformer 1 had 3 bio seeders queued for 1 missing)."),
     ("1.420.1", "2026-11-14", "A survey fleet whose controller sits in another system no longer stalls in its work "
      "phase (Surveyor 8 at SEMAYA, its controller at SOLARES, 8 tries): a fleet carrier fetches it within the supply "
      "range and the fleet comes back to the target. Beyond the range, or after two fetches at one target, it still "

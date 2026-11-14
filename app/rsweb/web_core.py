@@ -2097,7 +2097,7 @@ RULE_HOME = {
     "asteroid_defence": ("Map › Defense", "/defence"), "asteroid_mining": ("Map › Defense", "/defence"), "maintenance": ("Map › Upkeep", "/maintenance"),
     "ami_schedules": ("Devices › AMI", "/ami"), "loadouts": ("Fleets", "/fleets"),
     "fleet_fill": ("Fleets", "/fleets"),
-    "consolidate": ("Economy › Blueprints", "/blueprints"), "contracts": ("Economy › Contracts", "/game-events"),
+    "consolidate": ("Economy › Blueprints", "/blueprints"), "print_reroute": ("Economy › Blueprints", "/blueprints"), "contracts": ("Economy › Contracts", "/game-events"),
 }
 
 

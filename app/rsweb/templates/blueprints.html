@@ -9,7 +9,7 @@
       <input name="q" id="bp-q" value="{{ q }}" placeholder="name…" autocomplete="off">
       <select name="feature" id="bp-f"><option value="">any feature</option>{% for f in features %}<option {{ 'selected' if f == feature }}>{{ f }}</option>{% endfor %}</select>
       <span class="muted small" id="bp-count"></span></form></span></div>
-{% with ids="consolidate" %}{% include "partials/rules_slot.html" %}{% endwith %}
+{% with ids="consolidate,print_reroute" %}{% include "partials/rules_slot.html" %}{% endwith %}
 {% if not blueprints %}<p class="muted">Blueprints sync every 5 minutes and when something may have unlocked one; none cached yet.</p>{% endif %}
 
 <form hx-post="/blueprints/plan" hx-target="#plan" hx-trigger="input delay:300ms from:input[type=number], change from:select">

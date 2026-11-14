@@ -1087,8 +1087,15 @@ async def fleets_print(request: Request, fid: str, user: str = Depends(current_u
     f = next((x for x in items if x["id"] == fid), None)
     st = await load_state(request)
     short = fl.short_list(f, st["devices"]) if f else {}
+    # prints already queued for the fleet count (live 2026-11-14: Terraformer 1 lacked one bio seeder and had three queued)
+    tag = fl.fleet_tag(fid)
+    for d in st["devices"]:
+        for it in printqueue.items(d):
+            if tag in it["tags"] and short.get(it["device_type"]):
+                short[it["device_type"]] = max(0, short[it["device_type"]] - max(1, int(it.get("quantity") or 1)))
+    short = {t: n for t, n in short.items() if n}
     if not short:
-        return HTMLResponse('<div class="result ok">Nothing missing.</div>')
+        return HTMLResponse('<div class="result ok">Nothing missing (or it is queued already).</div>')
     # autofactories only: vessels take enqueue_print too, but a fleet's shortfall never goes on one (owner 2026-11-07:
     # a heaven vessel was printing on another heaven vessel)
     from .loadouts import is_factory

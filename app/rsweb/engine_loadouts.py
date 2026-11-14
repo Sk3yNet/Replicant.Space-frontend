@@ -859,6 +859,71 @@ class LoadoutMixin:
                                                "escort_wanted": lo.escort_wanted(p)})
         return lines
 
+    async def print_reroute_pass(self) -> list[str]:
+        """Queued prints their stockpile can't pay for move to a printing hub that can, when shipping the device beats
+        shipping the materials (reroute.py, owner 2026-11-14). The new print goes in first, then the old one comes off;
+        a loadout order follows its print."""
+        from . import reroute as rr
+        from .logistics import SECTOR_RANGE_LY
+        from .shapes import normalize_blueprints, normalize_inventory
+        cfg = await self.rule_cfg("print_reroute")
+        if not cfg:
+            return []
+        last = _ts(await self.db.kv_get("reroute_last", None))
+        if last and (_now() - last).total_seconds() < 60 * max(1, int(cfg.get("every_minutes") or 10)):
+            return []
+        await self.db.kv_set("reroute_last", now_iso())
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        if not bps:
+            return []
+        inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+        busy = self.busy_devices(await self.jobs())
+        devices = [d for d in await self.devices() if d.get("device_code") not in busy]
+        moves = rr.plan(devices, bps, inv, await self.star_lookup("pos_all"), await self.fleets(), SECTOR_RANGE_LY)
+        # one factory's game queue from the back, so taking one off doesn't shift the next one's index
+        moves.sort(key=lambda m: (m["factory"], -m["item"]["api_index"]))
+        out: list[str] = []
+        dry = cfg.get("dry_run") or (await self.settings())["dry_run"]
+        for m in moves:
+            text = rr.describe(m)
+            if dry:
+                out.append(f"would move: {text}")
+                continue
+            it = m["item"]
+            body = {"command": "enqueue_print", "device_type": it["device_type"],
+                    "quantity": max(1, int(it.get("quantity") or 1)), "tags": list(it.get("tags") or [])}
+            if it.get("notify"):
+                body["controller"] = it["notify"]
+            if it.get("oncomplete"):
+                body["oncomplete"] = it["oncomplete"]
+            from . import vqueue as vqm
+            tok = vqm.HAND.set(it["extra"].get("priority") == vqm.LABELS[0])   # a print you queued by hand stays yours
+            try:
+                ok, _, err = await self.send("POST", f"/devices/{m['to']}", body, f"reroute: {it['device_type']} for {m['dest']} on {m['to']}")
+            finally:
+                vqm.HAND.reset(tok)
+            if not ok:
+                await self.log("print_reroute", f"couldn't queue on {m['to']} ({err}): {text}", "warning")
+                continue
+            off = ({"command": "dequeue_print", "order": it["extra"]["order"]} if it["extra"].get("virtual")
+                   else {"command": "dequeue_print", "index": it["api_index"]})
+            ok, _, err = await self.send("POST", f"/devices/{m['factory']}", off,
+                                         f"reroute: {it['device_type']} off {m['factory']}", raw=not it["extra"].get("virtual"))
+            if not ok:   # both queued now: the extra one turns out spare, which beats losing the print
+                await self.log("print_reroute", f"queued on {m['to']} but couldn't take it off {m['factory']} ({err})", "warning")
+            orders = await self.db.kv_get("loadout_orders", []) or []
+            o = next((o for o in orders if o.get("factory") == m["factory"] and o.get("device_type") == it["device_type"]
+                      and not o.get("device_code")), None)
+            if o:
+                o["factory"] = m["to"]
+                await self.db.kv_set("loadout_orders", orders)
+            out.append(text)
+            await self.log("print_reroute", text)
+        if out:
+            await self.db.kv_set("reroute_recent", ([{"at": now_iso(), "text": t} for t in out]
+                                                    + (await self.db.kv_get("reroute_recent", []) or []))[:30])
+        return out
+
     async def cancel_loadout_print(self, c: dict, orders: list[dict]) -> list[dict]:
         """A spare at home took the place of a loadout order (loadouts.plan cancel_orders): its print comes off the
         queue it sits in, the game's (newest matching first) or the app's, on the ordering factory or a neighbor fed

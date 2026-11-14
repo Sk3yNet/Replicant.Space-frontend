@@ -484,6 +484,11 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
   for each other within the sector range (1728 ly). A fleet print goes to the other hub when its own stockpile can't
   cover it, and ward / relay / beacon orders prefer an autofactory whose stockpile covers the print. A hub further away
   (Delta at ISOLITHOR) keeps its autofactories to itself.
+  - **Print where the materials are** (rule on Economy › Blueprints, 1.421.0, on by default): every 10 minutes, a print already queued that its
+    stockpile can't pay for moves to another hub's autofactory that can, when flying the device costs less than hauling
+    what's missing (one freighter load per 500 units, flown from that hub; a tie stays). Only prints that name where they
+    go (fleet:, to:, at:) move, never components or contract prints, and only within the sector range of the device's
+    destination. The new print is queued first, then the old one taken off; the log says what moved and why.
   - Any fleet or ward / relay order can take it (wards are only printed, never activated); once taken for a fleet or a
     system it loses both tags.
   - Stock prints are low priority: logistics supplies them last, and a waiting stock print is moved behind any other.
