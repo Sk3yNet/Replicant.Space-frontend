@@ -659,7 +659,7 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
    - contracts you approved, whose location you pre-approved, or (with auto-approve by beacon on) at a location where your beacon is deployed (Contracts);
    - trades you approved (Shop: *Logistics buys* n, 0 = not approved: one delivery pays n prices and the trade runs n times, at most
      the stock; plain shop listings are never fulfilled);
-   - a home system's piles consolidated at its drop point (its autofactory, else its biggest pile; systems the
+   - a home system's piles consolidated at its drop point (the spot with the most autofactories, spare printers not counted, else its biggest pile; systems the
      Consolidate rule covers with an AMI transport controller are left to it).
 4. **Stockpile returns**: stray stockpiles brought back to a gather point (a fleet that takes materials in), or, where
    such a fleet moved away, to its new home. Not from a system an AMI ferry already empties; a return load that finds

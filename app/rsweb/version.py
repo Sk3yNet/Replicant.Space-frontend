@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.423.0"
+VERSION = "1.423.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.423.1", "2026-11-14", "Materials land at a system's autofactories: the drop point is the spot with the most "
+     "autofactories, and a spare printer never counts (a spare structural fabricator at SOLARES-4-L4 made the hub spot "
+     "the drop point, so the SOLARES-BELT-1 stockpile beside the 3 autofactories was being hauled away from them)."),
     ("1.423.0", "2026-11-14", "Missing blueprints also lists what every known shop sells (Joe): shops found by system and device scans, BobNet opening posts and earlier sightings count, not only the trader directory read."),
     ("1.422.0", "2026-11-14", "Rock chasers with no target gather at home: the fleet's carriers fetch members left in "
      "other systems (within the sector range) and bring them to the home system, and self-flying members fly back on "

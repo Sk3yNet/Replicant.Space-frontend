@@ -1409,3 +1409,18 @@ def test_awaited_components_ride_first_and_compacted_spares_are_gathered():
     first = next(dl for dl in p["deliveries"] if dl["carrier"] == "CAR")
     assert first["devices"] == ["GO"] and first["to"] == "AAA"
     assert "GS" in p["gathering"] and p["moves"]["GS"] == "AAA"
+
+
+def test_drop_point_prefers_the_autofactories_over_a_spare_printer():
+    """Live 2026-11-14: a spare structural fabricator at SOLARES-4-L4 made it the drop point, so the SOLARES-BELT-1
+    stockpile beside the 3 autofactories was consolidated away from them."""
+    from rsweb import loadouts as lo
+    fab = {"device_code": "F", "device_type": "structural_fabricator", "location": "SOLARES-4-L4", "tags": ["spare"],
+           "available_commands": ["enqueue_print"]}
+    facs = [{"device_code": f"A{i}", "device_type": "autofactory", "location": "SOLARES-BELT-1", "tags": []} for i in range(3)]
+    inv = {"SOLARES-4-L4": {"structural": 18000}, "SOLARES-BELT-1": {"structural": 250000}}
+    assert lo.drop_point("SOLARES", [fab] + facs, inv, {}) == "SOLARES-BELT-1"
+    # a working (not spare) fabricator alone still beats a plain pile; autofactories beat it
+    fab["tags"] = []
+    assert lo.drop_point("SOLARES", [fab], inv, {}) == "SOLARES-4-L4"
+    assert lo.drop_point("SOLARES", [fab] + facs[:1], inv, {}) == "SOLARES-BELT-1"

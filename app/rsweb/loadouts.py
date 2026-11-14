@@ -2047,10 +2047,19 @@ def _stock_total(items: dict) -> float:
 
 
 def drop_point(star: str, devices: list[dict], inventory: dict[str, dict], stars: dict[str, dict]) -> str:
-    """Where materials should land in a destination: its autofactory, else its biggest stockpile, else its entry point."""
-    fac = sorted(d.get("location") for d in devices if star_of(d.get("location")) == star and is_factory(d) and d.get("location"))
-    if fac:
-        return fac[0]
+    """Where materials should land in a destination: the spot with the most autofactories (then other working printers,
+    then the bigger pile), else its biggest stockpile, else its entry point. A spare printer never counts (live
+    2026-11-14: a spare structural fabricator at SOLARES-4-L4 sorted before the 3 autofactories at SOLARES-BELT-1, so the
+    belt's whole stockpile was being consolidated away from them)."""
+    spots: dict[str, list[int]] = {}
+    for d in devices:
+        loc = d.get("location")
+        if not loc or star_of(loc) != star or not is_factory(d) or "spare" in (d.get("tags") or []):
+            continue
+        s = spots.setdefault(loc, [0, 0])
+        s[0 if "autofactory" in (d.get("device_type") or "") else 1] += 1
+    if spots:
+        return min(spots, key=lambda l: (-spots[l][0], -spots[l][1], -_stock_total(inventory.get(l) or {}), l))
     piles = sorted(((loc, _stock_total(items)) for loc, items in inventory.items() if star_of(loc) == star), key=lambda kv: -kv[1])
     if piles:
         return piles[0][0]
