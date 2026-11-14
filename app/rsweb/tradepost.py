@@ -68,7 +68,8 @@ def settings(fleet: dict) -> dict:
             pass
     prices = {t: {r: int(q) for r, q in as_amounts(p).items() if q > 0} for t, p in (tp.get("prices") or {}).items()}
     spot = str(tp.get("spot") or "").strip().upper()
-    return {"onhand": onhand, "prices": {t: p for t, p in prices.items() if p}, "spot": spot}
+    return {"onhand": onhand, "prices": {t: p for t, p in prices.items() if p}, "spot": spot,
+            "description": str(tp.get("description") or "").strip(), "announcement": str(tp.get("announcement") or "").strip()}
 
 
 def print_seconds(device_type: str, bps: dict[str, dict], depth: int = 0) -> float:
@@ -156,6 +157,22 @@ def number_shops(known: dict, codes: list[str]) -> dict[str, int]:
 
 def shop_name(fleet: dict, n: int) -> str:
     return f"{(fleet.get('name') or 'Trade post').strip()} {n}"
+
+
+def shop_config(fleet: dict, n: int) -> dict:
+    """The trade directive's configuration for shop `n` (owner 2026-11-14): the first shop carries the post's description
+    and its BobNet announcement, the others only a generic description pointing at it."""
+    s = settings(fleet)
+    cfg = {"name": shop_name(fleet, n)}
+    if n == 1:
+        cfg.update({k: s[k] for k in ("description", "announcement") if s[k]})
+    else:
+        cfg["description"] = f"More listings from {shop_name(fleet, 1)}."[:240]
+    return cfg
+
+
+def config_differs(have: dict, want: dict) -> bool:
+    return any((have.get(k) or "") != (want.get(k) or "") for k in ("name", "description", "announcement"))
 
 
 def value(price: dict) -> int:
@@ -427,18 +444,19 @@ class TradePostMixin:
                 out.append(f"{f.get('name')}: {need_shops} AMI trade controllers wanted for "
                            f"{len(settings(f)['onhand'])} device types ({PER_SHOP} listings each)")
             nums = st["numbers"] = number_shops(st.get("numbers") or {}, [c["device_code"] for c in ctrls])
-            from .shop import shop_config
+            from .shop import shop_config as have_config
             for c in ctrls:
                 code = c["device_code"]
-                name = shop_name(f, nums[code])
+                want = shop_config(f, nums[code])
+                name = want["name"]
                 is_open = (c.get("ami_directive") or {}).get("name") == "trade"
-                if trades.get(code) is None or dry or (is_open and shop_config(c).get("name") == name):
+                if trades.get(code) is None or dry or (is_open and not config_differs(have_config(c), want)):
                     continue
-                if is_open and trades.get(code):   # renaming resets the directive: only while it lists nothing
+                if is_open and trades.get(code):   # re-setting the directive may reset it: only while it lists nothing
                     continue
                 ok, _, err = await self.send("POST", f"/devices/{code}",
                                              {"command": "set_directive", "directive": "trade",
-                                              "configuration": {"name": name}},
+                                              "configuration": want},
                                              f"trade post {f.get('name')}: {'rename' if is_open else 'open'} the shop "
                                              f"on {code} as {name}")
                 if not ok:

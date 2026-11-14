@@ -251,3 +251,33 @@ def test_shop_page_one_card_per_trade_post(client):  # noqa: F811
     page = client.get("/shop", headers=H).text
     assert 'id="shop-SHOP"' in page and 'id="shop-SHOP2"' in page
     assert page.count("trade post · 2 shop(s)") == 1
+
+
+def test_shop_texts_first_shop_announces():
+    f = {**FLEET, "trade_post": {"description": "Devices of every kind.", "announcement": "Open at SOL-4-L4"}}
+    assert tp.shop_config(f, 1) == {"name": "Post 1", "description": "Devices of every kind.", "announcement": "Open at SOL-4-L4"}
+    assert tp.shop_config(f, 2) == {"name": "Post 2", "description": "More listings from Post 1."}
+    assert tp.config_differs({"name": "Post 2"}, tp.shop_config(f, 2))
+
+
+def test_post_texts_sent_to_every_shop(client):  # noqa: F811
+    from test_ops import H
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices")
+                       + [shop(), dev("SHOP2", "ami_trade_controller", tags=["fleet:tp"], ami_directive={"name": "trade"})])
+    client.portal.call(e.save_fleets, [dict(FLEET)])
+    sent, real = [], e.send
+
+    async def spy(method, path, body, *a, **kw):
+        sent.append((path, body))
+        return await real(method, path, body, *a, **kw)
+    e.send = spy
+    r = client.post("/fleets/tp/tradepost", data={"action": "texts", "description": "All sorts", "announcement": "Hi"},
+                    headers={**H, "HX-Request": "true"})
+    e.send = real
+    assert "Saved" in r.text
+    cfg = {p: b["configuration"] for p, b in sent}
+    assert cfg["/devices/SHOP"] == {"name": "Post 1", "description": "All sorts", "announcement": "Hi"}
+    assert cfg["/devices/SHOP2"] == {"name": "Post 2", "description": "More listings from Post 1."}
+    page = client.get("/shop", headers=H).text
+    assert "Update every shop" in page and "Open shop" not in page

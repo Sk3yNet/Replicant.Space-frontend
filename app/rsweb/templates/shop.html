@@ -11,7 +11,18 @@
 <div class="card"{% if not g.post %} id="shop-{{ g.shops[0].code }}"{% endif %}>
   {% set post = g.post %}{% if post %}<h2 style="margin:0 0 4px">{{ post.name }} <span class="small muted">trade post · {{ g.shops | length }} shop(s)</span></h2>
   <div class="small" style="margin-bottom:4px">Run by the trade post <a href="/fleets/details?fleet={{ post.id }}"><b>{{ post.name }}</b></a>:
-    its trades are created from the stock and prices set there (one listing per device type), so change them there rather than here.</div>{% endif %}
+    its trades are created from the stock and prices set there (one listing per device type), so change them there rather than here.</div>
+  {% set tpc = post.trade_post or {} %}
+  <details><summary class="small">Shop details (every shop of the post)</summary>
+    <form class="small" hx-post="/fleets/{{ post.id }}/tradepost" hx-target="next .sh-out">
+      <input type="hidden" name="action" value="texts">
+      <p class="muted">Names are set by the post ({{ post.name }} 1, {{ post.name }} 2 …). Only the first shop gets this description and
+        announces itself on BobNet; the others say "More listings from {{ post.name }} 1."</p>
+      <label>Announcement (on BobNet, at most 80 characters) <input name="announcement" value="{{ tpc.announcement or '' }}" size="40" maxlength="80"></label>
+      <label>Description (at most 240 characters)<br><textarea name="description" rows="2" style="width:100%" maxlength="240">{{ tpc.description or '' }}</textarea></label>
+      <button class="small">Update every shop</button>
+    </form><div class="sh-out"></div>
+  </details>{% endif %}
   {% for s in g.shops %}
   <div{% if post %} id="shop-{{ s.code }}"{% if not loop.first %} style="border-top:1px solid var(--line);margin-top:10px;padding-top:8px"{% endif %}{% endif %}>
   <div class="row between">
@@ -21,14 +32,14 @@
     <button class="small ghost" hx-post="/shop/{{ s.code }}/refresh" hx-swap="none">Read trades</button>
   </div>
 
-  <details {{ 'open' if not s.configured }}><summary class="small">Shop details</summary>
+  {% if not post %}<details {{ 'open' if not s.configured }}><summary class="small">Shop details</summary>
     <form class="small" hx-post="/shop/{{ s.code }}/configure" hx-target="next .sh-out">
       <div class="row"><label>Name <input name="name" value="{{ s.config.name or '' }}" size="28" required></label>
         <label>Announcement (on BobNet, at most 80 characters) <input name="announcement" value="{{ s.config.announcement or '' }}" size="40" maxlength="80" oninput="this.nextElementSibling.textContent=this.value.length+' / 80'"><span class="muted small">{{ (s.config.announcement or '') | length }} / 80</span></label></div>
       <label>Description (at most 240 characters)<br><textarea name="description" rows="2" style="width:100%" maxlength="240" oninput="this.nextElementSibling.textContent=this.value.length+' / 240'">{{ s.config.description or '' }}</textarea><span class="muted small">{{ (s.config.description or '') | length }} / 240</span></label>
       <button class="small">{{ 'Update shop' if s.configured else 'Open shop' }}</button>
     </form><div class="sh-out"></div>
-  </details>
+  </details>{% endif %}
 
   <h3>Trades {% if s.trades_at %}<span class="small muted">read {{ s.trades_at | ago }}</span>{% endif %}
     {% if s.trades_error %}<span class="small lv-alert">{{ s.trades_error }}</span>{% endif %}</h3>

@@ -1184,6 +1184,30 @@ async def fleets_tradepost(request: Request, fid: str, user: str = Depends(curre
         await db.kv_set(tp.KV_PRICING, new)
         await eng.log("trade_post", f"price formula: materials × {new['factor']:g} + {new['pct_per_hour']:g} % per print hour, by {user}")
         return HTMLResponse('<div class="result ok">Saved. Listings are repriced on the next pass (reload to see the new prices).</div>')
+    if form.get("action") == "texts":   # the shops' description and announcement, applied to every shop now
+        from .shop import TEXT_LIMITS
+        new = {k: str(form.get(k) or "").strip() for k in ("description", "announcement")}
+        long_ = [f"{k} is {len(new[k])} characters, the game takes at most {n}" for k, n in TEXT_LIMITS.items()
+                 if len(new[k]) > n]
+        if long_:
+            return HTMLResponse(f'<div class="result err">{html.escape("; ".join(long_))}</div>')
+        f.setdefault("trade_post", {}).update(new)
+        await eng.save_fleets(items)
+        nums = ((await db.kv_get(tp.KV, {}) or {}).get(fid) or {}).get("numbers") or {}
+        st = await load_state(request)
+        codes = [c["device_code"] for c in tp.controllers(f, st["devices"])]
+        nums = tp.number_shops(nums, codes)
+        bad = []
+        for code in codes:
+            ok, _, err = await eng.send("POST", f"/devices/{code}", {"command": "set_directive", "directive": "trade",
+                                                                    "configuration": tp.shop_config(f, nums[code])},
+                                        f"trade post {f.get('name')}: shop texts on {code}, by {user}")
+            if not ok:
+                bad.append(f"{code}: {err}")
+        if bad:
+            return HTMLResponse(f'<div class="result err">Saved, but not every shop took it: {html.escape("; ".join(bad))}</div>')
+        return HTMLResponse(f'<div class="result ok">Saved and sent to {len(codes)} shop(s): the first announces itself, '
+                            'the others carry a generic description.</div>')
     if form.get("action") == "spot":
         spot = str(form.get("spot") or "").strip().upper()
         if spot and star_of(spot) != f.get("home"):
