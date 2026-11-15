@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.423.1"
+VERSION = "1.424.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.424.0", "2026-11-15", "Dashboard › Stations & megastructures: each system names its nearest printing hub and the straight-line light years to it (Joe)."),
     ("1.423.1", "2026-11-14", "Materials land at a system's autofactories: the drop point is the spot with the most "
      "autofactories, and a spare printer never counts (a spare structural fabricator at SOLARES-4-L4 made the hub spot "
      "the drop point, so the SOLARES-BELT-1 stockpile beside the 3 autofactories was being hauled away from them)."),

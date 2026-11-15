@@ -42,7 +42,7 @@
     {% if not megas_rows %}<p class="muted small">None known yet: stations come from the game's station list and system scans.</p>{% endif %}
     <ul class="small" style="margin:0;padding-left:18px">
       {% for m in megas_rows %}
-      <li><a href="/systems/{{ m.star }}">{{ m.star }}</a> <span class="muted">{{ m["items"] | join(" · ") }}</span></li>
+      <li><a href="/systems/{{ m.star }}">{{ m.star }}</a> <span class="muted">{{ m["items"] | join(" · ") }}</span>{% if m.near %} <span class="muted" title="Straight-line distance to the nearest printing hub">· {% if m.near.ly %}{{ m.near.ly }} ly from {% else %}hub: {% endif %}<a href="/systems/{{ m.near.hub }}">{{ m.near.hub }}</a></span>{% endif %}</li>
       {% endfor %}
     </ul>
     {% if station_tour | length > 2 %}

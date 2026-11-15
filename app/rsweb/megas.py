@@ -181,3 +181,19 @@ async def station_tour(db, stars: list[str], start: str = "SOLARES") -> list[dic
             prev = s
         _tour_memo.update(key=key, val=out)
     return _tour_memo["val"]
+
+
+async def nearest_hubs(db, stars: list[str]) -> dict[str, dict]:
+    """Dashboard › Stations: each star's nearest printing hub (home of a stationed fleet that takes materials in, as
+    balance.hubs counts them) and its straight-line light years, {star: {hub, ly}} (Joe 2026-11-15)."""
+    from . import balance
+    from .relaynet import star_pos
+    pos = await star_pos(db)
+    hubs = sorted({f["home"] for f in await db.kv_get("fleets", []) or [] if isinstance(f, dict) and f.get("home")
+                   and f.get("station") and f.get("materials") == "self" and f.get("role") != "logistics"})
+    out = {}
+    for s in stars:
+        h = balance.nearest(s, hubs, pos)
+        if h:
+            out[s] = {"hub": h, "ly": round(balance._dist(s, h, pos), 1)}
+    return out

@@ -2645,6 +2645,19 @@ def test_dashboard_station_card_lists_travel_order(client):
     assert i == sorted(i)
 
 
+def test_dashboard_station_card_names_nearest_printing_hub(client):
+    """1.424.0: each station row gives the nearest printing hub and its light years (Joe 2026-11-15)."""
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "stations", {"at": "x", "stations": [{"name": "S0", "slug": "s0", "location": "ST0-OBJ-1"}]})
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": d, "position": {"x": x, "y": 0, "z": 0}}
+                                                      for d, x in (("ST0", 0), ("HUBA", 4), ("HUBB", 9), ("LOGI", 1))]})
+    client.portal.call(db.kv_set, "fleets", [
+        {"id": "a", "home": "HUBA", "station": True, "materials": "self"},
+        {"id": "b", "home": "HUBB", "station": True, "materials": "self"},
+        {"id": "l", "home": "LOGI", "station": True, "materials": "self", "role": "logistics"}])
+    page = client.get("/", headers=H).text
+    assert '4.0 ly from <a href="/systems/HUBA">HUBA</a>' in page
+
 def test_shared_build_runs_once_for_callers_at_the_same_time():
     """1.420.0: map.json asked 19 times at once built the map 19 times (95-124 s each, live 2026-11-14)."""
     from rsweb import web_core
