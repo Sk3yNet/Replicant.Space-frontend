@@ -1914,7 +1914,14 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
     async def devices(self) -> list[dict]:
         if not getattr(self, "_no_attach_loaded", False):
             from . import fleets as fl, shapes
-            fl.NO_ATTACH_TYPES.update(await self.db.kv_get("no_attach_types", {}) or {})
+            known = await self.db.kv_get("no_attach_types", {}) or {}
+            if "vector_charge" in known and not await self.db.kv_get("no_attach_retry_1428", False):
+                # Joe 2026-11-14: whatever stows also attaches; the single refusal (42B4755C, 2026-10-29) gets one more
+                # chance. Refused again, the job runner learns the type again (learn_no_attach)
+                known.pop("vector_charge")
+                await self.db.kv_set("no_attach_types", known)
+                await self.db.kv_set("no_attach_retry_1428", True)
+            fl.NO_ATTACH_TYPES.update(known)
             fl.learn_stowable(shapes.normalize_blueprints(await self.db.kv_get("blueprints", [])))
             self._no_attach_loaded = True
         devs = await self.db.kv_get("devices", []) or []

@@ -1441,3 +1441,19 @@ def test_fleet_extras_drop_their_pins_and_pinned_devices_never_flap_spare():
                     "tags": ["at:ccc-belt-1"]})
     p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
     assert "spare" not in p["tag_add"].get("X1", [])
+
+
+def test_vector_charge_attach_refusal_forgotten_once(client):
+    from rsweb import fleets as fl
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(db.kv_set, "no_attach_types", {"vector_charge": "2026-10-29T22:25:37+00:00", "big_thing": "x"})
+    eng._no_attach_loaded = False
+    fl.NO_ATTACH_TYPES.discard("vector_charge")
+    client.portal.call(eng.devices)
+    assert "vector_charge" not in fl.NO_ATTACH_TYPES and "big_thing" in fl.NO_ATTACH_TYPES
+    assert client.portal.call(db.kv_get, "no_attach_types") == {"big_thing": "x"}
+    client.portal.call(db.kv_set, "no_attach_types", {"vector_charge": "later"})   # learned again: kept
+    eng._no_attach_loaded = False
+    client.portal.call(eng.devices)
+    assert "vector_charge" in fl.NO_ATTACH_TYPES
+    fl.NO_ATTACH_TYPES.discard("vector_charge"), fl.NO_ATTACH_TYPES.discard("big_thing")
