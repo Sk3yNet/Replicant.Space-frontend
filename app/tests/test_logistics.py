@@ -93,6 +93,21 @@ def test_outside_the_network_a_replicant_flies_alongside_fulfills_and_both_come_
     assert any(u["req"] == "contract:EV1" and "outside an active relay network" in u["why"] for u in p2["unmet"])
 
 
+def test_a_systems_stray_piles_go_home_on_one_trip():
+    devs = world()
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    devs[0]["cargo_capacity"] = 500
+    inv = {"B-10": {"silicates": 60}, "B-2-15": {"carbon": 70}, "B-2": {"rares": 50}, "B-3": {"volatiles": 40}}
+    p = run_plan(devs, inv, prefs={"skip": ["return:B-3"]})
+    runs = [x for x in p["runs"] if x["kind"] == "return"]
+    assert len(runs) == 1 and runs[0]["req"] == "return:B-10" and cargo(runs[0]) == ["F1"]
+    # body by body; the skipped pile stays where it is
+    assert [g["pile"] for g in runs[0]["cargos"][0]["legs"]] == ["B-2", "B-2-15", "B-10"]
+    assert runs[0]["carry"] == {"silicates": 60, "carbon": 70, "rares": 50}
+    assert runs[0]["label"] == "return 3 B stockpiles to A"
+    assert {u["req"] for u in p["unmet"] if "loaded together with return:B-10" in u["why"]} == {"return:B-2", "return:B-2-15"}
+
+
 def test_stray_piles_return_to_the_gather_point_last_and_skip_works():
     devs = world()
     devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None

@@ -164,6 +164,11 @@ def _within(reach: float, star: str) -> str:
     return f"within {reach:g} ly of {star}" if math.isfinite(reach) else f"to reach {star}"
 
 
+def _body_order(loc: str) -> tuple:
+    """A location name in body order (STAR-2 < STAR-2-15 < STAR-10): numbers compare as numbers."""
+    return tuple((0, int(p), "") if p.isdigit() else (1, 0, p) for p in (loc or "").split("-"))
+
+
 def _dist(a: str, b: str, pos: dict[str, Any]) -> float:
     if a == b:
         return 0.0
@@ -899,6 +904,23 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         if left is not None and not need:
             return
         dest, dstar = r["to"], star_of(r["to"])
+        if r.get("_with"):   # its pile is loaded by the first return from its system (owner 2026-11-15)
+            unmet.append({"req": r["id"], "why": f"loaded together with {r['_with']} (one trip per system)"})
+            return
+        if r["id"].startswith("return:") and dest and left is None:
+            # every stray pile of a system rides home on the same trip (owner 2026-11-15: freighters flew SOLARES ↔
+            # APAMVATS for 73 or 80 units each, one body pile at a time, with 14 piles there): the first return of a
+            # system takes on the others with the same gather point, and its cargo devices fill up pile after pile
+            fstar_ = star_of(r.get("from"))
+            mates = [m for m in reqs if m is not r and m["id"].startswith("return:") and m.get("to") == dest
+                     and star_of(m.get("from")) == fstar_ and not m["skipped"] and not m.get("_with")
+                     and m.get("_left") is None]
+            r["_piles"] = {r.get("from")} | {m.get("from") for m in mates}
+            for m in mates:
+                m["_with"] = r["id"]
+                for x, q in m["need"].items():
+                    if q >= 1:
+                        need[x] = need.get(x, 0.0) + q
         if r["kind"] in ("print", "upkeep", "job") and dest:
             for l, h in kept.items():
                 if star_of(l) == dstar and l != dest:
@@ -949,7 +971,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
 
         def sources_ok(l: str) -> bool:
             if r["kind"] == "return":
-                return l == r.get("from")
+                return l in (r.get("_piles") or {r.get("from")})
             # piles beyond the network count while a replicant is free to go along
             if l == dest or not in_reach(star_of(l), dstar, pos, reach):   # never a pile beyond the sector range
                 return False
@@ -965,8 +987,11 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 for x in need:
                     has[star_of(l)][x] += spare[l].get(x, 0.0)
             covers = {st_: all(h[x] >= q for x, q in need.items()) for st_, h in has.items()}
-            piles.sort(key=lambda l: (star_of(l) != dstar, not covers[star_of(l)], _dist(star_of(l), dstar, pos),
-                                      -sum(spare[l].get(x, 0) for x in need), l))
+            if r.get("_piles"):   # a system's stray piles: body by body, so a cargo device's stops stay near each other
+                piles.sort(key=_body_order)
+            else:
+                piles.sort(key=lambda l: (star_of(l) != dstar, not covers[star_of(l)], _dist(star_of(l), dstar, pos),
+                                          -sum(spare[l].get(x, 0) for x in need), l))
             if not piles:
                 if not assigned:
                     unmet.append({"req": r["id"], "why": "no stockpile can spare " + ", ".join(f"{q:g} {x}" for x, q in sorted(need.items()))
@@ -1147,7 +1172,9 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                          "cargos": [{k: g[k] for k in ("code", "legs", "carry", "rides", "room")} for g in group],
                          "ride": ride and ride["device_code"], "escort": esc and esc["device_code"], "to": dest,
                          "carry": taken, "fulfil": _deal(r) if rep else None, "also": (r.get("also") or []) if rep else [],
-                         "replicant": rep, "back": back, "label": r["label"],
+                         "replicant": rep, "back": back,
+                         "label": (f"return {len(stops) - 1} {fstar} stockpiles to {dstar}"
+                                   if r.get("_piles") and len(stops) > 2 else r["label"]),
                          "escort_pickup": any(star_of(x) not in commandable for x in stops[:-1]),
                          "rewards": rewards if home else {}, "home": home,
                          "reward_devices": rdev})
@@ -1453,8 +1480,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             if dl["carrier"] in every and r.get("category") in LANES:
                 worked[dl["carrier"]] = r["category"]
     for r in reqs:
-        r.pop("_left", None)
-        r.pop("_assigned", None)
+        for k_ in ("_left", "_assigned", "_with", "_piles"):
+            r.pop(k_, None)
 
     # logistics devices hosting a replicant idle outside the network come back to wait in it (the rest can't be commanded there)
     for c, d in free.items():
