@@ -736,7 +736,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 code, tags = d["device_code"], set(d.get("tags") or [])
                 made_spare.add(code)   # spare: it leaves the fleet and belongs to none until it's assigned again
                 tag_add[code].add(SPARE)
-                tag_remove[code].update({tag} | {x for x in tags if x.startswith("home:")})
+                # with the fleet's pins too: a pin left behind makes it "assigned", which takes the spare tag off again
+                # next pass (owner 2026-11-15: a trade post's 17th controller flapped spare every 16 minutes)
+                tag_remove[code].update({tag} | {x for x in tags if x.startswith(("home:", "to:", "at:"))})
             away = [d["device_code"] for d in keep if star_of(d.get("location")) != star]
             spares_here = [d["device_code"] for d in pool if d.get("device_type") == t and star_of(d.get("location")) == star
                            and SPARE in (d.get("tags") or []) and not fleet_tag_of(d) and not home_of(d, known_stars)]
@@ -756,8 +758,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         counted = {t for f in homes_of[star] for t in fl.station_wants(f)}
         for d in ds:
             code, tags = d["device_code"], set(d.get("tags") or [])
-            if code in taken or (d.get("device_type") or "device") not in counted or pinned(d):
-                continue
+            if code in taken or (d.get("device_type") or "device") not in counted or pinned(d) or assigned(d):
+                continue   # pinned somewhere (`at:`): it waits for its carrier, never spare (it would flap with the hygiene above)
             made_spare.add(code)
             if SPARE not in tags:
                 tag_add[code].add(SPARE)

@@ -58,7 +58,7 @@ def shops(devices: list[dict], inventory: dict[str, Any], cache: dict[str, dict]
             if x.get("location") == loc and x.get("device_code") != d["device_code"] and not is_shop(x):
                 devs_here[x.get("device_type") or "?"] = devs_here.get(x.get("device_type") or "?", 0) + 1
         c = cache.get(d["device_code"]) or {}
-        out.append({"code": d["device_code"], "location": loc, "star": star_of(loc), "status": d.get("status"),
+        out.append({"code": d["device_code"], "location": loc, "star": star_of(loc), "status": d.get("status"), "tags": d.get("tags") or [],
                     "config": shop_config(d), "configured": bool(shop_config(d)),
                     "directive_status": d.get("ami_directive_status"), "relay": relay["device_code"] if relay else None,
                     "listed": bool(relay and shop_config(d)), "inventory": stock_here, "devices_here": devs_here,

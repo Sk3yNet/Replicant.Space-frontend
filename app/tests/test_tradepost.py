@@ -293,3 +293,12 @@ def test_post_texts_sent_to_every_shop(client):  # noqa: F811
     assert cfg["/devices/SHOP2"] == {"name": "Post 2", "description": "More listings from Post 1 at SOL-4-L4."}
     page = client.get("/shop", headers=H).text
     assert "Update every shop" in page and "Open shop" not in page
+
+
+def test_controller_that_left_the_post_is_unpinned():
+    # owner 2026-11-15: B3F801E9 kept at:<spot> after leaving the fleet and showed as an unnamed shop
+    f = {**FLEET, "trade_post": {**FLEET["trade_post"], "spot": "sol-5-l4"}}
+    devs = [{**shop("SOL-5-L4"), "tags": ["fleet:tp", "at:sol-5-l4"]},
+            dev("OLD", "ami_trade_controller", "SOL-4-L4", ["at:sol-5-l4", "spare"]),
+            dev("STOCK", "ami_trade_controller", "SOL-5-L4", ["at:sol-5-l4", TAG])]
+    assert tp.plan(f, devs, [], {}, BPS, P, TAG)["unpin"] == ["OLD"]

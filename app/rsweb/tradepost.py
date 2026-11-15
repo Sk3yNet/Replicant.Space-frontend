@@ -222,7 +222,8 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
     keeps its shop, the others take free slots priciest first, and the rest wait for a slot (the pass raises the
     fleet's wanted controllers to shops_needed, so Loadouts brings more).
     Returns {rows, actions: [{type, controller, delete, create, escrow}], release: [codes], need: {type: n},
-    skip: [codes], notes, pins: [{code, add, remove}], shops: [{code, location, types, read}]}."""
+    skip: [codes], notes, pins: [{code, add, remove}], shops: [{code, location, types, read}],
+    unpin: [codes of controllers no longer in the fleet still pinned to its spot]}."""
     ctrls = controllers(fleet, devices)
     ctrl = ctrls[0] if ctrls else None
     if isinstance(trades, list) or trades is None:
@@ -230,12 +231,13 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
     spot = settings(fleet)["spot"]
     out: dict[str, Any] = {"rows": rows(fleet, bps, p), "actions": [], "release": [], "need": {}, "skip": [],
                            "notes": [], "location": spot or (ctrl or {}).get("location"), "pin": None, "pins": [],
-                           "shops": []}
+                           "shops": [], "unpin": []}
     if not ctrl:
         out["notes"].append("no AMI trade controller in the fleet")
         return out
     loc = out["location"]
     from .loadouts import at_tag
+    from .shop import is_shop as is_shop_
     ready = []   # shops at the shop's location: the ones that list
     for c in ctrls:
         if spot:
@@ -249,6 +251,12 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
             out["notes"].append(f"shop {c['device_code']} is at {c.get('location')}, on its way to {spot}: "
                                 "it lists once it is there")
     out["pin"] = next(iter(out["pins"]), None)
+    if spot:   # a controller that left the fleet still pinned to its spot (owner 2026-11-15: B3F801E9 kept at:<spot> after
+        # Loadouts let it go, so its spare tag flapped every pass and it showed as an unnamed shop): unpinned, spare
+        mine = {c["device_code"] for c in ctrls}
+        out["unpin"] = sorted(d["device_code"] for d in devices if d.get("device_code") not in mine and is_shop_(d)
+                              and at_tag(spot) in (d.get("tags") or []) and tag not in (d.get("tags") or [])
+                              and not any(str(t).startswith("fleet:") for t in d.get("tags") or []))
     away = not ready
     listings = state.get("listings") or {}
     read = {c["device_code"]: trades.get(c["device_code"]) for c in ready}
@@ -506,6 +514,13 @@ class TradePostMixin:
                                          f"{pl['location']}", None, [tag_step(pin["code"], pin["add"], pin["remove"] or None)],
                                          {"devices": [pin["code"]]}):
                     out.append(f"{f.get('name')}: shop pinned to {pl['location']}")
+            loose = [by[c] for c in pl.get("unpin") or [] if c in by and c not in busy]
+            if loose and not dry:
+                steps = [tag_step(d["device_code"], ["spare"], [x for x in d.get("tags") or [] if x.startswith(("to:", "at:"))])
+                         for d in loose]
+                if await self.create_job("trade_post", f"trade post {f.get('name')}: {len(loose)} controller(s) no longer in "
+                                         "the fleet unpinned, spare", None, steps, {"devices": [d["device_code"] for d in loose]}):
+                    out.append(f"{f.get('name')}: {len(loose)} controller(s) left the fleet: spare")
             rel = [by[c] for c in pl["release"] if c in by and c not in busy]
             if rel and not dry:
                 steps = [tag_step(d["device_code"], ["spare"], [x for x in d.get("tags") or []

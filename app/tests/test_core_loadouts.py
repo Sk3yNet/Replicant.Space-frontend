@@ -1424,3 +1424,20 @@ def test_drop_point_prefers_the_autofactories_over_a_spare_printer():
     fab["tags"] = []
     assert lo.drop_point("SOLARES", [fab], inv, {}) == "SOLARES-4-L4"
     assert lo.drop_point("SOLARES", [fab] + facs[:1], inv, {}) == "SOLARES-BELT-1"
+
+
+def test_fleet_extras_drop_their_pins_and_pinned_devices_never_flap_spare():
+    # owner 2026-11-15: a trade post's 17th controller left the fleet with its at: pin, so the spare tag went on and off
+    from rsweb import loadouts as lo
+    cfg, devices, bps, inv, stars = _lo_world()
+    for d in devices:
+        if d["device_code"] in ("A1", "A2", "A3", "A4"):
+            d["tags"] = ["fleet:aaa-home", "at:aaa-belt-1"]
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    assert all({"fleet:aaa-home", "at:aaa-belt-1"} <= set(p["tag_remove"][c]) for c in ("A1", "A3"))
+    cfg, devices, bps, inv, stars = _lo_world()
+    cfg["systems"] = {"AAA": "outpost"}   # nobody short: AAA's fleetless extras would be made spare
+    devices.append({"device_code": "X1", "device_type": "mining_drone", "location": "AAA-BELT-1", "status": "idle",
+                    "tags": ["at:ccc-belt-1"]})
+    p = lo.plan(cfg, devices, bps, inv, stars, {"HV": "R1"}, set(), [], {})
+    assert "spare" not in p["tag_add"].get("X1", [])
