@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.436.0"
+VERSION = "1.437.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.437.0", "2026-11-15", "BobNet roll call can post straight through one of your active relays (Joe: POST "
+     "/devices/{relay} command message), so BobNet shows no poster's location; replicants remain an option."),
     ("1.436.0", "2026-11-15", "Shop page BobNet roll call (Joe): one replicant posts every shop of yours in a single BobNet "
      "message, by location, with each trade controller's code and what it sells, so other players can find the listings. "
      "Post now by hand (editable text) or every N hours; poster, channel (#trade) and opening line are saved. Clear a "

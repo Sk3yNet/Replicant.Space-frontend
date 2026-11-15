@@ -547,11 +547,16 @@ class TradePostMixin:
                             cfg["intro"] if intro is None else intro)
 
     async def shop_rollcall_post(self, by: str, channel: str, text: str, why: str) -> tuple[bool, str | None]:
-        """Post the roll call as `by` and remember it (kv shop_rollcall.last)."""
+        """Post the roll call as `by` (a replicant code, or "relay:<code>" to post through that relay with no location)
+        and remember it (kv shop_rollcall.last)."""
         from . import shop as sh
         from .db import now_iso
         try:
-            await self.api.post(f"/replicants/{by}/message", {"channel": channel, "text": text}, background=True)
+            if by.startswith("relay:"):   # straight to a relay: BobNet shows no poster's star (Joe 2026-11-15)
+                await self.api.post(f"/devices/{by[6:]}", {"command": "message", "channel": channel, "text": text},
+                                    background=True)
+            else:
+                await self.api.post(f"/replicants/{by}/message", {"channel": channel, "text": text}, background=True)
             ok, err = True, None
         except Exception as e:
             ok, err = False, str(getattr(e, "message", None) or e)[:200]

@@ -827,8 +827,8 @@ Account and per-replicant reputation, known species. **Bulk profile import**: pa
 ### Shop
 - *BobNet roll call* (top card): one replicant posts every shop of yours with stock in a single message, grouped by
   location, each trade controller's code and what it sells ("SOLARES-4-L4: 5A77D6B8 survey drone, mining rig"). Post
-  now (the text can be edited first) or every N hours; it needs a replicant in a system with an active relay. The game
-  has no relay-only post, so BobNet shows the poster's star; the text names the real locations.
+  now (the text can be edited first) or every N hours. Post it through one of your active relays (`message` command on
+  the relay: no location shown) or as a replicant in a system with an active relay (BobNet shows its star).
 - Your trade controllers, trades, other traders: every replicant's trader directory plus every shop a system scan lists,
   the newest sighting of each winning (shops can move).
 - A shop stays listed until you remove it (*Remove*, once you checked it's gone): scans can miss shops, and a failed

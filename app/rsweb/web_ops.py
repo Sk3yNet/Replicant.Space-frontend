@@ -246,7 +246,13 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
     relays_ = relay_stars(st["devices"])
     posters = sorted(({"code": c, "name": r.get("name") or c, "star": rep_star(r), "relay": rep_star(r) in relays_}
                       for c, r in st["replicants"].items()), key=lambda r: (not r["relay"], r["name"].lower()))
-    rollcall = {**rc, "text": sh.roll_call(shops, rc["intro"]), "posters": posters}
+    from .chatter import RELAY_TYPES
+    from .wardhub import active
+    relay_posters = [{"code": f"relay:{d['device_code']}", "name": f"{(d.get('device_type') or '').replace('_', ' ')} "
+                      f"{d['device_code']}", "star": sh.star_of(d.get("location")), "relay": True}
+                     for d in st["devices"] if d.get("device_type") in RELAY_TYPES and active(d)]
+    rollcall = {**rc, "text": sh.roll_call(shops, rc["intro"]), "posters": posters,
+                "relays": sorted(relay_posters, key=lambda r: r["star"])}
     return await page(request, user, "shop.html", "shop", shops=shops, shop_groups=groups, rollcall=rollcall, spare_shops=spare, traders=traders, posts=posts,
                       traders_last=await request.app.state.db.kv_get(sh.LAST_KV),
                       listing_wanted=await request.app.state.db.kv_get(sh.LISTING_KV, {}) or {},

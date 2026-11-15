@@ -345,3 +345,20 @@ def test_roll_call_posted_by_hand_and_on_schedule(client):  # noqa: F811
     client.portal.call(db.kv_set, sh.ROLLCALL_KV, raw)
     assert client.portal.call(e.shop_rollcall_pass) == ["shop roll call posted on #trade"]
     assert len(_world(client).bobnet_posts) == n + 1
+
+
+def test_roll_call_through_a_relay_shows_no_location(client):  # noqa: F811
+    # Joe 2026-11-15: POST /devices/{relay} {"command": "message"} posts with no poster's star
+    from test_chatter import _world
+    from test_ops import HX
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices")
+                       + [shop(), dev("RLY1", "ftl_relay", "SOL-4-L4", status="active")])
+    client.portal.call(db.kv_set, "shop_trades", {"SHOP": {"trades": [_trade("a", {"mining_drone": 1})], "at": "2099-01-01T00:00:00+00:00"}})
+    _world(client).devices.append(dev("RLY1", "ftl_relay", "SOL-4-L4", status="active", available_commands=[]))
+    page = client.get("/shop", headers=HX).text
+    assert 'value="relay:RLY1"' in page
+    r = client.post("/shop/rollcall", data={"action": "post", "by": "relay:RLY1", "channel": "#trade", "hours": "", "intro": "Hi",
+                                            "text": ""}, headers=HX)
+    assert "Posted" in r.text
+    assert _world(client).bobnet_posts[-1] == {"code": "RLY1", "channel": "#trade", "text": "Hi SOL-4-L4: SHOP mining drone."}

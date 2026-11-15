@@ -755,6 +755,9 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         if not d:
             return ok({"error": "Device not found"}, 404)
         cmd = body.get("command")
+        if cmd == "message" and d.get("device_type") in ("ftl_relay", "deep_space_relay_station", "system_hub"):
+            world.bobnet_posts.append({"code": code, "channel": body.get("channel"), "text": body.get("text")})   # no star
+            return ok({"status": "sent"})
         if cmd not in d["available_commands"]:
             return ok({"error": f"Command '{cmd}' not available for this device"}, 400)
         if cmd == "stellar_census":   # synchronous: the stars around the vessel (live shape, 2026-10-06)

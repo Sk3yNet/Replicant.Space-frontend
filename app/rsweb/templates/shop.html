@@ -11,11 +11,13 @@
   <h2 style="margin:0 0 4px">BobNet roll call <span class="small muted">one post for every shop</span></h2>
   <p class="small muted">The game's own shop announcement shows only the poster's star. This post names every shop of yours that has
     something in stock, by location, with its trade controller's code and what it sells, so other players can find the listing.
-    One replicant posts it (from a system with an active relay of yours, else the game refuses).</p>
+    Post it straight through one of your active relays (BobNet then shows no poster's location), or as a replicant in a
+    system with an active relay (BobNet shows that replicant's star).</p>
   <form class="small" hx-post="/shop/rollcall" hx-target="next .sh-out">
     <div class="row">
       <label>Posted by <select name="by"><option value="">(choose)</option>
-        {% for r in rc.posters %}<option value="{{ r.code }}" {{ 'selected' if r.code == rc.by }}>{{ r.name }} · {{ r.star or '?' }}{{ '' if r.relay else ' (no relay)' }}</option>{% endfor %}
+        {% if rc.relays %}<optgroup label="A relay: no location shown">{% for r in rc.relays %}<option value="{{ r.code }}" {{ 'selected' if r.code == rc.by }}>{{ r.name }} · {{ r.star }}</option>{% endfor %}</optgroup>{% endif %}
+        <optgroup label="A replicant: BobNet shows its star">{% for r in rc.posters %}<option value="{{ r.code }}" {{ 'selected' if r.code == rc.by }}>{{ r.name }} · {{ r.star or '?' }}{{ '' if r.relay else ' (no relay)' }}</option>{% endfor %}</optgroup>
       </select></label>
       <label>Channel <input name="channel" value="{{ rc.channel }}" size="10"></label>
       <label>Post every <input name="hours" type="number" min="0" step="1" value="{{ '%g' % rc.hours if rc.hours else '' }}" style="width:5em"> h
