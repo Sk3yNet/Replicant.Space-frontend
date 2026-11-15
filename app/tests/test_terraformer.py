@@ -205,3 +205,24 @@ def test_return_home_boards_everyone_and_flies_back(client):  # noqa: F811
     client.portal.call(e.terraformer_pass)
     f = client.portal.call(e.fleets)[0]
     assert f["tf_run"]["phase"] == "idle" and "back in SOL" in f["tf_run"]["note"] and not f["tf_run"].get("home_trip")
+
+
+def test_a_trip_to_the_old_planet_ends_when_reassigned(client):  # noqa: F811
+    # Joe 2026-11-15: Terraformer 1 kept flying to MAZARAR-2 after he set ALAYEBASAN-4
+    from rsweb.automations import step
+    carrier = {"device_code": "MOB", "device_type": "mobile_fleet", "location": "SOL-3", "status": "idle", "tags": ["fleet:tf"],
+               "features": ["surge", "cruise"], "attach_capacity": 36, "available_commands": ["travel", "attach"]}
+    db, e = _setup(client, [carrier, dev("MON", "terraform_monitor", "SOL-3")])
+    old = client.portal.call(e.create_job, "terraformer", "Greening: to OLD-2", "MOB",
+                             [step("MOB → OLD-2", "/devices/MOB", {"command": "travel", "destination": "OLD-2"})],
+                             {"devices": ["MOB"], "fleet": "tf"})
+    old = next(j for j in client.portal.call(e.jobs) if j["id"] == old["id"])
+    client.portal.call(e._update, {**old, "status": "waiting"})   # still under way
+    f = client.portal.call(e.fleets)
+    f[0]["tf_run"] = {"planet": PLANET, "job": old["id"], "phase": "moving"}
+    client.portal.call(e.save_fleets, f)
+    client.portal.call(e.terraformer_pass)
+    jobs = {j["id"]: j for j in client.portal.call(e.jobs)}
+    assert jobs[old["id"]]["status"] == "cancelled"
+    run = client.portal.call(e.fleets)[0]["tf_run"]
+    assert run.get("job") != old["id"]

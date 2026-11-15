@@ -100,6 +100,13 @@ class TerraformerMixin:
         out: list[str] = []
         for key in ("job", "steer_job"):
             j = ctx["jobs"].get(run.get(key))
+            if j and j["status"] in ("running", "waiting", "pending") and key == "job" and self._tf_bound(j) not in (None, planet):
+                # a trip to an earlier planet (Joe 2026-11-15: Terraformer 1 flew on to MAZARAR-2 after he picked
+                # ALAYEBASAN-4): it ends here, and the next trip picks everyone up for the new planet
+                await self._tf_end_job(j, f"{f['name']}: reassigned to {planet}")
+                run["note"] = f"trip to {self._tf_bound(j)} ended: reassigned to {planet}"
+                run.pop(key, None)
+                continue
             if j and j["status"] in ("running", "waiting", "pending"):
                 continue
             if j and j["status"] == "failed":
@@ -118,6 +125,20 @@ class TerraformerMixin:
                 run["phase"] = "terraforming"
             out += await self._tf_steer(f, cfg, run, ctx, here)
         return out
+
+    @staticmethod
+    def _tf_bound(job: dict) -> str | None:
+        """Where a trip job ends: its last travel step's destination."""
+        dests = [s["body"]["destination"] for s in job.get("steps") or []
+                 if isinstance(s.get("body"), dict) and s["body"].get("command") == "travel" and s["body"].get("destination")]
+        return dests[-1] if dests else None
+
+    async def _tf_end_job(self, job: dict, why: str) -> None:
+        """Cancel a job from inside the tick (it already holds the engine lock that cancel() takes)."""
+        job["status"] = "cancelled"
+        job["finished_at"] = now_iso()
+        await self._update(job)
+        await self.log(job["rule"], f"canceled: {job['title']} ({why})")
 
     async def _tf_home(self, f: dict, run: dict, ctx: dict) -> list[str]:
         """Return home (Joe 2026-11-15, for a reassignment): every member boards the carrier wherever it is (terraform

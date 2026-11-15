@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.428.0"
+VERSION = "1.428.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.428.1", "2026-11-15", "Terraformer fleets: a new planet ends a trip still bound for the old one (Joe: Terraformer 1 "
+     "kept surging to MAZARAR-2 after he set ALAYEBASAN-4). The next trip picks everyone up again, its matrix container "
+     "too, and flies to the new planet."),
     ("1.428.0", "2026-11-14", "Vector charges may be attached again: the app forgets the one refused attach it learned "
      "on 2026-10-29 (once). If the game refuses again, the type goes back to riding in holds only."),
     ("1.427.0", "2026-11-15", "Unnamed trade controllers (Joe). A controller Loadouts lets go of leaves its fleet's at:/to: pins too: SOL_Trader's 17th controller (B3F801E9, at SOLARES-4-L4) kept at:aelthorion-6-l4, so the spare tag went on and off every 16 minutes. A fleetless device pinned somewhere is no longer made spare where it waits, and a trade post unpins (spare) any controller that left it but is still pinned to its spot. The Shop page names a controller without a shop Spare trade controller, or Trade controller for sale when it is the post's stock, instead of Unnamed shop."),
