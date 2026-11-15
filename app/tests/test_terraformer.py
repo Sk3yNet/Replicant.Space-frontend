@@ -174,3 +174,34 @@ def test_the_fleet_takes_its_own_matrix_container_along(client):  # noqa: F811
     bodies = [st.get("body") for st in job["steps"]]
     assert {"command": "attach", "device": "CONT"} in bodies
     assert {"command": "detach", "device": "CONT"} not in bodies   # it stays aboard at the planet
+
+
+def test_return_home_boards_everyone_and_flies_back(client):  # noqa: F811
+    # Joe 2026-11-15: Terraformer 1 back to SOLARES for a closer planet
+    carrier = {"device_code": "MOB", "device_type": "mobile_fleet", "location": "FAR-4", "status": "idle", "tags": ["fleet:tf"],
+               "features": ["surge", "cruise"], "attach_capacity": 36, "available_commands": ["travel", "attach"]}
+    devs = [carrier, dev("MON", "terraform_monitor", "FAR-4", status="monitoring"), dev("MIR", "orbital_mirror", "FAR-4")]
+    db, e = _setup(client, devs, {"planet": "FAR-4"})
+    r = client.post("/fleets/tf/terraform", data={"action": "home"}, headers=HX)
+    assert "Returning to SOL" in r.text
+    client.portal.call(e.terraformer_pass)
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "terraformer")
+    bodies = [st.get("body") for st in job["steps"]]
+    assert bodies[0] == {"command": "deactivate"} and job["steps"][0]["path"] == "/devices/MON"
+    assert {"command": "stow", "target": "MOB"} in bodies or {"command": "attach", "device": "MON"} in bodies
+    assert any(b and b.get("command") == "travel" and b["destination"].startswith("SOL") for b in bodies)
+    assert not any(b and b.get("command") in ("deploy", "detach") for b in bodies)
+    f = client.portal.call(e.fleets)[0]
+    assert f["tf_run"]["phase"] == "returning" and f["terraform"]["planet"] == ""
+    # home with everyone aboard: idle, waiting for a planet
+    ds = client.portal.call(db.kv_get, "devices")
+    for d in ds:
+        if d["device_code"] == "MOB":
+            d["location"] = "SOL-3"
+        elif d["device_code"] in ("MON", "MIR"):
+            d.update(location=None, stowed_in_device_code="MOB")
+    client.portal.call(db.kv_set, "devices", ds)
+    client.portal.call(e.cancel, job["id"])
+    client.portal.call(e.terraformer_pass)
+    f = client.portal.call(e.fleets)[0]
+    assert f["tf_run"]["phase"] == "idle" and "back in SOL" in f["tf_run"]["note"] and not f["tf_run"].get("home_trip")

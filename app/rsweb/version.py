@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.424.1"
+VERSION = "1.425.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.425.0", "2026-11-15", "Terraformer card: Return to <home> (Joe: Terraformer 1 back to SOLARES for a closer planet). It "
+     "clears the planet and ends a trip under way; the terraform devices switch off, everyone boards the carrier and it flies "
+     "to the home system's entry point, where it waits with everything aboard for a new planet. A new planet set directly also "
+     "works: working devices now switch off before they board."),
     ("1.424.1", "2026-11-15", "Terraformer fleets take their own matrix container (and its replicant) aboard the carrier with "
      "everything else, and don't leave without it (Joe: Terraformer 1 left SOLARES without 4B6AA959, Sk3y-34). Before, "
      "replicant holders were left out of the pick-up, so a member container only counted as 'replicant aboard'. It stays "

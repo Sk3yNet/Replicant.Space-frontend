@@ -45,6 +45,8 @@
       <button class="small">Save</button>
     </form>
     <div class="row small" style="margin-top:4px">
+      {% if not run.home_trip %}<form hx-post="/fleets/{{ f.id }}/terraform" hx-target="next .tf-out" hx-confirm="Bring {{ f.name }} back to {{ f.home }}? Its devices switch off and board, it flies home and waits there for a new planet.">
+        <input type="hidden" name="action" value="home"><button class="small">Return to {{ f.home }}</button></form>{% endif %}
       {% if not run.departed and c.planet %}<form hx-post="/fleets/{{ f.id }}/terraform" hx-target="next .tf-out" hx-confirm="Leave for {{ c.planet }} without the whole loadout?">
         <input type="hidden" name="action" value="go"><button class="small ghost">Depart now</button></form>{% endif %}
       <span class="tf-out"></span></div>

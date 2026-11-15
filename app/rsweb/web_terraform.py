@@ -476,6 +476,11 @@ async def fleets_terraform(request: Request, fid: str, user: str = Depends(curre
             c["steer"] = form.get("steer") == "on"
             f["terraform"] = {k: v for k, v in tr.settings(f).items() if k in tr.DEFAULTS}
             msg = "Saved." + (f" Assigned to {planet}." if planet else " No planet assigned.")
+        elif action == "home":   # back to the home system with everyone aboard, for a new assignment
+            c["planet"] = ""
+            stop = [run.pop(k) for k in ("job", "steer_job") if run.get(k)]
+            run.update({"home_trip": True, "phase": "returning", "note": f"returning to {f['home']}"})
+            msg = f"Returning to {f['home']}: the devices switch off and board, then the carrier flies home."
         elif action == "go":
             run["go"] = True
             msg = "It leaves on the next pass with what it has (it still needs its monitor and a carrier)."
@@ -485,5 +490,7 @@ async def fleets_terraform(request: Request, fid: str, user: str = Depends(curre
         else:
             return HTMLResponse('<div class="result err">Unknown action.</div>')
         await eng.save_fleets(items)
+    for jid in (stop if action == "home" else []):   # a trip to the old planet ends here (cancel takes the lock)
+        await eng.cancel(jid)
     await eng.log("terraformer", f"{f['name']}: {action} by {user}")
     return HTMLResponse(f'<div class="result ok">{html.escape(msg)}</div>')

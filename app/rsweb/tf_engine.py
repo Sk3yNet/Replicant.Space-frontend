@@ -83,6 +83,8 @@ class TerraformerMixin:
         from . import terraformer as tr
         devices = ctx["devices"]
         planet = cfg["planet"]
+        if not tr.valid_body(planet) and run.get("home_trip"):   # Return home: everyone aboard, back to the home system
+            return await self._tf_home(f, run, ctx)
         if not tr.valid_body(planet):
             run.update({"phase": "idle", "note": "assign a planet or moon (e.g. KELMONENT-3) under Terraforming below"})
             return []
@@ -117,8 +119,33 @@ class TerraformerMixin:
             out += await self._tf_steer(f, cfg, run, ctx, here)
         return out
 
+    async def _tf_home(self, f: dict, run: dict, ctx: dict) -> list[str]:
+        """Return home (Joe 2026-11-15, for a reassignment): every member boards the carrier wherever it is (terraform
+        devices switched off first) and the carrier flies to the home system's entry point; nothing is unloaded."""
+        from . import fleets as fl
+        devices, home = ctx["devices"], f["home"]
+        j = ctx["jobs"].get(run.get("job"))
+        if j and j["status"] in ("running", "waiting", "pending"):
+            run["phase"] = "returning"
+            return []
+        if j and j["status"] == "failed":
+            run["note"] = "last trip failed: " + (next((s.get("error") for s in j["steps"] if s.get("status") == "failed"), "") or "?")
+        run.pop("job", None)
+        ms = fl.members(f, devices)
+        cars = [d for d in ms if fl.is_carrier(d)]
+        aboard = {c["device_code"] for c in cars}
+        out_of_place = [d for d in ms if not (d in cars or fl.flies_itself(d)) and not fl.aboard(d, aboard)]
+        away_cars = [c for c in cars if fl.star_of(c.get("location")) != home]
+        if not out_of_place and not away_cars:
+            run.pop("home_trip", None)
+            run.update({"phase": "idle", "note": f"back in {home} with everyone aboard: assign a planet"})
+            return []
+        dest = fl.destination(home, await self.star_lookup("by"))
+        return await self._tf_move(f, {"planet": dest}, run, ctx, ms, out_of_place, home=True)
+
     # --- getting there ---------------------------------------------------------------------------------------------
-    async def _tf_move(self, f: dict, cfg: dict, run: dict, ctx: dict, ms: list[dict], away: list[dict]) -> list[str]:
+    async def _tf_move(self, f: dict, cfg: dict, run: dict, ctx: dict, ms: list[dict], away: list[dict],
+                       home: bool = False) -> list[str]:
         from . import fleets as fl
         from . import terraform as tf
         from .automations import SHORT_TIMEOUT, step
@@ -130,8 +157,8 @@ class TerraformerMixin:
         if hot:
             run["note"] = f"an asteroid ({hot[0]}) is headed for {planet}: the fleet stays off it until that's over"
             return []
-        departed = bool(run.get("departed"))
-        if not departed:
+        departed = bool(run.get("departed")) and not home
+        if not departed and not home:
             short = [r for r in fl.roster(f, devices)["rows"] if r["short"]]
             if short and not run.get("go"):   # Depart now: whatever it has
                 run.update({"phase": "gathering", "note": "waiting for its loadout: short " + ", ".join(
@@ -198,6 +225,11 @@ class TerraformerMixin:
                             "note": f"waiting to take its replicant ({', '.join(stuck)}) aboard {cc}: busy, aboard "
                                     "something else or no seat"})
                 return []
+            for loc, group in stops.items():   # a working terraform device switches off before it boards
+                for code, _m in group:
+                    d = next(x for x in ms if x["device_code"] == code)
+                    if (d.get("device_type") or "") in tf.DEVICES and tf.is_on(d):
+                        steps.append(step(f"deactivate {code}", f"/devices/{code}", {"command": "deactivate"}))
             tour, at = fl.pickup_tour(cc, car.get("location"), stops)
             steps += tour
             if at != planet:
@@ -205,7 +237,7 @@ class TerraformerMixin:
                           fl._wait_arrive(cc, planet)]
             for code, mode in aboard:   # the terraform devices come off at the planet; the rest stays aboard
                 d = next((x for x in ms if x["device_code"] == code), {})
-                if (d.get("device_type") or "") not in tf.DEVICES:
+                if home or (d.get("device_type") or "") not in tf.DEVICES:
                     continue
                 if mode == "attach":
                     steps.append(step(f"{cc}: detach {code}", f"/devices/{cc}", {"command": "detach", "device": code}))
@@ -237,7 +269,9 @@ class TerraformerMixin:
         if not job:
             return []
         run["job"] = job["id"]
-        if not departed:
+        if home:
+            run["phase"] = "returning"
+        elif not departed:
             run.update({"departed": now_iso(), "phase": "moving", "since": now_iso(), "go": False})
         run["note"] = f"→ {planet} with {len(moved)} device(s)" + (f"; left behind: {', '.join(run['left'])}" if run.get("left") else "")
         return [f"→ {planet}" + (" (stragglers)" if departed else "")]
