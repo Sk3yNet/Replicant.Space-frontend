@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.424.0"
+VERSION = "1.424.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.424.1", "2026-11-15", "Terraformer fleets take their own matrix container (and its replicant) aboard the carrier with "
+     "everything else, and don't leave without it (Joe: Terraformer 1 left SOLARES without 4B6AA959, Sk3y-34). Before, "
+     "replicant holders were left out of the pick-up, so a member container only counted as 'replicant aboard'. It stays "
+     "aboard at the planet."),
     ("1.424.0", "2026-11-15", "Dashboard › Stations & megastructures: each system names its nearest printing hub and the straight-line light years to it (Joe)."),
     ("1.423.1", "2026-11-14", "Materials land at a system's autofactories: the drop point is the spot with the most "
      "autofactories, and a spare printer never counts (a spare structural fabricator at SOLARES-4-L4 made the hub spot "

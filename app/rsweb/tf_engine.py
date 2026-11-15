@@ -169,8 +169,9 @@ class TerraformerMixin:
             stops: dict[str, list[tuple[str, str]]] = {}
             aboard: list[tuple[str, str]] = []
             left: list[str] = []
-            riders = [d for d in ms if d is not car and not fl.flies_itself(d) and not fl.is_carrier(d)
-                      and not holds_replicant(d, devices)]
+            # every member rides, its own matrix container too (Joe 2026-11-15: Terraformer 1 left SOLARES without
+            # 4B6AA959 and Sk3y-34): the replicant is what commands the devices at the planet. It stays aboard there.
+            riders = [d for d in ms if d is not car and not fl.flies_itself(d) and not fl.is_carrier(d)]
             for d in riders:
                 code = d["device_code"]
                 if d.get("attached_to_device_code") == cc:
@@ -190,6 +191,13 @@ class TerraformerMixin:
                     continue
                 stops.setdefault(d["location"], []).append((code, mode))
                 aboard.append((code, mode))
+            stuck = [c for c in left if holds_replicant(next(x for x in ms if x["device_code"] == c), devices)]
+            if stuck and not any(holds_replicant(x, devices) for x in ms if (x["device_code"], "attach") in aboard
+                                 or (x["device_code"], "stow") in aboard) and not car.get("hosting_replicant"):
+                run.update({"phase": run.get("phase") if departed else "gathering",
+                            "note": f"waiting to take its replicant ({', '.join(stuck)}) aboard {cc}: busy, aboard "
+                                    "something else or no seat"})
+                return []
             tour, at = fl.pickup_tour(cc, car.get("location"), stops)
             steps += tour
             if at != planet:

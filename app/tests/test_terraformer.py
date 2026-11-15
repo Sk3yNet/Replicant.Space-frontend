@@ -159,3 +159,18 @@ def test_fleets_overview_shows_it_terraforming(client):  # noqa: F811
     _setup(client, [dict(d) for d in KIT])
     r = client.get("/fleets/overview", headers=H)
     assert r.status_code == 200 and "terraforming SOL-4" in r.text
+
+
+def test_the_fleet_takes_its_own_matrix_container_along(client):  # noqa: F811
+    # Joe 2026-11-15: Terraformer 1's matrix container (Sk3y-34) sat at SOLARES-4-L4 while the fleet left
+    carrier = {"device_code": "MOB", "device_type": "mobile_fleet", "location": "SOL-3", "status": "idle", "tags": ["fleet:tf"],
+               "features": ["surge", "cruise"], "attach_capacity": 36, "available_commands": ["travel", "attach"]}
+    cont = {"device_code": "CONT", "device_type": "matrix_container", "location": "SOL-3-L4", "status": "idle",
+            "tags": ["fleet:tf"], "features": ["cradle", "cruise"], "available_commands": ["travel"],
+            "hosting_replicant": {"name": "Sk3y-34", "replicant_code": "2B1F014B"}}
+    db, e = _setup(client, [carrier, cont, dev("MON", "terraform_monitor", "SOL-3")])
+    assert client.portal.call(e.terraformer_pass) == [f"Greening: → {PLANET}"]
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "terraformer")
+    bodies = [st.get("body") for st in job["steps"]]
+    assert {"command": "attach", "device": "CONT"} in bodies
+    assert {"command": "detach", "device": "CONT"} not in bodies   # it stays aboard at the planet
