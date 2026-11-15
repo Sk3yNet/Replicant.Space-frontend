@@ -18,7 +18,9 @@ ALERT_EVENTS = {
 # Notification level: error (needs you — the only kind the bell's badge counts), warning, info (incl. accomplishments).
 # An asteroid that has hit is past acting on (owner 2026-10-24): a warning, not an error. The impact warning stays an error.
 IMPACTED_EVENTS = {"system.object_impacted"}
-WARNING_EVENTS = {"hub.warning"} | IMPACTED_EVENTS
+# A newly detected asteroid is a day or more out and Asteroid defense takes it from there (propulsors, rescues): a warning
+# (Joe 2026-11-15, errors only when you must act); the hour-ahead impact warning stays an error.
+WARNING_EVENTS = {"hub.warning", "system.object_detected"} | IMPACTED_EVENTS
 ERROR_EVENTS = ALERT_EVENTS - WARNING_EVENTS
 # Expected and frequent (a belt's sites close, salvage runs out): the feed and the digest have them, no notification.
 QUIET = {"site.depleted", "salvage.depleted"}

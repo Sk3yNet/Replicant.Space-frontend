@@ -69,6 +69,8 @@ def test_notification_kinds_and_error_only_badge(client):
     assert notify.notification_for({"event": "site.depleted", "payload": {}}) is None          # expected: no notification
     assert notify.notification_for({"event": "teleport.failed", "payload": {}})["level"] == "error"
     assert notify.notification_for({"event": "hub.warning", "payload": {}})["level"] == "warning"
+    assert notify.notification_for({"event": "system.object_detected", "payload": {}})["level"] == "warning"
+    assert notify.notification_for({"event": "system.impact_warning", "payload": {}})["level"] == "error"
     assert notify.kind("done") == "info" and notify.kind("alert") == "warning"
     db = client.app.state.db
     eng = client.app.state.worker.automations

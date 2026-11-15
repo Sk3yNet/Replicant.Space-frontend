@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.425.0"
+VERSION = "1.426.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.426.0", "2026-11-15", "Notification review (Joe: errors only when you must act). A stopped fleet mission step is a warning now: the mission stalls and retries by itself, and only running out of retries is an error (Surveyor 9's recall stop was an error while the mission went on). Nothing to mine in a system is an error only when some miners there aren't in a stationed mining fleet that picks its next home by itself (Miner_1 at YORCEROTH, Miner_7 at QUECANION were moving on anyway). A newly detected asteroid is a warning, since Asteroid defense takes it from there; the hour-ahead impact warning stays an error. A boarding trip refused with Device is not deployed asks the game where the device is when the cached list names no vessel, so a member already aboard no longer stops the job."),
     ("1.425.0", "2026-11-15", "Terraformer card: Return to <home> (Joe: Terraformer 1 back to SOLARES for a closer planet). It "
      "clears the planet and ends a trip under way; the terraform devices switch off, everyone boards the carrier and it flies "
      "to the home system's entry point, where it waits with everything aboard for a new planet. A new planet set directly also "

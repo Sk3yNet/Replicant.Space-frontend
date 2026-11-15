@@ -1051,3 +1051,45 @@ def test_salvage_skips_pinned_component_rigs_and_used_up_resources(client):
             d["tags"] = ["component", "at:sol-belt-1"]
     client.portal.call(db.kv_set, "devices", devs)
     assert not [x for x in client.portal.call(eng.rule_salvage) if "SAL" in x]   # pinned components stay put
+
+
+def test_nothing_to_mine_is_an_error_only_without_a_moving_fleet(client, monkeypatch):
+    # Joe 2026-11-15: miners of a mining fleet that picks its next home by itself (auto_relocate) need nothing from him
+    from rsweb import targets
+    world, eng = _salvage_setup(client)
+    db = client.app.state.db
+
+    async def no_belts(stars):
+        return {s: [] for s in stars}
+
+    async def none_warded(devices=None):
+        return set()
+
+    async def no_res(db_, star):
+        return {}
+    monkeypatch.setattr(eng, "system_belts", no_belts)
+    monkeypatch.setattr(eng, "warded", none_warded)
+    monkeypatch.setattr(targets, "system_resources", no_res)
+    client.portal.call(db.execute, "INSERT OR IGNORE INTO systems(star) VALUES('SOL')")
+
+    def errors():
+        rows = client.portal.call(db.fetchall, "SELECT level, title FROM notifications")
+        return [r["title"] for r in rows if r["level"] == "error" and "nothing to mine" in r["title"]]
+    client.portal.call(eng.rule_salvage)
+    assert len(errors()) == 1
+    # now every miner in SOL is in a stationed mining fleet that moves on by itself
+    client.portal.call(db.kv_set, "salvage_state", {})
+    devs = client.portal.call(db.kv_get, "devices")
+    for d in devs:
+        d["tags"] = [t for t in d.get("tags") or [] if not t.startswith("fleet:")] + ["fleet:m1"]
+    client.portal.call(db.kv_set, "devices", devs)
+
+    async def fleets():
+        return [{"id": "m1", "name": "M1", "role": "mining", "station": True, "home": "SOL", "auto_relocate": True}]
+    monkeypatch.setattr(eng, "fleets", fleets)
+    from rsweb import ami_schedule
+    monkeypatch.setitem(ami_schedule.STATIONED, "fleet:m1", "SOL")
+    client.portal.call(eng.rule_salvage)
+    assert len(errors()) == 1                                         # no second error
+    log = client.portal.call(db.kv_get, "automation_log")
+    assert any("its fleet picks a new home by itself" in e["text"] for e in log)

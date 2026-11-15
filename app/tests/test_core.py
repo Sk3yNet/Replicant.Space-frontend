@@ -1405,6 +1405,8 @@ def test_automation_log_kinds_and_toggles(client):
     from rsweb.automations import severity, stop_level
     # owner 2026-10-30: an error is only what no automation will fix; a stopped automated job is a warning
     assert stop_level({"rule": "loadouts"}) == "alert" and stop_level({"rule": "loadouts", "forced": True}) == "error"
+    # a fleet mission's phase job runs forced, but the mission retries by itself (Joe 2026-11-15)
+    assert stop_level({"rule": "fleets", "forced": True, "meta": {"fleet": "s9", "mission": True}}) == "alert"
     assert severity({"level": "alert", "text": "stopped: loadouts: x — y failed: out of range"}) == "warning"
     assert severity({"level": "alert", "text": "scan of SOL failed: busy"}) == "warning"
     assert severity({"level": "error", "text": "x: waits for your Confirm on the Automations page"}) == "error"

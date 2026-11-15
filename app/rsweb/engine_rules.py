@@ -495,7 +495,11 @@ class MiningRulesMixin:
         done: list[str] = []
         nothing = state.setdefault("nothing", {})   # star -> when we last said there's nothing to mine there
         warded = await self.warded(devices)
+        from .fleets import fleet_tag
+        moving_homes = {f.get("home"): fleet_tag(f["id"]) for f in await self.fleets()
+                        if f.get("role") == "mining" and f.get("station") and f.get("auto_relocate") and f.get("home")}
         for star in sorted({star_of(d.get("location")) for d in miners} - warded):
+            moving = {moving_homes[star]} if star in moving_homes else set()
             res = await system_resources(self.db, star)
             scanned = await self.db.fetchone("SELECT 1 FROM systems WHERE star=?", (star,))
             no_belt = bool(scanned) and not (await self.system_belts({star}))[star]   # scanned: no belt to mine
@@ -522,8 +526,15 @@ class MiningRulesMixin:
                 t = _ts(nothing.get(star))
                 if not t or now - t > timedelta(hours=24):
                     nothing[star] = now.isoformat(timespec="seconds")
-                    await self.log("salvage_when_depleted", f"nothing to mine in {star}: no asteroid belt and no salvage we know "
-                                   "of — move its miners, or survey the bodies for salvage", "error", notify=True)
+                    # miners of a mining fleet stationed here that moves on by itself (auto_relocate: pathing_pass picks
+                    # its next home and says so) need nothing from you: only other miners make this an error
+                    here = [d for d in miners if star_of(d.get("location")) == star]
+                    if all(any(t in moving for t in d.get("tags") or []) for d in here):
+                        await self.log("salvage_when_depleted", f"nothing to mine in {star}: no asteroid belt and no salvage "
+                                       "we know of — its fleet picks a new home by itself")
+                    else:
+                        await self.log("salvage_when_depleted", f"nothing to mine in {star}: no asteroid belt and no salvage "
+                                       "we know of — move its miners, or survey the bodies for salvage", "error", notify=True)
                 continue
             if (not dry and not exhausted and not no_belt) or not sal:
                 continue

@@ -290,6 +290,13 @@ class JobsMixin:
                 code = st["path"].split("/")[2]
                 devs_now = await self.devices()
                 cur = next((d for d in devs_now if d.get("device_code") == code), {})
+                if not (cur.get("stowed_in_device_code") or cur.get("attached_to_device_code")):
+                    # the cached list may lag the game (live 2026-11-14, Surveyor 9: 599B65A6's board trip failed
+                    # "Device is not deployed" and the cache named no vessel): ask the game where it is
+                    try:
+                        cur = {**cur, **(await self.api.get(f"/devices/{code}") or {})}
+                    except ApiError:
+                        pass
                 host = next((d for d in devs_now if d.get("device_code") == (cur.get("stowed_in_device_code")
                                                                              or cur.get("attached_to_device_code"))), {})
                 fleet_tags = {x for x in cur.get("tags") or [] if x.startswith("fleet:")}

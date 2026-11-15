@@ -303,7 +303,11 @@ KV_SECTOR_FAR = "sector_far"   # {"FROM>TO" star leg: iso} trips the job runner 
 
 def stop_level(job: dict) -> str:
     """How a stopped job is logged: one you started by hand (a chain, a forced run) isn't tried again by anything, so you
-    hear about it as an error; an automated one is planned again by its rule on a later pass (a warning)."""
+    hear about it as an error; an automated one is planned again by its rule on a later pass (a warning). A fleet
+    mission's phase job runs forced too, but its mission stalls and retries by itself (fleets.plan_retry), and only
+    running out of retries is an error (live 2026-11-14: Surveyor 9's recall stop was an error, the mission went on)."""
+    if (job.get("meta") or {}).get("mission"):
+        return "alert"
     return "error" if job.get("rule") == "chain" or job.get("forced") else "alert"
 
 

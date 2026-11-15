@@ -1415,7 +1415,7 @@ class FleetsMixin:
                 if steps:
                     codes = [d["device_code"] for d in fl.members(fleet, devices)]
                     job = await self.create_job("fleets", f"{fleet['name']}: end mission & board", None, steps,
-                                                {"devices": codes, "fleet": fleet["id"]}, force=True)
+                                                {"devices": codes, "fleet": fleet["id"], "mission": True}, force=True)
                     m["job"] = job["id"] if job else None
                     self._mlog(m, f"ending: recall & board, {len(steps)} step(s)")
                 else:
@@ -1457,7 +1457,7 @@ class FleetsMixin:
                         fixes[fix_key] = int(fixes.get(fix_key) or 0) + 1
                         codes = [d["device_code"] for d in fl.members(fleet, devices)]
                         job = await self.create_job("fleets", f"{fleet['name']}: own controller takes back its drones",
-                                                    None, fix, {"devices": codes, "fleet": fleet["id"]}, force=True)
+                                                    None, fix, {"devices": codes, "fleet": fleet["id"], "mission": True}, force=True)
                         if job:
                             m["job"], m["phase_at"] = job["id"], now_iso()   # phase_at: wait for a fresh list after
                             self._mlog(m, f"drones held by another controller — {len(fix)} step(s) to take them back")
@@ -1517,7 +1517,7 @@ class FleetsMixin:
                             m["phase"] = "gather"
                             job = await self.create_job("fleets", f"{fleet['name']}: gather (filling the loadout)", None, steps,
                                                         {"devices": [d["device_code"] for d in fl.members(fleet, devices)],
-                                                         "fleet": fleet["id"]}, force=True)
+                                                         "fleet": fleet["id"], "mission": True}, force=True)
                             m["job"] = job["id"] if job else None
                         break
                 if nxt == "travel" or (nxt == "return" and m.get("departed")):
@@ -1566,7 +1566,7 @@ class FleetsMixin:
                                 m["phase"] = "assemble"
                             job = await self.create_job("fleets", f"{fleet['name']}: {title}", None, steps,
                                                         {"devices": [d["device_code"] for d in fl.members(fleet, devices)],
-                                                         "fleet": fleet["id"]}, force=True)
+                                                         "fleet": fleet["id"], "mission": True}, force=True)
                             m["job"] = job["id"] if job else None
                         elif m.get("departed"):
                             # nothing to send: stay on this target. Before, next_phase had already moved on and the
@@ -1613,7 +1613,7 @@ class FleetsMixin:
                 if not steps:
                     continue
                 codes = [d["device_code"] for d in fl.members(fleet, devices)]
-                job = await self.create_job("fleets", f"{fleet['name']}: {nxt}", None, steps, {"devices": codes, "fleet": fleet["id"]}, force=True)
+                job = await self.create_job("fleets", f"{fleet['name']}: {nxt}", None, steps, {"devices": codes, "fleet": fleet["id"], "mission": True}, force=True)
                 m["job"] = job["id"] if job else None
                 self._mlog(m, f"{nxt}: {len(steps)} step(s)")
                 break
