@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.433.0"
+VERSION = "1.434.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.434.0", "2026-11-15", "Terraforming page (Joe): a place whose terraform monitors are all off lists only them and "
+     "their switches, with a count of the other terraform devices there; switch one on and the whole world shows. Places "
+     "without a monitor stay off the page."),
     ("1.433.0", "2026-11-15", "Stockpile returns, scarce first (Joe). A resource the gather hub's system already holds "
      "20,000 of (and no print there lacks) is plentiful: returns load the scarce resources of every pile first, fill the "
      "room left with plentiful ones at the same stops, and send structural-only piles home only on carriers nothing "

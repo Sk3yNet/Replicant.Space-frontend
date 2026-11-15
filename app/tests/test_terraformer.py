@@ -236,5 +236,10 @@ def test_page_lists_only_places_with_a_running_monitor(client):  # noqa: F811
         dev("REGW", "atmospheric_regulator"), dev("MON", "terraform_monitor", status="monitoring",
                                                   terraform_status={"body": PLANET, **report(temperature=280)})])
     t = client.get("/terraforming", headers={"X-Auth-Request-Email": "joe@example.com"}).text
-    assert "REGSOL" not in t and "SOL-3-1" not in t and "MONOFF" not in t and "LANCE" not in t
+    assert "REGSOL" not in t and "SOL-3-1" not in t   # no monitor there: left off
+    assert "MONOFF" in t and "LANCE" not in t and "its 1 other terraform device(s)" in t   # monitor off: it alone
     assert "REGW" in t and PLANET in t
+    import time
+    client.portal.call(db.kv_set, "terraform_pending", {"MONOFF": {"on": True, "at": time.time()}})   # just switched on
+    out = client.get("/terraforming/world/SOLARES-4-L4", headers={"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}).text
+    assert "LANCE" in out and "Monitor off" not in out   # switched on: the rest shows

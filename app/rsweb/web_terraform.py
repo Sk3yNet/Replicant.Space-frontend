@@ -123,17 +123,25 @@ async def _ctx(request: Request) -> dict:
                                   (d.get("device_code"),))
             if r and r["event"] == "terraform.device_activated":
                 since[d["device_code"]] = r["created_at"]
-    # real worlds: only places with a running terraform monitor (Joe 2026-11-15): stock piles and switched-off kits open no world
-    watched = {d.get("location") for d in devs if d.get("device_type") == "terraform_monitor" and d.get("location")
-               and not str(d.get("status") or "").startswith(("inactive", "idle", "stowed", "compacted", "offline"))}
+    # real worlds (Joe 2026-11-15): a place with a running terraform monitor shows everything; one whose monitors are
+    # all off shows only them and their switches (the rest is listed once one is on); a place without a monitor is left off
+    mon_rows = [r for rs in by_loc.values() for r in rs if r.get("device_type") == "terraform_monitor" and r.get("location")]
+    watched = {r["location"] for r in mon_rows if r.get("_on")}   # _on: as reported, or as just commanded
     # a report in the last 10 minutes means a monitor runs there too (the device list may be a couple of minutes old)
     watched |= {b for b in bodies if any(r["location"] == b and (_ts(r["created_at"]) or 0) > time.time() - 600
                                          for r in rows[:50])}
-    if sid:   # a training run is played by hand from here, its monitor switched on on this page: every place shows
-        watched |= set(bodies) | {d.get("location") for d in devs if d.get("device_type") in tf.DEVICES and d.get("location")}
+    idle_mon = {r["location"] for r in mon_rows if not str(r.get("status") or "").startswith(("stowed", "compacted"))} - watched
+    if sid:   # a training run is played by hand from here: every place shows in full
+        watched |= idle_mon | set(bodies) | {d.get("location") for d in devs if d.get("device_type") in tf.DEVICES and d.get("location")}
+        idle_mon = set()
     worlds = []
-    for body in sorted(watched):
-        s = bodies.get(body) or {}
+    for body in sorted(watched | idle_mon):
+        s = (bodies.get(body) or {}) if body in watched else {}
+        held = 0
+        if body in idle_mon:   # monitors only, until one is switched on
+            mons = [d for d in by_loc.get(body, []) if d.get("device_type") == "terraform_monitor"]
+            held = len(by_loc.get(body, [])) - len(mons)
+            by_loc = {**by_loc, body: mons}
         out = tf.out_of_range(s, targets)
         hist = await db.fetchall("SELECT payload, COALESCE(created_at, received_at) AS created_at FROM events WHERE event = 'terraform.status' AND location = ? "
                                  "ORDER BY seq DESC LIMIT ?", (body, tf.HISTORY))
@@ -148,7 +156,7 @@ async def _ctx(request: Request) -> dict:
             groups["control"].sort(key=lambda d: (tf.CONTROL.index(d["device_type"]), d.get("device_code") or ""))
         order = sorted(groups, key=lambda t: tf.priority("terraform_monitor" if t == "control" else t))   # fixed: never moves
         worlds.append({"body": body, "status": s, "coupling": tf.coupling(s) if s else [], "bio": tf.bio_ready(s) if s else [],
-                       "devices": by_loc.get(body, []), "out": out,
+                       "devices": by_loc.get(body, []), "out": out, "held": held, "monitor_only": body in idle_mon,
                        "groups": [{"type": t, "devices": groups[t],
                                    "helps": [a for a, sg in tf.PUSHES.get(t, []) if a in need and (sg == 0 or sg == need[a])]}
                                   for t in order],

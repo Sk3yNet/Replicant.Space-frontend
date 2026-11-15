@@ -14,6 +14,7 @@
       {% if s.anomaly %}<span class="pill small lv-alert">{{ s.anomaly.severity }} {{ s.anomaly.type | human }} in {{ s.anomaly.ticks_until }} tick(s)</span>{% endif %}
     </div>
   </div>
+  {% if w.monitor_only %}<div class="small muted" style="margin-top:4px">Monitor off: switch one on to see this world's readings{% if w.held %} and its {{ w.held }} other terraform device(s){% endif %}.</div>{% endif %}
   {% if note %}<div class="small {{ 'lv-done' if note_ok else 'lv-alert' }}" style="margin-top:4px">{{ '✔' if note_ok else '✖' }} {{ note }}</div>{% endif %}
 
   {% if s.attributes %}
