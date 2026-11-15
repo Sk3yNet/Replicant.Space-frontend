@@ -118,6 +118,12 @@ async def game_events_page(request: Request, user: str = Depends(current_user)):
     return await page(request, user, "game_events.html", "gameevents", **await game_events_ctx(request))
 
 
+async def _contract_card(request: Request, des: str) -> HTMLResponse:
+    """A contract action's answer: the card again, redrawn in place (no page reload, Joe 2026-11-15)."""
+    e, ctx = await _event(request, des)
+    return templates.TemplateResponse(request, "partials/contract_card_one.html", {"request": request, **ctx, "e": e})
+
+
 @router.post("/game-events/{des}/bring", response_class=HTMLResponse)
 async def game_event_bring(request: Request, des: str, replicant: str = Form(...), user: str = Depends(current_user)):
     e, _ = await _event(request, des)
@@ -199,7 +205,7 @@ async def game_event_option(request: Request, des: str, option: str = Form(""), 
         choices.pop(des, None)
     await db.kv_set(gev.CHOICE_KV, choices)
     await _supply_now(request)   # devices it asks for follow the option
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
+    return await _contract_card(request, des)
 
 
 @router.post("/game-events/{des}/supply", response_class=HTMLResponse)
@@ -216,7 +222,7 @@ async def game_event_supply(request: Request, des: str, action: str = Form("star
         entry["print_ok"] = {}   # stopping withdraws the authorization for prints not yet ordered
     await db.kv_set("contract_supply", supply)
     await _supply_now(request)
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
+    return await _contract_card(request, des)
 
 
 @router.post("/game-events/{des}/authorize-prints", response_class=HTMLResponse)
@@ -235,7 +241,7 @@ async def game_event_authorize_prints(request: Request, des: str, user: str = De
     entry["active"] = True
     await db.kv_set("contract_supply", supply)
     await _supply_now(request)
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
+    return await _contract_card(request, des)
 
 
 @router.post("/game-events/{des}/restart-prints", response_class=HTMLResponse)
@@ -276,7 +282,7 @@ async def game_event_restart_prints(request: Request, des: str, user: str = Depe
             ok[r["type"]] = int(r.get("ordered") or 0) + int(r["short"])
     await db.kv_set("contract_supply", supply)
     await _supply_now(request)
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
+    return await _contract_card(request, des)
 
 
 @router.post("/game-events/settings", response_class=HTMLResponse)

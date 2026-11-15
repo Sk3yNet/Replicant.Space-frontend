@@ -807,6 +807,7 @@ they are (a print already started isn't counted; what it turns out stays a spare
 - In-game events with criteria (any one option completes it), rewards and progress.
 - Open contracts sit in three foldable sections, in this order: approved ones asking for devices, other approved ones,
   and the ones not approved. Each section remembers in this browser whether it's folded.
+- Changes save in place: a contract's buttons and option picker redraw only its card, never the whole page.
 - Options that ask for devices show how many of each type are tagged spare and the option's total cost in resources
   (what it asks for plus the devices' blueprint costs).
 - A beacon mark per civilization: yours at its body, only in its system, or none.

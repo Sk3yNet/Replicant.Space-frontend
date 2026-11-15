@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.431.0"
+VERSION = "1.432.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.432.0", "2026-11-15", "Contracts page no longer reloads after a change (Joe): picking an option, Deliver/Stop "
+     "devices, Authorize printing and Restart prints redraw just that contract's card; Refresh traders and Remove "
+     "(also on the Shop page) redraw just the shops table."),
     ("1.431.0", "2026-11-15", "Contracts page sorts open contracts into three foldable sections (Joe): approved ones "
      "asking for devices, other approved ones, then the ones not approved. Each section remembers in this browser "
      "whether it's folded."),

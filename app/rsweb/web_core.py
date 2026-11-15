@@ -2235,6 +2235,17 @@ async def game_events_ctx(request: Request) -> dict:
             "beacon_auto": beacon_auto, "beacon_key": gev.BEACON_KEY}
 
 
+async def traders_table(request: Request) -> HTMLResponse:
+    """The shops table (partials/traders_table.html) redrawn in place of #traders-table, for Refresh and Remove."""
+    from . import shop as sh
+    db = request.app.state.db
+    ctx = {"request": request, "traders": await sh.known_traders(db), "traders_last": await db.kv_get(sh.LAST_KV),
+           "listing_wanted": await db.kv_get(sh.LISTING_KV, {}) or {}, "mine": set(await db.kv_get("replicants", {}) or {}),
+           "trade_side": sh.describe_side, "trade_ok": await db.kv_get("trade_approvals", {}) or {}}
+    return templates.TemplateResponse(request, "partials/traders_table.html", ctx,
+                                       headers={"HX-Retarget": "#traders-table", "HX-Reswap": "innerHTML"})
+
+
 async def _event(request: Request, des: str) -> tuple[dict, dict]:
     ctx = await game_events_ctx(request)
     e = next((x for x in ctx["open"] if x["designation"] == des), None)

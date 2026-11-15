@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 
 from .api import ApiError
 from .db import now_iso
-from .web import call_action, current_user, load_state, page, render_action
+from .web import call_action, current_user, load_state, page, render_action, traders_table
 from . import traffic as tr
 
 router = APIRouter()
@@ -375,7 +375,7 @@ async def shop_forget(request: Request, user: str = Depends(current_user)):
     db = request.app.state.db
     t = (await sh.known_traders(db)).get(ctrl) or {}
     await sh.mark_gone(db, ctrl, t.get("location"), now_iso(), manual=True)
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
+    return await traders_table(request)
 
 
 # =====================================================================================

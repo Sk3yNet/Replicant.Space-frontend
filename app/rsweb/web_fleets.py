@@ -17,7 +17,7 @@ from . import loadouts as lo
 from . import pagecache, printqueue
 from .db import now_iso
 from .shapes import normalize_blueprints
-from .web import current_user, load_state, loadout_ctx, page, partial, star_of, start_chain
+from .web import current_user, load_state, loadout_ctx, page, partial, star_of, start_chain, traders_table
 
 router = APIRouter()
 
@@ -1017,7 +1017,7 @@ async def fleets_traders(request: Request, user: str = Depends(current_user)):
     from .shop import refresh_directory
     n, err = await refresh_directory(request.app.state.db, api, list(st["replicants"]))
     if n:
-        return HTMLResponse("", headers={"HX-Refresh": "true"})
+        return await traders_table(request)
     asked = len(st["replicants"])
     if err:
         return HTMLResponse(f'<span class="lv-alert small">Asked {asked} replicants, no traders: {html.escape(err)}</span>')

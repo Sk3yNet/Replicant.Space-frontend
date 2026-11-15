@@ -364,6 +364,8 @@ def test_contract_option_picked_on_the_contracts_page(client):
     assert gev.progress(e, {}, devices, {})["best"]["name"] == "orbital_farms"          # auto: the ready one
     r = client.post("/game-events/AEM-2-EVT-006/option", data={"option": "nutrient_synthesis"}, headers=HX)
     assert r.status_code == 200
+    assert "hx-refresh" not in r.headers and 'id="ev-AEM-2-EVT-006"' in r.text   # the card redrawn in place, no reload
+    assert 'value="nutrient_synthesis" selected' in r.text
     e = client.portal.call(gev.load, db)["AEM-2-EVT-006"]
     prog = gev.progress(e, {}, devices, {})
     assert prog["best"]["name"] == "nutrient_synthesis" and prog["state"] == "gather"   # picked: farms no longer count
