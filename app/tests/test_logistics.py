@@ -108,6 +108,48 @@ def test_a_systems_stray_piles_go_home_on_one_trip():
     assert {u["req"] for u in p["unmet"] if "loaded together with return:B-10" in u["why"]} == {"return:B-2", "return:B-2-15"}
 
 
+def test_scarce_returns_go_first_and_plentiful_ones_take_what_is_left():
+    devs = world()
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    inv = {"A-1": {"structural": 25000}, "B-BELT": {"structural": 400, "volatiles": 30}, "B-3": {"structural": 90},
+           "Z-3": {"rares": 50}}
+    p = run_plan(devs, inv, commandable={"A", "B", "Z"})
+    req = {r["id"]: r for r in p["requests"]}
+    assert req["return:B-3"]["plenty"] == ["structural"] and req["return:Z-3"]["plenty"] == []
+    runs = [x for x in p["runs"] if x["kind"] == "return"]
+    # one freighter (100): the scarce volatiles first, topped up with structural, before any structural-only trip
+    assert len(runs) == 1 and runs[0]["carry"] == {"volatiles": 30, "structural": 70}
+    assert [g["pile"] for g in runs[0]["cargos"][0]["legs"]] == ["B-BELT"]
+    # a second freighter: the rares at Z
+    devs.append(dev("F2", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE))
+    p = run_plan(devs, inv, commandable={"A", "B", "Z"})
+    by = {x["req"]: x for x in p["runs"] if x["kind"] == "return"}
+    assert by["return:Z-3"]["carry"] == {"rares": 50} and by["return:B-BELT"]["carry"]["volatiles"] == 30
+    # structural only: it waits while a scarce load needs the carrier
+    inv2 = {"A-1": {"structural": 25000}, "B-BELT": {"structural": 400}, "Z-3": {"rares": 50}}
+    p = run_plan(devs[:3] + devs[4:], inv2, commandable={"A", "B", "Z"})
+    by = {x["req"]: x for x in p["runs"] if x["kind"] == "return"}
+    assert set(by) == {"return:Z-3"}
+    p = run_plan(devs, inv2, commandable={"A", "B", "Z"})   # with a carrier to spare it goes too
+    by = {x["req"]: x for x in p["runs"] if x["kind"] == "return"}
+    assert set(by) == {"return:Z-3", "return:B-BELT"} and by["return:B-BELT"]["carry"] == {"structural": 100}
+
+
+def test_a_return_tops_up_at_piles_one_relay_hop_away():
+    devs = world()
+    devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None
+    devs[0]["cargo_capacity"] = 500
+    pos = {**POS, "C": {"x": 9, "y": 0, "z": 0}, "D": {"x": 30, "y": 0, "z": 0}}
+    inv = {"B-2": {"rares": 50}, "C-1": {"carbon": 60}, "D-1": {"silicates": 70}}
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory=inv, pos=pos, commandable={"A", "B", "C", "D"},
+                hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[], incoming={},
+                replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1")
+    run = next(x for x in p["runs"] if x["req"] == "return:B-2")
+    assert [g["pile"] for g in run["cargos"][0]["legs"]] == ["B-2", "C-1"]   # C is 4 ly from B, D is 21
+    assert run["label"] == "return 2 B/C stockpiles to A"
+    assert any(u["req"] == "return:C-1" and "loaded together with return:B-2" in u["why"] for u in p["unmet"])
+
+
 def test_stray_piles_return_to_the_gather_point_last_and_skip_works():
     devs = world()
     devs[2]["print_queue"], devs[2]["status"], devs[2]["printing"] = [], "idle", None

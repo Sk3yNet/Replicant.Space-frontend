@@ -128,6 +128,9 @@ def times(amounts: dict, n: int) -> dict:
     return {k: v * n for k, v in amounts.items()} if n > 1 else dict(amounts)
 ROLE = "logistics"
 MIN_RETURN = 25.0              # a stray pile smaller than this isn't worth a trip
+# a resource its gather hub's system already holds this much of is plentiful there (owner 2026-11-15: scarce resources
+# come home first; plentiful ones only on carriers nothing else wants, after every scarce load of the pass)
+RETURN_PLENTY = 20000.0
 # stars whose trades go first (Joe 2026-11-13: Sol's shops cycle and sell out), with stalled prints (a factory waiting
 # for materials) and the components a factory waits for (loadouts.priority_devices): priority 0, right after evacuations
 PRIORITY_STARS = ("SOL",)
@@ -470,6 +473,18 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
 
     def have(loc: str) -> dict:
         return _add(stock.get(loc) or {}, incoming.get(loc) or {})
+    hub_cache: dict[str, dict] = {}
+
+    def hub_have(star: str) -> dict:
+        """What a system holds, every pile in it plus what's on its way there."""
+        if star not in hub_cache:
+            tot: dict[str, float] = {}
+            for l in set(stock) | set(incoming):
+                if star_of(l) == star:
+                    for x, q in have(l).items():
+                        tot[x] = tot.get(x, 0.0) + q
+            hub_cache[star] = tot
+        return hub_cache[star]
     for loc, e in sorted(costs.items()):
         need = _short(e["cost"], have(loc))
         types = ", ".join(f"{n}× {t.replace('_', ' ')}" for t, n in sorted(e["types"].items()))
@@ -556,8 +571,14 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
                      if not gather else f"the {loc} stockpile is in a gather system already")
             if gather:
                 continue
-        out.append({"id": f"return:{loc}", "kind": "return", "to": to, "from": loc,
-                    "need": {r: q for r, q in items.items() if q >= 1}, "tier": 4, "label": label})
+        need = {r: q for r, q in items.items() if q >= 1}
+        if to:
+            lacks = {x for r_ in out if r_["kind"] == "print" and star_of(r_["to"]) == star_of(to) for x in r_["need"]}
+            plenty = sorted(x for x in need if x not in lacks and hub_have(star_of(to)).get(x, 0.0) >= RETURN_PLENTY)
+        else:
+            plenty = []
+        out.append({"id": f"return:{loc}", "kind": "return", "to": to, "from": loc, "need": need, "tier": 4,
+                    "label": label, "plenty": plenty})
     for r in out:
         r["base_tier"] = r["tier"]
         if r["id"] in (prefs.get("bump") or {}):
@@ -565,7 +586,7 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
         r["skipped"] = r["id"] in set(prefs.get("skip") or [])
     # among the urgent ones: evacuations, then Sol trades, then stalled prints
     out.sort(key=lambda r: (r["tier"], {"return": 0, "trade": 1}.get(r["kind"], 2) if r["tier"] == 0 else 0,
-                            not r.get("waiting"), r["id"]))
+                            not r.get("waiting"), bool(r.get("plenty")) and set(r["need"]) <= set(r["plenty"]), r["id"]))
     _batch_deals(out, stock, incoming)
     return out, spare, reserve
 
@@ -896,11 +917,16 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 spare[l][x] -= back
                 kept.setdefault(l, {})[x] = kept.get(l, {}).get(x, 0.0) + back
         released.clear()
+    phase = {"scarce": False}
+
     def deliver(r: dict) -> None:
         if r["skipped"]:
             return
         left = r.get("_left")   # a second try (with every free carrier) takes on what the first left
         need = {x: q for x, q in (r["need"] if left is None else left).items() if q >= 1}
+        if left is not None and r.get("_rest"):   # the plentiful part, held back while scarce loads went first
+            for x, q in r.pop("_rest").items():
+                need[x] = need.get(x, 0.0) + q
         if left is not None and not need:
             return
         dest, dstar = r["to"], star_of(r["to"])
@@ -912,15 +938,30 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             # APAMVATS for 73 or 80 units each, one body pile at a time, with 14 piles there): the first return of a
             # system takes on the others with the same gather point, and its cargo devices fill up pile after pile
             fstar_ = star_of(r.get("from"))
+            # and the piles of systems within a relay hop of it (owner 2026-11-15)
             mates = [m for m in reqs if m is not r and m["id"].startswith("return:") and m.get("to") == dest
-                     and star_of(m.get("from")) == fstar_ and not m["skipped"] and not m.get("_with")
-                     and m.get("_left") is None]
+                     and _dist(star_of(m.get("from")), fstar_, pos) <= RELAY_HOP and not m["skipped"]
+                     and not m.get("_with") and m.get("_left") is None]
             r["_piles"] = {r.get("from")} | {m.get("from") for m in mates}
-            for m in mates:
-                m["_with"] = r["id"]
+            rest: dict[str, float] = {}
+            for m in [r] + mates:
+                if m is not r:
+                    m["_with"] = r["id"]
                 for x, q in m["need"].items():
                     if q >= 1:
-                        need[x] = need.get(x, 0.0) + q
+                        if m is not r:
+                            need[x] = need.get(x, 0.0) + q
+                        if x in (m.get("plenty") or ()):
+                            rest[x] = rest.get(x, 0.0) + q
+            if phase["scarce"] and rest:   # first round: scarce resources only; the rest waits for the second round
+                for x, q in rest.items():
+                    need[x] -= q
+                need = {x: q for x, q in need.items() if q >= 1}
+                r["_rest"] = rest
+                if not need:
+                    r["_left"], r["_assigned"] = {}, False
+                    unmet.append({"req": r["id"], "why": "only plentiful resources: they go home on carriers nothing else needs"})
+                    return
         if r["kind"] in ("print", "upkeep", "job") and dest:
             for l, h in kept.items():
                 if star_of(l) == dstar and l != dest:
@@ -988,7 +1029,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                     has[star_of(l)][x] += spare[l].get(x, 0.0)
             covers = {st_: all(h[x] >= q for x, q in need.items()) for st_, h in has.items()}
             if r.get("_piles"):   # a system's stray piles: body by body, so a cargo device's stops stay near each other
-                piles.sort(key=_body_order)
+                piles.sort(key=lambda l: (round(_dist(star_of(l), star_of(r.get("from")), pos), 3), _body_order(l)))
             else:
                 piles.sort(key=lambda l: (star_of(l) != dstar, not covers[star_of(l)], _dist(star_of(l), dstar, pos),
                                           -sum(spare[l].get(x, 0) for x in need), l))
@@ -1082,11 +1123,14 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                         carry[x] = carry.get(x, 0) + q
                         taken[x] = taken.get(x, 0) + q
                 need = {x: q for x, q in need.items() if q >= 1}
-                for l in piles:
-                    if star_of(l) != fstar or cap < 1:
+                # a ship that flies itself tops up at the batch's piles in nearby systems (riders stay in theirs)
+                near_ = [l for l in piles if star_of(l) != fstar] if r.get("_piles") and can_surge(cargo) else []
+                plenty_ = set(r.get("plenty") or ())
+                for l in [l for l in piles if star_of(l) == fstar] + near_:
+                    if cap < 1:
                         continue
                     take = {}
-                    for x in sorted(need, key=lambda x: -need[x]):
+                    for x in sorted(need, key=lambda x: (x in plenty_, -need[x])):
                         q = math.floor(min(need[x], spare[l].get(x, 0.0), cap))
                         if q >= 1:
                             take[x] = q
@@ -1099,6 +1143,20 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                             carry[x] = carry.get(x, 0) + q
                             taken[x] = taken.get(x, 0) + q
                         need = {x: q for x, q in need.items() if q >= 1}
+                rest_ = r.get("_rest")
+                if rest_ and carry:   # scarce round: room left is filled with plentiful ones at the stops it makes anyway
+                    for g_ in legs:
+                        l = g_["pile"]
+                        for x in sorted(rest_, key=lambda x: -rest_[x]):
+                            q = math.floor(min(rest_[x], spare[l].get(x, 0.0), cap))
+                            if q >= 1:
+                                g_["take"][x] = g_["take"].get(x, 0) + q
+                                cap -= q
+                                spare[l][x] -= q
+                                rest_[x] -= q
+                                carry[x] = carry.get(x, 0) + q
+                                taken[x] = taken.get(x, 0) + q
+                    r["_rest"] = {x: q for x, q in rest_.items() if q >= 1}
                 if not carry:
                     break
                 used.add(code)
@@ -1173,8 +1231,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                          "ride": ride and ride["device_code"], "escort": esc and esc["device_code"], "to": dest,
                          "carry": taken, "fulfil": _deal(r) if rep else None, "also": (r.get("also") or []) if rep else [],
                          "replicant": rep, "back": back,
-                         "label": (f"return {len(stops) - 1} {fstar} stockpiles to {dstar}"
-                                   if r.get("_piles") and len(stops) > 2 else r["label"]),
+                         "label": (f"return {len(stops) - 1} {'/'.join(sorted({star_of(x) for x in stops[:-1]}))} "
+                                   f"stockpiles to {dstar}" if r.get("_piles") and len(stops) > 2 else r["label"]),
                          "escort_pickup": any(star_of(x) not in commandable for x in stops[:-1]),
                          "rewards": rewards if home else {}, "home": home,
                          "reward_devices": rdev})
@@ -1463,9 +1521,12 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                     attempt(r, fn)
     view(None)
     for k in cats:
-        for r, fn in tasks:
-            if r["category"] == k and (r["id"] not in tried or any(u["req"] == r["id"] for u in unmet)):
-                attempt(r, fn)
+        # stockpile returns in two rounds: scarce resources from every pile first, then the plentiful ones
+        for phase["scarce"] in ((True, False) if k == "returns" else (False,)):
+            for r, fn in tasks:
+                if r["category"] == k and (r["id"] not in tried or r.get("_rest")
+                                           or any(u["req"] == r["id"] for u in unmet)):
+                    attempt(r, fn)
     by_id = {r["id"]: r for r in reqs}
     worked = {c: prev[c] for c in prev if c in {d["device_code"] for d in pool} and c not in every}   # still on a job
     worked.update(lane)
@@ -1480,7 +1541,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             if dl["carrier"] in every and r.get("category") in LANES:
                 worked[dl["carrier"]] = r["category"]
     for r in reqs:
-        for k_ in ("_left", "_assigned", "_with", "_piles"):
+        for k_ in ("_left", "_assigned", "_with", "_piles", "_rest"):
             r.pop(k_, None)
 
     # logistics devices hosting a replicant idle outside the network come back to wait in it (the rest can't be commanded there)

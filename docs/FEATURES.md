@@ -664,7 +664,10 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
 4. **Stockpile returns**: stray stockpiles brought back to a gather point (a fleet that takes materials in), or, where
    such a fleet moved away, to its new home. Not from a system an AMI ferry already empties; a return load that finds
    less than planned takes what is left. A system's piles go on one trip: the first return from a system loads every
-   other pile there bound for the same gather point, body by body (skipped piles stay). With no gather point, the page says so. A delivery outside a hub's system
+   other pile there bound for the same gather point, body by body (skipped piles stay), and ships that fly themselves
+   top up at piles in systems within a relay hop. Scarce resources come first: what the gather hub's system already
+   holds 20,000 of (and no print there lacks) only fills room left on those trips, or goes on carriers nothing else
+   needs. With no gather point, the page says so. A delivery outside a hub's system
    also brings a stray pile near its drop-off (same system or one relay hop) back to the nearest printing hub on the
    way back, instead of flying home empty (*on the way back …* in the job row).
 5. **Rescues**, 6. **shop listings** (*Get listing*), 7. **repair patrols**.
