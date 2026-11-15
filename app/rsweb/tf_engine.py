@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -112,6 +113,8 @@ class TerraformerMixin:
             if j and j["status"] == "failed":
                 err = next((s.get("error") for s in j["steps"] if s.get("status") == "failed"), "") or "?"
                 run["note"] = f"last {'trip' if key == 'job' else 'steering'} failed: {err}"
+            if j and key == "steer_job":
+                self._tf_learn_broken(j, run, devices)
             run.pop(key, None)
         here = [d for d in tfd if d.get("location") == planet and not d.get("stowed_in_device_code")
                 and not d.get("attached_to_device_code")]
@@ -120,11 +123,32 @@ class TerraformerMixin:
             out += await self._tf_move(f, cfg, run, ctx, ms, away)
         if run.get("job"):
             run["phase"] = "moving"
+        if run.get("departed") and not run.get("job"):   # at work: repairs, and members that come later
+            out += await self._tf_upkeep(f, cfg, run, ctx, ms)
+        else:
+            for k in ("upkeep", "upkeep_warn", "fixing"):
+                run.pop(k, None)
         if any(d.get("device_type") == "terraform_monitor" for d in here):
             if not run.get("job"):
                 run["phase"] = "terraforming"
             out += await self._tf_steer(f, cfg, run, ctx, here)
         return out
+
+    @staticmethod
+    def _tf_learn_broken(job: dict, run: dict, devices: list[dict]) -> None:
+        """An order answered "Device non-operational (capacity 17%). Requires repair." (live 2026-11-15, Terraformer 1's
+        monitor E13168A9): the device isn't ordered again until its capacity rises above that (a repair)."""
+        from . import upkeep as up
+        by = {d["device_code"]: d for d in devices}
+        for s in job.get("steps") or []:
+            err = str(s.get("error") or "")
+            if "non-operational" in err.lower() or "requires repair" in err.lower():
+                code = str(s.get("path") or "").rsplit("/", 1)[-1]
+                m = re.search(r"capacity\s+(\d+(?:\.\d+)?)", err)
+                c = float(m.group(1)) if m else up.cap((by.get(code) or {}).get("operational_capacity"))
+                if code:
+                    run.setdefault("broken", {})[code] = c if c is not None else 0.0
+                    (run.get("recent") or {}).pop(code, None)   # once repaired it's ordered at once
 
     @staticmethod
     def _tf_bound(job: dict) -> str | None:
@@ -170,6 +194,7 @@ class TerraformerMixin:
         from . import fleets as fl
         from . import terraform as tf
         from .automations import SHORT_TIMEOUT, step
+        from . import upkeep as up
         from .logistics import holds_replicant
         from .rockmining import open_rocks
         devices, busy, planet = ctx["devices"], ctx["busy"], cfg["planet"]
@@ -258,8 +283,8 @@ class TerraformerMixin:
                           fl._wait_arrive(cc, planet)]
             for code, mode in aboard:   # the terraform devices come off at the planet; the rest stays aboard
                 d = next((x for x in ms if x["device_code"] == code), {})
-                if home or (d.get("device_type") or "") not in tf.DEVICES:
-                    continue
+                if home or ((d.get("device_type") or "") not in tf.DEVICES and not up.is_maint(d)):
+                    continue   # service bots come off too: they repair the devices at work (Joe 2026-11-15)
                 if mode == "attach":
                     steps.append(step(f"{cc}: detach {code}", f"/devices/{cc}", {"command": "detach", "device": code}))
                 else:
@@ -330,7 +355,9 @@ class TerraformerMixin:
             return out
         now = _now()
         recent = {c: r["key"] for c, r in (run.get("recent") or {}).items() if now - (_ts(r.get("at")) or 0) < RECENT_S}
-        reach = [d for d in here if d.get("in_control_range") is not False and d["device_code"] not in ctx["busy"]]
+        hold = set(run.get("fixing") or []) | set(self._tf_broken(run, devices))   # under repair, or waiting for one
+        reach = [d for d in here if d.get("in_control_range") is not False and d["device_code"] not in ctx["busy"]
+                 and d["device_code"] not in hold]
         cmds = tr.commands(p["set"], reach, recent)
         if not cmds:
             run["recent"] = {c: r for c, r in (run.get("recent") or {}).items() if c in recent}
@@ -400,4 +427,200 @@ class TerraformerMixin:
                 await self.log("terraformer", f"{f['name']}: anomaly at {planet}: {a}", level, notify=True)
                 out.append("anomaly")
         run["alerts"] = now
+        return out
+
+    # --- upkeep: repairs, and members that come later ----------------------------------------------------------------
+    @staticmethod
+    def _tf_broken(run: dict, devices: list[dict]) -> list[str]:
+        """Devices the game called non-operational whose capacity hasn't risen since (forgotten once it has)."""
+        from . import upkeep as up
+        by = {d["device_code"]: d for d in devices}
+        broken = run.get("broken") or {}
+        for code in list(broken):
+            c = up.cap((by.get(code) or {}).get("operational_capacity"))
+            if code not in by or (c is not None and c > float(broken[code] or 0) + 0.5):
+                broken.pop(code)
+        if not broken:
+            run.pop("broken", None)
+        return sorted(broken)
+
+    async def _tf_upkeep(self, f: dict, cfg: dict, run: dict, ctx: dict, ms: list[dict]) -> list[str]:
+        """Terraform devices wear fast while they work (Joe 2026-11-15: shades at 30 %, the monitor broken at 17 % after
+        15 h). The fleet's service bots (repair devices) come off the carrier at the planet and patrol there: the game's
+        patrol picks the most damaged device, switches it off and repairs it to 100 % (upkeep.py). A device that was
+        on when its repair began is switched back on afterwards (with steering on, the plan does that). Members the fleet
+        gets after it left (a service bot added to the loadout, a member somewhere else) come by logistics: a spare is
+        tagged for delivery to the planet (to:/at:, as the Deliver command does) and joins the fleet when it arrives."""
+        from . import fleets as fl
+        from . import terraform as tf
+        from . import upkeep as up
+        from .automations import step
+        planet, devices, busy = cfg["planet"], ctx["devices"], ctx["busy"]
+        by = {d["device_code"]: d for d in devices}
+        steps: list[dict] = []
+        notes: list[str] = []
+        out: list[str] = []
+        warn = False
+        # 1. service bots: off the carrier at the planet, then on patrol
+        bots = [d for d in ms if up.is_maint(d)]
+        for d in bots:
+            code = d["device_code"]
+            host = by.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code") or "")
+            if code in busy:
+                continue
+            if host and host.get("location") == planet:
+                if d.get("stowed_in_device_code"):
+                    st = step(f"deploy {code} from {host['device_code']}", f"/devices/{code}", {"command": "deploy"},
+                              wait=["device.deployed"], timeout=600)
+                    st["wait_device"] = code
+                    steps.append(st)
+                else:
+                    steps.append(step(f"{host['device_code']}: detach {code}", f"/devices/{host['device_code']}",
+                                      {"command": "detach", "device": code}))
+                steps.append(step(f"{code}: set_directive patrol", f"/devices/{code}",
+                                  {"command": "set_directive", "directive": "patrol"}))
+            elif up.placed(d) and d.get("location") != planet and fl.star_of(d.get("location")) == fl.star_of(planet):
+                st = step(f"{code} → {planet}", f"/devices/{code}", {"command": "travel", "destination": planet})
+                steps += [st, fl._wait_arrive(code, planet)]   # dropped elsewhere in the system: to the planet
+            elif d.get("location") == planet and up.placed(d) and not up.patrolling(d) \
+                    and "set_directive" in (d.get("available_commands") or ["set_directive"]):
+                steps.append(step(f"{code}: set_directive patrol", f"/devices/{code}",
+                                  {"command": "set_directive", "directive": "patrol"}))
+        working = [d for d in bots if d.get("location") == planet and up.placed(d)]
+        # 2. repairs: what the bots work on now; devices that were on get switched back on once theirs is done
+        fixing = {r["target"] for d in working if (r := up.repairing(d)) and r.get("target")}
+        run["fixing"] = sorted(fixing)
+        prev_on = set(run.get("on") or [])
+        off = run.setdefault("repair_off", {})
+        for c in fixing:
+            if c in prev_on and c not in off:
+                off[c] = now_iso()
+        for c in [c for c in off if c not in fixing]:
+            d = by.get(c)
+            off.pop(c)
+            if not d or cfg["steer"] or d.get("device_type") == "terraform_monitor" or tf.is_on(d) or c in busy \
+                    or d.get("location") != planet or c in self._tf_broken(run, devices):
+                continue   # steering (and the monitor's keep-on) switch those on by themselves
+            steps.append(step(f"activate {c} (repaired)", f"/devices/{c}", {"command": "activate"}))
+        if not off:
+            run.pop("repair_off", None)
+        run["on"] = sorted({d["device_code"] for d in ms if (d.get("device_type") or "") in tf.DEVICES and tf.is_on(d)} | set(off))
+        if fixing:
+            notes.append("repairing " + ", ".join(sorted(fixing)))
+        broken = self._tf_broken(run, devices)
+        if broken:
+            notes.append("out of order until repaired: " + ", ".join(
+                f"{c} ({(by.get(c) or {}).get('device_type', '?').replace('_', ' ')})" for c in broken))
+        # 3. members that come later
+        fetch = run.setdefault("fetch", {})
+        from .loadouts import tag_step
+        for d in ms:   # old pins on members at work (446569DB kept at:solares-belt-1): a later trip home would obey them
+            stale = [t for t in d.get("tags") or [] if t.startswith(("to:", "at:"))]
+            if stale and d.get("location") == planet and d["device_code"] not in busy and d["device_code"] not in fetch:
+                steps.append(tag_step(d["device_code"], None, stale))
+        sent = await self._tf_fetch(f, planet, run, ctx, ms, fetch, steps)
+        out += sent
+        if fetch:
+            notes.append("on the way by logistics: " + ", ".join(f"{c} ({v['type'].replace('_', ' ')})"
+                                                                 for c, v in sorted(fetch.items())))
+        else:
+            run.pop("fetch", None)
+        short = {t: n - sum(1 for v in fetch.values() if v["type"] == t) for t, n in fl.short_list(f, devices).items()}
+        short = {t: n for t, n in short.items() if n > 0}
+        if short:
+            notes.append("short " + fl.summarize(short) + " (no spare within the supply range)")
+            warn = True
+        if broken and not working and not any(up.is_maint(by.get(c) or {}) for c in fetch):
+            warn = True
+            notes.append("no service bot at the planet: add one to the loadout")
+            said = run.get("broken_said") or {}
+            for c in broken:
+                if c not in said:
+                    said[c] = now_iso()
+                    await self.log("terraformer", f"{f['name']}: {c} ({(by.get(c) or {}).get('device_type')}) at {planet} "
+                                   "is out of order and needs a repair: no service bot with the fleet there", "error", notify=True)
+            run["broken_said"] = said
+        else:
+            run.pop("broken_said", None)
+        run["upkeep"] = " · ".join(notes)
+        run["upkeep_warn"] = warn
+        if not run["upkeep"]:
+            run.pop("upkeep", None)
+        if steps:
+            codes = sorted({s["path"].rsplit("/", 1)[-1] for s in steps} - {""})
+            job = await self.create_job("terraformer", f"{f['name']}: upkeep at {planet}", codes[0], steps,
+                                        {"devices": codes, "fleet": f["id"]})
+            if job:
+                busy |= set(codes)
+                out.append(f"upkeep at {planet}: {len(steps)} order(s)")
+        return out
+
+    async def _tf_fetch(self, f: dict, planet: str, run: dict, ctx: dict, ms: list[dict], fetch: dict,
+                        steps: list[dict]) -> list[str]:
+        """Members for a fleet already at work: spares of the types it's short of (nearest first, within the supply range)
+        and its members in other systems are tagged for delivery to the planet (logistics carries them; the fleet's
+        replicant stays with the world). On arrival they get the fleet's tag back. fetch: {code: {type, at}}."""
+        from . import fleets as fl
+        from .loadouts import delivery_tags, tag_step
+        from .logistics import holds_replicant
+        devices, busy = ctx["devices"], ctx["busy"]
+        by = {d["device_code"]: d for d in devices}
+        tag, star = fl.fleet_tag(f["id"]), fl.star_of(planet)
+        out: list[str] = []
+        for code, v in list(fetch.items()):
+            d = by.get(code)
+            if not d or (fl.fleet_of(d) and fl.fleet_of(d) != f["id"]):
+                fetch.pop(code)   # gone, or taken by another fleet
+                continue
+            if code in busy:
+                continue   # aboard a logistics trip
+            tags = d.get("tags") or []
+            if d.get("location") == planet and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code"):
+                steps.append(tag_step(code, [tag], [t for t in tags if t.startswith(("to:", "at:")) or t == "spare"]))
+                fetch.pop(code)
+                out.append(f"{code} ({d.get('device_type')}) arrived at {planet} and joins")
+                continue
+            age = _now() - (_ts(v.get("at")) or _now())
+            if age > 600 and tag not in tags and not any(t.startswith(("to:", "at:")) for t in tags):
+                fetch.pop(code)   # its delivery was canceled by hand
+        pos = {k: (s or {}).get("position") or {} for k, s in (await self.star_lookup("by")).items()}
+        reach = fl.sector_reach(await self.supply_reach())
+
+        def send(d: dict, why: str) -> bool:
+            add, remove, no = delivery_tags(d, planet, {tag: f["home"]})
+            if no:
+                return False
+            if tag in (d.get("tags") or []) and tag not in remove:
+                remove = sorted(set(remove) | {tag})   # off the roster while logistics carries it
+            steps.append(tag_step(d["device_code"], add, remove))
+            fetch[d["device_code"]] = {"type": d.get("device_type") or "", "at": now_iso()}
+            out.append(f"{d['device_code']} ({d.get('device_type')}) {why}: logistics brings it to {planet}")
+            return True
+
+        def movable(d: dict) -> bool:
+            return (d["device_code"] not in busy and d["device_code"] not in fetch and not fl.is_carrier(d)
+                    and not holds_replicant(d, devices) and (d.get("device_type") or "") not in ("matrix_container", "replicant_matrix")
+                    and not d.get("controller_device_code"))
+
+        # members in another system (not aboard the fleet's own carriers)
+        cars = {c["device_code"] for c in ms if fl.is_carrier(c)}
+        for d in ms:
+            if not movable(d) or fl.aboard(d, cars) or fl.flies_itself(d):
+                continue
+            here = fl.star_of(fl.tug(d, devices).get("location"))
+            if here and here != star and not fl.beyond_reach(here, star, pos, reach):
+                send(d, f"is in {here}")
+        # spares for what the loadout is short of
+        short = {t: n - sum(1 for v in fetch.values() if v["type"] == t) for t, n in fl.short_list(f, devices).items()}
+        short = {t: n for t, n in short.items() if n > 0}
+        if short:
+            cands = [d for d in devices if "spare" in (d.get("tags") or []) and not fl.fleet_of(d) and movable(d)
+                     and short.get(d.get("device_type") or "", 0) > 0 and d.get("location")
+                     and str(d.get("status") or "").startswith(("idle", "stowed", "coordinating"))
+                     and not fl.beyond_reach(fl.star_of(d.get("location")), star, pos, reach)]
+            cands.sort(key=lambda d: (fl._dist(star, fl.star_of(d.get("location")), pos), d["device_code"]))
+            for d in cands:
+                t = d.get("device_type") or ""
+                if short.get(t, 0) > 0 and send(d, "is a spare"):
+                    short[t] -= 1
         return out

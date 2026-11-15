@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.434.0"
+VERSION = "1.435.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.435.0", "2026-11-15", "Terraformer fleets keep their devices repaired (Joe): service bots come off the carrier at the "
+     "planet and patrol there, devices switched off for a repair go back on, a device the game calls non-operational "
+     "(Terraformer 1's monitor at 17 %) isn't ordered every 6 minutes, and the card shows an Upkeep line. Members added "
+     "after the fleet left come by logistics from the nearest spare and join on arrival; Fill from spares and matrix pickup "
+     "no longer send a working terraformer's carrier away from its planet; old to:/at: pins come off members at work."),
     ("1.434.0", "2026-11-15", "Terraforming page (Joe): a place whose terraform monitors are all off lists only them and "
      "their switches, with a count of the other terraform devices there; switch one on and the whole world shows. Places "
      "without a monitor stay off the page."),

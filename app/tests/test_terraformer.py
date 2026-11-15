@@ -243,3 +243,106 @@ def test_page_lists_only_places_with_a_running_monitor(client):  # noqa: F811
     client.portal.call(db.kv_set, "terraform_pending", {"MONOFF": {"on": True, "at": time.time()}})   # just switched on
     out = client.get("/terraforming/world/SOLARES-4-L4", headers={"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}).text
     assert "LANCE" in out and "Monitor off" not in out   # switched on: the rest shows
+
+
+def _at_work(client, devs, terraform=None, wants=None):  # noqa: F811
+    db, e = _setup(client, devs, terraform, wants)
+    f = client.portal.call(e.fleets)
+    f[0]["tf_run"] = {"planet": PLANET, "departed": "2026-11-15T04:00:00+00:00", "phase": "terraforming"}
+    client.portal.call(e.save_fleets, f)
+    return db, e
+
+
+def _jobs(client, e, title):  # noqa: F811
+    return [j for j in client.portal.call(e.jobs) if title in j["title"]]
+
+
+def test_a_broken_monitor_isnt_switched_on_again_until_repaired(client):  # noqa: F811
+    # live 2026-11-15: Terraformer 1's monitor E13168A9 at 17 %, "activate" refused every 6 minutes
+    kit = [dict(d) for d in KIT]
+    kit[0].update(status="idle", operational_capacity=17.0)
+    db, e = _at_work(client, kit)
+    client.portal.call(e.terraformer_pass)
+    job = _jobs(client, e, "steer")[0]
+    job["steps"][0].update(status="skipped", error="Device non-operational (capacity 17%). Requires repair.")
+    client.portal.call(e._update, {**job, "status": "done"})
+    client.portal.call(e.terraformer_pass)
+    assert len(_jobs(client, e, "steer")) == 1   # not ordered again
+    run = client.portal.call(e.fleets)[0]["tf_run"]
+    assert run["broken"] == {"MON": 17.0} and "MON" in run["upkeep"] and "no service bot" in run["upkeep"]
+    rows = client.portal.call(db.fetchall, "SELECT level, title FROM notifications WHERE title LIKE '%out of order%'")
+    assert [r["level"] for r in rows] == ["error"]
+    ds = client.portal.call(db.kv_get, "devices")
+    next(d for d in ds if d["device_code"] == "MON")["operational_capacity"] = 100.0   # repaired
+    client.portal.call(db.kv_set, "devices", ds)
+    client.portal.call(e.terraformer_pass)
+    assert len(_jobs(client, e, "steer")) == 2 and "broken" not in client.portal.call(e.fleets)[0]["tf_run"]
+
+
+def test_the_service_bot_patrols_and_repaired_devices_come_back_on(client):  # noqa: F811
+    carrier = {"device_code": "MOB", "device_type": "mobile_fleet", "location": PLANET, "status": "idle", "tags": ["fleet:tf"],
+               "features": ["surge", "cruise"], "attach_capacity": 36, "available_commands": ["travel", "attach"]}
+    bot = {"device_code": "BOT", "device_type": "service_bot", "location": None, "status": "stowed", "tags": ["fleet:tf"],
+           "stowed_in_device_code": "MOB", "features": ["cruise", "repair", "stow", "ami"],
+           "available_commands": ["deploy", "set_directive", "repair"]}
+    devs = [carrier, bot, dev("MON", "terraform_monitor", status="monitoring"),
+            dev("SHA", "orbital_shade", status="terraforming", operational_capacity=30.0)]
+    db, e = _at_work(client, devs, wants={"service_bot": 1})
+    client.portal.call(e.terraformer_pass)
+    job = _jobs(client, e, "upkeep")[0]
+    assert [s.get("body") for s in job["steps"]] == [{"command": "deploy"},
+                                                     {"command": "set_directive", "directive": "patrol"}]
+    client.portal.call(e.cancel, job["id"])
+    # on patrol, repairing the shade (switched off by the game)
+    ds = client.portal.call(db.kv_get, "devices")
+    for d in ds:
+        if d["device_code"] == "BOT":
+            d.update(location=PLANET, stowed_in_device_code=None, status="repairing (SHA)",
+                     ami_directive={"name": "patrol"})
+        elif d["device_code"] == "SHA":
+            d["status"] = "idle"
+    client.portal.call(db.kv_set, "devices", ds)
+    client.portal.call(e.terraformer_pass)
+    run = client.portal.call(e.fleets)[0]["tf_run"]
+    assert run["fixing"] == ["SHA"] and "SHA" in run["repair_off"] and "repairing SHA" in run["upkeep"]
+    assert len(_jobs(client, e, "upkeep")) == 1
+    for d in ds:
+        if d["device_code"] == "BOT":
+            d["status"] = "idle"
+        elif d["device_code"] == "SHA":
+            d["operational_capacity"] = 100.0
+    client.portal.call(db.kv_set, "devices", ds)
+    client.portal.call(e.terraformer_pass)
+    job = _jobs(client, e, "upkeep")[-1]
+    assert [(s["path"], s.get("body")) for s in job["steps"]] == [("/devices/SHA", {"command": "activate"})]
+
+
+def test_a_member_added_after_departure_is_brought_by_logistics(client):  # noqa: F811
+    # Joe 2026-11-15: a service bot added to Terraformer 1's loadout while it worked at ALAYEBASAN-4
+    spare = {"device_code": "SB1", "device_type": "service_bot", "location": "SOL-3", "status": "coordinating",
+             "tags": ["spare"], "features": ["cruise", "repair", "stow", "ami"], "available_commands": ["deploy"]}
+    db, e = _at_work(client, [dev("MON", "terraform_monitor", status="monitoring"), spare], wants={"service_bot": 1})
+    out = client.portal.call(e.terraformer_pass)
+    assert any("SB1 (service_bot) is a spare" in x for x in out)
+    job = _jobs(client, e, "upkeep")[0]
+    cfg = job["steps"][0]["body"]["configuration"]
+    assert cfg["add_tags"] == [f"at:{PLANET.lower()}"] and "spare" in cfg["remove_tags"]
+    client.portal.call(e.cancel, job["id"])
+    client.portal.call(e.terraformer_pass)
+    assert len(_jobs(client, e, "upkeep")) == 1   # not sent for twice
+    assert "on the way by logistics: SB1" in client.portal.call(e.fleets)[0]["tf_run"]["upkeep"]
+    ds = client.portal.call(db.kv_get, "devices")
+    next(d for d in ds if d["device_code"] == "SB1").update(location=PLANET, tags=[f"at:{PLANET.lower()}"], status="idle")
+    client.portal.call(db.kv_set, "devices", ds)
+    client.portal.call(e.terraformer_pass)
+    job = _jobs(client, e, "upkeep")[-1]
+    assert job["steps"][0]["body"]["configuration"] == {"add_tags": ["fleet:tf"], "remove_tags": [f"at:{PLANET.lower()}"]}
+    assert "fetch" not in client.portal.call(e.fleets)[0]["tf_run"]
+
+
+def test_old_pins_come_off_members_at_work(client):  # noqa: F811
+    reg = dev("REG", "atmospheric_regulator", tags=["at:sol-belt-1", "fleet:tf"])
+    db, e = _at_work(client, [dev("MON", "terraform_monitor", status="monitoring"), reg])
+    client.portal.call(e.terraformer_pass)
+    job = _jobs(client, e, "upkeep")[0]
+    assert job["steps"][0]["body"] == {"configuration": {"remove_tags": ["at:sol-belt-1"]}}

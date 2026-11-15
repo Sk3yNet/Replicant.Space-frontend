@@ -1007,6 +1007,8 @@ class FleetsMixin:
                 continue
             if fl.stationed(f) or f.get("role") == "bootstrap":
                 continue   # the loadout pass keeps a stationed fleet filled, at its home
+            if f.get("role") == "terraformer" and (f.get("tf_run") or {}).get("departed"):
+                continue   # at its planet: its carrier holds the replicant there; the terraformer pass sends for what's short
             # a logistics fleet always has jobs going: its extras only need to be out of them (busy)
             if f["id"] in working and f.get("role") != "logistics":
                 continue
@@ -1067,7 +1069,8 @@ class FleetsMixin:
         out = []
         for f in items:
             if (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped") or f.get("role") == "bootstrap" \
-                    or fl.held(f) or f["id"] in working:
+                    or fl.held(f) or f["id"] in working \
+                    or (f.get("role") == "terraformer" and (f.get("tf_run") or {}).get("departed")):   # at its planet
                 continue
             if fl.has_replicant(f, devices):
                 notes[f["id"]] = {"at": now_iso(), "note": "has a replicant aboard"}

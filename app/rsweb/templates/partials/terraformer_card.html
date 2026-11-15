@@ -8,6 +8,7 @@
     {% if not c.steer %}<span class="muted"> · you steer it (<a href="/terraforming/world/{{ c.planet }}">console</a>)</span>{% else %}<span class="muted"> · the fleet steers it</span>{% endif %}
 </div>
   {% if v.job %}<div class="muted">trip: {{ v.job.title }} · step {{ v.job.idx + 1 }}/{{ v.job.steps | length }}</div>{% endif %}
+  {% if run.upkeep %}<div class="{{ 'lv-warning' if run.upkeep_warn else 'muted' }}">Upkeep: {{ run.upkeep }}</div>{% endif %}
   {% if run.left %}<div class="lv-warning">Left behind (busy, aboard something else or no seat): {{ run.left | join(', ') }}</div>{% endif %}
   {% if v.alerts %}<div class="lv-warning">Active: {% for a in v.alerts %}{{ a.split(':', 1)[1] }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
   {% if run.report %}
