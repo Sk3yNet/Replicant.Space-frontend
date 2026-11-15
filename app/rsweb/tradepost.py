@@ -444,6 +444,11 @@ class TradePostMixin:
                     trades[c["device_code"]] = None
                     errs.append(f"{c['device_code']}: {e.message}")
             st["read_error"] = "; ".join(errs) or None
+            cache = await self.db.kv_get("shop_trades", {}) or {}   # the Shop page and the BobNet roll call read it
+            for code, tr in trades.items():
+                if tr is not None:
+                    cache[code] = {"trades": tr, "at": now_iso()}
+            await self.db.kv_set("shop_trades", cache)
             pl = plan(f, devices, trades, st, bps, p, tag)
             st["rows"] = [{k: r.get(k) for k in ("type", "listed", "initial", "here", "status", "trade_code", "listed_price",
                                                   "controller")}
@@ -533,3 +538,48 @@ class TradePostMixin:
         for line in out:
             await self.log("trade_post", line)
         return out
+
+    async def shop_rollcall_text(self, devices: list[dict] | None = None, intro: str | None = None) -> str:
+        from . import shop as sh
+        devices = devices if devices is not None else await self.devices()
+        cfg = sh.rollcall_settings(await self.db.kv_get(sh.ROLLCALL_KV, {}))
+        return sh.roll_call(sh.shops(devices, {}, await self.db.kv_get("shop_trades", {}) or {}),
+                            cfg["intro"] if intro is None else intro)
+
+    async def shop_rollcall_post(self, by: str, channel: str, text: str, why: str) -> tuple[bool, str | None]:
+        """Post the roll call as `by` and remember it (kv shop_rollcall.last)."""
+        from . import shop as sh
+        from .db import now_iso
+        try:
+            await self.api.post(f"/replicants/{by}/message", {"channel": channel, "text": text}, background=True)
+            ok, err = True, None
+        except Exception as e:
+            ok, err = False, str(getattr(e, "message", None) or e)[:200]
+        raw = await self.db.kv_get(sh.ROLLCALL_KV, {}) or {}
+        raw["last"] = {"at": now_iso(), "by": by, "channel": channel, "text": text, "ok": ok, "error": err, "why": why}
+        await self.db.kv_set(sh.ROLLCALL_KV, raw)
+        await self.log("shop", f"BobNet shop roll call on {channel} by {by} ({why})" + ("" if ok else f" refused: {err}"),
+                       "info" if ok else "warning")
+        return ok, err
+
+    async def shop_rollcall_pass(self) -> list[str]:
+        """Engine stage: the shop roll call every `hours` (0 = by hand only), when there is something to list and a
+        poster is chosen; a refused post waits the same interval."""
+        from datetime import datetime, timezone
+
+        from . import shop as sh
+        cfg = sh.rollcall_settings(await self.db.kv_get(sh.ROLLCALL_KV, {}))
+        if not cfg["hours"] or not cfg["by"] or (await self.settings()).get("dry_run"):
+            return []
+        last = (cfg["last"] or {}).get("at")
+        if last:
+            try:
+                if (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() < cfg["hours"] * 3600:
+                    return []
+            except ValueError:
+                pass
+        text = await self.shop_rollcall_text()
+        if not text:
+            return []
+        ok, err = await self.shop_rollcall_post(cfg["by"], cfg["channel"], text, f"every {cfg['hours']:g} h")
+        return [f"shop roll call posted on {cfg['channel']}" if ok else f"shop roll call refused: {err}"]

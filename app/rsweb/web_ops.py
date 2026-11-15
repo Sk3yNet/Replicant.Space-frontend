@@ -241,12 +241,48 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
             g["shops"].append(s)
         else:
             groups.append({"post": post, "shops": [s]})
-    return await page(request, user, "shop.html", "shop", shops=shops, shop_groups=groups, spare_shops=spare, traders=traders, posts=posts,
+    from .chatter import relay_stars, rep_star
+    rc = sh.rollcall_settings(await request.app.state.db.kv_get(sh.ROLLCALL_KV, {}))
+    relays_ = relay_stars(st["devices"])
+    posters = sorted(({"code": c, "name": r.get("name") or c, "star": rep_star(r), "relay": rep_star(r) in relays_}
+                      for c, r in st["replicants"].items()), key=lambda r: (not r["relay"], r["name"].lower()))
+    rollcall = {**rc, "text": sh.roll_call(shops, rc["intro"]), "posters": posters}
+    return await page(request, user, "shop.html", "shop", shops=shops, shop_groups=groups, rollcall=rollcall, spare_shops=spare, traders=traders, posts=posts,
                       traders_last=await request.app.state.db.kv_get(sh.LAST_KV),
                       listing_wanted=await request.app.state.db.kv_get(sh.LISTING_KV, {}) or {},
                       trade_ok=await request.app.state.db.kv_get("trade_approvals", {}) or {},
                       resources=sh.RESOURCES, describe=sh.describe_side, trade_side=sh.describe_side, device_types=types,
                       mine=set(st["replicants"]))
+
+
+@router.post("/shop/rollcall", response_class=HTMLResponse)
+async def shop_rollcall(request: Request, user: str = Depends(current_user)):
+    """The BobNet shop roll call: save who posts it, where and how often (action=save), or post it now (action=post)."""
+    from . import shop as sh
+    from .web_core import BOBNET_REPEAT_MINUTES, bobnet_note_sent, bobnet_repeat
+    db = request.app.state.db
+    form = await request.form()
+    raw = await db.kv_get(sh.ROLLCALL_KV, {}) or {}
+    cfg = sh.rollcall_settings({**raw, **{k: form.get(k) for k in ("by", "channel", "hours", "intro") if k in form}})
+    raw.update({k: cfg[k] for k in ("by", "channel", "hours", "intro")})
+    await db.kv_set(sh.ROLLCALL_KV, raw)
+    if form.get("action") != "post":
+        every = f"every {cfg['hours']:g} h" if cfg["hours"] else "by hand only"
+        warn = " Choose who posts it, or it never goes out on its own." if cfg["hours"] and not cfg["by"] else ""
+        return HTMLResponse(f'<div class="result ok">Saved: {html.escape(cfg["channel"])}, {every}.{warn}</div>')
+    text = str(form.get("text") or "").strip() or await _eng(request).shop_rollcall_text()
+    if not cfg["by"]:
+        return HTMLResponse('<div class="result err">Choose the replicant who posts it.</div>')
+    if not text:
+        return HTMLResponse('<div class="result err">Nothing to announce: no shop of yours lists anything in stock.</div>')
+    if await bobnet_repeat(db, cfg["channel"], text):
+        return HTMLResponse(f'<div class="result err">Already sent that to {html.escape(cfg["channel"])} in the last '
+                            f'{BOBNET_REPEAT_MINUTES} minutes.</div>')
+    ok, err = await _eng(request).shop_rollcall_post(cfg["by"], cfg["channel"], text, f"by {user}")
+    if not ok:
+        return HTMLResponse(f'<div class="result err">Not posted: {html.escape(err or "refused")}</div>')
+    await bobnet_note_sent(db, cfg["channel"], text)
+    return HTMLResponse(f'<div class="result ok">Posted on {html.escape(cfg["channel"])}.</div>')
 
 
 @router.post("/shop/{code}/refresh", response_class=HTMLResponse)

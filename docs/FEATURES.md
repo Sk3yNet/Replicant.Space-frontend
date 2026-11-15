@@ -825,6 +825,10 @@ they are (a print already started isn't counted; what it turns out stays a spare
 Account and per-replicant reputation, known species. **Bulk profile import**: paste JSON `{code or current name: {name, description, plan, project, pronouns}}`, preview the changes and problems per replicant, then apply (one profile edit each, changed fields only). **Clan tag**: a tag typed there (letters and digits) is previewed in front of every name as TAG-name and applied the same way; tagged names and a replicant named the tag are skipped (the game has no clan field and allows only letters, digits, hyphens and underscores in names).
 
 ### Shop
+- *BobNet roll call* (top card): one replicant posts every shop of yours with stock in a single message, grouped by
+  location, each trade controller's code and what it sells ("SOLARES-4-L4: 5A77D6B8 survey drone, mining rig"). Post
+  now (the text can be edited first) or every N hours; it needs a replicant in a system with an active relay. The game
+  has no relay-only post, so BobNet shows the poster's star; the text names the real locations.
 - Your trade controllers, trades, other traders: every replicant's trader directory plus every shop a system scan lists,
   the newest sighting of each winning (shops can move).
 - A shop stays listed until you remove it (*Remove*, once you checked it's gone): scans can miss shops, and a failed

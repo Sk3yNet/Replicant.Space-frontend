@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.435.0"
+VERSION = "1.436.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.436.0", "2026-11-15", "Shop page BobNet roll call (Joe): one replicant posts every shop of yours in a single BobNet "
+     "message, by location, with each trade controller's code and what it sells, so other players can find the listings. "
+     "Post now by hand (editable text) or every N hours; poster, channel (#trade) and opening line are saved. Clear a "
+     "trade post's Announcement to leave the roll call as the only shop post."),
     ("1.435.0", "2026-11-15", "Terraformer fleets keep their devices repaired (Joe): service bots come off the carrier at the "
      "planet and patrol there, devices switched off for a repair go back on, a device the game calls non-operational "
      "(Terraformer 1's monitor at 17 %) isn't ordered every 6 minutes, and the card shows an Upkeep line. Members added "

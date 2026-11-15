@@ -302,3 +302,46 @@ def test_controller_that_left_the_post_is_unpinned():
             dev("OLD", "ami_trade_controller", "SOL-4-L4", ["at:sol-5-l4", "spare"]),
             dev("STOCK", "ami_trade_controller", "SOL-5-L4", ["at:sol-5-l4", TAG])]
     assert tp.plan(f, devs, [], {}, BPS, P, TAG)["unpin"] == ["OLD"]
+
+
+def _trade(n, devices, stock=1):
+    return {"name": n, "trade_code": n, "current_stock": stock, "initial_stock": 2, "criteria": {}, "rewards": {"devices": devices}}
+
+
+def test_roll_call_lists_every_shop_with_its_controller_code():
+    # owner 2026-11-15: one replicant announces every shop with its trade controller's code
+    from rsweb import shop as sh
+    cache = {"SHOP": {"trades": [_trade("a", {"mining_drone": 1}), _trade("b", [{"device_type": "ftl_relay"}])]},
+             "SHOP2": {"trades": [_trade("c", {"survey_drone": 1}), _trade("gone", {"hauler": 1}, stock=0)]},
+             "EMPTY": {"trades": [_trade("d", {"hauler": 1}, stock=0)]}}
+    devs = [shop(), dev("SHOP2", "ami_trade_controller", "ALGOL-OORT", ami_directive={"name": "trade"}),
+            dev("EMPTY", "ami_trade_controller", ami_directive={"name": "trade"}),
+            dev("NOSHOP", "ami_trade_controller")]
+    text = sh.roll_call(sh.shops(devs, {}, {**cache, "NOSHOP": cache["SHOP"]}), "Shops:")
+    assert text == "Shops: ALGOL-OORT: SHOP2 survey drone. SOL-4-L4: SHOP mining drone, ftl relay."
+    assert sh.roll_call(sh.shops(devs[2:], {}, cache)) == ""
+    assert sh.rollcall_settings({"channel": "trade", "hours": "x"})["channel"] == "#trade"
+
+
+def test_roll_call_posted_by_hand_and_on_schedule(client):  # noqa: F811
+    from test_chatter import _world
+    from test_ops import HX, REP
+    from rsweb import shop as sh
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices") + [shop()])
+    client.portal.call(db.kv_set, "shop_trades", {"SHOP": {"trades": [_trade("a", {"mining_drone": 1})], "at": "2099-01-01T00:00:00+00:00"}})
+    assert "SOL-4-L4: SHOP mining drone." in client.get("/shop", headers=HX).text
+    r = client.post("/shop/rollcall", data={"action": "post", "by": "", "channel": "#trade", "hours": "", "intro": "Hi", "text": ""},
+                    headers=HX)
+    assert "Choose the replicant" in r.text
+    r = client.post("/shop/rollcall", data={"action": "post", "by": REP, "channel": "#trade", "hours": "24", "intro": "Hi", "text": ""},
+                    headers=HX)
+    assert "Posted" in r.text
+    assert _world(client).bobnet_posts[-1] == {"code": REP, "channel": "#trade", "text": "Hi SOL-4-L4: SHOP mining drone."}
+    n = len(_world(client).bobnet_posts)
+    assert client.portal.call(e.shop_rollcall_pass) == []   # posted under 24 h ago
+    raw = client.portal.call(db.kv_get, sh.ROLLCALL_KV)
+    raw["last"]["at"] = "2020-01-01T00:00:00+00:00"
+    client.portal.call(db.kv_set, sh.ROLLCALL_KV, raw)
+    assert client.portal.call(e.shop_rollcall_pass) == ["shop roll call posted on #trade"]
+    assert len(_world(client).bobnet_posts) == n + 1

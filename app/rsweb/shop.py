@@ -60,6 +60,7 @@ def shops(devices: list[dict], inventory: dict[str, Any], cache: dict[str, dict]
         c = cache.get(d["device_code"]) or {}
         out.append({"code": d["device_code"], "location": loc, "star": star_of(loc), "status": d.get("status"), "tags": d.get("tags") or [],
                     "config": shop_config(d), "configured": bool(shop_config(d)),
+                    "open": isinstance(d.get("ami_directive"), dict) and d["ami_directive"].get("name") == "trade",
                     "directive_status": d.get("ami_directive_status"), "relay": relay["device_code"] if relay else None,
                     "listed": bool(relay and shop_config(d)), "inventory": stock_here, "devices_here": devs_here,
                     "trades": c.get("trades") or [], "trades_at": c.get("at"), "trades_error": c.get("error")})
@@ -303,3 +304,56 @@ async def refresh_directory(db, api, replicants: list[str]) -> tuple[int, str | 
         out[code] = {**t, "trades": trades, "read_at": now}
     await db.kv_set("traders_cache", out)
     return min(len(traders), 20), err
+
+
+# Shop roll call (owner 2026-11-15): one replicant posts every shop of yours on BobNet in a single message, with each
+# trade controller's code, so other players can find the listings (the game's own shop announcement names only the
+# poster's star and no controller).
+ROLLCALL_KV = "shop_rollcall"   # {"by": replicant code, "channel", "hours": auto-post every N h (0 = by hand), "intro", "last"}
+ROLLCALL_DEFAULT = {"by": "", "channel": "#trade", "hours": 0.0, "intro": "Shops open, by trade controller:"}
+
+
+def rollcall_settings(raw: Any) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    out = {**ROLLCALL_DEFAULT, **{k: raw[k] for k in ROLLCALL_DEFAULT if k in raw and raw[k] is not None}}
+    try:
+        out["hours"] = max(0.0, float(out["hours"] or 0))
+    except (TypeError, ValueError):
+        out["hours"] = 0.0
+    ch = str(out["channel"] or "").strip() or "#trade"
+    out["channel"] = ch if ch.startswith("#") else f"#{ch}"
+    out["by"], out["intro"] = str(out["by"] or "").strip(), str(out["intro"] or "").strip()
+    out["last"] = raw.get("last") if isinstance(raw.get("last"), dict) else None
+    return out
+
+
+def offered_types(trades: list[dict]) -> list[str]:
+    """The device types (else resources) a shop's trades in stock give the buyer, as words."""
+    out: list[str] = []
+    for t in trades or []:
+        if int(t.get("current_stock") or 0) <= 0:
+            continue
+        rw = t.get("rewards") or {}
+        devs = rw.get("devices") or {}
+        names = list(devs) if isinstance(devs, dict) else [x.get("device_type") if isinstance(x, dict) else x for x in devs]
+        names += [r for r, q in (rw.get("resources") or {}).items() if q] if not names else []
+        for n in names:
+            w = str(n or "").replace("_", " ").strip()
+            if w and w not in out:
+                out.append(w)
+    return out
+
+
+def roll_call(shops_: list[dict], intro: str = ROLLCALL_DEFAULT["intro"]) -> str:
+    """One BobNet post naming every open shop with stock: grouped by location, each controller's code and what it
+    sells ("Shops open, by trade controller: SOLARES-4-L4: 5A77D6B8 survey drone, mining rig; 1C2D3E4F ftl relay.")."""
+    by_loc: dict[str, list[str]] = {}
+    for s in sorted(shops_, key=lambda s: ((s.get("config") or {}).get("name") or "", s.get("code") or "")):
+        what = offered_types(s.get("trades") or [])
+        if not what or not s.get("open") or not s.get("location"):
+            continue
+        by_loc.setdefault(s["location"], []).append(f"{s['code']} {', '.join(what)}")
+    if not by_loc:
+        return ""
+    body = " ".join(f"{loc}: {'; '.join(rows)}." for loc, rows in sorted(by_loc.items()))
+    return f"{intro} {body}".strip()
