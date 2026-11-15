@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.430.0"
+VERSION = "1.431.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.431.0", "2026-11-15", "Contracts page sorts open contracts into three foldable sections (Joe): approved ones "
+     "asking for devices, other approved ones, then the ones not approved. Each section remembers in this browser "
+     "whether it's folded."),
     ("1.430.0", "2026-11-15", "Stockpile returns: every stray pile of a system goes home on one trip. The first return "
      "from a system loads the others with the same gather point too, body by body, so freighters leave full instead of "
      "flying to APAMVATS and back for 73 or 80 units at a time (14 piles there). The other piles show \"loaded together "

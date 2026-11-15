@@ -15,7 +15,7 @@
          data-approve="{{ beacon_key }}" hx-vals='{{ {"key": beacon_key} | tojson }}' hx-trigger="change">
   Auto-approve contracts at every location where a beacon of yours is deployed</label>
 
-{% for e in open %}{% set p = e.prog %}{% set b = p.best %}
+{% macro contract(e) %}{% set p = e.prog %}{% set b = p.best %}
 <div class="card" id="ev-{{ e.designation }}" style="margin-bottom:12px">
   <div class="row between">
     <h2 style="margin:0">{{ e.title }} <span class="muted small">{{ e.designation }} · tier {{ e.tier }} · {{ (e.category or e.event_type or '') | human }}</span></h2>
@@ -106,7 +106,15 @@
     </div>
   </div>
 </div>
-{% else %}<div class="card"><p class="muted">No open events. They appear here when a scan or arrival discovers one (event.discovered).</p></div>{% endfor %}
+{% endmacro %}
+{% if open %}{% for key, title, hint in [("devices", "Approved, need devices", "approved contracts asking for devices"),
+                            ("approved", "Approved", "other approved contracts"),
+                            ("unapproved", "Not approved", "contracts waiting for your approval")] %}{% set rows = sections[key] %}
+<details class="ge-section" data-fold="{{ key }}" open style="margin-bottom:12px">
+  <summary><b>{{ title }}</b> <span class="muted small">{{ rows | length }} · {{ hint }}</span></summary>
+  <div style="margin-top:8px">{% for e in rows %}{{ contract(e) }}{% else %}<p class="muted small">None.</p>{% endfor %}</div>
+</details>
+{% endfor %}{% else %}<div class="card"><p class="muted">No open events. They appear here when a scan or arrival discovers one (event.discovered).</p></div>{% endif %}
 
 {% if quiet %}<details class="card" id="quiet-civs" style="margin-bottom:12px">
   <summary><b>Civilizations not asking for anything</b> <span class="muted small">{{ quiet | length }} · approve them ahead of their next request</span></summary>
@@ -146,6 +154,16 @@
 </div>
 {% endblock %}
 {% block scripts %}<script>
+// the three contract sections remember whether they're folded, in this browser
+(() => {
+  const K = "contracts:folds";
+  let f = {};
+  try { f = JSON.parse(localStorage.getItem(K) || "{}"); } catch (e) {}
+  document.querySelectorAll("details[data-fold]").forEach(d => {
+    if (d.dataset.fold in f) d.open = f[d.dataset.fold];
+    d.addEventListener("toggle", () => { f[d.dataset.fold] = d.open; try { localStorage.setItem(K, JSON.stringify(f)); } catch (e) {} });
+  });
+})();
 // approvals save in place (no reload, Joe 2026-10-31): mirror a tick onto every box with the same key; a location's
 // pre-approval, or auto-approval with your beacon there, ticks and locks its contracts' own boxes, and taking it back
 // gives them back their own approval

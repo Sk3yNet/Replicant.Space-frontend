@@ -474,3 +474,21 @@ def test_managed_by_folds_in_new_ami_events_and_replays_after_a_delete(tmp_path)
         assert await managed_by(db) == {"D1": "C1"}
         await db.close()
     asyncio.run(go())
+
+
+def test_contracts_page_groups_approved_with_devices_approved_and_unapproved(client):
+    db, w = client.app.state.db, client.app.state.worker
+    for n, (des, loc, crit) in enumerate([
+            ("AEM-2-EVT-001", "AEM-2", [{"name": "farms", "resources": {}, "devices": [{"device_type": "orbital_farm", "quantity": 2}]}]),
+            ("AEM-3-EVT-001", "AEM-3", [{"name": "default", "resources": {"carbon": 50}, "devices": []}]),
+            ("AEM-4-EVT-001", "AEM-4", [{"name": "default", "resources": {"carbon": 50}, "devices": []}])]):
+        client.portal.call(w.handle_event, {**_ev(990 + n, "event.discovered", designation=des, location=loc, title=f"Ask {loc}",
+                                                  criteria=crit), "location": loc})
+    for key in ("body:AEM-2", "body:AEM-3"):
+        client.post("/game-events/approve", data={"key": key, "on": "1"}, headers=HX)
+    ctx = client.portal.call(__import__("rsweb.web", fromlist=["x"]).game_events_ctx, type("R", (), {"app": client.app})())
+    assert {k: [e["designation"] for e in v] for k, v in ctx["sections"].items()} == {
+        "devices": ["AEM-2-EVT-001"], "approved": ["AEM-3-EVT-001"], "unapproved": ["AEM-4-EVT-001"]}
+    page = client.get("/game-events", headers=H).text
+    i = [page.index(f'data-fold="{k}"') for k in ("devices", "approved", "unapproved")]
+    assert i == sorted(i) and i[0] < page.index("Ask AEM-2") < i[1] < page.index("Ask AEM-3") < i[2] < page.index("Ask AEM-4")

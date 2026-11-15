@@ -2211,6 +2211,15 @@ async def game_events_ctx(request: Request) -> dict:
         key, label = gev.place_key(q, life)
         q["approval"] = {"key": key, "label": label, "on": key in approvals, "beacon": q["location"] in at_beacon}
     quiet_rows = sorted(quiet.values(), key=lambda q: q["location"])   # fixed order: a row never jumps when approved
+    # three foldable sections (Joe 2026-11-15): approved and asking for devices, other approved, not approved
+    beacon_auto = gev.BEACON_KEY in approvals
+    sections = {"devices": [], "approved": [], "unapproved": []}
+    for e in open_:
+        a = e["approval"]
+        ok = a["on"] or e["approval_one"]["on"] or (beacon_auto and a["beacon"])
+        best = e["prog"].get("best") or {}
+        devs = any(x.get("need") for x in best.get("devices") or [])
+        sections["devices" if ok and devs else "approved" if ok else "unapproved"].append(e)
     # your deployed beacons at each civilization's body, and elsewhere in its system (traffic.coverage)
     from . import traffic as tr
     beacon = {}
@@ -2219,11 +2228,11 @@ async def game_events_ctx(request: Request) -> dict:
         b["here"].setdefault(d["location"], []).append(d["device_code"])
         b["system"].append(d["device_code"])
     from . import shop as sh
-    return {"open": open_, "closed": closed[:30], "replicants": st["replicants"], "settings": settings, "quiet": quiet_rows,
+    return {"open": open_, "sections": sections, "closed": closed[:30], "replicants": st["replicants"], "settings": settings, "quiet": quiet_rows,
             "traders": await sh.known_traders(db), "traders_last": await db.kv_get(sh.LAST_KV),
             "listing_wanted": await db.kv_get(sh.LISTING_KV, {}) or {}, "mine": set(st["replicants"]), "trade_side": sh.describe_side,
             "trade_ok": await db.kv_get("trade_approvals", {}) or {}, "beacon": beacon,
-            "beacon_auto": gev.BEACON_KEY in approvals, "beacon_key": gev.BEACON_KEY}
+            "beacon_auto": beacon_auto, "beacon_key": gev.BEACON_KEY}
 
 
 async def _event(request: Request, des: str) -> tuple[dict, dict]:
