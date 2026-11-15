@@ -388,7 +388,7 @@ patrolling the system), what is there now and the logistics delivery that tops i
 
 <img src="screens/terraforming.jpg" width="320" align="right" alt="Terraforming">
 
-- Each world with a terraform monitor: its latest `terraform.status` (attributes, change per tick, projections
+- Each world with a running terraform monitor (stock piles and switched-off kits are left off; a training run shows every place): its latest `terraform.status` (attributes, change per tick, projections
   +6/+12/+24, what drives them, warnings, anomalies), coupling rules active or close, bio seeder preconditions.
 - Your terraforming devices with strength (0–1), direction (reversible ones) and on/off.
 - **Dropping rocks**: detect Kuiper objects, launch one with a vector charge at a planet or moon, set propulsor /

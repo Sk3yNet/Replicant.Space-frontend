@@ -226,3 +226,15 @@ def test_a_trip_to_the_old_planet_ends_when_reassigned(client):  # noqa: F811
     assert jobs[old["id"]]["status"] == "cancelled"
     run = client.portal.call(e.fleets)[0]["tf_run"]
     assert run.get("job") != old["id"]
+
+
+def test_page_lists_only_places_with_a_running_monitor(client):  # noqa: F811
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices") + [
+        dev("REGSOL", "atmospheric_regulator", loc="SOL-3-1"),
+        dev("MONOFF", "terraform_monitor", loc="SOLARES-4-L4"), dev("LANCE", "thermal_lance", loc="SOLARES-4-L4"),
+        dev("REGW", "atmospheric_regulator"), dev("MON", "terraform_monitor", status="monitoring",
+                                                  terraform_status={"body": PLANET, **report(temperature=280)})])
+    t = client.get("/terraforming", headers={"X-Auth-Request-Email": "joe@example.com"}).text
+    assert "REGSOL" not in t and "SOL-3-1" not in t and "MONOFF" not in t and "LANCE" not in t
+    assert "REGW" in t and PLANET in t

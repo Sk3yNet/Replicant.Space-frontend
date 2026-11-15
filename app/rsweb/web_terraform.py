@@ -3,6 +3,8 @@ bio seeder preconditions), your terraforming devices with their strength / direc
 (detect Kuiper objects, launch one with a vector charge). terraform.py has the rules."""
 from __future__ import annotations
 
+import time
+
 import html
 from collections import defaultdict
 
@@ -121,8 +123,16 @@ async def _ctx(request: Request) -> dict:
                                   (d.get("device_code"),))
             if r and r["event"] == "terraform.device_activated":
                 since[d["device_code"]] = r["created_at"]
+    # real worlds: only places with a running terraform monitor (Joe 2026-11-15): stock piles and switched-off kits open no world
+    watched = {d.get("location") for d in devs if d.get("device_type") == "terraform_monitor" and d.get("location")
+               and not str(d.get("status") or "").startswith(("inactive", "idle", "stowed", "compacted", "offline"))}
+    # a report in the last 10 minutes means a monitor runs there too (the device list may be a couple of minutes old)
+    watched |= {b for b in bodies if any(r["location"] == b and (_ts(r["created_at"]) or 0) > time.time() - 600
+                                         for r in rows[:50])}
+    if sid:   # a training run is played by hand from here, its monitor switched on on this page: every place shows
+        watched |= set(bodies) | {d.get("location") for d in devs if d.get("device_type") in tf.DEVICES and d.get("location")}
     worlds = []
-    for body in sorted(set(bodies) | {d.get("location") for d in devs if d.get("device_type") in tf.DEVICES and d.get("location")}):
+    for body in sorted(watched):
         s = bodies.get(body) or {}
         out = tf.out_of_range(s, targets)
         hist = await db.fetchall("SELECT payload, COALESCE(created_at, received_at) AS created_at FROM events WHERE event = 'terraform.status' AND location = ? "

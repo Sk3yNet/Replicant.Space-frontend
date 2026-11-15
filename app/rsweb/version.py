@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.428.1"
+VERSION = "1.429.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.429.0", "2026-11-15", "Terraforming page lists only places with a running terraform monitor (Joe): stock piles "
+     "and switched-off kits (SOL-3-1, SOLARES-4-L4, the hub belts) no longer open a world of their own."),
     ("1.428.1", "2026-11-15", "Terraformer fleets: a new planet ends a trip still bound for the old one (Joe: Terraformer 1 "
      "kept surging to MAZARAR-2 after he set ALAYEBASAN-4). The next trip picks everyone up again, its matrix container "
      "too, and flies to the new planet."),
