@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.440.2"
+VERSION = "1.440.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.440.3", "2026-11-16", "Rock chasers trust a finished arrival job: the cached device list still showed Chaser_1's rigs "
+     "aboard after they had started mining at RENGRELOR-OBJ-1, so the pass sent them again and the repeat's Already mining "
+     "would have dropped the rock for 6 h. Already mining now counts as done for any start_mining step."),
     ("1.440.2", "2026-11-16", "Rock chasers: card changes (mode, criteria, launch, drop) no longer wait for the engine's pass "
      "(up to ~2 min, so the save never came back and Chaser_1's hub mode was lost); while a pass runs they are queued and "
      "applied first thing on the next one, and the card shows them at once. A sensor array is taken to its system's Kuiper "

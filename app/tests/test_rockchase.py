@@ -157,6 +157,33 @@ def test_card_changes_queue_while_the_engine_is_busy(client):  # noqa: F811
     assert "queued" not in r.text and client.portal.call(e.fleets)[0]["chase"]["mode"] == "roam"
 
 
+def test_chase_waits_for_a_fresh_device_list_after_arriving(client):  # noqa: F811
+    """Live 2026-11-16 (Chaser_1, RENGRELOR-OBJ-1): a minute after the arrival job, the cached list still showed the rigs
+    aboard and idle, so the pass sent them again; the repeat failed on "Already mining" and the rock would be skipped."""
+    db, e = _setup(client, [rig("RIG1", "SOL-OBJ-1", attached_to_device_code="PLAT"), carrier("PLAT", "SOL-OBJ-1")],
+                   {"SOL-OBJ-1": rock()})
+    job = client.portal.call(e.create_job, "rock_chaser", "Chaser: chase SOL-OBJ-1 (rares)", "PLAT",
+                             [{"desc": "x", "method": "POST", "path": "/devices/PLAT", "body": {"command": "travel"}, "wait": [],
+                               "status": "done", "started_at": iso(-1)}])
+    job["status"] = "done"
+    client.portal.call(e._update, job)
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"target": "SOL-OBJ-1", "phase": "moving", "resource": "rares", "job": job["id"], "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    st = client.portal.call(db.kv_get, "rock_mining", {}) or {}
+    st["RIG1"] = {"rock": "SOL-OBJ-1", "resource": "rares", "sent": True}
+    client.portal.call(db.kv_set, "rock_mining", st)
+    assert not any("→ SOL-OBJ-1" in x for x in client.portal.call(e.rock_chase_pass))
+    assert client.portal.call(e.fleets)[0]["chase_run"]["phase"] == "mining"
+    assert len([j for j in client.portal.call(e.jobs) if j["rule"] == "rock_chaser"]) == 1
+    # a repeat that only met "Already mining" keeps the rock
+    job["status"] = "failed"
+    job["steps"][0].update({"status": "skipped", "error": "Already mining", "started_at": iso(-10)})
+    client.portal.call(e._update, job)
+    client.portal.call(e.rock_chase_pass)
+    assert client.portal.call(e.fleets)[0]["chase_run"].get("target") == "SOL-OBJ-1"
+
+
 def test_engine_starts_its_own_rigs_and_scan_at_the_rock(client):  # noqa: F811
     # snapshot 2026-11-06: the fleet is never stationed, so reserved() hid its own rigs and drone from the plan
     drone = {"device_code": "SURV", "device_type": "belt_surveyor", "location": "SOL-OBJ-1", "status": "idle",

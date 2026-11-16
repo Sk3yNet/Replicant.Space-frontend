@@ -403,6 +403,11 @@ class JobsMixin:
                 # seen live: carriers let go of their cargo on arrival, so the device is already off — that's the goal
                 ok, st["note"] = True, err
                 st["wait"] = []
+            if (not ok and (st.get("body") or {}).get("command") == "start_mining"
+                    and "already mining" in (err or "").lower()):
+                # live 2026-11-16 (Chaser_1 at RENGRELOR-OBJ-1): a second job sent to rigs the first had started: the goal
+                ok, st["note"] = True, err
+                st["wait"] = []
             if (not ok and (st.get("body") or {}).get("command") == "stow"
                     and "already stowed" in (err or "").lower()):
                 # seen live (2026-10-06, Surveyors recall): the drone was already aboard — that's what the step wanted

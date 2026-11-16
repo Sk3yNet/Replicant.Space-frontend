@@ -91,7 +91,13 @@ class ChaseMixin:
         j = ctx["jobs"].get(run.get("job"))
         if j and j["status"] in ("running", "waiting", "pending"):
             return out
-        if j and j["status"] == "failed":
+        if j and j["status"] == "done" and run.get("phase") == "moving" and run.get("target"):
+            run["arrived"] = run["target"]   # the trip's job ran to the end: the rigs are there, whatever the cached list says
+        errs = [str(s.get("error") or "") for s in (j or {}).get("steps") or [] if s.get("status") in ("failed", "skipped")]
+        if j and j["status"] == "failed" and errs and all("already mining" in e.lower() for e in errs):
+            if run.get("target"):   # the rigs were mining already (a repeat job): the rock is fine
+                run["arrived"] = run["target"]
+        elif j and j["status"] == "failed":
             err = next((s.get("error") for s in j["steps"] if s.get("status") == "failed"), "") or "?"
             run["note"] = f"last {run.get('phase') or 'job'} failed: {err}"
             if run.get("phase") == "moving" and run.get("target"):
@@ -107,6 +113,10 @@ class ChaseMixin:
         o = objs.get(target) if target else None
         rigs_at = [d for d in k["rigs"] if target and d.get("location") == target
                    and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")]
+        if target and not rigs_at and run.get("arrived") == target:
+            # live 2026-11-16 (Chaser_1, RENGRELOR-OBJ-1): minutes after the arrival job the cached device list still showed
+            # the rigs aboard and idle, so the pass sent them again; trust the job: the rigs it took there
+            rigs_at = [d for d in k["rigs"] if (ctx["state"].get(d["device_code"]) or {}).get("rock") == target]
         if target and rigs_at and (rc.due_to_leave(o, cfg) or not rm.pick(o, cfg)):   # due, or mined down: move on
             out += await self._chase_leave(f, cfg, run, ctx, k, target)
         elif target and rigs_at:
@@ -215,6 +225,7 @@ class ChaseMixin:
         return steps
 
     def _remember(self, run: dict, ctx: dict, k: dict, c: dict, codes: set[str]) -> None:
+        run.pop("arrived", None)
         run.update({"target": c["rock"], "resource": c["resource"], "star": c["star"], "since": now_iso(), "phase": "moving",
                     "note": f"→ {c['rock']} to mine {c['resource']} ({c['mine_h']:.1f} h of mining)"})
         for d in k["rigs"]:
