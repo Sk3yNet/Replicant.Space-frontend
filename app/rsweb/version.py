@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.440.4"
+VERSION = "1.440.5"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.440.5", "2026-11-16", "Rock chaser card: Save, Launch and Call off never sent anything (their answer had no place to go "
+     "after the form, so the browser dropped the request). Fixed, and a test now checks every page for that mistake."),
     ("1.440.4", "2026-11-16", "A rock chaser with no target whose rigs are mining a rock still in flight takes that rock back "
      "(clears its skip): Chaser_1 had dropped RENGRELOR-OBJ-1 while its rigs mined it, so no shipping or timely leave."),
     ("1.440.3", "2026-11-16", "Rock chasers trust a finished arrival job: the cached device list still showed Chaser_1's rigs "

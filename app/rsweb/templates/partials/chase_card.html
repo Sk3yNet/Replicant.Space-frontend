@@ -61,14 +61,14 @@
           <span class="muted">Launch marked objects at the launch-at body without asking. Each launch uses up a vector charge. Off: you press Launch.</span></label>
       </fieldset>
       <button class="small">Save</button>
-    </form></details>
+    </form><span class="chase-out"></span></details>
   {% set marks = run.marked or {} %}
   {% if marks or run.launch %}<div style="margin-top:4px"><b>Marked for launch</b>
     {% if run.launch %}<div>Launching <b>{{ run.launch.rock }}</b> at {{ run.launch.at }}{% if run.launch.get('note') %} <span class="muted">· {{ run.launch.note }}</span>{% endif %}
-      <form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out"><input type="hidden" name="action" value="unlaunch"><button class="small">Call off</button></form></div>{% endif %}
+      <form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out"><input type="hidden" name="action" value="unlaunch"><button class="small">Call off</button></form><span class="chase-out"></span></div>{% endif %}
     {% for des, m in marks | dictsort %}<div>• <span class="mono">{{ des }}</span> {{ m.get('mass_class') or '' }} {{ m.get('composition') or '' }} <span class="muted">found {{ m.get('found_at') | ago }}</span>
       <form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out" hx-confirm="Launch {{ des }}? A fleet vector charge is used up and the rock will strike the body you pick.">
         <input type="hidden" name="action" value="launch"><input type="hidden" name="rock" value="{{ des }}">
-        <input name="at" value="{{ c.launch_at }}" placeholder="planet or moon" size="12" required> <button class="small">Launch</button></form></div>{% endfor %}
+        <input name="at" value="{{ c.launch_at }}" placeholder="planet or moon" size="12" required> <button class="small">Launch</button></form><span class="chase-out"></span></div>{% endfor %}
   </div>{% endif %}
 </div>

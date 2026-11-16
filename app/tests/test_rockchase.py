@@ -240,3 +240,19 @@ def test_idle_chaser_gathers_members_from_other_systems_at_home(client):  # noqa
     assert "RIG3" not in str(by) and "RIG1" not in str(by)            # beyond the sector range; home already
     f = client.portal.call(e.fleets)[0]
     assert "can't fetch: RIG3" in f["chase_run"]["note"] and any("gathers" in x or "home" in x for x in out)
+
+
+def test_every_next_target_exists_after_its_form():
+    """Live 2026-11-16: the rock chaser Save (and Launch, Call off) targeted "next .chase-out" with no such element after
+    them, so htmx never sent the request and Chaser_1's settings never saved."""
+    import glob
+    import os
+    import re
+    root = os.path.join(os.path.dirname(__file__), "..", "rsweb", "templates")
+    bad = []
+    for p in glob.glob(os.path.join(root, "**", "*.html"), recursive=True):
+        s = open(p).read()
+        for m in re.finditer(r'hx-target="next \.([\w-]+)"', s):
+            if not re.search(r'class="[^"]*\b' + re.escape(m.group(1)) + r'\b', s[m.end():]):
+                bad.append(f"{os.path.basename(p)}:{s[:m.start()].count(chr(10)) + 1} {m.group(1)}")
+    assert not bad, bad
