@@ -293,6 +293,20 @@ class LoadoutMixin:
             if drop:
                 st["orders"] = [o for o in st["orders"] if not any(o is x for x in drop)]
                 await self.db.kv_set(vqm.KV, st)
+            # relay prints the rollout ordered before 1.444.0 carry no `rollout` tag: mark the kept ones so they wait last
+            rolled = {lom.to_tag(str(s_)) for s_ in ((await self.db.kv_get("relay_rollout", {}) or {}).get("ordered") or {})}
+            moved = 0
+            for o in st["orders"]:
+                b = o.get("body") or {}
+                tags = b.get("tags") or []
+                if (rolled and o.get("prio") in (2, 3) and vqm.ROLLOUT not in tags
+                        and b.get("device_type") in ("ftl_relay", "deep_space_relay_station")
+                        and "component" not in tags and any(t in rolled for t in tags)):
+                    b["tags"] = list(tags) + [vqm.ROLLOUT]
+                    o["prio"] = 5
+                    moved += 1
+            if moved:
+                await self.db.kv_set(vqm.KV, st)
         for code in sorted({o["factory"] for o in drop}):
             n = sum(o["factory"] == code for o in drop)
             line = f"{code}: dropped {n} kept print(s) it can't make" + \

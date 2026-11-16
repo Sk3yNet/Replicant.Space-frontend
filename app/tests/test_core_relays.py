@@ -1125,7 +1125,7 @@ def test_relay_rollout_pass_keeps_orders_open_and_skips_failures(client, monkeyp
     async def devices():
         return devs
 
-    async def order(kind, star, user=""):
+    async def order(kind, star, user="", rollout=False):
         if star == "B":
             return "no spare FTL relay and no autofactory within 100 ly of B"
         orders = await db.kv_get(wo.kv_key("relay"), {}) or {}
@@ -1163,7 +1163,7 @@ def test_relay_rollout_pass_orders_station_pairs(client, monkeypatch):
     async def devices():
         return devs
 
-    async def order(kind, star, user=""):
+    async def order(kind, star, user="", rollout=False):
         calls.append((kind, star))
         orders = await db.kv_get(wo.kv_key(kind), {}) or {}
         orders[star] = {"at": "2026-10-29T00:00:00+00:00", "how": "print"}
@@ -1184,7 +1184,7 @@ def test_relays_route_orders_stations(client, monkeypatch):
     eng = client.app.state.worker.automations
     calls = []
 
-    async def order(kind, star, user=""):
+    async def order(kind, star, user="", rollout=False):
         calls.append((kind, star))
         return "ok"
     monkeypatch.setattr(eng, "order_outpost", order)
@@ -1499,7 +1499,7 @@ def test_station_swapped_for_relay_once_a_relay_path_exists(client):
     async def devices():
         return devs
 
-    async def order(kind, star, user=""):
+    async def order(kind, star, user="", rollout=False):
         calls.append(("add", kind, star))
         await db.kv_set(wo.kv_key(kind), {star: {"at": "2026-10-29T00:00:00+00:00", "how": "print"}})
         return "printing"

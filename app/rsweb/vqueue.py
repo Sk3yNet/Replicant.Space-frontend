@@ -9,6 +9,7 @@ factory in the game's queue, best first:
   2 network   relays, relay stations, beacons and wards
   3 loadout   everything else (fleet loadouts, contracts, lockers …)
   4 stock   keep-in-stock prints (`stock` tag)
+  5 rollout   relays printed for the relay rollout (`rollout` tag): every other print goes first (owner 2026-11-16)
 
 then in the order they were queued. Factories of one type at one spot share what's kept here (owner 2026-11-03): each
 is fed the best of all their kept orders, so their game queues stay even and none sits idle while a neighbor's backs up. A better print waiting here takes the place of a worse one in the game's queue
@@ -34,7 +35,8 @@ HAND = contextvars.ContextVar("vqueue_hand", default=False)   # set around print
 PATH = re.compile(r"^/(?:v1/)?devices/([0-9A-Fa-f]{8})/?$")
 LIST = re.compile(r"^/(?:v1/)?devices/?$")
 NETWORK = ("ftl_relay", "deep_space_relay_station", "ftl_beacon", "ward")
-LABELS = {0: "by hand", 1: "component", 2: "network", 3: "loadout", 4: "stock"}
+ROLLOUT = "rollout"   # tag on relay prints the relay rollout orders: they wait behind every other print
+LABELS = {0: "by hand", 1: "component", 2: "network", 3: "loadout", 4: "stock", 5: "rollout"}
 
 
 def priority(body: dict, hand: bool = False) -> int:
@@ -44,6 +46,8 @@ def priority(body: dict, hand: bool = False) -> int:
         return 0
     if "component" in tags:
         return 1
+    if ROLLOUT in tags:
+        return 5
     if t in NETWORK or "beacon" in t or "relay" in t:
         return 2
     if "stock" in tags:

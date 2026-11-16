@@ -86,6 +86,23 @@ def test_priorities():
     assert vqueue.priority({"device_type": "mining_drone", "tags": ["component"]}) == 1
     assert vqueue.priority({"device_type": "x", "tags": ["spare", "stock"]}) == 4
     assert vqueue.priority({"device_type": "mining_rig", "tags": ["fleet:m"]}) == 3
+    assert vqueue.priority({"device_type": "ftl_relay", "tags": ["to:a", "rollout"]}) == 5   # after everything else
+
+
+def test_rollout_relays_wait_behind_every_other_print(client):  # noqa: F811
+    db, e, world = setup(client)
+    client.portal.call(db.kv_set, "relay_rollout", {"on": True, "ordered": {"KELMORNEA": "2026-11-16T00:00:00Z"}})
+    for body in ({"device_type": "ftl_relay", "tags": ["to:kelmornea"]},            # queued by the rollout before 1.444
+                 {"device_type": "ftl_relay", "tags": ["to:vega", "rollout"]},
+                 {"device_type": "ftl_relay", "tags": ["to:sol"]},                  # a relay ordered by hand
+                 {"device_type": "orbital_farm", "tags": ["spare", "stock"]}):
+        ok, _, _ = client.portal.call(e.send, "POST", "/devices/AF00BEEF",
+                                      {"command": "enqueue_print", "quantity": 1, **body}, "t")
+        assert ok
+    feed(client)
+    assert [x["tags"] for x in world.queues["AF00BEEF"]] == [["to:sol"], ["spare", "stock"]]
+    kept = client.portal.call(VirtualQueue(db).orders, "AF00BEEF")
+    assert [o["prio"] for o in kept] == [5, 5] and all("rollout" in o["body"]["tags"] for o in kept)
 
 
 
