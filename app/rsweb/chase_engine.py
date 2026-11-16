@@ -423,15 +423,37 @@ class ChaseMixin:
         hot = set(open_rocks(ctx["objs"]))
         return ev.safe_spot(star, o.get("impact_target"), ctx["stars"], ctx["scans"].get(star), here=rock, avoid=hot)
 
+    async def _ferry_collect(self, k: dict, star: str) -> str | None:
+        """Where a fleet controller's ferry directive collects in `star`, from its latest transport digest."""
+        import json as _json
+        codes = sorted({d.get("controller_device_code") for d in k.get("ferried") or [] if d.get("controller_device_code")})
+        for code in codes:
+            row = await self.db.fetchone("SELECT payload FROM events WHERE event='ami.transport.digest' AND device_code=? "
+                                         "ORDER BY seq DESC LIMIT 1", (code,))
+            try:
+                p = _json.loads(row["payload"] or "{}") if row else {}
+            except ValueError:
+                continue
+            collect = str((p.get("report") or {}).get("collect") or "")
+            if p.get("directive") == "ferry" and collect.split("-")[0] == star:
+                return collect
+        return None
+
     async def _chase_pick_drop(self, cfg: dict, run: dict, ctx: dict, k: dict, rock: str) -> None:
         """Joe 2026-11-16: drop at a permanent spot with the shortest round trip, never at the impact target. Once per rock:
         the game's trip preview from a fleet member at the rock to each candidate (rockchase.drop_candidates)."""
         from . import rockchase as rc
         drops = run.setdefault("drops", {})
-        if rock in drops or str(cfg.get("drop") or "").strip():
+        if str(cfg.get("drop") or "").strip():
             return
         star = rock.split("-")[0]
         o = ctx["objs"].get(rock) or {}
+        collect = await self._ferry_collect(k, star)
+        if collect and not rc.near_target(collect, o.get("impact_target")):
+            drops[rock] = collect   # a fleet ferry picks up there: drop where it collects (Joe 2026-11-16, 661BF2A6)
+            return
+        if rock in drops:
+            return
         from .rockmining import open_rocks
         cands = rc.drop_candidates(star, o.get("impact_target"), (ctx["stars"].get(star) or {}).get("entry_point"),
                                    ctx["scans"].get(star), avoid=set(open_rocks(ctx["objs"])) | {rock})

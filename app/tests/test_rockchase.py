@@ -220,6 +220,19 @@ def test_ships_to_the_nearest_permanent_spot_never_the_impact_target(client):  #
     client.portal.call(e.save_fleets, f)
     out = client.portal.call(e.rock_chase_pass)
     assert any("ships" in x and "to SOL-BELT-1" in x for x in out), out
+    # a fleet controller ferrying from SOL-4-L5: its freighter is left alone and the drop is where the ferry collects
+    jobs = [j for j in client.portal.call(e.jobs) if j["rule"] == "rock_chaser"]
+    for j in jobs:
+        j["status"] = "done"
+        client.portal.call(e._update, j)
+    devs = client.portal.call(db.kv_get, "devices")
+    devs.append({**fr, "device_code": "FER", "controller_device_code": "CTL"})
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(db.insert_event, {"id": "dg1", "event": "ami.transport.digest", "device_code": "CTL",
+                                         "payload": {"directive": "ferry", "report": {"collect": "SOL-4-L5",
+                                                                                      "deliver": "FAR-BELT-1"}}})
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("FRT ships" in x and "to SOL-4-L5" in x for x in out) and not any("FER" in x for x in out), out
     # a drop set on the card at the impact target is ignored
     from rsweb.chase_engine import ChaseMixin
     assert ChaseMixin._chase_drop(e, {"drop": "SOL-3"}, "SOL-OBJ-1", {"objs": {"SOL-OBJ-1": rock()}, "stars": {}, "scans": {}},

@@ -165,7 +165,7 @@ def kinds(ms: list[dict]) -> dict[str, list[dict]]:
     surveyors (belt surveyors first), sensors (sensor arrays), charges (vector charges)."""
     from . import fleets as fl
     from .sites import is_surveyor, surveyors_first
-    out: dict[str, list[dict]] = {k: [] for k in ("rigs", "carriers", "shippers", "surveyors", "sensors", "charges")}
+    out: dict[str, list[dict]] = {k: [] for k in ("rigs", "carriers", "shippers", "surveyors", "sensors", "charges", "ferried")}
     for d in sorted(ms, key=lambda d: d.get("device_code") or ""):
         t = d.get("device_type") or ""
         if rm.is_rig(d):
@@ -173,7 +173,9 @@ def kinds(ms: list[dict]) -> dict[str, list[dict]]:
         elif fl.is_carrier(d):
             out["carriers"].append(d)
         elif "transport" in (d.get("features") or []) or fl._int(d.get("cargo_capacity")) > 0:
-            out["shippers"].append(d)
+            # live 2026-11-16: 661BF2A6 ran the fleet controller's ferry (RENGRELOR-3-L4 → SOLARES-BELT-1) while the app
+            # gave it rock trips too; a shipper under a controller is the controller's
+            out["ferried" if d.get("controller_device_code") else "shippers"].append(d)
         elif is_surveyor(d):
             out["surveyors"].append(d)
         elif t == "sensor_array":
