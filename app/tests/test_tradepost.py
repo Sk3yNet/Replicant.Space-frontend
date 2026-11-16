@@ -320,6 +320,8 @@ def test_roll_call_lists_every_shop_with_its_controller_code():
     text = sh.roll_call(sh.shops(devs, {}, {**cache, "NOSHOP": cache["SHOP"]}), "Shops:")
     assert text == "Shops: ALGOL-OORT: SHOP2. SOL-4-L4: SHOP."
     assert sh.roll_call(sh.shops(devs[2:], {}, cache)) == ""
+    assert sh.roll_call(sh.shops(devs, {}, cache), "Find us at SOL-4-L4, by controller:") == \
+        "Find us at SOL-4-L4, by controller: ALGOL-OORT: SHOP2. SHOP."   # a location the opening names isn't repeated
     assert sh.rollcall_settings({"channel": "trade", "hours": "x"})["channel"] == "#trade"
 
 

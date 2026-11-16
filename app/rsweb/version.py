@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.439.1"
+VERSION = "1.439.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.439.2", "2026-11-16", "BobNet roll call: a shop location the opening already names isn't repeated before its "
+     "trade controller codes (Joe)."),
     ("1.439.1", "2026-11-16", "Kuiper objects are launched from their belt: the game refuses travel to one (Invalid "
      "destination format), so they leave the travel spot list again. A vector charge deployed at STAR-KUIPER now gets the "
      "Launch form on Terraforming for every object there, rock chasers fly the charge to the belt, and the device command "

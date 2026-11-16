@@ -355,5 +355,8 @@ def roll_call(shops_: list[dict], intro: str = ROLLCALL_DEFAULT["intro"]) -> str
         by_loc.setdefault(s["location"], []).append(s["code"])   # codes only, not what they sell (Joe 2026-11-16)
     if not by_loc:
         return ""
-    body = " ".join(f"{loc}: {', '.join(rows)}." for loc, rows in sorted(by_loc.items()))
+    # a location the opening already names isn't repeated (Joe 2026-11-16: "Find our shop at AELTHORION-6-L4 or
+    # browse by trade controller: C6FA64CF, …")
+    named = (intro or "").upper()
+    body = " ".join(f"{'' if loc.upper() in named else loc + ': '}{', '.join(rows)}." for loc, rows in sorted(by_loc.items()))
     return f"{intro} {body}".strip()
