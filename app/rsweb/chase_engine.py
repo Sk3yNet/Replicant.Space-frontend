@@ -135,6 +135,8 @@ class ChaseMixin:
             out += await self._chase_move(f, cfg, run, ctx, k)
             if run.get("phase") == "idle" and not run.get("job"):
                 out += await self._chase_gather(f, cfg, run, ctx, k, ms)
+        mining = run.get("target") if run.get("phase") == "mining" and run.get("target") == target and rigs_at else None
+        out += await self._chase_ami(f, cfg, run, ctx, k, ms, mining)
         if run.get("target"):
             out += await self._chase_ship(f, cfg, run, ctx, k, run["target"])
         out += await self._chase_search(f, cfg, run, ctx, k)
@@ -422,6 +424,72 @@ class ChaseMixin:
         from .rockmining import open_rocks
         hot = set(open_rocks(ctx["objs"]))
         return ev.safe_spot(star, o.get("impact_target"), ctx["stars"], ctx["scans"].get(star), here=rock, avoid=hot)
+
+    async def _chase_ami(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict, ms: list[dict], rock: str | None) -> list[str]:
+        """Joe 2026-11-16: the fleet's AMI transport controller runs every fleet freighter. While the rigs mine a rock it
+        shuttles rock → best drop (never the impact target); otherwise its shuttle is cleared and the supply ferry
+        (loadouts) takes it back: the drop's pile to the nearest hub. Unverified live: a shuttle collecting at an
+        asteroid object (STAR-OBJ-n)."""
+        from .automations import step
+        ctrl = next((d for d in ms if "transport_controller" in (d.get("device_type") or "")), None)
+        cur = run.get("ami") or {}
+        if not ctrl or ctrl["device_code"] in ctx["busy"]:
+            return []
+        code = ctrl["device_code"]
+        steps: list[dict] = []
+        if rock:
+            star = rock.split("-")[0]
+            if (ctrl.get("location") or "").split("-")[0] != star or ctrl.get("stowed_in_device_code") \
+                    or ctrl.get("attached_to_device_code"):
+                run["ami_note"] = f"{code} is not deployed in {star}: the freighters ship by the app's own trips"
+                return []
+            await self._chase_pick_drop(cfg, run, ctx, k, rock)
+            drop = self._chase_drop(cfg, rock, ctx, run)
+            if not drop:
+                return []
+            free = [d for d in k["shippers"] + k["ferried"] if (d.get("location") or "").split("-")[0] == star
+                    and d.get("controller_device_code") != code and d["device_code"] not in ctx["busy"]
+                    and d["device_code"] not in (cur.get("adopted") or [])   # the cached list lags the adopt
+                    and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")]
+            if cur.get("ctrl") == code and cur.get("collect") == rock and cur.get("deliver") == drop and not free:
+                return []
+            others: dict[str, list[str]] = {}
+            for d in free:
+                if d.get("controller_device_code"):
+                    others.setdefault(d["controller_device_code"], []).append(d["device_code"])
+            for other, codes in sorted(others.items()):
+                steps.append(step(f"{other}: release {', '.join(codes)} to {code}", f"/devices/{other}",
+                                  {"command": "release", "devices": codes}))
+            if free:
+                steps.append(step(f"{code}: adopt {len(free)} freighter(s)", f"/devices/{code}",
+                                  {"command": "adopt", "devices": [d["device_code"] for d in free]}))
+            if not (cur.get("ctrl") == code and cur.get("collect") == rock and cur.get("deliver") == drop):
+                steps += [step(f"{code}: shuttle {rock} → {drop}", f"/devices/{code}",
+                               {"command": "set_directive", "directive": "shuttle",
+                                "configuration": {"collect": rock, "deliver": drop}}, critical=True),
+                          step(f"{code}: launch", f"/devices/{code}", {"command": "launch"})]
+            title, line = f"{f['name']}: {code} shuttles {rock} → {drop}", f"{code} shuttles {rock} → {drop}"
+            new = {"ctrl": code, "collect": rock, "deliver": drop, "at": now_iso(),
+                   "adopted": sorted(set(cur.get("adopted") or []) | {d["device_code"] for d in free})}
+        else:
+            if not cur.get("ctrl"):
+                return []
+            steps = [step(f"{code}: clear the rock shuttle", f"/devices/{code}", {"command": "clear_directive"})]
+            title, line = f"{f['name']}: {code} back to the supply ferry", f"{code}: shuttle cleared, the supply ferry takes over"
+            new = None
+        job = await self.create_job("rock_chaser", title, code, steps, {"devices": [code]})
+        if not job:
+            return []
+        ctx["busy"].add(code)
+        if new:
+            sent = await self.db.kv_get("loadout_ferries", {}) or {}
+            if sent.pop(code, None) is not None:   # else the loadout planner keeps reading it as its ferry and sends that again
+                await self.db.kv_set("loadout_ferries", sent)
+            run["ami"] = new
+        else:
+            run.pop("ami", None)
+        run.pop("ami_note", None)
+        return [line]
 
     async def _ferry_collect(self, k: dict, star: str) -> str | None:
         """Where a fleet controller's ferry directive collects in `star`, from its latest transport digest."""

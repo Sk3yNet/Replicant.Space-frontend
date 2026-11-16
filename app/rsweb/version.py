@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.441.0"
+VERSION = "1.441.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.441.1", "2026-11-16", "Rock chasers (Joe): while the rigs mine a rock, the fleet's AMI transport controller adopts every "
+     "fleet freighter in the system and shuttles rock to the best drop (shortest trip, never the impact target); when the "
+     "fleet stops mining the shuttle is cleared and the supply ferry takes the drop's pile to the nearest hub. Unverified "
+     "live: a shuttle collecting at an asteroid."),
     ("1.441.0", "2026-11-16", "Needs you holds only what needs you. A terraform device you (or an automation) switched off "
      "no longer raises an error; only one the game switches off does. Terraform anomalies (solar flares, toxic blooms, "
      "eruptions) are one warning each, from forecast to end, in plain words (Volcanic Eruption (dramatic) in 12 ticks). "

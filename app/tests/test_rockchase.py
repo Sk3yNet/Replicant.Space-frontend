@@ -239,6 +239,36 @@ def test_ships_to_the_nearest_permanent_spot_never_the_impact_target(client):  #
                                   {"drops": {"SOL-OBJ-1": "SOL-BELT-1"}}) == "SOL-BELT-1"
 
 
+def test_fleet_controller_shuttles_rock_to_drop_while_mining_then_hands_back(client):  # noqa: F811
+    """Joe 2026-11-16: the AMI controller runs every carrier: rock → best drop while mining, nearest hub when idle."""
+    ctl = {"device_code": "CTL", "device_type": "ami_transport_controller", "location": "SOL-4-L5", "status": "idle",
+           "tags": ["fleet:rc"], "features": ["ami"], "available_commands": ["adopt", "set_directive", "launch"]}
+    fr = {"device_code": "FRT", "device_type": "cargo_freighter", "location": "SOL-4-L5", "status": "idle", "tags": ["fleet:rc"],
+          "features": ["cruise", "transport"], "cargo_capacity": 500, "available_commands": ["travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-OBJ-1", "mining (rares)"), fr, ctl], {"SOL-OBJ-1": rock()}, {"drop": "SOL-4-L5"})
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"target": "SOL-OBJ-1", "phase": "mining", "resource": "rares", "arrived": "SOL-OBJ-1",
+                         "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    client.portal.call(db.kv_set, "loadout_ferries", {"CTL": {"configuration": {"collect": "SOL-4-L5", "deliver": "X"}}})
+    out = client.portal.call(e.rock_chase_pass)
+    assert "Chaser: CTL shuttles SOL-OBJ-1 → SOL-4-L5" in out, out
+    job = next(j for j in client.portal.call(e.jobs) if "shuttles" in j["title"])
+    bodies = [st.get("body") for st in job["steps"]]
+    assert {"command": "adopt", "devices": ["FRT"]} in bodies
+    assert {"command": "set_directive", "directive": "shuttle", "configuration": {"collect": "SOL-OBJ-1", "deliver": "SOL-4-L5"}} in bodies
+    assert "CTL" not in (client.portal.call(db.kv_get, "loadout_ferries") or {})
+    job["status"] = "done"
+    client.portal.call(e._update, job)
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"].update({"target": None, "phase": "idle", "arrived": None})
+    client.portal.call(e.save_fleets, f)
+    client.portal.call(db.kv_set, "objects", {})   # the rock is gone
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("shuttle cleared" in x for x in out), out
+    assert "ami" not in client.portal.call(e.fleets)[0]["chase_run"]
+
+
 def test_engine_starts_its_own_rigs_and_scan_at_the_rock(client):  # noqa: F811
     # snapshot 2026-11-06: the fleet is never stationed, so reserved() hid its own rigs and drone from the plan
     drone = {"device_code": "SURV", "device_type": "belt_surveyor", "location": "SOL-OBJ-1", "status": "idle",
