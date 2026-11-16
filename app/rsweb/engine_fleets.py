@@ -998,7 +998,7 @@ class FleetsMixin:
             if last and (_now() - last).total_seconds() < 60 * max(1, int((cfg or {}).get("every_minutes") or 30)):
                 return []
             await self.db.kv_set("fleet_fill_at", now_iso())
-        from . import fleets as fl
+        from . import fleets as fl, terraformer as tr
         stars = await self.star_lookup("by")   # shared with every reader: never change a record
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
@@ -1014,8 +1014,8 @@ class FleetsMixin:
                 continue
             if fl.stationed(f) or f.get("role") == "bootstrap":
                 continue   # the loadout pass keeps a stationed fleet filled, at its home
-            if f.get("role") == "terraformer" and (f.get("tf_run") or {}).get("departed"):
-                continue   # at its planet: its carrier holds the replicant there; the terraformer pass sends for what's short
+            if tr.out_working(f, devices):
+                continue   # away at work: its carrier holds the replicant there; the terraformer pass sends for what's short
             # a logistics fleet always has jobs going: its extras only need to be out of them (busy)
             if f["id"] in working and f.get("role") != "logistics":
                 continue
@@ -1058,7 +1058,7 @@ class FleetsMixin:
             if last and (_now() - last).total_seconds() < 15 * 60:
                 return []
             await self.db.kv_set("matrix_pickup_at", now_iso())
-        from . import fleets as fl
+        from . import fleets as fl, terraformer as tr
         on = [f for f in await self.fleets() if f.get("pick_matrix")]
         items = [f for f in on if not only or f["id"] == only]
         notes = {k: v for k, v in (await self.db.kv_get("matrix_pickups", {}) or {}).items() if any(f["id"] == k for f in on)}
@@ -1077,7 +1077,7 @@ class FleetsMixin:
         for f in items:
             if (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped") or f.get("role") == "bootstrap" \
                     or fl.held(f) or f["id"] in working \
-                    or (f.get("role") == "terraformer" and (f.get("tf_run") or {}).get("departed")):   # at its planet
+                    or tr.out_working(f, devices):   # a terraformer away at work
                 continue
             if fl.has_replicant(f, devices):
                 notes[f["id"]] = {"at": now_iso(), "note": "has a replicant aboard"}

@@ -364,3 +364,26 @@ def test_an_anomaly_is_one_warning_from_forecast_to_end(client):  # noqa: F811
     rows = client.portal.call(db.fetchall, "SELECT level, title FROM notifications WHERE title LIKE '%anomaly%'")
     assert [(r["level"], r["title"].split(": anomaly at ")[1]) for r in rows] == \
         [("warning", "SOL-4: Volcanic Eruption (dramatic) in 12 ticks")]
+
+
+def test_a_new_planet_takes_everyone_from_the_old_one_without_waiting_for_the_loadout(client):  # noqa: F811
+    # live 2026-11-16: Terraformer 1 reassigned ALAYEBASAN-4 → ADHARA-2, short a regulator: Fill from spares flew its
+    # carrier to SOLARES and left every device at the old planet
+    carrier = {"device_code": "MOB", "device_type": "mobile_fleet", "location": "FAR-4", "status": "idle", "tags": ["fleet:tf"],
+               "features": ["surge", "cruise"], "attach_capacity": 36, "available_commands": ["travel", "attach"],
+               "hosting_replicant": {"name": "Sk3y-34"}}
+    spare = {"device_code": "REG2", "device_type": "atmospheric_regulator", "location": "SOL-3", "status": "idle",
+             "tags": ["spare"], "features": ["stow"], "available_commands": ["deploy"]}
+    devs = [carrier, spare, dev("MON", "terraform_monitor", "FAR-4", status="monitoring"),
+            dev("MIR", "orbital_mirror", "FAR-4", status="terraforming")]
+    db, e = _setup(client, devs, wants={"atmospheric_regulator": 1, "terraform_monitor": 1, "orbital_mirror": 1,
+                                        "mobile_fleet": 1})
+    f = client.portal.call(e.fleets)
+    f[0]["tf_run"] = {"planet": "FAR-4", "phase": "terraforming"}   # reassigned: departed dropped with the old planet
+    client.portal.call(e.save_fleets, f)
+    assert client.portal.call(e.fill_fleets, True) == []
+    assert client.portal.call(e.terraformer_pass) == [f"Greening: → {PLANET}"]
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "terraformer")
+    bodies = [st.get("body") for st in job["steps"]]
+    assert bodies[0] == {"command": "deactivate"} and {"command": "travel", "destination": PLANET} in bodies
+    assert {"command": "attach", "device": "MIR"} in bodies or {"command": "stow", "target": "MOB"} in bodies

@@ -206,7 +206,9 @@ class TerraformerMixin:
         departed = bool(run.get("departed")) and not home
         if not departed and not home:
             short = [r for r in fl.roster(f, devices)["rows"] if r["short"]]
-            if short and not run.get("go"):   # Depart now: whatever it has
+            # Depart now: whatever it has. Away from home (a new planet for a fleet at work) it never waits: everyone
+            # boards where they are and goes, and what's missing follows by logistics (_tf_fetch)
+            if short and not run.get("go") and fl.where(f, devices) in (None, f["home"]):
                 run.update({"phase": "gathering", "note": "waiting for its loadout: short " + ", ".join(
                     f"{r['short']} {r['type'].replace('_', ' ')}" for r in short)})
                 return []

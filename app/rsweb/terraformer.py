@@ -46,6 +46,20 @@ STALE_MIN = 10         # a report older than this doesn't steer
 BODY_RE = re.compile(r"^[A-Z0-9]+(-[0-9]+){1,2}$")   # a planet (STAR-3) or a moon (STAR-3-1)
 
 
+def out_working(f: dict, devices: list[dict]) -> bool:
+    """A terraformer fleet out of its home system (at a planet, or between planets after a reassignment): its carrier
+    holds the replicant and the devices are at work, so nothing else (Fill from spares, matrix pickup) may send the
+    carrier off; what it lacks comes by logistics (live 2026-11-16: Terraformer 1, reassigned ALAYEBASAN-4 → ADHARA-2,
+    lost its departed mark, and Fill from spares flew the carrier to SOLARES for a regulator, leaving 26 devices)."""
+    from . import fleets as fl
+    if f.get("role") != ROLE:
+        return False
+    if (f.get("tf_run") or {}).get("departed"):
+        return True
+    here = fl.where(f, devices)
+    return bool(here and f.get("home") and here != f["home"])
+
+
 def settings(f: dict) -> dict:
     out = {**DEFAULTS, **(f.get("terraform") or {})}
     out["planet"] = str(out.get("planet") or "").strip().upper()

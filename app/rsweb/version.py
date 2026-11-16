@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.442.1"
+VERSION = "1.443.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.443.0", "2026-11-16", "Terraformer fleets (Joe): a fleet given a new planet while away takes everyone from the old one "
+     "straight there instead of waiting for its full loadout, and Fill from spares or matrix pickup never send its carrier "
+     "off while it is out of its home system (Terraformer 1's carrier flew to SOLARES for a regulator and left its devices "
+     "at ALAYEBASAN-4); what it lacks follows by logistics."),
     ("1.442.1", "2026-11-16", "Freighters no longer wait at a rock that is about to strike (live: Chaser_1 lost 661BF2A6, "
      "7C59FC44 and 7FB319CA when RENGRELOR-OBJ-1 hit). A transport controller whose directive collects or delivers at a "
      "doomed location has it cleared before the impact, so evacuation can move its freighters. Supply ferries never pick up "
