@@ -45,6 +45,21 @@ def launch_spot(des: str) -> str:
     return m.group(1) if m else des
 
 
+LAUNCHED_KV = "launched_rocks"   # {object_designation: detonate response + at}: rocks you sent; defense leaves them be
+
+
+async def remember_launch(db, resp, by: str, at: str | None = None) -> bool:
+    """Keep a detonate answer ({object_designation: STAR-OBJ-n, destination, impact_eta, ...}) so defense treats the rock
+    as yours. Every launch path calls it (live 2026-11-16: one sent from the device command form wasn't kept)."""
+    if not isinstance(resp, dict) or not resp.get("object_designation"):
+        return False
+    from .db import now_iso
+    rocks = await db.kv_get(LAUNCHED_KV, {}) or {}
+    rocks[resp["object_designation"]] = {**rocks.get(resp["object_designation"], {}), **resp, "at": at or now_iso(), "by": by}
+    await db.kv_set(LAUNCHED_KV, rocks)
+    return True
+
+
 def can_launch(charge: dict, des: str) -> bool:
     """A deployed charge (not stowed or towed) at the object's belt, or at the object itself."""
     return charge.get("location") in (des, launch_spot(des)) and not charge.get("stowed_in_device_code") \

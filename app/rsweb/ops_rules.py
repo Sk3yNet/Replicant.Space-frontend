@@ -999,6 +999,15 @@ class OpsRules:
             if o.get("closed") in ("diverted", "impacted") and _after(_born(o), o.get("closed_at")):
                 o.pop("closed")
                 o.pop("closed_at", None)
+        if not await self.db.kv_get("launched_rocks_backfill"):   # 1.439.2: hand launches from other forms weren't kept
+            from .rockchase import remember_launch
+            for r in await self.db.fetchall("SELECT at, user, response FROM actions WHERE status=200 AND body LIKE ? ORDER BY id",
+                                            ('%"command": "detonate"%',)):
+                try:
+                    await remember_launch(self.db, json.loads(r["response"] or "null"), r["user"] or "you", r["at"])
+                except ValueError:
+                    pass
+            await self.db.kv_set("launched_rocks_backfill", True)
         mine = await self.db.kv_get("launched_rocks", {}) or {}   # rocks you launched (Terraforming): not a threat
         for k, o in objs.items():
             if k in mine:

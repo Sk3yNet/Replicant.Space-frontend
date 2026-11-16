@@ -63,9 +63,10 @@ COMMANDS: dict[str, list[Field]] = {
                F("via", "via", label="via", help="Optional: locations to route through (comma-separated), or 'direct' "
                                                   "to skip the nav chip"),
                F("dry_run", "bool", default=False, help="Preview the route and ETA without leaving")],
-    "detonate": [F("target", "location", required=True, label="Kuiper object",
+    "detonate": [F("target", "location", required=True, label="Kuiper object", filter={"scope": "system", "targets": ["asteroid"]},
                    help="The object to launch, e.g. RENGRELOR-KUIPER-2 (found by detect_object); the charge sits at its belt"),
-                 F("destination", "location", required=True, label="strike", help="Planet or moon it should hit")],
+                 F("destination", "location", required=True, label="strike", filter={"scope": "system", "targets": ["planet", "moon"]},
+                   help="Planet or moon it should hit (live 2026-11-16: anything else is refused)")],
     "swoop": [F("action", "choice", options=["", "boost", "dodge", "dive", "roll", "brake"],
                 help="Blank starts the debris run; the rest react to incoming debris (fly it live on the Cockpit page)")],
     "stow": [F("target", "device", label="stow into (a carrier here)", filter={"here": True, "carrier": "board"},

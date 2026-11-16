@@ -17,7 +17,7 @@ from .db import now_iso
 from .web import call_action, current_user, load_state, page, partial, render_action, run_action, sim_view, star_of
 
 router = APIRouter()
-LAUNCHED_KV = "launched_rocks"   # {object_designation: detonate response + at}: rocks you sent; defense leaves them be
+LAUNCHED_KV = rc.LAUNCHED_KV
 
 
 async def species_list(request: Request) -> list[dict]:
@@ -280,9 +280,9 @@ async def terraforming_kuiper(request: Request, star: str, user: str = Depends(c
     st = await load_state(request)
     charges = [d for d in st["devices"] if d.get("device_type") == "vector_charge" and star_of(d.get("location")) == star]
     scan = await request.app.state.worker.automations.system_scan(star) or {}
-    targets = [p.get("designation") for p in scan.get("planets") or [] if isinstance(p, dict) and p.get("designation")]
-    targets += [m.get("designation") for p in scan.get("planets") or [] if isinstance(p, dict)
-                for m in p.get("moons") or [] if isinstance(m, dict) and m.get("designation")]
+    from .commands import moon_numbers   # a scan gives moon_count only: STAR-P-1 … STAR-P-n
+    targets = [t for p in scan.get("planets") or [] if isinstance(p, dict) and p.get("designation")
+               for t in [p["designation"]] + [f'{p["designation"]}-{n}' for n in moon_numbers(p)]]
     out = [f'<div class="small"><b>{html.escape(star)} Kuiper objects</b> ({len(objs)} found; each stays 24 h after detection)</div>']
     if not objs:
         out.append('<p class="muted small">None found — run a detection first.</p>')
@@ -297,8 +297,8 @@ async def terraforming_kuiper(request: Request, star: str, user: str = Depends(c
                        f'hx-confirm="Launch {des} with vector charge {here[0]["device_code"]}? The charge is used up and the rock '
                        f'will strike the planet or moon you pick.">'
                        f'<input type="hidden" name="target" value="{des}">'
-                       f'<input name="destination" list="tf-dest-{star}" placeholder="planet or moon" size="12" required>'
-                       f'<datalist id="tf-dest-{star}">{opts}</datalist> <button class="small">Launch</button></form>'
+                       f'<select name="destination" required title="planet or moon to strike (nothing else is accepted)">'
+                       f'<option value="">planet or moon…</option>{opts}</select> <button class="small">Launch</button></form>'
                        f'<span class="tf-out"></span>')
         else:
             out.append(f' <span class="muted">— a vector charge of yours deployed at {html.escape(rc.launch_spot(str(o.get("designation") or "")))} can launch it</span>')
@@ -312,13 +312,7 @@ async def terraforming_detonate(request: Request, code: str, target: str = Form(
     r = await call_action(request, user, "POST", f"/devices/{code}",
                           {"command": "detonate", "target": target.strip().upper(), "destination": destination.strip().upper()},
                           f"launch {target} at {destination}")
-    resp = r.get("response") or {}
-    if r["ok"] and isinstance(resp, dict) and resp.get("object_designation"):
-        db = request.app.state.db
-        rocks = await db.kv_get(LAUNCHED_KV, {}) or {}
-        rocks[resp["object_designation"]] = {**resp, "at": now_iso(), "by": user}
-        await db.kv_set(LAUNCHED_KV, rocks)
-    return render_action(request, r)
+    return render_action(request, r)   # call_action keeps the launch (rockchase.remember_launch)
 
 
 # --- Map › Terraforming candidates (tfcandidates.py) -------------------------------------------------------------

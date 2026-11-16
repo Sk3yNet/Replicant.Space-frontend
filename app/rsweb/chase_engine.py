@@ -542,7 +542,6 @@ class ChaseMixin:
         from . import fleets as fl
         from . import rockchase as rc
         from .automations import step
-        from .web_terraform import LAUNCHED_KV
         req = run.get("launch")
         at = str(cfg.get("launch_at") or "").strip().upper()
         if not req and cfg.get("auto_launch") and at:
@@ -567,10 +566,7 @@ class ChaseMixin:
                 run.pop("launch", None)
                 run.setdefault("launch_log", []).append({"rock": des, "at": body, "error": err, "when": now_iso()})
                 return [f"launching {des} at {body} failed: {err}"]
-            if isinstance(resp, dict) and resp.get("object_designation"):
-                rocks = await self.db.kv_get(LAUNCHED_KV, {}) or {}
-                rocks[resp["object_designation"]] = {**resp, "at": now_iso(), "by": f"fleet {f['name']}"}
-                await self.db.kv_set(LAUNCHED_KV, rocks)
+            await rc.remember_launch(self.db, resp, f"fleet {f['name']}")
             (run.get("marked") or {}).pop(des, None)
             run.pop("launch", None)
             run.setdefault("launch_log", []).append({"rock": des, "at": body, "object": (resp or {}).get("object_designation")

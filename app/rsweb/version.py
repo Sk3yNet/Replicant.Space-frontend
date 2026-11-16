@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.439.3"
+VERSION = "1.439.4"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.439.4", "2026-11-16", "Every vector charge launch is kept as yours (launched_rocks), whichever form sent it, and "
+     "earlier hand launches are backfilled once from the action log: RENGRELOR-OBJ-1, launched from the device command form, "
+     "wasn't, so defense would have treated it as a threat. Live: detonate works from the Kuiper belt; an L4/L5 strike is refused, so the launch forms offer only planets and moons."),
     ("1.439.3", "2026-11-16", "Lost devices: a detonated vector charge (status launched) counts as used up "
      "(\"detonated: launched an asteroid\"), not lost, once it is out of sight."),
     ("1.439.2", "2026-11-16", "BobNet roll call: a shop location the opening already names isn't repeated before its "

@@ -104,6 +104,28 @@ def test_detected_kuiper_asteroids_are_offered_as_destinations(client):  # noqa:
     client.portal.call(db.kv_set, "devices", devs)
     frag = client.get("/terraforming/kuiper/SOL", headers=HX).text
     assert "/terraforming/0138CB21/detonate" in frag and 'value="SOL-KUIPER-001"' in frag
+    # strike: planets and moons only (live 2026-11-16: "Destination must be a planet or moon" for RENGRELOR-1-L4)
+    assert '<select name="destination"' in frag and "<option>SOL-3-1</option>" in frag and "SOL-3-L4" not in frag
+    form = client.get(f"/devices/{HOST}/command-form?command=detonate", headers=HX).text
+    assert 'name="f.destination"' in form and "Planet or moon" in form
+
+
+def test_hand_launches_are_kept_as_yours(client):  # noqa: F811
+    """Live 2026-11-16: RENGRELOR-KUIPER-2 launched from the device command form wasn't kept in launched_rocks, so
+    defense would have treated RENGRELOR-OBJ-1 as a threat. Every detonate answer is kept now, older ones backfilled."""
+    db = client.app.state.db
+    resp = {"destination": "RENGRELOR-1", "device_code": "0138CB21", "impact_eta": "2099-11-16T08:12:44",
+            "kuiper_object": "RENGRELOR-KUIPER-2", "object_designation": "RENGRELOR-OBJ-1", "status": "launched"}
+    client.portal.call(db.execute, "INSERT INTO actions(at, user, method, path, body, status, response) VALUES(?,?,?,?,?,?,?)",
+                       ("2026-11-16T01:36:44+00:00", "you", "POST", "/devices/0138CB21",
+                        json.dumps({"command": "detonate", "target": "RENGRELOR-KUIPER-2", "destination": "RENGRELOR-1"}),
+                        200, json.dumps(resp)))
+    objs = client.portal.call(client.app.state.worker.automations.defence_objects)
+    rocks = client.portal.call(db.kv_get, "launched_rocks", {})
+    assert rocks["RENGRELOR-OBJ-1"]["destination"] == "RENGRELOR-1" and rocks["RENGRELOR-OBJ-1"]["by"] == "you"
+    assert objs.get("RENGRELOR-OBJ-1", {}).get("launched_by_you") in (None, True)
+    from rsweb.rockchase import remember_launch
+    assert not client.portal.call(remember_launch, db, {"error": "x"}, "you")
 
 
 def test_events_reach_the_page_while_a_tick_holds_the_engine_lock(client):  # noqa: F811

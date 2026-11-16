@@ -487,6 +487,9 @@ async def call_action(request: Request, user: str, method: str, path: str, body:
     if not err:
         st.hub.publish("state", "action")
         await record_evictions(st, path, resp)
+        if isinstance(body, dict) and body.get("command") == "detonate":
+            from .rockchase import remember_launch
+            await remember_launch(st.db, resp, user)
         if method != "GET":
             st.worker.after_order(path, body, resp)
     return {"label": label, "method": method, "path": path, "ok": err is None, "status": status,
