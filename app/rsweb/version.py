@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.445.0"
+VERSION = "1.446.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.446.0", "2026-11-16", "Print what's missing on a fleet takes idle spares first (the same as Fill from spares) and prints only what they can't cover; spares already on their way to the fleet count too (Joe: Chaser_1 needed three cargo freighters)."),
     ("1.445.0", "2026-11-16", "Terraformer fleets (Joe): prints queued for a terraformer beyond its loadout come off their "
      "queues (members count first, then spares on their way), a spare sent for that is no longer needed is made spare "
      "again, and deliveries pinned to an earlier planet are sent on to the new one."),

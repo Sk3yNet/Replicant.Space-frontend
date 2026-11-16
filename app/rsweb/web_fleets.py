@@ -1108,11 +1108,26 @@ async def fleets_reform_apply(request: Request, user: str = Depends(current_user
 @router.post("/fleets/{fid}/print", response_class=HTMLResponse)
 @_fleet_locked
 async def fleets_print(request: Request, fid: str, user: str = Depends(current_user)):
-    """Queue the fleet's shortfall on an autofactory (home system first); prints come out already in the fleet."""
+    """Fill the fleet's gaps from idle spares first (the Fill from spares button), then queue what's still short on an
+    autofactory (home system first); prints come out already in the fleet (Joe 2026-11-16)."""
     eng, items = await _fleets(request)
     f = next((x for x in items if x["id"] == fid), None)
     st = await load_state(request)
     short = fl.short_list(f, st["devices"]) if f else {}
+    fill = await eng.fill_fleets(force=True, only=fid) if short else []
+    if any(" takes " in x for x in fill):
+        st = await load_state(request)   # a fill that finished at once already tagged its recruits
+        short = fl.short_list(f, st["devices"])
+    # spares on their way in a fill job of this fleet (just started, or from an earlier press) aren't printed
+    by_code = {d.get("device_code"): d for d in st["devices"]}
+    members = {d.get("device_code") for d in fl.roster(f, st["devices"])["members"]} if short else set()
+    for j in (await eng.jobs()) if short else []:
+        if j.get("rule") == "fleet_fill" and j.get("status") in ("running", "waiting") and (j.get("meta") or {}).get("fleet") == fid:
+            for c in (j.get("meta") or {}).get("devices") or []:
+                t = (by_code.get(c) or {}).get("device_type")
+                if c not in members and short.get(t):
+                    short[t] -= 1
+    note = "".join(f'<div class="result ok">{html.escape(x)}</div>' for x in fill if " takes " in x)
     # prints already queued for the fleet count (live 2026-11-14: Terraformer 1 lacked one bio seeder and had three queued)
     tag = fl.fleet_tag(fid)
     for d in st["devices"]:
@@ -1121,7 +1136,7 @@ async def fleets_print(request: Request, fid: str, user: str = Depends(current_u
                 short[it["device_type"]] = max(0, short[it["device_type"]] - max(1, int(it.get("quantity") or 1)))
     short = {t: n for t, n in short.items() if n}
     if not short:
-        return HTMLResponse('<div class="result ok">Nothing missing (or it is queued already).</div>')
+        return HTMLResponse(note or '<div class="result ok">Nothing missing (or it is queued already).</div>')
     # autofactories only: vessels take enqueue_print too, but a fleet's shortfall never goes on one (owner 2026-11-07:
     # a heaven vessel was printing on another heaven vessel)
     from .loadouts import is_factory
@@ -1140,8 +1155,9 @@ async def fleets_print(request: Request, fid: str, user: str = Depends(current_u
         for fac, k in printqueue.split(peers, t, n, bps, load):
             steps.append(auto.step(f"print {k}× {t} on {fac['device_code']} for {f['name']}", f"/devices/{fac['device_code']}",
                                    {"command": "enqueue_print", "device_type": t, "quantity": k, "tags": [fl.fleet_tag(fid)]}))
-    return await start_chain(request, user, f"fleet {f['name']}: print {fl.summarize(short)}", steps[0], steps[1:],
-                             facs[0]["device_code"])
+    r = await start_chain(request, user, f"fleet {f['name']}: print {fl.summarize(short)}", steps[0], steps[1:],
+                          facs[0]["device_code"])
+    return HTMLResponse(note + r.body.decode()) if note else r
 
 
 # --- rock chaser fleets (rockchase.py) ----------------------------------------------------------------------------

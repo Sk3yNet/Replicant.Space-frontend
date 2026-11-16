@@ -1721,3 +1721,20 @@ def test_prospect_radius_shared_per_home(client):
     assert client.post("/fleets/p3/prospect-radius", data={"prospect_radius": "x"}, headers=HX).text.count("number")
     page = client.get("/fleets/details?all=1", headers=H).text
     assert 'name="prospect_radius"' in page and 'value="45"' in page
+
+
+def test_fleet_print_takes_spares_first(client):
+    # Joe 2026-11-16: Print what's missing fills from idle spares first and prints only the rest
+    eng = client.app.state.worker.automations
+    world = client.app.state.api.http._transport.app.state.world
+    drones = [d for d in world.devices if d.get("device_type") == "mining_drone"]
+    assert drones
+    drones[0].update(tags=["spare"], status="idle")
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.portal.call(eng.save_fleets, [{"id": "p1", "name": "P1", "role": "mining", "home": drones[0]["location"].split("-")[0],
+                                          "wants": {"mining_drone": 2}}])
+    r = client.post("/fleets/p1/print", headers=HX)
+    assert drones[0]["device_code"] in r.text and "takes" in r.text
+    assert "print 1× mining drone" in r.text
+    fill = [j for j in client.portal.call(eng.jobs) if j["rule"] == "fleet_fill"]
+    assert fill and drones[0]["device_code"] in fill[-1]["meta"]["devices"]
