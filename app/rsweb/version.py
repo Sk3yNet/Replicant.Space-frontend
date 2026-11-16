@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.441.1"
+VERSION = "1.441.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.441.2", "2026-11-16", "Relays page (Joe): the Live links card is gone, with its per-relay check route. The Console "
+     "preset for GET /devices/{relay}/network stays."),
     ("1.441.1", "2026-11-16", "Rock chasers (Joe): while the rigs mine a rock, the fleet's AMI transport controller adopts every "
      "fleet freighter in the system and shuttles rock to the best drop (shortest trip, never the impact target); when the "
      "fleet stops mining the shuttle is cleared and the supply ferry takes the drop's pile to the nearest hub. Unverified "

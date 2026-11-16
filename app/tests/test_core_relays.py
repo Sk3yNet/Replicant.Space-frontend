@@ -824,15 +824,13 @@ def test_working_relay_is_switched_off_before_boarding():
 
 
 def test_console_presets_relay_links_matrix_moves_and_megastructures(client):
-    """Console presets with fill-in blanks; a relay's live links; transfer / teleport into an empty matrix;
+    """Console presets with fill-in blanks; transfer / teleport into an empty matrix;
     megastructure contribution and leaderboard; attach_used counts (v3.5.1)."""
     from rsweb import fleets as fl
     page = client.get("/console", headers=H).text
     assert 'data-p="/devices/{relay}/network"' in page and 'id="c-dev"' in page and "Simulations" in page
     assert 'data-p="/devices/{locker}/retrieve"' in page and "Open an equipment locker" in page   # 1.204.0
     assert 'data-p="/devices/{controller}/trades/{trade}"' in page and "/leaderboards/colony_moon" in page   # 1.206.0
-    r = client.get("/map/relays/AAAA1111/network", headers=HX).text
-    assert "relaying" in r and "MUROPE" in r
     r = client.post("/replicants/77F75255/move-to", data={"target": "b22a1198", "how": "transfer"}, headers=HX)
     row = client.portal.call(client.app.state.db.fetchone, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")
     assert row["path"] == "/replicants/77F75255/transfer" and '"B22A1198"' in row["body"]

@@ -60,7 +60,7 @@ seconds, and a trip's countdown reaching zero loads the new location.
 | **Map** | [Galaxy](docs/FEATURES.md#galaxy) | live 3D map: markers, fleets, traffic, relay networks ([legend](#map-legend)) |
 | | [Stars](docs/FEATURES.md#stars) · [Systems](docs/FEATURES.md#systems-list) · [System](docs/FEATURES.md#system-page) | nearest unexplored stars; systems by distance or region with ward / relay / beacon checkboxes and filters; one system's map, resources, belts, bodies |
 | | [Prospects](docs/FEATURES.md#prospects) | every scanned system scored out of 100, wards |
-| | [Relays](docs/FEATURES.md#relays) | live links, networks, bridges, relay rollout |
+| | [Relays](docs/FEATURES.md#relays) | networks, bridges, relay rollout |
 | | [Traffic](docs/FEATURES.md#traffic) · [Trail](docs/FEATURES.md#trail) | beacon logs and civilization contact; follow a replicant (Bill) through the beacons |
 | | [Wards & hubs](docs/FEATURES.md#wards--hubs) · [Upkeep](docs/FEATURES.md#upkeep) | ward cap, hub shield and upkeep; wear and maintenance |
 | | [Defense](docs/FEATURES.md#defense) | asteroids: defend, evacuate, mine them with rigs or a rock chaser fleet |

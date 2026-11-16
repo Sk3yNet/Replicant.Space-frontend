@@ -194,7 +194,6 @@ of the catalog after). What each marker and line means is in the [map legend](..
 
 <img src="screens/relays.jpg" width="320" align="right" alt="Relays">
 
-- **Live links**: asks any relay or hub which neighbors it has really linked with, and flags links expected but missing.
 - **Networks**: working relays (7.5 ly, or the range a relay reports), deep space relay stations (10 ly) and active hubs
   (15 ly, by distance like relays, checked live 2026-10-15) that reach each other, each in its own color. Either end's
   reach links them (a relay 12 ly from a hub links to it).

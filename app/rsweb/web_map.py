@@ -56,7 +56,7 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
     sbp = bps.get(relaynet.STATION)
     station = {"known": bool(sbp), "range": rn["long_hop"], "hop": rn["hop"],
                "cost": as_amounts((sbp or {}).get("resources")), "relay_cost": as_amounts((bps.get("ftl_relay") or {}).get("resources"))}
-    return await page(request, user, "relays.html", "relays", nets=rn["networks"], nodes=rn["nodes"], bridges=br,
+    return await page(request, user, "relays.html", "relays", nets=rn["networks"], bridges=br,
                       orders=orders, stations=stations, max_new=relaynet.MAX_BRIDGE, roll=roll, up_next=up_next[:15],
                       n_next=len(up_next), known=set(pos), station=station)
 
@@ -102,27 +102,6 @@ async def map_relays_rollout(request: Request, action: str = Form(...), seeds: s
         if roll["on"]:
             await eng.relay_rollout_pass()
     return HTMLResponse("", headers={"HX-Refresh": "true"})
-
-
-@router.get("/map/relays/{code}/network", response_class=HTMLResponse)
-async def map_relay_network(request: Request, code: str, user: str = Depends(current_user)):
-    """A relay's / hub's live links (GET /devices/{code}/network: connections, range_ly, status) next to the links the
-    app expects from distances: expected but missing, and linked though not expected."""
-    from . import relaynet
-    code = code.strip().upper()
-    try:
-        body = await request.app.state.api.get(f"/devices/{code}/network") or {}
-    except ApiError as e:
-        return HTMLResponse(f'<span class="lv-alert small">{html.escape(e.message)}</span>')
-    st = await load_state(request)
-    pos = await relaynet.star_pos(request.app.state.db)
-    rn = relaynet.networks(st["devices"], pos, await _bp_map(request))
-    me = star_of(next((d.get("location") for d in st["devices"] if d.get("device_code") == code), "") or "")
-    expect = {l["b"] if l["a"] == me else l["a"] for l in rn["links"] if me in (l["a"], l["b"])}
-    conns = [c for c in body.get("connections") or [] if isinstance(c, dict)]
-    live = {c.get("star") for c in conns if c.get("star")}
-    return partial(request, "partials/relay_network.html", body=body, conns=conns, missing=sorted(expect - live),
-                   extra=sorted(live - expect))
 
 
 @router.post("/map/relays/route", response_class=HTMLResponse)
