@@ -184,6 +184,16 @@ def test_chase_waits_for_a_fresh_device_list_after_arriving(client):  # noqa: F8
     assert client.portal.call(e.fleets)[0]["chase_run"].get("target") == "SOL-OBJ-1"
 
 
+def test_rigs_mining_a_dropped_rock_take_it_back(client):  # noqa: F811
+    db, e = _setup(client, [rig("RIG1", "SOL-OBJ-1", "mining (rares)")], {"SOL-OBJ-1": rock()})
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"phase": "idle", "skip": {"SOL-OBJ-1": iso(-5)}, "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    client.portal.call(e.rock_chase_pass)
+    run = client.portal.call(e.fleets)[0]["chase_run"]
+    assert run["target"] == "SOL-OBJ-1" and run["phase"] == "mining" and "SOL-OBJ-1" not in run["skip"]
+
+
 def test_engine_starts_its_own_rigs_and_scan_at_the_rock(client):  # noqa: F811
     # snapshot 2026-11-06: the fleet is never stationed, so reserved() hid its own rigs and drone from the plan
     drone = {"device_code": "SURV", "device_type": "belt_surveyor", "location": "SOL-OBJ-1", "status": "idle",

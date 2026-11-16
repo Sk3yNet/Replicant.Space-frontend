@@ -105,6 +105,14 @@ class ChaseMixin:
                 run.pop("target", None)
         run.pop("job", None)
         run["skip"] = {r: t for r, t in (run.get("skip") or {}).items() if _ts(t) and _now() - _ts(t) < SKIP_HOURS * 3600}
+        if not run.get("target"):   # live 2026-11-16: rigs mining a rock the run had dropped: take it back
+            working = sorted({d.get("location") for d in k["rigs"] if d.get("location") in open_
+                              and str(d.get("status") or "").lower().startswith("mining")
+                              and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")})
+            if working:
+                (run.get("skip") or {}).pop(working[0], None)
+                run.update({"target": working[0], "phase": "mining", "arrived": working[0], "since": now_iso(),
+                            "note": f"rigs found mining {working[0]}: back on it"})
         target = run.get("target")
         if target and target not in open_:
             out.append(f"{target} is gone (impacted, diverted or past its ETA)")
