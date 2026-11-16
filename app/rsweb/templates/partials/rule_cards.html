@@ -1,5 +1,6 @@
-{# Settings for a set of automation rules; loaded into the page that owns them (GET /automations/rules-panel). #}
-<details class="card rules-panel" {{ 'open' if open }} style="margin-bottom:14px">
+{# Settings for a set of automation rules; loaded into the page that owns them (GET /automations/rules-panel).
+   data-no-live: the page's own copy holds only the loader, so a live redraw would pour another card into this one. #}
+<details class="card rules-panel" data-no-live {{ 'open' if open }} style="margin-bottom:14px">
   <summary><b>Rules</b>
     {% for r in rules %}{% set cfg = s.rules[r.id] %}<span class="pill small {{ 'st-work' if cfg.enabled else 'st-idle' }}">{{ r.title }} · {{ 'on' if cfg.enabled else 'off' }}</span> {% endfor %}
     {% if s.dry_run %}<span class="small lv-alert">dry run is on</span>{% endif %}</summary>
