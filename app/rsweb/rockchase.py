@@ -37,6 +37,49 @@ CRUISE_H = 0.25         # rough in-system trip for ranking
 KUIPER_HOURS = 24.0     # a detected Kuiper object stays this long (docs)
 
 
+PENDING_KV = "chase_pending"   # [{fid, form, user, at}]: card changes made while the engine held its lock
+
+
+def apply_form(f: dict, form: dict, user: str, at: str) -> tuple[str, str | None]:
+    """One rock chaser card change on fleet `f` (in place): (message, error)."""
+    run = f.setdefault("chase_run", {})
+    action = form.get("action") or "settings"
+    if action == "settings":
+        c = dict(f.get("chase") or {})
+        for k, v in DEFAULTS.items():
+            if isinstance(v, bool):
+                c[k] = form.get(k) == "on"
+            elif k in form:
+                raw = str(form.get(k) or "").strip()
+                if isinstance(v, float):
+                    try:
+                        c[k] = max(0.0, float(raw)) if raw else v
+                    except ValueError:
+                        return "", f"{k} must be a number"
+                else:
+                    c[k] = raw.upper() if k in ("drop", "launch_at") else raw
+        c["leave_minutes"] = max(60.0, c.get("leave_minutes") or 0)   # never later than the defense evacuation's hour
+        f["chase"] = c
+        f["chase"] = settings(f)
+        return "Saved.", None
+    if action == "launch":
+        rock, dest = str(form.get("rock") or "").strip().upper(), str(form.get("at") or "").strip().upper()
+        if not rock or not dest:
+            return "", "Pick the object and the planet or moon to launch it at."
+        run["launch"] = {"rock": rock, "at": dest, "by": user}
+        return f"{rock} will be launched at {dest} once a fleet vector charge is there.", None
+    if action == "unlaunch":
+        run.pop("launch", None)
+        return "Launch called off.", None
+    if action == "drop":
+        if run.get("target"):
+            run.setdefault("skip", {})[run["target"]] = at
+        run.pop("target", None)
+        run["phase"] = "idle"
+        return "Target dropped: the fleet picks another one on the next pass.", None
+    return "", "Unknown action."
+
+
 def launch_spot(des: str) -> str:
     """Where a vector charge launches Kuiper object `des` from: the belt it was found in (RENGRELOR-KUIPER-2 →
     RENGRELOR-KUIPER). Live 2026-11-16: travel to the object itself is refused ("Invalid destination format");

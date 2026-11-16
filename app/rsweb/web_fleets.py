@@ -82,6 +82,8 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
             f["tf_view"] = await terraformer_view(request, f, st["devices"], jobs)
         if f.get("role") == "rock_chaser":   # rockchase.py: every setting resolved, and the run with all its keys
             from . import rockchase as rc
+            for q in [q for q in await request.app.state.db.kv_get(rc.PENDING_KV, []) or [] if q.get("fid") == f["id"]]:
+                rc.apply_form(f, q.get("form") or {}, q.get("user") or "", q.get("at") or "")   # queued: show it already
             f["chase_cfg"] = rc.settings(f)
             f["chase_view"] = {"phase": "idle", "target": None, "resource": None, "note": None, "ship_note": None,
                                "marked": {}, "launch": None, **(f.get("chase_run") or {})}
@@ -1144,54 +1146,40 @@ async def fleets_print(request: Request, fid: str, user: str = Depends(current_u
 
 # --- rock chaser fleets (rockchase.py) ----------------------------------------------------------------------------
 @router.post("/fleets/{fid}/chase", response_class=HTMLResponse)
-@_fleet_locked
 async def fleets_chase(request: Request, fid: str, user: str = Depends(current_user)):
     """A rock chaser's settings (action=settings), a launch of a marked Kuiper object (action=launch, rock, at), calling a
-    launch off (action=unlaunch) or dropping the current target (action=drop: the fleet picks again)."""
+    launch off (action=unlaunch) or dropping the current target (action=drop: the fleet picks again).
+    Live 2026-11-16: a tick holds the engine lock up to ~110 s, so a save that waited for it never came back (Chaser_1's
+    hub mode was lost). When the lock is busy the change is queued (kv chase_pending) and the next rock chaser pass
+    applies it first; the card shows queued settings at once."""
+    import asyncio
     from . import rockchase as rc
-    form = await request.form()
-    eng, items = await _fleets(request)
-    f = next((x for x in items if x["id"] == fid and x.get("role") == rc.ROLE), None)
-    if not f:
-        return HTMLResponse('<div class="result err">No such rock chaser fleet.</div>', status_code=404)
-    run = f.setdefault("chase_run", {})
-    action = form.get("action") or "settings"
-    if action == "settings":
-        c = f.setdefault("chase", {})
-        for k, v in rc.DEFAULTS.items():
-            if isinstance(v, bool):
-                c[k] = form.get(k) == "on"
-            elif k in form:
-                raw = str(form.get(k) or "").strip()
-                if isinstance(v, float):
-                    try:
-                        c[k] = max(0.0, float(raw)) if raw else v
-                    except ValueError:
-                        return HTMLResponse(f'<div class="result err">{html.escape(k)} must be a number</div>')
-                else:
-                    c[k] = raw.upper() if k in ("drop", "launch_at") else raw
-        c["leave_minutes"] = max(60.0, c.get("leave_minutes") or 0)   # never later than the defense evacuation's hour
-        f["chase"] = rc.settings(f)
-        msg = "Saved."
-    elif action == "launch":
-        rock, at = str(form.get("rock") or "").strip().upper(), str(form.get("at") or "").strip().upper()
-        if not rock or not at:
-            return HTMLResponse('<div class="result err">Pick the object and the planet or moon to launch it at.</div>')
-        run["launch"] = {"rock": rock, "at": at, "by": user}
-        msg = f"{rock} will be launched at {at} once a fleet vector charge is there."
-    elif action == "unlaunch":
-        run.pop("launch", None)
-        msg = "Launch called off."
-    elif action == "drop":
-        if run.get("target"):
-            run.setdefault("skip", {})[run["target"]] = now_iso()
-        run.pop("target", None)
-        run["phase"] = "idle"
-        msg = "Target dropped: the fleet picks another one on the next pass."
-    else:
-        return HTMLResponse('<div class="result err">Unknown action.</div>')
-    await eng.save_fleets(items)
-    await eng.log("rock_chaser", f"{f['name']}: {action} by {user}")
+    form = {k: v for k, v in (await request.form()).items()}
+    eng = request.app.state.worker.automations
+    got = False
+    try:
+        got = await asyncio.wait_for(eng.lock.acquire(), timeout=3)
+    except asyncio.TimeoutError:
+        pass
+    try:
+        items = await eng.fleets()
+        f = next((x for x in items if x["id"] == fid and x.get("role") == rc.ROLE), None)
+        if not f:
+            return HTMLResponse('<div class="result err">No such rock chaser fleet.</div>', status_code=404)
+        msg, err = rc.apply_form(f, form, user, now_iso())
+        if err:
+            return HTMLResponse(f'<div class="result err">{html.escape(err)}</div>')
+        if got:
+            await eng.save_fleets(items)
+        else:
+            pending = await eng.db.kv_get(rc.PENDING_KV, []) or []
+            pending.append({"fid": fid, "form": form, "user": user, "at": now_iso()})
+            await eng.db.kv_set(rc.PENDING_KV, pending)
+            msg += " (queued: the engine is busy with a pass; it applies this as soon as that ends)"
+    finally:
+        if got:
+            eng.lock.release()
+    await eng.log("rock_chaser", f"{f['name']}: {form.get('action') or 'settings'} by {user}" + ("" if got else " (queued)"))
     return HTMLResponse(f'<div class="result ok">{html.escape(msg)}</div>')
 
 

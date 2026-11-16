@@ -28,6 +28,15 @@ class ChaseMixin:
         from . import rockchase as rc
         from .shapes import normalize_inventory
         fleet_list = await self.fleets()
+        queued = await self.db.kv_get(rc.PENDING_KV, []) or []   # card changes made while a tick held the lock
+        if queued:
+            by_id = {f.get("id"): f for f in fleet_list}
+            for q in queued:
+                if q.get("fid") in by_id:
+                    rc.apply_form(by_id[q["fid"]], q.get("form") or {}, q.get("user") or "", q.get("at") or now_iso())
+            await self.save_fleets(fleet_list)
+            left = [q for q in await self.db.kv_get(rc.PENDING_KV, []) or [] if q not in queued]   # queued meanwhile: next pass
+            await self.db.kv_set(rc.PENDING_KV, left)
         mine = [f for f in fleet_list if f.get("role") == rc.ROLE and f.get("home") and not f.get("recall_hold")]   # recalled: held
         if not mine:
             return []
@@ -514,8 +523,15 @@ class ChaseMixin:
                     or star not in ctx["reach"]:
                 continue
             last = _ts(searched.get(star))
+            if (not last or _now() - last > every) and loc != f"{star}-KUIPER":
+                # Joe 2026-11-16: a sensor array detects only from the Kuiper belt: take it there first
+                mv = run.setdefault("sensor_moves", {}).setdefault(code, {})
+                out += await self._chase_ferry(f, run, ctx, k, s, f"{star}-KUIPER", mv,
+                                               f"{f['name']}: {code} → {star}-KUIPER to search for Kuiper objects",
+                                               f"{code} → {star}-KUIPER to search", f"{code} on its way to {star}-KUIPER")
+                continue
             if not last or _now() - last > every:
-                # unverified live: whether the array must be at the Kuiper belt for detect_object (sent wherever it is)
+                run.get("sensor_moves", {}).pop(code, None)
                 ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "detect_object"},
                                              f"auto: rock chaser {code} searches {star}")
                 searched[star] = now_iso()
@@ -539,9 +555,7 @@ class ChaseMixin:
     async def _chase_launch(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict) -> list[str]:
         """run["launch"] {rock, at} (Fleet details, or auto_launch at launch_at): a fleet vector charge goes to the Kuiper
         object's belt (flying itself, or on the carrier while the fleet has no target) and detonates it at the body."""
-        from . import fleets as fl
         from . import rockchase as rc
-        from .automations import step
         req = run.get("launch")
         at = str(cfg.get("launch_at") or "").strip().upper()
         if not req and cfg.get("auto_launch") and at:
@@ -574,40 +588,49 @@ class ChaseMixin:
             run["launch_log"] = run["launch_log"][-10:]
             await self._notify("info", f"{f['name']}: launched {des} at {body}", "/defence")
             return [f"launched {des} at {body}"]
+        return await self._chase_ferry(f, run, ctx, k, ch, spot, req, f"{f['name']}: {code} → {des} to launch it at {body}",
+                                       f"{code} → {des} to launch it at {body}", f"{code} on its way to {des}")
+
+    async def _chase_ferry(self, f: dict, run: dict, ctx: dict, k: dict, dev: dict, spot: str, req: dict, title: str,
+                           line: str, note: str) -> list[str]:
+        """Bring fleet device `dev` to `spot` in its own system: it flies itself if it can, else the fleet carrier takes it
+        (only while the fleet has no rock target). `req` keeps the job id and a note."""
+        from . import fleets as fl
+        from .automations import step
+        code = dev["device_code"]
         if req.get("job") and (ctx["jobs"].get(req["job"]) or {}).get("status") in ("running", "waiting", "pending"):
             return []
         car = k["carriers"][0] if k["carriers"] else None
-        if rm_can_fly(ch) and (fl.tug(ch, ctx["devices"]).get("location") or "").split("-")[0] == des.split("-")[0] \
-                and not ch.get("stowed_in_device_code") and not ch.get("attached_to_device_code"):
+        if rm_can_fly(dev) and (fl.tug(dev, ctx["devices"]).get("location") or "").split("-")[0] == spot.split("-")[0] \
+                and not dev.get("stowed_in_device_code") and not dev.get("attached_to_device_code"):
             steps = [step(f"{code} → {spot}", f"/devices/{code}", {"command": "travel", "destination": spot}, critical=True),
                      fl._wait_arrive(code, spot)]
             devs = [code]
         elif car and not run.get("target") and car["device_code"] not in ctx["busy"]:
             cc = car["device_code"]
-            if ch.get("attached_to_device_code") == cc:
+            if dev.get("attached_to_device_code") == cc:
                 mode = "attach"
-            elif ch.get("stowed_in_device_code") == cc:
+            elif dev.get("stowed_in_device_code") == cc:
                 mode = "stow"
             else:
-                mode = fl.take_seat(fl.seats(car, ctx["devices"]), ch)
-            if not mode or (ch.get("stowed_in_device_code") or ch.get("attached_to_device_code")) not in (None, cc):
+                mode = fl.take_seat(fl.seats(car, ctx["devices"]), dev)
+            if not mode or (dev.get("stowed_in_device_code") or dev.get("attached_to_device_code")) not in (None, cc):
                 req["note"] = f"no seat for {code} on {cc}"
                 return []
             steps = []
-            if (ch.get("stowed_in_device_code") or ch.get("attached_to_device_code")) != cc:
-                tour, _ = fl.pickup_tour(cc, car.get("location"), {ch["location"]: [(code, mode)]})
+            if (dev.get("stowed_in_device_code") or dev.get("attached_to_device_code")) != cc:
+                tour, _ = fl.pickup_tour(cc, car.get("location"), {dev["location"]: [(code, mode)]})
                 steps += tour
             steps += [step(f"{cc} → {spot}", f"/devices/{cc}", {"command": "travel", "destination": spot}, critical=True),
                       fl._wait_arrive(cc, spot)] + self._unload(cc, [(code, mode)])
             devs = [cc, code]
         else:
-            req["note"] = f"waiting for the carrier to take {code} to {des} (busy with a target)"
+            req["note"] = f"waiting for the carrier to take {code} to {spot} (busy with a target)"
             return []
-        job = await self.create_job("rock_chaser", f"{f['name']}: {code} → {des} to launch it at {body}", code, steps,
-                                    {"devices": devs})
+        job = await self.create_job("rock_chaser", title, code, steps, {"devices": devs})
         if job:
-            req.update({"job": job["id"], "note": f"{code} on its way to {des}"})
-            return [f"{code} → {des} to launch it at {body}"]
+            req.update({"job": job["id"], "note": note})
+            return [line]
         return []
 
 

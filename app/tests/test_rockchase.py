@@ -128,6 +128,35 @@ def test_engine_marks_kuiper_objects_and_launches_one(client):  # noqa: F811
     assert any("SOL-KUIPER-001 at SOL-3" in x for x in out)   # auto launch: the charge is already there
 
 
+def test_sensor_array_goes_to_the_kuiper_belt_before_detecting(client):  # noqa: F811
+    """Joe 2026-11-16: a sensor array detects only from the Kuiper belt (Chaser_1's sat at RENGRELOR-3-L4)."""
+    sensor = {"device_code": "SENS", "device_type": "sensor_array", "location": "SOL-3-L4", "status": "idle",
+              "tags": ["fleet:rc"], "features": ["cruise"], "available_commands": ["detect_object", "travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-1"), sensor], {})
+    out = client.portal.call(e.rock_chase_pass)
+    assert "Chaser: SENS → SOL-KUIPER to search" in out and not any("searches" in x for x in out)
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "rock_chaser")
+    assert {"command": "travel", "destination": "SOL-KUIPER"} in [st.get("body") for st in job["steps"]]
+
+
+def test_card_changes_queue_while_the_engine_is_busy(client):  # noqa: F811
+    """Live 2026-11-16: Chaser_1's switch to hub mode never stuck: a tick holds the lock ~110 s and the save waited on it."""
+    from test_ops import H
+    db, e = _setup(client, [rig("RIG1", "SOL-1")], {}, {"mode": "roam"})
+    client.portal.call(e.lock.acquire)
+    try:
+        r = client.post("/fleets/rc/chase", data={"action": "settings", "mode": "hub"}, headers={**H, "HX-Request": "true"})
+    finally:
+        client.portal.call(e.lock.release)
+    assert "Saved" in r.text and "queued" in r.text
+    assert client.portal.call(e.fleets)[0]["chase"]["mode"] == "roam"
+    assert "home system only" in client.get("/fleets/details?all=1", headers=H).text   # the card shows it already
+    client.portal.call(e.rock_chase_pass)
+    assert client.portal.call(e.fleets)[0]["chase"]["mode"] == "hub" and not client.portal.call(db.kv_get, "chase_pending")
+    r = client.post("/fleets/rc/chase", data={"action": "settings", "mode": "roam"}, headers={**H, "HX-Request": "true"})
+    assert "queued" not in r.text and client.portal.call(e.fleets)[0]["chase"]["mode"] == "roam"
+
+
 def test_engine_starts_its_own_rigs_and_scan_at_the_rock(client):  # noqa: F811
     # snapshot 2026-11-06: the fleet is never stationed, so reserved() hid its own rigs and drone from the plan
     drone = {"device_code": "SURV", "device_type": "belt_surveyor", "location": "SOL-OBJ-1", "status": "idle",
