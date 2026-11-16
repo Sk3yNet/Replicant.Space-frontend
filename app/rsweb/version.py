@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.444.0"
+VERSION = "1.445.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.445.0", "2026-11-16", "Terraformer fleets (Joe): prints queued for a terraformer beyond its loadout come off their "
+     "queues (members count first, then spares on their way), a spare sent for that is no longer needed is made spare "
+     "again, and deliveries pinned to an earlier planet are sent on to the new one."),
     ("1.444.0", "2026-11-16", "Print queues (Joe): relays printed for the relay rollout are tagged rollout and wait behind "
      "every other print, stock included; relays ordered by hand or for bridges, beacons and wards keep their place. "
      "Rollout relay prints already waiting in the app's queue are moved to the back."),

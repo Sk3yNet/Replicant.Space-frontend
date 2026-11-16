@@ -387,3 +387,36 @@ def test_a_new_planet_takes_everyone_from_the_old_one_without_waiting_for_the_lo
     bodies = [st.get("body") for st in job["steps"]]
     assert bodies[0] == {"command": "deactivate"} and {"command": "travel", "destination": PLANET} in bodies
     assert {"command": "attach", "device": "MIR"} in bodies or {"command": "stow", "target": "MOB"} in bodies
+
+
+def test_extras_coming_for_the_loadout_are_called_off(client):  # noqa: F811
+    # Joe 2026-11-16: Terraformer 1 had prints queued and a spare regulator on its way after Fill from spares filled the gap
+    fac = {"device_code": "FAC", "device_type": "autofactory", "location": "SOL-3", "status": "idle", "tags": [],
+           "print_queue": [{"device_type": "orbital_mirror", "quantity": 1, "tags": ["fleet:tf"], "virtual": True},
+                           {"device_type": "orbital_shade", "quantity": 1, "tags": ["fleet:tf"], "virtual": True}]}
+    reg = {"device_code": "REG2", "device_type": "atmospheric_regulator", "location": "SOL-3", "status": "idle",
+           "tags": ["at:old-2", "to:old"], "features": ["stow"]}
+    aqu = {"device_code": "AQU2", "device_type": "aquifer_tap", "location": "SOL-3", "status": "idle",
+           "tags": ["at:old-2", "to:old"], "features": ["stow"]}
+    devs = [fac, reg, aqu, dev("MON", "terraform_monitor", status="monitoring"), dev("MIR", "orbital_mirror"),
+            dev("REG", "atmospheric_regulator")]
+    db, e = _at_work(client, devs, wants={"terraform_monitor": 1, "orbital_mirror": 1, "orbital_shade": 1,
+                                          "atmospheric_regulator": 1, "aquifer_tap": 1})
+    f = client.portal.call(e.fleets)
+    f[0]["tf_run"]["fetch"] = {"REG2": {"type": "atmospheric_regulator", "at": "2026-11-16T13:23:10+00:00"},
+                               "AQU2": {"type": "aquifer_tap", "at": "2026-11-16T13:23:10+00:00"}}
+    client.portal.call(e.save_fleets, f)
+    calls = []
+
+    async def fake_cancel(c, orders):
+        calls.append((c["factory"], c["device_type"]))
+        return orders
+    e.cancel_loadout_print = fake_cancel
+    out = client.portal.call(e.terraformer_pass)
+    assert calls == [("FAC", "orbital_mirror")]   # the shade is still short
+    assert any("REG2 (atmospheric_regulator) not needed" in x for x in out) and any("AQU2 sent on to SOL-4" in x for x in out)
+    job = _jobs(client, e, "deliveries")[0]
+    bodies = {s["path"]: s["body"]["configuration"] for s in job["steps"]}
+    assert bodies["/devices/REG2"] == {"add_tags": ["spare"], "remove_tags": ["at:old-2", "to:old"]}
+    assert "at:sol-4" in bodies["/devices/AQU2"]["add_tags"]
+    assert list(client.portal.call(e.fleets)[0]["tf_run"]["fetch"]) == ["AQU2"]

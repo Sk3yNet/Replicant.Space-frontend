@@ -94,11 +94,12 @@ class TerraformerMixin:
                 run.pop(k, None)
             run["planet"] = planet
         ms = fl.members(f, devices)
+        out_pre = await self._tf_surplus(f, planet, run, ctx, ms)
         tfd = [d for d in ms if (d.get("device_type") or "") in tf.DEVICES]
         if not any(d.get("device_type") == "terraform_monitor" for d in tfd):
             run.update({"phase": "idle", "note": "needs a terraform monitor in the loadout"})
             return []
-        out: list[str] = []
+        out: list[str] = list(out_pre)
         for key in ("job", "steer_job"):
             j = ctx["jobs"].get(run.get(key))
             if j and j["status"] in ("running", "waiting", "pending") and key == "job" and self._tf_bound(j) not in (None, planet):
@@ -629,3 +630,68 @@ class TerraformerMixin:
                 if short.get(t, 0) > 0 and send(d, "is a spare"):
                     short[t] -= 1
         return out
+
+    async def _tf_surplus(self, f: dict, planet: str, run: dict, ctx: dict, ms: list[dict]) -> list[str]:
+        """More of a type coming than the loadout wants (Joe 2026-11-16: prints queued with Print missing while Terraformer 1
+        was short, then Fill from spares took D1E96D13 and a spare regulator A8BC5318 was sent for as well): the extras go,
+        members first kept, then devices on their way (spares, free), then prints. A print not started comes off its
+        queue (newest first); a spare sent for gets its delivery tags off and is spare again. Deliveries still pinned to
+        an earlier planet are sent on to this one."""
+        from . import fleets as fl
+        from . import printqueue as pq
+        from .loadouts import delivery_tags, tag_step
+        from .automations import step  # noqa: F401
+        devices, busy = ctx["devices"], ctx["busy"]
+        by = {d["device_code"]: d for d in devices}
+        tag = fl.fleet_tag(f["id"])
+        fetch = run.get("fetch") or {}
+        wants = {t: int(n or 0) for t, n in (f.get("wants") or {}).items()}
+        have: dict[str, int] = {}
+        for d in ms:
+            have[d.get("device_type") or ""] = have.get(d.get("device_type") or "", 0) + 1
+        steps: list[dict] = []
+        out: list[str] = []
+        # spares sent for beyond the want (newest first), and the rest re-pinned to the current planet
+        for t in sorted({v["type"] for v in fetch.values()}):
+            mine = sorted((c for c, v in fetch.items() if v["type"] == t), key=lambda c: fetch[c].get("at") or "")
+            extra = max(0, have.get(t, 0) + len(mine) - wants.get(t, 0))
+            for c in mine[::-1][:extra]:
+                d = by.get(c)
+                fetch.pop(c)
+                if d and c not in busy:
+                    steps.append(tag_step(c, ["spare"], [x for x in d.get("tags") or [] if x.startswith(("to:", "at:"))]))
+                    out.append(f"{c} ({t}) not needed any more: spare again")
+            have[t] = have.get(t, 0) + len(mine) - extra
+        if planet and fl.star_of(planet) and "-" in planet:
+            for c in list(fetch):
+                d = by.get(c)
+                if not d or c in busy or f"at:{planet.lower()}" in (d.get("tags") or []):
+                    continue
+                add, remove, no = delivery_tags(d, planet, {tag: f["home"]})
+                if not no:
+                    steps.append(tag_step(c, add, remove))
+                    out.append(f"{c} sent on to {planet}")
+        if steps:
+            await self.create_job("terraformer", f"{f['name']}: deliveries ({len(steps)})", None, steps,
+                                  {"devices": sorted({s['path'].rsplit('/', 1)[-1] for s in steps}), "fleet": f["id"]})
+            busy |= {s["path"].rsplit("/", 1)[-1] for s in steps}
+        # prints beyond the want: off their queues (a few per pass)
+        queued: dict[str, list[str]] = {}
+        for d in devices:
+            for it in pq.items(d):
+                if tag in it["tags"]:
+                    queued.setdefault(it["device_type"], []).extend([d["device_code"]] * max(1, int(it.get("quantity") or 1)))
+        n = 0
+        for t, facs in sorted(queued.items()):
+            extra = max(0, have.get(t, 0) + len(facs) - wants.get(t, 0))
+            for fac in facs[::-1][:extra]:
+                if n >= 4:
+                    break
+                n += 1
+                await self.cancel_loadout_print({"factory": fac, "device_type": t, "fleet": f["id"], "star": f.get("home") or "",
+                                                 "rule": "terraformer",
+                                                 "label": f"{f['name']}: the {t} queued for it isn't needed (it has {have.get(t, 0)} of "
+                                                          f"{wants.get(t, 0)})"}, [])
+                out.append(f"extra {t} print off {fac}'s queue")
+        return out
+
