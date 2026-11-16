@@ -318,7 +318,7 @@ def test_roll_call_lists_every_shop_with_its_controller_code():
             dev("EMPTY", "ami_trade_controller", ami_directive={"name": "trade"}),
             dev("NOSHOP", "ami_trade_controller")]
     text = sh.roll_call(sh.shops(devs, {}, {**cache, "NOSHOP": cache["SHOP"]}), "Shops:")
-    assert text == "Shops: ALGOL-OORT: SHOP2 survey drone. SOL-4-L4: SHOP mining drone, ftl relay."
+    assert text == "Shops: ALGOL-OORT: SHOP2. SOL-4-L4: SHOP."
     assert sh.roll_call(sh.shops(devs[2:], {}, cache)) == ""
     assert sh.rollcall_settings({"channel": "trade", "hours": "x"})["channel"] == "#trade"
 
@@ -330,14 +330,14 @@ def test_roll_call_posted_by_hand_and_on_schedule(client):  # noqa: F811
     db, e = client.app.state.db, client.app.state.worker.automations
     client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices") + [shop()])
     client.portal.call(db.kv_set, "shop_trades", {"SHOP": {"trades": [_trade("a", {"mining_drone": 1})], "at": "2099-01-01T00:00:00+00:00"}})
-    assert "SOL-4-L4: SHOP mining drone." in client.get("/shop", headers=HX).text
+    assert "SOL-4-L4: SHOP." in client.get("/shop", headers=HX).text
     r = client.post("/shop/rollcall", data={"action": "post", "by": "", "channel": "#trade", "hours": "", "intro": "Hi", "text": ""},
                     headers=HX)
-    assert "Choose the replicant" in r.text
+    assert "choose who posts it" in r.text
     r = client.post("/shop/rollcall", data={"action": "post", "by": REP, "channel": "#trade", "hours": "24", "intro": "Hi", "text": ""},
                     headers=HX)
     assert "Posted" in r.text
-    assert _world(client).bobnet_posts[-1] == {"code": REP, "channel": "#trade", "text": "Hi SOL-4-L4: SHOP mining drone."}
+    assert _world(client).bobnet_posts[-1] == {"code": REP, "channel": "#trade", "text": "Hi SOL-4-L4: SHOP."}
     n = len(_world(client).bobnet_posts)
     assert client.portal.call(e.shop_rollcall_pass) == []   # posted under 24 h ago
     raw = client.portal.call(db.kv_get, sh.ROLLCALL_KV)
@@ -361,4 +361,23 @@ def test_roll_call_through_a_relay_shows_no_location(client):  # noqa: F811
     r = client.post("/shop/rollcall", data={"action": "post", "by": "relay:RLY1", "channel": "#trade", "hours": "", "intro": "Hi",
                                             "text": ""}, headers=HX)
     assert "Posted" in r.text
-    assert _world(client).bobnet_posts[-1] == {"code": "RLY1", "channel": "#trade", "text": "Hi SOL-4-L4: SHOP mining drone."}
+    assert _world(client).bobnet_posts[-1] == {"code": "RLY1", "channel": "#trade", "text": "Hi SOL-4-L4: SHOP."}
+
+
+def test_roll_call_defaults_to_the_relay_at_the_trade_post(client):  # noqa: F811
+    # Joe 2026-11-16: the relay at the trade post announces, unless another poster is chosen
+    from test_chatter import _world
+    from test_ops import HX
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices")
+                       + [shop(), dev("RLY2", "ftl_relay", "SOL-5-L4", status="active"),
+                          dev("RLY1", "ftl_relay", "SOL-4-L4", status="active")])
+    client.portal.call(e.save_fleets, [{**FLEET, "trade_post": {**FLEET["trade_post"], "spot": "SOL-4-L4"}}])
+    assert client.portal.call(e.shop_rollcall_default) == "relay:RLY1"
+    client.portal.call(db.kv_set, "shop_trades", {"SHOP": {"trades": [_trade("a", {"mining_drone": 1})], "at": "2099-01-01T00:00:00+00:00"}})
+    _world(client).devices.append(dev("RLY1", "ftl_relay", "SOL-4-L4", status="active", available_commands=[]))
+    page = client.get("/shop", headers=HX).text
+    assert "the relay at the trade post (RLY1)" in page and "from a replicant's location" in page
+    r = client.post("/shop/rollcall", data={"action": "post", "by": "", "channel": "#trade", "hours": "", "intro": "Hi",
+                                            "text": ""}, headers=HX)
+    assert "Posted" in r.text and _world(client).bobnet_posts[-1]["code"] == "RLY1"

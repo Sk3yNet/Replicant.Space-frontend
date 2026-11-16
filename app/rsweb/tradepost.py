@@ -546,6 +546,26 @@ class TradePostMixin:
         return sh.roll_call(sh.shops(devices, {}, await self.db.kv_get("shop_trades", {}) or {}),
                             cfg["intro"] if intro is None else intro)
 
+    async def shop_rollcall_default(self, devices: list[dict] | None = None) -> str:
+        """The roll call's poster when none is chosen (Joe 2026-11-16): an active relay at a trade post's shop spot,
+        else one in its system, as "relay:<code>" (no location shown); "" when no trade post has one."""
+        from .chatter import RELAY_TYPES
+        from .shop import star_of
+        from .wardhub import active
+        devices = devices if devices is not None else await self.devices()
+        relays = [d for d in devices if d.get("device_type") in RELAY_TYPES and active(d)]
+        for f in await self.fleets():
+            if f.get("role") != ROLE:
+                continue
+            spot = settings(f)["spot"] or next((c.get("location") for c in controllers(f, devices)), None)
+            if not spot:
+                continue
+            here = sorted((d for d in relays if star_of(d.get("location")) == star_of(spot)),
+                          key=lambda d: (d.get("location") != spot, d.get("device_type") != "ftl_relay", d["device_code"]))
+            if here:
+                return f"relay:{here[0]['device_code']}"
+        return ""
+
     async def shop_rollcall_post(self, by: str, channel: str, text: str, why: str) -> tuple[bool, str | None]:
         """Post the roll call as `by` (a replicant code, or "relay:<code>" to post through that relay with no location)
         and remember it (kv shop_rollcall.last)."""
@@ -574,7 +594,10 @@ class TradePostMixin:
 
         from . import shop as sh
         cfg = sh.rollcall_settings(await self.db.kv_get(sh.ROLLCALL_KV, {}))
-        if not cfg["hours"] or not cfg["by"] or (await self.settings()).get("dry_run"):
+        if not cfg["hours"] or (await self.settings()).get("dry_run"):
+            return []
+        by = cfg["by"] or await self.shop_rollcall_default()
+        if not by:
             return []
         last = (cfg["last"] or {}).get("at")
         if last:
@@ -586,5 +609,5 @@ class TradePostMixin:
         text = await self.shop_rollcall_text()
         if not text:
             return []
-        ok, err = await self.shop_rollcall_post(cfg["by"], cfg["channel"], text, f"every {cfg['hours']:g} h")
+        ok, err = await self.shop_rollcall_post(by, cfg["channel"], text, f"every {cfg['hours']:g} h")
         return [f"shop roll call posted on {cfg['channel']}" if ok else f"shop roll call refused: {err}"]

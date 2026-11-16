@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.437.1"
+VERSION = "1.438.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.438.0", "2026-11-16", "BobNet roll call (Joe): the active relay at the trade post posts it unless you choose "
+     "another poster, and it lists only the trade controller codes by location, not what they sell. The shop "
+     "Announcement boxes warn that the game posts from a replicant's location and suggest leaving it empty."),
     ("1.437.1", "2026-11-16", "Asteroids a detect run finds in a Kuiper belt or Oort cloud (STAR-KUIPER-n, e.g. RENGRELOR-KUIPER-3) "
      "are offered as travel destinations, with their size and composition (Joe: a vector charge couldn't pick them)."),
     ("1.437.0", "2026-11-15", "BobNet roll call can post straight through one of your active relays (Joe: POST "

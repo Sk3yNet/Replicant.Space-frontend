@@ -345,15 +345,15 @@ def offered_types(trades: list[dict]) -> list[str]:
 
 
 def roll_call(shops_: list[dict], intro: str = ROLLCALL_DEFAULT["intro"]) -> str:
-    """One BobNet post naming every open shop with stock: grouped by location, each controller's code and what it
-    sells ("Shops open, by trade controller: SOLARES-4-L4: 5A77D6B8 survey drone, mining rig; 1C2D3E4F ftl relay.")."""
+    """One BobNet post naming every open shop with stock: grouped by location, each trade controller's code
+    ("Shops open, by trade controller: SOLARES-4-L4: 5A77D6B8, 1C2D3E4F.")."""
     by_loc: dict[str, list[str]] = {}
     for s in sorted(shops_, key=lambda s: ((s.get("config") or {}).get("name") or "", s.get("code") or "")):
         what = offered_types(s.get("trades") or [])
         if not what or not s.get("open") or not s.get("location"):
             continue
-        by_loc.setdefault(s["location"], []).append(f"{s['code']} {', '.join(what)}")
+        by_loc.setdefault(s["location"], []).append(s["code"])   # codes only, not what they sell (Joe 2026-11-16)
     if not by_loc:
         return ""
-    body = " ".join(f"{loc}: {'; '.join(rows)}." for loc, rows in sorted(by_loc.items()))
+    body = " ".join(f"{loc}: {', '.join(rows)}." for loc, rows in sorted(by_loc.items()))
     return f"{intro} {body}".strip()

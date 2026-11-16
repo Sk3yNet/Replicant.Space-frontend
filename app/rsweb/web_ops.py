@@ -252,6 +252,7 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
                       f"{d['device_code']}", "star": sh.star_of(d.get("location")), "relay": True}
                      for d in st["devices"] if d.get("device_type") in RELAY_TYPES and active(d)]
     rollcall = {**rc, "text": sh.roll_call(shops, rc["intro"]), "posters": posters,
+                "default": await _eng(request).shop_rollcall_default(st["devices"]),
                 "relays": sorted(relay_posters, key=lambda r: r["star"])}
     return await page(request, user, "shop.html", "shop", shops=shops, shop_groups=groups, rollcall=rollcall, spare_shops=spare, traders=traders, posts=posts,
                       traders_last=await request.app.state.db.kv_get(sh.LAST_KV),
@@ -274,11 +275,13 @@ async def shop_rollcall(request: Request, user: str = Depends(current_user)):
     await db.kv_set(sh.ROLLCALL_KV, raw)
     if form.get("action") != "post":
         every = f"every {cfg['hours']:g} h" if cfg["hours"] else "by hand only"
-        warn = " Choose who posts it, or it never goes out on its own." if cfg["hours"] and not cfg["by"] else ""
+        warn = (" No active relay at the trade post: choose who posts it, or it never goes out on its own."
+                if cfg["hours"] and not cfg["by"] and not await _eng(request).shop_rollcall_default() else "")
         return HTMLResponse(f'<div class="result ok">Saved: {html.escape(cfg["channel"])}, {every}.{warn}</div>')
     text = str(form.get("text") or "").strip() or await _eng(request).shop_rollcall_text()
+    cfg["by"] = cfg["by"] or await _eng(request).shop_rollcall_default()
     if not cfg["by"]:
-        return HTMLResponse('<div class="result err">Choose the replicant who posts it.</div>')
+        return HTMLResponse('<div class="result err">No active relay at the trade post: choose who posts it.</div>')
     if not text:
         return HTMLResponse('<div class="result err">Nothing to announce: no shop of yours lists anything in stock.</div>')
     if await bobnet_repeat(db, cfg["channel"], text):
