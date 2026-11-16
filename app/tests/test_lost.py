@@ -50,3 +50,12 @@ def test_lost_page_and_sync_hook(client):
     assert "ZZ1" in page and "surging" in page and "ABOTEIN" in page
     client.post("/lost/forget", data={"code": "ZZ1"}, headers=HX)
     assert "written off" in client.get("/lost", headers=H).text
+
+
+def test_detonated_vector_charge_is_used_up_not_lost():
+    # live 2026-11-16: 0138CB21 detonated at RENGRELOR-KUIPER and shows "launched"
+    s = ls.normalize({})
+    vc = {"device_code": "VC", "device_type": "vector_charge", "location": "C-KUIPER", "status": "launched"}
+    ls.update(s, [RELAY, vc], REPS, POS, now="2026-11-16T01:40:00+00:00")
+    ls.update(s, [RELAY, {**vc, "unlisted": True}], REPS, POS, now="2026-11-16T02:00:00+00:00")
+    assert s["lost"] == {} and s["gone"][-1]["reason"].startswith("detonated") and len(s["gone"]) == 1

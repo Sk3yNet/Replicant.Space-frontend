@@ -169,6 +169,13 @@ def update(s: dict, devices: list[dict], replicants: dict, pos: dict[str, Any], 
         why = why_lost(d, by, covered, known)
         rec = s["lost"].get(code)
         fresh_loc = d.get("location") if d.get("location") and not d.get("location_stale") else None
+        if why and d.get("device_type") == "vector_charge" and str(d.get("status") or "") == "launched":
+            # a detonated charge (it launched a Kuiper object, live 2026-11-16) is used up, not lost
+            if rec:
+                s["lost"].pop(code)
+            record_gone(s, [{"code": code, "type": d.get("device_type"), "last_location": d.get("location"),
+                             "reason": "detonated: launched an asteroid"}], now)
+            continue
         if why:
             host = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
             tr = d.get("travel") or {}
