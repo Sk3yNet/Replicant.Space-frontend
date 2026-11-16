@@ -139,7 +139,7 @@ async def print_queue_locations(request: Request, dest_star: str = "", user: str
     if not star:
         return HTMLResponse('<option value="">— system first —</option>')
     t = await system_targets(request.app.state.db, star)
-    keep = ("planet", "moon", "belt", "lagrange", "outer", "object")
+    keep = ("planet", "moon", "belt", "lagrange", "outer", "asteroid", "object")
     opts = ['<option value="">anywhere in ' + html.escape(star) + ' (entry point)</option>']
     for x in t["targets"]:
         if x["category"] in keep or x["category"].startswith(("planet", "moon")):

@@ -75,6 +75,25 @@ def test_scanned_moons_are_offered_as_destinations(client):  # noqa: F811
     assert [x["code"] for x in t["targets"] if x["category"] == "moon"] == [f"ETHIREL-2-{n}" for n in range(1, 5)]
 
 
+def test_detected_kuiper_asteroids_are_offered_as_destinations(client):  # noqa: F811
+    """Live 2026-11-15: a racing vessel's detect runs found RENGRELOR-KUIPER-1..3; the spot list left them out (category
+    'other'), so a vector charge couldn't pick them."""
+    from rsweb.targets import category, system_targets
+    db = client.app.state.db
+    assert category("RENGRELOR-KUIPER-3", "RENGRELOR") == "asteroid" and category("X-OORT-12", "X") == "asteroid"
+    for n, (comp, mass) in enumerate((("rock", "medium"), ("ice", "large")), 1):
+        client.portal.call(db.execute, "INSERT INTO events(id, event, category, device_code, star, location, payload, created_at, received_at) "
+                           "VALUES(?,?,?,?,?,?,?,?,?)",
+                           (f"det{n}", "detect.completed", "detect", "12C3178E", "RENGRELOR", "RENGRELOR-KUIPER",
+                            json.dumps({"designation": f"RENGRELOR-KUIPER-{n}", "composition": comp, "mass_class": mass}),
+                            "2026-11-15T10:00:00+00:00", "2026-11-15T10:00:00+00:00"))
+    t = client.portal.call(system_targets, db, "RENGRELOR")
+    rocks = {x["code"]: x["note"] for x in t["targets"] if x["category"] == "asteroid"}
+    assert rocks == {"RENGRELOR-KUIPER-1": "medium · rock", "RENGRELOR-KUIPER-2": "large · ice"}
+    r = client.get("/print-queue/locations?dest_star=RENGRELOR", headers=HX).text
+    assert 'value="RENGRELOR-KUIPER-2"' in r and "large · ice" in r
+
+
 def test_events_reach_the_page_while_a_tick_holds_the_engine_lock(client):  # noqa: F811
     """Live 2026-10-29: an 80 s tick held the lock and the stream waited in automations.on_event, so the rounds of a
     swoop run arrived after it ended. Now the event is announced at once and the automations get it after the tick."""

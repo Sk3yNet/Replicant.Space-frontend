@@ -18,10 +18,11 @@ from .commands import moon_numbers
 from .shapes import as_amounts
 
 LEVELS = ["scarce", "low", "moderate", "high", "rich"]
-CATEGORY_ORDER = ["belt", "site", "salvage", "stockpile", "planet", "moon", "lagrange", "object", "outer", "star", "other"]
+CATEGORY_ORDER = ["belt", "site", "salvage", "stockpile", "planet", "moon", "lagrange", "object", "outer", "asteroid", "star",
+                  "other"]
 CATEGORY_LABEL = {"belt": "Asteroid belts", "site": "Resource sites", "salvage": "Salvage", "stockpile": "Stockpiles",
                   "planet": "Planets", "moon": "Moons", "lagrange": "Lagrange points", "object": "Objects",
-                  "outer": "Outer system", "star": "Star", "other": "Other"}
+                  "outer": "Outer system", "asteroid": "Kuiper/Oort asteroids", "star": "Star", "other": "Other"}
 
 
 def category(code: str, star: str) -> str:
@@ -36,6 +37,8 @@ def category(code: str, star: str) -> str:
         return "belt"
     if rest in ("KUIPER", "OORT"):
         return "outer"
+    if re.fullmatch(r"(KUIPER|OORT)-\d+", rest):   # bodies a detect run found there (live 2026-11-15: RENGRELOR-KUIPER-3)
+        return "asteroid"
     if re.fullmatch(r"OBJ-\d+", rest):
         return "object"
     if re.fullmatch(r"\d+-L[1-5]", rest):
@@ -151,6 +154,8 @@ async def system_targets(db, star: str) -> dict:
             add(p.get("new_site"), str(p.get("resource_type") or ""))
         elif name == "system.object_detected":
             add(p.get("object_designation"), f"incoming · {p.get('size_class', '')}".strip(" ·"))
+        elif name == "detect.completed":   # {designation, composition, mass_class} (live 2026-11-15)
+            add(p.get("designation"), " · ".join(str(x) for x in [p.get("mass_class"), p.get("composition")] if x) or "detected")
         elif name in ("site.depleted", "salvage.depleted"):
             add(p.get("site"), "depleted")
         add(r["location"])
