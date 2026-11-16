@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.438.0"
+VERSION = "1.439.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.439.0", "2026-11-16", "Closed shops (Joe): an approved trade whose shop answers \"Trade controller is not "
+     "active\" is held 6 h, then 12 h, then 24 h between tries instead of a new fulfil job and warning every few "
+     "minutes (CF8D0EFF at MENKUNT-2-L4). The Shop page shows the hold beside the approval; changing the number tries now."),
     ("1.438.0", "2026-11-16", "BobNet roll call (Joe): the active relay at the trade post posts it unless you choose "
      "another poster, and it lists only the trade controller codes by location, not what they sell. The shop "
      "Announcement boxes warn that the game posts from a replicant's location and suggest leaving it empty."),

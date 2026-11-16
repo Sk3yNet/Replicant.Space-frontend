@@ -146,6 +146,7 @@ async def trade_approve(request: Request, controller: str = Form(...), trade_cod
     key = f"{controller}:{trade_code}"
     q = (qty or "").strip()
     n = int(q) if q.isdigit() else (1 if on == "on" else 0)
+    (ok.get("held") or {}).pop(key, None)   # approving again tries a closed shop now
     if n > 0:
         box[key] = box.get(key) or now_iso()
         if n > 1:

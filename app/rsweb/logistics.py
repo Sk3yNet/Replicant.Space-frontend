@@ -66,6 +66,7 @@ system hub of yours), deposits the cargo and lets those devices off.
 from __future__ import annotations
 
 import json
+import re
 
 import math
 from collections import defaultdict
@@ -114,6 +115,12 @@ def settle_trades(ok: dict, jobs: list[dict]) -> bool:
         bought = sum(1 for st in (j or {}).get("steps") or [] if st.get("path") == path and st.get("status") == "done")
         left = trade_times(ok, key) - bought if j else 0
         ok["running"].pop(key)
+        closed = next((st.get("error") for st in (j or {}).get("steps") or []
+                       if st.get("path") == path and st.get("status") == "failed" and SHOP_CLOSED_RE.search(str(st.get("error") or ""))), None)
+        if closed:
+            hold_trade(ok, key, closed)
+        elif bought:
+            (ok.get("held") or {}).pop(key, None)
         if left > 0 and key in (ok.get("trades") or {}):
             ok.setdefault("counts", {})[key] = left
         else:
@@ -122,6 +129,32 @@ def settle_trades(ok: dict, jobs: list[dict]) -> bool:
             ok.setdefault("done", {})[key] = now_iso()
         changed = True
     return changed
+
+
+# the shop's owner paused or closed it (Joe 2026-11-16: CF8D0EFF at MENKUNT-2-L4, a fulfil job every 2-3 minutes for days)
+SHOP_CLOSED_RE = re.compile(r"trade controller is not active", re.I)
+HOLD_HOURS = (6, 12, 24)   # an approved trade at a closed shop waits this long before the next try, then the next
+
+
+def hold_trade(ok: dict, key: str, why: str) -> dict:
+    """Hold an approved trade whose shop answered that it's closed: no delivery or fulfil until `until`, then one try;
+    each closed answer in a row waits longer (6, 12, then 24 h)."""
+    from datetime import timedelta
+    h = ok.setdefault("held", {})
+    n = int((h.get(key) or {}).get("n") or 0) + 1
+    hours = HOLD_HOURS[min(n, len(HOLD_HOURS)) - 1]
+    h[key] = {"n": n, "why": why, "at": now_iso(),
+              "until": (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat(timespec="seconds")}
+    return h[key]
+
+
+def trade_held(ok: dict, key: str) -> dict | None:
+    """The hold on an approved trade while its hold time runs, else None."""
+    e = (ok.get("held") or {}).get(key)
+    try:
+        return e if e and datetime.fromisoformat(e["until"]) > datetime.now(timezone.utc) else None
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def times(amounts: dict, n: int) -> dict:

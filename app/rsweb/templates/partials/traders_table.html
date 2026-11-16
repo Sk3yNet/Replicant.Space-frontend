@@ -20,7 +20,7 @@
           hx-post="/shop/approve" hx-trigger="change" hx-target="next .tx-a"
           hx-vals='{{ {"controller": (code) | string, "trade_code": (tr.trade_code) | string} | tojson }}'
           title="units for logistics to buy (0 = not approved): it delivers that many prices and executes the trade that many times; the number counts down as units are bought">
-<span class="tx-a"></span></td>
+<span class="tx-a">{% set hd = (apv.held or {}).get(tk) %}{% if hd and tk in (apv.trades or {}) %}<span class="muted small" title="{{ hd.why }}: logistics waits, then tries once more; change the number to try now">shop closed, retry {{ (hd.until or '')[5:16] | replace('T', ' ') }} UTC</span>{% endif %}</span></td>
       <td><input type="number" class="sh-q" name="qty" min="1" max="{{ qmax }}" value="1" style="width:4em" title="units to buy (the game sells one per call: bought one after another)">
         <button class="small" hx-post="/shop/buy" hx-include="previous .sh-q" hx-vals='{{ {"controller": (code) | string, "trade_code": (tr.trade_code) | string} | tojson }}' hx-target="next .sh-b"
         hx-confirm="Buy {{ tr.name }} at {{ t.location }}: pay {{ trade_side(tr.criteria) }}, get {{ trade_side(tr.rewards) }}, for each unit?">Buy</button><span class="sh-b"></span></td></tr>{% endfor %}{% endfor %}

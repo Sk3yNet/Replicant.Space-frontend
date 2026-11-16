@@ -1609,3 +1609,25 @@ def test_a_hauler_rides_a_plate_not_a_mobile_fleet():
                 hosts={}, busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
     run = next(r for r in p["runs"] if r["req"] == "print:Z-2")
     assert cargo(run) == ["HL"] and run["ride"] == "PL"
+
+
+def test_a_closed_shop_holds_the_approved_trade_and_waits_longer_each_time():
+    """Joe 2026-11-16: CF8D0EFF answered "Trade controller is not active" and a fulfil job ran every 2-3 minutes."""
+    path = "/devices/C1/trades/T1"
+    ok = {"trades": {"C1:T1": "x"}, "running": {"C1:T1": "j1"}}
+    fail = {"path": path, "status": "failed", "error": "Trade controller is not active"}
+    assert lg.settle_trades(ok, [{"id": "j1", "status": "failed", "steps": [fail]}])
+    h = lg.trade_held(ok, "C1:T1")
+    assert h and h["n"] == 1 and "C1:T1" in ok["trades"] and ok["running"] == {}
+    ok["running"]["C1:T1"] = "j2"
+    lg.settle_trades(ok, [{"id": "j2", "status": "failed", "steps": [fail]}])
+    assert ok["held"]["C1:T1"]["n"] == 2 and ok["held"]["C1:T1"]["until"] > h["until"]
+    ok["held"]["C1:T1"]["until"] = "2020-01-01T00:00:00+00:00"   # the hold ran out: tried again
+    assert lg.trade_held(ok, "C1:T1") is None
+    ok["running"]["C1:T1"] = "j3"   # another failure (no closed shop) keeps the count; a purchase clears it
+    lg.settle_trades(ok, [{"id": "j3", "status": "failed", "steps": [{"path": path, "status": "failed", "error": "x"}]}])
+    assert ok["held"]["C1:T1"]["n"] == 2
+    ok["counts"] = {"C1:T1": 2}
+    ok["running"]["C1:T1"] = "j4"
+    lg.settle_trades(ok, [{"id": "j4", "status": "failed", "steps": [{"path": path, "status": "done"}]}])
+    assert "C1:T1" not in ok["held"]

@@ -228,8 +228,13 @@ class FleetsMixin:
         from collections import Counter
         from .fleets import device_counts as fl_counts
         ok = await self.db.kv_get(lg.KV_TRADES, {}) or {}
+        was_held = {k: (e or {}).get("at") for k, e in (ok.get("held") or {}).items()}
         if lg.settle_trades(ok, jobs):
             await self.db.kv_set(lg.KV_TRADES, ok)
+            for k, e in (ok.get("held") or {}).items():
+                if was_held.get(k) != e.get("at"):
+                    await self.log("logistics", f"trade {k}: the shop is closed ({e.get('why')}); held until "
+                                                f"{str(e.get('until'))[:16].replace('T', ' ')} UTC, then tried again", "warning")
         trades = []
         from .shop import known_traders
         from .contractsupply import status_note as cs_note
@@ -244,6 +249,8 @@ class FleetsMixin:
                 # shop's trades: Bill's shop is often at SOL, which is warded (owner 2026-10-20: an approved SOL trade was
                 # left out of the requests)
                 if not once or key in taken or not t.get("location") or tr.get("current_stock") == 0:
+                    continue
+                if lg.trade_held(ok, key):   # the shop said it's closed: wait out the hold (lg.hold_trade)
                     continue
                 n_ = lg.trade_times(ok, key, tr.get("current_stock"))   # units approved (the game sells one per call)
                 price = lg.times(as_amounts((tr.get("criteria") or {}).get("resources") or {}), n_)
