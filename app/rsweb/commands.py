@@ -63,6 +63,9 @@ COMMANDS: dict[str, list[Field]] = {
                F("via", "via", label="via", help="Optional: locations to route through (comma-separated), or 'direct' "
                                                   "to skip the nav chip"),
                F("dry_run", "bool", default=False, help="Preview the route and ETA without leaving")],
+    "detonate": [F("target", "location", required=True, label="Kuiper object",
+                   help="The object to launch, e.g. RENGRELOR-KUIPER-2 (found by detect_object); the charge sits at its belt"),
+                 F("destination", "location", required=True, label="strike", help="Planet or moon it should hit")],
     "swoop": [F("action", "choice", options=["", "boost", "dodge", "dive", "roll", "brake"],
                 help="Blank starts the debris run; the rest react to incoming debris (fly it live on the Cockpit page)")],
     "stow": [F("target", "device", label="stow into (a carrier here)", filter={"here": True, "carrier": "board"},
@@ -128,6 +131,8 @@ COMMANDS: dict[str, list[Field]] = {
 DESCRIPTIONS: dict[str, str] = {
     "travel": "Fly to a location. Inside a system this is a cruise; to another system the game plans surge legs (needs the "
               "surge feature, else ride a carrier). A drone tracking a site must be deactivated first.",
+    "detonate": "Vector charge: launch a detected Kuiper object at a planet or moon. The charge is used up. Travel to the "
+                "object itself is refused: deploy the charge at the belt (STAR-KUIPER) and name the object here.",
     "swoop": "The debris run (spec 2026-10-29): swoop starts it, then boost, dodge, dive, roll or brake as debris comes "
              "in. Fly it live from Devices › Cockpit.",
     "stow": "Board a carrier's hold (vessels). Pick from either side: on the device, the carrier; on the "

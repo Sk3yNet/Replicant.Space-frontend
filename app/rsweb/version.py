@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.439.0"
+VERSION = "1.439.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.439.1", "2026-11-16", "Kuiper objects are launched from their belt: the game refuses travel to one (Invalid "
+     "destination format), so they leave the travel spot list again. A vector charge deployed at STAR-KUIPER now gets the "
+     "Launch form on Terraforming for every object there, rock chasers fly the charge to the belt, and the device command "
+     "form has detonate (Kuiper object, strike). Unverified live that detonate works from the belt."),
     ("1.439.0", "2026-11-16", "Closed shops (Joe): an approved trade whose shop answers \"Trade controller is not "
      "active\" is held 6 h, then 12 h, then 24 h between tries instead of a new fulfil job and warning every few "
      "minutes (CF8D0EFF at MENKUNT-2-L4). The Shop page shows the hold beside the approval; changing the number tries now."),

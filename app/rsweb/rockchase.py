@@ -20,6 +20,8 @@ the rock scan layout (see rockmining.py), where a sensor array must be for detec
 """
 from __future__ import annotations
 
+import re
+
 from typing import Any
 
 from . import rockmining as rm
@@ -33,6 +35,20 @@ DEFAULTS: dict[str, Any] = {"mode": "roam", "radius": 100.0, "min_size": "small"
 SURGE_S_PER_LY = 50.0   # rough surge pace for ranking; the chosen trip is checked with the game's preview
 CRUISE_H = 0.25         # rough in-system trip for ranking
 KUIPER_HOURS = 24.0     # a detected Kuiper object stays this long (docs)
+
+
+def launch_spot(des: str) -> str:
+    """Where a vector charge launches Kuiper object `des` from: the belt it was found in (RENGRELOR-KUIPER-2 →
+    RENGRELOR-KUIPER). Live 2026-11-16: travel to the object itself is refused ("Invalid destination format");
+    detonate names the object as `target`. Unverified live that detonate works from the belt."""
+    m = re.match(r"^(.+-(?:KUIPER|OORT))-\d+$", des or "")
+    return m.group(1) if m else des
+
+
+def can_launch(charge: dict, des: str) -> bool:
+    """A deployed charge (not stowed or towed) at the object's belt, or at the object itself."""
+    return charge.get("location") in (des, launch_spot(des)) and not charge.get("stowed_in_device_code") \
+        and not charge.get("attached_to_device_code")
 SEARCH_MINUTES = 65     # a detect_object sweep takes about an hour
 
 

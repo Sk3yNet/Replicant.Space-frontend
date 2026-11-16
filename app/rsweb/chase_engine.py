@@ -538,8 +538,9 @@ class ChaseMixin:
 
     async def _chase_launch(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict) -> list[str]:
         """run["launch"] {rock, at} (Fleet details, or auto_launch at launch_at): a fleet vector charge goes to the Kuiper
-        object (flying itself, or on the carrier while the fleet has no target) and detonates it at the body."""
+        object's belt (flying itself, or on the carrier while the fleet has no target) and detonates it at the body."""
         from . import fleets as fl
+        from . import rockchase as rc
         from .automations import step
         from .web_terraform import LAUNCHED_KV
         req = run.get("launch")
@@ -551,13 +552,14 @@ class ChaseMixin:
         if not req:
             return []
         des, body = req["rock"], req["at"]
-        charges = sorted(k["charges"], key=lambda d: (d.get("location") != des, (d.get("location") or "").split("-")[0] != des.split("-")[0]))
+        spot = rc.launch_spot(des)   # the charge waits at the object's belt; the object itself is no travel destination
+        charges = sorted(k["charges"], key=lambda d: (d.get("location") not in (des, spot), (d.get("location") or "").split("-")[0] != des.split("-")[0]))
         ch = next((d for d in charges if d["device_code"] not in ctx["busy"]), None)
         if not ch:
             req["note"] = "no free vector charge in the fleet"
             return []
         code = ch["device_code"]
-        if ch.get("location") == des and not ch.get("stowed_in_device_code") and not ch.get("attached_to_device_code"):
+        if rc.can_launch(ch, des):
             ok, resp, err = await self.send("POST", f"/devices/{code}", {"command": "detonate", "target": des, "destination": body},
                                             f"auto: rock chaser launches {des}")
             if not ok:
@@ -581,8 +583,8 @@ class ChaseMixin:
         car = k["carriers"][0] if k["carriers"] else None
         if rm_can_fly(ch) and (fl.tug(ch, ctx["devices"]).get("location") or "").split("-")[0] == des.split("-")[0] \
                 and not ch.get("stowed_in_device_code") and not ch.get("attached_to_device_code"):
-            steps = [step(f"{code} → {des}", f"/devices/{code}", {"command": "travel", "destination": des}, critical=True),
-                     fl._wait_arrive(code, des)]
+            steps = [step(f"{code} → {spot}", f"/devices/{code}", {"command": "travel", "destination": spot}, critical=True),
+                     fl._wait_arrive(code, spot)]
             devs = [code]
         elif car and not run.get("target") and car["device_code"] not in ctx["busy"]:
             cc = car["device_code"]
@@ -599,8 +601,8 @@ class ChaseMixin:
             if (ch.get("stowed_in_device_code") or ch.get("attached_to_device_code")) != cc:
                 tour, _ = fl.pickup_tour(cc, car.get("location"), {ch["location"]: [(code, mode)]})
                 steps += tour
-            steps += [step(f"{cc} → {des}", f"/devices/{cc}", {"command": "travel", "destination": des}, critical=True),
-                      fl._wait_arrive(cc, des)] + self._unload(cc, [(code, mode)])
+            steps += [step(f"{cc} → {spot}", f"/devices/{cc}", {"command": "travel", "destination": spot}, critical=True),
+                      fl._wait_arrive(cc, spot)] + self._unload(cc, [(code, mode)])
             devs = [cc, code]
         else:
             req["note"] = f"waiting for the carrier to take {code} to {des} (busy with a target)"

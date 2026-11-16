@@ -11,6 +11,7 @@ from collections import defaultdict
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
+from . import rockchase as rc
 from . import terraform as tf
 from .db import now_iso
 from .web import call_action, current_user, load_state, page, partial, render_action, run_action, sim_view, star_of
@@ -287,7 +288,7 @@ async def terraforming_kuiper(request: Request, star: str, user: str = Depends(c
         out.append('<p class="muted small">None found — run a detection first.</p>')
     for o in objs:
         des = html.escape(str(o.get("designation") or "?"))
-        here = [c for c in charges if c.get("location") == o.get("designation")]
+        here = [c for c in charges if rc.can_launch(c, str(o.get("designation") or ""))]
         out.append(f'<div class="small">• <span class="mono">{des}</span> {html.escape(str(o.get("mass_class") or ""))} '
                    f'{html.escape(str(o.get("composition") or ""))}')
         if here:
@@ -300,7 +301,7 @@ async def terraforming_kuiper(request: Request, star: str, user: str = Depends(c
                        f'<datalist id="tf-dest-{star}">{opts}</datalist> <button class="small">Launch</button></form>'
                        f'<span class="tf-out"></span>')
         else:
-            out.append(' <span class="muted">— a vector charge of yours deployed here can launch it</span>')
+            out.append(f' <span class="muted">— a vector charge of yours deployed at {html.escape(rc.launch_spot(str(o.get("designation") or "")))} can launch it</span>')
         out.append('</div>')
     return HTMLResponse("".join(out))
 

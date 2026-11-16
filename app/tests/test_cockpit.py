@@ -76,8 +76,7 @@ def test_scanned_moons_are_offered_as_destinations(client):  # noqa: F811
 
 
 def test_detected_kuiper_asteroids_are_offered_as_destinations(client):  # noqa: F811
-    """Live 2026-11-15: a racing vessel's detect runs found RENGRELOR-KUIPER-1..3; the spot list left them out (category
-    'other'), so a vector charge couldn't pick them."""
+    """Live 2026-11-15: a racing vessel's detect runs found RENGRELOR-KUIPER-1..3 (category 'other' before 1.437.1)."""
     from rsweb.targets import category, system_targets
     db = client.app.state.db
     assert category("RENGRELOR-KUIPER-3", "RENGRELOR") == "asteroid" and category("X-OORT-12", "X") == "asteroid"
@@ -90,8 +89,21 @@ def test_detected_kuiper_asteroids_are_offered_as_destinations(client):  # noqa:
     t = client.portal.call(system_targets, db, "RENGRELOR")
     rocks = {x["code"]: x["note"] for x in t["targets"] if x["category"] == "asteroid"}
     assert rocks == {"RENGRELOR-KUIPER-1": "medium · rock", "RENGRELOR-KUIPER-2": "large · ice"}
+    # live 2026-11-16: travel to one is refused ("Invalid destination format"), so the travel spot list leaves them out;
+    # a vector charge at the belt launches them by name (detonate target)
     r = client.get("/print-queue/locations?dest_star=RENGRELOR", headers=HX).text
-    assert 'value="RENGRELOR-KUIPER-2"' in r and "large · ice" in r
+    assert "RENGRELOR-KUIPER-2" not in r and 'value="RENGRELOR-KUIPER"' in r
+    from rsweb import rockchase as rc
+    assert rc.launch_spot("RENGRELOR-KUIPER-2") == "RENGRELOR-KUIPER" and rc.launch_spot("X-OORT-12") == "X-OORT"
+    assert rc.launch_spot("SOL-KUIPER-001") == "SOL-KUIPER"
+    assert rc.can_launch({"location": "RENGRELOR-KUIPER"}, "RENGRELOR-KUIPER-2")
+    assert not rc.can_launch({"location": "RENGRELOR-KUIPER", "stowed_in_device_code": "C"}, "RENGRELOR-KUIPER-2")
+    assert not rc.can_launch({"location": "RENGRELOR-KUIPER"}, "OTHER-KUIPER-2")
+    devs = client.portal.call(db.kv_get, "devices", []) or []
+    devs.append({"device_code": "0138CB21", "device_type": "vector_charge", "location": "SOL-KUIPER", "status": "idle"})
+    client.portal.call(db.kv_set, "devices", devs)
+    frag = client.get("/terraforming/kuiper/SOL", headers=HX).text
+    assert "/terraforming/0138CB21/detonate" in frag and 'value="SOL-KUIPER-001"' in frag
 
 
 def test_events_reach_the_page_while_a_tick_holds_the_engine_lock(client):  # noqa: F811
