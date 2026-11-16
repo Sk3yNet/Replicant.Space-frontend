@@ -176,3 +176,31 @@ def test_outage_page_and_engine(client):  # noqa: F811
     client.portal.call(db.kv_set, season.OUTAGE_KV, [{"id": "x", "start": soon.isoformat(), "minutes": 60, "lead": 30, "after": 15}])
     client.portal.call(e.outage_pass)
     assert client.portal.call(db.kv_get, season.HOLD_KV)["window"] == "x"
+
+
+def test_a_controller_working_at_a_doomed_rock_has_its_directive_cleared(client):  # noqa: F811
+    """Live 2026-11-16: C153CAE1 ferried RENGRELOR-OBJ-1 → SOLARES-BELT-1; its three freighters waited at the rock to
+    collect and were destroyed at the impact. The controller's directive is cleared before the ETA."""
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "objects", {"SOL-OBJ-1": {"designation": "SOL-OBJ-1", "impact_eta": iso(40),
+                                                            "impact_target": "SOL-3", "status": "active"}})
+    devs = client.portal.call(db.kv_get, "devices") + [
+        dev("CT1", "ami_transport_controller", "SOL-3-L4", available_commands=["set_directive", "clear_directive"],
+            ami_directive={"name": "ferry", "config": {"collect": "SOL-OBJ-1", "deliver": "SOLARES-BELT-1"}}),
+        dev("CT2", "ami_transport_controller", "SOL-3-L5", available_commands=["set_directive"],
+            ami_directive={"name": "ferry", "config": {"collect": "SOL-3-L4", "deliver": "SOLARES-BELT-1"}})]
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(db.kv_set, "loadout_ferries", {"CT1": {"configuration": {"collect": "SOL-OBJ-1"}}})
+    out = client.portal.call(e.evacuate_pass, True)
+    assert any("CT1" in x for x in out) and not any("CT2" in x for x in out)
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "evacuate" and j["device"] == "CT1")
+    assert job["steps"][0]["body"] == {"command": "clear_directive"}
+    assert "CT1" not in client.portal.call(db.kv_get, "loadout_ferries")
+
+
+def test_ferries_and_chaser_drops_never_use_a_rock():
+    from rsweb import loadouts as lo
+    from rsweb import rockchase as rc
+    assert lo.pickup_point("A", {"A-OBJ-1": {"carbon": 900}, "A-3-L4": {"carbon": 10}}) == "A-3-L4"
+    assert lo.pickup_point("A", {"A-KUIPER-2": {"ice": 900}}) is None
+    assert rc.is_rock("RENGRELOR-OBJ-1") and rc.is_rock("A-KUIPER-3") and not rc.is_rock("A-KUIPER") and not rc.is_rock("A-3-L4")

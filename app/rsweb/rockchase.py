@@ -80,6 +80,15 @@ def apply_form(f: dict, form: dict, user: str, at: str) -> tuple[str, str | None
     return "", "Unknown action."
 
 
+ROCK_RE = re.compile(r"-(?:OBJ|KUIPER|OORT)-\d+$")
+
+
+def is_rock(spot: str | None) -> bool:
+    """An asteroid's own location (STAR-OBJ-n, STAR-KUIPER-n): never a drop or a pick-up, it is gone at impact (live
+    2026-11-16: three Chaser_1 freighters waiting at RENGRELOR-OBJ-1 to collect were destroyed with it)."""
+    return bool(spot and ROCK_RE.search(spot))
+
+
 def near_target(spot: str | None, target: str | None) -> bool:
     """`spot` is the impact target or one of its moons or L-points (Joe 2026-11-16: never drop at the impact target)."""
     return bool(spot and target and (spot == target or spot.startswith(target + "-")))

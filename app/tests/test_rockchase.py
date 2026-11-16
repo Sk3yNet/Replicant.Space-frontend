@@ -264,8 +264,15 @@ def test_fleet_controller_shuttles_rock_to_drop_while_mining_then_hands_back(cli
     f[0]["chase_run"].update({"target": None, "phase": "idle", "arrived": None})
     client.portal.call(e.save_fleets, f)
     client.portal.call(db.kv_set, "objects", {})   # the rock is gone
+    devs = client.portal.call(db.kv_get, "devices")
+    for d in devs:
+        if d["device_code"] == "FRT":
+            d.update({"location": "SOL-OBJ-1", "controller_device_code": "CTL", "status": "collecting"})
+    client.portal.call(db.kv_set, "devices", devs)
     out = client.portal.call(e.rock_chase_pass)
     assert any("shuttle cleared" in x for x in out), out
+    job = next(j for j in client.portal.call(e.jobs) if "supply ferry" in j["title"])
+    assert {"command": "travel", "destination": "SOL-4-L5"} in [st.get("body") for st in job["steps"]]   # nobody waits at the rock
     assert "ami" not in client.portal.call(e.fleets)[0]["chase_run"]
 
 

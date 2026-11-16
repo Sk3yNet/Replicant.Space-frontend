@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.442.0"
+VERSION = "1.442.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.442.1", "2026-11-16", "Freighters no longer wait at a rock that is about to strike (live: Chaser_1 lost 661BF2A6, "
+     "7C59FC44 and 7FB319CA when RENGRELOR-OBJ-1 hit). A transport controller whose directive collects or delivers at a "
+     "doomed location has it cleared before the impact, so evacuation can move its freighters. Supply ferries never pick up "
+     "at an asteroid's own location, and rock chasers never take a rock as their drop. When a chaser stops mining, its "
+     "freighters at the rock fly to the local drop as the shuttle is cleared; the supply ferry then takes the pile to the hub (Joe)."),
     ("1.442.0", "2026-11-16", "Dashboard While you were away card (Joe): trimmed to what matters. Needs you lists only unread "
      "error notifications since your visit began (the bell's filter: no switch-offs you sent, no warnings the automations "
      "handle), repeats folded into one line with a count; Worth knowing lists notable results (events completed, trades, "

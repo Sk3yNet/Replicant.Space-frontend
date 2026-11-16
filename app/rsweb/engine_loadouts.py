@@ -562,7 +562,7 @@ class LoadoutMixin:
         p = ev.plan(objs, devices, stars, busy, hosts, scans, warned=warned, pct=pct,
                     diverter_minutes=min(max(lv, 30.0), ev.EVAC_MINUTES))
         from . import fleets as fl
-        out = []
+        out = await self._evacuate_directives(devices, p["piles"], busy)
         boards: dict[str, list[dict]] = {}
         for b in p["boards"]:
             boards.setdefault(b["carrier"], []).append(b)
@@ -589,6 +589,49 @@ class LoadoutMixin:
                 await self.log("evacuate", f"{s_['code']} at {s_['location']} can't be evacuated: {s_['why']}", "error", notify=True)
         for line in out:
             await self.log("evacuate", line, "alert", notify=True)
+        return out
+
+    async def _evacuate_directives(self, devices: list[dict], hot: dict[str, float], busy: set[str]) -> list[str]:
+        """A transport controller whose directive collects or delivers at a doomed location has it cleared: its
+        freighters otherwise keep going back there to wait for cargo and are destroyed with the rock (live 2026-11-16:
+        C153CAE1 ferried RENGRELOR-OBJ-1 → SOLARES-BELT-1 and lost 661BF2A6, 7C59FC44 and 7FB319CA at the impact).
+        Freighters left at the spot are evacuated by the next pass."""
+        from . import loadouts as lo
+        if not hot:
+            return []
+        sent = await self.db.kv_get("loadout_ferries", {}) or {}
+        runs = [f.get("chase_run") or {} for f in (await self.loadout_cfg()).get("fleets") or []]
+        shuttles = {r["ami"]["ctrl"]: r["ami"] for r in runs if isinstance(r, dict) and (r.get("ami") or {}).get("ctrl")}
+        hot_stars = {lo.star_of(x) for x in hot}
+        out: list[str] = []
+        for d in devices:
+            code = d.get("device_code")
+            if not lo.is_transport_controller(d) or code in busy or lo.star_of(d.get("location")) not in hot_stars:
+                continue
+            spots: set[str] = set()
+            dirv = d.get("ami_directive") or {}
+            if dirv and str(d.get("ami_directive_status") or "active") == "active":
+                spots |= {str((dirv.get("config") or {}).get(k) or "") for k in ("collect", "deliver")}
+            spots |= {str(((sent.get(code) or {}).get("configuration") or {}).get(k) or "") for k in ("collect", "deliver")}
+            spots |= {str((shuttles.get(code) or {}).get(k) or "") for k in ("collect", "deliver")}
+            row = await self.db.fetchone("SELECT payload FROM events WHERE event='ami.transport.digest' AND device_code=? "
+                                         "ORDER BY seq DESC LIMIT 1", (code,))
+            try:
+                rep = (json.loads(row["payload"] or "{}").get("report") or {}) if row else {}
+            except ValueError:
+                rep = {}
+            spots |= {str(rep.get(k) or "") for k in ("collect", "deliver")}
+            doomed = sorted(x for x in spots if x in hot)
+            if not doomed:
+                continue
+            if await self.create_job("evacuate", f"{code}: stop its run at {', '.join(doomed)} (impact)", code,
+                                     [step(f"{code}: clear directive (works at {', '.join(doomed)})", f"/devices/{code}",
+                                           {"command": "clear_directive"}, critical=True)],
+                                     {"devices": [code], "through_hold": True}):
+                busy.add(code)
+                if sent.pop(code, None) is not None:
+                    await self.db.kv_set("loadout_ferries", sent)
+                out.append(f"{code}: directive cleared, it worked at {', '.join(doomed)} (impact due)")
         return out
 
     async def dark_networks(self, devices: list[dict], pos: dict, bps: dict, reps: dict) -> list[set[str]]:

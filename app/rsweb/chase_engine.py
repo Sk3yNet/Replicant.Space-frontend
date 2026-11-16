@@ -416,10 +416,10 @@ class ChaseMixin:
         star = rock.split("-")[0]
         o = ctx["objs"].get(rock) or {}
         drop = str(cfg.get("drop") or "").strip().upper()
-        if drop and drop.split("-")[0] == star and not rc.near_target(drop, o.get("impact_target")):
+        if drop and drop.split("-")[0] == star and not rc.near_target(drop, o.get("impact_target")) and not rc.is_rock(drop):
             return drop
         best = ((run or {}).get("drops") or {}).get(rock)
-        if best and not rc.near_target(best, o.get("impact_target")):
+        if best and not rc.near_target(best, o.get("impact_target")) and not rc.is_rock(best):
             return best
         from .rockmining import open_rocks
         hot = set(open_rocks(ctx["objs"]))
@@ -430,6 +430,7 @@ class ChaseMixin:
         shuttles rock → best drop (never the impact target); otherwise its shuttle is cleared and the supply ferry
         (loadouts) takes it back: the drop's pile to the nearest hub. Unverified live: a shuttle collecting at an
         asteroid object (STAR-OBJ-n)."""
+        from . import rockchase as rc
         from .automations import step
         ctrl = next((d for d in ms if "transport_controller" in (d.get("device_type") or "")), None)
         cur = run.get("ami") or {}
@@ -475,6 +476,13 @@ class ChaseMixin:
             if not cur.get("ctrl"):
                 return []
             steps = [step(f"{code}: clear the rock shuttle", f"/devices/{code}", {"command": "clear_directive"})]
+            rock_at, drop_at = cur.get("collect"), cur.get("deliver")
+            if drop_at and not rc.is_rock(drop_at):   # nobody waits at the rock for cargo once the shuttle stops (Joe 2026-11-16)
+                for d in k["shippers"] + k["ferried"]:
+                    if d.get("location") == rock_at and d["device_code"] not in ctx["busy"] \
+                            and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code"):
+                        steps.append(step(f"{d['device_code']} → {drop_at} (leaves {rock_at})", f"/devices/{d['device_code']}",
+                                          {"command": "travel", "destination": drop_at}))
             title, line = f"{f['name']}: {code} back to the supply ferry", f"{code}: shuttle cleared, the supply ferry takes over"
             new = None
         job = await self.create_job("rock_chaser", title, code, steps, {"devices": [code]})
@@ -517,7 +525,9 @@ class ChaseMixin:
         star = rock.split("-")[0]
         o = ctx["objs"].get(rock) or {}
         collect = await self._ferry_collect(k, star)
-        if collect and not rc.near_target(collect, o.get("impact_target")):
+        if rc.is_rock(drops.get(rock)):
+            drops.pop(rock)   # 1.440.8 took a ferry collecting at the rock itself for the drop (Chaser_1 lost 3 freighters)
+        if collect and not rc.near_target(collect, o.get("impact_target")) and not rc.is_rock(collect):
             drops[rock] = collect   # a fleet ferry picks up there: drop where it collects (Joe 2026-11-16, 661BF2A6)
             return
         if rock in drops:

@@ -2069,7 +2069,11 @@ def drop_point(star: str, devices: list[dict], inventory: dict[str, dict], stars
 
 
 def pickup_point(star: str, inventory: dict[str, dict]) -> str | None:
-    piles = sorted(((loc, _stock_total(items)) for loc, items in inventory.items() if star_of(loc) == star and _stock_total(items) > 0),
+    """The biggest pile in `star`, never an asteroid's own location: a ferry collecting there keeps its freighters
+    waiting at the rock until it strikes (live 2026-11-16, RENGRELOR-OBJ-1: 3 freighters lost)."""
+    from .rockchase import is_rock
+    piles = sorted(((loc, _stock_total(items)) for loc, items in inventory.items() if star_of(loc) == star
+                    and _stock_total(items) > 0 and not is_rock(loc)),
                    key=lambda kv: -kv[1])
     return piles[0][0] if piles else None
 
@@ -2182,7 +2186,8 @@ def material_routes(cfg: dict, devices: list[dict], inventory: dict[str, dict], 
         conf = {"collect": collect, "deliver": deliver}
         cur = current.get(code) or {}
         cc = cur.get("configuration") or {}
-        same_route = (star_of(cc.get("collect")) == src and star_of(cc.get("deliver")) == dest
+        from .rockchase import is_rock
+        same_route = not is_rock(cc.get("collect")) and (star_of(cc.get("collect")) == src and star_of(cc.get("deliver")) == dest
                       and _stock_total(inventory.get(cc.get("collect")) or {}) > 0 or cc == conf)
         running = cur.get("directive") == "ferry" and not cur.get("finished") and same_route
         if running:  # keep its current pick-up while that still has stock — re-sending just resets the run
