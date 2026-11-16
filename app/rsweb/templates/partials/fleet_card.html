@@ -4,7 +4,9 @@
 <div class="card" id="fleet-{{ f.id }}" style="margin-bottom:14px">
   <div class="row between">
     <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }}{% if f.pending_home %} → <b>{{ f.pending_home }}</b> pending{% endif %}{% if f.station %} · stationed{% endif %} · <code>fleet:{{ f.id }}</code></span></h2>
-    {% if f.role == 'prospector' %}{% set tr = f.tour or {} %}<div class="small">Prospecting tour within {{ f.radius or 30 }} ly of {{ f.home }}:
+    {% if f.role == 'prospector' %}{% set tr = f.tour or {} %}<div class="small"><form class="row small" style="display:inline-flex;gap:6px;margin:0" hx-post="/fleets/{{ f.id }}/prospect-radius" hx-trigger="change" hx-target="#prad-{{ f.id }}">Prospecting tour within
+      <input type="number" name="prospect_radius" min="1" max="1728" step="1" value="{{ ((prospect_radii or {}).get(f.home) or f.radius or 30)|round|int }}" style="width:5em" title="Shared by every prospector fleet based at {{ f.home }}"> ly of {{ f.home }}
+      <span id="prad-{{ f.id }}" class="muted">(shared by its prospectors)</span></form>:
       at <b>{{ tr.star or '?' }}</b>{% if tr.target and tr.job %} → {{ tr.target }}{% endif %}{% if tr.left is not none and tr.left is defined %} · {{ tr.left }} star(s) left{% endif %}
       {% if tr.note %}<span class="{{ 'lv-alert' if tr.alerted else 'muted' }}"> · {{ tr.note }}</span>{% endif %}
       <span class="muted"> · since {{ tr.since | ago }}</span></div>{% endif %}

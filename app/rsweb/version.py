@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.439.4"
+VERSION = "1.440.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.440.0", "2026-11-16", "Fleets: a prospector fleet's card sets the prospecting tour radius (default 30 ly), "
+     "one value per home shared by every prospector fleet based there (kv prospect_radii)."),
     ("1.439.4", "2026-11-16", "Every vector charge launch is kept as yours (launched_rocks), whichever form sent it, and "
      "earlier hand launches are backfilled once from the action log: RENGRELOR-OBJ-1, launched from the device command form, "
      "wasn't, so defense would have treated it as a threat. Live: detonate works from the Kuiper belt; an L4/L5 strike is refused, so the launch forms offer only planets and moons."),

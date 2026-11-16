@@ -1703,3 +1703,21 @@ def test_fleet_card_hides_seats_without_carrier(client):
     card = card[card.index('id="fleet-rocks"'):]
     assert 'class="no-carrier"' not in card and "At full loadout" in card
     assert 'class="small attach-points" style="margin-top:6px">' in card
+
+
+def test_prospect_radius_shared_per_home(client):
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(eng.save_fleets, [
+        {"id": "p1", "name": "Pro 1", "role": "prospector", "home": "SOL", "wants": {}, "tour": {"alerted": True}},
+        {"id": "p2", "name": "Pro 2", "role": "prospector", "home": "SOL", "wants": {}},
+        {"id": "p3", "name": "Pro 3", "role": "prospector", "home": "AEM", "wants": {}}])
+    r = client.post("/fleets/p2/prospect-radius", data={"prospect_radius": "45"}, headers=HX)
+    assert "45 ly" in r.text
+    assert client.portal.call(db.kv_get, "prospect_radii") == {"SOL": 45}
+    radii = client.portal.call(db.kv_get, "prospect_radii")
+    fl = {f["id"]: f for f in client.portal.call(eng.fleets)}
+    assert [eng.prospect_radius(fl[k], radii) for k in ("p1", "p2", "p3")] == [45, 45, 30]
+    assert not fl["p1"]["tour"]["alerted"]   # a tour that ran out of stars looks again
+    assert client.post("/fleets/p3/prospect-radius", data={"prospect_radius": "x"}, headers=HX).text.count("number")
+    page = client.get("/fleets/details?all=1", headers=H).text
+    assert 'name="prospect_radius"' in page and 'value="45"' in page

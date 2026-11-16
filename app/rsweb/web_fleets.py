@@ -172,7 +172,7 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
     obs_fleets = {fl.fleet_of(d) for d in st["devices"] if is_observatory(d) and fl.fleet_of(d)}
     obs_fleets |= {f["id"] for f in items if any((fl.station_wants(f) or {}).get(t) for t in OBSERVATORY_TYPES)}   # or its loadout wants one
     from . import bootstrap as _bt
-    return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items, "shown_fleets": shown, "scout_radii": await eng.db.kv_get("scout_radii", {}) or {},
+    return {**lctx, "plans_age": pagecache.age_minutes(request), "obs_status": obs_status, "obs_fleets": obs_fleets, "contracts": sorted(contracts, key=lambda c: c["location"]), "rep_names": reps, "profiles": profiles, "home_systems": homes, "templates": lctx["cfg"]["phases"], "fleets": items, "shown_fleets": shown, "scout_radii": await eng.db.kv_get("scout_radii", {}) or {}, "prospect_radii": await eng.db.kv_get("prospect_radii", {}) or {},
             "types": types,
             "stars": stars_all, "roles": fl.ROLE_CHOICES, "phases": {**fl.PHASES, "homing": fl.HOMING_PHASES}, "traders": traders,
             "boot_reps": [(c, r.get("name") or c) for c, r in st["replicants"].items() if r.get("hosted_device_code")],
@@ -977,6 +977,30 @@ async def fleets_next_home(request: Request, fid: str, action: str = Form(...), 
     if action == "now":
         await eng.pathing_pass(force=True)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/fleets/{fid}/prospect-radius", response_class=HTMLResponse)
+@_fleet_locked
+async def fleets_prospect_radius(request: Request, fid: str, user: str = Depends(current_user)):
+    """A prospector fleet's tour radius: one value per home, shared by every prospector fleet based there (Joe 2026-11-16)."""
+    form = await request.form()
+    eng, items = await _fleets(request)
+    f = next((x for x in items if x["id"] == fid), None)
+    if not f or f.get("role") != "prospector" or not f.get("home"):
+        return HTMLResponse("", status_code=404)
+    try:
+        r = max(1.0, min(1728.0, float(form.get("prospect_radius") or eng.PROSPECT_RADIUS_LY)))
+    except ValueError:
+        return HTMLResponse('<span class="result err">radius must be a number</span>')
+    radii = await eng.db.kv_get("prospect_radii", {}) or {}
+    radii[f["home"]] = r
+    await eng.db.kv_set("prospect_radii", radii)
+    for x in items:   # a tour that ran out of stars looks again (and may warn again) with the new radius
+        if x.get("role") == "prospector" and x.get("home") == f["home"] and (x.get("tour") or {}).get("alerted"):
+            x["tour"]["alerted"] = False
+    await eng.save_fleets(items)
+    await eng.log("fleets", f"prospecting radius for {f['home']} set to {r:g} ly by {user}")
+    return HTMLResponse(f'<span class="small lv-done">Saved: every prospector based at {f["home"]} tours within {r:g} ly.</span>')
 
 
 @router.post("/fleets/{fid}/auto-scout", response_class=HTMLResponse)

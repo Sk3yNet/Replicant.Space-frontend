@@ -1238,8 +1238,15 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
             await self.save_fleets(fleet_list)
         return out
 
+    PROSPECT_RADIUS_LY = 30.0
+
+    @classmethod
+    def prospect_radius(cls, f: dict, radii: dict) -> float:
+        """A prospector fleet's tour radius: kv prospect_radii {home: ly} (Fleets page), else its own radius, else 30."""
+        return float((radii or {}).get(f.get("home")) or f.get("radius") or cls.PROSPECT_RADIUS_LY)
+
     async def prospector_pass(self) -> list[str]:
-        """Fleets with role "prospector" (an observatory and a carrier): tour the stars within `radius` ly (30) of the fleet's
+        """Fleets with role "prospector" (an observatory and a carrier): tour the stars within the home's radius (kv prospect_radii, 30 ly) of the fleet's
         home, one prospect each (observatory_pass prospects and compacts), then the carrier takes the observatory to the next
         star — the emptiest neighborhood not prospected from yet, nearer first, commandable. A tour that hasn't moved on or
         found anything for STALL_HOURS raises a warning (once per stall)."""
@@ -1258,6 +1265,7 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
         stars = await self.star_lookup("by")      # shared: read only
         xyz_all = await self.star_lookup("xyz")
         runs = await self.db.kv_get("observatory_runs", {}) or {}
+        radii = await self.db.kv_get("prospect_radii", {}) or {}   # one radius per home, shared by its prospectors (Joe 2026-11-16)
         pfrom = await self.db.kv_get("prospected_from", {}) or {}
         allowed = await self.commandable(devices)
         out, changed = [], False
@@ -1310,10 +1318,10 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                 taken = {(x.get("tour") or {}).get("target") for x in mine if x is not f} | \
                         {(x.get("tour") or {}).get("star") for x in mine if x is not f}
                 nxt, left = pr.next_star(here, f["home"], xyz_all, set(pfrom), taken - {None}, allowed,
-                                         float(f.get("radius") or 30))
+                                         self.prospect_radius(f, radii))
                 tour["left"] = left
                 if not nxt:
-                    tour["note"] = f"no star left to prospect within {f.get('radius') or 30} ly of {f['home']}"
+                    tour["note"] = f"no star left to prospect within {self.prospect_radius(f, radii):g} ly of {f['home']}"
                     if not tour.get("alerted"):
                         tour["alerted"] = True
                         await self._notify("warning", f"{f['name']}: {tour['note']}", "/fleets")
