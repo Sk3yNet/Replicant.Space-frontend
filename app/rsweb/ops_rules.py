@@ -1009,6 +1009,14 @@ class OpsRules:
                     pass
             await self.db.kv_set("launched_rocks_backfill", True)
         mine = await self.db.kv_get("launched_rocks", {}) or {}   # rocks you launched (Terraforming): not a threat
+        for k, r in mine.items():   # 1.439.5: a launch with no hub in its system is never detected: track it from the answer
+            eta = _ts(r.get("impact_eta"))
+            old = objs.get(k)
+            if dfn.is_object(k) and eta and (_now() - eta).total_seconds() < dfn.OVERDUE_H * 3600 \
+                    and (old is None or (old.get("closed") and _after(r.get("at"), old.get("closed_at")))):
+                objs[k] = {"designation": k, "impact_target": r.get("destination"), "impact_eta": r.get("impact_eta"),
+                           "size_class": r.get("mass_class"), "composition": r.get("composition"), "status": "active",
+                           "source": "launched", "history": [], "detected_at": r.get("at")}
         for k, o in objs.items():
             if k in mine:
                 o["launched_by_you"] = True

@@ -123,7 +123,11 @@ def test_hand_launches_are_kept_as_yours(client):  # noqa: F811
     objs = client.portal.call(client.app.state.worker.automations.defence_objects)
     rocks = client.portal.call(db.kv_get, "launched_rocks", {})
     assert rocks["RENGRELOR-OBJ-1"]["destination"] == "RENGRELOR-1" and rocks["RENGRELOR-OBJ-1"]["by"] == "you"
-    assert objs.get("RENGRELOR-OBJ-1", {}).get("launched_by_you") in (None, True)
+    # no hub in RENGRELOR detects it, so the launch answer puts it on the tracked list (read, minable by rock chasers)
+    o = objs["RENGRELOR-OBJ-1"]
+    assert o["launched_by_you"] and o["source"] == "launched" and o["impact_target"] == "RENGRELOR-1"
+    from rsweb import rockmining as rm
+    assert "RENGRELOR-OBJ-1" in rm.open_rocks(objs)
     from rsweb.rockchase import remember_launch
     assert not client.portal.call(remember_launch, db, {"error": "x"}, "you")
 
