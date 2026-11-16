@@ -1,9 +1,14 @@
 <div class="digest">
-  <p><strong>{{ digest.headline | capitalize }}</strong> <span class="muted small">· {{ digest.total_events }} events since {{ digest.since | local }} ({{ digest.since | ago }})</span></p>
+  <p><strong>{{ digest.headline | capitalize }}</strong> <span class="muted small">· since {{ digest.since | local }} ({{ digest.since | ago }})</span></p>
 
-  {% if digest.inventory_delta %}
-  <h3>Stockpiles</h3>
-  <div class="chips">{% for r, v in digest.inventory_delta | dictsort %}<span class="chip {{ 'neg' if v < 0 }}">{{ r }} <b>{{ '+' if v > 0 }}{{ v | num }}</b></span>{% endfor %}</div>
+  {% if digest.needs_you %}
+  <h3 class="lv-alert">Needs you</h3>
+  <ul>{% for a in digest.needs_you %}<li>{% if a.link %}<a href="{{ a.link }}">{{ a.text }}</a>{% else %}{{ a.text }}{% endif %}{% if a.n > 1 %} <b>×{{ a.n }}</b>{% endif %} <span class="muted small">{{ a.at | ago }}</span></li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if digest.notable %}
+  <h3>Worth knowing</h3>
+  <ul>{% for a in digest.notable %}<li>{{ a.text }}{% if a.n > 1 %} <b>×{{ a.n }}</b>{% endif %} <span class="muted small">{{ a.at | ago }}</span></li>{% endfor %}</ul>
   {% endif %}
 
   {% if digest.unlocked %}
@@ -16,6 +21,15 @@
   <div class="chips">{% for t, n in digest.printed | dictsort %}<span class="chip">{{ t | human }} <b>×{{ n }}</b></span>{% endfor %}</div>
   {% endif %}
 
+  {% set stock = digest.inventory_delta if full else digest.stock_top %}
+  {% if stock %}
+  <h3>Stockpiles{% if not full and digest.inventory_delta | length > stock | length %} <span class="muted small">(biggest changes)</span>{% endif %}</h3>
+  <div class="chips">{% for r, v in stock.items() %}<span class="chip {{ 'neg' if v < 0 }}">{{ r }} <b>{{ '+' if v > 0 }}{{ v | num }}</b></span>{% endfor %}</div>
+  {% endif %}
+
+  {% if digest.xp %}<p>Experience: <b class="lv-done">+{{ digest.xp | num }} XP</b></p>{% endif %}
+
+  {% if full %}
   {% if digest.mined or digest.delivered %}
   <h3>Mining &amp; logistics</h3>
   <div class="chips">
@@ -30,7 +44,7 @@
   {% endif %}
 
   {% if digest.scans or digest.directives or digest.other_done %}
-  <h3>Accomplished</h3>
+  <h3>Routine results</h3>
   <ul>
     {% for s in digest.directives %}<li>{{ s }}</li>{% endfor %}
     {% for s in digest.scans %}<li>{{ s }}</li>{% endfor %}
@@ -38,15 +52,17 @@
   </ul>
   {% endif %}
 
-  {% if digest.xp %}<p>Experience: <b class="lv-done">+{{ digest.xp | num }} XP</b></p>{% endif %}
-
   {% if digest.alerts %}
-  <h3 class="lv-alert">Needs attention</h3>
+  <h3>Game alerts and warnings</h3>
   <ul>{% for a in digest.alerts %}<li>{{ a.text }} <span class="muted small">{{ a.at | ago }}</span></li>{% endfor %}</ul>
   {% endif %}
 
   {% if digest.ami %}
   <h3>AMI controllers (latest digest)</h3>
   <ul>{% for a in digest.ami %}<li><a href="/devices/{{ a.code }}">{{ a.text }}</a></li>{% endfor %}</ul>
+  {% endif %}
+  <p class="muted small">{{ digest.total_events }} events in all.</p>
+  {% elif digest.total_events %}
+  <p class="muted small">Routine arrivals, scans and switch-ons are on the <a href="/digest?hours=24">full digest</a>.</p>
   {% endif %}
 </div>

@@ -396,13 +396,27 @@ async def build_digest(db: DB, since: str) -> dict:
         if name in ALERT_EVENTS:
             alerts.append({"text": describe(e), "at": e.get("created_at") or e.get("received_at")})
 
+    # The card's short version (Joe 2026-11-16): what needs you (error notifications, the same filter the bell uses: no
+    # switch-offs you sent, no warnings the automations handle), repeats folded into one line, and the few results
+    # worth knowing; routine arrivals, scans, directives, switch-ons and AMI digests stay on the full /digest page.
+    needs: dict[str, dict] = {}
+    for r in await db.fetchall("SELECT title, link, created_at FROM notifications WHERE level='error' AND read=0 "
+                               "AND created_at > ? ORDER BY id", (since,)):
+        n = needs.setdefault(r["title"], {"text": r["title"], "link": r["link"], "n": 0})
+        n["n"] += 1
+        n["at"] = r["created_at"]
+    notable: dict[str, dict] = {}
+    for e in events:
+        if e["event"] in NOTIFY_DONE:
+            t = describe(e)
+            n = notable.setdefault(t, {"text": t, "n": 0})
+            n["n"] += 1
+            n["at"] = e.get("created_at") or e.get("received_at")
     inv_delta = await inventory_delta(db, since)
     unlocked = [u["device_type"] for u in await db.kv_get("blueprint_unlocks", []) or [] if u.get("at", "") > since]
     headline_bits = []
     if printed:
         headline_bits.append(f"printed {sum(printed.values())} device(s)")
-    if arrivals:
-        headline_bits.append(f"{len(arrivals)} arrival(s)")
     gained = {k: v for k, v in inv_delta.items() if v > 0}
     if gained:
         headline_bits.append(f"stockpiles +{int(sum(gained.values()))} units")
@@ -410,16 +424,20 @@ async def build_digest(db: DB, since: str) -> dict:
         headline_bits.append(f"+{xp} XP")
     if unlocked:
         headline_bits.append(f"{len(unlocked)} new blueprint(s)")
-    if alerts:
-        headline_bits.append(f"{len(alerts)} alert(s)")
+    if needs:
+        headline_bits.insert(0, f"{len(needs)} thing(s) need you")
     return {
+        "needs_you": sorted(needs.values(), key=lambda x: x["at"], reverse=True)[:10],
+        "notable": sorted(notable.values(), key=lambda x: x["at"] or "", reverse=True)[:10],
         "since": since,
         "total_events": len(events),
-        "headline": ", ".join(headline_bits) if headline_bits else "quiet — nothing notable happened",
+        "headline": ", ".join(headline_bits) if headline_bits else "quiet, nothing notable happened",
         "printed": dict(printed),
         "mined": {k: int(v) for k, v in mined.items()},
         "delivered": {k: int(v) for k, v in delivered.items()},
         "inventory_delta": {k: int(v) for k, v in inv_delta.items() if v},
+        # the card shows the 8 biggest changes (in either direction), the full page all of them
+        "stock_top": dict(sorted(((k, int(v)) for k, v in inv_delta.items() if int(v)), key=lambda kv: -abs(kv[1]))[:8]),
         "arrivals": arrivals[-15:],
         "arrivals_total": len(arrivals),
         "scans": scans[-10:],

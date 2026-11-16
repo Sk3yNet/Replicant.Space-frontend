@@ -50,7 +50,7 @@ async def digest_view(request: Request, hours: int = 24, user: str = Depends(cur
     hours = max(1, min(hours, 24 * 90))
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
     digest = await notify.build_digest(request.app.state.db, since)
-    return await page(request, user, "digest.html", "dashboard", digest=digest, hours=hours)
+    return await page(request, user, "digest.html", "dashboard", digest=digest, hours=hours, full=True)
 
 
 @router.get("/api/timers.json")

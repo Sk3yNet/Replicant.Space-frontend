@@ -21,7 +21,7 @@ Cards can be dragged (⠿) or moved (▲ ▼) and folded (▾); the layout is re
 
 | Card | What it shows |
 |---|---|
-| While you were away | a digest since your last visit (a 30 min gap starts a new visit; `/digest?hours=N` for any window) |
+| While you were away | since your last visit (a 30 min gap starts a new visit): what needs you (unread errors, repeats folded), notable results, new blueprints, prints, XP and the biggest stockpile changes; `/digest?hours=N` shows everything for any window |
 | Alerts, replicants, countdowns | open alerts, your replicants, live countdowns, fleet summary |
 | Tutorial | the current tutorial's steps and the next step's hint |
 | Achievements | earned ones (with XP and when) and the ones still to earn |

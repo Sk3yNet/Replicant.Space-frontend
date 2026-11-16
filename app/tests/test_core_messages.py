@@ -37,6 +37,25 @@ def test_worker_timers_notifications_and_digest(tmp_path):
     assert d["inventory_delta"] == {"structural": 80}
     assert len(d["alerts"]) == 1
     assert "printed 1 device" in d["headline"]
+    assert d["needs_you"] == []          # a hub warning is the automations' to handle: not on the card
+
+
+def test_digest_card_keeps_only_what_needs_you(tmp_path):
+    async def go():
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        since = iso(datetime.now(timezone.utc) - timedelta(minutes=1))
+        for lvl, title in [("error", "Impact warning at X-1"), ("error", "Impact warning at X-1"),
+                           ("warning", "Job stopped"), ("info", "Print done")]:
+            await db.execute("INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
+                             ("e", lvl, title, None, "/notifications", iso(datetime.now(timezone.utc))))
+        d = await notify.build_digest(db, since)
+        await db.close()
+        return d
+
+    d = run(go())
+    assert [(a["text"], a["n"]) for a in d["needs_you"]] == [("Impact warning at X-1", 2)]
+    assert d["headline"].startswith("1 thing(s) need you")
 
 
 def test_bobnet_channels_list_and_subscribe(client):

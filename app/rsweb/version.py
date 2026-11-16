@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.441.2"
+VERSION = "1.442.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.442.0", "2026-11-16", "Dashboard While you were away card (Joe): trimmed to what matters. Needs you lists only unread "
+     "error notifications since your visit began (the bell's filter: no switch-offs you sent, no warnings the automations "
+     "handle), repeats folded into one line with a count; Worth knowing lists notable results (events completed, trades, "
+     "discoveries, story), also folded. New blueprints, prints, XP and the 8 biggest stockpile changes stay. Arrivals, scans, "
+     "directives, switch-ons, mined/delivered totals, game alerts and AMI digests moved to the full /digest page."),
     ("1.441.2", "2026-11-16", "Relays page (Joe): the Live links card is gone, with its per-relay check route. The Console "
      "preset for GET /devices/{relay}/network stays."),
     ("1.441.1", "2026-11-16", "Rock chasers (Joe): while the rigs mine a rock, the fleet's AMI transport controller adopts every "
