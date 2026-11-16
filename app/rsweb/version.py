@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.447.0"
+VERSION = "1.447.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.447.1", "2026-11-16", "Print what's missing (Joe): a terraformer's spares already on their way by logistics count, so "
+     "they aren't printed again."),
     ("1.447.0", "2026-11-16", "Terraformer fleets (Joe): a fleet at work also takes untagged idle devices for its shortfall "
      "(three thermal lances sat untagged at FALQUORYX-BELT-1), and its Upkeep line says why a type stays short: beyond "
      "the supply range (Fleets › settings) or none free."),

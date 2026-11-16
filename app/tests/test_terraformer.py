@@ -434,3 +434,17 @@ def test_untagged_devices_fill_a_working_fleet_and_the_card_says_why_not(client)
     assert any("LAN2 (thermal_lance) is free" in x for x in out) and not any("LAN3" in x for x in out)
     up = client.portal.call(e.fleets)[0]["tf_run"]["upkeep"]
     assert "1× thermal lance (no free spare anywhere" in up
+
+
+def test_print_missing_counts_spares_on_their_way(client):  # noqa: F811
+    # Joe 2026-11-16: Print what's missing printed thermal lances already on their way to Terraformer 1
+    fac = {"device_code": "FAC", "device_type": "autofactory", "location": "SOL-3", "status": "idle", "tags": [],
+           "available_commands": ["enqueue_print"], "print_queue": []}
+    db, e = _at_work(client, [fac, dev("MON", "terraform_monitor", status="monitoring")],
+                     wants={"terraform_monitor": 1, "thermal_lance": 2})
+    f = client.portal.call(e.fleets)
+    f[0]["tf_run"]["fetch"] = {"L1": {"type": "thermal_lance", "at": "2026-11-16T23:00:00+00:00"},
+                               "L2": {"type": "thermal_lance", "at": "2026-11-16T23:00:00+00:00"}}
+    client.portal.call(e.save_fleets, f)
+    r = client.post("/fleets/tf/print", headers=HX)
+    assert "Nothing missing" in r.text

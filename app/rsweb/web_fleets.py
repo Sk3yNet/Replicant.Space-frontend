@@ -1127,6 +1127,11 @@ async def fleets_print(request: Request, fid: str, user: str = Depends(current_u
                 t = (by_code.get(c) or {}).get("device_type")
                 if c not in members and short.get(t):
                     short[t] -= 1
+    # a terraformer at work sends for spares itself (tf_run.fetch: tagged for delivery, not yet in the fleet; Joe
+    # 2026-11-16: Print what's missing printed 3 lances on their way to Terraformer 1)
+    for v in ((f.get("tf_run") or {}).get("fetch") or {}).values() if short else []:
+        if short.get(v.get("type")):
+            short[v["type"]] -= 1
     note = "".join(f'<div class="result ok">{html.escape(x)}</div>' for x in fill if " takes " in x)
     # prints already queued for the fleet count (live 2026-11-14: Terraformer 1 lacked one bio seeder and had three queued)
     tag = fl.fleet_tag(fid)
