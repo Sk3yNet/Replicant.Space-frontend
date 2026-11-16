@@ -403,7 +403,8 @@ class TerraformerMixin:
 
     async def _tf_alerts(self, f: dict, cfg: dict, run: dict, st: dict) -> list[str]:
         """A disaster (coupling rule) turning active or an anomaly in the report: one notification each, again only after
-        it has cleared. A warning while the fleet steers; an error when you steer it yourself (steering off, the default)."""
+        it has cleared. A disaster is a warning while the fleet steers and an error when you steer it yourself (steering off,
+        the default); an anomaly is always a warning."""
         from . import terraformer as tr
         planet = cfg["planet"]
         level = "warning" if cfg["steer"] else "error"
@@ -421,10 +422,12 @@ class TerraformerMixin:
                 out.append(f"disaster: {c['rule']}")
         a = tr.anomaly_text(st)
         if a:
-            k = "anomaly:" + tr.norm(a)
+            # an anomaly is the game's passing weather (solar flare, toxic bloom, eruption): nothing to do about it, so a
+            # warning, once from its forecast to its end (2026-11-16: each one was two errors, ~40 in a night)
+            k = "anomaly:" + tr.anomaly_key(st)
             now[k] = seen.get(k) or now_iso()
             if k not in seen:
-                await self.log("terraformer", f"{f['name']}: anomaly at {planet}: {a}", level, notify=True)
+                await self.log("terraformer", f"{f['name']}: anomaly at {planet}: {a}", "warning", notify=True)
                 out.append("anomaly")
         run["alerts"] = now
         return out

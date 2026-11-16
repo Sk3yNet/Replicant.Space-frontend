@@ -135,6 +135,15 @@ def anomaly_text(st: dict) -> str:
     if isinstance(a, str):
         return a
     if isinstance(a, dict):
+        if a.get("label") or a.get("anomaly_type"):   # live 2026-11-15: {anomaly_type, label, severity, ticks_active, ticks_until}
+            txt = str(a.get("label") or str(a["anomaly_type"]).replace("_", " ").capitalize())
+            if a.get("severity"):
+                txt += f" ({a['severity']})"
+            if a.get("ticks_active") is None and a.get("ticks_until"):
+                txt += f" in {a['ticks_until']} ticks"
+            else:
+                txt += ", active"
+            return txt
         for k in ("description", "message", "name", "type", "title"):
             if a.get(k):
                 return str(a[k])
@@ -242,6 +251,14 @@ def commands(sets: dict[str, dict], devices: list[dict], recent: dict | None = N
 
 def key(want: dict) -> str:
     return f"{int(bool(want.get('on')))}|{want.get('strength')}|{want.get('direction')}"
+
+
+def anomaly_key(st: dict) -> str:
+    """One anomaly's identity, the same from its forecast to its end: its type (and severity) when the report gives them."""
+    a = (st or {}).get("anomaly")
+    if isinstance(a, dict) and (a.get("anomaly_type") or a.get("label")):
+        return norm(f"{a.get('anomaly_type') or a.get('label')} {a.get('severity') or ''}")
+    return norm(anomaly_text(st))
 
 
 def norm(text: str) -> str:

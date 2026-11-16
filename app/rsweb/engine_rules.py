@@ -487,10 +487,13 @@ class MiningRulesMixin:
             return bool(t and now - t < cooldown)
 
         # print components and devices pinned (at:) somewhere stay where they are (live 2026-11-12: two component rigs
-        # pinned to FALQUORYX-BELT-1 were sent to salvage at FALQUORYX-2-2)
+        # pinned to FALQUORYX-BELT-1 were sent to salvage at FALQUORYX-2-2); devices held for a deal or a trade post's
+        # stock (contract:, to:) aren't miners either (2026-11-16: a rig and a drone for sale at AELTHORION made "nothing
+        # to mine in AELTHORION" an error)
         miners = [d for d in devices if (d.get("device_type") in ("mining_drone", "mining_rig") or
                   (is_controller(d) and kind_of(d.get("device_type")) == "mining"))
-                  and not _reserved(d) and not any(t == "component" or t.startswith("at:") for t in d.get("tags") or [])]
+                  and not _reserved(d) and not any(t == "component" or t.startswith(("at:", "to:", "contract:"))
+                                                   for t in d.get("tags") or [])]
         sgone = await self.db.kv_get("salvage_gone", {}) or {}
         done: list[str] = []
         nothing = state.setdefault("nothing", {})   # star -> when we last said there's nothing to mine there

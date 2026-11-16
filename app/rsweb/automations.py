@@ -24,6 +24,18 @@ from .engine_fleets import FleetsMixin
 from .engine_rules import MiningRulesMixin
 
 
+def where_failed(e: BaseException) -> str:
+    """Where in the app an exception was raised (its innermost rsweb frame), so a stage failure seen only as a
+    notification can be traced: ' (fleets.py:812 in plan_moves)'. Empty when no app frame is on the traceback."""
+    import os
+    import traceback
+    frames = [f for f in traceback.extract_tb(e.__traceback__) if os.sep + "rsweb" + os.sep in f.filename]
+    if not frames:
+        return ""
+    f = frames[-1]
+    return f" ({os.path.basename(f.filename)}:{f.lineno} in {f.name})"
+
+
 class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixin, ChatterMixin, TradePostMixin, TerraformerMixin):
     def __init__(self, db, api, hub, worker):
         self.db, self.api, self.hub, self.worker = db, api, hub, worker
@@ -476,7 +488,8 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                     key = f"{stage}: {type(e).__name__}: {e}"[:300]
                     if self.stage_errors.get(stage) != key:   # say so once per distinct error, not every minute
                         self.stage_errors[stage] = key
-                        await self.log("engine", f"stage {stage} failed: {type(e).__name__}: {e}", "alert", notify=True)
+                        await self.log("engine", f"stage {stage} failed: {type(e).__name__}: {e}{where_failed(e)}", "alert",
+                                       notify=True)
                     continue
                 finally:
                     perf.note_stage(stage, (time.perf_counter() - t_stage) * 1000, (time.thread_time() - c_stage) * 1000)
@@ -1325,6 +1338,7 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                     if not tour.get("alerted"):
                         tour["alerted"] = True
                         await self._notify("warning", f"{f['name']}: {tour['note']}", "/fleets")
+                        changed = True   # keep the mark: unsaved, it warned every minute (2026-11-16)
                     continue
                 dest = fl.destination(nxt, stars)
                 steps = []

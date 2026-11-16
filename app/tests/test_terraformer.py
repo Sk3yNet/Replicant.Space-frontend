@@ -346,3 +346,21 @@ def test_old_pins_come_off_members_at_work(client):  # noqa: F811
     client.portal.call(e.terraformer_pass)
     job = _jobs(client, e, "upkeep")[0]
     assert job["steps"][0]["body"] == {"configuration": {"remove_tags": ["at:sol-belt-1"]}}
+
+
+def test_an_anomaly_is_one_warning_from_forecast_to_end(client):  # noqa: F811
+    # live 2026-11-15: each anomaly was two errors (forecast, then active) with the raw dict as text
+    db, e = _setup(client, [dict(d) for d in KIT])
+    st = report()
+    st["anomaly"] = {"anomaly_type": "volcanic_eruption", "label": "Volcanic Eruption", "severity": "dramatic",
+                     "ticks_active": None, "ticks_until": 12}
+    assert tr.anomaly_text(st) == "Volcanic Eruption (dramatic) in 12 ticks"
+    _report_event(client, st)
+    client.portal.call(e.terraformer_pass)
+    st["anomaly"].update(ticks_active=0, ticks_until=0)
+    assert tr.anomaly_text(st) == "Volcanic Eruption (dramatic), active"
+    _report_event(client, st, seq=99951)
+    client.portal.call(e.terraformer_pass)
+    rows = client.portal.call(db.fetchall, "SELECT level, title FROM notifications WHERE title LIKE '%anomaly%'")
+    assert [(r["level"], r["title"].split(": anomaly at ")[1]) for r in rows] == \
+        [("warning", "SOL-4: Volcanic Eruption (dramatic) in 12 ticks")]

@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.440.8"
+VERSION = "1.441.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.441.0", "2026-11-16", "Needs you holds only what needs you. A terraform device you (or an automation) switched off "
+     "no longer raises an error; only one the game switches off does. Terraform anomalies (solar flares, toxic blooms, "
+     "eruptions) are one warning each, from forecast to end, in plain words (Volcanic Eruption (dramatic) in 12 ticks). "
+     "Mining rigs and drones held for a deal or a trade post's stock don't count as miners, so a system holding only those "
+     "isn't 'nothing to mine'. A failing engine stage names the file and line, and the prospector's 'no star left' "
+     "warning comes once instead of every minute."),
     ("1.440.8", "2026-11-16", "Rock chasers leave freighters under a fleet AMI controller to it (661BF2A6 ran Chaser_1's ferry "
      "RENGRELOR-3-L4 to SOLARES-BELT-1 while the app gave it rock trips too), and drop shipped piles where that ferry collects."),
     ("1.440.7", "2026-11-16", "Live redraws no longer copy a card into the Rules box (Joe: Blueprints showed a collapsed Details box holding the whole blueprint list). The Rules box loads after the page, so a live redraw paired it with the page's first untitled card and filled it with that card; it now stays out of live redraws on every page that has one."),

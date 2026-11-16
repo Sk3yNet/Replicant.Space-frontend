@@ -1093,3 +1093,43 @@ def test_nothing_to_mine_is_an_error_only_without_a_moving_fleet(client, monkeyp
     assert len(errors()) == 1                                         # no second error
     log = client.portal.call(db.kv_get, "automation_log")
     assert any("its fleet picks a new home by itself" in e["text"] for e in log)
+
+
+def test_devices_held_for_a_deal_are_not_miners_with_nothing_to_mine(client, monkeypatch):
+    # 2026-11-16: a rig and a drone for sale at a trade post (contract:tp:...) made "nothing to mine in AELTHORION" an error
+    from rsweb import targets
+    world, eng = _salvage_setup(client)
+    db = client.app.state.db
+
+    async def no_belts(stars):
+        return {s: [] for s in stars}
+
+    async def none_warded(devices=None):
+        return set()
+
+    async def no_res(db_, star):
+        return {}
+    monkeypatch.setattr(eng, "system_belts", no_belts)
+    monkeypatch.setattr(eng, "warded", none_warded)
+    monkeypatch.setattr(targets, "system_resources", no_res)
+    client.portal.call(db.execute, "INSERT OR IGNORE INTO systems(star) VALUES('SOL')")
+    devs = client.portal.call(db.kv_get, "devices")
+    for d in devs:
+        d["tags"] = list(d.get("tags") or []) + ["contract:tp:sol-trader"]
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(eng.rule_salvage)
+    rows = client.portal.call(db.fetchall, "SELECT title FROM notifications WHERE title LIKE '%nothing to mine%'")
+    assert rows == []
+
+
+def test_a_stage_failure_says_where_it_happened():
+    from rsweb import notify
+    from rsweb.automations import where_failed
+    try:
+        notify.describe(None)
+    except AttributeError as e:
+        assert where_failed(e).startswith(" (notify.py:") and where_failed(e).endswith(" in describe)")
+    try:
+        [][0]
+    except IndexError as e:
+        assert where_failed(e) == ""   # raised in the test, not in the app

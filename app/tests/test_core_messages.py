@@ -66,6 +66,7 @@ def test_bobnet_channels_list_and_subscribe(client):
 
 def test_notification_kinds_and_error_only_badge(client):
     from rsweb import notify
+    from rsweb.db import now_iso
     assert notify.notification_for({"event": "site.depleted", "payload": {}}) is None          # expected: no notification
     assert notify.notification_for({"event": "teleport.failed", "payload": {}})["level"] == "error"
     assert notify.notification_for({"event": "hub.warning", "payload": {}})["level"] == "warning"
@@ -73,6 +74,13 @@ def test_notification_kinds_and_error_only_badge(client):
     assert notify.notification_for({"event": "system.impact_warning", "payload": {}})["level"] == "error"
     assert notify.kind("done") == "info" and notify.kind("alert") == "warning"
     db = client.app.state.db
+    # a terraform device switched off: an error only when nobody here asked for it (Joe's console switch-offs, 2026-11-16)
+    off = {"id": "off-1", "event": "terraform.device_deactivated", "device_code": "TFA", "payload": {}}
+    assert client.portal.call(notify.add_notification, db, off)["level"] == "error"
+    client.portal.call(db.execute, "INSERT INTO actions(at, user, method, path, body, status) VALUES(?,?,?,?,?,?)",
+                       (now_iso(), "you", "POST", "/devices/TFA", '{"command": "deactivate"}', 200))
+    assert client.portal.call(notify.add_notification, db, dict(off, id="off-2")) is None
+    client.portal.call(db.execute, "DELETE FROM notifications")
     eng = client.app.state.worker.automations
     client.portal.call(db.execute, "UPDATE notifications SET read=1")
     client.portal.call(eng.log, "loadouts", "x: waits for your Confirm", "error", True)

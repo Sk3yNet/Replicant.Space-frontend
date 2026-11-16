@@ -280,9 +280,28 @@ async def add_mention(db: DB, ev: dict) -> dict | None:
     return n
 
 
+# A terraform device switched off: an error when the game did it (capacity under 20 %), nothing when we asked for it.
+SWITCHED_OFF = {"terraform.device_deactivated", "terraform.deactivated"}
+OWN_COMMAND_MINUTES = 20
+
+
+async def commanded_off(db: DB, code: str | None) -> bool:
+    """Did you (a console, a device page) or an automation send this device a deactivate lately? Its
+    terraform.device_deactivated is then the answer to that, not news (2026-11-16: ~45 'needs you' errors in a night were
+    Joe's own switch-offs on the Terraforming console)."""
+    if not code:
+        return False
+    since = (datetime.now(timezone.utc) - timedelta(minutes=OWN_COMMAND_MINUTES)).isoformat(timespec="seconds")
+    row = await db.fetchone("SELECT 1 FROM actions WHERE path=? AND at>=? AND body LIKE ? AND (status IS NULL OR status<400) "
+                            "LIMIT 1", (f"/devices/{code}", since, '%"deactivate"%'))
+    return bool(row)
+
+
 async def add_notification(db: DB, ev: dict) -> dict | None:
     n = notification_for(ev)
     if not n:
+        return None
+    if ev.get("event") in SWITCHED_OFF and await commanded_off(db, ev.get("device_code")):
         return None
     cur = await db.execute(
         "INSERT INTO notifications(event_id, level, title, body, link, created_at) VALUES(?,?,?,?,?,?)",
