@@ -534,7 +534,9 @@ class TerraformerMixin:
         short = {t: n - sum(1 for v in fetch.values() if v["type"] == t) for t, n in fl.short_list(f, devices).items()}
         short = {t: n for t, n in short.items() if n > 0}
         if short:
-            notes.append("short " + fl.summarize(short) + " (no spare within the supply range)")
+            why = run.get("short_why") or {}
+            notes.append("short " + "; ".join(f"{n}× {t.replace('_', ' ')} ({why.get(t) or 'none free'})"
+                                               for t, n in sorted(short.items())))
             warn = True
         if broken and not working and not any(up.is_maint(by.get(c) or {}) for c in fetch):
             warn = True
@@ -620,15 +622,25 @@ class TerraformerMixin:
         short = {t: n - sum(1 for v in fetch.values() if v["type"] == t) for t, n in fl.short_list(f, devices).items()}
         short = {t: n for t, n in short.items() if n > 0}
         if short:
-            cands = [d for d in devices if "spare" in (d.get("tags") or []) and not fl.fleet_of(d) and movable(d)
-                     and short.get(d.get("device_type") or "", 0) > 0 and d.get("location")
-                     and str(d.get("status") or "").startswith(("idle", "stowed", "coordinating"))
-                     and not fl.beyond_reach(fl.star_of(d.get("location")), star, pos, reach)]
+            # a spare, or a device nobody claims (no tags at all: Joe 2026-11-16, three lances idle at FALQUORYX-BELT-1)
+            free = [d for d in devices if ("spare" in (d.get("tags") or []) or not d.get("tags")) and not fl.fleet_of(d)
+                    and movable(d) and short.get(d.get("device_type") or "", 0) > 0 and d.get("location")
+                    and str(d.get("status") or "").startswith(("idle", "stowed", "coordinating", "inactive", "compacted"))]
+            cands = [d for d in free if not fl.beyond_reach(fl.star_of(d.get("location")), star, pos, reach)]
+            far = {}
+            for d in free:
+                if d not in cands:
+                    far[d.get("device_type") or ""] = far.get(d.get("device_type") or "", 0) + 1
+            run["short_why"] = {t: (f"{far[t]} free beyond the {reach:g} ly supply range (Fleets › settings)" if far.get(t)
+                                    else "no free spare anywhere: tag one spare, or print it")
+                                for t in short}
             cands.sort(key=lambda d: (fl._dist(star, fl.star_of(d.get("location")), pos), d["device_code"]))
             for d in cands:
                 t = d.get("device_type") or ""
-                if short.get(t, 0) > 0 and send(d, "is a spare"):
+                if short.get(t, 0) > 0 and send(d, "is free"):
                     short[t] -= 1
+        else:
+            run.pop("short_why", None)
         return out
 
     async def _tf_surplus(self, f: dict, planet: str, run: dict, ctx: dict, ms: list[dict]) -> list[str]:

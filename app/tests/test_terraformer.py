@@ -323,7 +323,7 @@ def test_a_member_added_after_departure_is_brought_by_logistics(client):  # noqa
              "tags": ["spare"], "features": ["cruise", "repair", "stow", "ami"], "available_commands": ["deploy"]}
     db, e = _at_work(client, [dev("MON", "terraform_monitor", status="monitoring"), spare], wants={"service_bot": 1})
     out = client.portal.call(e.terraformer_pass)
-    assert any("SB1 (service_bot) is a spare" in x for x in out)
+    assert any("SB1 (service_bot) is free" in x for x in out)
     job = _jobs(client, e, "upkeep")[0]
     cfg = job["steps"][0]["body"]["configuration"]
     assert cfg["add_tags"] == [f"at:{PLANET.lower()}"] and "spare" in cfg["remove_tags"]
@@ -420,3 +420,17 @@ def test_extras_coming_for_the_loadout_are_called_off(client):  # noqa: F811
     assert bodies["/devices/REG2"] == {"add_tags": ["spare"], "remove_tags": ["at:old-2", "to:old"]}
     assert "at:sol-4" in bodies["/devices/AQU2"]["add_tags"]
     assert list(client.portal.call(e.fleets)[0]["tf_run"]["fetch"]) == ["AQU2"]
+
+
+def test_untagged_devices_fill_a_working_fleet_and_the_card_says_why_not(client):  # noqa: F811
+    # Joe 2026-11-16: three untagged thermal lances idle at FALQUORYX-BELT-1 never went to Terraformer 1
+    lance = {"device_code": "LAN2", "device_type": "thermal_lance", "location": "SOL-3", "status": "idle", "tags": [],
+             "features": ["stow"]}
+    held = {"device_code": "LAN3", "device_type": "thermal_lance", "location": "SOL-3", "status": "idle",
+            "tags": ["contract:x"], "features": ["stow"]}
+    db, e = _at_work(client, [dev("MON", "terraform_monitor", status="monitoring"), lance, held],
+                     wants={"terraform_monitor": 1, "thermal_lance": 2})
+    out = client.portal.call(e.terraformer_pass)
+    assert any("LAN2 (thermal_lance) is free" in x for x in out) and not any("LAN3" in x for x in out)
+    up = client.portal.call(e.fleets)[0]["tf_run"]["upkeep"]
+    assert "1× thermal lance (no free spare anywhere" in up
