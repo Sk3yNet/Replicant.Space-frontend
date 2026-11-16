@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.440.5"
+VERSION = "1.440.6"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.440.6", "2026-11-16", "Rock chasers ship a rock's pile to the permanent spot (entry point, planet, L4/L5, belt) with the "
+     "shortest trip from the rock, by the game's preview, picked once per rock (Joe). Never the impact target, its moons or "
+     "its L-points, even when the card's drop names it."),
     ("1.440.5", "2026-11-16", "Rock chaser card: Save, Launch and Call off never sent anything (their answer had no place to go "
      "after the form, so the browser dropped the request). Fixed, and a test now checks every page for that mistake."),
     ("1.440.4", "2026-11-16", "A rock chaser with no target whose rigs are mining a rock still in flight takes that rock back "

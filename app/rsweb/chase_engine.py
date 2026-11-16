@@ -374,7 +374,7 @@ class ChaseMixin:
         from . import fleets as fl
         from .automations import step
         out = []
-        drop = self._chase_drop(cfg, run.get("target") or star, ctx)
+        drop = self._chase_drop(cfg, run.get("target") or star, ctx, run)
         for s in k["shippers"]:
             code = s["device_code"]
             if not fl.flies_itself(s) or code in ctx["busy"] or (s.get("location") or "").split("-")[0] == star or not drop:
@@ -406,16 +406,49 @@ class ChaseMixin:
                           f"{max(0.0, hours - rc.leave_h(cfg)):.1f} h"
         return out
 
-    def _chase_drop(self, cfg: dict, rock: str, ctx: dict) -> str | None:
+    def _chase_drop(self, cfg: dict, rock: str, ctx: dict, run: dict | None = None) -> str | None:
+        """Where shipped materials go: the card's drop (unless it is the impact target), else the spot with the shortest
+        round trip found for this rock (_chase_pick_drop), else the system's safe spot. Never the impact target."""
         from . import evacuate as ev
+        from . import rockchase as rc
         star = rock.split("-")[0]
-        drop = str(cfg.get("drop") or "").strip().upper()
-        if drop and drop.split("-")[0] == star:
-            return drop
-        from .rockmining import open_rocks
         o = ctx["objs"].get(rock) or {}
+        drop = str(cfg.get("drop") or "").strip().upper()
+        if drop and drop.split("-")[0] == star and not rc.near_target(drop, o.get("impact_target")):
+            return drop
+        best = ((run or {}).get("drops") or {}).get(rock)
+        if best and not rc.near_target(best, o.get("impact_target")):
+            return best
+        from .rockmining import open_rocks
         hot = set(open_rocks(ctx["objs"]))
         return ev.safe_spot(star, o.get("impact_target"), ctx["stars"], ctx["scans"].get(star), here=rock, avoid=hot)
+
+    async def _chase_pick_drop(self, cfg: dict, run: dict, ctx: dict, k: dict, rock: str) -> None:
+        """Joe 2026-11-16: drop at a permanent spot with the shortest round trip, never at the impact target. Once per rock:
+        the game's trip preview from a fleet member at the rock to each candidate (rockchase.drop_candidates)."""
+        from . import rockchase as rc
+        drops = run.setdefault("drops", {})
+        if rock in drops or str(cfg.get("drop") or "").strip():
+            return
+        star = rock.split("-")[0]
+        o = ctx["objs"].get(rock) or {}
+        from .rockmining import open_rocks
+        cands = rc.drop_candidates(star, o.get("impact_target"), (ctx["stars"].get(star) or {}).get("entry_point"),
+                                   ctx["scans"].get(star), avoid=set(open_rocks(ctx["objs"])) | {rock})
+        here = [d for d in k["shippers"] + k["rigs"] if d.get("location") == rock and not d.get("stowed_in_device_code")
+                and not d.get("attached_to_device_code") and "travel" in (d.get("available_commands") or [])]
+        if not cands or not here:
+            return
+        code = here[0]["device_code"]
+        best: tuple[float, str] | None = None
+        for spot in cands:
+            secs = await self.trip_seconds(code, spot)
+            if secs is not None and (best is None or secs < best[0]):
+                best = (secs, spot)
+        if best:
+            drops[rock] = best[1]
+            for r in [r for r in drops if r != rock and r not in ctx["objs"]]:
+                drops.pop(r)
 
     async def _chase_ship(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict, rock: str, last: bool = False) -> list[str]:
         """A shipper in the system takes the rock's pile to the drop once it reaches `ship_min` (`last`: whatever is there)."""
@@ -432,7 +465,8 @@ class ChaseMixin:
         if (rm.hours_left(o, _now()) or 0) < rm.CUTOFF_H + 0.1:
             return []   # too late: the defense evacuation hands the pile to logistics
         star = rock.split("-")[0]
-        drop = self._chase_drop(cfg, rock, ctx)
+        await self._chase_pick_drop(cfg, run, ctx, k, rock)
+        drop = self._chase_drop(cfg, rock, ctx, run)
         if not drop:
             return []
         prio = rm.parse_list(cfg.get("priority"))
@@ -470,7 +504,7 @@ class ChaseMixin:
         out = await self._chase_ship(f, cfg, run, ctx, k, rock, last=True)
         car = k["carriers"][0] if k["carriers"] else None
         c = await self._chase_pick(f, cfg, run, ctx, k, rock, exclude={rock})
-        dest = c["rock"] if c else self._chase_drop(cfg, rock, ctx)
+        dest = c["rock"] if c else self._chase_drop(cfg, rock, ctx, run)
         if not dest:
             run["note"] = f"nowhere safe to go from {rock}: the defense evacuation takes over"
             return out
@@ -490,7 +524,7 @@ class ChaseMixin:
             aboard = [(d["device_code"], m) for d, m in ((d, fl.take_seat(free, d)) for d in here) if m]
             seated = {x for x, _ in aboard}
             steps += [fl.board_step(cc, x, m) for x, m in aboard]
-            safe = self._chase_drop(cfg, rock, ctx)
+            safe = self._chase_drop(cfg, rock, ctx, run)
             self_fly = [d for d in here if d["device_code"] not in seated and rm_can_fly(d)] if safe else []
             steps += [step(f"{d['device_code']} → {safe} (no seat)", f"/devices/{d['device_code']}",
                            {"command": "travel", "destination": safe}) for d in self_fly]

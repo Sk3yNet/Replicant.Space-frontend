@@ -194,6 +194,38 @@ def test_rigs_mining_a_dropped_rock_take_it_back(client):  # noqa: F811
     assert run["target"] == "SOL-OBJ-1" and run["phase"] == "mining" and "SOL-OBJ-1" not in run["skip"]
 
 
+def test_ships_to_the_nearest_permanent_spot_never_the_impact_target(client):  # noqa: F811
+    """Joe 2026-11-16: drop at a permanent spot with the shortest round trip, never at the impact target."""
+    scan = {"planets": [{"designation": "SOL-3", "moon_count": 1}, {"designation": "SOL-4"}],
+            "asteroid_belt": {"belts": [{"designation": "SOL-BELT-1"}]}}
+    c = rc.drop_candidates("SOL", "SOL-3", "SOL-4-L5", scan, {"SOL-OBJ-1"})
+    assert c[0] == "SOL-4-L5" and "SOL-BELT-1" in c and not any(x.startswith("SOL-3") for x in c)
+    assert rc.near_target("SOL-3-L4", "SOL-3") and not rc.near_target("SOL-30", "SOL-3")
+    fr = {"device_code": "FRT", "device_type": "cargo_freighter", "location": "SOL-OBJ-1", "status": "idle", "tags": ["fleet:rc"],
+          "features": ["cruise", "transport"], "cargo_capacity": 500, "available_commands": ["travel", "collect_resources"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-OBJ-1", "mining (rares)"), fr], {"SOL-OBJ-1": rock()}, {"drop": "SOL-3"})
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-OBJ-1", "items": {"rares": 300}}])
+    import json
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("SOL", json.dumps(scan), "2026-11-16T00:00:00+00:00"))
+    secs = {"SOL-BELT-1": 40.0, "SOL-4": 300.0}
+
+    async def trip_seconds(code, dest):
+        return secs.get(dest, 900.0)
+    e.trip_seconds = trip_seconds
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"target": "SOL-OBJ-1", "phase": "mining", "resource": "rares", "arrived": "SOL-OBJ-1",
+                         "searched": {"SOL": iso(0)}}
+    f[0]["chase"]["drop"] = ""
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("ships" in x and "to SOL-BELT-1" in x for x in out), out
+    # a drop set on the card at the impact target is ignored
+    from rsweb.chase_engine import ChaseMixin
+    assert ChaseMixin._chase_drop(e, {"drop": "SOL-3"}, "SOL-OBJ-1", {"objs": {"SOL-OBJ-1": rock()}, "stars": {}, "scans": {}},
+                                  {"drops": {"SOL-OBJ-1": "SOL-BELT-1"}}) == "SOL-BELT-1"
+
+
 def test_engine_starts_its_own_rigs_and_scan_at_the_rock(client):  # noqa: F811
     # snapshot 2026-11-06: the fleet is never stationed, so reserved() hid its own rigs and drone from the plan
     drone = {"device_code": "SURV", "device_type": "belt_surveyor", "location": "SOL-OBJ-1", "status": "idle",

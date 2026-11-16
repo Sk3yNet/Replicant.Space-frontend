@@ -80,6 +80,31 @@ def apply_form(f: dict, form: dict, user: str, at: str) -> tuple[str, str | None
     return "", "Unknown action."
 
 
+def near_target(spot: str | None, target: str | None) -> bool:
+    """`spot` is the impact target or one of its moons or L-points (Joe 2026-11-16: never drop at the impact target)."""
+    return bool(spot and target and (spot == target or spot.startswith(target + "-")))
+
+
+def drop_candidates(star: str, target: str | None, entry: str | None, scan: dict | None, avoid: set[str]) -> list[str]:
+    """Permanent spots in the system to drop shipped materials: entry point, planets and their L4/L5, belts. Not the impact
+    target (or its moons and L-points), no object, site or salvage, nothing in `avoid`."""
+    out: list[str] = []
+
+    def add(c: str | None) -> None:
+        if c and c not in out and c not in avoid and not near_target(c, target) and c.split("-")[0] == star:
+            out.append(c)
+    add(entry)
+    for p in (scan or {}).get("planets") or []:
+        des = p.get("designation") if isinstance(p, dict) else None
+        if des:
+            add(des)
+            add(f"{des}-L4")
+            add(f"{des}-L5")
+    for b in ((scan or {}).get("asteroid_belt") or {}).get("belts") or []:
+        add(b.get("designation") if isinstance(b, dict) else None)
+    return out[:16]
+
+
 def launch_spot(des: str) -> str:
     """Where a vector charge launches Kuiper object `des` from: the belt it was found in (RENGRELOR-KUIPER-2 →
     RENGRELOR-KUIPER). Live 2026-11-16: travel to the object itself is refused ("Invalid destination format");

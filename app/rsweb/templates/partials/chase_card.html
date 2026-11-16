@@ -42,7 +42,7 @@
         <label class="f">ship at <input name="ship_min" type="number" min="0" step="10" value="{{ c.ship_min | int }}" style="width:5em">
           <span class="muted">A fleet hauler or freighter takes the rock's pile away once it holds this many units. Default 50.</span></label>
         <label class="f">drop <input name="drop" value="{{ c.drop }}" placeholder="e.g. {{ f.home }}-4-L4" size="16">
-          <span class="muted">Where shipped materials go, in the rock's system. Empty: that system's safe spot (its entry point).</span></label>
+          <span class="muted">Where shipped materials go, in the rock's system. Empty: the permanent spot (entry point, planet, L4/L5, belt) with the shortest trip from the rock, by the game's preview. Never the impact target, its moons or its L-points, even if set here.</span></label>
       </fieldset>
       <fieldset><legend>Rocks you launched</legend>
         <label class="f">keep <span><input name="keep_pct" type="number" min="0" max="100" step="1" value="{{ c.keep_pct }}" style="width:4em"> %</span>
