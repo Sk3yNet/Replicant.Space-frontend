@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.451.0"
+VERSION = "1.452.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.452.0", "2026-11-17", "Terraforming › Dropping rocks trimmed (Joe): your rocks first with impact time in your time zone "
+     "(the game's naive times were read as UTC), countdown and state (in flight, struck, diverted, impact time passed; hidden "
+     "two days after impact); one row per system with charges ready at a Kuiper spot, propulsors, deflectors, one Detect "
+     "button and Kuiper objects; direction settings only for tools at your rocks or a Kuiper spot instead of every idle "
+     "propulsor and charge (about 100 rows live); the how-to folds away."),
     ("1.451.0", "2026-11-17", "Auto-relocate (Joe): a mining fleet never picks a next home beyond the sector range from "
      "where its devices are (a trip the job runner already refused, or a charted and an uncharted star). A home picked "
      "earlier that is out of range goes back to the home before it, which then picks again (Delta Miner 2 had moved "

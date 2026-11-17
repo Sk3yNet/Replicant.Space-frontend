@@ -132,6 +132,28 @@ def test_hand_launches_are_kept_as_yours(client):  # noqa: F811
     assert not client.portal.call(remember_launch, db, {"error": "x"}, "you")
 
 
+
+def test_dropping_rocks_card_is_trimmed(client):  # noqa: F811
+    """Joe 2026-11-17: the card listed every propulsor and charge (about 100 rows live) and old launches with no state.
+    Now: your rocks with their state, one row per system, and direction settings only for tools at work."""
+    db = client.app.state.db
+    devs = client.portal.call(db.kv_get, "devices", []) or []
+    devs += [{"device_code": f"P{i:07d}", "device_type": "propulsor", "location": "SOL-BELT-1", "status": "idle"} for i in range(20)]
+    devs += [{"device_code": "PA000001", "device_type": "propulsor", "location": "SOL-OBJ-3", "status": "active"},
+             {"device_code": "CA000001", "device_type": "vector_charge", "location": "SOL-KUIPER", "status": "idle"},
+             {"device_code": "CA000002", "device_type": "vector_charge", "location": "SOL-BELT-1", "status": "idle"}]
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(db.kv_set, "launched_rocks", {
+        "SOL-OBJ-3": {"destination": "SOL-3", "impact_eta": "2099-01-01T00:00:00+00:00", "approach_angle": 41.5,
+                      "approach_speed": 0.7, "mass_class": "large", "composition": "ice"},
+        "SOL-OBJ-1": {"destination": "SOL-4", "impact_eta": "2020-01-01T00:00:00+00:00"}})
+    page = client.get("/terraforming", headers=H).text
+    card = page[page.index("Dropping rocks"):]
+    assert "SOL-OBJ-3" in card and "in flight" in card and "1 older launch" in card and "SOL-OBJ-1" not in card
+    assert "<b>1</b> / 2" in card                                     # one charge ready at the Kuiper spot of two
+    assert "/terraforming/PA000001/settings" in card and "P0000001" not in card   # idle stock isn't listed
+
+
 def test_events_reach_the_page_while_a_tick_holds_the_engine_lock(client):  # noqa: F811
     """Live 2026-10-29: an 80 s tick held the lock and the stream waited in automations.on_event, so the rounds of a
     swoop run arrived after it ended. Now the event is announced at once and the automations get it after the tick."""

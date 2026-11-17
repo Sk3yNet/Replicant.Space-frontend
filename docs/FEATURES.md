@@ -390,8 +390,9 @@ patrolling the system), what is there now and the logistics delivery that tops i
 - Each place with a terraform monitor. While every monitor there is off, only the monitors and their switches show (with a count of the other terraform devices); once one runs, the whole world shows (a training run always shows everything): its latest `terraform.status` (attributes, change per tick, projections
   +6/+12/+24, what drives them, warnings, anomalies), coupling rules active or close, the planet's own drift per attribute with an estimated pull per tick (last 10 reports: the change minus what devices and couplings add), bio seeder preconditions.
 - Your terraforming devices with strength (0–1), direction (reversible ones) and on/off.
-- **Dropping rocks**: detect Kuiper objects, launch one with a vector charge at a planet or moon, set propulsor /
-  trajectory deflector directions. Rocks you launch are left alone by asteroid defense.
+- **Dropping rocks**: your launched rocks with target, impact time and state (in flight, struck, diverted; gone two days
+  after impact), one row per system with charges ready at a Kuiper spot, propulsors, deflectors, Detect and Kuiper objects
+  (launch one at a planet or moon), and direction settings for the tools at your rocks. Asteroid defense leaves them alone.
 
 **Terraforming console** (this page, and a run's own with `?sim=`): each world is a live console that refreshes itself
 every 15 s (not while you're using a control in it).

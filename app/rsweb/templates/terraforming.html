@@ -18,25 +18,43 @@
 <div class="card"><p class="muted">No terraforming yet: deploy a terraform monitor at a planet or moon and its reports show up here.</p></div>
 {% endfor %}
 
+{% set R = rocks %}
 <div class="card">
-  <h2>Dropping rocks</h2>
-  <p class="muted small">Find a Kuiper object (detect_object on a sensor array, or a vessel the slow way; found ones stay 24 h), deploy a
-    vector charge at it and launch it at a planet or moon in the same system. Then steer it with propulsors (increase / decrease:
-    speed and ETA) and trajectory deflectors (steepen above 30° to hit the surface, shallow to spread it through the air).
-    Rocks you launch here are yours: asteroid defense leaves them alone (they still get evacuated around).</p>
-  {% if scanners %}<div class="small"><b>Detect objects with</b>
-    {% for d in scanners %}<form class="inline" hx-post="/terraforming/{{ d.device_code }}/detect" hx-target="next .tf-out" style="margin-right:8px">
-      <button class="small ghost">{{ d.device_code }} {{ d.device_type | human }} @ {{ d.location }}</button></form><span class="tf-out"></span>{% endfor %}</div>{% endif %}
-  {% if stars %}<div class="small" style="margin-top:6px"><b>Kuiper objects in</b>
-    {% for s in stars %}<button class="small ghost" hx-get="/terraforming/kuiper/{{ s }}" hx-target="#tf-kuiper">{{ s }}</button> {% endfor %}</div>{% endif %}
+  <h2>Dropping rocks <span class="muted small">{{ R.flying }} in flight · {{ R.systems | sum(attribute='charges') }} vector charge(s)</span></h2>
+  <details class="small muted"><summary>Detect a Kuiper object, launch it with a vector charge deployed at that Kuiper belt, then steer it.</summary>
+    A sensor array's detect takes about an hour and found objects stay 24 h. Launch picks a planet or moon in the same system.
+    Propulsors change speed and ETA (increase / decrease); trajectory deflectors steepen the angle (above 30° hits the surface)
+    or shallow it (spreads it through the air). Rocks you launch are yours: asteroid defense leaves them alone, but devices
+    there are still evacuated. A rock chaser fleet (Fleets) does all of this by itself.</details>
+
+  {% if R.launched %}<h3>Your rocks</h3>
+  <table class="small"><tr><th>Rock</th><th>Target</th><th>Impact</th><th>State</th><th>Angle · speed</th><th>Steering</th></tr>
+    {% for r in R.launched %}<tr>
+      <td class="mono" title="from {{ r.from }}">{{ r.rock }}{% if r.size %} <span class="muted">{{ r.size }}</span>{% endif %}</td>
+      <td class="mono">{{ r.target }}</td>
+      <td>{{ r.eta | local }} <span class="muted">({{ r.eta | ago }})</span></td>
+      <td><span class="pill small {{ 'st-move' if r.state == 'in flight' else '' }}">{{ r.state }}</span></td>
+      <td>{% if r.angle is not none %}{{ r.angle }}°{% if r.angle is number and r.angle < 30 %} <span class="muted" title="under 30°: it breaks up in the air">air</span>{% endif %} · {{ r.speed }}{% endif %}</td>
+      <td>{% if r.tools %}{% for d in r.tools %}<a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a>{{ ', ' if not loop.last }}{% endfor %}{% else %}<span class="muted">none</span>{% endif %}</td></tr>{% endfor %}
+  </table>{% endif %}
+  {% if R.older %}<p class="muted small">{{ R.older }} older launch(es) not shown (impact more than 2 days ago).</p>{% endif %}
+
+  {% if R.systems %}<h3>Find and launch</h3>
+  <table class="small"><tr><th>System</th><th title="deployed at a Kuiper or Oort spot / all in the system">Charges ready</th><th>Propulsors</th><th>Deflectors</th><th></th></tr>
+    {% for s in R.systems %}<tr><td class="mono">{{ s.star }}</td>
+      <td>{% if s.ready %}<b>{{ s.ready | length }}</b>{% else %}<span class="muted">0</span>{% endif %} / {{ s.charges }}</td>
+      <td>{{ s.propulsor or '' }}</td><td>{{ s.trajectory_deflector or '' }}</td>
+      <td>{% with d = s.scanners[0] if s.scanners else none %}{% if d %}<form class="inline" hx-post="/terraforming/{{ d.device_code }}/detect" hx-target="next .tf-out">
+          <button class="small ghost" title="{{ d.device_code }} {{ d.device_type | human }} @ {{ d.location }}{% if s.scanners | length > 1 %} (+{{ s.scanners | length - 1 }} more here){% endif %}">Detect</button></form>{% endif %}{% endwith %}
+        <button class="small ghost" hx-get="/terraforming/kuiper/{{ s.star }}" hx-target="#tf-kuiper">Kuiper objects</button><span class="tf-out"></span></td></tr>{% endfor %}
+  </table>
   <div id="tf-kuiper" style="margin-top:6px"></div>
-  {% if rock_tools %}<h3>Rock tools</h3><table class="small">
-    {% for d in rock_tools %}<tr><td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> {{ d.device_type | human }}</td><td>{{ d.location }}</td><td>{{ d.status }}</td>
-      <td>{% if directions.get(d.device_type) %}<form class="inline" hx-post="/terraforming/{{ d.device_code }}/settings" hx-target="next .tf-out">
+  {% else %}<p class="muted small">No vector charges, propulsors, deflectors or sensor arrays yet.</p>{% endif %}
+
+  {% if R.working %}<h3>Steering</h3><table class="small">
+    {% for d in R.working %}<tr><td><a class="mono" href="/devices/{{ d.device_code }}">{{ d.device_code }}</a> {{ d.device_type | human }}</td><td class="mono">{{ d.location }}</td><td>{{ d.status }}</td>
+      <td><form class="inline" hx-post="/terraforming/{{ d.device_code }}/settings" hx-target="next .tf-out">
         <select name="direction">{% for x in directions[d.device_type] %}<option {{ 'selected' if d._set and d._set.direction == x }}>{{ x }}</option>{% endfor %}</select>
-        <button class="small ghost">Set</button></form><span class="tf-out"></span>{% endif %}</td></tr>{% endfor %}</table>{% endif %}
-  {% if launched %}<h3>Launched by you</h3><table class="small"><tr><th>Rock</th><th>From</th><th>At</th><th>Impact</th><th>Angle / speed</th></tr>
-    {% for k, r in launched.items() %}<tr><td class="mono">{{ k }}</td><td class="mono">{{ r.kuiper_object }}</td><td class="mono">{{ r.destination }}</td>
-      <td>{{ r.impact_eta | local }}</td><td>{{ r.approach_angle }}° · {{ r.approach_speed }}</td></tr>{% endfor %}</table>{% endif %}
+        <button class="small ghost">Set</button></form><span class="tf-out"></span></td></tr>{% endfor %}</table>{% endif %}
 </div>
 {% endblock %}

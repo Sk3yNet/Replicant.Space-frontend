@@ -4,6 +4,7 @@ bio seeder preconditions), your terraforming devices with their strength / direc
 from __future__ import annotations
 
 import json
+import re
 import time
 
 import html
@@ -179,15 +180,79 @@ async def _ctx(request: Request) -> dict:
                                      "No monitor report yet. Activate the atmospheric regulator anyway?")})
     monitors = sum(1 for d in devs if d.get("device_type") == "terraform_monitor"
                    and not str(d.get("status") or "").startswith(("inactive", "idle", "stowed")))
-    rock_tools = [{**d, "_set": tf.settings_of(d)} for d in devs if d.get("device_type") in tf.ROCK_TOOLS]
-    scanners = [d for d in st["devices"] if "system_scan" in (d.get("features") or [])
-                and "detect_object" in (d.get("available_commands") or ["detect_object"])]
     return dict(worlds=worlds, attrs=tf.ATTRS, units=tf.UNITS,
                 targets=targets, in_range=tf.in_range, range_eta=tf.range_eta, tick_s=tf.TICK_S,
                 species=species, target=target, sim_q=f"sim={sid}&" if sid else "",
                 effects=tf.EFFECTS, directions=tf.DIRECTIONS, monitors=monitors, cap=tf.MONITOR_CAP,
-                rock_tools=rock_tools, scanners=scanners, launched=await db.kv_get(LAUNCHED_KV, {}) or {},
-                stars=sorted({star_of(d.get("location")) for d in scanners + rock_tools if d.get("location")}))
+                rocks=await _rocks(request, st["devices"]))
+
+
+ROCK_SHOWN_H = 48   # a launched rock stays on the card this long after its impact time
+
+
+def _rock_ready(d: dict) -> bool:
+    """A deployed vector charge at a Kuiper or Oort spot: it can launch what was found there."""
+    return bool(re.search(r"-(?:KUIPER|OORT)(?:-\d+)?$", d.get("location") or "")) \
+        and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+
+
+async def _rocks(request: Request, devices: list[dict]) -> dict:
+    """The Dropping rocks card: your launched rocks and their state, one row per system with rock tools (charges ready,
+    a scanner to detect with), and the tools at work at your rocks or a Kuiper / Oort spot with their direction."""
+    from . import defence as dfn
+    from .shapes import game_time
+    db = request.app.state.db
+    mine = await db.kv_get(LAUNCHED_KV, {}) or {}
+    try:
+        objs = await request.app.state.worker.automations.defence_objects() if mine else {}
+    except Exception:   # the card never fails the page
+        objs = {}
+    now = time.time()
+    at: dict[str, list[dict]] = defaultdict(list)
+    for d in devices:
+        at[d.get("location") or ""].append(d)
+    launched, older = [], 0
+    for k, r in mine.items():
+        o = objs.get(k) or {}
+        eta = game_time(o.get("impact_eta") or r.get("impact_eta"))
+        closed = str(o.get("closed") or "")
+        if eta and now - eta.timestamp() > ROCK_SHOWN_H * 3600:
+            older += 1
+            continue
+        state = ("struck" if closed == "impacted" else "diverted" if closed == "diverted"
+                 else "impact time passed" if closed or (eta and eta.timestamp() < now) else "in flight")
+        launched.append({"rock": k, "from": r.get("kuiper_object"), "target": o.get("impact_target") or r.get("destination"),
+                         "eta": eta.isoformat() if eta else "", "state": state, "angle": r.get("approach_angle"),
+                         "speed": r.get("approach_speed"), "size": " ".join(x for x in (r.get("mass_class"), r.get("composition")) if x),
+                         "tools": [d for d in at.get(k, []) if d.get("device_type") in tf.ROCK_TOOLS]})
+    launched.sort(key=lambda x: (x["state"] != "in flight", x["eta"]))
+    tools = [d for d in devices if d.get("device_type") in tf.ROCK_TOOLS]
+    scanners = [d for d in devices if "system_scan" in (d.get("features") or [])
+                and "detect_object" in (d.get("available_commands") or ["detect_object"])]
+    systems: dict[str, dict] = {}
+    for d in tools + scanners:
+        s = star_of(d.get("location"))
+        if not s:
+            continue
+        row = systems.setdefault(s, {"star": s, "charges": 0, "ready": [], "propulsor": 0, "trajectory_deflector": 0, "scanners": []})
+        t = d.get("device_type")
+        if t == "vector_charge":
+            row["charges"] += 1
+            if _rock_ready(d):
+                row["ready"].append(d["device_code"])
+        elif t in ("propulsor", "trajectory_deflector"):
+            row[t] += 1
+        if d in scanners and d not in row["scanners"]:
+            row["scanners"].append(d)
+    for row in systems.values():   # detect with a free one first: contract and delivery pins last
+        row["scanners"].sort(key=lambda d: (any(str(t).startswith(("contract:", "to:")) for t in d.get("tags") or []),
+                                            str(d.get("status") or "") != "idle", d.get("device_code") or ""))
+    spots = set(mine) | {d.get("location") for d in tools if _rock_ready(d)}
+    working = [{**d, "_set": tf.settings_of(d)} for d in tools
+               if d.get("location") in spots and d.get("device_type") in tf.DIRECTIONS]
+    return {"launched": launched, "older": older, "working": working,
+            "systems": sorted(systems.values(), key=lambda r: (-len(r["ready"]), -r["charges"], r["star"])),
+            "flying": sum(1 for x in launched if x["state"] == "in flight")}
 
 
 @router.get("/terraforming", response_class=HTMLResponse)
