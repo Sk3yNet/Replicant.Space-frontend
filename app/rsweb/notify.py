@@ -118,7 +118,7 @@ def describe(ev: dict) -> str:
                     "and be flung out of the system (anything left there is lost)")
         case "system.object_diverted":
             return (f"Object {loc} diverted from {p.get('impact_target', '?')}" if p.get("outcome") != "partial"
-                    else f"Object {loc} only partly diverted: {p.get('impact_target', '?')} is still threatened")
+                    else f"Object {loc} only partly diverted: the game counts it as an impact on {p.get('impact_target', '?')}")
         case "device.destroyed":
             return f"{who} was destroyed" + (f" at {loc}" if loc else "")
         case "device.lost":
@@ -167,8 +167,6 @@ def describe(ev: dict) -> str:
             return f"{who} started diverting {p.get('object_designation')}"
         case "diversion.diverted":
             return f"Asteroid {p.get('object_designation')} diverted ({p.get('outcome')})"
-        case "diversion.partial":
-            return f"Asteroid {p.get('object_designation')} partly diverted ({p.get('outcome')})"
         case "diversion.impacted":
             return f"Asteroid {p.get('object_designation')} impacted"
         case "hub.maintained":

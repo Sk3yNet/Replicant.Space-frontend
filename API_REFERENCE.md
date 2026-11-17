@@ -754,7 +754,6 @@ Query `cursor` (int), `limit` (20), `latest`, `event_type`, `device_type`, `devi
 | diversion | `diversion.deactivated` | `device_code` |
 | diversion | `diversion.diverted` | `object_designation`, `outcome` |
 | diversion | `diversion.impacted` | `object_designation` |
-| diversion | `diversion.partial` | `object_designation`, `outcome` |
 | event | `event.completed` | `designation`, `location`, `event_type`, `tier`, `rewards`, `consumed` |
 | event | `event.discovered` | `designation`, `location`, `event_type`, `tier`, `title`, `description`, `criteria` |
 | experience | `experience.gained` | `source`, `amount` |
@@ -990,9 +989,9 @@ Settled by the docs:
 - **Docs vs live**: the devices page says cargo freighters attach to a carrier; live (2026-10-12) says "Cannot attach a
   large device". Live wins.
 - **Events (catalogue)**: `system.impact_warning {destination, impact_eta, device_codes}` fires once per object, to
-  accounts with devices at it; `system.object_diverted {outcome: diverted|partial, impact_target, mass_class}`;
+  accounts with devices at it; `system.object_diverted {outcome: diverted, impact_target, mass_class}` (`partial` until the first season 4 patch, now impacted);
   `system.object_impacted {impact_target, mass_class, terraform_effects}`; none carries the object's designation:
-  the envelope `location` is the object. `diversion.diverted / .impacted / .partial` are deprecated. `device.lost`
+  the envelope `location` is the object. `diversion.diverted / .impacted` are deprecated (`.partial` removed 2026-11-17). `device.lost`
   (empty payload) = flung off by a diversion. `device.changed_owner {from_replicant, to_replicant, direction:
   sent|received}`. `travel.arrived` carries `recalling`. `ami.assembling {destination, assembling_count}`.
   Adopted devices stop emitting their own events: the AMI digests carry them (survey `report.scans[]`).
@@ -1028,6 +1027,19 @@ Settled by the docs:
 - `tracking_site_id` → `tracking_site`: the designation of the belt site a survey drone tracks (shown on the device page
   and in the diagnostics belt rows).
 - Fixed: Kuiper objects being launched into other systems.
+
+## First season 4 patch (2026-11-17), live spec diff 2026-11-17
+Announced in game messages before the website: asteroids no longer impact partially, wormhole transits are separate
+route legs, AMI trade controllers hold 10 trades (was 5), crystal seeds activate only at completed wormhole gates,
+`/accounts/verify/:code` was reimplemented, and API tokens stay visible for 10 minutes after verifying.
+- The live spec against the repo copy (taken 2026-11-16): no endpoint or schema added, removed or changed; only the
+  order of the `MessageSettingsSchema.subscribed` enum moved. The verify and token changes don't show in the spec and
+  don't touch the app (it signs in with a token it already has). `openapi.json` is now this copy.
+- `diversion.partial` is gone, and every partial diversion is now `impacted`. The app closes an object as impacted
+  on an old `system.object_diverted` with `outcome: partial` too (it used to keep it open as a threat).
+- A route's wormhole leg (DELTA-OBJ-2 to TWAFFY) has no transit time: the maps give it no share of the trip. Its
+  leg `type` name is unverified live (`transit.is_jump` takes anything naming a wormhole or gate).
+- Trade posts list 10 types per controller (`tradepost.PER_SHOP`).
 
 ## v4.0.0 "resonance" (2026-11-09), live spec diff 2026-11-09
 Season 4, Resonance Accord (in-game year 2170, runs to the end of January). `openapi.json` in the repo root is now

@@ -44,8 +44,12 @@ def resources_left(obj: dict) -> dict[str, float]:
     return out
 
 
-def closed_as(event: str) -> str:
-    return "diverted" if event.endswith("diverted") else "impacted"
+def closed_as(event: str, payload: dict | None = None) -> str:
+    """Season 4's first patch (2026-11-17) moved every partial diversion to impacted: an old object_diverted with
+    outcome partial (logged before the patch) counts as an impact, so the rock is closed like the game closed it."""
+    if event.endswith("diverted") and (payload or {}).get("outcome") != "partial":
+        return "diverted"
+    return "impacted"
 DIVERTING = ("divert", "active", "thrust", "propel")
 
 

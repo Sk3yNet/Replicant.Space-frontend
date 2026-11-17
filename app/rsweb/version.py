@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.473.0"
+VERSION = "1.474.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.474.0", "2026-11-17", "First season 4 patch: a partial asteroid diversion counts as an impact (the game moved them all to impacted; the removed diversion.partial event is gone from the notifications), AMI trade controllers hold 10 listings (was 5), so trade posts need half the shops, and a wormhole transit leg takes no time on the maps. Live API spec unchanged apart from enum order."),
     ("1.473.0", "2026-11-17", "Fewer game reads (about 57 a minute, peaks of 88). The device list is read every 3 minutes "
      "instead of 2 (53 pages at 2,650 devices; Joe). Print-queue panels (Blueprints, device pages) redraw from the cached "
      "list with the app's queue as it is now, instead of one read per factory each minute; commands there still read "

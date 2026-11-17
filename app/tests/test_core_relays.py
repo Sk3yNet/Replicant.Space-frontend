@@ -1627,3 +1627,16 @@ def test_dashboard_lists_station_and_megastructure_systems(client):
     assert 'data-card="stations"' in page
     assert '<a href="/systems/ALKALAROPS">ALKALAROPS</a> <span class="muted">New Havana Station' in page
     assert '<a href="/systems/MIRFAKA">MIRFAKA</a> <span class="muted">datacenter' in page
+
+
+def test_wormhole_leg_takes_no_trip_time():
+    """Season 4's first patch (2026-11-17) lists a wormhole transit as a leg of its own, with no transit time: the other
+    legs share the trip's time, the jump is instant."""
+    from rsweb import transit
+    d = {"device_code": "W1", "travel": {"origin": "DELTA-OBJ-1", "final_destination": "TWAFFY-11-L4",
+                                         "departed_at": "1970-01-01T00:00:00Z", "final_arrives_at": "1970-01-01T00:10:00Z",
+                                         "route": [{"from": "DELTA-OBJ-1", "to": "DELTA-OBJ-2", "type": "cruise", "time_seconds": 300},
+                                                   {"from": "DELTA-OBJ-2", "to": "TWAFFY", "type": "wormhole"},
+                                                   {"from": "TWAFFY", "to": "TWAFFY-11-L4", "type": "cruise", "time_seconds": 300}]}}
+    legs = transit.trip(d, now=0)["legs"]
+    assert [round(x["t1"] - x["t0"]) for x in legs] == [300, 0, 300]

@@ -1678,8 +1678,8 @@ def test_game_news_from_the_changelog_and_blog(client, monkeypatch):
 
 
 def test_docs_review_2026_10_13_fixes(client):
-    """From reading the published docs: v3.5.0 impact events key on the envelope location, a partial diversion keeps
-    the object open, recalled arrivals don't satisfy waits, evicted_miners is a count, a device sent to another
+    """From reading the published docs: v3.5.0 impact events key on the envelope location, a partial diversion now
+    closes the object as impacted, recalled arrivals don't satisfy waits, evicted_miners is a count, a device sent to another
     replicant is gone (received isn't), and per-endpoint 429s don't block the whole bucket."""
     from rsweb import api, notify, wardhub as wh
     from rsweb.automations import event_matches
@@ -1692,7 +1692,7 @@ def test_docs_review_2026_10_13_fixes(client):
     assert o["impact_target"] == "KELM-3" and o["impact_eta"] == "2099-10-13T11:00:00Z" and not o.get("closed")
     client.portal.call(db.insert_event, {"id": "w2", "event": "system.object_diverted", "location": "KELM-OBJ-1",
                                           "payload": {"outcome": "partial", "impact_target": "KELM-3"}})
-    assert not client.portal.call(eng.defence_objects)["KELM-OBJ-1"].get("closed")
+    assert client.portal.call(eng.defence_objects)["KELM-OBJ-1"]["closed"] == "impacted"   # season 4 patch: partial = impact
     client.portal.call(db.insert_event, {"id": "w3", "event": "system.object_impacted", "location": "KELM-OBJ-1",
                                           "payload": {"impact_target": "KELM-3", "terraform_effects": "craters"}})
     assert client.portal.call(eng.defence_objects)["KELM-OBJ-1"]["closed"] == "impacted"

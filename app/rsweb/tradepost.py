@@ -38,7 +38,7 @@ DEFAULT_PRICING = {"factor": 2.0, "pct_per_hour": 10.0}
 EXCLUDED = {"system_hub"}      # never offered (owner: manufacturing time scales with the hubs you have)
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 EVERY_S = 300
-PER_SHOP = 5                   # the game caps a trade controller at 5 listings (owner 2026-11-13)
+PER_SHOP = 10                  # the game caps a trade controller at 10 listings (season 4 patch, 2026-11-17; 5 before)
 
 
 REREAD_S = 1800               # a shop's listings are re-read this often, or after a trade event names it (1.473.0)

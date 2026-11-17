@@ -999,9 +999,8 @@ class OpsRules:
                 if des not in objs:   # matched by its target when the location isn't the object's
                     des = next((k for k, o in objs.items() if not o.get("closed") and p.get("impact_target")
                                 and o.get("impact_target") == p.get("impact_target")), des)
-                if des in objs and p.get("outcome") != "partial" \
-                        and not _after(_born(objs[des]), r["created_at"]):   # partial: still a threat; older: a former rock
-                    objs[des]["closed"] = dfn.closed_as(r["event"])
+                if des in objs and not _after(_born(objs[des]), r["created_at"]):   # older: a former rock
+                    objs[des]["closed"] = dfn.closed_as(r["event"], p)
                     objs[des].setdefault("closed_at", r["created_at"])
         for o in objs.values():   # closed by a former rock's event before 1.209.0 (FALQUORYX-OBJ-2, 2026-10-22)
             if o.get("closed") in ("diverted", "impacted") and _after(_born(o), o.get("closed_at")):

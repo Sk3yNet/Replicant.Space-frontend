@@ -4,7 +4,8 @@ A moving device's `travel` (live shape, 2026-10-06):
     {"origin": "OTHDANAX-2", "destination": "OTHDANAX-OORT", "final_destination": …, "departed_at": …, "arrives_at": …,
      "final_arrives_at": …, "progress_percent": 83.2, "type": "cruise", "stage": "decelerating",
      "route": [{"leg": 1, "from": "OTHDANAX-2", "to": "OTHDANAX-OORT", "type": "cruise", "time_seconds": 8483.6, …}]}
-Legs are cruise (inside a system) or surge / surge_hop (between stars). Each leg gets absolute start/end times (spread
+Legs are cruise (inside a system) or surge / surge_hop (between stars); since the first season 4 patch (2026-11-17) a
+wormhole transit (DELTA-OBJ-2 → TWAFFY, no transit time) is a leg of its own. Each leg gets absolute start/end times (spread
 over departed_at → final_arrives_at by its share of the route time), so the maps can place the device at any moment.
 """
 from __future__ import annotations
@@ -27,6 +28,13 @@ def _ts(v: Any) -> float | None:
     return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()   # no offset: UTC, like everywhere else
 
 
+def is_jump(leg: dict) -> bool:
+    """A wormhole transit leg: no transit time, so it takes no share of the trip (the exact type name is unverified
+    live: anything naming a wormhole or gate counts)."""
+    t = str(leg.get("type") or "").lower()
+    return "wormhole" in t or "gate" in t
+
+
 def trip(d: dict, now: float | None = None) -> dict | None:
     """The device's current trip with timed legs, or None when it isn't traveling (or the trip is long over)."""
     tr = d.get("travel") or {}
@@ -46,7 +54,9 @@ def trip(d: dict, now: float | None = None) -> dict | None:
     times = [float(x.get("time_seconds") or 0) for x in legs]
     timed = [s for s in times if s > 0]
     guess = sum(timed) / len(timed) if timed else 1.0
-    weights = [s if s > 0 else guess for s in times]
+    weights = [0.0 if is_jump(x) else s if s > 0 else guess for x, s in zip(legs, times)]
+    if not sum(weights):
+        weights = [1.0] * len(legs)
     scale, at, out = (t1 - t0) / sum(weights), t0, []
     for x, w in zip(legs, weights):
         dt = w * scale

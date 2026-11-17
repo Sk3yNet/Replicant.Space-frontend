@@ -213,32 +213,32 @@ def test_pretty_keeps_curly_quotes():
     assert "Don’t" in f_pretty({"a": "Don’t"})
 
 
-def test_plan_spreads_types_over_shops_five_each():
-    bps = {f"t{i}": {"device_type": f"t{i}", "print_time": 0, "resources": {"structural": 10 * (i + 1)}} for i in range(7)}
+def test_plan_spreads_types_over_shops_ten_each():
+    bps = {f"t{i}": {"device_type": f"t{i}", "print_time": 0, "resources": {"structural": 10 * (i + 1)}} for i in range(12)}
     fleet = {"id": "tp", "name": "Post", "role": "trade_post", "home": "SOL",
-             "trade_post": {"onhand": {f"t{i}": 1 for i in range(7)}}}
-    devs = [shop()] + [dev(f"D{i}", f"t{i}", tags=[TAG]) for i in range(7)]
+             "trade_post": {"onhand": {f"t{i}": 1 for i in range(12)}}}
+    devs = [shop()] + [dev(f"D{i}", f"t{i}", tags=[TAG]) for i in range(12)]
     pl = tp.plan(fleet, devs, {"SHOP": []}, {}, bps, P, TAG)
     assert tp.shops_needed(fleet) == 2
-    assert sorted(a["type"] for a in pl["actions"]) == ["t2", "t3", "t4", "t5", "t6"]   # priciest first
+    assert sorted(a["type"] for a in pl["actions"]) == sorted(f"t{i}" for i in range(2, 12))   # priciest first
     assert {a["controller"] for a in pl["actions"]} == {"SHOP"}
     assert "wait for a shop slot" in "; ".join(pl["notes"])
     devs.append(dev("SHOP2", "ami_trade_controller", tags=["fleet:tp"], ami_directive={"name": "trade"}))
     listed = [{"trade_code": f"TRD-{i}", "current_stock": 1, "initial_stock": 1, "rewards": {"devices": {f"t{i}": 1}},
-               "criteria": {"resources": tp.formula_price({"structural": 10 * (i + 1)}, 0, P)}} for i in range(2, 7)]
-    st = {"listings": {f"t{i}": {"trade_code": f"TRD-{i}", "escrow": [f"D{i}"], "controller": "SHOP"} for i in range(2, 7)}}
+               "criteria": {"resources": tp.formula_price({"structural": 10 * (i + 1)}, 0, P)}} for i in range(2, 12)]
+    st = {"listings": {f"t{i}": {"trade_code": f"TRD-{i}", "escrow": [f"D{i}"], "controller": "SHOP"} for i in range(2, 12)}}
     pl = tp.plan(fleet, devs, {"SHOP": listed, "SHOP2": []}, st, bps, P, TAG)
     assert sorted((a["type"], a["controller"]) for a in pl["actions"]) == [("t0", "SHOP2"), ("t1", "SHOP2")]
-    assert {s["code"]: len(s["types"]) for s in pl["shops"]} == {"SHOP": 5, "SHOP2": 2}
+    assert {s["code"]: len(s["types"]) for s in pl["shops"]} == {"SHOP": 10, "SHOP2": 2}
 
 
 def test_engine_raises_wanted_controllers(client):  # noqa: F811
     e = client.app.state.worker.automations
     db = client.app.state.db
-    bps = [{"device_type": f"t{i}", "print_time": 0, "resources": {"structural": 10}} for i in range(6)]
+    bps = [{"device_type": f"t{i}", "print_time": 0, "resources": {"structural": 10}} for i in range(11)]
     client.portal.call(db.kv_set, "blueprints", bps)
     client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices") + [shop()])
-    fleet = {**FLEET, "wants": {"ami_trade_controller": 1}, "trade_post": {"onhand": {f"t{i}": 1 for i in range(6)}}}
+    fleet = {**FLEET, "wants": {"ami_trade_controller": 1}, "trade_post": {"onhand": {f"t{i}": 1 for i in range(11)}}}
     client.portal.call(e.save_fleets, [fleet])
     out = client.portal.call(e.trade_post_pass)
     assert any("2 AMI trade controllers wanted" in x for x in out)
