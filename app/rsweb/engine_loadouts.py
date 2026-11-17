@@ -307,6 +307,34 @@ class LoadoutMixin:
                     moved += 1
             if moved:
                 await self.db.kv_set(vqm.KV, st)
+            # prints kept for a printer that can't print now (compacted, aboard or in flight, or itself a contract's
+            # goods) go to a working one of its type at its spot, the one keeping fewest (live 2026-11-17: 7C5D7A36,
+            # compacted at SOLARES-BELT-1 for a contract, held two contract prints while four neighbors stood idle)
+            from collections import Counter
+            off = {c for c, d in by_code.items() if not lom.in_service(d)}
+            handed: dict[tuple, int] = {}
+            if off:
+                load = Counter(o.get("factory") for o in st["orders"])
+                for o in st["orders"]:
+                    src = by_code.get(o.get("factory"))
+                    if o.get("factory") not in off or not src:
+                        continue
+                    bp = bpd.get((o.get("body") or {}).get("device_type"))
+                    alt = [d for c, d in by_code.items() if c not in off and d.get("location") == src.get("location")
+                           and d.get("device_type") == src.get("device_type") and lom.can_make(d, bp)]
+                    if not alt:
+                        continue
+                    to = min(alt, key=lambda d: (load[d["device_code"]], d["device_code"]))["device_code"]
+                    load[o["factory"]] -= 1
+                    load[to] += 1
+                    handed[(o["factory"], to)] = handed.get((o["factory"], to), 0) + 1
+                    o["factory"] = to
+                if handed:
+                    await self.db.kv_set(vqm.KV, st)
+        for (src, to), n in sorted(handed.items()):
+            line = f"{src} can't print now ({by_code[src].get('status') or 'out of service'}): {n} kept print(s) handed to {to}"
+            out.append(line)
+            await self.log("print queue", line)
         for code in sorted({o["factory"] for o in drop}):
             n = sum(o["factory"] == code for o in drop)
             line = f"{code}: dropped {n} kept print(s) it can't make" + \
@@ -323,7 +351,7 @@ class LoadoutMixin:
                    for d in devs if d.get("device_code") in printers}
         for d in devs:
             code = d.get("device_code")
-            if not code or code not in printers or not d.get("location") or now - fed.get(code, -1e9) < 150:
+            if not code or code not in printers or code in off or not d.get("location") or now - fed.get(code, -1e9) < 150:
                 continue
             kept = vqm.shared(await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code]), code, in_game)
             real = [x for x in pq.items(d) if not x["extra"].get("virtual")]

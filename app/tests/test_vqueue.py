@@ -402,3 +402,26 @@ def test_clear_wipes_a_groups_queue_and_the_orders_behind_it(client):  # noqa: F
     assert set(roll["ordered"]) == {"CCC"} and "AAA" in roll["skipped"]
     r = client.post("/print-queue/group/clear", data={"codes": "AF00BEEF", "scope": "all"}, headers=HX)
     assert r.status_code == 200 and world.queues["AF00BEEF"] == []
+
+
+def test_prints_kept_for_a_compacted_factory_go_to_a_working_neighbor(client):  # noqa: F811
+    """Live 2026-11-17: 7C5D7A36, compacted at SOLARES-BELT-1 as a contract's payment, held two contract prints while
+    its neighbors stood idle."""
+    import copy
+    from rsweb import contractsupply, loadouts
+    db, e, world = setup(client)
+    src = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    box = copy.deepcopy(src)
+    box.update(device_code="AF00C0DE", status="compacted", tags=["contract:rastuban-2-evt-003", "to:rastuban"])
+    world.devices.append(box)
+    world.queues["AF00C0DE"] = []
+    assert not loadouts.in_service(box) and loadouts.in_service(src)
+    vq = VirtualQueue(db)
+    client.portal.call(vq.add, "AF00C0DE", {"device_type": "orbital_farm", "quantity": 1, "tags": ["to:sol"]}, 3)
+    out = feed(client)
+    assert any("AF00C0DE can't print now" in x for x in out), out
+    assert client.portal.call(vq.orders, "AF00C0DE") == []
+    assert world.queues["AF00C0DE"] == []
+    # and no contract print picks it in the first place
+    f, _ = contractsupply.factory_for("orbital_farm", 1, [box], "SOL", set(), {}, {}, {}, 0, {})
+    assert f is None

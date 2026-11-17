@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.470.0"
+VERSION = "1.471.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.471.0", "2026-11-17", "Print queue: a printer that can't print now (compacted, aboard, in flight, or itself a "
+     "contract's goods) gets no new prints, and the prints the app kept for it go to a working printer of its type at "
+     "its spot (two contract prints sat on a compacted SOLARES autofactory)."),
     ("1.470.0", "2026-11-17", "Missing blueprints: an Autobuy tick per type buys one when Riker's shop lists it (his "
      "listing read hourly while anything is ticked; one unit approved for logistics; skipped while you own one)."),
     ("1.469.0", "2026-11-17", "Print queue: contract and trade prints rank behind fleet prints and ahead of stock and "

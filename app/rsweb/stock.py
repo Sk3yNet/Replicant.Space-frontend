@@ -67,9 +67,9 @@ def stock_last(queue: list[dict]) -> list[dict]:
 def hub_factories(fleet: dict, devices: list[dict]) -> list[dict]:
     """The autofactories that print a fleet's stock: at its home, the fleet's own or in no fleet."""
     from .fleets import fleet_of
-    from .loadouts import is_factory
+    from .loadouts import in_service, is_factory
     home = fleet.get("home")
-    return sorted((d for d in devices if is_factory(d) and star_of(d.get("location")) == home
+    return sorted((d for d in devices if is_factory(d) and in_service(d) and star_of(d.get("location")) == home
                    and fleet_of(d) in (None, fleet.get("id"))), key=lambda d: d.get("device_code") or "")
 
 

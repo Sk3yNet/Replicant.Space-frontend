@@ -417,6 +417,15 @@ def is_printer(d: dict) -> bool:
     return "autofactory" in t or ("vessel" not in t and "enqueue_print" in (d.get("available_commands") or []))
 
 
+def in_service(d: dict) -> bool:
+    """A printer that can take prints now: deployed (not compacted, stowed, towed or flying) and not itself goods for a
+    contract. Live 2026-11-17: autofactory 7C5D7A36, compacted at SOLARES-BELT-1 as payment for a RASTUBAN-2 contract,
+    was given two contract prints that sat in its queue while its four neighbors stood idle."""
+    st = str(d.get("status") or "")
+    return not (d.get("folded") or st.startswith(("compact", "stowed", "attach", "travel", "moving", "cruis", "surg"))
+                or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or for_contract(d))
+
+
 def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict[str, dict], stars: dict[str, dict],
          replicant_hosts: dict[str, str], busy: set[str], orders: list[dict], stowed_map: dict[str, list[str]],
          only: set[str] | None = None, open_sites: dict[str, int] | None = None, protect: set[str] | None = None,
@@ -799,7 +808,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
     prints: list[dict] = []
     cancel_orders: list[dict] = []   # loadout orders a spare at home replaces: their prints come off the queue
     # class-limited printers (epitaxy) work their own class's prints only: `fits` keeps every other print off them
-    factories = [d for d in pool if (is_factory(d) or (is_printer(d) and print_class(d))) and d["device_code"] not in busy]
+    factories = [d for d in pool if (is_factory(d) or (is_printer(d) and print_class(d))) and d["device_code"] not in busy
+                 and in_service(d)]
 
     def fits(f: dict, t: str | None) -> bool:
         return t is None or can_make(f, bps.get(t))
