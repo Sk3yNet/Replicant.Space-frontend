@@ -965,17 +965,43 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
         nothing = ((await self.db.kv_get("salvage_state", {}) or {}).get("nothing") or {})
         # the salvage rule re-marks "nothing to mine" every 24 h while it's still true; an older mark is out of date
         nothing = {k: v for k, v in nothing.items() if _ts(v) and (now - _ts(v)).total_seconds() < 26 * 3600}
+        from .fleets import beyond_reach
+        from .logistics import SECTOR_RANGE_LY
+        far_legs = set((await self.db.kv_get(KV_SECTOR_FAR, {}) or {}).keys())
+
+        def far_from(starts: set[str]):
+            # a trip the job runner already refused (sector_far), or two charted stars too far apart / a charted and an
+            # uncharted one (fleets.beyond_reach)
+            return lambda star: any(f"{s}>{star}" in far_legs or beyond_reach(s, star, inp["pos"], SECTOR_RANGE_LY)
+                                    for s in starts if s and s != star)
+
         for f in mine:
             home, heading = f["home"], (f.get("heading") or {}).get("vector")
             cone = float(f.get("cone") or pa.DEFAULT_CONE)
             # (prospecting: observatory_pass)
             if not f.get("auto_relocate"):
                 continue
+            tag = fleet_tag(f["id"])
+            starts = {home} | {star_of(d.get("location")) for d in devices
+                               if tag in (d.get("tags") or []) and d.get("location")}
+            # --- an earlier pick out of reach of where the fleet is: back to the home before it, which then picks again
+            prev = f.get("prev_home")
+            if prev and prev != home and not f.get("next_home") and far_from(starts - {home})(home):
+                f["home"] = prev
+                f.pop("prev_home", None), f.pop("depleted_since", None), f.pop("idle_since", None)
+                f["path_note"] = (f"{home} is beyond the sector range from where the fleet is; back to {prev} at {now_iso()}"
+                                  " — " + await self.start_relocation(f, home, prev))
+                changed = True
+                out.append(f"{f['name']}: home {home} → {prev} (out of range)")
+                await self.log("fleets", f"{f['name']}: {f['path_note']}", "alert")
+                await self._notify("warning", f"{f['name']}: {home} is beyond the sector range — home back to {prev}")
+                continue
             # --- a planned move: carry it out once the grace period is over (if the target is still free)
             if f.get("next_home"):
                 if now < (_ts(f.get("next_home_at")) or now):
                     continue
                 nxt, block = f["next_home"], pa.taken(f, items).get(f["next_home"])
+                block = block or ("beyond the sector range" if far_from(starts)(nxt) else None)
                 if block or nxt in inp["warded"]:
                     f["path_note"] = f"{nxt} isn't free any more ({block or 'warded'}) — choosing again"
                     f.pop("next_home", None), f.pop("next_home_at", None)
@@ -1014,7 +1040,8 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
             if (now - _ts(f["depleted_since"])).total_seconds() < float(f.get("dry_hours") or pa.DRY_FOR_HOURS) * 3600:
                 continue
             rows = (await pr.rank(self.db, self, devices, home, limit_unscanned=0, weigh=True))["rows"]
-            star, note = pa.choose(f, items, rows, xyz_of, devices, heading, cone, await self.commandable(devices))
+            star, note = pa.choose(f, items, rows, xyz_of, devices, heading, cone, await self.commandable(devices),
+                                   far=far_from(starts))
             if star:
                 f["next_home"] = star
                 f["next_home_at"] = (now + timedelta(minutes=float(f.get("grace_minutes") or pa.GRACE_MINUTES))).isoformat(timespec="seconds")

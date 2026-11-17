@@ -157,10 +157,13 @@ def idle_miners(tag: str, home: str, devices: list[dict]) -> str | None:
 
 
 def choose(fleet: dict, fleets: list[dict], rows: list[dict], xyz_of: dict[str, tuple], devices: list[dict],
-           heading: list[float] | None, cone: float, reach: set[str] | None = None) -> tuple[str | None, list[str]]:
+           heading: list[float] | None, cone: float, reach: set[str] | None = None,
+           far: Any = None) -> tuple[str | None, list[str]]:
     """The best next home for the fleet: (star, why) or (None, reasons nothing qualified). `rows` are prospects.rank()
     rows from the fleet's home (best first). `reach`: the systems that can be commanded (an active relay network or a
-    replicant there); without it, any system with a relay or hub of ours counts."""
+    replicant there); without it, any system with a relay or hub of ours counts. `far(star)`: true when the trip there
+    is beyond the sector range (live 2026-11-14: Delta Miner 2 picked ASELOLUSP, 180 h of surge from ANSYRA, and could
+    never get there)."""
     home = fleet.get("home") or ""
     hold = taken(fleet, fleets)
     skipped: dict[str, int] = {}
@@ -171,6 +174,7 @@ def choose(fleet: dict, fleets: list[dict], rows: list[dict], xyz_of: dict[str, 
                "unscanned" if r.get("status") == "unscanned" or r.get("score") is None else
                "warded" if r.get("status") == "warded" else
                "held by another fleet" if star in hold else
+               "beyond the sector range" if far and far(star) else
                "behind the heading" if heading and _off(xyz_of.get(home), xyz_of.get(star), heading) > cone else
                "outside relay coverage" if not (star in reach if reach is not None else served(star, xyz_of, devices))
                else None)

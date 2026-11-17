@@ -647,6 +647,37 @@ def test_pathing_pass_prospects_then_relocates(client):
     assert not any("moving home: HOMEA → AHEADB" in n["title"] for n in notes)   # announced ahead only (1.381.0)
 
 
+def test_pathing_never_picks_a_home_beyond_the_sector_range(client):
+    """Live 2026-11-14: Delta Miner 2 auto-relocated from ANSYRA to ASELOLUSP, 180 h of surge away; every trip there was
+    refused (sector_far) and the fleet sat scattered. The choice skips such homes, and one already made reverts."""
+    from rsweb import pathing as pa, prospects
+    rows = [{"star": s, "score": sc, "status": "ok", "distance": None, "reasons": []} for s, sc in (("FARX", 90), ("NEAR", 40))]
+    fleet = {"id": "me", "name": "Me", "role": "mining", "station": True, "home": "HOME"}
+    assert pa.choose(fleet, [fleet], rows, {}, [], None, 60, reach={"FARX", "NEAR"})[0] == "FARX"
+    star, _ = pa.choose(fleet, [fleet], rows, {}, [], None, 60, reach={"FARX", "NEAR"}, far=lambda s: s == "FARX")
+    assert star == "NEAR"
+    none, why = pa.choose(fleet, [fleet], rows[:1], {}, [], None, 60, reach={"FARX"}, far=lambda s: True)
+    assert none is None and why == ["1 beyond the sector range"]
+
+    eng, db = client.app.state.worker.automations, client.app.state.db
+
+    async def commandable(devices, stars=None, without=None):
+        return {"HOMEA", "FARB"}
+    eng.commandable = commandable
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "HOMEA", "position": {"x": 0, "y": 0, "z": 0}}]})
+    client.portal.call(db.kv_set, "devices", [
+        {"device_code": "RIG00001", "device_type": "mining_rig", "location": "HOMEA-8", "status": "idle", "tags": ["fleet:m1"]}])
+    client.portal.call(db.kv_set, "sector_far", {"HOMEA>FARB": {"at": datetime.now(timezone.utc).isoformat(), "h": 180.0}})
+    client.portal.call(eng.save_fleets, [{"id": "m1", "name": "Miner 1", "role": "mining", "home": "FARB", "prev_home": "HOMEA",
+                                          "station": True, "auto_relocate": True, "wants": {}}])
+    prospects.forget_inputs()
+    out = client.portal.call(eng.pathing_pass, True)
+    assert out == ["Miner 1: home FARB → HOMEA (out of range)"]
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert f["home"] == "HOMEA" and not f.get("prev_home") and "beyond the sector range" in f["path_note"]
+    assert client.portal.call(eng.pathing_pass, True) == []                 # once only
+
+
 def test_travel_shows_on_the_map_straight_away(client):
     """The travel command's answer is put on the cached device at once (the device sync is up to a minute away)."""
     db = client.app.state.db

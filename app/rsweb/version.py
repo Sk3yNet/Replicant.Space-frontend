@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.450.2"
+VERSION = "1.451.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.451.0", "2026-11-17", "Auto-relocate (Joe): a mining fleet never picks a next home beyond the sector range from "
+     "where its devices are (a trip the job runner already refused, or a charted and an uncharted star). A home picked "
+     "earlier that is out of range goes back to the home before it, which then picks again (Delta Miner 2 had moved "
+     "ANSYRA → ASELOLUSP, 180 h of surge away, and every trip there was refused)."),
     ("1.450.2", "2026-11-17", "Recall (Joe): a terraformer fleet comes back to its home, not the nearest receiving point "
      "(Terraformer 1 at ADHARA would have gone to ASELOLUSP, Delta Miner 2's station)."),
     ("1.450.1", "2026-11-17", "Fleets stage error fixed (Joe): \"engine stage run_fleets failed: IndexError\" came from Chaser_1, which had a mission started from the New mission form. Rock chaser, prospector and trade post fleets take no missions (their own pass runs them), so the mission had no phases and broke the whole fleets stage every tick. Such a mission now just ends, and the form is gone from those fleets' cards (the server refuses it too)."),
