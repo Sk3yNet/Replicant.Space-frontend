@@ -466,19 +466,32 @@ async def device_command(request: Request, code: str, user: str = Depends(curren
                             f"{command} on {code}")
     note = None
     if not out["ok"] and AWAY_OWNER in str(out.get("error") or "").lower():
-        note = away_owner_note(code, (await load_state(request))["devices"])
+        who = away_owner(code, (await load_state(request))["devices"])
+        if who and who["here"] and command != "change_owner":
+            to, to_name = who["here"][0]
+            hand = await call_action(request, user, "POST", f"/devices/{code}", {"command": "change_owner", "target": to},
+                                     f"{code} to {to_name} (for {command})")
+            if hand["ok"]:
+                out = await call_action(request, user, "POST", f"/devices/{code}", {"command": command, **body, **extra},
+                                        f"{command} on {code}")
+                note = f"{code} belonged to {who['owner_name']}, who isn't here: handed it to {to_name} ({to}) and sent {command} again."
+            else:
+                note = f"{code} belongs to {who['owner_name']}; handing it to {to_name} failed: {hand['error']}"
+        elif who:
+            note = (f"{code} belongs to {who['owner_name']}" + (f", who is at {who['owner_at']}" if who["owner_at"] else "")
+                    + ". No replicant is at the device to hand it to: bring one there.")
     return render_action(request, out, note=note)
 
 
 AWAY_OWNER = "replicant must be at the device location"
 
 
-def away_owner_note(code: str, devices: list[dict]) -> str | None:
+def away_owner(code: str, devices: list[dict]) -> dict | None:
     """The game wants the device's owning replicant at its location (live 2026-11-17: crystal seeds at DELTA-OBJ-2
-    owned by a replicant at FALQUORYX refused activate though another replicant was there). Name the owner, where it
-    is, and the replicants that are at the device, to hand it over with change_owner."""
+    owned by a replicant at FALQUORYX refused activate though another replicant was there). Returns the owner, where
+    it is, and the replicants at the device ([(code, name)]) to hand it to. A device hosting a replicant: None."""
     dev = next((d for d in devices if d.get("device_code") == code), None)
-    if not dev:
+    if not dev or dev.get("hosting_replicant"):
         return None
     owner, loc = dev.get("replicant_code"), dev.get("location")
     hosts = {}
@@ -487,13 +500,8 @@ def away_owner_note(code: str, devices: list[dict]) -> str | None:
         if h.get("replicant_code"):
             hosts.setdefault(h["replicant_code"], (h.get("name") or h["replicant_code"], d.get("location")))
     oname, oloc = hosts.get(owner, (owner or "unknown", None))
-    here = [f"{n} ({c})" for c, (n, l) in hosts.items() if l and l == loc and c != owner]
-    msg = f"{code} belongs to {oname}" + (f", who is at {oloc}" if oloc else "") + f", not at {loc or 'its location'}."
-    if here:
-        msg += (f" Hand it to {' or '.join(here)} with change_owner, then send the command again.")
-    else:
-        msg += " Bring the owner here, or hand the device to a replicant that is here (change_owner)."
-    return msg
+    here = sorted((c, n) for c, (n, l) in hosts.items() if loc and l == loc and c != owner)
+    return {"owner": owner, "owner_name": oname, "owner_at": oloc, "here": here}
 
 
 @router.post("/devices/{code}/carrier", response_class=HTMLResponse)
