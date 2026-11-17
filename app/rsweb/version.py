@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.448.0"
+VERSION = "1.449.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.449.0", "2026-11-17", "Crystal seeds (Joe): activate kept failing with \"Replicant must be at the device location\". The game wants the device's own replicant there: the 4 seeds at DELTA-OBJ-2 belong to Augustin (at FALQUORYX), and Rufus being at DELTA doesn't count. When a device command gets that answer, the result now names the owner, where it is, and the replicants at the device to hand it to with change_owner."),
     ("1.448.0", "2026-11-17", "Terraforming console (Joe): the Drift line shows the planet's own pull per tick next to the "
      "game's word, estimated from the last 10 reports (the change per tick minus what the devices and active couplings "
      "add); none for a value pinned at 0 or 100 or held by the regulator."),
