@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.447.1"
+VERSION = "1.448.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.448.0", "2026-11-17", "Terraforming console (Joe): the Drift line shows the planet's own pull per tick next to the "
+     "game's word, estimated from the last 10 reports (the change per tick minus what the devices and active couplings "
+     "add); none for a value pinned at 0 or 100 or held by the regulator."),
     ("1.447.1", "2026-11-16", "Print what's missing (Joe): a terraformer's spares already on their way by logistics count, so "
      "they aren't printed again."),
     ("1.447.0", "2026-11-16", "Terraformer fleets (Joe): a fleet at work also takes untagged idle devices for its shortfall "

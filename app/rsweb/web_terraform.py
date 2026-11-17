@@ -3,6 +3,7 @@ bio seeder preconditions), your terraforming devices with their strength / direc
 (detect Kuiper objects, launch one with a vector charge). terraform.py has the rules."""
 from __future__ import annotations
 
+import json
 import time
 
 import html
@@ -156,7 +157,14 @@ async def _ctx(request: Request) -> dict:
         if groups.get("control"):
             groups["control"].sort(key=lambda d: (tf.CONTROL.index(d["device_type"]), d.get("device_code") or ""))
         order = sorted(groups, key=lambda t: tf.priority("terraform_monitor" if t == "control" else t))   # fixed: never moves
+        recent = []
+        for r in hist[:10]:
+            try:
+                recent.append(json.loads(r["payload"] or "{}") or {})
+            except ValueError:
+                pass
         worlds.append({"body": body, "status": s, "coupling": tf.coupling(s) if s else [], "bio": tf.bio_ready(s) if s else [],
+                       "pull": tf.pull_avg(recent, by_loc.get(body, [])) if s else {},
                        "devices": by_loc.get(body, []), "out": out, "held": held, "monitor_only": body in idle_mon,
                        "groups": [{"type": t, "devices": groups[t],
                                    "helps": [a for a, sg in tf.PUSHES.get(t, []) if a in need and (sg == 0 or sg == need[a])]}

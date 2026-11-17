@@ -448,3 +448,33 @@ def test_print_missing_counts_spares_on_their_way(client):  # noqa: F811
     client.portal.call(e.save_fleets, f)
     r = client.post("/fleets/tf/print", headers=HX)
     assert "Nothing missing" in r.text
+
+
+def test_planet_pull_is_estimated_from_the_report():
+    # live ADHARA-2 2026-11-16 22:24: tectonic delta 0.0 with three lances on → the planet pulls about −0.3 a tick
+    from rsweb import terraform as tf
+    lance = {"device_type": "thermal_lance", "effects": [{"attribute": "temperature", "direction": "increase"},
+                                                         {"attribute": "tectonic", "direction": "increase"},
+                                                         {"attribute": "pressure", "direction": "increase"}]}
+    st = {"attributes": {"tectonic": {"value": 1.9, "delta": 0.0}, "pressure": {"value": 1.19, "delta": 0.0049},
+                         "oxygen": {"value": 19.25, "delta": -0.2022}, "toxicity": {"value": 0.0, "delta": -0.52},
+                         "biosphere": {"value": 63.59, "delta": 0.0}},
+          "effects": {"devices": {"L1": lance, "L2": lance, "L3": lance,
+                                  "AP": {"device_type": "atmo_processor", "effects": [{"attribute": "pressure", "direction": "decrease"}]}},
+                      "equilibrium": [{"attribute": a, "direction": d, "strength": "weak"} for a, d in
+                                      (("pressure", "increase"), ("oxygen", "decrease"), ("toxicity", "increase"), ("tectonic", "decrease"))]}}
+    p = tf.pull(st)
+    assert p["tectonic"] == -0.3 and p["pressure"] == 0.025 and p["oxygen"] == -0.702   # biological scrubbing adds +0.5
+    assert "toxicity" not in p   # pinned at 0: no estimate
+    assert tf.pull_avg([st, st]) == p
+
+
+def test_world_console_shows_the_pull_number(client):  # noqa: F811
+    _setup(client, [dev("MON", "terraform_monitor", status="monitoring"), dev("LAN", "thermal_lance", status="terraforming")])
+    st = report(tectonic=1.9)
+    st["effects"] = {"devices": {"LAN": {"device_type": "thermal_lance",
+                                         "effects": [{"attribute": "tectonic", "direction": "increase"}]}},
+                     "equilibrium": [{"attribute": "tectonic", "direction": "decrease", "strength": "weak"}]}
+    _report_event(client, st)
+    page = client.get(f"/terraforming/world/{PLANET}", headers=H).text
+    assert "tectonic decrease (weak, <span" in page and "≈ -0.1/tick" in page

@@ -388,7 +388,7 @@ patrolling the system), what is there now and the logistics delivery that tops i
 <img src="screens/terraforming.jpg" width="320" align="right" alt="Terraforming">
 
 - Each place with a terraform monitor. While every monitor there is off, only the monitors and their switches show (with a count of the other terraform devices); once one runs, the whole world shows (a training run always shows everything): its latest `terraform.status` (attributes, change per tick, projections
-  +6/+12/+24, what drives them, warnings, anomalies), coupling rules active or close, bio seeder preconditions.
+  +6/+12/+24, what drives them, warnings, anomalies), coupling rules active or close, the planet's own drift per attribute with an estimated pull per tick (last 10 reports: the change minus what devices and couplings add), bio seeder preconditions.
 - Your terraforming devices with strength (0–1), direction (reversible ones) and on/off.
 - **Dropping rocks**: detect Kuiper objects, launch one with a vector charge at a planet or moon, set propulsor /
   trajectory deflector directions. Rocks you launch are left alone by asteroid defense.

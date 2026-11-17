@@ -137,6 +137,71 @@ COUPLING = [("Greenhouse runaway", "pressure", ">", 10, "temp +1.0", True),
             ("Hyperoxic fire", "oxygen", ">", 35, "biosphere −1.2", False),
             ("Ocean dampening", "hydrosphere", ">", 90, "pressure +0.03, tectonic −0.5", False),
             ("Biological scrubbing", "biosphere", ">", 50, "oxygen +0.5, toxicity −0.8 (good)", False)]
+# per tick at full strength (EFFECTS in numbers): what a device adds to each attribute it touches; a report's
+# effects.devices says which way each one went (a reversible device, or a temperature side effect that flips with it)
+RATES = {"orbital_mirror": {"temperature": 0.15}, "thermal_lance": {"temperature": 0.4, "tectonic": 0.1, "pressure": 0.02},
+         "orbital_shade": {"temperature": 0.15}, "cryo_disperser": {"temperature": 0.4, "pressure": 0.05},
+         "atmo_processor": {"pressure": 0.08, "temperature": 0.03}, "gas_separator": {"oxygen": 0.5, "toxicity": 0.1},
+         "filtration_array": {"toxicity": 0.8, "oxygen": 0.05, "pressure": 0.01},
+         "aquifer_tap": {"hydrosphere": 0.6, "pressure": 0.02}, "bio_seeder": {"biosphere": 0.3, "oxygen": 0.1}}
+# what an active coupling rule adds per tick (COUPLING's effect text in numbers), for the cascade a report lists
+CASCADE = {"Greenhouse runaway": {"temperature": 1.0}, "Evaporation": {"hydrosphere": -1.5, "pressure": 0.05},
+           "Freezing": {"hydrosphere": -0.8, "pressure": -0.03}, "CO₂ condensation": {"pressure": -0.1},
+           "Volcanic outgassing": {"toxicity": 1.5, "temperature": 0.3}, "Geological violence": {"biosphere": -3.0},
+           "Toxic suppression": {"biosphere": -0.8}, "Hyperoxic fire": {"biosphere": -1.2},
+           "Ocean dampening": {"pressure": 0.03, "tectonic": -0.5}, "Biological scrubbing": {"oxygen": 0.5, "toxicity": -0.8}}
+FLOORED = {"pressure": (0.0, None), "oxygen": (0.0, 100.0), "toxicity": (0.0, 100.0), "hydrosphere": (0.0, 100.0),
+           "biosphere": (0.0, 100.0), "tectonic": (0.0, 100.0)}
+
+
+def pull(st: dict, devices: list[dict] | None = None) -> dict[str, float]:
+    """The planet's own pull per tick on each attribute the report lists under effects.equilibrium (the game gives only a
+    direction and a word; Joe 2026-11-16: "add a number"): the attribute's delta minus what the devices add (RATES at
+    their strength setting, in the direction the report gives) minus the active couplings' cascade. An estimate: an
+    attribute pinned at its floor or ceiling, or held by the atmospheric regulator, gives none."""
+    attrs = (st or {}).get("attributes") or {}
+    eff = (st or {}).get("effects") or {}
+    by = {d.get("device_code"): d for d in devices or []}
+    out: dict[str, float] = {}
+    rules = {c["rule"] for c in coupling(st) if c["active"]}
+    for e in eff.get("equilibrium") or []:
+        a = e.get("attribute")
+        x = attrs.get(a) if isinstance(attrs.get(a), dict) else None
+        if not x or x.get("delta") is None or x.get("value") is None:
+            continue
+        v, dv = float(x["value"]), float(x["delta"])
+        lo, hi = FLOORED.get(a, (None, None))
+        if (lo is not None and v <= lo + 1e-6) or (hi is not None and v >= hi - 1e-6):
+            continue
+        dev = 0.0
+        for code, info in (eff.get("devices") or {}).items():
+            t = (info or {}).get("device_type") or (by.get(code) or {}).get("device_type")
+            if t == "atmospheric_regulator":
+                dev = None
+                break
+            for fx in (info or {}).get("effects") or []:
+                if fx.get("attribute") == a and a in RATES.get(t, {}):
+                    try:
+                        k = float(settings_of(by.get(code) or {}).get("strength") or 1.0)
+                    except (TypeError, ValueError):
+                        k = 1.0
+                    dev += RATES[t][a] * k * (1 if fx.get("direction") == "increase" else -1)
+        if dev is None:
+            continue
+        cas = sum(CASCADE.get(r, {}).get(a, 0.0) for r in rules)
+        out[a] = round(dv - dev - cas, 3)
+    return out
+
+
+def pull_avg(reports: list[dict], devices: list[dict] | None = None, n: int = 10) -> dict[str, float]:
+    """pull() averaged over the newest `n` reports (newest first), each attribute over the reports that give it."""
+    acc: dict[str, list[float]] = {}
+    for st in reports[:n]:
+        for a, x in pull(st, devices).items():
+            acc.setdefault(a, []).append(x)
+    return {a: round(sum(xs) / len(xs), 3) for a, xs in acc.items()}
+
+
 # bio seeders only work when all hold (docs: strategy, step 5)
 BIO_PRE = [("temperature", 200, 350), ("pressure", 0.3, None), ("oxygen", 10, None), ("toxicity", None, 20),
            ("hydrosphere", 10, None)]
