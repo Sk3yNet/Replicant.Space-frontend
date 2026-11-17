@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.465.0"
+VERSION = "1.466.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.466.0", "2026-11-17", "Blueprints: the name filter also searches the full description, and a live redraw of the "
+               "list keeps the filter and hide vessels (before, every redraw showed all rows again); while a plan has "
+               "quantities the Plan and list cards are left alone. Pages can hold a live card with data-live-hold."),
     ("1.465.0", "2026-11-17", "Blueprints › Print queues: each factory group has Clear app queue (every print waiting in the "
                "shared app queue) and Clear game queues too (also the game's waiting prints; the running one carries on), "
                "with a confirm. The loadout, relay, ward and beacon orders behind the cleared prints are dropped and the relay "

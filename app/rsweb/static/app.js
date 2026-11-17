@@ -218,7 +218,7 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
     const a = document.activeElement;
     if (a && el.contains(a) && a.matches("input, select, textarea, [contenteditable]")) return true;
     if (Date.now() - (+el.dataset.liveUsed || 0) < HOLD_MS) return true;
-    return !!el.querySelector("[data-dirty]");
+    return !!el.querySelector("[data-dirty]") || el.matches("[data-live-hold]") || !!el.querySelector("[data-live-hold]");   // a page's own hold
   }
   function swap(el, html) {
     const open = [...el.querySelectorAll("details")].map(d => d.open);

@@ -6,13 +6,13 @@
   <span class="row"><span id="bp-refresh">{% if refresh_msg %}<span class="lv-done">{{ refresh_msg }}</span>{% endif %}</span>
     <button class="small" hx-post="/blueprints/refresh" hx-target="#bp-refresh">Refresh from game</button>
     <form class="inline" method="get" id="bp-filter" onsubmit="return false">
-      <input name="q" id="bp-q" value="{{ q }}" placeholder="name…" autocomplete="off">
+      <input name="q" id="bp-q" value="{{ q }}" placeholder="name or description…" autocomplete="off">
       <select name="feature" id="bp-f"><option value="">any feature</option>{% for f in features %}<option {{ 'selected' if f == feature }}>{{ f }}</option>{% endfor %}</select>
       <span class="muted small" id="bp-count"></span></form></span></div>
 {% with ids="consolidate,print_reroute" %}{% include "partials/rules_slot.html" %}{% endwith %}
 {% if not blueprints %}<p class="muted">Blueprints sync every 5 minutes and when something may have unlocked one; none cached yet.</p>{% endif %}
 
-<form hx-post="/blueprints/plan" hx-target="#plan" hx-trigger="input delay:300ms from:input[type=number], change from:select">
+<form id="bp-plan-form" hx-post="/blueprints/plan" hx-target="#plan" hx-trigger="input delay:300ms from:input[type=number], change from:select">
 <div class="card" style="margin-bottom:14px">
   <h2>Plan</h2>
   <label>Printer</label>
@@ -25,7 +25,7 @@
     <table>
       <tr><th>Device</th><th class="num">Print</th><th>Cost</th><th class="afford-col">Can afford at <label class="small flat-opt" style="text-transform:none;font-weight:normal" title="leave vessels (replicant, racing and other vessel printers) out of this column (remembered in this browser)"><input type="checkbox" id="bp-hide-vessels"> hide vessels</label></th><th class="num">Plan qty</th></tr>
       {% for b in blueprints %}
-      <tr class="bp-row" data-name="{{ (b.device_type ~ ' ' ~ (b.device_type | human) ~ ' ' ~ (b.short_description or '')) | lower }}"
+      <tr class="bp-row" data-name="{{ (b.device_type ~ ' ' ~ (b.device_type | human) ~ ' ' ~ (b.short_description or '') ~ ' ' ~ (b.description or '')) | lower }}"
           data-features="{{ (b.features or []) | join(' ') }}">
         <td><strong>{{ b.device_type | human }}</strong>{% if b.device_type in recent %} <span class="pill st-work">new</span>{% endif %}<div class="muted small">{{ b.short_description }}</div>
           <div class="small">{{ (b.features or []) | join(', ') }}{% if b.directives %} · directives: {{ b.directives | join(', ') }}{% endif %}</div>
@@ -91,8 +91,8 @@ document.querySelectorAll("select.bp-type").forEach(sel => {
 });
 (() => {  // filter the blueprint rows by name and feature as you type (kept in the URL, so a link or reload keeps it)
   const q = document.getElementById("bp-q"), f = document.getElementById("bp-f"), n = document.getElementById("bp-count");
-  const rows = [...document.querySelectorAll("tr.bp-row")];
-  function apply() {
+  function apply() {   // rows are looked up each time: a live redraw replaces them
+    const rows = [...document.querySelectorAll("tr.bp-row")];
     const words = q.value.toLowerCase().split(/\s+/).filter(Boolean), feat = f.value;
     let shown = 0;
     for (const r of rows) {
@@ -107,13 +107,24 @@ document.querySelectorAll("select.bp-type").forEach(sel => {
     history.replaceState(null, "", u);
   }
   q.addEventListener("input", apply); f.addEventListener("change", apply); apply();
+  document.addEventListener("live:swapped", apply);
 })();
-(() => {  // "hide vessels" in the Can afford at column, remembered in this browser
-  const box = document.getElementById("bp-hide-vessels"), key = "bp-hide-vessels";
-  const apply = () => document.querySelectorAll(".afford-vessel").forEach(e => e.style.display = box.checked ? "none" : "");
-  try { box.checked = localStorage.getItem(key) === "1"; } catch (e) {}
-  box.addEventListener("change", () => { try { localStorage.setItem(key, box.checked ? "1" : "0"); } catch (e) {} apply(); });
-  apply();
+(() => {  // while a plan has quantities, live redraws leave the Plan and list cards alone (they'd reset the plan)
+  const form = document.getElementById("bp-plan-form");
+  const hold = () => { const on = [...form.querySelectorAll("input[type=number]")].some(i => +i.value > 0);
+    form.querySelectorAll(".card").forEach(c => c.toggleAttribute("data-live-hold", on)); };
+  form.addEventListener("input", hold); hold();
+})();
+(() => {  // "hide vessels" in the Can afford at column, remembered in this browser (the box sits in a live card: found anew each time)
+  const key = "bp-hide-vessels";
+  let mem = false; try { mem = localStorage.getItem(key) === "1"; } catch (e) {}
+  const saved = () => mem;
+  const apply = () => { const box = document.getElementById(key), on = saved();
+    if (box) box.checked = on;
+    document.querySelectorAll(".afford-vessel").forEach(e => e.style.display = on ? "none" : ""); };
+  document.addEventListener("change", e => { if (e.target.id !== key) return;
+    mem = e.target.checked; try { localStorage.setItem(key, mem ? "1" : "0"); } catch (err) {} apply(); });
+  document.addEventListener("live:swapped", apply); apply();
 })();
 </script>
 {% endblock %}
