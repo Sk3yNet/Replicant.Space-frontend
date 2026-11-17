@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.468.0"
+VERSION = "1.469.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.469.0", "2026-11-17", "Print queue: contract and trade prints rank behind fleet prints and ahead of stock and "
+               "the relay rollout (relays for a contract too). Components rank just ahead of the print they go into "
+               "(a prio: tag) instead of ahead of everything but hand prints."),
     ("1.468.0", "2026-11-17", "Contracts: approved and pre-approved contracts deliver the devices they ask for on their "
                "own, spares first and prints for the rest, with no Deliver devices or Authorize printing step (Stop "
                "delivering devices still holds one back). A contract with several options uses the one that draws "

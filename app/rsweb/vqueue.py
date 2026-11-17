@@ -36,18 +36,39 @@ PATH = re.compile(r"^/(?:v1/)?devices/([0-9A-Fa-f]{8})/?$")
 LIST = re.compile(r"^/(?:v1/)?devices/?$")
 NETWORK = ("ftl_relay", "deep_space_relay_station", "ftl_beacon", "ward")
 ROLLOUT = "rollout"   # tag on relay prints the relay rollout orders: they wait behind every other print
-LABELS = {0: "by hand", 1: "component", 2: "network", 3: "loadout", 4: "stock", 5: "rollout"}
+LABELS = {0: "by hand", 1: "component", 2: "network", 3: "loadout", 3.5: "contract", 4: "stock", 5: "rollout"}
+PRIO_TAG = "prio:"   # on a component print: its own priority, just ahead of the print it goes into (component_rank)
+COMPONENT_STEP = 0.25
 
 
-def priority(body: dict, hand: bool = False) -> int:
+def component_rank(parent: float) -> float:
+    """A component's priority: only slightly ahead of the print it goes into (Joe 2026-11-17), never a whole class."""
+    return parent - COMPONENT_STEP
+
+
+def label(p: float) -> str:
+    return LABELS.get(p) or ("component" if p != int(p) else "")
+
+
+def priority(body: dict, hand: bool = False) -> float:
+    """By hand 0 > network 2 > loadout (fleets) 3 > contract 3.5 > stock 4 > rollout 5; a component goes just ahead of
+    its parent print (its prio: tag), or 1 when it carries none (queued before 1.469.0)."""
     tags = body.get("tags") or []
     t = str(body.get("device_type") or "")
     if hand or not tags:
         return 0
     if "component" in tags:
+        for x in tags:
+            if str(x).startswith(PRIO_TAG):
+                try:
+                    return float(str(x)[len(PRIO_TAG):])
+                except ValueError:
+                    pass
         return 1
     if ROLLOUT in tags:
         return 5
+    if any(str(x).startswith("contract:") for x in tags):   # contracts and trades wait behind fleets (Joe 2026-11-17)
+        return 3.5
     if t in NETWORK or "beacon" in t or "relay" in t:
         return 2
     if "stock" in tags:
@@ -59,7 +80,7 @@ def as_item(o: dict) -> dict:
     """A kept order as the game lists a queue item, marked virtual."""
     b = o["body"]
     it = {"device_type": b.get("device_type"), "quantity": max(1, int(b.get("quantity") or 1)),
-          "tags": list(b.get("tags") or []), "virtual": True, "priority": LABELS.get(o["prio"], ""),
+          "tags": list(b.get("tags") or []), "virtual": True, "priority": label(o["prio"]), "rank": o["prio"],
           "order": o["seq"]}
     if b.get("oncomplete"):
         it["oncomplete"] = b["oncomplete"]
@@ -204,7 +225,7 @@ def real_prios(st: dict, code: str, real: list[dict]) -> list[int]:
                   and list(e.get("tags") or []) == list(it.get("tags") or [])), None)
         if m is not None:
             left.remove(m)
-            out.append(int(m.get("prio", 3)))
+            out.append(float(m.get("prio", 3)))
         else:
             out.append(priority(it))
     return out

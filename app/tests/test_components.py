@@ -24,7 +24,9 @@ def test_a_new_print_queues_its_components_first_with_its_tags(client):  # noqa:
     af = next(d for d in client.app.state.api.http._transport.app.state.world.devices if d["device_code"] == "AF00BEEF")
     started = ["hydroponic_bay"] if af["status"] == "printing (hydroponic_bay)" and len(q) < 4 else []   # an idle factory starts the head
     assert (started + [x["device_type"] for x in q])[-4:] == ["hydroponic_bay", "hydroponic_bay", "orbital_farm", "biosphere_cultivator"]
-    assert q[-2]["tags"] == ["contract:x-1", "component", "to:sol", "at:sol-3-l4"] and "at:kamuyis-4" in q[-1]["tags"]
+    assert q[-2]["tags"] == ["contract:x-1", "component", "to:sol", "at:sol-3-l4", "prio:3.25"] and "at:kamuyis-4" in q[-1]["tags"]
+    from rsweb import vqueue as vqm
+    assert vqm.priority({"tags": q[-2]["tags"]}) == 3.25 < vqm.priority(q[-1]) == 3.5   # just ahead of its contract print
     page = client.get("/blueprints", headers={"X-Auth-Request-Email": "joe@example.com"}).text
     assert "component device" in page and "all in: 20 carbon, 7 structural, 4 volatiles" in page
 
@@ -393,3 +395,20 @@ def test_components_are_kept_off_patrol_and_taken_off_a_directive(client):  # no
     assert len(out) == 1 and "MD000001" in out[0] and "patrol directive" in out[0]
     row = client.portal.call(client.app.state.db.fetchone, "SELECT body FROM actions WHERE path='/devices/MD000001' ORDER BY rowid DESC LIMIT 1")
     assert "clear_directive" in row["body"]
+
+
+def test_print_ranks_contracts_behind_fleets_and_components_just_ahead_of_their_item():
+    from rsweb import components as cp
+    from rsweb import vqueue as vqm
+    fleet = {"device_type": "mining_drone", "tags": ["to:sol", "fleet:miner-1"]}
+    contract = {"device_type": "ftl_relay", "tags": ["to:aem", "at:aem-2", "contract:aem-2-evt-001"]}
+    stock = {"device_type": "mining_drone", "tags": ["stock"]}
+    rollout = {"device_type": "ftl_relay", "tags": ["to:aem", vqm.ROLLOUT]}
+    assert vqm.priority(fleet) < vqm.priority(contract) < vqm.priority(stock) < vqm.priority(rollout)
+    assert vqm.priority({"device_type": "ftl_relay", "tags": ["to:aem"]}) < vqm.priority(fleet)   # network still first
+    for parent in (fleet, contract, stock):
+        tags = cp.component_tags(parent["tags"], "SOL-BELT-1", parent)
+        p = vqm.priority({"device_type": "x", "tags": tags})
+        assert vqm.priority(parent) - 0.5 < p < vqm.priority(parent)
+        assert vqm.label(p) == "component"
+    assert vqm.priority({"tags": ["component", "at:sol-belt-1"]}) == 1   # queued before ranks: as before

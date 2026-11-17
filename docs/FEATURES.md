@@ -96,8 +96,10 @@ System → device type → device, with stowed devices nested in their carrier; 
   out. If a general printer ever refuses an exotic print, exotic prints go to epitaxy printers only from then on.
 - **Virtual print queue**: every print the app queues waits in the app's own queue, and each factory gets only its 2
   best waiting prints in the game's queue: prints you queue by hand (or untagged ones found in the game's queue) first,
-  then components (a rig's drones always before the rig), relays, relay stations, beacons and wards, then loadouts and
-  everything else, then stock, and the relay rollout's relays last (tagged `rollout`, 1.444.0). Factories of one type at one spot share the app's queue, so each is fed the best of
+  then relays, relay stations, beacons and wards, then loadouts (fleets) and everything else, then contract and trade
+  prints, then stock, and the relay rollout's relays last (tagged `rollout`, 1.444.0). A component ranks just ahead of
+  the print it goes into (its `prio:` tag, 1.469.0), so a rig's drones still come before the rig but a stock print's
+  components wait behind fleet prints. Factories of one type at one spot share the app's queue, so each is fed the best of
   all their waiting prints and their game queues stay even. Blueprints › Print queues shows them as one card: each
   factory's current print and game queue, the shared app queue once, and the time until all of them have printed it. A better one takes a worse one's place, which goes back to the app's queue. The print
   queue panel marks the waiting ones *app queue*; Remove takes them off it (also on the shared app queue), each group card's *Clear app queue* empties the shared app queue and *Clear game queues too* also clears the game's waiting prints (the running one carries on); the loadout, relay, ward and beacon orders behind cleared prints are dropped and the relay rollout skips those systems, so they aren't printed straight back (1.465.0), and the move arrows reorder the game and app queues as one (a moved print keeps its place: it takes the priority of the print it now stands before). Turn it off with `RS_VIRTUAL_QUEUE=0`. While a factory's current

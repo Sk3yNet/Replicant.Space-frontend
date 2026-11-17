@@ -748,7 +748,8 @@ async def render_print_queue_group(request: Request, codes: str, error: str | No
         own.append((cur, real))
         shared += [{**x, "factory": code} for x in q if x["extra"].get("virtual")]
     rank = {v: k for k, v in vqm.LABELS.items()}
-    shared.sort(key=lambda x: rank.get(x["extra"].get("priority"), 9))
+    shared.sort(key=lambda x: x["extra"]["rank"] if isinstance(x["extra"].get("rank"), (int, float))
+                else rank.get(x["extra"].get("priority"), 9))
     remaining, exact = printqueue.group_seconds(own, shared, bps)
     first = (facs[0]["dev"] if facs else {})
     return partial(request, "partials/print_queue_group.html", facs=facs, shared=shared, remaining=remaining, exact=exact,

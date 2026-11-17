@@ -51,12 +51,32 @@ def total_resources(device_type: str, bps: dict[str, dict], depth: int = 0) -> d
     return out
 
 
-def component_tags(tags: list[str] | None, location: str) -> list[str]:
+def component_tags(tags: list[str] | None, location: str, parent: dict | None = None, hand: bool = False) -> list[str]:
     """The item's tags for its components: `component`, pinned to the factory's location; the item's location pins and
-    the tags that would count them for a fleet or as stock left out."""
+    the tags that would count them for a fleet or as stock left out. With the `parent` print (its body or queue item),
+    a prio: tag ranks the component just ahead of it in the app's print queue (vqueue.component_rank)."""
+    from . import vqueue as vqm
     from .loadouts import at_tag, to_tag
-    keep = [t for t in tags or [] if t not in ("spare", "stock", COMPONENT) and not t.startswith(("to:", "at:", "fleet:", "home:"))]
-    return keep + [COMPONENT, to_tag(location.split("-")[0]), at_tag(location)]
+    keep = [t for t in tags or [] if t not in ("spare", "stock", COMPONENT)
+            and not t.startswith(("to:", "at:", "fleet:", "home:", vqm.PRIO_TAG))]
+    out = keep + [COMPONENT, to_tag(location.split("-")[0]), at_tag(location)]
+    if parent is not None:
+        out.append(prio_tag(parent_prio(parent, hand)))
+    return out
+
+
+def parent_prio(parent: dict, hand: bool = False) -> float:
+    """The print queue priority of a print (an enqueue body or a queue item)."""
+    from . import vqueue as vqm
+    extra = parent.get("extra") or {}
+    if isinstance(extra.get("rank"), (int, float)):
+        return float(extra["rank"])
+    return vqm.priority(parent, hand or extra.get("priority") == vqm.LABELS[0])
+
+
+def prio_tag(parent: float) -> str:
+    from . import vqueue as vqm
+    return f"{vqm.PRIO_TAG}{vqm.component_rank(parent):g}"
 
 
 def retag(d: dict, tags: list[str]) -> dict:
@@ -198,7 +218,9 @@ async def before_print(api: Any, db: Any, path: str, body: Any, depth: int = 0) 
     if stuck:   # it would sit at the head of the queue for good, and nothing behind it would print (2026-11-13)
         from .api import ApiError
         raise ApiError(400, "Not queued: " + stuck_text(str(body.get("device_type")), stuck))
-    tags = component_tags(body.get("tags"), fac["location"])
+    from . import vqueue as vqm
+    tags = component_tags(body.get("tags"), fac["location"])   # spares pinned for it
+    ptags = tags + [prio_tag(parent_prio(body, vqm.HAND.get()))]   # prints: ranked just ahead of the item
     for t, n in sorted(need.items()):
         left = n * qty - free_here(devices, fac, t, bps)
         for d in spares_elsewhere(devices, fac["location"], t)[:max(0, left)]:   # pinned: the loadout pass brings them
@@ -209,7 +231,7 @@ async def before_print(api: Any, db: Any, path: str, body: Any, depth: int = 0) 
                 pass
         if left <= 0:
             continue
-        sub = {"command": "enqueue_print", "device_type": t, "quantity": left, "tags": tags}
+        sub = {"command": "enqueue_print", "device_type": t, "quantity": left, "tags": ptags}
         try:
             await before_print(api, db, path, sub, depth + 1)
             await api.request("POST", path, json_body=sub, components_done=True)
@@ -301,7 +323,7 @@ def shortfalls(devices: list[dict], every: bool = False) -> list[dict]:
             short = int(x.get("need") or 0) - int(x.get("have") or 0) - coming(devices, f["location"], t)
             if short > 0 or every:
                 out.append({"factory": f["device_code"], "location": f["location"], "type": t, "short": short,
-                            "tags": component_tags(head.get("tags"), f["location"])})
+                            "tags": component_tags(head.get("tags"), f["location"], head if head else None)})
     return out
 
 
@@ -406,12 +428,15 @@ def backfill(devices: list[dict], bps: dict[str, dict]) -> list[dict]:
     from . import printqueue as pq
     from .loadouts import is_factory
     need: dict[tuple[str, str], dict[str, int]] = {}
+    best: dict[tuple[str, str], float] = {}   # the most urgent print each component goes into: it ranks just ahead
     for f in devices:
         loc = f.get("location")
         if not loc or not is_factory(f) or not f.get("device_code"):
             continue
         for it in pq.items(f):
             for t, n in components(bps.get(it.get("device_type"))).items():
+                pp = parent_prio(it)
+                best[(loc, t)] = min(best.get((loc, t), pp), pp)
                 per = need.setdefault((loc, t), {})
                 per[f["device_code"]] = per.get(f["device_code"], 0) + n * max(1, int(it.get("quantity") or 1))
     out = []
@@ -425,5 +450,5 @@ def backfill(devices: list[dict], bps: dict[str, dict]) -> list[dict]:
             k = left if i == len(per) - 1 else min(left, round(short * n / total))
             left -= k
             if k > 0:
-                out.append({"factory": code, "location": loc, "type": t, "short": k, "tags": component_tags([], loc)})
+                out.append({"factory": code, "location": loc, "type": t, "short": k, "tags": component_tags([], loc) + [prio_tag(best[(loc, t)])]})
     return out
