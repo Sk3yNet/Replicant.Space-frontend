@@ -414,3 +414,15 @@ def test_roll_call_defaults_to_the_relay_at_the_trade_post(client):  # noqa: F81
     r = client.post("/shop/rollcall", data={"action": "post", "by": "", "channel": "#trade", "hours": "", "intro": "Hi",
                                             "text": ""}, headers=HX)
     assert "Posted" in r.text and _world(client).bobnet_posts[-1]["code"] == "RLY1"
+
+
+def test_supply_old_sold_prints_dont_answer_a_new_order():
+    e = {"designation": "tp:tp", "location": "SOL-4-L4", "star": "SOL", "_tagged_only": True}
+    prog = {"best": {"devices": [{"device_type": "mining_drone", "need": 1}]}}
+    entry = {"printed": ["OLD"], "printed_types": {"OLD": "mining_drone"}, "printed_seen": {"OLD": "2026-11-15T00:00:00+00:00"},
+             "orders": [{"type": "mining_drone", "factory": "AF", "n": 1, "at": "2026-11-16T00:00:00+00:00"}]}
+    now = cs._ts("2026-11-16T01:00:00+00:00")
+    p = cs.plan(e, prog, entry, [], hosts=set(), busy=set(), now=now)
+    assert p["rows"][0]["printing"] == 1 and p["rows"][0]["short"] == 0   # OLD was sold before the order: still printing
+    entry["printed_seen"]["OLD"] = "2026-11-16T00:30:00+00:00"            # came out of this order, then went
+    assert cs.plan(e, prog, entry, [], hosts=set(), busy=set(), now=now)["rows"][0]["printing"] == 0

@@ -596,9 +596,13 @@ class FleetsMixin:
             entry.update({"location": e["location"], "star": e["star"], "assigned": p["assigned"], "printed": p["printed"],
                           "orders": p["orders"], "checked_at": now_iso(), "rows": p["rows"], "ready": p["ready"]})
             types = entry.setdefault("printed_types", {})
+            seen = entry.setdefault("printed_seen", {})   # first time each print showed up (cs.plan's came)
             for c in p["printed"]:
                 if c in by:
                     types[c] = by[c].get("device_type")
+                    seen.setdefault(c, now_iso())
+            for c in [c for c in seen if c not in p["printed"]]:
+                seen.pop(c)
             if p["send"]:
                 steps = [st for d in p["send"] for st in cs.send_steps(d, e)]
                 codes = [d["device_code"] for d in p["send"]]

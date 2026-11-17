@@ -89,10 +89,24 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
     ordered = Counter()
     for o in orders:
         ordered[o["type"]] += int(o.get("n") or 1)
-    came = Counter((by.get(c) or {}).get("device_type") for c in printed if c in by)
-    for c in entry.get("printed") or []:   # printed earlier and gone since (consumed, decommissioned): still came out
-        if c not in by:
-            came[(entry.get("printed_types") or {}).get(c)] += 1
+    # what came out of the orders still counted: a device first seen before a type's oldest order (an earlier print, sold
+    # or escrowed since) doesn't answer it (SOL_Trader 2026-11-17: every escrowed device offset a new order, so each
+    # type was printed twice). A device present but not yet stamped counts; one gone and never stamped doesn't.
+    seen = entry.get("printed_seen") or {}
+    first: dict[str, float] = {}
+    for o in orders:
+        a = _ts(o.get("at")) or 0
+        first[o["type"]] = min(first.get(o["type"], a), a)
+
+    def answers(c: str, t: str | None) -> bool:
+        s = _ts(seen.get(c))
+        return (c in by) if s is None else s >= first.get(t, 0) - 60
+
+    came = Counter()
+    for c in printed:
+        t_ = (by.get(c) or {}).get("device_type") if c in by else (entry.get("printed_types") or {}).get(c)
+        if answers(c, t_):
+            came[t_] += 1
     # on its way: sent lately, or still tagged and pinned here. A device printed for it that lost the tag since (released
     # to spare: SOL_Trader 2026-11-17, 40 types "supplying" for days on spares counted as coming) is not.
     ours = {c for c in assigned if c in by} | {c for c in printed if c in by and tag in (by[c].get("tags") or [])

@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.458.0"
+VERSION = "1.459.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.459.0", "2026-11-17", "Contract and trade post supply: a device printed earlier and sold or escrowed since no "
+     "longer counts as the result of a newer print order, so each restock is printed once (SOL_Trader types were printed "
+     "twice, five minutes apart). Prints are stamped when first seen."),
     ("1.458.0", "2026-11-17", "Trade posts: stock released to spare no longer counts as on its way (40 SOL_Trader types "
      "sat at supplying while their old devices were spares elsewhere); tagged stock pinned nowhere is pinned to the shop "
      "again, extras go spare; component parts never count as stock. An idle spare or untagged device of a stocked type at "
