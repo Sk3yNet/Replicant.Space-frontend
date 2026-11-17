@@ -66,3 +66,47 @@ def test_shops_from_scans_and_posts_count(client):  # noqa: F811
                     "criteria": {"resources": {"rares": 9}}}]}})
     page = client.get("/blueprints/missing", headers=H).text
     assert "warp_lens" in page and "Rock Droppers" in page and "Lens deal: 2 for 9 rares" in page
+
+
+RIKER = {"043CA0A9": {"controller_code": "043CA0A9", "location": "SOL-3-1", "owner_name": "Riker",
+                      "shop_name": "Riker's Lunar Supplies", "read_at": "2026-11-17T17:00:00+00:00", "trades": [
+                          {"name": "Taps", "trade_code": "TRD-1", "current_stock": 2,
+                           "rewards": {"devices": {"aquifer_tap": 1}}, "criteria": {"resources": {"silicates": 100}}},
+                          {"name": "Seeds", "trade_code": "TRD-2", "current_stock": 0,
+                           "rewards": {"devices": {"bio_seeder": 1}}, "criteria": {"resources": {"silicates": 100}}}]},
+         "C0FFEE01": {"controller_code": "C0FFEE01", "owner_name": "Dash", "trades": [
+             {"name": "Seeds", "trade_code": "TRD-9", "current_stock": 5, "rewards": {"devices": {"bio_seeder": 1}}}]}}
+
+
+def test_autobuy_plan():
+    from rsweb import autobuy as ab
+    s = ab.normalize({"types": {"aquifer_tap": {}, "bio_seeder": {}, "autofactory": {}, "warp_lens": {}}})
+    shops = ab.rikers_shops(RIKER)
+    assert list(shops) == ["043CA0A9"]   # only Riker's shop
+    p = ab.plan(s, shops, {}, set(), {"autofactory"})
+    assert p["drop"] == ["autofactory"] and [(t, k) for t, k, _ in p["approve"]] == [("aquifer_tap", "043CA0A9:TRD-1")]
+    assert ab.plan(s, shops, {}, {"aquifer_tap"}, set())["approve"] == []   # own one: decommission it
+    s["types"]["aquifer_tap"]["key"] = "043CA0A9:TRD-1"
+    assert ab.plan(s, shops, {"trades": {"043CA0A9:TRD-1": "x"}}, set(), set())["approve"] == []   # already approved
+    assert ab.plan(s, shops, {"done": {"043CA0A9:TRD-1": "x"}}, set(), set())["bought"] == [("aquifer_tap", "043CA0A9:TRD-1")]
+
+
+def test_autobuy_mark_approves_riker_listing(client, monkeypatch):  # noqa: F811
+    from rsweb import shop as sh
+
+    async def no_read(db, api, ctrl):
+        return []
+    monkeypatch.setattr(sh, "read_listing", no_read)
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "blueprints", BPS)
+    client.portal.call(db.kv_set, "traders_cache", RIKER)
+    page = client.get("/blueprints/missing", headers=H).text
+    assert "in his shop: Taps, 100 silicates (2 left)" in page
+    client.post("/blueprints/missing/autobuy", data={"device_type": "aquifer_tap", "on": "1"}, headers=HX)
+    client.post("/blueprints/missing/autobuy", data={"device_type": "bio_seeder", "on": "1"}, headers=HX)
+    ok = client.portal.call(db.kv_get, "trade_approvals", {})
+    assert list(ok["trades"]) == ["043CA0A9:TRD-1"]   # bio seeder: Riker's is sold out, Dash's shop doesn't count
+    page = client.get("/blueprints/missing", headers=H).text
+    assert "approved: logistics is fetching it" in page and "watching Riker" in page
+    client.post("/blueprints/missing/autobuy", data={"device_type": "bio_seeder"}, headers=HX)
+    assert "bio_seeder" not in client.portal.call(db.kv_get, "autobuy", {})["types"]

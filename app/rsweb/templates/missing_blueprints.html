@@ -7,10 +7,12 @@
   blueprints that need them as components, prints the game refused as locked, other players' devices in scans and beacon
   traffic, devices at locations read, shop listings and simulations. Sightings are kept after their source forgets them;
   a type drops off once its blueprint unlocks. Decommissioning a device unlocks its blueprint, and decommissioning a device
-  built from components unlocks the component blueprints, so a device you own is the quickest route (nothing here acts on its own).</p>
+  built from components unlocks the component blueprints, so a device you own is the quickest route. Tick <b>Autobuy</b> to buy one when Riker's shop (SOL) lists it: the app reads his
+  listing hourly while anything is ticked and approves one unit for logistics, unless you already own one; the tick drops off once
+  the blueprint unlocks. Nothing else here acts on its own.</p>
 <div class="card" style="overflow-x:auto">
   <table class="small">
-    <tr><th>Blueprint</th><th>Why</th><th>Route</th><th>Seen</th><th></th></tr>
+    <tr><th>Blueprint</th><th>Why</th><th>Route</th><th>Seen</th><th title="buy one when Riker's shop lists it">Autobuy</th><th></th></tr>
     {% for r in rows %}
     <tr{% if r.hidden %} class="muted"{% endif %}>
       <td><strong>{{ r.type | human }}</strong><div class="muted mono">{{ r.type }}</div>{% if r.first_seen %}<div class="muted">listed {{ r.first_seen | ago }}</div>{% endif %}</td>
@@ -25,9 +27,13 @@
       <td>{% if r.seen %}<details><summary>{{ r.seen | length }} sightings</summary>
         {% for x in r.seen %}<div>{{ x.kind }}{% if x.where %} · <a class="mono" href="/systems/{{ x.where.split('-')[0] }}">{{ x.where }}</a>{% endif %}{% if x.code %} · <span class="mono">{{ x.code }}</span>{% endif %}{% if x.owner_name or x.owner %} · {{ x.owner_name or x.owner }}{% endif %}{% if x.note %} · {{ x.note }}{% endif %}{% if x.at %} <span class="muted">{{ x.at | ago }}</span>{% endif %}</div>{% endfor %}
         </details>{% else %}<span class="muted">none yet</span>{% endif %}</td>
+      <td><form hx-post="/blueprints/missing/autobuy" hx-trigger="change" class="inline"><input type="hidden" name="device_type" value="{{ r.type }}">{% if show_hidden %}<input type="hidden" name="hidden" value="1">{% endif %}
+          <label class="small"><input type="checkbox" name="on" value="1"{% if r.autobuy %} checked{% endif %}> Riker</label></form>
+        {% if r.autobuy %}<div class="muted small">{{ r.autobuy }}</div>{% endif %}
+        {% for tr in r.riker[:2] %}<div class="small">in his shop: {{ tr.name or tr.trade_code }}, {{ side(tr.criteria) }}{% if tr.current_stock is not none %} ({{ tr.current_stock }} left){% endif %}</div>{% endfor %}</td>
       <td><form hx-post="/blueprints/missing/hide" class="inline"><input type="hidden" name="device_type" value="{{ r.type }}">{% if r.hidden %}<input type="hidden" name="unhide" value="1"><button class="small">Unhide</button>{% else %}<button class="small" title="take it off the list (story devices nobody prints, say)">Hide</button>{% endif %}</form></td>
     </tr>
-    {% else %}<tr><td colspan="5" class="muted">Nothing missing found yet (or blueprints not synced).</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="6" class="muted">Nothing missing found yet (or blueprints not synced).</td></tr>{% endfor %}
   </table>
 </div>
 <div class="card"><h2>Add a type</h2>

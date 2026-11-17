@@ -188,8 +188,39 @@ async def missing_blueprints(request: Request, hidden: int = 0, user: str = Depe
     bps = {b["device_type"]: b for b in normalize_blueprints(await db.kv_get("blueprints", []))}
     rows = mb.rows(s, bps, await db.kv_get("devices", []) or [], await db.kv_get(comp.LOCKED_KV, {}) or {},
                    show_hidden=bool(hidden))
+    from . import autobuy as ab, logistics as lg, shop as sh
+    marks = ab.normalize(await db.kv_get(ab.KV, {}))
+    offers = ab.listed(ab.rikers_shops(await sh.known_traders(db)))
+    owned = {d.get("device_type") for d in await db.kv_get("devices", []) or []}
+    ok = await db.kv_get(lg.KV_TRADES, {}) or {}
+    for r in rows:
+        m = marks["types"].get(r["type"])
+        r["autobuy"] = ab.status(m, r["type"], owned, offers, ok) if m is not None else None
+        r["riker"] = [tr for _, tr in offers.get(r["type"]) or []]
     return await page(request, user, "missing_blueprints.html", "missingbp", rows=rows, show_hidden=bool(hidden),
-                      hidden_count=len(s["hidden"]), refreshed=s.get("refreshed_at"), known=len(bps))
+                      hidden_count=len(s["hidden"]), refreshed=s.get("refreshed_at"), known=len(bps), autobuy=marks,
+                      side=sh.describe_side)
+
+
+@router.post("/blueprints/missing/autobuy")
+async def missing_blueprints_autobuy(request: Request, user: str = Depends(current_user)):
+    """Mark or unmark a missing blueprint to buy when Riker's shop lists it (autobuy.py); marking runs the pass now."""
+    from . import autobuy as ab
+    form = await request.form()
+    t = str(form.get("device_type") or "").strip()
+    db = request.app.state.db
+    s = ab.normalize(await db.kv_get(ab.KV, {}))
+    if t and form.get("on"):
+        s["types"][t] = {"at": now_iso(), "by": user}
+    else:
+        s["types"].pop(t, None)
+    await db.kv_set(ab.KV, s)
+    if t and form.get("on"):
+        try:
+            await request.app.state.worker.automations.autobuy_pass(force=True)
+        except Exception:
+            log.exception("autobuy pass after marking %s failed", t)
+    return Response(status_code=200, headers={"HX-Redirect": "/blueprints/missing" + ("?hidden=1" if form.get("hidden") else "")})
 
 
 @router.post("/blueprints/missing/add")

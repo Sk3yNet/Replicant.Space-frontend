@@ -742,3 +742,47 @@ class MiningRulesMixin:
             await self.create_job("restart_idle_miners", f"hand {len(drones)} idle miner(s) to {ccode}", ccode, steps,
                                   {"devices": drones})
         await self.db.kv_set("miner_restarts", attempts)
+
+    async def autobuy_pass(self, force: bool = False) -> list[str]:
+        """Missing blueprints marked Autobuy (autobuy.py): read Riker's listing at most hourly while any is marked, and
+        approve one unit of a listing that holds a marked type (Joe 2026-11-17). Logistics pays and fetches it."""
+        from . import autobuy as ab, logistics as lg, shop as sh
+        from .shapes import normalize_blueprints
+        s = ab.normalize(await self.db.kv_get(ab.KV, {}))
+        if not s["types"]:
+            return []
+        shops = ab.rikers_shops(await sh.known_traders(self.db))
+        last = _ts(s.get("read_at"))
+        if shops and (force or not last or (_now() - last).total_seconds() >= 60 * ab.READ_EVERY_MIN):
+            s["read_at"], s["read_error"] = now_iso(), None
+            for code in shops:
+                try:
+                    await sh.read_listing(self.db, self.api, code)
+                except ApiError as e:   # the game answers only with a replicant of yours in his system
+                    s["read_error"] = str(e)[:200]
+            shops = ab.rikers_shops(await sh.known_traders(self.db))
+        unlocked = {b["device_type"] for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        owned = {d.get("device_type") for d in await self.devices()}
+        ok = await self.db.kv_get(lg.KV_TRADES, {}) or {}
+        p = ab.plan(s, shops, ok, owned, unlocked)
+        out = []
+        for t in p["drop"]:
+            s["types"].pop(t, None)
+            out.append(f"{t.replace('_', ' ')}: blueprint unlocked, autobuy mark dropped")
+        for t, key in p["bought"]:
+            s["types"][t]["bought_at"] = now_iso()
+            out.append(f"{t.replace('_', ' ')}: bought from Riker's shop ({key}), decommission it to unlock the blueprint")
+        if p["approve"]:
+            box = ok.setdefault("trades", {})
+            for t, key, tr in p["approve"]:
+                box[key] = box.get(key) or now_iso()
+                (ok.get("counts") or {}).pop(key, None)   # one unit
+                (ok.get("held") or {}).pop(key, None)
+                s["types"][t].update(key=key, approved_at=now_iso())
+                out.append(f"{t.replace('_', ' ')}: Riker's shop lists it ({tr.get('name') or key}, "
+                           f"{sh.describe_side(tr.get('criteria'))}): approved one for logistics to buy")
+            await self.db.kv_set(lg.KV_TRADES, ok)
+        await self.db.kv_set(ab.KV, s)
+        for line in out:
+            await self.log("autobuy", line, "info", notify=True)
+        return out

@@ -809,7 +809,10 @@ they are (a print already started isn't counted; what it turns out stays a spare
   simulations, and types added by hand. Sightings are kept after their source forgets them; a type drops off when its
   blueprint unlocks.
 - A route per type: *decommission* (you own one), *decommission a holder* (you own a device built with it), *buy* (a
-  shop lists it), *trade* (another player has one) or *research*. Nothing acts on its own. *Hide* takes a type off the list.
+  shop lists it), *trade* (another player has one) or *research*. *Hide* takes a type off the list.
+- *Autobuy* (tick per type): while any type is ticked, the app reads Riker's shop (SOL) listing hourly and approves one
+  unit of a listing that holds a ticked type, so logistics pays and fetches it. Skipped while you own one (decommission it)
+  or once one was bought; the tick drops off when the blueprint unlocks. No other shop is used. Nothing else acts on its own.
 
 ### Contracts
 - In-game events with criteria (any one option completes it), rewards and progress.
