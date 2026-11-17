@@ -406,19 +406,17 @@ def test_borrowed_carriers_stay_within_range_own_ones_may_cross():
     assert any(d["carrier"] == "CAR" and "M1" in d["devices"] for d in p["deliveries"])
 
 
-def test_supplied_from_prints_at_any_distance():
+def test_prints_stay_within_the_supply_range():
     from rsweb import loadouts as lo
     dev, stars, bps = _range_world()
     af = dev("AF", "autofactory", "FAR-3-L4", features=["print"], cmds=["enqueue_print"], tags=["fleet:hub"])
     cfg = {"fleets": [{"id": "hub", "name": "Hub", "role": "mining", "home": "FAR", "station": True, "wants": {"autofactory": 1}},
-                      {"id": "bb", "name": "B", "role": "mining", "home": "BBB", "station": True, "wants": {"ami_mining_controller": 1}}],
+                      {"id": "bb", "name": "B", "role": "mining", "home": "BBB", "station": True, "wants": {"ami_mining_controller": 1},
+                       "supplied_from": "hub"}],   # retired setting (1.464.0): ignored
            "settings": {"max_supply_ly": 100, "supply_range_v3": True, "print_missing": True, "need_stock": False}}
     inv = {"FAR-3-L4": {"structural": 1000.0}}
     p = lo.plan(cfg, [af], bps, inv, stars, {}, set(), [], {})
     assert not any(pr.get("fleet") == "bb" for pr in p["prints"])                      # 500 ly: out of range
-    cfg["fleets"][1]["supplied_from"] = "hub"
-    p = lo.plan(cfg, [af], bps, inv, stars, {}, set(), [], {})
-    assert any(pr.get("fleet") == "bb" and pr["factory"] == "AF" for pr in p["prints"])
 
 
 def test_back_to_a_normal_fleet(client):

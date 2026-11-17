@@ -463,8 +463,6 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
   (or spare carriers in no fleet); any other fleet's carrier only picks up its own fleet's members and is never
   borrowed.
 - Spares are only gathered to a depot within range.
-- **Supplied from** (Overview): a hub whose autofactories print the fleet's shortfalls and whose carriers bring them, at
-  any distance (e.g. a Sol-sector fleet supplied from a home-sector printing hub).
 - **Needs an active replicant aboard** (1.370.0, renamed 1.371.0; a checkbox per template under *Templates*, or on a
   custom loadout's fleet card): the *Overview* and the fleet card show whether each such fleet has one. A fleet with it
   on and no replicant aboard, at home between missions, sends its idle vessel (heaven,

@@ -9,10 +9,7 @@
       <td><form hx-post="/fleets/{{ f.id }}/station" hx-trigger="change" class="row" style="gap:6px;flex-wrap:nowrap">
         <input type="checkbox" name="station" {{ 'checked' if f.station }} title="stationed">
         {% if f.materials == 'self' %}<span class="pill small" title="A hub fleet: it receives materials and recalled fleets">hub ↘</span>{% endif %}
-        <select name="supplied_from" title="Supplied from: that fleet's autofactories print this fleet's shortfalls and its carriers bring them, at any distance (everything else stays within the supply range)">
-          <option value="">supplied nearby</option>
-          {% for g in fleets if g.id != f.id and g.role != 'bootstrap' %}<option value="{{ g.id }}" {{ 'selected' if f.supplied_from == g.id }}>supplied from {{ g.name }} ({{ g.home }})</option>{% endfor %}
-        </select></form>
+        </form>
         {% if f.route %}<div class="muted">ferry {{ f.route.controller }}: {{ f.route.source }} → {{ f.route.dest }}</div>{% endif %}</td>
       <td>{% if f.role == 'bootstrap' and f.boot %}{% set bs = f.boot.status or {} %}<span class="pill small {{ 'lv-alert' if f.boot.paused or bs.blocked else ('st-move' if f.boot.decision else 'st-work') }}">bootstrap: {{ bs.label or f.boot.stage }}</span>
           {% if f.boot.paused %}<span class="muted">paused</span>{% elif f.boot.decision %}<span class="muted">waiting for your OK</span>{% endif %}

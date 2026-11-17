@@ -465,10 +465,6 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         f = by_tag.get(tag or "")
         return f"boot:{f['family']}" if f and f.get("family") else None
 
-    def supplier(tag: str | None) -> str | None:
-        """The fleet tag of the hub this fleet is *supplied from* (any distance: its prints and carriers may cross)."""
-        sup = (by_tag.get(tag or "") or {}).get("supplied_from")
-        return fl.fleet_tag(sup) if sup else None
     homes_of = defaultdict(list)             # star -> its stationed fleets
     for f in groups:
         homes_of[f["home"]].append(f)
@@ -846,8 +842,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         `star`; another fleet's only when there's nothing else (e.g. every autofactory belongs to the printing hub).
         With `t`, only those that make that type (an epitaxy printer exotic blueprints alone)."""
         open_f = [f for f in factories if queue_free.get(f["device_code"], 1) > 0 and fam(f) == fleet_fam(tag) and fits(f, t)]
-        sup = supplier(tag)
-        mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) in {tag, sup} - {None} or shared(f, star)]
+        mine = [f for f in open_f if not fleet_tag_of(f) or fleet_tag_of(f) == tag or shared(f, star)]
         return mine or open_f
 
     def covers(f: dict, cost: dict[str, float], k: int = 1) -> bool:
@@ -869,14 +864,12 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             if not any(fits(f, t) for f in factories):
                 return None, f"no printer makes {t}" + (" (exotic: an epitaxy printer)" if is_class_bp(bp) else "")
             return None, "every autofactory's print queue is full"
-        sup = supplier(tag)
-        open_f = [f for f in open_f if near(f, star) or (sup and fleet_tag_of(f) == sup)]
+        open_f = [f for f in open_f if near(f, star)]
         if not open_f:
             return None, f"no autofactory within {reach:g} ly of {star} (Fleets › settings: supply range)"
-        # supplied from a hub: its factories first, wherever they are; else the nearest
         # an exotic print goes to an epitaxy printer first (a general one only when none is open)
         for f in sorted(open_f, key=lambda f: (is_class_bp(bp) and not print_class(f),
-                                               bool(sup) and fleet_tag_of(f) != sup, star_of(f.get("location")) != star,
+                                               star_of(f.get("location")) != star,
                                                _dist(star_of(f.get("location")), star, pos))):
             stock = as_amounts(inventory.get(f.get("location")) or {})
             free = {r: stock.get(r, 0.0) - reserved[f.get("location")][r] for r in cost}
@@ -1431,9 +1424,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                           and same_owner(c, owner, codes) and c["device_code"] not in codes and boardable(c, codes)
                           and may_carry(c, codes) and _free(c, bps, stowed_map) > 0
                           # a borrowed carrier only comes from within the supply range of the pick-up (seen live 2026-10-10:
-                          # five carriers flew ~500 ly empty to move one drone each); the fleet's own, or its supplier's, may come from anywhere
+                          # five carriers flew ~500 ly empty to move one drone each); the fleet's own may come from anywhere
                           and (not reach or not (reach < _dist(star_of(c.get("location")), here, pos) < 1e9)
-                               or (btag and fleet_tag_of(c) and fleet_tag_of(c) in (btag, supplier(btag))))]
+                               or (btag and fleet_tag_of(c) == btag))]
                 remote.sort(key=lambda c: (bool(owner) and c.get("replicant_code") != owner, fleet_tag_of(c) not in logistics_tags,
                                            _dist(star_of(c.get("location")), here, pos), -_free(c, bps, stowed_map), c["device_code"]))
                 if remote:

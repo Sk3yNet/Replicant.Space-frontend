@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.463.0"
+VERSION = "1.464.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.464.0", "2026-11-17", "Fleets: the Supplied from setting is gone with the Materials column. Every fleet's prints "
+     "and borrowed carriers now stay within the supply range (Fleets › settings)."),
     ("1.463.0", "2026-11-17", "Three fixes from a live health check. Surge plates and other attach-only carriers are no "
      "longer handed a device type the game won't attach (vector charge 0BAC6062 for SOL_Trader was refused 'Cannot attach "
      "a large device' nine times since 04:12, though the type was already learned). Auto-surveys skip moons that don't "
