@@ -249,6 +249,14 @@ def plan(real: list[dict], kept: list[dict], keep: int = KEEP,
     return k, back, send
 
 
+def shared(kept: list[dict], code: str, waiting: dict[str, int], keep: int = KEEP) -> list[dict]:
+    """What factory `code` may take of a spot's pooled orders (best first): its own, and a neighbor's only when that
+    neighbor's game queue is already full (`waiting` {factory: waiting prints in the game's queue}), so the order would
+    wait behind it. Before (live 2026-11-17), the first factories fed took everyone's orders: 10 matrices split over 5
+    autofactories by hand went 4/4/2/0/0."""
+    return [o for o in kept if o.get("factory") == code or waiting.get(o.get("factory"), keep) >= keep]
+
+
 def cost(t: str | None, bps: dict[str, dict]) -> dict[str, float]:
     from .shapes import as_amounts
     return dict(as_amounts((bps.get(t or "") or {}).get("resources") or {}))

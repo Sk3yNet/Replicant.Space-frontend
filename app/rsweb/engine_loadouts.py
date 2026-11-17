@@ -319,11 +319,13 @@ class LoadoutMixin:
         for d in devs:
             if d.get("device_code") in printers and d.get("location"):
                 group.setdefault((d["location"], d.get("device_type")), []).append(d["device_code"])
+        in_game = {d["device_code"]: sum(1 for x in pq.items(d) if not x["extra"].get("virtual"))
+                   for d in devs if d.get("device_code") in printers}
         for d in devs:
             code = d.get("device_code")
             if not code or code not in printers or not d.get("location") or now - fed.get(code, -1e9) < 150:
                 continue
-            kept = await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code])
+            kept = vqm.shared(await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code]), code, in_game)
             real = [x for x in pq.items(d) if not x["extra"].get("virtual")]
             k, back, send = vqm.plan(real, kept, prios=vqm.real_prios(await vq.state(), code, real))
             waiting = str(d.get("status") or "").startswith("waiting_for_resources")
@@ -407,6 +409,7 @@ class LoadoutMixin:
                         await vq.add(code, body, pr.get(id(x), vqm.priority(x)), s=st, seq=low - len(back) - 1)
                 vqm.note_real(st, code, [a for a, _ in final], [b for _, b in final])
                 await self.db.kv_set(vqm.KV, st)
+            in_game[code] = len(final)
             line = f"{code}: {sent} print(s) into the game's queue" + (f", {len(back)} back to the app's queue" if back else "")
             out.append(line)
             await self.log("print queue", line, "info")

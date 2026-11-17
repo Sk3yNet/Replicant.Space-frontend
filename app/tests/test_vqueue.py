@@ -200,6 +200,24 @@ def test_factories_at_one_spot_share_their_kept_prints(client):  # noqa: F811
     assert client.portal.call(VirtualQueue(db).orders, "AF00BEEF") == []
 
 
+def test_prints_split_by_hand_stay_on_their_factories(client):  # noqa: F811
+    """Live 2026-11-17: 10 matrices planned 2 each on 5 autofactories went 4/4/2/0/0, the first factories fed taking
+    their idle neighbors' orders. A neighbor's order is taken only once that neighbor's game queue is full."""
+    db, e, world = setup(client)
+    af = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    codes = ["AF00BEEF"] + [f"AF0{i}CAFE" for i in range(4)]
+    for c in codes[1:]:
+        world.devices.append({**af, "device_code": c})
+        world.queues[c] = []
+    client.portal.call(client.app.state.worker.sync_devices)
+    for c in codes:
+        ok, _, _ = client.portal.call(e.send, "POST", f"/devices/{c}",
+                                      {"command": "enqueue_print", "device_type": "orbital_farm", "quantity": 2}, "t")
+        assert ok
+    feed(client)
+    assert all(world.queues[c] for c in codes), world.queues
+
+
 def test_group_time_counts_every_factory():
     from rsweb import printqueue as pq
     bps = {"a": {"print_time": 100}}
