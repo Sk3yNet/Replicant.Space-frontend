@@ -203,6 +203,18 @@ def carries_replicant(d: dict, devices: list[dict]) -> bool:
                if code and code in (x.get("stowed_in_device_code"), x.get("attached_to_device_code")))
 
 
+def free_here(d: dict, loc: str | None, devices: list[dict]) -> bool:
+    """A device at the shop that a listing may escrow in place of the stock: idle, nobody's (no fleet, contract or trip),
+    not pinned elsewhere, carrying no replicant."""
+    from .loadouts import pinned_at
+    tags = d.get("tags") or []
+    if any(str(x).startswith(("fleet:", "contract:", "to:")) for x in tags) or pinned_at(d) not in (None, str(loc or "").upper()):
+        return False
+    if d.get("controller_device_code") or d.get("hosting_replicant") or carries_replicant(d, devices):
+        return False
+    return str(d.get("status") or "").startswith(("idle", "inactive"))
+
+
 def listing_for(trades: list[dict], t: str, known: str | None) -> dict | None:
     """Our listing of `t`: the one we created (its code remembered), else one that gives exactly one `t` for resources."""
     by = {x.get("trade_code"): x for x in trades or []}
@@ -258,6 +270,8 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
                               and at_tag(spot) in (d.get("tags") or []) and tag not in (d.get("tags") or [])
                               and not any(str(t).startswith("fleet:") for t in d.get("tags") or []))
     away = not ready
+    from .fleets import members
+    members_ = {d.get("device_code") for d in members(fleet, devices)}
     listings = state.get("listings") or {}
     read = {c["device_code"]: trades.get(c["device_code"]) for c in ready}
     # where each type is listed now (or was, when that shop's listing could not be read)
@@ -308,6 +322,10 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
                 and not d.get("location_stale")]
         loose = sorted((d for d in same if tag in (d.get("tags") or [])), key=lambda d: d["device_code"])
         others = [d for d in same if tag not in (d.get("tags") or [])]
+        # an idle spare (or untagged) one beside the stock is as good as stock: the escrow may take it (2026-11-17)
+        extra = sorted((d for d in others if free_here(d, loc, devices)), key=lambda d: d["device_code"])
+        others = [d for d in others if d not in extra]
+        own = [d for d in others if d.get("device_code") in members_]
         out["skip"] += sorted(x for x in esc if x)
         r.update({"listed": listed, "initial": int((cur or {}).get("initial_stock") or 0), "here": len(loose),
                   "trade_code": (cur or {}).get("trade_code"), "listed_price": as_amounts(((cur or {}).get("criteria") or {}).get("resources")),
@@ -317,6 +335,11 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
             if cur:
                 out["actions"].append({"type": t, "controller": c, "delete": cur["trade_code"], "create": None, "escrow": []})
                 r["status"] = "delisting"
+            out["release"] += [d["device_code"] for d in loose]
+            continue
+        if own:   # the shop's own controllers / relay sit there: a listing could escrow one of them
+            r["status"] = (f"can't be sold here: the post's own {len(own)} {t.replace('_', ' ')}(s) sit at {loc} and the "
+                           "game could escrow one; take it out of the stock")
             out["release"] += [d["device_code"] for d in loose]
             continue
         out["need"][t] = max(0, want - listed)
@@ -340,6 +363,7 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
             continue
         price = r["price"]
         repriced = bool(cur) and listed > 0 and {k: int(v) for k, v in r["listed_price"].items()} != price
+        loose = sorted(loose + extra, key=lambda d: d["device_code"])
         if loose and (listed == 0 or listed + len(loose) >= want) or repriced:
             stock = listed + len(loose)
             if stock < 1:

@@ -16,11 +16,16 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.457.0"
+VERSION = "1.458.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.458.0", "2026-11-17", "Trade posts: stock released to spare no longer counts as on its way (40 SOL_Trader types "
+     "sat at supplying while their old devices were spares elsewhere); tagged stock pinned nowhere is pinned to the shop "
+     "again, extras go spare; component parts never count as stock. An idle spare or untagged device of a stocked type at "
+     "the shop joins the listing's escrow instead of blocking it; the post's own controller and relay types are never "
+     "listed or supplied (the escrow could take a shop)."),
     ("1.457.0", "2026-11-17", "Terraformers at work get new devices at their planet like a stationed fleet at home: what no "
      "spare covers is printed on the autofactories nearest the planet, tagged for the fleet, and logistics brings it there. "
      "Follows Fleets › settings Print what spares can't cover."),

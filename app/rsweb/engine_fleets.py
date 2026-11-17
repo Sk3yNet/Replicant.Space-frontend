@@ -608,6 +608,13 @@ class FleetsMixin:
                         entry["assigned"][d["device_code"]] = {"type": d.get("device_type"), "at": now_iso()}
                     busy |= set(codes)
                     out.append(f"{des}: sending {len(codes)}")
+            if p.get("release"):   # tagged for it, pinned nowhere, more than it needs: spare again
+                left = [d for d in p["release"] if d["device_code"] not in busy]
+                if left and await self.create_job("contracts", f"contract {des}: {len(left)} extra device(s) back to spare",
+                                                  None, [st for d in left for st in cs.release_steps(d, des)],
+                                                  {"devices": [d["device_code"] for d in left]}):
+                    busy |= {d["device_code"] for d in left}
+                    out.append(f"{des}: released {len(left)} extra")
             for cx in p.get("cancel") or []:   # spares (or an earlier order) cover it: queued prints come off the app's queue
                 for _ in range(int(cx["n"])):
                     lab = f"contract {des}: the {cx['device_type']} queued for {e['location']} isn't needed (a spare covers it)"

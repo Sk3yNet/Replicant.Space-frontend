@@ -73,9 +73,40 @@ def test_plan_reprices_and_delists():
 
 
 def test_plan_never_lists_beside_other_devices_or_a_replicant():
-    devs = [shop(), dev("D1", "mining_drone", tags=[TAG]), dev("X", "mining_drone")]
+    devs = [shop(), dev("D1", "mining_drone", tags=[TAG]), dev("X", "mining_drone", tags=["fleet:other"])]
     pl = tp.plan(FLEET, devs, [], {}, BPS, P, TAG)
     assert pl["actions"] == [] and "escrow could take" in pl["rows"][1]["status"] + pl["rows"][2]["status"]
+    # an idle untagged one beside the stock goes into the escrow with it (2026-11-17)
+    devs[2] = dev("X", "mining_drone", tags=["spare"])
+    a = tp.plan(FLEET, devs, [], {}, BPS, P, TAG)["actions"]
+    assert a[0]["create"]["stock"] == 2 and a[0]["escrow"] == ["D1", "X"]
+    devs[2] = dev("X", "mining_drone", status="mining")
+    assert tp.plan(FLEET, devs, [], {}, BPS, P, TAG)["actions"] == []
+
+
+def test_plan_never_sells_the_posts_own_controller_type():
+    f = {**FLEET, "trade_post": {"onhand": {"ami_trade_controller": 1}}}
+    bps = {**BPS, "ami_trade_controller": {"device_type": "ami_trade_controller", "print_time": 60, "resources": {"structural": 5}}}
+    devs = [shop(), dev("T1", "ami_trade_controller", tags=[TAG])]
+    pl = tp.plan(f, devs, [], {}, bps, P, TAG)
+    row = next(r for r in pl["rows"] if r["type"] == "ami_trade_controller")
+    assert pl["actions"] == [] and "can't be sold here" in row["status"] and pl["release"] == ["T1"]
+    assert "ami_trade_controller" not in pl["need"]
+
+
+def test_supply_drops_released_devices_and_repins_strays():
+    e = {"designation": "tp:tp", "location": "SOL-4-L4", "star": "SOL", "_tagged_only": True}
+    prog = {"best": {"devices": [{"device_type": "mining_drone", "need": 1}]}}
+    entry = {"printed": ["S1", "P1", "P2", "C1"]}
+    devs = [dev("S1", "mining_drone", tags=["spare"]),            # printed for it once, released since
+            dev("P1", "mining_drone", tags=[TAG]),                # still tagged, pinned nowhere
+            dev("P2", "mining_drone", tags=[TAG]),
+            dev("C1", "mining_drone", tags=[TAG, "component", "at:sol-3"])]   # a part for a print
+    for d in devs:
+        d["location"] = "SOL-3"
+    p = cs.plan(e, prog, entry, devs, hosts=set(), busy=set(), active=True)
+    assert [d["device_code"] for d in p["send"]] == ["P1"] and [d["device_code"] for d in p["release"]] == ["P2"]
+    assert p["rows"][0]["coming"] == ["P1"] and "C1" not in p["printed"]
     f = {**FLEET, "trade_post": {"onhand": {"matrix_container": 1}}}
     bps = {**BPS, "matrix_container": {"device_type": "matrix_container", "print_time": 60, "resources": {"structural": 5}}}
     devs = [shop(), dev("MC", "matrix_container", tags=[TAG]), dev("M", "replicant_matrix", None, stowed_in_device_code="MC")]

@@ -81,8 +81,10 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
     skip, tagged_only = set(e.get("_skip") or []), bool(e.get("_tagged_only"))
     assigned = {c: a for c, a in (entry.get("assigned") or {}).items()
                 if c in by and (tag in (by[c].get("tags") or []) or (_ts(a.get("at")) or 0) > now - ASSIGN_MINUTES * 60)}
-    printed = set(entry.get("printed") or []) | {d["device_code"] for d in devices
-                                                  if tag in (d.get("tags") or []) and d["device_code"] not in assigned}
+    # a component (pinned to a factory for a print) only inherited the tag from the item it goes into: not stock
+    parts = {d["device_code"] for d in devices if lo.is_component(d)}
+    printed = (set(entry.get("printed") or []) - parts) | {d["device_code"] for d in devices if tag in (d.get("tags") or [])
+                                                           and d["device_code"] not in assigned and d["device_code"] not in parts}
     orders = [o for o in entry.get("orders") or [] if (_ts(o.get("at")) or 0) > now - ORDER_DAYS * 86400]
     ordered = Counter()
     for o in orders:
@@ -91,14 +93,27 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
     for c in entry.get("printed") or []:   # printed earlier and gone since (consumed, decommissioned): still came out
         if c not in by:
             came[(entry.get("printed_types") or {}).get(c)] += 1
-    ours = {c for c in set(assigned) | printed if c in by}
-    rows, send, prints, notes, cancel = [], [], [], [], []
+    # on its way: sent lately, or still tagged and pinned here. A device printed for it that lost the tag since (released
+    # to spare: SOL_Trader 2026-11-17, 40 types "supplying" for days on spares counted as coming) is not.
+    ours = {c for c in assigned if c in by} | {c for c in printed if c in by and tag in (by[c].get("tags") or [])
+                                               and lo.pinned_at(by[c]) == str(loc or "").upper()}
+    # tagged but pinned nowhere near (a component released from its print keeps the tag): pinned again up to the gap
+    strays = {c for c in printed if c in by and c not in ours and tag in (by[c].get("tags") or [])
+              and by[c].get("location") != loc and c not in busy and c not in hosts}
+    rows, send, prints, notes, cancel, release = [], [], [], [], [], []
     picked: set[str] = set()
     reserved: dict[str, Counter] = {}
     for t, n in sorted(need.items()):
         here = sum(1 for d in devices if d.get("device_type") == t and d.get("location") == loc
                    and d.get("device_code") not in skip and (not tagged_only or tag in (d.get("tags") or [])))
         coming = sorted(c for c in ours if by[c].get("device_type") == t and by[c].get("location") != loc)
+        lost = sorted(c for c in strays if by[c].get("device_type") == t)
+        if active:
+            k = max(0, n - here - len(coming))
+            for c in lost[:k]:
+                send.append(by[c])
+                coming.append(c)
+            release += [by[c] for c in lost[k:]]
         printing = max(0, ordered[t] - came[t])
         gap = max(0, n - here - len(coming))   # what neither the site nor devices on their way cover
         short = max(0, gap - printing)
@@ -145,7 +160,7 @@ def plan(e: dict, prog: dict, entry: dict, devices: list[dict], *, hosts: set[st
                 row["why"] = "authorize printing below" if not allowed else "waiting for an autofactory"
         rows.append(row)
     ready = bool(need) and all(r["here"] >= r["need"] for r in rows)
-    return {"rows": rows, "send": send, "prints": prints, "cancel": cancel, "assigned": assigned, "printed": sorted(printed),
+    return {"rows": rows, "send": send, "prints": prints, "cancel": cancel, "release": release, "assigned": assigned, "printed": sorted(printed),
             "orders": orders, "ready": ready, "tag": tag, "notes": notes,
             "unresolved": sum(r["short"] for r in rows),
             "to_authorize": {r["type"]: r["short"] for r in rows if r["short"] and r["authorized"] <= r["ordered"]}}
