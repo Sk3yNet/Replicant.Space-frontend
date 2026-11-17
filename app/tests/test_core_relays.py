@@ -638,6 +638,7 @@ def test_pathing_pass_prospects_then_relocates(client):
     client.portal.call(eng.save_fleets, items)
     out = client.portal.call(eng.pathing_pass, True)
     assert out == ["Miner 1: next home AHEADB"]                            # not BEHINDC, though it scores the same
+    assert "HOMEA" in client.portal.call(db.kv_get, "homes_left_dry", {})   # no fleet takes it back for a day
     page = client.get("/fleets/details?all=1", headers=H).text
     assert "Next home <b><a href=\"/systems/AHEADB\">AHEADB</a></b>" in page and "/fleets/m1/next-home" in page
     r = client.post("/fleets/m1/next-home", data={"action": "now"}, headers=HX)
@@ -645,6 +646,16 @@ def test_pathing_pass_prospects_then_relocates(client):
     assert f["home"] == "AHEADB" and f["prev_home"] == "HOMEA" and not f.get("next_home")
     notes = client.portal.call(db.fetchall, "SELECT title FROM notifications WHERE link='/fleets'")
     assert not any("moving home: HOMEA → AHEADB" in n["title"] for n in notes)   # announced ahead only (1.381.0)
+
+
+def test_pathing_never_picks_a_home_left_dry_lately():
+    """Live 2026-11-17: Miner_3 went GYREPHIX → ANOAAIEON → GYREPHIX, each home judged dry, members strewn over both."""
+    from rsweb import pathing as pa
+    rows = [{"star": s, "score": sc, "status": "ok", "distance": None, "reasons": []} for s, sc in (("BACK", 90), ("NEW", 40))]
+    fleet = {"id": "me", "name": "Me", "role": "mining", "station": True, "home": "HOME"}
+    assert pa.choose(fleet, [fleet], rows, {}, [], None, 60, reach={"BACK", "NEW"}, dry_now={"BACK"})[0] == "NEW"
+    none, why = pa.choose(fleet, [fleet], rows[:1], {}, [], None, 60, reach={"BACK"}, dry_now={"BACK"})
+    assert none is None and why == ["1 left dry lately"]
 
 
 def test_pathing_never_picks_a_home_beyond_the_sector_range(client):

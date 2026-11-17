@@ -25,6 +25,8 @@ RELAY_LY, HUB_LY = 7.5, 15.0
 DEFAULT_CONE = 60
 DRY_FOR_HOURS = 2.0           # dry this long before choosing (sites come and go)
 GRACE_MINUTES = 30            # planned → moving: time to cancel
+LEFT_DRY_HOURS = 24.0        # a home a fleet left as dry isn't picked again (by any fleet) for this long
+DRY_KV = "homes_left_dry"     # {star: when a fleet left it as dry}
 IDLE_HOURS = 6.0              # no miner of the fleet mining this long at home: the home counts as dry
 MINER_TYPES = ("mining_drone", "mining_rig")
 PROSPECT_EVERY_HOURS = 4.0
@@ -172,12 +174,14 @@ def idle_miners(tag: str, home: str, devices: list[dict]) -> str | None:
 
 def choose(fleet: dict, fleets: list[dict], rows: list[dict], xyz_of: dict[str, tuple], devices: list[dict],
            heading: list[float] | None, cone: float, reach: set[str] | None = None,
-           far: Any = None) -> tuple[str | None, list[str]]:
+           far: Any = None, dry_now: set[str] | None = None) -> tuple[str | None, list[str]]:
     """The best next home for the fleet: (star, why) or (None, reasons nothing qualified). `rows` are prospects.rank()
     rows from the fleet's home (best first). `reach`: the systems that can be commanded (an active relay network or a
     replicant there); without it, any system with a relay or hub of ours counts. `far(star)`: true when the trip there
     is beyond the sector range (live 2026-11-14: Delta Miner 2 picked ASELOLUSP, 180 h of surge from ANSYRA, and could
-    never get there)."""
+    never get there). `dry_now`: homes a fleet left as dry within LEFT_DRY_HOURS, or marked as having nothing to mine
+    (live 2026-11-17: Miner_3 went GYREPHIX → ANOAAIEON → GYREPHIX, each judged dry, its members strewn over both;
+    Miner_6 took ALPHARDAN hours after Miner_5 left it dry)."""
     home = fleet.get("home") or ""
     hold = taken(fleet, fleets)
     skipped: dict[str, int] = {}
@@ -188,6 +192,7 @@ def choose(fleet: dict, fleets: list[dict], rows: list[dict], xyz_of: dict[str, 
                "unscanned" if r.get("status") == "unscanned" or r.get("score") is None else
                "warded" if r.get("status") == "warded" else
                "held by another fleet" if star in hold else
+               "left dry lately" if dry_now and star in dry_now else
                "beyond the sector range" if far and far(star) else
                "behind the heading" if heading and _off(xyz_of.get(home), xyz_of.get(star), heading) > cone else
                "outside relay coverage" if not (star in reach if reach is not None else served(star, xyz_of, devices))

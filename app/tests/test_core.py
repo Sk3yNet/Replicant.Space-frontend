@@ -428,6 +428,27 @@ def test_job_stops_after_repeated_failures(client):
     assert job["status"] == "failed" and sum(1 for st in job["steps"] if st["status"] == "skipped") == 3
 
 
+def test_survey_skips_a_moon_that_isnt_there(client):
+    """Live 2026-11-17 (CHAOPHRA): moon_count is an estimate before a planet scan; surveys flew to CHAOPHRA-6-39 and
+    CHAOPHRA-3-1 ("No moon at this location"), scanned anyway, and stopped after three refusals, three times in 3 min."""
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    from rsweb.automations import step
+
+    async def fake_send(method, path, body, label):
+        if body.get("command") == "travel":
+            return False, None, "No moon at this location"
+        return False, None, "Survey scans require orbiting a planet, moon, belt, or object"
+    eng.send = fake_send
+    steps = []
+    for t in ("X-6-39", "X-6-37", "X-3-1"):
+        steps.append(step(f"D → {t}", "/devices/D", {"command": "travel", "destination": t}, wait=["travel.arrived"]))
+        steps.append(step(f"scan {t}", "/devices/D", {"command": "scan"}, wait=["scan.completed"]))
+    job = client.portal.call(eng.create_job, "auto_survey", "survey X", "D", steps, {"star": "X"}, True)
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
+    assert job["status"] == "done", [(x["desc"], x["status"], x.get("error")) for x in job["steps"]]
+    assert {"X-6-39", "X-6-37", "X-3-1"} <= set(client.portal.call(db.kv_get, "surveyed", {}))
+
+
 def test_a_watch_waits_for_a_fresh_device_list():
     """Live 2026-10-28: Surveyor 3's watch read a cached list from before the launch, saw no directive and recalled."""
     from rsweb import fleets as fl

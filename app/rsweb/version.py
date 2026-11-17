@@ -16,11 +16,19 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.462.0"
+VERSION = "1.463.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.463.0", "2026-11-17", "Three fixes from a live health check. Surge plates and other attach-only carriers are no "
+     "longer handed a device type the game won't attach (vector charge 0BAC6062 for SOL_Trader was refused 'Cannot attach "
+     "a large device' nine times since 04:12, though the type was already learned). Auto-surveys skip moons that don't "
+     "exist: a planet's moon count is an estimate until it's scanned, so CHAOPHRA surveys flew to CHAOPHRA-6-39 and -3-1 "
+     "('No moon at this location') and stopped after three refusals, three times in three minutes; such a moon is now "
+     "marked surveyed and its scan skipped. Auto-relocating mining fleets no longer pick a home any fleet left as dry in the "
+     "last 24 h, or one marked as having nothing to mine (Miner_3 went GYREPHIX → ANOAAIEON → GYREPHIX, judged dry each "
+     "time, its members strewn over both; Miner_6 took ALPHARDAN hours after Miner_5 left it dry)."),
     ("1.462.0", "2026-11-17", "Device list: read up to 200 pages (10,000 devices) instead of 40. The account passed 2,000 "
      "devices, so every newer device, such as fresh prints for the trade post or the relay rollout, was missing from the "
      "list and was printed again. A list cut short by the cap is now treated as partial."),

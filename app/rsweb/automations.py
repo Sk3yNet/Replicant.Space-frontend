@@ -1051,9 +1051,13 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
             if (now - _ts(f["depleted_since"])).total_seconds() < float(f.get("dry_hours") or pa.DRY_FOR_HOURS) * 3600:
                 continue
             rows = (await pr.rank(self.db, self, devices, home, limit_unscanned=0, weigh=True))["rows"]
+            left_dry = await self.db.kv_get(pa.DRY_KV, {}) or {}
+            left_dry = {k: v for k, v in left_dry.items() if _ts(v) and (now - _ts(v)).total_seconds() < pa.LEFT_DRY_HOURS * 3600}
             star, note = pa.choose(f, items, rows, xyz_of, devices, heading, cone, await self.commandable(devices),
-                                   far=far_from(starts))
+                                   far=far_from(starts), dry_now=set(left_dry) | set(nothing))
             if star:
+                left_dry[home] = now_iso()   # no fleet picks it again for a while (Miner_3 went back and forth)
+                await self.db.kv_set(pa.DRY_KV, left_dry)
                 f["next_home"] = star
                 f["next_home_at"] = (now + timedelta(minutes=float(f.get("grace_minutes") or pa.GRACE_MINUTES))).isoformat(timespec="seconds")
                 f["path_note"] = f"{home} is dry ({why}); next home {star}: " + ", ".join(note)

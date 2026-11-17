@@ -442,6 +442,22 @@ class JobsMixin:
                 # seen live (2026-10-06): a second owner pass for a device the first had already moved
                 ok, st["note"] = True, err
                 st["wait"] = []
+            if (not ok and job.get("rule") == "auto_survey" and (st.get("body") or {}).get("command") == "travel"
+                    and "no moon at this location" in (err or "").lower()):
+                # live 2026-11-17 (CHAOPHRA): a planet's moon_count is an estimate until the planet is scanned
+                # (moons_total_estimated), so survey_targets names moons that don't exist. Nothing to scan there:
+                # skip its scan and remember it surveyed, so no later survey goes there again
+                dest = str(st["body"].get("destination") or "")
+                ok, st["note"] = True, f"{err} — no such moon, skipped"
+                st["wait"] = []
+                for s2 in job["steps"][job["idx"] + 1:job["idx"] + 2]:
+                    if (s2.get("status") == "pending" and s2.get("path") == st.get("path")
+                            and (s2.get("body") or {}).get("command") in ("scan", "search")):
+                        s2["status"], s2["note"] = "skipped", f"no moon at {dest}"
+                if dest:
+                    surveyed = await self.db.kv_get("surveyed", {}) or {}
+                    surveyed.setdefault(dest, now_iso())
+                    await self.db.kv_set("surveyed", surveyed)
             if not ok and (st.get("body") or {}).get("command") == "attach" and "cannot attach a large device" in (err or "").lower():
                 await self.learn_no_attach(str((st.get("body") or {}).get("device") or ""))
             if not ok:

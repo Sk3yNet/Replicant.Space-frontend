@@ -1302,6 +1302,28 @@ def test_a_surge_plate_attaches_a_beacon_it_flies_to():
     assert "SP: attach BAAA" in descs and not any(d.startswith("stow BAAA") for d in descs)
 
 
+def test_a_surge_plate_never_takes_a_device_the_game_wont_attach():
+    """Live 2026-11-17: vector charge 0BAC6062 (vector_charge learned large at 04:12) was handed to surge plates nine
+    times in eight hours, each refused "Cannot attach a large device". Attach carriers skip non-attachable types."""
+    from rsweb import loadouts as lo, fleets as fl
+    def dev(code, t, loc, **kw):
+        return {"device_code": code, "device_type": t, "location": loc, "status": kw.pop("status", "idle"),
+                "operational_capacity": 100.0, "features": kw.pop("features", ["stow", "cruise"]),
+                "available_commands": kw.pop("available_commands", ["stow", "deploy", "travel"]), **kw}
+    devices = [dev("VC", "vector_charge", "HUB-BELT-1", tags=["to:aaa"]),
+               dev("SP", "surge_plate", "HUB-BELT-1", features=["surge", "cruise", "attach"],
+                   available_commands=["travel", "attach", "detach"], tags=["fleet:logistics"])]
+    stars = {s: {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in (("HUB", 0), ("AAA", 5))}
+    cfg = {"phases": [], "systems": {}, "fleets": [{"id": "logistics", "name": "Logistics", "role": "logistics",
+                                                    "home": "HUB", "wants": {}}]}
+    fl.NO_ATTACH_TYPES.add("vector_charge")
+    try:
+        p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {}, commandable={"HUB", "AAA"})
+    finally:
+        fl.NO_ATTACH_TYPES.discard("vector_charge")
+    assert not [d for d in p["deliveries"] if d["carrier"] == "SP"], p["deliveries"]
+
+
 def test_a_hub_short_of_stock_takes_a_partners_extra_spares_before_printing(client):
     """Owner 2026-10-28: SOLARES printed relays for its stock while ~95 spare relays sat at FALQUORYX. The stock pass
     sends a partner hub's spares beyond its own stock over (gather + to:) and prints only what's still missing."""

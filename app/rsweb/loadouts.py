@@ -1341,6 +1341,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         owner 2026-10-23); one that neither flies nor stows can't board."""
         rest = [x for x in codes_ if stowed_in.get(x) != c["device_code"]]
         attach_ = carry_mode(c, bps) == "attach"
+        if attach_ and not all(fl.attachable(by_code[x]) for x in rest):
+            return False   # the game refuses large devices on attach points (vector charge 0BAC6062, 2026-11-17)
         stow_ok = all("stow" in (by_code[x].get("available_commands") or ["stow"]) for x in rest)
         return stow_ok or (attach_ and all(can_travel(by_code[x]) for x in rest))
 
@@ -1351,8 +1353,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         waited for hours while carriers came and went)."""
         attach_ = carry_mode(c, bps) == "attach"
         return [x for x in codes_ if stowed_in.get(x) == c["device_code"]
-                or "stow" in (by_code[x].get("available_commands") or ["stow"])
-                or (attach_ and can_travel(by_code[x]))]
+                or ((not attach_ or fl.attachable(by_code[x]))
+                    and ("stow" in (by_code[x].get("available_commands") or ["stow"]) or (attach_ and can_travel(by_code[x]))))]
 
     def unboardable(x: str) -> bool:
         """Neither stows nor flies, and isn't aboard anything: no carrier can take it (a hull plate)."""

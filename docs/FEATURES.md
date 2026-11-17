@@ -518,7 +518,7 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
 - **Mining and survey fleets** first collect every member (from other systems too), then move together in one
   relocation mission when their carriers seat everyone.
 - Otherwise (and always for bootstraps) the move is piecemeal: the fleet's own carriers and the logistics fleets' each
-  load as many members as they hold and leave as they fill. Auto-relocate picks no new home while a move together runs.
+  load as many members as they hold and leave as they fill. Auto-relocate picks no new home while a move together runs, and never a home any fleet left as dry in the last 24 h.
 - A move stays open until every member is there: reported when complete, and once if members are still missing after
   two hours.
 
