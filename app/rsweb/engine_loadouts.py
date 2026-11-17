@@ -562,13 +562,24 @@ class LoadoutMixin:
         from . import loadouts as lo
         objs, warned, scans = await self.evacuation_inputs()
         pct = await self.diverted_pct()
-        if not ev.due(objs, warned=warned, pct=pct):
+        if not ev.due(objs, warned=warned, pct=pct, minutes=ev.EARLY_HOURS * 60):
             return []
         devices = await self.devices()
         stars = await self.star_lookup("by")   # shared with every reader: never change a record
         reps = await self.db.kv_get("replicants", {}) or {}
         hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
         busy = self.busy_devices(await self.jobs())
+        early: list[str] = []
+        for e in ev.early_pins(objs, devices, stars, busy, hosts, scans):
+            if await self.create_job("evacuate", f"pin {e['code']} at {e['to']} (impact due at {e['from']})", e["code"],
+                                     [lo.tag_step(e["code"], add=[lo.at_tag(e["to"])], remove=e["remove"])],
+                                     {"devices": [e["code"]], "through_hold": True}):
+                busy.add(e["code"])
+                early.append(f"{e['code']}: pinned at {e['to']} for logistics to take it from {e['from']} (impact due)")
+        for line in early:
+            await self.log("evacuate", line, "alert", notify=True)
+        if not ev.due(objs, warned=warned, pct=pct):
+            return early
         try:
             lv = float(((await self.settings())["rules"].get("asteroid_defence") or {}).get("leave_minutes") or ev.DIVERTER_MINUTES)
         except (TypeError, ValueError):
@@ -585,6 +596,8 @@ class LoadoutMixin:
             steps = [fl.board_step(code, b["code"], b["mode"]) for b in boards.get(code, [])]
             if m.get("deactivate"):
                 steps.append(step(f"{code}: deactivate", f"/devices/{code}", {"command": "deactivate"}))
+            if m.get("clear"):
+                steps.append(step(f"{code}: clear directive", f"/devices/{code}", {"command": "clear_directive"}))
             steps.append(step(f"{code} → {m['to']} (evacuate {m['from']}: {m['why']})", f"/devices/{code}",
                               {"command": "travel", "destination": m["to"]}, critical=True))
             codes = [code] + [b["code"] for b in boards.get(code, [])]
@@ -603,7 +616,7 @@ class LoadoutMixin:
                 await self.log("evacuate", f"{s_['code']} at {s_['location']} can't be evacuated: {s_['why']}", "error", notify=True)
         for line in out:
             await self.log("evacuate", line, "alert", notify=True)
-        return out
+        return early + out
 
     async def _evacuate_directives(self, devices: list[dict], hot: dict[str, float], busy: set[str]) -> list[str]:
         """A transport controller whose directive collects or delivers at a doomed location has it cleared: its

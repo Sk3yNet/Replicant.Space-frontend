@@ -204,3 +204,32 @@ def test_ferries_and_chaser_drops_never_use_a_rock():
     assert lo.pickup_point("A", {"A-OBJ-1": {"carbon": 900}, "A-3-L4": {"carbon": 10}}) == "A-3-L4"
     assert lo.pickup_point("A", {"A-KUIPER-2": {"ice": 900}}) is None
     assert rc.is_rock("RENGRELOR-OBJ-1") and rc.is_rock("A-KUIPER-3") and not rc.is_rock("A-KUIPER") and not rc.is_rock("A-3-L4")
+
+
+def test_a_terraform_monitor_report_tracks_the_rock_and_grounded_strays_are_pinned_away_early(client):  # noqa: F811
+    """Live 2026-11-17: ADHARA-OBJ-3 (large, due 10:28 UTC) showed only in Terraformer 1's monitor report at ADHARA-2; no
+    hub or beacon saw it detected, so nothing tracked it. Two delivered devices that can't fly stayed behind when the
+    fleet left with a full carrier: they're pinned to a safe spot hours ahead for logistics to take them."""
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.insert_event, {"id": "tf1", "event": "terraform.status", "location": "SOL-2", "category": "terraform",
+                                          "created_at": iso(-1),
+                                          "payload": {"body": "SOL-2", "asteroids": [
+                                              {"designation": "SOL-OBJ-3", "impact_eta": iso(300)[:26],
+                                               "mass_class": "large"}]}})
+    o = client.portal.call(e.defence_objects)["SOL-OBJ-3"]
+    assert o["impact_target"] == "SOL-2" and o["also_at"] == ["SOL-2"] and o["source"] == "terraform_monitor"
+    client.portal.call(db.kv_set, "objects", {})
+    devs = client.portal.call(db.kv_get, "devices") + [
+        dev("TL1", "thermal_lance", "SOL-2", tags=["at:sol-2"], available_commands=["stow"], features=["stow"]),
+        dev("SB1", "service_bot", "SOL-2", available_commands=["travel", "clear_directive"], features=["cruise"],
+            ami_directive={"name": "patrol"}),
+        dev("FM1", "thermal_lance", "SOL-2", tags=["fleet:tf"], available_commands=["stow"], features=["stow"])]
+    client.portal.call(db.kv_set, "devices", devs)
+    out = client.portal.call(e.evacuate_pass, True)
+    assert len(out) == 1 and out[0].startswith("TL1: pinned at ")   # SB1 flies at the hour; FM1 goes with its fleet
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "evacuate")
+    cfg = job["steps"][0]["body"]["configuration"]
+    assert cfg["remove_tags"] == ["at:sol-2"] and cfg["add_tags"][0].startswith("at:") and cfg["add_tags"] != ["at:sol-2"]
+    soon = {"SOL-OBJ-3": {"impact_eta": iso(30), "impact_target": "SOL-2", "also_at": ["SOL-2"]}}
+    m = next(x for x in ev.plan(soon, devs, {"SOL": {"entry_point": "SOL-3-L5"}}, set())["moves"] if x["code"] == "SB1")
+    assert m["clear"] and m["to"] == "SOL-3-L5"   # the patrolling bot drops its directive and flies

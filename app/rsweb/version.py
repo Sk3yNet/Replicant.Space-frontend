@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.453.0"
+VERSION = "1.454.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.454.0", "2026-11-17", "Impact evacuation: a terraform monitor's report of an incoming asteroid now tracks it, with "
+     "the world as a place it strikes (ADHARA-OBJ-3 showed only in Terraformer 1's report at ADHARA-2; nothing tracked it). "
+     "Up to 12 hours ahead, fleetless devices there that can't fly are pinned to a safe spot so logistics takes them away; "
+     "an AMI device flying out drops its directive first (a patrolling service bot)."),
     ("1.453.0", "2026-11-17", "Auto-relocate (Joe): a mining fleet's home isn't judged dry until at least half its "
      "miners have reached it; until then the fleet's path note says it's waiting for the fleet to arrive (Delta Miner 2 "
      "moved home four times in a day, each new home marked dry before its devices got there). A ward still counts at once."),

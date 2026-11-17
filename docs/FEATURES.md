@@ -353,6 +353,10 @@ Incoming asteroids with a propulsor estimate and **Defend now**.
 - Game v3.6.0: an asteroid the game reports `off_target` (it will miss) counts as diverted, since it's flung out of the
   system at the ETA; the card lists the resources left on the rock (mining rigs only).
 - Nothing more is sent or printed for an asteroid due within the hour.
+- A terraform monitor's report names the asteroids heading for its world: each is tracked from it (when no hub or
+  beacon saw it detected), and the world is evacuated with it. Up to 12 hours before impact, devices there with no
+  fleet that can't fly are pinned to the system's safe spot so logistics carries them off in time; an AMI device flying
+  out (a patrolling service bot) drops its directive first.
 - A mined-out (`depleted`) asteroid still strikes and is evacuated like any other.
 - An asteroid past its impact time is **overdue**, not over (since 1.355.0: SOLARES-OBJ-6 struck 18.5 h after its ETA).
   It is still read; whatever is at it leaves, its pile is left (no carrier or AMI drone collects it) and no propulsors

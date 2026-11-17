@@ -1025,6 +1025,37 @@ class OpsRules:
                 objs[k] = {"designation": k, "impact_target": r.get("destination"), "impact_eta": r.get("impact_eta"),
                            "size_class": r.get("mass_class"), "composition": r.get("composition"), "status": "active",
                            "source": "launched", "history": [], "detected_at": r.get("at")}
+        # 1.454.0: a terraform monitor's report lists the asteroids heading for its world (live 2026-11-17: ADHARA-OBJ-3,
+        # large, due 10:28 UTC at ADHARA-2 where Terraformer 1 worked) though no hub or beacon in the system saw it
+        # detected. Tracked from the report, with the world as a place it strikes, so the evacuation doesn't wait for
+        # the game's one-hour warning.
+        rows = await self.db.fetchall(
+            "SELECT e.location, e.payload, e.created_at FROM events e JOIN (SELECT MAX(seq) AS s FROM events "
+            "WHERE event='terraform.status' AND COALESCE(category, '') != 'simulation' GROUP BY location) m ON e.seq = m.s")
+        for r in rows:
+            try:
+                p = _json.loads(r["payload"] or "{}") or {}
+            except ValueError:
+                continue
+            body = p.get("body") or r["location"]
+            for a in p.get("asteroids") or []:
+                k = str((a or {}).get("designation") or "").upper()
+                eta = _ts(a.get("impact_eta"))
+                if not (body and dfn.is_object(k) and eta) or str(body).upper().startswith("VIRT") \
+                        or (_now() - eta).total_seconds() > 0:
+                    continue
+                old = objs.get(k)
+                if old is None or (old.get("closed") and _after(r["created_at"], old.get("closed_at"))):
+                    objs[k] = {"designation": k, "impact_target": body, "impact_eta": a.get("impact_eta"),
+                               "size_class": a.get("mass_class"), "composition": a.get("composition"), "status": "active",
+                               "source": "terraform_monitor", "history": [], "detected_at": r["created_at"]}
+                    old = objs[k]
+                if old.get("closed"):
+                    continue
+                old["impact_target"] = old.get("impact_target") or body
+                old["impact_eta"] = old.get("impact_eta") or a.get("impact_eta")
+                if body != k:
+                    old["also_at"] = sorted(set(old.get("also_at") or []) | {body})
         for k, o in objs.items():
             if k in mine:
                 o["launched_by_you"] = True

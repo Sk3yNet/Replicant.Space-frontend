@@ -103,6 +103,40 @@ def safe_spot(star: str, target: str | None, stars: dict[str, dict], scan: dict 
     return None
 
 
+EARLY_HOURS = 12   # grounded devices with no ride at a doomed spot are pinned elsewhere this long ahead (logistics fetches them)
+
+
+def early_pins(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], busy: set[str],
+               hosts: set[str] | frozenset = frozenset(), scans: dict[str, dict] | None = None, now: float | None = None,
+               hours: float = EARLY_HOURS) -> list[dict]:
+    """[{code, from, to}] for fleetless devices that can't fly, sitting at a spot an object strikes within `hours`:
+    pinned to the system's safe spot so logistics carries them away in time. At the hour mark they'd only be stuck: no
+    carrier comes from elsewhere in an hour (live 2026-11-17: thermal lance BFD12888 and filtration array 0250DF40,
+    delivered for Terraformer 1, stayed at ADHARA-2 when the fleet left with a full carrier)."""
+    from . import loadouts as lo
+    hot = due(objects, now, hours * 60, pct=-1.0)
+    obj_at = at_location(objects)
+    out = []
+    for d in devices:
+        loc, code = d.get("location"), d.get("device_code")
+        if loc not in hot or not code or code in busy or code in hosts or d.get("stowed_in_device_code") \
+                or d.get("attached_to_device_code"):
+            continue
+        st = str(d.get("status") or "").lower()
+        tags = d.get("tags") or []
+        if st.startswith(MOVING) or any(str(t).startswith("fleet:") for t in tags):
+            continue
+        if "travel" in (d.get("available_commands") or ["travel"]) and "cruise" in (d.get("features") or ["cruise"]):
+            continue   # flies itself at the hour mark
+        star = star_of(loc)
+        to = safe_spot(star, (obj_at.get(loc) or {}).get("impact_target"), stars, (scans or {}).get(star), here=loc,
+                       avoid=set(hot))
+        if to and lo.at_tag(to) not in tags:
+            out.append({"code": code, "from": loc, "to": to,
+                        "remove": [t for t in tags if str(t).startswith(("at:", "to:")) and t != lo.at_tag(to)]})
+    return out
+
+
 def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], busy: set[str],
          hosts: set[str] | frozenset = frozenset(), scans: dict[str, dict] | None = None, now: float | None = None,
          warned: set[str] | frozenset = frozenset(), pct: float = DIVERTED_PCT,
@@ -144,7 +178,9 @@ def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], 
                        else f"impact in {left:.0f} min" if left is not None else "impact warning")
                 # a pushing propulsor is switched off first: it won't travel while active (owner, 2026-10-18)
                 out["moves"].append({"code": code, "from": loc, "to": to, "why": why,
-                                     "deactivate": "propulsor" in (d.get("device_type") or "") and any(k in st for k in DIVERTING)})
+                                     "deactivate": "propulsor" in (d.get("device_type") or "") and any(k in st for k in DIVERTING),
+                                     # an AMI device at work (a service bot patrolling) may keep to its directive
+                                     "clear": bool(d.get("ami_directive")) and "clear_directive" in (d.get("available_commands") or [])})
                 leaving.append(code)
                 continue
             ride = next(((c, m) for c, s in seats.items() if c != code and (m := fl.take_seat(s, d))), None)
