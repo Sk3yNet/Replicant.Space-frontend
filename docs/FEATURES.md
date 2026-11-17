@@ -968,7 +968,9 @@ yield quota. The built-in *Mining Rush: spread out* order uses them.
 **Sector range**: any automated trip longer than a day at the game's surge pace (or of unknown length: the game's
 preview measures stars the catalog lacks) is never sent (Joe 2026-11-14; it waited for a Confirm before). Its job stops
 with a warning and the leg is remembered for a week (6 h when its length was unknown), so no planner starts that trip
-again. Trips you start yourself go as they are.
+again. Trips you start yourself go as they are. A trip leaving the Delta sector is measured through the DELTA wormhole gate
+(DELTA-OBJ-2, one way to TWAFFY, 2026-11-17): the job runner and the travel previews put the gate in `via` when the
+game's preview says it's faster.
 
 **Performance** (Diagnostics): pages slowest on average, the slowest requests with their queries, game API calls,
 engine lock waits and saved values decoded; engine stage timings and lock holds; table sizes and the largest saved

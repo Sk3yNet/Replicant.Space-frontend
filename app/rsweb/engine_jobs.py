@@ -619,6 +619,7 @@ class JobsMixin:
         and a destination in another system than the last waypoint gets its star last (live 2026-10-26: "Cannot travel
         directly from ISOLITHOR-KUIPER to KHAZENEN-BELT-1"). Returns the surge spots."""
         from . import hubroute
+        await self._gate_via(st, job)   # a wormhole gate sets `via` first: no surge hops, hub or off-ramp then
         exit_via = await self._exit_via(st, job)
         await self._hub_via(st, job)
         if exit_via:
@@ -893,6 +894,47 @@ class JobsMixin:
             wait["desc"] = f"wait for {carrier} at {loc}"
         return False
 
+    async def _gate_via(self, st: dict, job: dict) -> None:
+        """A device's trip that a wormhole gate shortens (wormhole.py: DELTA-OBJ-2 → TWAFFY, one way, owner 2026-11-17)
+        goes through it: the gate location becomes the trip's `via` (its star first when the trip starts in another
+        system) when the game's preview says that's faster than its own route. Set once, before the trip is first sent;
+        previews that fail leave it alone."""
+        from . import hubroute
+        from . import wormhole
+        body = st.get("body") or {}
+        path = str(st.get("path") or "")
+        if (st.get("gate_checked") or "via" in body or body.get("dry_run") or (job.get("meta") or {}).get("sim")):
+            return
+        code = await self._trip_device(st)
+        if not code:
+            return
+        st["gate_checked"] = True
+        dest = str(body.get("destination") or "").upper()
+        devs = await self.devices()
+        d = next((x for x in devs if x.get("device_code") == code), None) or {}
+        car = next((x for x in devs if x.get("device_code") in (d.get("stowed_in_device_code"), d.get("attached_to_device_code"))
+                    and x.get("device_code")), None) or {}
+        here = str(d.get("location") or car.get("location") or "").upper()
+        g = wormhole.gate_for(star_of(here), star_of(dest), await self.star_lookup("pos"))
+        if not g:
+            return
+        via = hubroute.waypoints(hubroute.stars_between(here, [g[1]]), dest)
+
+        async def preview(extra: dict) -> float | None:
+            try:
+                return hubroute.total_seconds(await self.api.request("POST", path, json_body={**body, **extra, "dry_run": True},
+                                                                     background=True))
+            except ApiError:
+                return None
+        direct, t = await preview({}), await preview({"via": via})
+        if t is None or (direct is not None and not hubroute.worth_it(direct, t)):
+            return
+        body["via"], st["gate_via"] = via, g[1]
+        st["desc"] += f" (through the {g[0]} gate)"
+        if job.get("rule"):
+            await self.log(job["rule"], f"{job['title']}: {code} → {dest} through the {g[0]} gate ({g[1]} → {g[2]}): "
+                                        f"{hubroute.hm(t)}" + (f" instead of {hubroute.hm(direct)}" if direct else ""))
+
     async def _hub_via(self, st: dict, job: dict) -> None:
         """A device's trip to another system goes through a hub (ours or another player's: any star the catalog flags
         has_hub) when the game's previews say that's enough faster (hubroute.py): sets the step's `via` once, before it's first sent. Previews that fail leave it direct."""
@@ -1104,6 +1146,8 @@ class JobsMixin:
         if not far:
             return None
         reps = await self.db.kv_get("replicants", {}) or {}
+        from . import wormhole
+        pos = await self.star_lookup("pos")
         week = _now() - timedelta(days=7)
         seen: dict[str, str] = {}
         for st in trips:
@@ -1119,6 +1163,8 @@ class JobsMixin:
             if not here or not there or here == there:
                 continue
             e = far.get(f"{here}>{there}")
+            if e is None or wormhole.stale_far(f"{here}>{there}", e, pos):
+                continue   # measured before the wormhole opened, and the gate shortens it now
             e = e if isinstance(e, dict) else {"at": e, "h": 0}
             at = _ts(e.get("at"))
             if at and at > (week if e.get("h") is not None else _now() - timedelta(hours=6)):

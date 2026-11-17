@@ -967,7 +967,9 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
         nothing = {k: v for k, v in nothing.items() if _ts(v) and (now - _ts(v)).total_seconds() < 26 * 3600}
         from .fleets import beyond_reach
         from .logistics import SECTOR_RANGE_LY
-        far_legs = set((await self.db.kv_get(KV_SECTOR_FAR, {}) or {}).keys())
+        from . import wormhole
+        far_legs = {k for k, v in (await self.db.kv_get(KV_SECTOR_FAR, {}) or {}).items()
+                    if not wormhole.stale_far(k, v, inp["pos"])}
 
         def far_from(starts: set[str]):
             # a trip the job runner already refused (sector_far), or two charted stars too far apart / a charted and an

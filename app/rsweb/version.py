@@ -16,14 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.461.0"
+VERSION = "1.462.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
-    ("1.461.0", "2026-11-17", "Device list: read up to 200 pages (10,000 devices) instead of 40. The account passed 2,000 "
+    ("1.462.0", "2026-11-17", "Device list: read up to 200 pages (10,000 devices) instead of 40. The account passed 2,000 "
      "devices, so every newer device, such as fresh prints for the trade post or the relay rollout, was missing from the "
      "list and was printed again. A list cut short by the cap is now treated as partial."),
+    ("1.461.0", "2026-11-17", "Wormhole: automated and planned trips leaving the Delta sector go through the DELTA gate "
+     "(DELTA-OBJ-2, one way to TWAFFY) when the game's preview says it's faster, so they fit the sector range; "
+     "sector-range refusals from before the gate opened no longer block those legs."),
     ("1.460.0", "2026-11-17", "Trade posts: a listing's overage (stock beyond the number to keep on hand) stays for sale "
      "but counts as a spare for fleets. A fleet short of that type claims it before printing; the trade post delists, "
      "hands the claimed devices to the fleet for delivery and lists the rest again once they have left."),
