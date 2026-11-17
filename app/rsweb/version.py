@@ -16,11 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.450.1"
+VERSION = "1.450.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.450.2", "2026-11-17", "Recall (Joe): a terraformer fleet comes back to its home, not the nearest receiving point "
+     "(Terraformer 1 at ADHARA would have gone to ASELOLUSP, Delta Miner 2's station)."),
     ("1.450.1", "2026-11-17", "Fleets stage error fixed (Joe): \"engine stage run_fleets failed: IndexError\" came from Chaser_1, which had a mission started from the New mission form. Rock chaser, prospector and trade post fleets take no missions (their own pass runs them), so the mission had no phases and broke the whole fleets stage every tick. Such a mission now just ends, and the form is gone from those fleets' cards (the server refuses it too)."),
     ("1.450.0", "2026-11-17", "Away owner handled for you (Joe): when a device command you send gets \"Replicant must be at the device location\", the app hands the device to a replicant that is at it (change_owner) and sends the command again, and says so. With no replicant there it names the owner and where it is. Devices hosting a replicant are never handed over."),
     ("1.449.0", "2026-11-17", "Crystal seeds (Joe): activate kept failing with \"Replicant must be at the device location\". The game wants the device's own replicant there: the 4 seeds at DELTA-OBJ-2 belong to Augustin (at FALQUORYX), and Rufus being at DELTA doesn't count. When a device command gets that answer, the result now names the owner, where it is, and the replicants at the device to hand it to with change_owner."),

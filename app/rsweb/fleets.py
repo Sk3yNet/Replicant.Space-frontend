@@ -565,6 +565,10 @@ def recall_target(fleet: dict, fleets: list[dict], devices: list[dict], dist) ->
     point from where it is, else its home."""
     if fleet.get("station") and fleet.get("home"):
         return fleet["home"], "its station"
+    if fleet.get("role") == "terraformer" and fleet.get("home"):
+        # its home, where its spares and prints are (Joe 2026-11-17: Terraformer 1's recall picked ASELOLUSP, Delta
+        # Miner 2's station and the nearest receiving point to ADHARA, where it has nothing)
+        return fleet["home"], "its home"
     here = where(fleet, devices) or fleet.get("home")
     pts = receiving_points(fleets, fleet.get("id"))
     if here and pts:

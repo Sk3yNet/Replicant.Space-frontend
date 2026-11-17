@@ -478,3 +478,12 @@ def test_world_console_shows_the_pull_number(client):  # noqa: F811
     _report_event(client, st)
     page = client.get(f"/terraforming/world/{PLANET}", headers=H).text
     assert "tectonic decrease (weak, <span" in page and "≈ -0.1/tick" in page
+
+
+def test_recall_takes_a_terraformer_home_not_to_the_nearest_receiving_point():
+    # Joe 2026-11-17: Terraformer 1 at ADHARA-2 would have recalled to ASELOLUSP (another fleet's station)
+    from rsweb import fleets as fl
+    tf_fleet = {"id": "tf", "role": "terraformer", "home": "SOL", "station": False}
+    other = {"id": "m", "role": "mining", "home": "NEAR", "station": True}
+    devs = [dict(dev("MON", "terraform_monitor", "FAR-2"))]
+    assert fl.recall_target(tf_fleet, [tf_fleet, other], devs, lambda a, b: 1.0) == ("SOL", "its home")
