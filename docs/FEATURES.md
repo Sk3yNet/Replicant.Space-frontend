@@ -818,8 +818,14 @@ they are (a print already started isn't counted; what it turns out stays a spare
   (what it asks for plus the devices' blueprint costs).
 - A beacon mark per civilization: yours at its body, only in its system, or none.
 - *Send replicant*, *deliver materials*, *fulfill*.
-- **Deliver devices** sends spare devices to a contract's location; printing what no spare covers waits for
-  **Authorize printing**.
+- Approved and pre-approved contracts get their devices on their own: spare devices in range are sent to the
+  location and what no spare covers is printed on the nearest autofactory in range. **Stop delivering devices** holds
+  one back; **Deliver devices** does the same for a contract you haven't approved.
+- With several options, an approved contract you haven't picked an option for uses the one that draws least on what
+  you're low on (marked *picked*, with the reason): what's already at the location first, then options you can pay
+  at all, then the smallest share of your account-wide stock of any one resource (resources it asks for that aren't
+  there yet, plus the blueprint cost of devices no spare covers), then the fewest prints. The pick stays once devices
+  were sent or printed for it.
 - **Restart prints** forgets prints no autofactory still holds (dropped from a queue, a factory gone) and prints what's
   short again.
 - A Trades section (as on Shop).

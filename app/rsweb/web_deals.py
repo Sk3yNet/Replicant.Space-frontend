@@ -191,6 +191,8 @@ async def game_event_approve(request: Request, key: str = Form(...), on: str = F
     else:
         approvals.pop(key, None)
     await db.kv_set(gev.APPROVALS_KV, approvals)
+    if on:
+        await _supply_now(request)   # approved contracts deliver the devices they ask for right away
     return HTMLResponse("")   # saved in place: no reload (a reload let the browser restore ticks by position)
 
 
@@ -210,7 +212,8 @@ async def game_event_option(request: Request, des: str, option: str = Form(""), 
 
 @router.post("/game-events/{des}/supply", response_class=HTMLResponse)
 async def game_event_supply(request: Request, des: str, action: str = Form("start"), user: str = Depends(current_user)):
-    """Deliver devices (start) or stop: leftover devices tagged for it become spare again on the next pass."""
+    """Deliver devices (start: spares first, then prints for the rest) or stop: leftover devices tagged for it become
+    spare again on the next pass. Approved contracts start on their own; stopping one keeps it stopped."""
     db = request.app.state.db
     e, _ = await _event(request, des)
     if not e and action == "start":
@@ -218,8 +221,9 @@ async def game_event_supply(request: Request, des: str, action: str = Form("star
     supply = await db.kv_get("contract_supply", {}) or {}
     entry = supply.setdefault(des, {})
     entry["active"] = action == "start"
+    entry["stopped"] = action != "start"   # an approved contract delivers on its own unless you stop it here
     if action != "start":
-        entry["print_ok"] = {}   # stopping withdraws the authorization for prints not yet ordered
+        entry["print_ok"] = {}   # stopping withdraws the OK for prints not yet ordered
     await db.kv_set("contract_supply", supply)
     await _supply_now(request)
     return await _contract_card(request, des)

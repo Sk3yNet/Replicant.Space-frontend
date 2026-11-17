@@ -540,10 +540,21 @@ class FleetsMixin:
         out: list[str] = []
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
+        # approved or pre-approved contracts deliver their devices (and print what no spare covers) without asking
+        # (Joe 2026-11-17); Stop delivering devices on the Contracts page holds one back (entry "stopped")
+        life = await gev.life_map(self.db)
+        approvals = await gev.approvals_of(self.db, life)
+        approved = {des for des, e in evs.items() if e.get("status") == "open"
+                    and await gev.approved(self.db, e, life, approvals, devices)}
+
+        def wanted(des: str) -> bool:
+            en = supply.get(des) or {}
+            return bool(en.get("active")) or (des in approved and not en.get("stopped"))
+
         # closed (or no longer wanted) contracts: their leftover devices go spare, the entry goes
         for des in list(supply):
             e = evs.get(des) or trade_runs.get(des)
-            if des in trade_runs or (e and e.get("status") == "open" and (supply[des].get("active") or des in running)):
+            if des in trade_runs or (e and e.get("status") == "open" and (wanted(des) or des in running)):
                 continue
             tag = cs.contract_tag(des)
             left = [d for d in devices if tag in (d.get("tags") or []) and d.get("device_code") not in busy]
@@ -572,15 +583,42 @@ class FleetsMixin:
         from .traffic import beacons as _beacons
         civ_locs = {r["location"] for r in await self.civ_coverage() if r.get("completed") or r.get("open")}
         protect = {b["device_code"] for b in _beacons(devices) if b.get("location") in civ_locs}   # as the loadouts pass
+        autos = await self.db.kv_get(gev.AUTO_CHOICE_KV, {}) or {}
+        autos0 = {k: dict(v) for k, v in autos.items()}
+        for k in [k for k in autos if (evs.get(k) or {}).get("status") != "open"]:
+            autos.pop(k)
+        stock = gev.stock_totals(inv)
         for des, e in [*evs.items(), *trade_runs.items()]:
             if e.get("status") != "open" or not e.get("location"):
                 continue
             prog = ({"best": {"devices": [{"device_type": t, "need": n} for t, n in e["_need"].items()]}} if "_need" in e
                     else gev.progress(e, inv, devices, reps))
+            entry = supply.get(des) or {}
+            if des in approved and not e.get("chosen") and len(prog.get("criteria") or []) > 1:
+                # several options: the one using spares and sparing what you're low on (gameevents.pick_option). Kept
+                # once devices were sent or printed for it, so a contract never flips between options mid-delivery.
+                started = entry.get("assigned") or entry.get("orders") or entry.get("printed")
+                if not (started and e.get("auto_chosen")):
+                    types = {x["device_type"] for c in prog["criteria"] for x in c.get("devices") or []}
+                    spare = {t: sum(1 for d in devices if d.get("location") != e["location"]
+                                    and cs.free_for(d, t, hosts, busy, protect, ignore, stationed)
+                                    and (not reach or lo._dist(lo.star_of(d.get("location")), e["star"], pos) <= reach))
+                             for t in types}
+                    pick = gev.pick_option(prog, spare, bps, stock)
+                    if pick:
+                        autos[des] = {"option": pick[0], "why": pick[1],
+                                      "at": (autos.get(des) or {}).get("at") if (autos.get(des) or {}).get("option") == pick[0]
+                                      else now_iso()}
+                        if pick[0] != e.get("auto_chosen"):
+                            e["auto_chosen"] = pick[0]
+                            prog = gev.progress(e, inv, devices, reps)
             if not cs.need_of(prog):
                 continue
-            entry = supply.get(des) or {}
-            active = bool(entry.get("active")) or des in running or des in trade_runs
+            active = wanted(des) or des in running or des in trade_runs
+            if active and "_need" not in e:   # delivering a contract is the OK to print what no spare covers
+                ok_ = entry.setdefault("print_ok", {})
+                for t_, n_ in cs.need_of(prog).items():
+                    ok_[t_] = max(int(ok_.get(t_) or 0), int(n_))
             if "_need" in e:   # a trade you approved (or a trade fleet runs): that is the OK to print what no spare covers
                 ok_ = entry.setdefault("print_ok", {})   # (live 2026-11-02: 10 compute cores for the Crystal Synthesis
                 for t_, n_ in e["_need"].items():        # Lab at DELTA-OBJ-2 waited forever, spares only 29,000 ly away)
@@ -641,6 +679,8 @@ class FleetsMixin:
                     out.append(f"{des}: printing {pr['n']}× {pr['device_type']}")
             supply[des] = entry
         await self.db.kv_set(cs.KV, supply)
+        if autos != autos0:
+            await self.db.kv_set(gev.AUTO_CHOICE_KV, autos)
         for line in out:
             await self.log("contracts", line)
         return out

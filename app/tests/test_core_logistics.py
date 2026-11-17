@@ -264,7 +264,8 @@ def test_supply_range_keeps_prints_and_spares_near_the_fleet():
     assert kept == 15                                                  # chosen after the change: kept
 
 
-def test_contract_device_delivery_waits_for_print_authorization(client):
+def test_contract_device_delivery_starts_when_approved(client):
+    """An approved contract sends spares and prints the rest on its own (Joe 2026-11-17: no Deliver / Authorize gates)."""
     eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
     client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": [{"resource_type": "carbon", "quantity": 900}]}])
     client.portal.call(db.kv_set, "blueprints", [{"device_type": "ftl_relay", "resources": {"carbon": 40}, "print_time": 600}])
@@ -272,36 +273,30 @@ def test_contract_device_delivery_waits_for_print_authorization(client):
                                                 title="Relay Network", criteria=[{"name": "default", "resources": {"carbon": 50},
                                                                                   "devices": [{"device_type": "ftl_relay", "quantity": 2}]}]),
                                         "location": "AEM-2"})
-    client.post("/game-events/approve", data={"key": "body:AEM-2", "on": "1"}, headers=HX)   # its species approved
     devices = client.portal.call(db.kv_get, "devices")
     devices += [{"device_code": "S1", "device_type": "ftl_relay", "location": "SOL-3", "status": "idle", "tags": ["spare"]},
                 {"device_code": "F1", "device_type": "ftl_relay", "location": "SOL-3", "status": "idle", "tags": ["fleet:x"]},
                 {"device_code": "AF9", "device_type": "autofactory", "location": "SOL-BELT-1", "status": "idle",
                  "available_commands": ["enqueue_print"], "tags": []}]
     client.portal.call(db.kv_set, "devices", devices)
-    assert client.portal.call(eng.contract_supply_pass, True) == []    # nothing happens until you ask for it
-    client.post("/game-events/AEM-2-EVT-001/supply", data={"action": "start"}, headers=HX)
+    assert client.portal.call(eng.contract_supply_pass, True) == []    # not approved: nothing happens
+    client.post("/game-events/approve", data={"key": "body:AEM-2", "on": "1"}, headers=HX)   # its species approved
     jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts"]
-    assert len(jobs) == 1 and "S1" in jobs[0]["title"]                 # the spare goes; the fleet's relay doesn't
-    tags = jobs[0]["steps"][0]["body"]["configuration"]
+    sj = [j for j in jobs if "send" in j["title"]]
+    assert len(sj) == 1 and "S1" in sj[0]["title"]                     # the spare goes; the fleet's relay doesn't
+    tags = sj[0]["steps"][0]["body"]["configuration"]
     assert set(tags["add_tags"]) == {"to:aem", "at:aem-2", "contract:aem-2-evt-001"} and tags["remove_tags"] == ["spare"]
-    sup = client.portal.call(db.kv_get, "contract_supply")["AEM-2-EVT-001"]
-    row = sup["rows"][0]
-    assert row["short"] == 1 and row["print"] == 0 and "authorize" in row["why"]   # one more: no print without a yes
-    page = client.get("/game-events", headers=H).text
-    assert "Authorize printing" in page and "Stop delivering devices" in page
-    # once the tag shows, S1 counts as on its way; authorizing prints the other one, tagged for the contract
-    for d in devices:
-        if d["device_code"] == "S1":
-            d["tags"] = ["to:aem", "at:aem-2", "contract:aem-2-evt-001"]
-    client.portal.call(db.kv_set, "devices", devices)
-    client.post("/game-events/AEM-2-EVT-001/authorize-prints", headers=HX)
-    jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts"]
-    pj = [j for j in jobs if "print" in j["title"]]
+    pj = [j for j in jobs if "print" in j["title"]]                     # the other one is printed without asking
     assert len(pj) == 1 and pj[0]["device"] == "AF9"
     body = pj[0]["steps"][0]["body"]
     assert body["command"] == "enqueue_print" and body["quantity"] == 1
     assert set(body["tags"]) == {"to:aem", "at:aem-2", "contract:aem-2-evt-001"}
+    page = client.get("/game-events", headers=H).text
+    assert "Authorize printing" not in page and "Stop delivering devices" in page
+    for d in devices:
+        if d["device_code"] == "S1":
+            d["tags"] = ["to:aem", "at:aem-2", "contract:aem-2-evt-001"]
+    client.portal.call(db.kv_set, "devices", devices)
     client.portal.call(db.kv_set, "contract_supply_last", None)
     client.portal.call(eng.contract_supply_pass, True)
     jobs = [j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts"]
@@ -311,7 +306,7 @@ def test_contract_device_delivery_waits_for_print_authorization(client):
     # the print never came out (no autofactory holds it): Restart prints forgets it and prints it again
     client.post("/game-events/AEM-2-EVT-001/restart-prints", headers=HX)
     sup = client.portal.call(db.kv_get, "contract_supply")["AEM-2-EVT-001"]
-    assert len(sup["orders"]) == 1 and sup["print_ok"]["ftl_relay"] == 1
+    assert len(sup["orders"]) == 1 and sup["print_ok"]["ftl_relay"] == 2   # approved: up to the whole need
     assert len([j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts" and "print" in j["title"]]) == 2
     # the contract closes: the leftover relay goes back to spare
     client.portal.call(w.handle_event, {**_ev(998, "event.completed", designation="AEM-2-EVT-001", location="AEM-2"),
@@ -322,6 +317,40 @@ def test_contract_device_delivery_waits_for_print_authorization(client):
     cfgx = rel[0]["steps"][0]["body"]["configuration"]
     assert cfgx["add_tags"] == ["spare"] and set(cfgx["remove_tags"]) == {"to:aem", "at:aem-2", "contract:aem-2-evt-001"}
     assert "AEM-2-EVT-001" not in client.portal.call(db.kv_get, "contract_supply")
+
+
+def test_contract_stop_holds_an_approved_contract(client):
+    eng, db, w = client.app.state.worker.automations, client.app.state.db, client.app.state.worker
+    client.portal.call(w.handle_event, {**_ev(997, "event.discovered", designation="AEM-2-EVT-001", location="AEM-2",
+                                                title="Relay Network", criteria=[{"name": "default",
+                                                                                  "devices": [{"device_type": "ftl_relay", "quantity": 1}]}]),
+                                        "location": "AEM-2"})
+    client.post("/game-events/AEM-2-EVT-001/supply", data={"action": "stop"}, headers=HX)
+    client.post("/game-events/approve", data={"key": "contract:AEM-2-EVT-001", "on": "1"}, headers=HX)
+    devices = client.portal.call(db.kv_get, "devices") + [
+        {"device_code": "S1", "device_type": "ftl_relay", "location": "SOL-3", "status": "idle", "tags": ["spare"]}]
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(eng.contract_supply_pass, True)
+    assert not [j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts"]   # you stopped it: stays stopped
+    client.post("/game-events/AEM-2-EVT-001/supply", data={"action": "start"}, headers=HX)
+    assert [j for j in client.portal.call(eng.jobs) if j["rule"] == "contracts" and "S1" in j["title"]]
+
+
+def test_pick_option_prefers_spares_and_spares_low_resources():
+    from rsweb import gameevents as gev
+    e = {"location": "AEM-2", "star": "AEM", "criteria": [
+        {"name": "metal", "resources": {"metals": 500}},
+        {"name": "relays", "devices": [{"device_type": "ftl_relay", "quantity": 2}]},
+        {"name": "beacons", "devices": [{"device_type": "ftl_beacon", "quantity": 2}]}]}
+    prog = gev.progress(e, {}, [], {})
+    bps = [{"device_type": "ftl_relay", "resources": {"carbon": 40}}, {"device_type": "ftl_beacon", "resources": {"silicon": 10}}]
+    stock = {"metals": 600, "carbon": 1000, "silicon": 30}
+    assert gev.pick_option(prog, {"ftl_relay": 2}, bps, stock)[0] == "relays"          # spares cover it: nothing drawn
+    name, why = gev.pick_option(prog, {}, bps, stock)
+    assert name == "relays" and "8% of your carbon" in why                             # 80/1000 beats 20/30 and 500/600
+    assert gev.pick_option(prog, {}, bps, {"metals": 600, "silicon": 30})[0] == "beacons"   # no carbon at all: can't pay
+    e["auto_chosen"] = "beacons"
+    assert gev.progress(e, {}, [], {})["best"]["name"] == "beacons"
 
 
 def test_materials_in_transit_on_logistics_and_dashboard(client):

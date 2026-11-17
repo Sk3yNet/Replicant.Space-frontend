@@ -2220,6 +2220,7 @@ async def game_events_ctx(request: Request) -> dict:
     for e in open_:
         a = e["approval"]
         ok = a["on"] or e["approval_one"]["on"] or (beacon_auto and a["beacon"])
+        e["auto_supply"] = bool(ok)   # approved: devices are delivered without asking (contract_supply_pass)
         best = e["prog"].get("best") or {}
         devs = any(x.get("need") for x in best.get("devices") or [])
         sections["devices" if ok and devs else "approved" if ok else "unapproved"].append(e)

@@ -67,9 +67,13 @@ async def load(db) -> dict[str, dict]:
         if e and e.get("status") == "open":
             e["status"], e["closed_at"] = "completed", at
     choices = await db.kv_get(CHOICE_KV, {}) or {}
+    autos = await db.kv_get(AUTO_CHOICE_KV, {}) or {}
     for e in out.values():
         if choices.get(e["designation"]):
             e["chosen"] = choices[e["designation"]]
+        elif (autos.get(e["designation"]) or {}).get("option"):
+            e["auto_chosen"] = autos[e["designation"]]["option"]
+            e["auto_why"] = autos[e["designation"]].get("why") or ""
         e.setdefault("location", "")
         e["star"] = star_of(e.get("location"))
         e.setdefault("title", (e.get("event_type") or e["designation"]).replace("_", " ").title())
@@ -127,11 +131,14 @@ def progress(e: dict, inventory: dict[str, dict], devices: list[dict], replicant
         elif star_of(rloc) == star:
             nearby.append({"code": code, "name": name, "location": rloc})
     chosen = next((c for c in crits if e.get("chosen") and c["name"] == e["chosen"]), None)
+    auto = next((c for c in crits if e.get("auto_chosen") and c["name"] == e["auto_chosen"]), None)
     for c in crits:
         c["chosen"] = c is chosen
-    # the option you picked on the Contracts page; else whichever is ready first
-    best = chosen or next((c for c in crits if c["ready_here"]), None) or next((c for c in crits if c["ready_system"]), None) \
-        or (crits[0] if crits else None)
+        c["auto"] = c is auto and not chosen
+    # the option you picked on the Contracts page; else one ready here; else the one picked for spares and stock
+    # (pick_option, approved contracts); else whichever is ready in the system first
+    best = chosen or next((c for c in crits if c["ready_here"]), None) or auto \
+        or next((c for c in crits if c["ready_system"]), None) or (crits[0] if crits else None)
     state = ("ready" if best and best["ready_here"] and present else
              "needs replicant" if best and best["ready_here"] else
              "deliver" if best and best["ready_system"] else "gather")
@@ -164,6 +171,74 @@ def option_costs(prog: dict, devices: list[dict], blueprints: list[dict]) -> Non
                 total[r] += float(q) * x["need"]
         c["cost"] = dict(sorted(((r, q) for r, q in total.items() if q), key=lambda kv: -kv[1]))
         c["cost_unknown"] = unknown
+
+
+def stock_totals(inventory: dict[str, dict]) -> dict[str, float]:
+    """Every stockpile summed, per resource: what you hold account-wide."""
+    out: dict[str, float] = defaultdict(float)
+    for items in (inventory or {}).values():
+        for r, q in as_amounts(items).items():
+            out[r] += float(q)
+    return dict(out)
+
+
+def pick_option(prog: dict, spare: dict[str, int], blueprints: list[dict], stock: dict[str, float]) -> tuple[str, str] | None:
+    """For a contract with several options: the one that draws least on what you're low on (Joe 2026-11-17).
+
+    Per option, the draw is what isn't at the location yet: resources short there, plus the blueprint cost of each device
+    no spare covers (spare = free devices of the type in range). A resource is judged low by the share of your
+    account-wide stock the option would use. Options are ranked: everything at hand first; then those you can pay at all
+    (no resource drawn beyond stock, a blueprint for every device to print); then the smallest share of your scarcest
+    resource; then the fewest devices printed; then the least drawn in all. Returns (option name, why) or None."""
+    crits = prog.get("criteria") or []
+    if len(crits) < 2:
+        return None
+    bps = {b.get("device_type"): b for b in blueprints or []}
+    ranked = []
+    for i, c in enumerate(crits):
+        draw: dict[str, float] = defaultdict(float)
+        for x in c.get("resources") or []:
+            if x.get("short_here"):
+                draw[x["resource"]] += float(x["short_here"])
+        printed, unknown, spares = 0, [], 0
+        for x in c.get("devices") or []:
+            short = int(x.get("short_here") or 0)
+            use = min(short, int(spare.get(x["device_type"], 0)))
+            spares += use
+            k = short - use
+            if not k:
+                continue
+            printed += k
+            bp = bps.get(x["device_type"])
+            if bp is None:
+                unknown.append(x["device_type"])
+                continue
+            for r, q in as_amounts(bp.get("resources") or {}).items():
+                draw[r] += float(q) * k
+        shares = {r: (q / stock[r] if stock.get(r) else float("inf")) for r, q in draw.items() if q > 0}
+        worst = max(shares.items(), key=lambda kv: kv[1]) if shares else (None, 0.0)
+        cant = bool(unknown) or worst[1] > 1
+        ranked.append(((not c.get("ready_here"), cant, worst[1], printed, sum(draw.values()), i),
+                       c, worst, spares, printed, unknown))
+    ranked.sort(key=lambda r: r[0])
+    _, c, worst, spares, printed, unknown = ranked[0]
+    if c.get("ready_here"):
+        why = "everything is at the location"
+    else:
+        bits = []
+        if spares:
+            bits.append(f"{spares} spare device(s)")
+        if printed:
+            bits.append(f"{printed} printed")
+        if worst[0]:
+            pct = "more than you hold" if worst[1] > 1 else f"{worst[1] * 100:.0f}% of your {worst[0]}"
+            bits.append(f"uses at most {pct}")
+        elif not unknown:
+            bits.append("no resources drawn")
+        if unknown:
+            bits.append("no blueprint for " + ", ".join(unknown))
+        why = "; ".join(bits) or "least drawn on your stock"
+    return c["name"], why
 
 
 def delivery_plan(e: dict, prog: dict, devices: list[dict]) -> dict:
@@ -201,6 +276,7 @@ def delivery_plan(e: dict, prog: dict, devices: list[dict]) -> dict:
 APPROVALS_KV = "contract_approvals"
 BEACON_KEY = "auto:beacon"
 CHOICE_KV = "contract_choice"   # {designation: option name}: the way a contract with several options is fulfilled
+AUTO_CHOICE_KV = "contract_auto_choice"   # {designation: {option, why, at}}: picked for approved contracts (pick_option)
 
 
 async def life_map(db) -> dict[str, dict]:

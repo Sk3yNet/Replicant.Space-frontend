@@ -28,12 +28,12 @@
       {% if p.criteria | length > 1 %}<div class="small"><b>Any one</b> of these {{ p.criteria | length }} options completes it.
         <label style="text-transform:none">Fulfill with
           <select name="option" autocomplete="off" hx-post="/game-events/{{ e.designation }}/option" hx-trigger="change" hx-target="#ev-{{ e.designation }}" hx-swap="outerHTML">
-            <option value="">whichever is ready first{% if b and not e.chosen %} (now: {{ b.name | human }}){% endif %}</option>
+            <option value="">{{ 'best for spares and stock' if e.auto_supply else 'whichever is ready first' }}{% if b and not e.chosen %} (now: {{ b.name | human }}){% endif %}</option>
             {% for c in p.criteria %}<option value="{{ c.name }}" {{ 'selected' if c.chosen }}>{{ c.name | human }}</option>{% endfor %}
           </select></label>
         <span class="muted">— deliveries, device supply, auto-fulfill and the Fulfill button use it</span></div>{% endif %}
       {% for c in p.criteria %}
-      <h3 style="margin:6px 0{{ ';opacity:.55' if (p.criteria | selectattr('chosen') | list) and not c.chosen }}">{{ 'Criteria' if c.name == 'default' else c.name | human }}{% if c.chosen %} <span class="pill small st-work">chosen</span>{% endif %} {% if c.ready_here %}<span class="lv-done small">✓ all here</span>{% elif c.ready_system %}<span class="small">in system — needs delivering</span>{% endif %}</h3>
+      <h3 style="margin:6px 0{{ ';opacity:.55' if (p.criteria | selectattr('chosen') | list) and not c.chosen }}">{{ 'Criteria' if c.name == 'default' else c.name | human }}{% if c.chosen %} <span class="pill small st-work">chosen</span>{% endif %}{% if c.auto %} <span class="pill small st-move" title="picked for spares and stock">picked</span> <span class="muted small" style="font-weight:normal">{{ e.auto_why }}</span>{% endif %} {% if c.ready_here %}<span class="lv-done small">✓ all here</span>{% elif c.ready_system %}<span class="small">in system — needs delivering</span>{% endif %}</h3>
       <table class="small"><tr><th>Needs</th><th class="num">Qty</th><th class="num">At {{ e.location }}</th><th class="num">In {{ e.star }}</th>{% if c.devices %}<th class="num" title="devices of this type tagged spare, anywhere">Spare</th>{% endif %}</tr>
         {% for x in c.resources %}<tr><td>{{ x.resource }}</td><td class="num">{{ x.need | num }}</td>
           <td class="num {{ 'lv-done' if not x.short_here else '' }}">{{ x.at_location | num }}</td>
@@ -62,7 +62,7 @@
       </div>{% endif %}
       {% set dneed = (b.devices if b else []) | selectattr('need') | list %}{% set sp = e.supply or {} %}
       {% if dneed %}<div class="small" style="margin-top:6px"><b>Devices{% if p.criteria | length > 1 %} for {{ b.name | human }}{% endif %}:</b>
-        {% if sp.active %}<span class="pill st-move small">delivering</span>{% elif sp %}<span class="muted">stopped</span>{% endif %}
+        {% if sp.active or (e.auto_supply and not sp.stopped) %}<span class="pill st-move small">delivering</span>{% elif sp.stopped or sp %}<span class="muted">stopped</span>{% endif %}
         {% if sp.rows %}
         <table class="small"><tr><th>Device</th><th class="num">Need</th><th class="num">There</th><th class="num">On the way</th><th class="num">Printing</th><th class="num">Short</th><th></th></tr>
           {% for r in sp.rows %}<tr><td>{{ r.type | human }}</td><td class="num">{{ r.need }}</td><td class="num {{ 'lv-done' if r.here >= r.need else '' }}">{{ r.here }}</td>
@@ -73,14 +73,14 @@
         {% set short = (sp.rows or []) | selectattr('short') | list %}
         {% if short %}<div style="margin-top:4px">No spare in range covers:
           {% for r in short %}{{ r.short }}× {{ r.type | human }}{% if r.cost %} ({% for k, v in r.cost.items() %}{{ (v * r.short) | num }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}){% endif %}{{ ', ' if not loop.last }}{% endfor %}
-          <button class="small" hx-post="/game-events/{{ e.designation }}/authorize-prints" hx-target="#ev-{{ e.designation }}" hx-swap="outerHTML" hx-confirm="Print these on the nearest autofactory in range?">Authorize printing</button></div>{% endif %}
+          {% if sp.active or (e.auto_supply and not sp.stopped) %}<span class="muted">— printed on the nearest autofactory in range</span>{% endif %}</div>{% endif %}
         {% if (sp.rows or []) | selectattr('printing') | list %}<div style="margin-top:4px"><button class="small ghost"
           hx-post="/game-events/{{ e.designation }}/restart-prints" hx-target="#ev-{{ e.designation }}" hx-swap="outerHTML" hx-confirm="Forget prints no autofactory still holds and print what is short again?"
           title="For prints that never came out: orders no autofactory still has queued or printing are dropped, and what's short is printed again">Restart prints</button></div>{% endif %}
-        <div class="muted">Spare or idle fleetless devices in range are tagged for it and the loadouts pass flies them to {{ e.location }}; nothing is printed until you authorize it. Leftovers become spare when the contract closes.</div>
+        <div class="muted">Spare or idle fleetless devices in range are tagged for it and the loadouts pass flies them to {{ e.location }}; what no spare covers is printed on the nearest autofactory in range. Approved contracts start on their own. Leftovers become spare when the contract closes.</div>
       </div>{% endif %}
       <div class="row" style="margin-top:8px">
-        {% if dneed %}{% if sp.active %}<button class="small ghost" hx-post="/game-events/{{ e.designation }}/supply" hx-target="#ev-{{ e.designation }}" hx-swap="outerHTML" hx-vals='{"action": "stop"}'>Stop delivering devices</button>
+        {% if dneed %}{% if sp.active or (e.auto_supply and not sp.stopped) %}<button class="small ghost" hx-post="/game-events/{{ e.designation }}/supply" hx-target="#ev-{{ e.designation }}" hx-swap="outerHTML" hx-vals='{"action": "stop"}'>Stop delivering devices</button>
         {% elif not b.ready_here %}<button class="small" hx-post="/game-events/{{ e.designation }}/supply" hx-target="#ev-{{ e.designation }}" hx-swap="outerHTML" hx-vals='{"action": "start"}'>Deliver devices</button>{% endif %}{% endif %}
         {% if not p.present %}
           <form class="inline" hx-post="/game-events/{{ e.designation }}/bring" hx-target="#ge-{{ e.designation }}">

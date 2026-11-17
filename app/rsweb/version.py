@@ -16,11 +16,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.467.0"
+VERSION = "1.468.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.468.0", "2026-11-17", "Contracts: approved and pre-approved contracts deliver the devices they ask for on their "
+               "own, spares first and prints for the rest, with no Deliver devices or Authorize printing step (Stop "
+               "delivering devices still holds one back). A contract with several options uses the one that draws "
+               "least on what you're low on: share of account-wide stock, spares counted first."),
     ("1.467.0", "2026-11-17", "Print queues: factories at one spot still share the app's queue, but a factory takes a "
                "neighbor's print only once that neighbor's game queue is full. Before, the first factories fed took "
                "everything: 10 matrices planned 2 per autofactory went 4/4/2/0/0."),
