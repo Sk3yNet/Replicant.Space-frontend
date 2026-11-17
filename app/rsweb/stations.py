@@ -390,15 +390,17 @@ async def run_pass(eng) -> list[str]:
             continue
         ob = objective(j, stations)
         if ob["kind"] == "deploy" and ob["device_type"] and ob["at"] and jid not in (cfg.get("supplied") or {}):
-            from .loadouts import at_tag
+            from .loadouts import at_tag, to_tag
             n = int(ob["qty"] or 1)
             have = [d for d in devices if d.get("device_type") == ob["device_type"] and
                     (d.get("location") == ob["at"] or at_tag(ob["at"]) in (d.get("tags") or []))]
             short = n - len(have)
             note = "already there or on the way"
             if short > 0:
+                from .vqueue import JOB_TAG
                 pinned, printed, err = await eng.pin_or_print(ob["device_type"], short, ob["at"], devices,
-                                                              eng.busy_devices(await eng.jobs()), f"station job {jid}", have)
+                                                              eng.busy_devices(await eng.jobs()), f"station job {jid}", have,
+                                                              tags=[to_tag(star_of(ob["at"])), at_tag(ob["at"]), JOB_TAG])
                 note = f"{len(pinned)} spare(s) sent, {printed} queued to print" + (f" ({err})" if err else "")
             cfg.setdefault("supplied", {})[jid] = note
             changed = True

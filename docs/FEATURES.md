@@ -877,7 +877,8 @@ Station jobs (Season 4, game v4.0.0): the twelve colony stations post jobs for t
 - **Runner**: for a job handed to it, logistics brings the resources to the station's pile (gather) or the destination
   (deliver) like a contract, spare devices are sent or printed to the location (deploy), and a courier device is pinned to
   its destination. All of it is urgent logistics (priority 0, right after evacuations and ahead of Sol trades), since a
-  job must be done within its deadline. Once the objective is met and a replicant of yours is where the job completes, it completes it
+  job must be done within its deadline; its prints (tag `stationjob`) go ahead of every print but those you queue by
+  hand. Once the objective is met and a replicant of yours is where the job completes, it completes it
   (otherwise it tells you to send one). It warns an hour before a deadline. **Auto accept** (off by default) takes the
   best open job at the stations, factions and kinds you tick whenever you hold none and no cooldown runs.
 

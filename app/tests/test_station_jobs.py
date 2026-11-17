@@ -134,3 +134,21 @@ def test_devices_for_a_running_deploy_or_courier_job_are_urgent():
             {"device_code": "R2", "device_type": "ftl_relay", "location": "A-OBJ-2", "tags": ["at:a-obj-2"]},
             {"device_code": "R3", "device_type": "ftl_relay", "location": "B-4", "tags": ["at:a-2"]}]
     assert lo.priority_devices(devs, pins) == {"R1"} and lo.priority_devices(devs) == set()
+
+
+def test_station_job_prints_go_first():
+    """Joe 2026-11-17: prints a deploy job needs jump the print queue, and their materials are urgent."""
+    from rsweb import logistics as lg
+    from rsweb import vqueue as vqm
+    body = {"device_type": "ftl_relay", "tags": ["to:a", "at:a-obj-2", vqm.JOB_TAG]}
+    assert vqm.priority(body) == 0.5 and vqm.label(0.5) == "station job"
+    assert vqm.priority(body) < vqm.priority({"device_type": "mining_drone", "tags": ["component", "prio:1.5"]})
+    assert vqm.priority({"device_type": "x", "tags": ["fleet:1"]}, hand=True) < vqm.priority(body)
+    bps = {"ftl_relay": {"device_type": "ftl_relay", "resources": {"carbon": 40}}}
+    fac = {"device_code": "AF", "device_type": "autofactory", "location": "A-1", "status": "idle",
+           "print_queue": [{"device_type": "ftl_relay", "quantity": 1, "tags": body["tags"]}]}
+    assert lg.print_costs([fac], bps)["A-1"]["job"] is True
+    reqs, _, _ = lg.requests(devices=[fac], bps=bps, inventory={}, pos=POS, contracts=[], trades=[], incoming={},
+                             fleets=FLEETS, gather={}, busy_stars=set())
+    r = next(r for r in reqs if r["id"] == "print:A-1")
+    assert r["tier"] == 0 and r["urgent"] == "station job print"

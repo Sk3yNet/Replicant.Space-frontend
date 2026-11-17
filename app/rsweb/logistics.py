@@ -322,6 +322,8 @@ def print_costs(devices: list[dict], bps: dict[str, dict]) -> dict[str, dict]:
         pr = d.get("printing") if isinstance(d.get("printing"), dict) else {}
         if any(not is_stock(it) for it in pq.items(d)) or (st.startswith("waiting_for_resources") and not is_stock(pr)):
             e["stock_only"] = False
+        from .vqueue import JOB_TAG   # a print a station job needs (Joe 2026-11-17): its materials are urgent
+        e["job"] = e.get("job", False) or any(JOB_TAG in (it.get("tags") or []) for it in pq.items(d) + [pr or {}])
         e["factories"].append(d.get("device_code"))
         for t, n in counts.items():
             if n <= 0:
@@ -524,7 +526,7 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
         types = ", ".join(f"{n}× {t.replace('_', ' ')}" for t, n in sorted(e["types"].items()))
         for_stock = e.get("stock_only", False)
         out.append({"id": f"print:{loc}", "kind": "print", "to": loc, "need": need, "price": e["cost"],
-                    "tier": 4 if for_stock else 1, "waiting": e["waiting"],
+                    "tier": 4 if for_stock else 1, "waiting": e["waiting"], "job": e.get("job", False),
                     "label": f"prints at {loc}: {types}" + (" (keep in stock)" if for_stock else "")})
     for c in contracts:
         out.append({"id": f"contract:{c['designation']}", "kind": "contract", "to": c["location"], "price": c["price"],
@@ -557,9 +559,10 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
             r["tier"] = 2 if local else 3
     for r in out:   # urgent (Joe 2026-11-13): trades at Sol (its shops sell out) and prints a factory is stalled on
         if (r["kind"] == "trade" and star_of(r["to"]) in PRIORITY_STARS) or \
-                (r["kind"] == "print" and r.get("waiting") and r["tier"] == 1):
+                (r["kind"] == "print" and (r.get("waiting") or r.get("job")) and r["tier"] == 1):
             r["tier"] = 0
-            r["urgent"] = "Sol trade" if r["kind"] == "trade" else "stalled print"
+            r["urgent"] = ("Sol trade" if r["kind"] == "trade" else "station job print" if r.get("job")
+                           else "stalled print")
     for loc, to in sorted((evacuate or {}).items()):   # an asteroid is due there: its pile goes first (evacuate.py)
         items = stock.get(loc) or {}
         if sum(items.values()) >= 1 and to:
@@ -621,7 +624,8 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
             r["tier"] = int(prefs["bump"][r["id"]])
         r["skipped"] = r["id"] in set(prefs.get("skip") or [])
     # among the urgent ones: evacuations, then station jobs (soonest deadline first), Sol trades, stalled prints
-    out.sort(key=lambda r: (r["tier"], {"return": 0, "job": 1, "trade": 2}.get(r["kind"], 3) if r["tier"] == 0 else 0,
+    out.sort(key=lambda r: (r["tier"], {"return": 0, "job": 1, "trade": 2}.get(r["kind"], 1 if r.get("job") else 3)
+                            if r["tier"] == 0 else 0,
                             r.get("due") or "~" if r["kind"] == "job" else "",
                             not r.get("waiting"), bool(r.get("plenty")) and set(r["need"]) <= set(r["plenty"]), r["id"]))
     _batch_deals(out, stock, incoming)

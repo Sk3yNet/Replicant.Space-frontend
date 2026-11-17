@@ -36,7 +36,8 @@ PATH = re.compile(r"^/(?:v1/)?devices/([0-9A-Fa-f]{8})/?$")
 LIST = re.compile(r"^/(?:v1/)?devices/?$")
 NETWORK = ("ftl_relay", "deep_space_relay_station", "ftl_beacon", "ward")
 ROLLOUT = "rollout"   # tag on relay prints the relay rollout orders: they wait behind every other print
-LABELS = {0: "by hand", 1: "component", 2: "network", 3: "loadout", 3.5: "contract", 4: "stock", 5: "rollout"}
+JOB_TAG = "stationjob"   # on a print a station job needs (stations.run_pass): it must be done within the job's deadline
+LABELS = {0: "by hand", 0.5: "station job", 1: "component", 2: "network", 3: "loadout", 3.5: "contract", 4: "stock", 5: "rollout"}
 PRIO_TAG = "prio:"   # on a component print: its own priority, just ahead of the print it goes into (component_rank)
 COMPONENT_STEP = 0.25
 
@@ -51,7 +52,7 @@ def label(p: float) -> str:
 
 
 def priority(body: dict, hand: bool = False) -> float:
-    """By hand 0 > network 2 > loadout (fleets) 3 > contract 3.5 > stock 4 > rollout 5; a component goes just ahead of
+    """By hand 0 > station job 0.5 > network 2 > loadout (fleets) 3 > contract 3.5 > stock 4 > rollout 5; a component goes just ahead of
     its parent print (its prio: tag), or 1 when it carries none (queued before 1.469.0)."""
     tags = body.get("tags") or []
     t = str(body.get("device_type") or "")
@@ -65,6 +66,8 @@ def priority(body: dict, hand: bool = False) -> float:
                 except ValueError:
                     pass
         return 1
+    if JOB_TAG in tags:   # a station job's deadline (Joe 2026-11-17): ahead of every automatic print
+        return 0.5
     if ROLLOUT in tags:
         return 5
     if any(str(x).startswith("contract:") for x in tags):   # contracts and trades wait behind fleets (Joe 2026-11-17)
