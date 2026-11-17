@@ -29,7 +29,7 @@
       </div>{% endif %}
       <div id="bt-{{ f.id }}"></div>
       {% if f.bkids %}<h3>Systems</h3>
-        {% for g in f.bkids %}<div class="small"><a href="#fleet-{{ g.id }}">{{ g.name }}</a> · {{ g.home }}{% if g.materials == 'self' %} · takes materials in{% elif g.materials %} · sends to the hub{% endif %}{% if (g.wants or {}).system_ward %} · ward{% endif %}</div>{% endfor %}{% endif %}
+        {% for g in f.bkids %}<div class="small"><a href="#fleet-{{ g.id }}">{{ g.name }}</a> · {{ g.home }}{% if g.materials == 'self' %} · hub, takes materials in{% elif g.materials %} · sends to the hub{% endif %}{% if (g.wants or {}).system_ward %} · ward{% endif %}</div>{% endfor %}{% endif %}
       {% if v.chain %}<div class="small" style="margin-top:6px"><b>Relay chain:</b> {{ v.chain | join(' — ') }} <span class="muted">(a relay reaches 7.5 ly)</span></div>{% endif %}
       <h3>Log</h3>
       {% for l in (b.log or [])[-8:] | reverse %}<div class="small"><span class="muted">{{ l.at | ago }}</span> {{ l.text }}</div>{% else %}<p class="muted small">Nothing yet.</p>{% endfor %}

@@ -17,6 +17,8 @@ class FleetsMixin:
         derived = ("roster", "points", "job", "zero", "report", "route", "sends_to", "takes_from", "target_options",
                    "owner_move", "owner_hosts", "owners", "orders", "outposts", "matrix_note", "replicant_aboard")   # page-only fields, never stored
         keep = [{k: v for k, v in f.items() if k not in derived} for f in items]
+        from .fleets import designate_hubs
+        designate_hubs(keep)   # hub fleets receive, nobody else (1.455.0)
         if any(f.get("materials") == "supply" or f.get("supply_to") for f in keep):   # nearest receiver, by home
             from .fleets import resolve_supply
             resolve_supply(keep, await self.star_lookup("pos_all"))
@@ -60,6 +62,8 @@ class FleetsMixin:
             if (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped"):
                 f.pop("mission", None)
             out.append(f"{f.get('name')}: trade fleet is now a logistics fleet (trade fleets are retired)")
+        from .fleets import designate_hubs
+        out += designate_hubs(items)   # receiving follows the loadout: a fleet that gained or lost its system hub
         if out:
             await self.save_fleets(items)
             for line in out:

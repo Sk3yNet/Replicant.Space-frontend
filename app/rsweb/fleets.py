@@ -542,10 +542,37 @@ def next_phase(role: str, m: dict) -> str | None:
 
 
 def receiving_points(fleets: list[dict], skip: str | None = None) -> set[str]:
-    """Systems that receive a fleet home: stationed fleets' homes and fleets that take materials in (not logistics,
-    which roams)."""
+    """Systems that receive a fleet home: the hub fleets' homes (materials 'self', set by designate_hubs). Never a
+    mining fleet's home (Joe 2026-11-17: a recall picked Miner_1's ASELOLUSP)."""
     return {f["home"] for f in fleets if f.get("home") and f.get("id") != skip and f.get("role") not in ("logistics", "trade_post")
-            and (f.get("station") or f.get("materials") == "self")}
+            and f.get("materials") == "self"}
+
+
+NOT_HUB_ROLES = ("logistics", "trade_post", "explore", "prospector", "rock_chaser", "terraformer")
+
+
+def is_hub(fleet: dict, fleets: list[dict]) -> bool:
+    """A hub fleet: stationed at a home with a system hub in its loadout (the printing hubs), or a bootstrap's hub."""
+    if not fleet.get("station") or not fleet.get("home") or fleet.get("role") in NOT_HUB_ROLES:
+        return False
+    if (fleet.get("wants") or {}).get("system_hub", 0) and int(fleet["wants"]["system_hub"] or 0) > 0:
+        return True
+    return any(((g.get("boot") or {}).get("children") or {}).get("hub") == fleet.get("id") for g in fleets)
+
+
+def designate_hubs(fleets: list[dict]) -> list[str]:
+    """Receiving is automatic (Joe 2026-11-17): hub fleets take materials in ('self'), no other fleet does. A fleet
+    set to send to one or supply keeps that. Changes the records in place; returns what changed."""
+    out = []
+    for f in fleets:
+        hub, m = is_hub(f, fleets), f.get("materials") or ""
+        if hub and m != "self":
+            f["materials"] = "self"
+            out.append(f"{f.get('name') or f.get('id')}: a hub fleet, now receiving")
+        elif not hub and m == "self":
+            f["materials"] = ""
+            out.append(f"{f.get('name') or f.get('id')}: not a hub fleet, no longer receiving")
+    return out
 
 
 def where(fleet: dict, devices: list[dict]) -> str | None:

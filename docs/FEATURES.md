@@ -496,9 +496,10 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
   - Any fleet or ward / relay order can take it (wards are only printed, never activated); once taken for a fleet or a
     system it loses both tags.
   - Stock prints are low priority: logistics supplies them last, and a waiting stock print is moved behind any other.
-- **Materials** (Fleets overview): a fleet is *receiving* (takes materials in) or *supplying the nearest receiver*: its
-  materials go to the receiving fleet nearest its home (recomputed whenever fleets change). A mission that ferries while
-  mining delivers to the receiver nearest the belt it mines. A fleet set earlier to send to one named fleet keeps it.
+- **Hub fleets receive** (1.455.0): a stationed fleet with a system hub in its loadout (the printing hubs), or a
+  bootstrap's hub, takes materials in automatically, marked *hub* on the Fleets overview; no other fleet does. There is
+  no Materials column any more. A fleet already set to supply the nearest receiver keeps doing it: its materials go to
+  the hub fleet nearest its home. A mission that ferries while mining delivers to the hub nearest the belt it mines.
 - Also: owner hand-over (`change_owner`), *send to* / *takes materials in*, *fill from spares*, *print what's missing* (takes idle spares first, prints the rest), carrying budget (seats and the budget show only when the loadout or the members have a carrier).
 
 ### Nothing leaves short
@@ -529,7 +530,7 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
 - **Recall** (every fleet card, every role): *Recall now* cancels what the fleet is doing (its mission and any job a
   member is on), boards everyone and flies back; *Recall after task* lets the current task finish first (a mission's
   work at its current target, or the job a member is on), then does the same. Back means its station (a stationed
-  fleet's home), else the nearest receiving point (a stationed fleet's home or one that takes materials in), else its
+  fleet's home), else the nearest hub fleet's home (never a mining fleet's home, 1.455.0), else its
   home; cargo is unloaded there. Logistics, prospector, rock chaser and bootstrap fleets are then held (their own work
   pauses) until *Resume*. *Cancel recall* calls it off.
 - **Auto-retry**: a stalled mission retries the stalled phase by itself after 15 min, doubling the wait each time up to

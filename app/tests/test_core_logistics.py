@@ -363,8 +363,8 @@ def test_supplying_fleet_sends_to_the_nearest_receiver(client):
     client.portal.call(db.kv_set, "stars", {"stars": [{"designation": d, "position": {"x": x, "y": 0, "z": 0}}
                                                       for d, x in (("MINE", 0), ("NEARHUB", 3), ("FARHUB", 40))]})
     client.portal.call(eng.save_fleets, [
-        {"id": "far", "name": "Far hub", "role": "mining", "home": "FARHUB", "wants": {}, "materials": "self"},
-        {"id": "near", "name": "Near hub", "role": "mining", "home": "NEARHUB", "wants": {}, "materials": "self"},
+        {"id": "far", "name": "Far hub", "role": "mining", "home": "FARHUB", "wants": {"system_hub": 1}, "station": True},
+        {"id": "near", "name": "Near hub", "role": "mining", "home": "NEARHUB", "wants": {"system_hub": 1}, "station": True},
         {"id": "m", "name": "Miner", "role": "mining", "home": "MINE", "wants": {}, "materials": ""}])
     r = client.post("/fleets/m/station", data={"materials": "supply"}, headers=HX)
     assert r.status_code == 200
@@ -372,7 +372,7 @@ def test_supplying_fleet_sends_to_the_nearest_receiver(client):
     m = next(f for f in items if f["id"] == "m")
     assert m["materials"] == "supply" and fl.materials_target(m, items)["id"] == "near"
     t = client.get("/fleets/overview", headers=HX).text
-    assert "supplying the nearest receiver" in t and "to Near hub (NEARHUB), the nearest" in t
+    assert "supplying the nearest receiver" not in t   # the materials column is gone (1.455.0); the setting still works
 
 
 def test_only_logistics_carriers_deliver_a_fleets_carrier_only_fetches_its_own():

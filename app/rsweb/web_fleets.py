@@ -596,8 +596,9 @@ async def fleets_station(request: Request, fid: str, user: str = Depends(current
     if not f:
         return HTMLResponse("", status_code=404)
     f["station"] = form.get("station") == "on"
-    m = (form.get("materials") or "").strip()
-    f["materials"] = m if m in ("self", "supply") or any(x["id"] == m and x["id"] != fid for x in items) else ""
+    if "materials" in form:   # receiving is automatic (hub fleets, fleets.designate_hubs); the page no longer sends this
+        m = (form.get("materials") or "").strip()
+        f["materials"] = m if m in ("self", "supply") or any(x["id"] == m and x["id"] != fid for x in items) else ""
     if "supplied_from" in form:   # a hub whose autofactories and carriers may supply this fleet at any distance
         sup = (form.get("supplied_from") or "").strip()
         f["supplied_from"] = sup if any(x["id"] == sup and x["id"] != fid for x in items) else ""

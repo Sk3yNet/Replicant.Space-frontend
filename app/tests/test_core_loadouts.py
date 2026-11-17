@@ -1318,7 +1318,7 @@ def test_a_hub_short_of_stock_takes_a_partners_extra_spares_before_printing(clie
         {"device_code": "F2", "device_type": "ftl_relay", "location": "FAL-BELT-1", "status": "inactive", "tags": ["spare"]},
         {"device_code": "F3", "device_type": "ftl_relay", "location": "FAL-BELT-1", "status": "inactive", "tags": ["spare"]}])
     client.portal.call(eng.save_fleets, [
-        {"id": f, "name": f, "role": "mining", "home": h, "station": True, "materials": "self", "stock": {"ftl_relay": n}}
+        {"id": f, "name": f, "role": "mining", "home": h, "station": True, "wants": {"system_hub": 1}, "stock": {"ftl_relay": n}}
         for f, h, n in (("sol", "SOL", 3), ("fal", "FAL", 1))])
     out = client.portal.call(eng.stock_pass)
     assert sent == [(f"/devices/{c}", {"configuration": {"add_tags": ["gather", "stock", "to:sol"]}}) for c in ("F2", "F3")]

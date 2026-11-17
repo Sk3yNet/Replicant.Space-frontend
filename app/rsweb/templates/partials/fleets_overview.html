@@ -1,27 +1,19 @@
   <div class="row between"><h2>Overview</h2>{% include "partials/plans_age.html" %}</div>
   <table class="small">
-    <tr><th>Fleet</th><th>Home</th><th>Loadout</th><th title="Kept at its loadout in its home system">Stationed</th>
-      <th title="Send this fleet's home stockpile to another fleet's home, or take materials in">Materials</th><th>Status</th><th></th></tr>
+    <tr><th>Fleet</th><th>Home</th><th>Loadout</th><th title="Kept at its loadout in its home system. Hub fleets (a system hub in the loadout) receive materials and recalled fleets">Stationed</th><th>Status</th><th></th></tr>
     {% for f in fleets %}{% set rep = f.report %}{% set m = f.mission or {} %}
     <tr>
       <td><a href="/fleets/details?fleet={{ f.id }}"><b>{{ f.name }}</b></a> <span class="muted">{{ f.role }}</span></td>
       <td><a href="/systems/{{ f.home }}">{{ f.home or '—' }}</a> <span class="muted">{{ present.get(f.home, 0) }} devices there</span></td>
       <td>{{ (templates | selectattr('id', 'equalto', f.template) | map(attribute='name') | first) if f.template else 'custom' }}</td>
-      <td colspan="2"><form hx-post="/fleets/{{ f.id }}/station" hx-trigger="change" class="row" style="gap:6px;flex-wrap:nowrap">
+      <td><form hx-post="/fleets/{{ f.id }}/station" hx-trigger="change" class="row" style="gap:6px;flex-wrap:nowrap">
         <input type="checkbox" name="station" {{ 'checked' if f.station }} title="stationed">
-        <select name="materials">
-          <option value="">—</option>
-          <option value="self" {{ 'selected' if f.materials == 'self' }}>receiving ↘</option>
-          <option value="supply" {{ 'selected' if f.materials == 'supply' }}>supplying the nearest receiver ↗</option>
-          {% for g in fleets if g.id == f.materials %}<option value="{{ g.id }}" selected>send to {{ g.name }} ({{ g.home }}) ↗</option>{% endfor %}
-        </select>
+        {% if f.materials == 'self' %}<span class="pill small" title="A hub fleet: it receives materials and recalled fleets">hub ↘</span>{% endif %}
         <select name="supplied_from" title="Supplied from: that fleet's autofactories print this fleet's shortfalls and its carriers bring them, at any distance (everything else stays within the supply range)">
           <option value="">supplied nearby</option>
           {% for g in fleets if g.id != f.id and g.role != 'bootstrap' %}<option value="{{ g.id }}" {{ 'selected' if f.supplied_from == g.id }}>supplied from {{ g.name }} ({{ g.home }})</option>{% endfor %}
         </select></form>
-        {% if f.route %}<div class="muted">ferry {{ f.route.controller }}: {{ f.route.source }} → {{ f.route.dest }}</div>{% endif %}
-        {% if f.takes_from %}<div class="muted">from {{ f.takes_from | map(attribute='name') | join(', ') }}</div>{% endif %}
-        {% if f.materials == 'supply' %}<div class="muted">{% if f.sends_to %}to {{ f.sends_to.name }} ({{ f.sends_to.home }}), the nearest{% else %}no fleet is receiving yet{% endif %}</div>{% endif %}</td>
+        {% if f.route %}<div class="muted">ferry {{ f.route.controller }}: {{ f.route.source }} → {{ f.route.dest }}</div>{% endif %}</td>
       <td>{% if f.role == 'bootstrap' and f.boot %}{% set bs = f.boot.status or {} %}<span class="pill small {{ 'lv-alert' if f.boot.paused or bs.blocked else ('st-move' if f.boot.decision else 'st-work') }}">bootstrap: {{ bs.label or f.boot.stage }}</span>
           {% if f.boot.paused %}<span class="muted">paused</span>{% elif f.boot.decision %}<span class="muted">waiting for your OK</span>{% endif %}
         {% elif f.role == 'terraformer' and (f.terraform or {}).planet and not f.recall_hold %}{% set tr = f.tf_run or {} %}<span class="pill small st-work" title="{{ tr.note or '' }}">terraforming {{ f.terraform.planet }}</span>{% if tr.phase and tr.phase != 'terraforming' %} <span class="muted">{{ tr.phase }}</span>{% endif %}
@@ -36,10 +28,7 @@
           {% if f.matrix_note.note and f.matrix_note.note != 'has a replicant aboard' %}<span class="muted">{{ f.matrix_note.note }}</span>{% endif %}{% endif %}</div>{% endif %}</td>
       <td>{% if rep %}<button class="small ghost" hx-post="/loadouts/apply" hx-vals='{{ {"fleet": (f.id) | string} | tojson }}' hx-target="#lo-result">Apply</button>{% endif %}</td>
     </tr>
-    {% else %}<tr><td colspan="7" class="muted">No fleets yet. Create one above.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="6" class="muted">No fleets yet. Create one above.</td></tr>{% endfor %}
   </table>
-  <p class="muted small"><b>Materials:</b> a fleet set to <i>send to</i> another fleet has its home system's biggest stockpile ferried
-    to that fleet's home by <b>cargo freighters</b> (surge drive) under a dedicated AMI transport controller there, the <i>ferry
-    controller</i> (tagged <code>ferry</code>). A fleet that <i>takes materials in</i> is a destination: mining missions in deliver
-    mode ferry to the one they send to, else the nearest such fleet, and the spare depot defaults to one of them. Deliveries land at
-    the home system's autofactory, else its biggest stockpile, else its entry point. One route per system.</p>
+  <p class="muted small"><b>Hub fleets</b> (stationed, with a system hub in the loadout) receive materials and recalled
+    fleets automatically: mining missions in deliver mode ferry to the nearest one, and the spare depot defaults to one of them.</p>

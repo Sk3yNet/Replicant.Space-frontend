@@ -34,7 +34,7 @@ def test_recall_now_cancels_and_flies_to_the_receiving_point(client):
     fleet, devices = _fleet_world()
     fleet["mission"] = {"status": "running", "phase": "watch", "targets": ["AEM"], "belt": "AEM-BELT-1", "log": [],
                         "departed": True}
-    hub = {"id": "hub", "name": "Hub", "role": "mining", "home": "FAL", "station": True}
+    hub = {"id": "hub", "name": "Hub", "role": "mining", "home": "FAL", "station": True, "wants": {"system_hub": 1}}
     client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [
         {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in (("AEM", 0), ("FAL", 5))]})
     client.portal.call(client.app.state.db.kv_set, "devices", devices)

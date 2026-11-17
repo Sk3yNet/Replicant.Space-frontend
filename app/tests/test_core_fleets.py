@@ -98,13 +98,28 @@ def test_fleet_materials_setting(client):
     client.post("/fleets", data={"name": "Depot", "home": "ABOTEIN", "station": "on"}, headers=HX)
     r = client.post("/fleets/sol-home/station", data={"station": "on", "materials": "depot"}, headers=HX)
     assert r.headers.get("HX-Refresh")
-    client.post("/fleets/depot/station", data={"station": "on", "materials": "self"}, headers=HX)
-    client.post("/fleets/depot/station", data={"station": "on", "materials": "no-such-fleet"}, headers=HX)
+    client.post("/fleets/depot/station", data={"station": "on", "materials": "self"}, headers=HX)   # no hub: not receiving
+    client.post("/fleets/sol-home/station", data={"station": "on"}, headers=HX)   # the page no longer sends materials: kept
     fleets = {f["id"]: f for f in client.portal.call(client.app.state.db.kv_get, "fleets")}
-    assert fleets["sol-home"]["materials"] == "depot" and fleets["depot"]["materials"] == ""   # unknown fleet: cleared
+    assert fleets["sol-home"]["materials"] == "depot" and fleets["depot"]["materials"] == ""
     page = client.get("/fleets/details?all=1", headers=H).text
     assert "materials from Sol home" in page
-    assert 'value="depot" selected' in client.get("/fleets/overview", headers=HX).text   # its route (or why not) is listed
+    ov = client.get("/fleets/overview", headers=HX).text
+    assert 'name="materials"' not in ov and ">Materials<" not in ov
+
+
+def test_hub_fleets_receive_automatically(client):
+    from rsweb import fleets as fl
+    eng = client.app.state.worker.automations
+    items = [{"id": "hub", "name": "Hub", "role": "mining", "home": "FAL", "station": True, "wants": {"system_hub": 1}},
+             {"id": "m1", "name": "Miner_1", "role": "mining", "home": "ASE", "station": True, "materials": "self",
+              "wants": {"mining_rig": 8}},
+             {"id": "tf", "name": "TF", "role": "terraformer", "home": "SOL", "wants": {"system_hub": 1}}]
+    client.portal.call(eng.save_fleets, items)
+    by = {f["id"]: f for f in client.portal.call(eng.fleets)}
+    assert by["hub"]["materials"] == "self" and by["m1"]["materials"] == "" and by["tf"]["materials"] == ""
+    assert fl.receiving_points(list(by.values())) == {"FAL"}   # a mining fleet's home is never a receiving point
+    assert "hub ↘" in client.get("/fleets/overview", headers=HX).text
 
 
 def test_arrival_rules_ignore_in_system_hops_and_surveyed_systems(client):
