@@ -89,6 +89,7 @@ class TerraformerMixin:
         if not tr.valid_body(planet):
             run.update({"phase": "idle", "note": "assign a planet or moon (e.g. KELMONENT-3) under Terraforming below"})
             return []
+        run.pop("home_trip", None)   # a planet assigned again overrides an earlier Return home
         if run.get("planet") != planet:   # a new assignment starts over
             for k in ("departed", "in_range_since", "push", "alerts", "recent", "go", "left"):
                 run.pop(k, None)
@@ -117,6 +118,12 @@ class TerraformerMixin:
             if j and key == "steer_job":
                 self._tf_learn_broken(j, run, devices)
             run.pop(key, None)
+        mon = next(d for d in tfd if d.get("device_type") == "terraform_monitor")
+        if run.get("departed") and not run.get("job") and fl.star_of(fl.tug(mon, devices).get("location")) != planet.split("-")[0]:
+            # the monitor left the planet's system (live 2026-11-17: Terraformer 1 evacuated ADHARA to SOLARES before an
+            # impact): it's no longer at work there, so the next trip takes everyone again without waiting for the loadout
+            run.pop("departed", None)
+            run["go"] = True
         here = [d for d in tfd if d.get("location") == planet and not d.get("stowed_in_device_code")
                 and not d.get("attached_to_device_code")]
         away = [d for d in tfd if d not in here]
@@ -258,6 +265,8 @@ class TerraformerMixin:
                     continue
                 if departed and d not in away:
                     continue   # already at work on the planet
+                if not departed and not home and ((d.get("location") or "") == planet or (d.get("location") or "").startswith(planet + "-L")):
+                    continue   # waiting at the planet or its L-points (parked off an impact): fetched there after arrival
                 if code in busy or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or not d.get("location"):
                     left.append(code)
                     continue
@@ -281,6 +290,32 @@ class TerraformerMixin:
                         steps.append(step(f"deactivate {code}", f"/devices/{code}", {"command": "deactivate"}))
             tour, at = fl.pickup_tour(cc, car.get("location"), stops)
             steps += tour
+            # the fleet's other carriers bring what they already hold (live 2026-11-17: Terraformer 1's second mobile
+            # fleet 583EBC0D sat at SOLARES with 9 devices attached); they leave together with the first
+            extra_go: list[dict] = []
+            extra_end: list[dict] = []
+            for oc in cars[1:]:
+                oco = oc["device_code"]
+                held = [d for d in riders if oco in (d.get("attached_to_device_code"), d.get("stowed_in_device_code"))]
+                if not held or oco in busy or oc.get("location") == planet or (departed and fl.star_of(oc.get("location")) != star):
+                    continue
+                extra_go.append(step(f"{oco} → {planet}", f"/devices/{oco}", {"command": "travel", "destination": planet}))
+                extra_end.append(fl._wait_arrive(oco, planet))
+                for d in held:
+                    code = d["device_code"]
+                    left = [c for c in left if c != code]
+                    moved.append(code)
+                    if home or ((d.get("device_type") or "") not in tf.DEVICES and not up.is_maint(d)):
+                        continue
+                    if d.get("attached_to_device_code") == oco:
+                        extra_end.append(step(f"{oco}: detach {code}", f"/devices/{oco}", {"command": "detach", "device": code}))
+                    else:
+                        st = step(f"deploy {code} from {oco}", f"/devices/{code}", {"command": "deploy"},
+                                  wait=["device.deployed"], timeout=SHORT_TIMEOUT)
+                        st["wait_device"] = code
+                        extra_end.append(st)
+                moved.append(oco)
+            steps += extra_go
             if at != planet:
                 steps += [step(f"{cc} → {planet}", f"/devices/{cc}", {"command": "travel", "destination": planet}, critical=True),
                           fl._wait_arrive(cc, planet)]
@@ -295,7 +330,8 @@ class TerraformerMixin:
                               timeout=SHORT_TIMEOUT)
                     st["wait_device"] = code
                     steps.append(st)
-            moved = [cc] + [c for c, _ in aboard]
+            steps += extra_end
+            moved = [cc] + [c for c, _ in aboard] + moved
             if left:
                 run["left"] = left
             else:

@@ -505,3 +505,28 @@ def test_a_working_terraformer_prints_what_no_spare_covers(client):  # noqa: F81
     client.portal.call(e.cancel, job["id"])
     client.portal.call(e.terraformer_pass)   # the device list hasn't caught up yet: not printed twice
     assert sum(1 for j in client.portal.call(e.jobs) if (j.get("meta") or {}).get("print")) == 1
+
+
+def test_an_evacuated_fleet_flies_back_with_both_carriers(client):  # noqa: F811
+    # live 2026-11-17: Terraformer 1 evacuated ADHARA to SOLARES before an impact and then sat there ("members away from
+    # the planet in other systems"), its second carrier holding 9 devices
+    def car(code):
+        return {"device_code": code, "device_type": "mobile_fleet", "location": "SOL-3", "status": "idle", "tags": ["fleet:tf"],
+                "features": ["surge", "cruise"], "attach_capacity": 36, "available_commands": ["travel", "attach"],
+                **({"hosting_replicant": {"name": "Sk3y-34"}} if code == "MOB" else {})}
+    devs = [car("MOB"), car("MOB2"), dev("MON", "terraform_monitor", "SOL-3", attached_to_device_code="MOB"),
+            dev("MIR", "orbital_mirror", "SOL-3", attached_to_device_code="MOB2"), dev("BOT", "service_bot", "FAR-4-L4")]
+    db, e = _setup(client, devs, {"planet": "FAR-4"}, wants={"orbital_shade": 3, "terraform_monitor": 1})
+    f = client.portal.call(e.fleets)
+    f[0]["tf_run"] = {"planet": "FAR-4", "departed": "2026-11-16T14:38:47+00:00", "phase": "returning", "home_trip": True}
+    client.portal.call(e.save_fleets, f)
+    assert client.portal.call(e.terraformer_pass) == ["Greening: → FAR-4"]
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "terraformer")
+    bodies = [(st["path"], st.get("body")) for st in job["steps"]]
+    assert ("/devices/MOB", {"command": "travel", "destination": "FAR-4"}) in bodies
+    assert ("/devices/MOB2", {"command": "travel", "destination": "FAR-4"}) in bodies
+    assert ("/devices/MOB", {"command": "detach", "device": "MON"}) in bodies
+    assert ("/devices/MOB2", {"command": "detach", "device": "MIR"}) in bodies
+    assert not any("BOT" in p or (b or {}).get("device") == "BOT" for p, b in bodies)   # parked at the planet already
+    run = client.portal.call(e.fleets)[0]["tf_run"]
+    assert run["phase"] == "moving" and run["departed"] and not run.get("home_trip") and not run.get("left")
