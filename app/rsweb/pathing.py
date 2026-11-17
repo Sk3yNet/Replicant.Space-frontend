@@ -134,6 +134,20 @@ def dry(home: str, devices: list[dict], viability: list[dict], nothing: dict, wa
     return None
 
 
+def arriving(tag: str, home: str, devices: list[dict]) -> str | None:
+    """Fewer than half of the fleet's miners have reached the home yet (on the way, or still elsewhere): what to say,
+    else None. A home isn't judged dry before then (Joe 2026-11-17: Delta Miner 2 moved home four times in a day, each
+    new home marked dry before its devices got there, leaving them strewn behind)."""
+    miners = [d for d in devices if tag in (d.get("tags") or []) and d.get("device_type") in MINER_TYPES]
+    if not miners:
+        return None
+    here = [d for d in miners if (d.get("location") or "").split("-")[0] == home
+            and str(d.get("status") or "") not in ("travelling", "cruising", "surging")]
+    if 2 * len(here) >= len(miners):
+        return None
+    return f"{len(here)} of {len(miners)} miners at {home} so far"
+
+
 def idle_miners(tag: str, home: str, devices: list[dict]) -> str | None:
     """The fleet's miners are all at home and none is mining: what its mining controllers report (for the log), else
     None (one is mining, or some are still away or on the way, e.g. a move trickling in). Live 2026-11-12: Miner_7 at

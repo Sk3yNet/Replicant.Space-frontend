@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.452.0"
+VERSION = "1.453.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.453.0", "2026-11-17", "Auto-relocate (Joe): a mining fleet's home isn't judged dry until at least half its "
+     "miners have reached it; until then the fleet's path note says it's waiting for the fleet to arrive (Delta Miner 2 "
+     "moved home four times in a day, each new home marked dry before its devices got there). A ward still counts at once."),
     ("1.452.0", "2026-11-17", "Terraforming › Dropping rocks trimmed (Joe): your rocks first with impact time in your time zone "
      "(the game's naive times were read as UTC), countdown and state (in flight, struck, diverted, impact time passed; hidden "
      "two days after impact); one row per system with charges ready at a Kuiper spot, propulsors, deflectors, one Detect "

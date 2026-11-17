@@ -678,6 +678,34 @@ def test_pathing_never_picks_a_home_beyond_the_sector_range(client):
     assert client.portal.call(eng.pathing_pass, True) == []                 # once only
 
 
+def test_pathing_waits_for_the_fleet_before_judging_a_home_dry(client):
+    """Joe 2026-11-17: Delta Miner 2 hopped homes four times in a day, each marked dry before its devices arrived."""
+    eng, db = client.app.state.worker.automations, client.app.state.db
+
+    async def commandable(devices, stars=None, without=None):
+        return {"HOMEA", "OLDB"}
+    eng.commandable = commandable
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "HOMEA", "position": {"x": 0, "y": 0, "z": 0}}]})
+    rigs = [{"device_code": f"RIG0000{i}", "device_type": "mining_rig", "location": "OLDB-8", "status": "travelling",
+             "tags": ["fleet:m1"]} for i in range(3)]
+    client.portal.call(db.kv_set, "devices", rigs)
+    client.portal.call(db.kv_set, "salvage_state", {"nothing": {"HOMEA": datetime.now(timezone.utc).isoformat()}})
+    client.portal.call(eng.save_fleets, [{"id": "m1", "name": "Miner 1", "role": "mining", "home": "HOMEA",
+                                          "station": True, "auto_relocate": True, "wants": {}}])
+    from rsweb import prospects
+    prospects.forget_inputs()
+    client.portal.call(eng.pathing_pass, True)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert not f.get("depleted_since") and f["path_note"] == "waiting for the fleet to arrive before judging HOMEA: 0 of 3 miners at HOMEA so far"
+    for r in rigs[:2]:
+        r.update(location="HOMEA-8", status="idle")
+    client.portal.call(db.kv_set, "devices", rigs)
+    prospects.forget_inputs()
+    client.portal.call(eng.pathing_pass, True)
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert f.get("depleted_since") and "looks dry" in f["path_note"]
+
+
 def test_travel_shows_on_the_map_straight_away(client):
     """The travel command's answer is put on the cached device at once (the device sync is up to a minute away)."""
     db = client.app.state.db

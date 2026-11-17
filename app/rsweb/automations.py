@@ -1014,7 +1014,13 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                 out.append(f"{f['name']}: home {home} → {nxt}")
                 await self.log("fleets", f"{f['name']}: new home {nxt} (was {home}) — the loadout pass moves the fleet there")
                 continue
-            # --- is the home dry, and for long enough?
+            # --- is the home dry, and for long enough? Not judged before most of its miners got there (a ward is)
+            wait = pa.arriving(tag, home, devices) if home not in inp["warded"] else None
+            if wait:
+                msg = f"waiting for the fleet to arrive before judging {home}: {wait}"
+                if f.pop("depleted_since", None) or f.pop("idle_since", None) or f.get("path_note") != msg:
+                    f["path_note"], changed = msg, True
+                continue
             why = pa.dry(home, devices, inp["viability"], nothing, inp["warded"], (await self.system_belts({home}))[home])
             idle = pa.idle_miners(fleet_tag(f["id"]), home, devices)
             if idle is None:
