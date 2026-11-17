@@ -18,6 +18,10 @@ from .hub import Hub
 from . import notify
 from .shapes import normalize_blueprints, normalize_inventory
 
+# 50 devices a page (the game's max). Was 40 pages: from 2,000 devices on, every newer device (fresh prints for the
+# trade post, 2026-11-17) was missing from the list. A full read costs one GET per page.
+MAX_DEVICE_PAGES = 200
+
 log = logging.getLogger("rsweb.ingest")
 DEVICE_CODE_RE = re.compile(r"[0-9A-F]{8}")
 
@@ -866,7 +870,7 @@ class Worker:
         # next_cursor — a partial snapshot, so anything missing from it is kept from the last good one
         devices, cursor, partial = [], None, False
         t0 = time.time()
-        for _ in range(40):
+        for _ in range(MAX_DEVICE_PAGES):
             body = await self.api.get("/devices", background=True, limit=50, cursor=cursor) or {}
             page = body.get("devices") or []
             cursor = body.get("next_cursor")
@@ -875,6 +879,9 @@ class Worker:
             devices.extend(page)
             if not cursor:
                 break
+        else:   # more pages than the cap: the newest devices (highest ids, e.g. fresh prints) would be cut off
+            partial = True
+            log.warning("device sync stopped at %s pages (%s devices) with more to read", MAX_DEVICE_PAGES, len(devices))
         mine = set(await self.db.kv_get("replicants", {}) or {})   # someone else's device: not ours to keep or miss
         devices = [d for d in devices if not foreign(d, mine)]
         prev = [d for d in await self.db.kv_get("devices", []) or [] if not foreign(d, mine)]

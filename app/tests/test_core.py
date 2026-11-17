@@ -2675,3 +2675,17 @@ def test_shared_build_runs_once_for_callers_at_the_same_time():
         return await asyncio.gather(*[web_core.shared_build("t", make) for _ in range(5)])
     out = asyncio.run(go())
     assert runs == [1] and all(o == {"ok": 1} for o in out) and "t" not in web_core._INFLIGHT
+
+
+def test_sync_devices_reads_past_2000(client):
+    world = client.app.state.api.http._transport.app.state.world
+    w = client.app.state.worker
+    base = dict(world.devices[0])
+    extra = [{**base, "device_code": f"X{i:07d}", "tags": []} for i in range(2100)]
+    world.devices.extend(extra)
+    try:
+        client.portal.call(w.sync_devices)
+        codes = {d.get("device_code") for d in client.portal.call(client.app.state.db.kv_get, "devices")}
+        assert "X0002099" in codes
+    finally:
+        del world.devices[-2100:]
