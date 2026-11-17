@@ -467,6 +467,8 @@ RELOCATE_PHASES = ["assemble", "gather", "travel", "deploy"]
 # a recall (Recall now / Recall after task, any role): bring everyone aboard, fly to the station (else the nearest
 # receiving point) and unload there (owner 2026-11-01)
 HOMING_PHASES = ["recall", "return", "unload"]
+# roles run by their own pass (logistics service, prospecting, rock chasing, trade posts, terraforming): no missions
+NO_MISSION_ROLES = frozenset(r for r, seq in PHASES.items() if not seq)
 # roles with no missions of their own: a recall holds them (their pass gives them no new work) until Resume
 HOLD_ROLES = ("logistics", "prospector", "rock_chaser", "bootstrap", "trade_post", "terraformer")
 
@@ -530,7 +532,9 @@ def next_phase(role: str, m: dict) -> str | None:
                 return "travel"   # anyone the recall didn't get aboard boards first (run_fleets)
             return "return"
         return {"return": "unload"}.get(cur)
-    seq = PHASES[role]
+    seq = PHASES.get(role) or []
+    if not seq:   # a role that takes no missions (one started before the form refused them, e.g. Chaser_1): it ends
+        return None
     if cur is None:
         return seq[0]
     i = seq.index(cur) if cur in seq else len(seq)

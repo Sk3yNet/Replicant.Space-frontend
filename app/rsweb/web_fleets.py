@@ -720,6 +720,8 @@ async def fleets_mission(request: Request, fid: str, user: str = Depends(current
         return HTMLResponse('<div class="result err">This fleet is already on a mission — recall or stop it first.</div>')
     if f.get("role") == "logistics":
         return HTMLResponse('<div class="result err">A logistics fleet takes no missions: it runs the logistics service (Fleets › Logistics).</div>')
+    if f.get("role") in fl.NO_MISSION_ROLES:
+        return HTMLResponse(f'<div class="result err">A {f["role"].replace("_", " ")} fleet takes no missions: it works on its own (its card above).</div>')
     targets = [t.strip().upper() for t in re.split(r"[,\s]+", form.get("targets") or "") if t.strip()]
     m = {"status": "running", "phase": None, "idx": 0, "targets": targets, "started_at": now_iso(), "log": [],
          "opts": {"deliver": form.get("deliver") == "on", "exhausted_minutes": _int(form.get("exhausted_minutes"), 30, 1, 24 * 60)}}

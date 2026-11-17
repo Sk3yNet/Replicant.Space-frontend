@@ -1738,3 +1738,20 @@ def test_fleet_print_takes_spares_first(client):
     assert "print 1× mining drone" in r.text
     fill = [j for j in client.portal.call(eng.jobs) if j["rule"] == "fleet_fill"]
     assert fill and drones[0]["device_code"] in fill[-1]["meta"]["devices"]
+
+
+def test_no_mission_roles_end_and_refuse_missions(client):
+    """Chaser_1 (live 2026-11-16) had a hand-started mission at phase None: next_phase raised IndexError every tick."""
+    from rsweb import fleets as fl
+    assert {"rock_chaser", "prospector", "trade_post", "terraformer", "logistics"} <= fl.NO_MISSION_ROLES
+    m = {"status": "running", "phase": None, "idx": 0, "targets": ["RENGRELOR"]}
+    assert fl.next_phase("rock_chaser", m) is None
+    eng = client.app.state.worker.automations
+    client.post("/fleets", data={"name": "Chaser 1", "role": "rock_chaser", "home": "SOL"}, headers=HX)
+    r = client.post("/fleets/chaser-1/mission", data={"targets": "ABOTEIN"}, headers=HX)
+    assert "takes no missions" in r.text and "mission" not in client.portal.call(eng.fleets)[0]
+    items = client.portal.call(eng.fleets)
+    items[0]["mission"] = dict(m, started_at="2026-11-15T04:17:40+00:00", log=[], opts={})
+    client.portal.call(eng.save_fleets, items)
+    client.portal.call(eng.run_fleets)   # used to fail the whole stage
+    assert client.portal.call(eng.fleets)[0]["mission"]["status"] == "done"
