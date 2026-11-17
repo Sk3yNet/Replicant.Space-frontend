@@ -64,8 +64,8 @@ def test_new_home_moves_from_wherever_the_fleet_is_gathered(client):
     f["home"] = "ABOTEIN"
     how = client.portal.call(e.start_relocation, f, "SOL", "ABOTEIN", devs)
     assert "pending" not in how and f["home"] == "ABOTEIN" and not f.get("pending_home")
-    assert "loadout pass" in how and not f.get("mission")   # a mining fleet: no assembly, carriers bring it over
-    f = {**f, "role": "explore", "home": "ABOTEIN"}
+    assert "relocation mission" in how and f["mission"]["from"] == "LERNA"   # mining too, seats allowing (1.456.0)
+    f = {**f, "role": "explore", "home": "ABOTEIN", "mission": None}
     client.portal.call(e.start_relocation, f, "SOL", "ABOTEIN", devs)
     assert f["mission"]["from"] == "LERNA"
 

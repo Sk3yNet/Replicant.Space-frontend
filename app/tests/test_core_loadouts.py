@@ -1056,13 +1056,14 @@ def test_relocation_only_when_the_carriers_fit_everyone(client):
         return {"AAA", "BBB"}
     eng.commandable = commandable
     how = client.portal.call(eng.start_relocation, dict(f), "AAA", "BBB", [ves, rider("D1"), rider("D2")])
-    assert "loadout pass" in how                         # a mining fleet never assembles (owner 2026-10-21): piecemeal
-    f = {**f, "role": "explore"}
-    how = client.portal.call(eng.start_relocation, dict(f), "AAA", "BBB", [ves, rider("D1"), rider("D2")])
-    assert "relocation mission" in how                                         # 2 riders, 2 hold slots: together
+    assert "relocation mission" in how                   # mining moves together when seats allow (Joe 2026-11-17)
     f2 = dict(f)
     how = client.portal.call(eng.start_relocation, f2, "AAA", "BBB", [ves, rider("D1"), rider("D2"), rider("D3"), rider("D4"), rider("D5"), rider("D6")])
     assert "piecemeal" in how and "mission" not in f2                         # too many riders: the loadout pass carries them
+    for role in ("explore", "bootstrap"):
+        g = {**f, "role": role}
+        how = client.portal.call(eng.start_relocation, g, "AAA", "BBB", [ves, rider("D1"), rider("D2")])
+        assert ("relocation mission" in how) == (role == "explore")              # bootstrap stays piecemeal
 
 
 def test_attach_already_attached(client):

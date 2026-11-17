@@ -515,10 +515,10 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
   home from wherever it is, once it has finished its current task.
 - A new home outside an active relay network stays *pending* (unless a replicant rides with the fleet) until a relay
   there joins one: nothing could be commanded there on arrival.
-- **Mining fleets** have no assembly stage: their own carriers and the logistics fleets' each load as many members as
-  they hold and leave as they fill.
-- **Survey fleets** first collect every member (from other systems too), then move together in one relocation mission
-  when their carriers seat everyone.
+- **Mining and survey fleets** first collect every member (from other systems too), then move together in one
+  relocation mission when their carriers seat everyone.
+- Otherwise (and always for bootstraps) the move is piecemeal: the fleet's own carriers and the logistics fleets' each
+  load as many members as they hold and leave as they fill. Auto-relocate picks no new home while a move together runs.
 - A move stays open until every member is there: reported when complete, and once if members are still missing after
   two hours.
 

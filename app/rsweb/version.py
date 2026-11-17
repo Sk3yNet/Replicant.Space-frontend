@@ -16,11 +16,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.455.0"
+VERSION = "1.456.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.456.0", "2026-11-17", "Fleets: a mining fleet whose home changes now moves together like a survey fleet when its "
+     "carriers seat everyone: members in other systems are collected, everyone boards, then it leaves. Without enough "
+     "seats it still moves piecemeal. Auto-relocate picks no new home while such a move is under way."),
     ("1.455.0", "2026-11-17", "Fleets: receiving is automatic. Hub fleets (stationed, with a system hub in the loadout, "
      "or a bootstrap's hub) take materials in and no other fleet does, marked hub on the overview. The Materials column "
      "and its receiving selection are gone; fleets already supplying the nearest hub keep doing so. Recall sends an "
