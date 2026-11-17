@@ -17,6 +17,24 @@
         <label><input type="checkbox" id="opt-labels" checked> labels</label>
         <label><input type="checkbox" id="opt-mine"> only my systems</label>
       </div>
+      <div class="layer-group" id="map-only" title="Tick features to keep only the systems that have them; the others drop off the map. Nothing ticked: every system shows"><span class="layer-head">Only systems with <span id="map-only-count" class="muted"></span></span>
+        <label><input type="checkbox" id="opt-only-station"> space stations</label>
+        <label><input type="checkbox" id="opt-only-mega"> megastructures</label>
+        <label><input type="checkbox" id="opt-only-hazard"> hazardous</label>
+        <label><input type="checkbox" id="opt-only-rich"> resource rich</label>
+        <label><input type="checkbox" id="opt-only-anomaly"> anomaly</label>
+        <label title="The catalog says the system has life"><input type="checkbox" id="opt-only-life"> life</label>
+        <label title="Anyone's hub: arriving there is 25 % faster"><input type="checkbox" id="opt-only-hub"> any hub</label>
+        <label><input type="checkbox" id="opt-only-myhub"> my hub</label>
+        <label><input type="checkbox" id="opt-only-relay"> my relay</label>
+        <label><input type="checkbox" id="opt-only-ward"> my ward</label>
+        <label><input type="checkbox" id="opt-only-beacon"> my beacon</label>
+        <label><input type="checkbox" id="opt-only-devices"> my devices</label>
+        <label><input type="checkbox" id="opt-only-home"> fleet home</label>
+        <label><input type="checkbox" id="opt-only-trade"> trade post</label>
+        <span id="map-only-tags" style="display:contents"></span>
+        <label title="Ticked: a system must have every ticked feature. Unticked: any one is enough"><input type="checkbox" id="opt-only-all"> <i>match all</i></label>
+      </div>
       <div class="layer-group"><span class="layer-head">Clouds &amp; glows</span>
         <label title="Each galactic region gets its own background color; the region the view is centered on has none, the others fade in with distance"><input type="checkbox" id="opt-regions" checked> region colors</label>
         <label title="Systems whose scan tags them hazardous, or that an incoming object still threatens (Defence): a red haze pulses around the star"><input type="checkbox" id="opt-mark-hazard" checked> hazards</label>

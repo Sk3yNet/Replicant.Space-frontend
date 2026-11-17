@@ -82,6 +82,11 @@ seconds, and a trip's countdown reaching zero loads the new location.
 Every marker and layer has its own checkbox under *layers* on the Galaxy page; the map's own *legend* panel says the
 same. Markers sit at a fixed spot around the star, so you learn where to look.
 
+*Only systems with* (under *layers*) keeps just the systems that have the ticked features: space stations,
+megastructures, scan tags (hazardous, resource rich, anomaly and any other tag seen), life, hubs, your relays, wards,
+beacons or devices, fleet homes and trade posts. Any one feature is enough unless *match all* is ticked; the choice is
+remembered in the browser.
+
 **Star markers**
 
 | | Marker | Means |

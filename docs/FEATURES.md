@@ -165,6 +165,8 @@ launch / withdraw, and **AMI schedules** that re-issue directives to idle contro
 
 A live 3D map of the star catalog, plus stars from censuses and your observatories (your systems load first, the rest
 of the catalog after). What each marker and line means is in the [map legend](../README.md#map-legend).
+*Only systems with* filters the map down to systems with chosen features (stations, megastructures, scan tags, hubs,
+your relays / wards / beacons / devices, fleet homes, trade posts); the rest drop off.
 
 - **Live**: ships in transit, fleets (dashed routes run toward the destination, still under reduced motion), supply
   lines, mining sparkles and prospecting cones (each observatory scan: a wave running out to its reach) redraw as

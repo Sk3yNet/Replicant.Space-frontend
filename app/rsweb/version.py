@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.476.0"
+VERSION = "1.477.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.477.0", "2026-11-17", "Galaxy map: *Only systems with* under layers keeps just the systems with the ticked features (space stations, megastructures, scan tags, life, hubs, your relays / wards / beacons / devices, fleet homes, trade posts; any or all), remembered per browser."),
     ("1.476.0", "2026-11-17", "Prints a station deploy job needs jump the print queue (priority \"station job\", behind only prints you queue by hand; tag stationjob), and the materials for them are urgent logistics."),
     ("1.475.0", "2026-11-17", "Station jobs are urgent logistics (Joe: they must be done within 24 hours). The resources a job the runner works needs go at priority 0, right after evacuations and ahead of Sol trades, soonest deadline first, with every carrier instead of the deals lane; the devices a deploy or courier job needs pinned at its location are urgent device moves. The request shows the job's deadline."),
     ("1.474.0", "2026-11-17", "First season 4 patch: a partial asteroid diversion counts as an impact (the game moved them all to impacted; the removed diversion.partial event is gone from the notifications), AMI trade controllers hold 10 listings (was 5), so trade posts need half the shops, and a wormhole transit leg takes no time on the maps. Live API spec unchanged apart from enum order."),

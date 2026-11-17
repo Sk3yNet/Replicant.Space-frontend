@@ -363,12 +363,80 @@ function repStar() {
   return byName[r.star] || (r.position ? { designation: r.star, position: r.position } : null);
 }
 
+// "Only systems with": features a system must have to stay on the map (opt-only-<key>; any one of them, or all with
+// opt-only-all). Tags beyond the fixed three get their own box (opt-only-tag-<tag>), added as the catalog shows them.
+const normTag = t => String(t).toLowerCase().replace(/[ -]/g, "_");
+const FIXED_TAGS = new Set(["hazardous", "resource_rich", "anomaly"]);
+function homeStar(h) {   // a fleet home (a star, body or spot) -> its star: the longest designation prefix in the catalog
+  const parts = String(h || "").toUpperCase().split("-");
+  for (let n = parts.length; n > 0; n--) { const k = parts.slice(0, n).join("-"); if (byName[k]) return k; }
+  return null;
+}
+const FEATURES = {
+  station: s => !!s.station,
+  mega: s => !!s.mega,
+  hazard: s => !!(s.hazard || s.hazardous) || (s.tags || []).some(t => /hazard/.test(normTag(t))),
+  rich: s => (s.tags || []).some(t => normTag(t) === "resource_rich"),
+  anomaly: s => (s.tags || []).some(t => normTag(t) === "anomaly"),
+  life: s => !!s.has_life,
+  hub: s => !!s.has_hub || (s.infra || []).some(t => t.includes("hub")),
+  myhub: s => (s.infra || []).some(t => t.includes("hub")),
+  relay: s => (s.infra || []).some(t => t.includes("relay")),
+  ward: s => !!s.my_ward || (s.infra || []).some(t => t.includes("ward")),
+  beacon: s => (s.infra || []).some(t => t.includes("beacon")),
+  devices: s => s.devices > 0,
+  home: (s, f) => f.homes.has(s.designation),
+  trade: (s, f) => f.trade.has(s.designation),
+};
+function syncTagBoxes() {   // one box per extra scan tag seen in the catalog, restored from the saved options
+  const box = $("map-only-tags"); if (!box) return;
+  const seen = new Set();
+  for (const s of data.stars) for (const t of s.tags || []) { const k = normTag(t); if (!FIXED_TAGS.has(k)) seen.add(k); }
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}"); } catch (e) { /* defaults */ }
+  for (const k of [...seen].sort()) {
+    const id = "opt-only-tag-" + k;
+    if ($(id)) continue;
+    const l = document.createElement("label");
+    l.innerHTML = `<input type="checkbox" id="${id}"> ${esc(k.replace(/_/g, " "))}`;
+    box.appendChild(l);
+    const c = l.firstChild; c.checked = !!saved[id];
+    c.addEventListener("change", () => {
+      try {
+        const all = {};
+        document.querySelectorAll('input[type=checkbox][id^="opt-"]').forEach(x => { all[x.id] = x.checked; });
+        localStorage.setItem(PREFS_KEY, JSON.stringify(all));
+      } catch (e) { /* not saved: fine */ }
+      build();
+    });
+  }
+}
+function featureFilter(stars) {
+  syncTagBoxes();
+  const want = Object.keys(FEATURES).filter(k => checked("opt-only-" + k, false)).map(k => FEATURES[k]);
+  document.querySelectorAll('#map-only-tags input[id^="opt-only-tag-"]').forEach(c => {
+    if (c.checked) { const k = c.id.slice(13); want.push(s => (s.tags || []).some(t => normTag(t) === k)); }
+  });
+  const count = $("map-only-count");
+  if (!want.length) { if (count) count.textContent = ""; return stars; }
+  const f = { homes: new Set(), trade: new Set() };
+  for (const fl of data.fleets || []) {
+    const h = homeStar(fl.home); if (!h) continue;
+    f.homes.add(h); if (fl.role === "trade_post") f.trade.add(h);
+  }
+  const all = checked("opt-only-all", false);
+  const out = stars.filter(s => all ? want.every(w => w(s, f)) : want.some(w => w(s, f)));
+  if (count) count.textContent = `· ${out.length} shown`;
+  return out;
+}
+
 function build() {
   [starPoints].forEach(o => o && scene.remove(o));
   mineGroup.clear(); coverGroup.clear(); waves.length = 0; hazes.length = 0;
   labels.forEach(l => l.el.remove()); labels.length = 0; lastCamKey = "";   // new labels: place them next frame
   const onlyMine = checked("opt-mine", !!OPTS.onlyMine);
   visible = data.stars.filter(s => !onlyMine || s.devices > 0 || data.replicants.some(r => r.star === s.designation));
+  visible = featureFilter(visible);
 
   const g = new THREE.BufferGeometry();
   // the outermost ring (6 ly across with every kind on) fits inside the gap between neighbors
@@ -910,7 +978,7 @@ renderer.domElement.addEventListener("pointerup", ev => {
 $("map-search")?.addEventListener("change", e => {
   const s = byName[e.target.value.trim().toUpperCase()]; if (s) { e.target.blur(); focus(s); show(s); }   // keyboard away first
 });
-["opt-mine"].forEach(id => $(id)?.addEventListener("change", build));
+["opt-mine", ...Object.keys(FEATURES).map(k => "opt-only-" + k), "opt-only-all"].forEach(id => $(id)?.addEventListener("change", build));
 $("opt-cover")?.addEventListener("change", e => coverGroup.visible = e.target.checked);
 [...Object.keys(MARKS), "ward", "survey", "mega", "hazard"].forEach(kind => $("opt-mark-" + kind)?.addEventListener("change", resizeMarks));
 $("opt-regions")?.addEventListener("change", resizeMarks);
