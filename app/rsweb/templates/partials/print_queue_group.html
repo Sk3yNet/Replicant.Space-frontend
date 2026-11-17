@@ -1,5 +1,5 @@
 {# Blueprints › Print queues: the autofactories of one type at one spot in one card. Context: facs [{code, dev, cur, queue}], shared, error, remaining, exact, codes, location, dtype, waiting, printing #}
-<div id="pqg-{{ codes | replace(',', '-') }}" class="pq" hx-get="/print-queue/group?codes={{ codes }}" hx-trigger="every 60s, pq-refresh from:body" hx-swap="outerHTML">
+<div id="pqg-{{ codes | replace(',', '-') }}" class="pq" hx-get="/print-queue/group?codes={{ codes }}&cached=1" hx-trigger="every 60s, pq-refresh from:body" hx-swap="outerHTML">
   <div class="row between"><strong>{{ dtype | human }} ×{{ facs | length }}</strong><span class="muted small">{{ location }}</span></div>
   {% if error %}<div class="result err">{{ error }}</div>{% endif %}
   <table class="small" style="margin-top:6px">

@@ -41,6 +41,31 @@ EVERY_S = 300
 PER_SHOP = 5                   # the game caps a trade controller at 5 listings (owner 2026-11-13)
 
 
+REREAD_S = 1800               # a shop's listings are re-read this often, or after a trade event names it (1.473.0)
+
+
+async def fresh_listings(db, cache: dict, codes: list[str], now) -> dict[str, list]:
+    """{controller: its cached listings} for the shops read within REREAD_S with no trade.* event about them since:
+    listings only change by a trade or by our own listing (which sends trade.created), so those need no game read
+    (1.473.0: every 5 minutes for 16 shops was 3 reads a minute)."""
+    from datetime import datetime
+    keep: dict[str, str] = {}
+    for code in codes:
+        e = cache.get(code) or {}
+        try:
+            if isinstance(e.get("trades"), list) and (now - datetime.fromisoformat(e["at"])).total_seconds() < REREAD_S:
+                keep[code] = e["at"]
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not keep:
+        return {}
+    rows = await db.fetchall(
+        f"SELECT device_code, MAX(received_at) AS last FROM events WHERE event LIKE 'trade.%' "
+        f"AND device_code IN ({','.join('?' * len(keep))}) GROUP BY device_code", tuple(keep))
+    touched = {r["device_code"] for r in rows if (r["last"] or "") >= keep[r["device_code"]]}
+    return {c: cache[c]["trades"] for c in keep if c not in touched}
+
+
 def supply_key(fid: str) -> str:
     return f"tp:{fid}"
 
@@ -507,7 +532,12 @@ class TradePostMixin:
             ctrls = controllers(f, devices)
             trades: dict[str, list | None] = {}
             errs = []
+            cache = await self.db.kv_get("shop_trades", {}) or {}   # the Shop page and the BobNet roll call read it
+            fresh = {} if force else await fresh_listings(self.db, cache, [c["device_code"] for c in ctrls], now)
             for c in ctrls:
+                if c["device_code"] in fresh:
+                    trades[c["device_code"]] = fresh[c["device_code"]]
+                    continue
                 try:
                     res = await self.api.get(f"/devices/{c['device_code']}/trades")
                     trades[c["device_code"]] = (res or {}).get("trades") or []
@@ -515,9 +545,8 @@ class TradePostMixin:
                     trades[c["device_code"]] = None
                     errs.append(f"{c['device_code']}: {e.message}")
             st["read_error"] = "; ".join(errs) or None
-            cache = await self.db.kv_get("shop_trades", {}) or {}   # the Shop page and the BobNet roll call read it
             for code, tr in trades.items():
-                if tr is not None:
+                if tr is not None and code not in fresh:
                     cache[code] = {"trades": tr, "at": now_iso()}
             await self.db.kv_set("shop_trades", cache)
             pl = plan(f, devices, trades, st, bps, p, tag)

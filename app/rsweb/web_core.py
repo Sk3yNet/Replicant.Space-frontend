@@ -732,13 +732,27 @@ async def fetch_device(request: Request, code: str) -> dict:
         return next((d for d in (await load_state(request))["devices"] if d.get("device_code") == code), {})
 
 
-async def render_print_queue_group(request: Request, codes: str, error: str | None = None) -> HTMLResponse:
+async def cached_device(request: Request, code: str) -> dict:
+    """A factory from the cached device list (re-read every couple of minutes), with the app's print queue as it is
+    now: the print-queue panels' timed redraws and first loads use it instead of one game read per factory each
+    minute (1.473.0: an open Blueprints page cost about 8 reads a minute). Commands still read the game."""
+    dev = next((d for d in (await load_state(request))["devices"] if d.get("device_code") == code), None)
+    if not dev:
+        return await fetch_device(request, code)
+    dev = {**dev, "print_queue": [x for x in dev.get("print_queue") or []
+                                  if not (isinstance(x, dict) and x.get("virtual"))]}
+    vq = getattr(request.app.state.api, "vq", None)
+    return await vq.merge(f"/devices/{code}", dev) if vq is not None else dev
+
+
+async def render_print_queue_group(request: Request, codes: str, error: str | None = None,
+                                   live: bool = True) -> HTMLResponse:
     from . import vqueue as vqm
     db = request.app.state.db
     bps = {b["device_type"]: b for b in normalize_blueprints(await db.kv_get("blueprints", []))}
     facs, own, shared = [], [], []
     for code in [c.strip().upper() for c in codes.split(",") if c.strip()][:20]:
-        dev = await fetch_device(request, code)
+        dev = await (fetch_device if live else cached_device)(request, code)
         if not dev:
             continue
         q = printqueue.items(dev)

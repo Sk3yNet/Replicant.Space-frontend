@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.472.0"
+VERSION = "1.473.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.473.0", "2026-11-17", "Fewer game reads (about 57 a minute, peaks of 88). The device list is read every 3 minutes "
+     "instead of 2 (53 pages at 2,650 devices; Joe). Print-queue panels (Blueprints, device pages) redraw from the cached "
+     "list with the app's queue as it is now, instead of one read per factory each minute; commands there still read "
+     "the game. An arrival puts the event's location on the cached device (unconfirmed until the next list) instead "
+     "of reading it. Trade posts re-read a shop's listings only after a trade event names it, or every 30 minutes. "
+     "Replicant details every 30 minutes unless they move (POLL_REPLICANT). A device's permissions are kept 10 minutes."),
     ("1.472.0", "2026-11-17", "Terraformers: a fleet whose monitor left the planet's system (evacuated before an impact) "
      "flies back with everyone, its other carriers too, instead of waiting for stragglers; assigning a planet again "
      "clears an earlier Return home."),

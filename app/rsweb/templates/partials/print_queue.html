@@ -9,7 +9,7 @@
     applied when printed (was: {{ (item.tags or []) | join(', ') or 'none' }})</span>{% endif %}
 </form>
 {%- endmacro %}
-<div id="pq-{{ code }}" class="pq" hx-get="/devices/{{ code }}/print-queue{{ '?compact=1' if compact }}" hx-trigger="every 60s, pq-refresh from:body" hx-swap="outerHTML">
+<div id="pq-{{ code }}" class="pq" hx-get="/devices/{{ code }}/print-queue?cached=1{{ '&compact=1' if compact }}" hx-trigger="every 60s, pq-refresh from:body" hx-swap="outerHTML">
   {% if compact %}<div class="row between"><strong><a href="/devices/{{ code }}">{{ dev.device_type | human }} {{ code }}</a></strong>
     <span class="muted small">{{ dev.location }}</span></div>{% endif %}
 

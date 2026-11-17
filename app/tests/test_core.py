@@ -2410,14 +2410,25 @@ def test_orders_refresh_the_devices_they_touch(client):
     w.watched_event({"event": "device.stowed", "device_code": code})
     assert not w._bg
     devices = client.portal.call(db.kv_get, "devices")
-    devices[0]["status"] = "stale"
+    devices[0].update(status="travelling", location="SOL-3")
     client.portal.call(db.kv_set, "devices", devices)
+    reads = []
+    real = w.api.get
 
-    async def arrive():   # an arrival refreshes the device straight away
-        w.watched_event({"event": "travel.arrived", "device_code": code})
+    async def counting(path, *a, **kw):
+        reads.append(path)
+        return await real(path, *a, **kw)
+    w.api.get = counting
+
+    async def arrive():   # an arrival takes the event's location at once, with no game read (1.473.0)
+        w.watched_event({"event": "travel.arrived", "device_code": code, "location": "SOL-4-L4"})
         await asyncio.gather(*w._bg)
-    client.portal.call(arrive)
-    assert next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == code)["status"] != "stale"
+    try:
+        client.portal.call(arrive)
+    finally:
+        w.api.get = real
+    d = next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == code)
+    assert not reads and d["location"] == "SOL-4-L4" and d["status"] == "idle" and d["_unconfirmed"]["what"] == "arrived"
 
 
 def test_foreign_devices_stay_out_of_the_list(client):
@@ -2710,3 +2721,27 @@ def test_sync_devices_reads_past_2000(client):
         assert "X0002099" in codes
     finally:
         del world.devices[-2100:]
+
+
+def test_print_queue_timed_redraws_read_no_game(client):
+    """1.473.0: a print-queue panel's timed redraw (cached=1) comes from the cached list, with no game read; the first
+    load still reads the game."""
+    w, db = client.app.state.worker, client.app.state.db
+    fac = next(d for d in client.portal.call(db.kv_get, "devices") if "print" in (d.get("features") or []))
+    code = fac["device_code"]
+    reads = []
+    real = w.api.request
+
+    async def counting(method, path, *a, **kw):
+        if method == "GET" and path.startswith("/devices/"):
+            reads.append(path)
+        return await real(method, path, *a, **kw)
+    w.api.request = counting
+    try:
+        assert client.get(f"/devices/{code}/print-queue?cached=1", headers=H).status_code == 200
+        assert client.get(f"/print-queue/group?codes={code}&cached=1", headers=H).status_code == 200
+        assert not reads
+        client.get(f"/devices/{code}/print-queue", headers=H)
+        assert reads
+    finally:
+        w.api.request = real

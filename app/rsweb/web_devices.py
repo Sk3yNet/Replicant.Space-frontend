@@ -149,10 +149,10 @@ async def print_queue_locations(request: Request, dest_star: str = "", user: str
 
 
 @router.get("/print-queue/group", response_class=HTMLResponse)
-async def print_queue_group(request: Request, codes: str = "", user: str = Depends(current_user)):
+async def print_queue_group(request: Request, codes: str = "", cached: int = 0, user: str = Depends(current_user)):
     """Blueprints › Print queues: one card for the autofactories of one type at one spot (owner 2026-11-03). They share
     the app's queue (vqueue.py), so it's listed once, and the time is for all of them printing it."""
-    return await render_print_queue_group(request, codes)
+    return await render_print_queue_group(request, codes, live=not cached)   # timed redraws: the cached list (1.473.0)
 
 
 @router.post("/print-queue/group/remove", response_class=HTMLResponse)
@@ -240,8 +240,9 @@ async def print_queue_group_clear(request: Request, codes: str = Form(""), scope
 
 
 @router.get("/devices/{code}/print-queue", response_class=HTMLResponse)
-async def print_queue_panel(request: Request, code: str, compact: int = 0, user: str = Depends(current_user)):
-    dev = await fetch_device(request, code)
+async def print_queue_panel(request: Request, code: str, compact: int = 0, cached: int = 0,
+                            user: str = Depends(current_user)):
+    dev = await (cached_device if cached else fetch_device)(request, code)   # timed redraws: no game read (1.473.0)
     return partial(request, "partials/print_queue.html", **await print_queue_ctx(request, code, dev, compact=bool(compact)))
 
 

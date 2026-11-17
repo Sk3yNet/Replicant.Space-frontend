@@ -82,9 +82,22 @@ async def replicant_events(request: Request, code: str, event_type: str = "", us
 
 
 # --- device permissions ---------------------------------------------------------------------------------------------
+_PERMS: dict[str, tuple[float, dict]] = {}   # code -> (read at, answer): permissions rarely change (1.473.0)
+PERMS_TTL = 600
+
+
 @router.get("/partials/permissions/{code}", response_class=HTMLResponse)
 async def permissions(request: Request, code: str, user: str = Depends(current_user)):
-    body, err = await _get(request, f"/devices/{code}/permissions")
+    import time
+    hit = _PERMS.get(code)
+    if hit and time.time() - hit[0] < PERMS_TTL:
+        body, err = hit[1], None
+    else:
+        body, err = await _get(request, f"/devices/{code}/permissions")
+        if not err:
+            if len(_PERMS) > 500:
+                _PERMS.clear()
+            _PERMS[code] = (time.time(), body)
     return partial(request, "partials/permissions.html", code=code, perms=body.get("permissions") or [], err=err)
 
 
@@ -99,6 +112,7 @@ async def permissions_change(request: Request, code: str, permission_type: str =
         acct = account_id.strip()
     body = {"permission_type": permission_type.strip(), "account_id": acct, "granted_account_id": acct}
     method = "DELETE" if revoke else "POST"
+    _PERMS.pop(code, None)   # the next listing reads the game again
     return await run_action(request, user, method, f"/devices/{code}/permissions", body,
                             f"{code}: {'revoke' if revoke else 'grant'} {permission_type} for account {account_id}")
 

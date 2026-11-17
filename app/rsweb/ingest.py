@@ -237,7 +237,6 @@ class Worker:
         self._auto_q: deque = deque()   # events waiting for the engine lock, in order (see _automate)
         self._auto_task: asyncio.Task | None = None
         self.devices_lock = asyncio.Lock()   # quick read-modify-writes of the cached device list (refreshes, bulk tags)
-        self._arrivals: list[datetime] = []   # arrival refreshes lately (watched_event)
         self._rep_dirty: set[str] = set()     # replicants whose details the next account sync re-reads (sync_account)
         self._hosted: dict[str, str] = {}     # hosted device code → replicant code
         self._event_read: dict[str, float] = {}   # device code → when an event last had it re-read (after_order)
@@ -707,18 +706,15 @@ class Worker:
         self._bg.add(t)
         t.add_done_callback(self._bg.discard)
 
-    ARRIVAL_REFRESHES = 30   # per 10 minutes: a fleet arriving at once doesn't eat the request budget
-
     def watched_event(self, ev: dict) -> None:
         """An event about a device a recent order touched, or any arrival: refresh it (and any device the event names),
         so the device page shows the new location when its countdown ends instead of at the next device sync."""
         watch = self._watch
         now = datetime.now(timezone.utc)
-        if ev.get("event") == "travel.arrived" and ev.get("device_code"):
-            self._arrivals = [t for t in self._arrivals if now - t < timedelta(minutes=10)]
-            if len(self._arrivals) < self.ARRIVAL_REFRESHES:
-                self._arrivals.append(now)
-                watch.setdefault(ev["device_code"], now + timedelta(seconds=1))
+        if ev.get("event") == "travel.arrived" and ev.get("device_code") and ev["device_code"] not in watch:
+            # 1.473.0: the event says where it is now: put that on the cached device (unconfirmed until the next
+            # device list) instead of one game read per arrival (up to 3 a minute with fleets on the move)
+            self._spawn(self.note_arrival(ev))
         if not watch:
             return
         for c in [c for c, t in watch.items() if t < now]:
@@ -732,6 +728,32 @@ class Worker:
                     self._event_read[c] = t
             self._event_read = {c: v for c, v in self._event_read.items() if v > t - 120}
             self._spawn(self.refresh_devices_now({c for c in named if c}))
+
+    MOVING = ("travel", "cruis", "surg", "divert", "recall")
+
+    async def note_arrival(self, ev: dict) -> None:
+        """travel.arrived for a device no order is watching: its new location (the event's), no trip, and idle if the
+        list still shows it moving, marked _unconfirmed like a command's answer; the next device list has the rest."""
+        code, loc = ev.get("device_code"), ev.get("location") or ((ev.get("payload") or {}).get("destination")
+                                                                  if isinstance(ev.get("payload"), dict) else None)
+        if not code or not loc:
+            return
+        mark = {"at": now_iso(), "t": time.time(), "what": "arrived"}
+        hit = False
+        async with self.devices_lock:
+            devices = await self.db.kv_get("devices", []) or []
+            for d in devices:
+                if d.get("device_code") == code:
+                    d.update(location=loc, travel=None)
+                    if str(d.get("status") or "").lower().startswith(self.MOVING):
+                        d["status"] = "idle"
+                    d["_unconfirmed"] = mark
+                    hit = True
+                    break
+            if hit:
+                await self.db.kv_set("devices", devices)
+        if hit:
+            self.hub.publish("state", "devices")
 
     async def refresh_devices_now(self, codes: set[str]) -> None:
         """GET each device (at most 8) and put the answers on the cached device list."""
