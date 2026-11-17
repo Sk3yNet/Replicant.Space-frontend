@@ -487,3 +487,21 @@ def test_recall_takes_a_terraformer_home_not_to_the_nearest_receiving_point():
     other = {"id": "m", "role": "mining", "home": "NEAR", "station": True}
     devs = [dict(dev("MON", "terraform_monitor", "FAR-2"))]
     assert fl.recall_target(tf_fleet, [tf_fleet, other], devs, lambda a, b: 1.0) == ("SOL", "its home")
+
+
+def test_a_working_terraformer_prints_what_no_spare_covers(client):  # noqa: F811
+    # Joe 2026-11-17: a terraformer has a long assignment at its planet and should get new devices there
+    fac = {"device_code": "FAC", "device_type": "autofactory", "location": "SOL-3", "status": "idle", "tags": [],
+           "available_commands": ["enqueue_print"], "print_queue": []}
+    db, e = _at_work(client, [fac, dev("MON", "terraform_monitor", status="monitoring")],
+                     wants={"terraform_monitor": 1, "thermal_lance": 2})
+    client.portal.call(db.kv_set, "blueprints", [{"device_type": "thermal_lance", "print_time": 600}])
+    out = client.portal.call(e.terraformer_pass)
+    assert any("printing 2" in x for x in out), out
+    job = next(j for j in client.portal.call(e.jobs) if (j.get("meta") or {}).get("print"))
+    bodies = [s["body"] for s in job["steps"]]
+    assert all(b["command"] == "enqueue_print" and b["device_type"] == "thermal_lance" and b["tags"] == ["fleet:tf"]
+               for b in bodies) and sum(b["quantity"] for b in bodies) == 2
+    client.portal.call(e.cancel, job["id"])
+    client.portal.call(e.terraformer_pass)   # the device list hasn't caught up yet: not printed twice
+    assert sum(1 for j in client.portal.call(e.jobs) if (j.get("meta") or {}).get("print")) == 1

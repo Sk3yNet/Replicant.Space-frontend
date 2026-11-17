@@ -534,6 +534,7 @@ class TerraformerMixin:
         short = {t: n - sum(1 for v in fetch.values() if v["type"] == t) for t, n in fl.short_list(f, devices).items()}
         short = {t: n for t, n in short.items() if n > 0}
         if short:
+            out += await self._tf_print(f, planet, run, ctx, short)
             why = run.get("short_why") or {}
             notes.append("short " + "; ".join(f"{n}× {t.replace('_', ' ')} ({why.get(t) or 'none free'})"
                                                for t, n in sorted(short.items())))
@@ -707,3 +708,63 @@ class TerraformerMixin:
                 out.append(f"extra {t} print off {fac}'s queue")
         return out
 
+    async def _tf_print(self, f: dict, planet: str, run: dict, ctx: dict, short: dict[str, int]) -> list[str]:
+        """What no spare covers is printed for the fleet (Joe 2026-11-17: a terraformer works one world for a long time
+        and gets new devices there, like a stationed fleet at home). Prints go on the autofactories nearest the planet
+        (within the supply range) tagged with the fleet, so each one is a member in another system once printed and
+        _tf_fetch has logistics bring it to the planet. Prints already queued for the fleet count; a type printed in the
+        last 20 minutes waits for the device list to show its queue (run.printed). Off with Fleets › settings *Print
+        what spares can't cover*."""
+        from . import fleets as fl
+        from . import printqueue as pq
+        from .automations import step
+        from .loadouts import is_factory
+        from .shapes import normalize_blueprints
+        cfg = await self.loadout_cfg()
+        if not (cfg.get("settings") or {}).get("print_missing", True):
+            return []
+        devices, star = ctx["devices"], fl.star_of(planet)
+        tag = fl.fleet_tag(f["id"])
+        need = dict(short)
+        for d in devices:
+            for it in pq.items(d):
+                if tag in it["tags"] and need.get(it["device_type"]):
+                    need[it["device_type"]] = max(0, need[it["device_type"]] - max(1, int(it.get("quantity") or 1)))
+        printed = {t: v for t, v in (run.get("printed") or {}).items()
+                   if _now() - (_ts(v) or 0) < 1200}
+        run["printed"] = printed
+        if not printed:
+            run.pop("printed", None)
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        need = {t: n for t, n in need.items() if n > 0 and t not in printed and t in bps}
+        if not need:
+            return []
+        pos = {k: (v or {}).get("position") or {} for k, v in (await self.star_lookup("by")).items()}
+        reach = fl.sector_reach(await self.supply_reach())
+        facs = [d for d in devices if is_factory(d) and d.get("location") and d.get("in_control_range") is not False
+                and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
+                and not str(d.get("status") or "").startswith(("compact", "stowed", "attach"))
+                and not fl.beyond_reach(fl.star_of(d.get("location")), star, pos, reach)]
+        if not facs:
+            why = run.setdefault("short_why", {})
+            for t in need:
+                why[t] = f"no autofactory within the {reach:g} ly supply range to print it"
+            return []
+        facs.sort(key=lambda d: (fl._dist(star, fl.star_of(d.get("location")), pos), d["device_code"]))
+        peers = [d for d in facs if fl.star_of(d.get("location")) == fl.star_of(facs[0].get("location"))]
+        load = {d["device_code"]: pq.load_seconds(d, bps) for d in peers}
+        steps = []
+        for t, n in sorted(need.items()):
+            for fac, k in pq.split(peers, t, n, bps, load):
+                steps.append(step(f"print {k}× {t} on {fac['device_code']} for {f['name']}", f"/devices/{fac['device_code']}",
+                                  {"command": "enqueue_print", "device_type": t, "quantity": k, "tags": [tag]}))
+        if not steps:
+            return []
+        codes = sorted({s["path"].rsplit("/", 1)[-1] for s in steps})
+        await self.create_job("terraformer", f"{f['name']}: print {fl.summarize(need)} for {planet}", codes[0], steps,
+                              {"devices": codes, "fleet": f["id"], "print": need})
+        for t in need:
+            printed[t] = now_iso()
+        run["printed"] = printed
+        return [f"no spare {t.replace('_', ' ')} free: printing {n} at {fl.star_of(peers[0].get('location'))} for {planet}"
+                for t, n in sorted(need.items())]
