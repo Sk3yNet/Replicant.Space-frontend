@@ -254,9 +254,25 @@ def logistics_rows(mine: dict | None, cfg: dict, stations: list[dict]) -> list[d
             continue
         ob = objective(j, stations)
         if ob["kind"] in ("gather", "deliver") and ob["resource"] and ob["qty"] and ob["at"]:
+            exp = _ts(j.get("expires_at"))
             out.append({"code": f"job{j.get('id')}", "location": ob["at"], "target": {ob["resource"]: ob["qty"]},
-                        "kind": "job", "urgent": False,
-                        "label": f"station job {j.get('title') or j.get('id')}: {int(ob['qty'])} {ob['resource']} to {ob['at']}"})
+                        "kind": "job", "urgent": True, "due": exp.isoformat(timespec="seconds") if exp else None,
+                        "label": f"station job {j.get('title') or j.get('id')}: {int(ob['qty'])} {ob['resource']} to {ob['at']}"
+                                 + (f" (due {exp:%m-%d %H:%M} UTC)" if exp else "")})
+    return out
+
+
+def urgent_pins(mine: dict | None, cfg: dict, stations: list[dict]) -> set[str]:
+    """Where the running jobs need devices (deploy: the deploy location, courier: the destination): devices pinned there
+    are urgent device moves (loadouts.priority_devices; Joe 2026-11-17: a job must be done within its 24 h)."""
+    run = set(str(x) for x in cfg.get("run") or [])
+    out: set[str] = set()
+    for j in accepted(mine):
+        if str(j.get("id")) in run:
+            ob = objective(j, stations)
+            loc = ob["at"] if ob["kind"] == "deploy" else ob["dest"] if ob["kind"] == "courier" else None
+            if loc:
+                out.add(str(loc).upper())
     return out
 
 

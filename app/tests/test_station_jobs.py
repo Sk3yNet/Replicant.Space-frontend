@@ -33,8 +33,10 @@ def test_pick_and_blocked_rows():
     assert all(r["blocked"] == "you hold a job already" for r in busy)
 
 
-def test_job_rows_go_to_logistics_as_a_deal():
+def test_job_rows_go_to_logistics_as_urgent():
+    """Joe 2026-11-17: a station job must be done within its 24 h, so its resources go ahead of other work."""
     mine = {"jobs": [{"id": 7, "status": "accepted", "title": "Supply", "station_slug": "new_havana",
+                      "expires_at": "2026-11-18T10:00:00Z",
                       "objectives": {"type": "gather_resources", "station_location": "A-OBJ-2", "resource": "carbon", "quantity": 50}}]}
     assert not sj.logistics_rows(mine, {"run": []}, STATIONS)
     rows = sj.logistics_rows(mine, {"run": ["7"]}, STATIONS)
@@ -45,7 +47,8 @@ def test_job_rows_go_to_logistics_as_a_deal():
                 hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[], incoming={},
                 replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1", upkeep=rows)
     r = next(r for r in p["requests"] if r["id"] == "job:job7")
-    assert r["need"] == {"carbon": 50} and r["category"] == "deals" and "station job" in r["label"]
+    assert r["need"] == {"carbon": 50} and r["category"] == "urgent" and r["urgent"] == "station job"
+    assert "station job" in r["label"] and "due 11-18 10:00" in r["label"]
     assert next(x for x in p["runs"] if x["req"] == "job:job7")["to"] == "A-OBJ-2"
 
 
@@ -106,3 +109,28 @@ def test_abandon_and_auto_accept(client):  # noqa: F811
     out = client.portal.call(e.station_jobs_pass)
     assert out == ["accepted job 42"]
     assert client.portal.call(sj.runner_cfg, db)["run"] == ["42"]
+
+
+def test_job_resources_follow_evacuations_and_lead_sol_trades():
+    rows = [{"code": "job7", "location": "A-OBJ-2", "target": {"carbon": 50}, "kind": "job", "urgent": True,
+             "due": "2026-11-18T10:00:00+00:00", "label": "station job"}]
+    sol = {"key": "S:T1", "location": "SOL-3", "price": {"carbon": 30}, "controller": "S", "trade_code": "T1", "name": "T1"}
+    from rsweb import logistics as lg
+    from test_logistics import world
+    reqs, _, _ = lg.requests(devices=world(), bps=BPS, inventory={"Z-1": {"carbon": 50}}, pos=POS, contracts=[],
+                             trades=[sol], incoming={}, fleets=FLEETS, gather={"A": "A-1"}, busy_stars=set(),
+                             evacuate={"Z-1": "A-1"}, upkeep=rows)
+    assert [r["id"] for r in reqs[:3]] == ["evacuate:Z-1", "job:job7", "trade:S:T1"]
+
+
+def test_devices_for_a_running_deploy_or_courier_job_are_urgent():
+    mine = {"jobs": [{"id": 8, "status": "accepted", "station_slug": "new_havana",
+                      "objectives": {"type": "deploy_devices", "station_location": "A-OBJ-2", "device_type": "ftl_relay"}}]}
+    assert sj.urgent_pins(mine, {"run": []}, STATIONS) == set()
+    pins = sj.urgent_pins(mine, {"run": ["8"]}, STATIONS)
+    assert pins == {"A-OBJ-2"}
+    from rsweb import loadouts as lo
+    devs = [{"device_code": "R1", "device_type": "ftl_relay", "location": "B-4", "tags": ["to:a", "at:a-obj-2"]},
+            {"device_code": "R2", "device_type": "ftl_relay", "location": "A-OBJ-2", "tags": ["at:a-obj-2"]},
+            {"device_code": "R3", "device_type": "ftl_relay", "location": "B-4", "tags": ["at:a-2"]}]
+    assert lo.priority_devices(devs, pins) == {"R1"} and lo.priority_devices(devs) == set()

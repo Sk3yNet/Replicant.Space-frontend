@@ -14,9 +14,10 @@ Demand, tracked every pass (engine stage logistics_pass), one request per destin
 Priority (owner's order, 2026-10-12): 1 queued prints (the ones waiting for resources first), 2 local deliveries (the
 stock is in the same system), 3 long-range transfers, 4 stockpile returns. A request can be bumped or skipped on the
 Logistics page. Each home system keeps what its own prints need (a reserve): only the surplus is taken.
-Urgent (priority 0, owner 2026-11-13): evacuations, then trades at Sol (PRIORITY_STARS: its shops cycle and sell out),
-then prints a factory is stalled on (waiting for resources). Devices too: components a factory waits for and devices
-paying a Sol trade are urgent device moves, taken right after evacuations.
+Urgent (priority 0, owner 2026-11-13): evacuations, then station jobs' resources (owner 2026-11-17: done within the job's
+deadline; soonest first), trades at Sol (PRIORITY_STARS: its shops cycle and sell out), then prints a factory is stalled
+on (waiting for resources). Devices too: components a factory waits for, devices a running station job needs (deploy,
+courier) and devices paying a Sol trade are urgent device moves, taken right after evacuations.
 
 Device moves (owner 2026-11-13): devices bound for another place (loadouts.plan: tagged to:/at:, fleet members going
 home, relays and beacons on their way out) are requests in the same list (kind `devices`, one per pick-up, destination
@@ -173,7 +174,7 @@ TIERS = {0: "urgent", 1: "queued prints", 2: "local delivery", 3: "long-range tr
 # category isn't starved by a big one; stockpile returns (reallocations) get no carrier of their own and come last
 CATEGORIES = {"devices": "device moves", "prints": "queued prints", "deals": "trades & contracts", "rescues": "rescues", "shop": "shop listings",
               "repairs": "repair patrols", "upkeep": "hub upkeep", "returns": "stockpile returns",
-              "urgent": "urgent: evacuations, awaited devices, Sol trades, stalled prints"}
+              "urgent": "urgent: evacuations, awaited devices, station jobs, Sol trades, stalled prints"}
 LANES = ("devices", "prints", "deals", "rescues", "shop", "repairs", "upkeep")
 PATROL_LOAD = 6                # worn devices one patrolling repair device looks after (upkeep.report's "covered")
 KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like placed relays and beacons: never "rescued"
@@ -545,8 +546,10 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
         if need:
             kind = u.get("kind") or "upkeep"   # "job": a station job's resources (stations.logistics_rows)
             out.append({"id": f"{kind}:{u['code']}", "kind": kind, "to": u["location"], "need": need, "price": u["target"],
-                        "tier": 1 if u.get("urgent") else 2, "hub": u["code"],
+                        "tier": 1 if u.get("urgent") else 2, "hub": u["code"], "due": u.get("due"),
                         "label": u.get("label") or f"hub upkeep for {u['code']} at {u['location']}"})
+            if kind == "job":   # a station job must be done within its deadline (Joe 2026-11-17): urgent
+                out[-1].update(tier=0, urgent="station job")
     for r in out:
         if r["kind"] not in ("print", "upkeep", "job"):   # local when the system itself can spare a needed resource
             here = star_of(r["to"])
@@ -617,8 +620,9 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
         if r["id"] in (prefs.get("bump") or {}):
             r["tier"] = int(prefs["bump"][r["id"]])
         r["skipped"] = r["id"] in set(prefs.get("skip") or [])
-    # among the urgent ones: evacuations, then Sol trades, then stalled prints
-    out.sort(key=lambda r: (r["tier"], {"return": 0, "trade": 1}.get(r["kind"], 2) if r["tier"] == 0 else 0,
+    # among the urgent ones: evacuations, then station jobs (soonest deadline first), Sol trades, stalled prints
+    out.sort(key=lambda r: (r["tier"], {"return": 0, "job": 1, "trade": 2}.get(r["kind"], 3) if r["tier"] == 0 else 0,
+                            r.get("due") or "~" if r["kind"] == "job" else "",
                             not r.get("waiting"), bool(r.get("plenty")) and set(r["need"]) <= set(r["plenty"]), r["id"]))
     _batch_deals(out, stock, incoming)
     return out, spare, reserve

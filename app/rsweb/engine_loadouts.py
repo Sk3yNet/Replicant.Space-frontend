@@ -739,6 +739,12 @@ class LoadoutMixin:
             await self.db.kv_set("loadout_orders", keep)
         return keep
 
+    async def station_job_pins(self) -> set[str]:
+        """Where the station jobs the runner works need devices (stations.urgent_pins): their moves are urgent."""
+        from . import stations as stj
+        return stj.urgent_pins(await self.db.kv_get(stj.KV_MINE, {}), await stj.runner_cfg(self.db),
+                               ((await self.db.kv_get(stj.KV_STATIONS, {})) or {}).get("stations") or [])
+
     async def loadout_plan(self, only: set[str] | None = None, dispatch: Any = None, routes: bool = True) -> dict:
         """The loadout plan. `dispatch`: who gives the device batches their carriers (loadouts.plan; Engine.dispatch
         passes logistics.plan). `routes`: also the material ferries (read from the event history: only for a full pass)."""
@@ -813,7 +819,7 @@ class LoadoutMixin:
         p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
                  await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites(), protect,
                  await self.geography(devices, stars), await self.commandable(devices, stars),
-                 await self.stuck_prints(devices, bps), dispatch=dispatch)
+                 await self.stuck_prints(devices, bps), dispatch=dispatch, job_pins=await self.station_job_pins())
         if not routes:
             p["routes"] = []
             return p

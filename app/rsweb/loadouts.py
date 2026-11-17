@@ -343,10 +343,11 @@ def for_contract(d: dict) -> bool:
     return any(str(t).startswith("contract:") for t in d.get("tags") or [])
 
 
-def priority_devices(devices: list[dict]) -> set[str]:
+def priority_devices(devices: list[dict], job_pins: set[str] | frozenset = frozenset()) -> set[str]:
     """Devices whose collection goes ahead of everything but evacuations (Joe 2026-11-13): components pinned to a
-    factory that is waiting for their type, and devices paying a deal at a priority star (logistics.PRIORITY_STARS:
-    Sol's shops cycle and sell out). Only those not there yet."""
+    factory that is waiting for their type, devices paying a deal at a priority star (logistics.PRIORITY_STARS:
+    Sol's shops cycle and sell out), and devices pinned where a running station job needs them (`job_pins`,
+    stations.urgent_pins; Joe 2026-11-17). Only those not there yet."""
     from .logistics import PRIORITY_STARS
     awaited: set[tuple[str, str]] = set()
     for f in devices:
@@ -357,6 +358,8 @@ def priority_devices(devices: list[dict]) -> set[str]:
     for d in devices:
         pin, here = pinned_at(d), d.get("location") or ""
         if is_component(d) and pin and pin != here and (pin, d.get("device_type")) in awaited:
+            out.add(d["device_code"])
+        elif pin and pin in job_pins and pin != here:
             out.add(d["device_code"])
         elif for_contract(d):
             tags = d.get("tags") or []
@@ -430,7 +433,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
          replicant_hosts: dict[str, str], busy: set[str], orders: list[dict], stowed_map: dict[str, list[str]],
          only: set[str] | None = None, open_sites: dict[str, int] | None = None, protect: set[str] | None = None,
          geo: dict[str, dict] | None = None, commandable: set[str] | None = None,
-         stuck: dict[str, str] | None = None, dispatch: Any = None) -> dict:
+         stuck: dict[str, str] | None = None, dispatch: Any = None, job_pins: set[str] | frozenset = frozenset()) -> dict:
     """Work out what to tag, print and move. `commandable`: systems you can give commands in (an active relay network's
     coverage, or a replicant there — relaynet.coverage); a delivery anywhere else rides a vessel hosting a replicant, or
     waits (owner's rule, 2026-10-12: outside the network nothing arrives unaccompanied). `only`: limit shortfall filling to these stars.
@@ -1401,7 +1404,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         return any(is_component(by_code.get(x) or {}) and ((pinned_at(by_code.get(x) or {}) or ""),
                                                            (by_code.get(x) or {}).get("device_type")) in awaited_types
                    for x in codes_)
-    prio = priority_devices(devices)
+    prio = priority_devices(devices, job_pins)
 
     def carry(b: dict, allow: Any = None) -> None:
         """Give the devices of one batch still waiting (b["left"]) to carriers: b["deliveries"] grows, b["left"] keeps
