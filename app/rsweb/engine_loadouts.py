@@ -715,6 +715,18 @@ class LoadoutMixin:
         from .shapes import normalize_blueprints, normalize_inventory
         cfg = await self.loadout_cfg()
         devices = await self.devices()
+        from . import tradepost as tp
+        tps = await self.trade_posts_state()
+        cfg["trade_overage"], cfg["trade_claimed"] = [], {}
+        for f in cfg["fleets"]:
+            st = tps.get(f.get("id")) or {}
+            if f.get("role") != tp.ROLE or not st.get("location"):
+                continue
+            cfg["trade_overage"] += [{"post": f["id"], "spot": st["location"], "type": t, "n": n}
+                                     for t, n in sorted(tp.overage(f, st).items())]
+            for fid, by_t in tp.claimed(st).items():
+                for t, n in by_t.items():
+                    cfg["trade_claimed"].setdefault(fid, {})[t] = cfg["trade_claimed"].get(fid, {}).get(t, 0) + n
         bps = normalize_blueprints(await self.db.kv_get("blueprints", []))
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         inv = await self.safe_piles(inv)   # piles at overdue rocks are left (2026-11-08)
@@ -866,6 +878,17 @@ class LoadoutMixin:
                     orders += [{"star": pr["star"], "fleet": pr.get("fleet"), "device_type": pr["device_type"],
                                 "factory": pr["factory"], "at": now_iso(), "job": job["id"]} for _ in range(pr["n"])]
             await self.db.kv_set("loadout_orders", orders)
+            if p.get("trade_claims") and (manual or not (await self.settings())["dry_run"]):
+                state = await self.trade_posts_state()
+                for c in p["trade_claims"]:   # the trade post pass delists and hands them over (tradepost.plan)
+                    st = state.get(c["post"])
+                    if st is not None:
+                        st.setdefault("claims", {}).setdefault(c["type"], []).append(
+                            {"fleet": c["fleet"], "n": c["n"], "at": now_iso()})
+                        await self.log("loadouts", f"loadouts: {c['n']}× {c['type']} for {c['fleet']} claimed from trade "
+                                                   f"post {c['post']}'s overage")
+                from .tradepost import KV as TP_KV
+                await self.db.kv_set(TP_KV, state)
         started += await self.start_compactions(
             p if full else {**p, "compact": [x for x in p.get("compact") or [] if x[0] in now_too]}, force=manual)
 

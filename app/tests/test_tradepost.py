@@ -426,3 +426,21 @@ def test_supply_old_sold_prints_dont_answer_a_new_order():
     assert p["rows"][0]["printing"] == 1 and p["rows"][0]["short"] == 0   # OLD was sold before the order: still printing
     entry["printed_seen"]["OLD"] = "2026-11-16T00:30:00+00:00"            # came out of this order, then went
     assert cs.plan(e, prog, entry, [], hosts=set(), busy=set(), now=now)["rows"][0]["printing"] == 0
+
+
+def test_claimed_overage_is_delisted_then_handed_over():
+    f = {**FLEET, "trade_post": {"onhand": {"mining_drone": 1}}}
+    st = {"rows": [{"type": "mining_drone", "listed": 3, "trade_code": "TRD-1"}], "listings": {"mining_drone": {
+        "trade_code": "TRD-1", "controller": "SHOP", "stock": 3, "escrow": ["E1", "E2", "E3"]}}}
+    assert tp.overage(f, st) == {"mining_drone": 2}
+    st["claims"] = {"mining_drone": [{"fleet": "m1", "n": 1, "at": "2026-11-17T00:00:00+00:00"}]}
+    assert tp.overage(f, st) == {"mining_drone": 1} and tp.claimed(st) == {"m1": {"mining_drone": 1}}
+    listing = {"trade_code": "TRD-1", "current_stock": 3, "initial_stock": 3, "criteria": {"resources": {}}}
+    trades = {"SHOP": [{**listing, "rewards": {"devices": {"mining_drone": 1}}}]}
+    pl = tp.plan(f, [shop()], trades, st, BPS, P, TAG)
+    assert pl["actions"] == [{"type": "mining_drone", "controller": "SHOP", "delete": "TRD-1", "create": None, "escrow": []}]
+    st["listings"] = {}
+    devs = [shop()] + [dev(c, "mining_drone", tags=[TAG]) for c in ("E1", "E2", "E3")]   # the escrow came back
+    pl = tp.plan(f, devs, {"SHOP": []}, st, BPS, P, TAG)
+    assert pl["give"] == [{"code": "E1", "fleet": "m1", "type": "mining_drone", "tags": [TAG]}]
+    assert pl["claims_done"] == ["mining_drone"] and pl["actions"] == []

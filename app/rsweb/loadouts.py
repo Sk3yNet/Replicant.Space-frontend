@@ -796,6 +796,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         return str(d.get("status") or "").startswith(WORKING)
 
     # 3: fill shortfalls — spares first, then prints
+    tp_over = [dict(o) for o in cfg.get("trade_overage") or []]   # tradepost.overage, per post (engine)
+    tp_claimed = {f: dict(v) for f, v in (cfg.get("trade_claimed") or {}).items()}
+    trade_claims: list[dict] = []
     reserved: dict[str, Counter] = defaultdict(Counter)  # location -> resources set aside in this plan
     prints: list[dict] = []
     cancel_orders: list[dict] = []   # loadout orders a spare at home replaces: their prints come off the queue
@@ -962,6 +965,23 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                     f"spare(s) {', '.join(d['device_code'] for d in wait)} here, busy right now — taken once free"
                 unmet.append({"star": star, "type": row["type"], "n": len(wait), "why": why})
                 need -= len(wait)
+            # a trade post's overage (listed beyond its stock number) is a spare too (owner 2026-11-17): the post delists
+            # it and tags it for the fleet; claimed and not handed over yet, it counts as on its way
+            k = min(max(need, 0), tp_claimed.get(fid, {}).get(row["type"], 0))
+            if k:
+                tp_claimed[fid][row["type"]] -= k
+                unmet.append({"star": star, "type": row["type"], "n": k, "why": "claimed from a trade post's overage (delisting)"})
+                need -= k
+            for o in tp_over:
+                if need <= 0:
+                    break
+                if o.get("type") != row["type"] or int(o.get("n") or 0) <= 0 or not near({"location": o.get("spot")}, star):
+                    continue
+                k = min(need, int(o["n"]))
+                o["n"] = int(o["n"]) - k
+                trade_claims.append({"post": o.get("post"), "fleet": fid, "type": row["type"], "n": k})
+                unmet.append({"star": star, "type": row["type"], "n": k, "why": f"claimed from trade post {o.get('post')}'s overage"})
+                need -= k
             own = [g for g in factories if fleet_tag_of(g) == tag and queue_free.get(g["device_code"], 1) > 0 and near(g, star)
                    and fits(g, row["type"])]
             if need > 0 and s["print_missing"] and own and row["type"] in bps:
@@ -1587,7 +1607,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             "tag_remove": {k: sorted(v) for k, v in tag_remove.items() if v}, "moves": moves, "prints": prints, "cancel_orders": cancel_orders,
             "priority": sorted(prio), "self_moves": self_moves, "deliveries": deliveries, "arrived": sorted(set(arrived)), "unmet": unmet,
             "by_code": by_code, "managed": managed_map, "made_spare": sorted(made_spare), "gathering": sorted(gathering),
-            "depot": ", ".join(sorted({moves[c] for c in gathering})) or ", ".join(points) or None, "assign": assign}
+            "depot": ", ".join(sorted({moves[c] for c in gathering})) or ", ".join(points) or None, "assign": assign,
+            "trade_claims": trade_claims}
 
 
 ATTACH_CARRIERS = ("surge_plate", "surge_platform", "surge_carrier", "mobile_fleet")

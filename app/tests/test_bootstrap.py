@@ -633,3 +633,20 @@ def test_consolidate_never_counts_a_vessel_as_a_factory():
     from rsweb import consolidate as co
     assert not co.is_factory({"device_type": "heaven_vessel", "available_commands": ["enqueue_print"]})
     assert co.is_factory({"device_type": "autofactory", "available_commands": ["enqueue_print"]})
+
+
+def test_trade_post_overage_claimed_before_printing():
+    from rsweb import loadouts as lo
+    dev, stars, bps = _range_world()
+    af = dev("AF", "autofactory", "AAA-3-L4", features=["print"], cmds=["enqueue_print"], tags=["fleet:aaa"])
+    cfg = {"fleets": [{"id": "aaa", "name": "A", "role": "mining", "home": "AAA", "station": True,
+                       "wants": {"autofactory": 1, "ami_mining_controller": 2}}],
+           "settings": {"max_supply_ly": 100, "supply_range_v3": True, "print_missing": True, "need_stock": False},
+           "trade_overage": [{"post": "tp", "spot": "AAA-4-L4", "type": "ami_mining_controller", "n": 1}]}
+    inv = {"AAA-3-L4": {"structural": 1000.0}}
+    p = lo.plan(cfg, [af], bps, inv, stars, {}, set(), [], {})
+    assert p["trade_claims"] == [{"post": "tp", "fleet": "aaa", "type": "ami_mining_controller", "n": 1}]
+    assert sum(pr["n"] for pr in p["prints"] if pr["device_type"] == "ami_mining_controller") == 1
+    cfg["trade_overage"], cfg["trade_claimed"] = [], {"aaa": {"ami_mining_controller": 1}}   # claimed: on its way
+    p = lo.plan(cfg, [af], bps, inv, stars, {}, set(), [], {})
+    assert not p["trade_claims"] and sum(pr["n"] for pr in p["prints"] if pr["device_type"] == "ami_mining_controller") == 1

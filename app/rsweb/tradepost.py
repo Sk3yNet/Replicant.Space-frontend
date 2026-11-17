@@ -203,6 +203,30 @@ def carries_replicant(d: dict, devices: list[dict]) -> bool:
                if code and code in (x.get("stowed_in_device_code"), x.get("attached_to_device_code")))
 
 
+def overage(fleet: dict, state: dict) -> dict[str, int]:
+    """Listed beyond the fleet's stock number, not claimed yet: {type: n}. Spares a fleet may ask for (owner 2026-11-17);
+    otherwise it stays for sale."""
+    onhand = settings(fleet)["onhand"]
+    claims = state.get("claims") or {}
+    out = {}
+    for r in state.get("rows") or []:
+        t = r.get("type")
+        n = int(r.get("listed") or 0) - int(onhand.get(t) or 0) - sum(int(x.get("n") or 0) for x in claims.get(t) or [])
+        if t and n > 0 and r.get("trade_code") and int(onhand.get(t) or 0) > 0:
+            out[t] = n
+    return out
+
+
+def claimed(state: dict) -> dict[str, dict[str, int]]:
+    """Overage claimed and not handed over yet: {fleet id: {type: n}} (the loadout counts it as on its way)."""
+    out: dict[str, dict[str, int]] = {}
+    for t, cl in (state.get("claims") or {}).items():
+        for x in cl:
+            f = out.setdefault(x.get("fleet") or "", {})
+            f[t] = f.get(t, 0) + int(x.get("n") or 0)
+    return out
+
+
 def free_here(d: dict, loc: str | None, devices: list[dict]) -> bool:
     """A device at the shop that a listing may escrow in place of the stock: idle, nobody's (no fleet, contract or trip),
     not pinned elsewhere, carrying no replicant."""
@@ -243,7 +267,7 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
     spot = settings(fleet)["spot"]
     out: dict[str, Any] = {"rows": rows(fleet, bps, p), "actions": [], "release": [], "need": {}, "skip": [],
                            "notes": [], "location": spot or (ctrl or {}).get("location"), "pin": None, "pins": [],
-                           "shops": [], "unpin": []}
+                           "shops": [], "unpin": [], "give": [], "claims_done": []}
     if not ctrl:
         out["notes"].append("no AMI trade controller in the fleet")
         return out
@@ -341,6 +365,29 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
             r["status"] = (f"can't be sold here: the post's own {len(own)} {t.replace('_', ' ')}(s) sit at {loc} and the "
                            "game could escrow one; take it out of the stock")
             out["release"] += [d["device_code"] for d in loose]
+            continue
+        cl = (state.get("claims") or {}).get(t) or []
+        if cl and not away and known:   # a fleet asked for the overage (owner 2026-11-17): delist, then hand it over
+            who = ", ".join(sorted({x.get("fleet") or "?" for x in cl}))
+            if cur:
+                out["actions"].append({"type": t, "controller": c, "delete": cur["trade_code"], "create": None, "escrow": []})
+                r["status"] = f"delisting: overage claimed by {who}"
+                continue
+            pool = sorted(loose + extra, key=lambda d: d["device_code"])
+            room = max(0, len(pool) - want)
+            if pool:
+                left = room
+                for x in cl:
+                    k = min(int(x.get("n") or 0), left)
+                    for d in pool[room - left:room - left + k]:
+                        out["give"].append({"code": d["device_code"], "fleet": x.get("fleet"), "type": t,
+                                            "tags": d.get("tags") or []})
+                    left -= k
+                out["claims_done"].append(t)
+                r["status"] = f"overage handed to {who}" if room else "claimed overage gone (nothing over the stock number)"
+                continue
+            r["status"] = f"delisted for {who}: waiting for the devices to show"
+            out["need"][t] = 0
             continue
         out["need"][t] = max(0, want - listed)
         if away:
@@ -550,6 +597,26 @@ class TradePostMixin:
                 if await self.create_job("trade_post", f"trade post {f.get('name')}: {len(loose)} controller(s) no longer in "
                                          "the fleet unpinned, spare", None, steps, {"devices": [d["device_code"] for d in loose]}):
                     out.append(f"{f.get('name')}: {len(loose)} controller(s) left the fleet: spare")
+            claims = st.setdefault("claims", {})
+            gives = [g for g in pl["give"] if g["code"] in by and g["code"] not in busy]
+            if gives and not dry:
+                from .fleets import fleet_tag
+                steps = [tag_step(g["code"], [fleet_tag(g["fleet"])],
+                                  [x for x in g["tags"] if x in (tag, "spare", "stock", "component")
+                                   or str(x).startswith(("to:", "at:", "fleet:", "home:"))] or None) for g in gives]
+                if await self.create_job("trade_post", f"trade post {f.get('name')}: overage to "
+                                         f"{', '.join(sorted({g['fleet'] for g in gives}))}: "
+                                         f"{', '.join(g['code'] + ' ' + g['type'] for g in gives)}", None, steps,
+                                         {"devices": [g["code"] for g in gives]}):
+                    out.append(f"{f.get('name')}: overage handed over ({len(gives)})")
+            if not dry:
+                for t in pl["claims_done"]:
+                    if not any(g["type"] == t and g not in gives for g in pl["give"]):
+                        claims.pop(t, None)
+            for t in list(claims):   # a claim the shop couldn't serve in 2 h is dropped: the fleet asks again or prints
+                claims[t] = [x for x in claims[t] if (now - datetime.fromisoformat(x.get("at") or now_iso())).total_seconds() < 7200]
+                if not claims[t]:
+                    claims.pop(t)
             rel = [by[c] for c in pl["release"] if c in by and c not in busy]
             if rel and not dry:
                 steps = [tag_step(d["device_code"], ["spare"], [x for x in d.get("tags") or []
