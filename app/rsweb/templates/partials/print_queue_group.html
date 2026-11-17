@@ -30,6 +30,19 @@
       {% endfor %}
     </table>
   {% endif %}
+  {% set in_game = facs | map(attribute='queue') | map('length') | sum %}
+  {% if shared or in_game %}
+    <div class="row" style="margin-top:6px;gap:6px">
+      {% if shared %}<button class="small danger" hx-post="/print-queue/group/clear" hx-vals='{{ {"codes": codes, "scope": "app"} | tojson }}'
+          hx-target="#pqg-{{ codes | replace(',', '-') }}" hx-swap="outerHTML"
+          hx-confirm="Clear all {{ shared | length }} prints from the app's queue for these {{ facs | length }} factories? The orders behind them are dropped too, so they aren't printed again."
+          title="Take every print off the shared app queue (prints already in the game's queues stay)">Clear app queue ({{ shared | length }})</button>{% endif %}
+      {% if in_game %}<button class="small danger" hx-post="/print-queue/group/clear" hx-vals='{{ {"codes": codes, "scope": "all"} | tojson }}'
+          hx-target="#pqg-{{ codes | replace(',', '-') }}" hx-swap="outerHTML"
+          hx-confirm="Clear every waiting print: {{ shared | length }} in the app's queue and {{ in_game }} in the game's queues? Prints already running carry on. The orders behind them are dropped too."
+          title="Also send clear_queue to each factory: the game drops its waiting prints, the one printing now carries on">Clear game queues too ({{ shared | length + in_game }})</button>{% endif %}
+    </div>
+  {% endif %}
   {% if remaining %}<div class="muted small" style="margin-top:6px">{{ waiting }} waiting{% if printing %} + {{ printing }} printing{% endif %} · all done in {{ '' if exact else '~' }}{{ remaining | duration }} with all {{ facs | length }} factories{% if not exact %} (estimate){% endif %}</div>
   {% elif not facs %}<p class="muted small">No factories found.</p>
   {% else %}<p class="muted small" style="margin-top:6px">All queues are empty.</p>{% endif %}

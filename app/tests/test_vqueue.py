@@ -359,3 +359,28 @@ def test_moving_a_kept_print_to_the_front_puts_it_in_the_games_queue(client):  #
     assert r.status_code == 200
     dev = client.portal.call(client.app.state.api.get, "/devices/AF00BEEF")
     assert [x.get("tags") for x in dev["print_queue"]][2:] == [["stock"], ["fleet:m1"]]
+
+
+def test_clear_wipes_a_groups_queue_and_the_orders_behind_it(client):  # noqa: F811
+    """Joe 2026-11-17: Clear queue per group (131 relays queued at FALQUORYX-BELT-1); the relay orders behind the
+    prints are dropped and the rollout skips their systems, so nothing prints them straight back."""
+    db, e, world = setup(client)
+    for star in ("AAA", "BBB"):
+        client.portal.call(e.send, "POST", "/devices/AF00BEEF",
+                           {"command": "enqueue_print", "device_type": "ftl_relay", "quantity": 1, "tags": [f"to:{star.lower()}", "rollout"]}, "t")
+    client.portal.call(db.kv_set, "relay_requests", {"AAA": {"how": "print", "factory": "AF00BEEF"},
+                                                    "BBB": {"how": "print", "factory": "AF00BEEF"},
+                                                    "CCC": {"how": "send", "device": "X"}})
+    client.portal.call(db.kv_set, "relay_rollout", {"on": True, "ordered": {"AAA": "t", "CCC": "t"}, "skipped": {}})
+    world.queues["AF00BEEF"] = [{"device_type": "nutrient_synthesizer", "quantity": 1}]
+    r = client.get("/print-queue/group?codes=AF00BEEF", headers=HX)
+    assert "Clear app queue (2)" in r.text and "Clear game queues too (3)" in r.text
+    r = client.post("/print-queue/group/clear", data={"codes": "AF00BEEF", "scope": "app"}, headers=HX)
+    assert r.status_code == 200
+    assert client.portal.call(VirtualQueue(db).orders, "AF00BEEF") == []
+    assert len(world.queues["AF00BEEF"]) == 1                    # app queue only: the game's print stays
+    assert set(client.portal.call(db.kv_get, "relay_requests")) == {"CCC"}
+    roll = client.portal.call(db.kv_get, "relay_rollout")
+    assert set(roll["ordered"]) == {"CCC"} and "AAA" in roll["skipped"]
+    r = client.post("/print-queue/group/clear", data={"codes": "AF00BEEF", "scope": "all"}, headers=HX)
+    assert r.status_code == 200 and world.queues["AF00BEEF"] == []

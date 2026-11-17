@@ -173,6 +173,72 @@ async def print_queue_group_remove(request: Request, codes: str = Form(""), fact
     return await render_print_queue_group(request, codes, None if outcome.get("ok") else outcome.get("error"))
 
 
+@router.post("/print-queue/group/clear", response_class=HTMLResponse)
+async def print_queue_group_clear(request: Request, codes: str = Form(""), scope: str = Form("app"),
+                                  user: str = Depends(current_user)):
+    """Blueprints › Print queues › Clear (owner 2026-11-17): wipe a group's waiting prints. `app`: the shared app queue
+    (vqueue.py) only; `all`: the game's queues as well (clear_queue: what's printing now carries on). The loadout,
+    relay / ward / beacon orders behind the cleared prints are dropped with them, and the relay rollout counts their
+    systems as skipped, so nothing prints them straight back."""
+    from . import vqueue as vqm
+    from . import ward_orders as wo
+    db = request.app.state.db
+    facs = [c.strip().upper() for c in codes.split(",") if c.strip()][:20]
+    cleared: list[dict] = []   # {factory, device_type, quantity, tags}
+    errors: list[str] = []
+    vq = getattr(request.app.state.api, "vq", None)
+    if vq is not None:
+        async with vq.lock:
+            s = await vq.state()
+            for o in s["orders"]:
+                if o["factory"] in facs:
+                    cleared.append({"factory": o["factory"], "device_type": o["body"].get("device_type"),
+                                    "quantity": o["body"].get("quantity"), "tags": list(o["body"].get("tags") or [])})
+            s["orders"] = [o for o in s["orders"] if o["factory"] not in facs]
+            await db.kv_set(vqm.KV, s)
+    if scope == "all":
+        for code in facs:
+            dev = await fetch_device(request, code) or {}
+            real = [x for x in printqueue.items(dev) if not x["extra"].get("virtual")]
+            if not real:
+                continue
+            out = await call_action(request, user, "POST", f"/devices/{code}", {"command": "clear_queue"},
+                                    f"clear {code}'s print queue")
+            if out.get("ok"):
+                cleared += [{"factory": code, "device_type": x["device_type"], "quantity": x.get("quantity"),
+                             "tags": x.get("tags") or []} for x in real]
+            else:
+                errors.append(f"{code}: {out.get('error')}")
+    if cleared:
+        orders = await db.kv_get("loadout_orders", []) or []
+        left = orders
+        for it in cleared:
+            left = lo.forget_queued(left, it["factory"], it.get("device_type"), max(1, int(it.get("quantity") or 1)))
+        if len(left) != len(orders):
+            await db.kv_set("loadout_orders", left)
+        dropped: list[str] = []
+        for kind, dtype in wo.KINDS.items():
+            ords = await db.kv_get(wo.kv_key(kind), {}) or {}
+            gone = wo.drop_cleared(ords, cleared, dtype)
+            if gone:
+                await db.kv_set(wo.kv_key(kind), ords)
+                dropped += gone
+        if dropped:
+            roll = await db.kv_get("relay_rollout", None)
+            if isinstance(roll, dict) and any(x in (roll.get("ordered") or {}) for x in dropped):
+                for x in dropped:
+                    if x in (roll.get("ordered") or {}):
+                        roll["ordered"].pop(x)
+                        roll.setdefault("skipped", {})[x] = f"its print was cleared by hand ({user})"
+                await db.kv_set("relay_rollout", roll)
+        n = sum(max(1, int(it.get("quantity") or 1)) for it in cleared)
+        msg = (f"cleared {n} print{'s' if n != 1 else ''} from {', '.join(facs)}"
+               + (" (app and game queues)" if scope == "all" else " (app queue)")
+               + (f"; dropped the orders for {len(dropped)} system{'s' if len(dropped) != 1 else ''}" if dropped else ""))
+        await request.app.state.worker.automations.log("print", f"{msg} (by {user})")
+    return await render_print_queue_group(request, codes, "; ".join(errors) or None)
+
+
 @router.get("/devices/{code}/print-queue", response_class=HTMLResponse)
 async def print_queue_panel(request: Request, code: str, compact: int = 0, user: str = Depends(current_user)):
     dev = await fetch_device(request, code)

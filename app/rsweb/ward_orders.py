@@ -210,6 +210,23 @@ def lost_print(devices: list[dict], star: str, order: dict, jobs: list[dict], dt
                    for j in jobs)
 
 
+def drop_cleared(orders: dict, cleared: list[dict], dtype: str) -> list[str]:
+    """Print queues › Clear (owner 2026-11-17): the orders whose print was just cleared by hand, taken out of `orders`
+    (in place) so they aren't printed again: the stars, for each cleared print of `dtype` tagged to:<star> whose
+    order is still a print."""
+    gone = []
+    for it in cleared:
+        if it.get("device_type") != dtype:
+            continue
+        for t in it.get("tags") or []:
+            star = t[3:].upper() if t.startswith("to:") else None
+            o = orders.get(star) if star else None
+            if o and o.get("how") == "print":
+                orders.pop(star)
+                gone.append(star)
+    return gone
+
+
 def expired(order: dict, now: datetime | None = None) -> bool:
     now = now or datetime.now(timezone.utc)
     try:
