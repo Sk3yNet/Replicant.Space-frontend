@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.481.0"
+VERSION = "1.482.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.482.0", "2026-11-18", "Crystal synthesis labs take prints from the app's queue (Joe): they have no print queue (queue_size 0), and the game answered Printer is busy to every crystal_seed x2 or x3 the feeder sent, idle as 1476F94F, 16BAE50B and 22A8CE35 were. Printers without a queue now get one print at a time, the best kept one, only while they hold none. Rock diversion prints no longer go to a printer that can't make the propulsor (a lab got one)."),
     ("1.481.0", "2026-11-18", "Terraforming consoles stay current (Joe): while the page is open and the tab shown, each world's console redraws every 20 s and reads that world's devices from the game with the device list's location filter (one read per world, at most once every 18 s however many tabs are open), so statuses, settings and capacity are seconds old instead of up to 4 minutes. The console header shows when its devices were read."),
     ("1.480.0", "2026-11-18", "Terraformer trips fixed (Joe): members that don't fit the carrier with the replicant now board the fleet's other carriers where they stand, and those fly along. Before, Terraformer 1 left ADHARA-2 for ALKALAROPS-3 on one mobile fleet, leaving 11 members and the empty second carrier behind, out of reach once the replicant had gone."),
     ("1.479.0", "2026-11-18", "Megastructure Contribute card fixed (Joe): it reads the game's current fields (title, progress percentage, current and required per type), so the Delta wormhole gate shows 0 of 256 crystal seeds instead of blanks, lists devices the location reports even when the device list lags, and has an all box to tick every eligible device."),

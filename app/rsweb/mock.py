@@ -827,6 +827,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         if cmd == "enqueue_print":
             q = world.queues.setdefault(code, [])
             n = int(body.get("quantity") or 1)
+            if d.get("queue_size") == 0 and (q or n > 1 or str(d.get("status") or "").startswith("printing")):
+                return ok({"error": "Printer is busy"}, 400)   # no queue (crystal synthesis lab, live 2026-11-18)
             if len(q) + n > 10:   # live 2026-11-02: a quantity takes that many of the queue's 10 slots
                 return ok({"error": f"Not enough queue space ({10 - len(q)} available, {n} requested)"}, 400)
             q.extend({"device_type": body.get("device_type"), "notify": {"device": None}, "tags": list(body.get("tags") or []),

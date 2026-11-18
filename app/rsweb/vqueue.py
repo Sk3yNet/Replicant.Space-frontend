@@ -325,6 +325,18 @@ def jump(cur: dict, real: list[dict], kept: list[dict], have: dict[str, float], 
     return None
 
 
+def queueless(d: dict) -> bool:
+    """A printer whose device row says it has no queue (queue_size 0, the crystal synthesis lab): it takes one print
+    at a time, and only while it makes nothing. A row without queue_size is an ordinary 10-slot factory."""
+    return "queue_size" in d and d.get("queue_size") is not None and int(d.get("queue_size") or 0) <= 0
+
+
+def idle_printer(d: dict) -> bool:
+    """Not printing or waiting on a print."""
+    st = str(d.get("status") or "")
+    return not st.startswith(("printing", "waiting"))
+
+
 def send_body(o: dict) -> dict:
     """The enqueue_print for a kept order: at most CHUNK of it."""
     return {"command": "enqueue_print", **o["body"], "quantity": min(CHUNK, max(1, int(o["body"].get("quantity") or 1)))}

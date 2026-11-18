@@ -211,8 +211,12 @@ def plan(a: dict, devices: list[dict], bps: dict[str, dict], busy: set[str], cfg
             out["notes"].append("no propulsor blueprint known — can't print one")
         else:
             t = types[0]
+            from . import loadouts as lom
+            # never on a (replicant's) vessel, nor on a printer that can't make it (live 2026-11-18: a propulsor print
+            # went to crystal synthesis lab 22A8CE35, an epitaxy printer)
             facs = [d for d in devices if "enqueue_print" in (d.get("available_commands") or [])
-                    and "vessel" not in (d.get("device_type") or "")   # never on a (replicant's) vessel
+                    and "vessel" not in (d.get("device_type") or "")
+                    and lom.can_make(d, bps.get(t)) and lom.in_service(d)
                     and star_of(d.get("location")) == a["star"]]
             if not facs:
                 out["notes"].append(f"no autofactory in {a['star']} to print {t}")

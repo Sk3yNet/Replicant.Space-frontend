@@ -425,3 +425,27 @@ def test_prints_kept_for_a_compacted_factory_go_to_a_working_neighbor(client):  
     # and no contract print picks it in the first place
     f, _ = contractsupply.factory_for("orbital_farm", 1, [box], "SOL", set(), {}, {}, {}, 0, {})
     assert f is None
+
+
+def test_queueless_lab_gets_one_print_at_a_time(client):  # noqa: F811
+    """Joe 2026-11-18: crystal synthesis labs (queue_size 0) answered "Printer is busy" to crystal_seed x3 every pass,
+    idle as they were. The feeder sends them one print, only while they hold none."""
+    lab = {"device_code": "CC00CAFE", "device_type": "crystal_synthesis_lab", "features": ["cruise", "print", "epitaxy"],
+           "available_commands": ["enqueue_print", "dequeue_print"], "location": "DELTA-OBJ-2", "status": "idle",
+           "queue_size": 0}
+    seed = {"device_type": "crystal_seed", "features": ["stow", "exotic", "seed"], "resources": {"metals": 1}, "print_time": 60}
+    db, e, world = setup(client)
+    client.portal.call(db.kv_set, "blueprints", BPS + [seed])
+    world.devices.append(lab)
+    world.queues["CC00CAFE"] = []
+    vq = client.app.state.api.vq
+    client.portal.call(vq.add, "CC00CAFE", {"device_type": "crystal_seed", "quantity": 3}, 0)
+    out = feed(client)
+    assert "CC00CAFE: 1 crystal_seed into the game (no queue: one at a time)" in out
+    assert [o["body"]["quantity"] for o in client.portal.call(vq.orders, "CC00CAFE")] == [2]
+    # while it holds that print nothing more is sent (no "busy" refusals)
+    e._vq_fed = {}
+    lab["status"] = "printing (crystal_seed)"
+    out = feed(client)
+    assert not any("CC00CAFE" in x for x in out)
+    assert [o["body"]["quantity"] for o in client.portal.call(vq.orders, "CC00CAFE")] == [2]

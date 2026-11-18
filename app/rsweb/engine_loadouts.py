@@ -353,6 +353,16 @@ class LoadoutMixin:
             code = d.get("device_code")
             if not code or code not in printers or code in off or not d.get("location") or now - fed.get(code, -1e9) < 150:
                 continue
+            if vqm.queueless(d):
+                kept = vqm.shared(await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code]),
+                                  code, in_game, keep=1)
+                line = await self.vq_feed_one(vq, code, d, kept) if kept else None
+                fed[code] = now
+                if line:
+                    in_game[code] = 1
+                    out.append(line)
+                    await self.log("print queue", line, "info")
+                continue
             kept = vqm.shared(await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code]), code, in_game)
             real = [x for x in pq.items(d) if not x["extra"].get("virtual")]
             k, back, send = vqm.plan(real, kept, prios=vqm.real_prios(await vq.state(), code, real))
@@ -442,6 +452,34 @@ class LoadoutMixin:
             out.append(line)
             await self.log("print queue", line, "info")
         return out
+
+    async def vq_feed_one(self, vq: Any, code: str, d: dict, kept: list[dict]) -> str | None:
+        """A printer without a queue (device row queue_size 0: the crystal synthesis lab) holds only the print it is
+        making, and the game answers "Printer is busy" to anything more (live 2026-11-18: 1476F94F, 16BAE50B and
+        22A8CE35 at FALQUORYX-BELT-1, idle, refused crystal_seed x3 every pass). It gets one print at a time, the best
+        kept one, only while it holds none."""
+        from . import printqueue as pq
+        from . import vqueue as vqm
+        if [x for x in pq.items(d) if not x["extra"].get("virtual")] or not vqm.idle_printer(d):
+            return None
+        try:   # the device list may be minutes old
+            dev = await self.api.request("GET", f"/devices/{code}", background=True, raw=True) or {}
+        except ApiError:
+            return None
+        if pq.items(dev) or not vqm.idle_printer(dev):
+            return None
+        o = kept[0]
+        body = {**vqm.send_body(o), "quantity": 1}
+        async with vq.lock:
+            st = await vq.state()
+            ok, _, err = await self.send("POST", f"/devices/{code}", body,
+                                         f"print queue: {code} gets {body.get('device_type')}", raw=True)
+            if ok:
+                st["orders"] = vqm.take(st["orders"], o["factory"], o, 1)
+                await self.db.kv_set(vqm.KV, st)
+        if not ok:
+            return None
+        return f"{code}: 1 {body.get('device_type')} into the game (no queue: one at a time)"
 
     async def vq_jump(self, vq: Any, code: str, dev: dict, real: list[dict], kept: list[dict]) -> str | None:
         """The factory waits for resources or components for the first print in its queue (owner 2026-11-01): a print
