@@ -253,3 +253,20 @@ def test_event_rules_wait_while_a_swoop_run_is_on(client):  # noqa: F811
         await asyncio.wait_for(w._auto_task, 5)
     client.portal.call(run)
     assert handled == ["dep1", "end1"]
+
+
+def test_map_answers_are_reused_while_fresh(client, monkeypatch):  # noqa: F811
+    """Live 2026-11-18: open map tabs asked for the overlay every few seconds, and each build took 30-45 s."""
+    import rsweb.web_map as web
+    calls = []
+
+    async def counting(request, part):
+        calls.append(part)
+        return {"n": len(calls)}
+    monkeypatch.setattr(web, "map_payload", counting)
+    monkeypatch.setattr(web, "map_fresh_for", lambda part, build_s: 30.0)   # conftest turns reuse off
+    assert client.get("/api/map.json?part=overlay", headers=H).json() == {"n": 1}
+    assert client.get("/api/map.json?part=overlay", headers=H).json() == {"n": 1}   # reused
+    t, out, b = web._MAP_LAST["overlay??"]
+    web._MAP_LAST["overlay??"] = (t - 60, out, b)   # older than its fresh time
+    assert client.get("/api/map.json?part=overlay", headers=H).json() == {"n": 2}

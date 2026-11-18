@@ -138,9 +138,27 @@ async def map_data(request: Request, user: str = Depends(current_user)):
     hit = _MAP_LAST.get(key)
     if hit and request.app.state.worker.automations.focused():
         return JSONResponse(hit[1])   # a swoop run is on: a map redraw took up to 21 s of the event loop
-    out = await shared_build("map:" + key, lambda: map_payload(request, part))
-    _MAP_LAST[key] = (_t.time(), out)
-    return JSONResponse(out)
+    if hit and _t.time() - hit[0] < map_fresh_for(part, hit[2] if len(hit) > 2 else 0):
+        return JSONResponse(hit[1])
+    if hit and ("map:" + key) in _INFLIGHT:
+        return JSONResponse(hit[1])   # a rebuild is under way: the last answer now, not a wait behind it
+
+    async def build():
+        t0 = _t.time()
+        out = await map_payload(request, part)
+        _MAP_LAST[key] = (_t.time(), out, _t.time() - t0)
+        return out
+    return JSONResponse(await shared_build("map:" + key, build))
+
+
+MAP_FRESH = {"overlay": 20.0, "core": 120.0, "all": 60.0}   # seconds a map answer is served again before a rebuild
+
+
+def map_fresh_for(part: str, build_s: float) -> float:
+    """How long a map answer is reused: every open map tab asks for the overlay on each device event (at most every
+    5 s), and a build took 30-45 s on a busy server (live 2026-11-18, 92 requests in the perf window), so the server
+    rebuilt the map without pause. An answer now holds at least MAP_FRESH[part], and three times what it took to build."""
+    return max(MAP_FRESH.get(part, 60.0), 3 * build_s)
 
 
 @router.get("/api/route", response_class=HTMLResponse)
