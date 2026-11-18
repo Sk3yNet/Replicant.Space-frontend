@@ -307,8 +307,11 @@ class Supervisor:
             backoff = min(backoff * 2, 300.0)
 
     async def _wait_ready(self, p: Proc) -> None:
-        async with httpx.AsyncClient(timeout=2) as c:
-            for _ in range(240):
+        """Until the server answers /healthz, for as long as it runs. Before 1.486.0 this gave up after 240 tries: a
+        server busy from its first engine pass (live 2026-11-18, 900 MB database) answered too late and stayed
+        "starting" for good, with every page sent to the walkthrough (403 on /_tenant/route)."""
+        async with httpx.AsyncClient(timeout=10) as c:
+            while p.process and p.process.returncode is None and not p.stopping:
                 try:
                     if (await c.get(f"http://127.0.0.1:{p.port}/healthz")).status_code == 200:
                         p.ready = True
