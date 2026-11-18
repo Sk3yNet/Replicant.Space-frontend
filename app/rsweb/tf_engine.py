@@ -296,8 +296,28 @@ class TerraformerMixin:
             extra_end: list[dict] = []
             for oc in cars[1:]:
                 oco = oc["device_code"]
+                if oco in busy or oc.get("location") == planet or (departed and fl.star_of(oc.get("location")) != star):
+                    continue
+                # what didn't fit the first carrier boards this one where it stands (live 2026-11-18: Terraformer 1 left
+                # ADHARA-2 for ALKALAROPS-3 on 20EF9B48 alone, 11 members and the empty 583EBC0D stayed behind, dark
+                # once the replicant had gone)
+                ofree = fl.seats(oc, devices)
+                for code in list(left):
+                    d = next((x for x in ms if x["device_code"] == code), None)
+                    if not d or code in busy or d.get("stowed_in_device_code") or d.get("attached_to_device_code") \
+                            or not d.get("location") or d.get("location") != oc.get("location"):
+                        continue
+                    mode = fl.take_seat(ofree, d)
+                    if not mode:
+                        continue
+                    left = [c for c in left if c != code]
+                    if (d.get("device_type") or "") in tf.DEVICES and tf.is_on(d):
+                        extra_go.append(step(f"deactivate {code}", f"/devices/{code}", {"command": "deactivate"}))
+                    extra_go.append(fl.board_step(oco, code, mode))
+                    d = dict(d, **({"attached_to_device_code": oco} if mode == "attach" else {"stowed_in_device_code": oco}))
+                    riders = [d if x["device_code"] == code else x for x in riders]
                 held = [d for d in riders if oco in (d.get("attached_to_device_code"), d.get("stowed_in_device_code"))]
-                if not held or oco in busy or oc.get("location") == planet or (departed and fl.star_of(oc.get("location")) != star):
+                if not held:
                     continue
                 extra_go.append(step(f"{oco} → {planet}", f"/devices/{oco}", {"command": "travel", "destination": planet}))
                 extra_end.append(fl._wait_arrive(oco, planet))
