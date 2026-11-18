@@ -577,3 +577,23 @@ def test_open_console_reads_its_devices_by_location(client):  # noqa: F811
     client.get(f"/terraforming/world/{PLANET}", headers=H)
     shade = next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == "SHADE1")
     assert shade["status"] == "terraforming"
+
+
+def test_location_read_falls_back_to_fleet_tags(client):  # noqa: F811
+    """1.482.0: a game answer with devices from elsewhere (filter ignored) reads the fleet tags seen at the world."""
+    from rsweb import web_terraform as wt
+    db = client.app.state.db
+    world = client.app.state.api.http._transport.app.state.world
+    world.ignore_location = True
+    wt._dev_read.clear()
+    live = dev("SHADE2", "orbital_shade", loc=PLANET, status="terraforming")
+    world.devices.insert(0, dev("FAR", "orbital_shade", loc="SOL-3", status="idle"))
+    world.devices.append(live)
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices") + [
+        {**live, "status": "idle"},
+        dev("MON", "terraform_monitor", loc=PLANET, status="monitoring", terraform_status={"body": PLANET, **report(temperature=280)})])
+    client.get(f"/terraforming/world/{PLANET}", headers={"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"})
+    devs = {d["device_code"]: d for d in client.portal.call(db.kv_get, "devices")}
+    assert devs["SHADE2"]["status"] == "terraforming" and "FAR" not in devs   # nothing from elsewhere kept
+    rec = client.portal.call(db.kv_get, "location_reads")[PLANET]
+    assert rec["via"] == "tags" and rec["elsewhere"] >= 1

@@ -783,16 +783,48 @@ class Worker:
             await self.db.kv_set("devices", devices)
         self.hub.publish("state", "devices")
 
+    LOC_READS_KV = "location_reads"   # {location: {at, pages, n, elsewhere, via}}: what the last location read got
+
     async def refresh_location(self, location: str, max_pages: int = 4) -> int:
-        """GET /devices?location=X (the game's filter: exact location for a body or spot) and put the answers on the
-        cached device list: a page watching one place (the Terraforming consoles, 1.481.0) stays fresh between the
-        3-minute device lists for one or two reads. A device the list still places here that the answer leaves out has
-        moved: it keeps its entry until the next full list. Returns how many devices the game named."""
+        """GET /devices?location=X (the live spec's filter: exact location for a body or spot) and put the answers on
+        the cached device list: a page watching one place (the Terraforming consoles, 1.481.0) stays fresh between the
+        3-minute device lists. 1.482.0: only answers at that location are kept; when the game hands back devices from
+        elsewhere (the filter not honored), the read falls back to GET /devices/tags/{tag} for the fleet tags seen
+        there. What each read got is kept in kv location_reads. Returns how many devices it refreshed."""
+        from urllib.parse import quote
+        pages, got = 0, []
+        cursor = None
         try:
-            got = await self.api.paged("/devices", "devices", background=False, max_pages=max_pages, location=location)
+            for _ in range(max_pages):
+                body = await self.api.get("/devices", background=False, limit=50, cursor=cursor, location=location) or {}
+                pages += 1
+                got.extend(body.get("devices") or [])
+                cursor = body.get("next_cursor")
+                if not cursor or any(isinstance(d, dict) and d.get("location") not in (location, None) for d in got):
+                    break
         except ApiError:
             return 0
-        fresh = {d["device_code"]: d for d in got if isinstance(d, dict) and d.get("device_code")}
+        rows = [d for d in got if isinstance(d, dict) and d.get("device_code")]
+        elsewhere = sum(1 for d in rows if d.get("location") not in (location, None))
+        fresh = {d["device_code"]: d for d in rows if d.get("location") == location}
+        via = "location"
+        if elsewhere:   # the filter wasn't applied: read the fleets' tags seen at this place instead
+            via = "tags"
+            cached = await self.db.kv_get("devices", []) or []
+            tags = sorted({t for d in cached if d.get("location") == location
+                           for t in d.get("tags") or [] if isinstance(t, str) and t.startswith("fleet:")})[:3]
+            fresh = {}
+            for t in tags:
+                try:
+                    body = await self.api.get(f"/devices/tags/{quote(t, safe='')}", background=False, limit=50) or {}
+                except ApiError:
+                    continue
+                pages += 1
+                for d in body.get("devices") or []:
+                    if isinstance(d, dict) and d.get("device_code") and d.get("location") == location:
+                        fresh[d["device_code"]] = d
+        await self.db.kv_set(self.LOC_READS_KV, {**(await self.db.kv_get(self.LOC_READS_KV, {}) or {}), location: {
+            "at": now_iso(), "pages": pages, "n": len(fresh), "elsewhere": elsewhere, "via": via}})
         if not fresh:
             return 0
         n = len(fresh)

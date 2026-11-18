@@ -1,9 +1,9 @@
 {# One world's terraforming console: lights, gauges with graphs, switches. Refreshes itself every 20 s while the tab is
-   shown (not while you're using a control in it), and its devices are read from the game then (1.481.0); every control answers with this partial, so the console updates at once.
+   shown (not while a menu or number box in it has focus: a clicked switch keeps focus, which held redraws back until 1.482.0), and its devices are read from the game then (1.481.0); every control answers with this partial, so the console updates at once.
    Context: w, attrs, units, targets, in_range, range_eta, tick_s, target, effects, directions, sim_q, note, note_ok #}
 {% set s = w.status %}{% set wid = 'tfw-' ~ (w.body | replace('-', '_')) %}
 <div class="card tf-world" id="{{ wid }}" style="margin-bottom:14px"
-     hx-get="/terraforming/world/{{ w.body }}?{{ sim_q }}" hx-trigger="every 20s [!this.matches(':focus-within') && !document.hidden]" hx-swap="outerHTML" hx-sync="this:drop">
+     hx-get="/terraforming/world/{{ w.body }}?{{ sim_q }}" hx-trigger="every 20s [!document.hidden && !this.querySelector('select:focus, input[type=number]:focus, input[type=text]:focus, input[type=range]:active')]" hx-swap="outerHTML" hx-sync="this:drop">
   <div class="row between" style="align-items:center">
     <h2 style="margin:0"><span class="tf-light {{ 'ok' if w.out == [] else 'bad' if w.out else 'off' }}"></span>
       <a class="mono" href="/locations/{{ w.body }}">{{ w.body }}</a>
