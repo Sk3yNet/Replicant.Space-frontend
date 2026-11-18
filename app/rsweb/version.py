@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.483.0"
+VERSION = "1.484.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.484.0", "2026-11-18", "Terraformer trips (Joe): the fleet's other carriers board and leave before the carrier with the replicant starts picking up, so none waits behind in a system that goes dark once the replicant has gone."),
     ("1.483.0", "2026-11-18", "Terraforming consoles fixed (Joe): a console stopped redrawing after you clicked a switch in it, since the switch kept focus; now only an open menu or a dragged slider holds it back, so the planet's values move every 20 s too. The devices read keeps only answers at the world, and falls back to the fleets' tags there if the game ignores the location filter (what each read got is in kv location_reads)."),
     ("1.482.0", "2026-11-18", "Crystal synthesis labs take prints from the app's queue (Joe): they have no print queue (queue_size 0), and the game answered Printer is busy to every crystal_seed x2 or x3 the feeder sent, idle as 1476F94F, 16BAE50B and 22A8CE35 were. Printers without a queue now get one print at a time, the best kept one, only while they hold none. Rock diversion prints no longer go to a printer that can't make the propulsor (a lab got one)."),
     ("1.481.0", "2026-11-18", "Terraforming consoles stay current (Joe): while the page is open and the tab shown, each world's console redraws every 20 s and reads that world's devices from the game with the device list's location filter (one read per world, at most once every 18 s however many tabs are open), so statuses, settings and capacity are seconds old instead of up to 4 minutes. The console header shows when its devices were read."),

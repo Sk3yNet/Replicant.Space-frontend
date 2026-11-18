@@ -554,6 +554,9 @@ def test_members_that_dont_fit_board_the_second_carrier(client):  # noqa: F811
     assert len(two) == 2
     assert ("/devices/MOB2", {"command": "travel", "destination": "FAR-4"}) in bodies
     assert all(("/devices/MOB2", {"command": "detach", "device": c}) in bodies for c in two)
+    # the carrier without the replicant leaves first, while the replicant is still there to command it
+    go2 = bodies.index(("/devices/MOB2", {"command": "travel", "destination": "FAR-4"}))
+    assert go2 < min(i for i, (p, b) in enumerate(bodies) if p == "/devices/MOB")
     assert not client.portal.call(e.fleets)[0]["tf_run"].get("left")
 
 

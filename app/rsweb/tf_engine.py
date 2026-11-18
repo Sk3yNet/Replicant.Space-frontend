@@ -289,7 +289,6 @@ class TerraformerMixin:
                     if (d.get("device_type") or "") in tf.DEVICES and tf.is_on(d):
                         steps.append(step(f"deactivate {code}", f"/devices/{code}", {"command": "deactivate"}))
             tour, at = fl.pickup_tour(cc, car.get("location"), stops)
-            steps += tour
             # the fleet's other carriers bring what they already hold (live 2026-11-17: Terraformer 1's second mobile
             # fleet 583EBC0D sat at SOLARES with 9 devices attached); they leave together with the first
             extra_go: list[dict] = []
@@ -335,7 +334,9 @@ class TerraformerMixin:
                         st["wait_device"] = code
                         extra_end.append(st)
                 moved.append(oco)
-            steps += extra_go
+            # the other carriers board and leave before the replicant's carrier starts its tour (Joe 2026-11-18): the
+            # system stays commandable while they go, and nothing waits behind in a system gone dark
+            steps += extra_go + tour
             if at != planet:
                 steps += [step(f"{cc} → {planet}", f"/devices/{cc}", {"command": "travel", "destination": planet}, critical=True),
                           fl._wait_arrive(cc, planet)]
