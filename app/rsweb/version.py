@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.487.0"
+VERSION = "1.488.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.488.0", "2026-11-18", "Dashboard › Stockpiles draws every resource on one chart with a shared scale (Joe), so the piles compare at a glance. Each resource keeps its color; the key lists each total, its change over the period and any amount in transit."),
     ("1.487.0", "2026-11-18", "Resonance barges print on epitaxy printers (Joe: they are grown by epitaxial deposition). Prints of resonance_barge go only to printers with the epitaxy feature, like exotic blueprints: loadouts send them there, the app's queue keeps them off general printers, and the Blueprints page lists the barge on the Epitaxy printers card."),
     ("1.486.0", "2026-11-18", "Server start fixed (Joe): the manager waited at most about 2 to 10 minutes for a user's server to answer its health check, then gave up while the server kept running, so it stayed starting for good and every page went to the walkthrough (403 on /_tenant/route). A server busy from its first passes on a large database answered too late. The manager now keeps checking, with a 10 s timeout, for as long as the server runs."),
     ("1.485.0", "2026-11-18", "Server load (Joe): the galaxy map no longer rebuilds without pause. Every open map tab asked for the map overlay on each device event, at most every 5 s, while one build took 30-45 s on a busy server (92 asks in one perf window), so the event loop was always busy and engine passes stretched to 2 minutes. A map answer is now reused for 20 s (overlay), 60 s (all) or 120 s (stars), and at least three times as long as it took to build; while a rebuild runs, callers get the last answer at once."),

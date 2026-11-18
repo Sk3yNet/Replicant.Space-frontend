@@ -369,7 +369,8 @@ def test_materials_in_transit_on_logistics_and_dashboard(client):
 
 
 def test_dashboard_stockpiles_card_charts_each_resource(client):
-    """1.338.0: the Stockpiles card draws like the other charts: a chart per resource, its own color, 2d / 7d / 30d."""
+    """1.338.0: the Stockpiles card draws like the other charts, each resource its own color, 2d / 7d / 30d; 1.488.0: all
+    on one chart with a shared scale."""
     from datetime import datetime, timedelta, timezone
     db = client.app.state.db
     now = datetime.now(timezone.utc)
@@ -382,8 +383,9 @@ def test_dashboard_stockpiles_card_charts_each_resource(client):
     page = client.get("/partials/backlog?card=stock&hours=48", headers=HX).text
     assert "<h2>Stockpiles</h2>" in page and "card=stock&amp;hours=168" in page.replace("card=stock&hours", "card=stock&amp;hours")
     import re
-    keys = re.findall(r'<div class="small">([a-z]+)[^<]*</div>\s*<div class="small"><span class="bl-key (bl-\d+)', page)
-    assert ("carbon", "bl-4") in keys and ("rares", "bl-6") in keys
+    keys = re.findall(r'<span class="bl-key (bl-\d+)">([a-z]+)', page)
+    assert ("bl-4", "carbon") in keys and ("bl-6", "rares") in keys
+    assert page.count("<svg") == 1 and 'class="bl-4" points' in page and 'class="bl-6" points' in page
 
 
 def test_supplying_fleet_sends_to_the_nearest_receiver(client):

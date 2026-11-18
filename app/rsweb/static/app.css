@@ -217,6 +217,7 @@ svg.system .scan-beam { fill: #8fd8ff; opacity: .35; animation: scan-pulse 1.6s 
 .tf-value { font-size: 20px; font-variant-numeric: tabular-nums; }
 .bl-chart { margin-bottom: 10px; }
 .bl-svg { width: 100%; height: 70px; display: block; margin: 2px 0; background: var(--panel2); border-radius: 4px; }
+.bl-svg.bl-tall { height: 160px; }
 .bl-svg polyline { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .bl-svg .bl-base { stroke: var(--line); vector-effect: non-scaling-stroke; }
 /* chart lines: ten distinct hues (owner 2026-11-02: similar colors could not be told apart); past ten, lines repeat dashed */

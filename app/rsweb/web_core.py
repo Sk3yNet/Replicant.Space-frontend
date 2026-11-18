@@ -605,8 +605,9 @@ async def achievements_status(request: Request, force: bool = False) -> dict:
 
 
 async def _stock_card(request: Request, hours: int) -> HTMLResponse:
-    """Dashboard › Stockpiles in the charts' style (owner 2026-11-02): one chart per resource, its own color, totals across
-    every location from inventory_history (a row per resource each inventory poll), thinned to about 300 points."""
+    """Dashboard › Stockpiles in the charts' style: one chart with a line per resource on a shared scale (owner 2026-11-18, so
+    the piles compare), each resource its own color, totals across every location from inventory_history (a row per
+    resource each inventory poll), thinned to about 300 points."""
     from . import metrics
     db = request.app.state.db
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
@@ -617,14 +618,18 @@ async def _stock_card(request: Request, hours: int) -> HTMLResponse:
     st = await load_state(request)
     transit = (await cargo_mod.in_transit(db, st["devices"], await request.app.state.worker.automations.jobs())).get("totals") or {}
     names = [r for r in RESOURCES if r in totals or r in raw] + sorted((set(totals) | set(raw)) - set(RESOURCES))
-    charts = []
+    lines, colors = {}, {}
     for i, r in enumerate(names):
         pts = raw.get(r) or []
         step = max(1, len(pts) // 300)
         pts = pts[::step] + ([pts[-1]] if pts and (len(pts) - 1) % step else [])
-        title = r + (f" · + {f_num(transit[r])} in transit" if transit.get(r) else "")
+        name = r + (f" (+ {f_num(transit[r])} in transit)" if transit.get(r) else "")
+        lines[name] = pts
         # a resource keeps its color whichever others are shown: the RESOURCES order, then the rest
-        charts.append((title, metrics.chart({"in stockpiles": pts}, hours), RESOURCES.index(r) if r in RESOURCES else i))
+        colors[name] = RESOURCES.index(r) if r in RESOURCES else len(RESOURCES) + i
+    c = metrics.chart(lines, hours, h=160)
+    c["colors"] = colors
+    charts = [("Every resource on one scale", c, 0)]
     return partial(request, "partials/backlog.html", hours=hours, card="stock", title="Stockpiles", charts=charts,
                    synced=(await db.kv_get("sync:inventory") or {}).get("at"))
 
