@@ -1,14 +1,19 @@
 {% set mega = (data or {}).get("megastructure") %}
-{% if mega %}<div class="card" style="margin-bottom:8px">
-  <h3 style="margin-top:0">Megastructure: {{ mega.name or code }} <span class="muted small">{{ ((mega.progress or 0) * 100) | round(1) }}% complete</span></h3>
+{% if mega %}{% set mname = mega.title or mega.name or code %}
+{% set pct = mega.progress_percentage if mega.progress_percentage is not none and mega.progress_percentage is defined else (mega.progress or 0) * 100 %}
+{% set here = devices + ((data.devices or []) | rejectattr("device_code", "in", devices | map(attribute="device_code") | list) | list) %}
+<div class="card" style="margin-bottom:8px">
+  <h3 style="margin-top:0">Megastructure: {{ mname }} <span class="muted small">{{ pct | round(1) }}% complete{% if mega.stage %} · {{ mega.stage }}{% endif %}{% if mega.your_contributions %} · you gave {{ mega.your_contributions }}{% endif %}</span></h3>
+  {% if mega.description %}<p class="small" style="margin:4px 0">{{ mega.description }}</p>{% endif %}
   <table class="small"><tr><th>Device type</th><th class="num">Contributed</th><th class="num">Needed</th><th class="num">Yours here</th></tr>
-    {% for t, r in (mega.requirements or {}) | dictsort %}{% set mine = devices | selectattr("device_type", "equalto", t) | list %}
-    <tr><td>{{ t | human }}</td><td class="num">{{ r.contributed }}</td><td class="num">{{ r.needed }}</td><td class="num">{{ mine | length }}</td></tr>{% endfor %}
+    {% for t, r in (mega.requirements or {}) | dictsort %}{% set mine = here | selectattr("device_type", "equalto", t) | list %}
+    <tr><td>{{ t | human }}</td><td class="num">{{ r.current if r.current is defined else r.contributed }}</td><td class="num">{{ r.required if r.required is defined else r.needed }}</td><td class="num">{{ mine | length }}</td></tr>{% endfor %}
   </table>
   {% set types = (mega.requirements or {}).keys() | list %}
-  {% set eligible = devices | selectattr("device_type", "in", types) | list %}
+  {% set eligible = here | selectattr("device_type", "in", types) | list %}
   {% if eligible %}<form hx-post="/locations/{{ code }}/contribute" hx-target="#mega-result"
-        hx-confirm="Contribute the ticked devices to {{ mega.name or code }}? They are consumed by the structure.">
+        hx-confirm="Contribute the ticked devices to {{ mname }}? They are consumed by the structure.">
+    <label class="small" style="text-transform:none;display:block"><input type="checkbox" onclick="this.form.querySelectorAll('input[name=devices]').forEach(function(b){b.checked=this.checked}.bind(this))"> all {{ eligible | length }}</label>
     {% for d in eligible %}<label style="text-transform:none;display:block"><input type="checkbox" name="devices" value="{{ d.device_code }}">
       <span class="mono">{{ d.device_code }}</span> {{ d.device_type | human }}</label>{% endfor %}
     <button class="small">Contribute</button></form>

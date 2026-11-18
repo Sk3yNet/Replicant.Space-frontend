@@ -908,6 +908,11 @@ def test_console_presets_relay_links_matrix_moves_and_megastructures(client):
     row = client.portal.call(client.app.state.db.fetchone, "SELECT path, body FROM actions ORDER BY id DESC LIMIT 1")
     assert row["path"] == "/locations/FLARM-OBJ-1/contribute" and "A473F411" in row["body"]
     assert "Bob-19" in client.get("/megastructures", headers=H).text
+    # 1.479.0 (Joe 2026-11-18): the live megastructure shape (title, progress_percentage, current/required) and the
+    # location's own device list feed the Contribute card
+    t = client.get("/locations/DELTA-OBJ-2", headers=HX).text
+    assert "Wormhole Gate (Delta)" in t and "0.0% complete" in t and ">256<" in t
+    assert 'value="410EFEBA"' in t and 'value="86C7569E"' not in t and "Contribute</button>" in t
     c = {"device_code": "C", "device_type": "surge_carrier", "attach_capacity": 4, "attach_used": 3}
     assert fl.seats(c, [])["attach"] == 1
 

@@ -1066,6 +1066,16 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
                                                              "composition": "ice"}]})
         if code == "SOL":
             return ok(SOL_SCAN)
+        if code == "DELTA-OBJ-2":   # live shape 2026-11-18 (Joe): the cold Delta wormhole gate
+            return ok({"location": code, "location_type": "megastructure", "inventory": [], "resource_sites": [],
+                       "devices": [{"device_code": "410EFEBA", "device_type": "precursor_crystal_seed", "status": "idle"},
+                                   {"device_code": "86C7569E", "device_type": "racing_vessel", "status": "idle"}],
+                       "megastructure": {"contributors": 0, "title": "Wormhole Gate (Delta)", "stage": "Dormant",
+                                         "description": "The gate is structurally perfect but cold.",
+                                         "megastructure_type": "wormhole_entry_delta", "progress_percentage": 0.0,
+                                         "requirements": {"precursor_crystal_seed": {"complete": False, "current": 0,
+                                                                                     "remaining": 256, "required": 256}},
+                                         "your_contributions": 0}})
         demo_stars = {d["location"].split("-")[0] for d in world.devices if d.get("location")} if world.replicants else set()
         if code in demo_stars:
             return ok(demo_scan(world, code))
